@@ -1,0 +1,276 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:tranyx_mobile/core/theme/app_colors.dart';
+import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
+import 'package:tranyx_mobile/core/providers/theme_provider.dart';
+import 'package:tranyx_mobile/core/utils/num_extension.dart';
+import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
+import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
+import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_sub_header.dart';
+
+class ReviewApplicantsView extends ConsumerWidget {
+  const ReviewApplicantsView({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDarkMode = ref.watch(themeModeProvider);
+    final selectedJob = ref.watch(selectedJobProvider);
+
+    if (selectedJob == null) return const SizedBox.shrink();
+
+    final applicationsAsync = ref.watch(
+      jobApplicationsProvider(selectedJob.id),
+    );
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          JobSubHeader(
+            title: "Review Applicants (${selectedJob.applicantCount})",
+            onBack: () => ref.read(jobsViewProvider.notifier).state = 'details',
+            isDarkMode: isDarkMode,
+          ),
+          applicationsAsync.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.all(32.0),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+            error: (err, stack) => Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                "Error loading applicants: $err",
+                style: const TextStyle(color: Colors.red),
+              ),
+            ),
+            data: (applications) {
+              if (applications.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.all(32.0),
+                  child: Center(
+                    child: Text(
+                      "No applicants yet.",
+                      style: TextStyle(
+                        color: isDarkMode
+                            ? AppColors.darkTextMuted
+                            : AppColors.lightTextMuted,
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              return Column(
+                children: applications.map((applicant) {
+                  final isCounter = applicant.isCounterOffer;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: isDarkMode
+                          ? AppColors.darkCard
+                          : AppColors.lightCard,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: isDarkMode
+                            ? AppColors.darkBorder
+                            : AppColors.lightBorder,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 48,
+                                    height: 48,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: isDarkMode
+                                            ? AppColors.darkBorder
+                                            : AppColors.lightBg,
+                                        width: 2,
+                                      ),
+                                      image: DecorationImage(
+                                        image:
+                                            (applicant.applicantPhotoUrl !=
+                                                    null &&
+                                                applicant
+                                                    .applicantPhotoUrl!
+                                                    .isNotEmpty)
+                                            ? NetworkImage(
+                                                    applicant
+                                                        .applicantPhotoUrl!,
+                                                  )
+                                                  as ImageProvider
+                                            : const AssetImage(
+                                                    'assets/images/default-avatar.jpg',
+                                                  )
+                                                  as ImageProvider,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          applicant.applicantName,
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                            color: isDarkMode
+                                                ? AppColors.darkText
+                                                : AppColors.lightText,
+                                          ),
+                                        ),
+                                        Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.star,
+                                              color: AppColors.amber,
+                                              size: 14,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              "5.0", // Dummy rating for now
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                color: isDarkMode
+                                                    ? AppColors.darkText
+                                                    : AppColors.lightText,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              "(0)", // Dummy reviews for now
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: isDarkMode
+                                                    ? AppColors.darkTextMuted
+                                                    : AppColors.lightTextMuted,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  applicant.proposalRate.toAmount(length: 0),
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.indigo,
+                                  ),
+                                ),
+                                Text(
+                                  isCounter ? "COUNTER OFFER" : "STANDARD RATE",
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.5,
+                                    color: isCounter
+                                        ? AppColors.amber
+                                        : (isDarkMode
+                                              ? AppColors.darkTextMuted
+                                              : AppColors.lightTextMuted),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        if (applicant.coverNote.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: isDarkMode
+                                  ? AppColors.darkBg
+                                  : AppColors.lightBg,
+                              border: Border.all(
+                                color: isDarkMode
+                                    ? AppColors.darkBorder.withValues(
+                                        alpha: 0.5,
+                                      )
+                                    : AppColors.lightBorder,
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              "\"${applicant.coverNote}\"",
+                              style: TextStyle(
+                                fontStyle: FontStyle.italic,
+                                fontSize: 14,
+                                color: isDarkMode
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted,
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: UIHelpers.buildPrimaryButton(
+                                "Accept Nyxian",
+                                () =>
+                                    ref.read(jobsViewProvider.notifier).state =
+                                        'success', // Or 'hire' success view
+                                isDarkMode,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: isDarkMode
+                                      ? AppColors.darkBorder
+                                      : AppColors.lightBorder,
+                                  width: 2,
+                                ),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: IconButton(
+                                icon: Icon(
+                                  Icons.chat_bubble_outline,
+                                  color: isDarkMode
+                                      ? AppColors.darkText
+                                      : AppColors.lightText,
+                                ),
+                                onPressed: () {},
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}

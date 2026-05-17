@@ -1,35 +1,8 @@
-name: tranyx_web
-description: A new Jaspr project
-version: 0.0.1
-resolution: workspace
+name: tranyx_workspace
 environment:
   sdk: ^3.11.5
 
-dependencies:
-  http: ^1.6.0
-  jaspr: ^0.23.1
-  jaspr_router: ^0.8.2
-  shared: any
-  web: ^1.1.1
-
-dev_dependencies:
-  build_runner: ^2.10.0
-  build_web_compilers: ^4.5.1
-  dart_style: ^3.1.7
-  jaspr_builder: ^0.23.1
-  lints: ^6.0.0
-
-jaspr:
-  mode: server
-  # Pass --dart-define=ENV=dev|uat|prod to jaspr serve/build.
-  # Example:
-  #   dart run jaspr:jaspr serve --dart-define=ENV=dev
-  #   dart run jaspr:jaspr build --dart-define=ENV=prod
-
-scripts:
-  serve-dev: dart run jaspr:jaspr serve --dart-define=ENV=dev
-  serve-uat: dart run jaspr:jaspr serve --dart-define=ENV=uat
-  serve-prod: dart run jaspr:jaspr serve --dart-define=ENV=prod
-  build-dev: dart run jaspr:jaspr build --dart-define=ENV=dev
-  build-uat: dart run jaspr:jaspr build --dart-define=ENV=uat
-  build-prod: dart run jaspr:jaspr build --dart-define=ENV=prod
+workspace:
+  - packages/shared
+  - packages/tranyx_mobile
+  - packages/tranyx_web

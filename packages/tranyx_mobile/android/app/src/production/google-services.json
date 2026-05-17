@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "174332525079",
+    "project_id": "tranyx-app",
+    "storage_bucket": "tranyx-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:174332525079:android:ef728de52b8560128f7a52",
+        "android_client_info": {
+          "package_name": "com.terraph.tranyx"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "174332525079-mp2edfucp3ob9it53oobtb8kmgp2hlbs.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC_1ifGkKWU1Sw_pm5ySF5aB3eN46UBySE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "174332525079-mp2edfucp3ob9it53oobtb8kmgp2hlbs.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "174332525079-ch59nh7tj9r95janu4pktknub35lafaf.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.tranyx.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

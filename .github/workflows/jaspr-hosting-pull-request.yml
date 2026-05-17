@@ -1,0 +1,38 @@
+name: Deploy Jaspr to Firebase Hosting on PR
+on: pull_request
+permissions:
+  checks: write
+  contents: read
+  pull-requests: write
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+
+      - name: Install dependencies
+        working-directory: packages/tranyx_web
+        run: dart pub get
+
+      - name: Build Jaspr Web
+        working-directory: packages/tranyx_web
+        run: |
+          if [[ "${{ github.base_ref }}" == "main" ]]; then
+            dart run jaspr:jaspr build --dart-define=ENV=prod
+          elif [[ "${{ github.base_ref }}" == "uat" ]]; then
+            dart run jaspr:jaspr build --dart-define=ENV=uat
+          elif [[ "${{ github.base_ref }}" == "develop" ]]; then
+            dart run jaspr:jaspr build --dart-define=ENV=dev
+          fi
+
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ github.base_ref == 'main' && secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP || github.base_ref == 'uat' && secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT || secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}
+          projectId: ${{ github.base_ref == 'main' && 'tranyx-app' || github.base_ref == 'uat' && 'tranyx-uat' || 'tranyx-dev' }}
+          channelId: live
+          entryPoint: packages/tranyx_web

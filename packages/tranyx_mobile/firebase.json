@@ -1,0 +1,72 @@
+{
+    "flutter": {
+        "platforms": {
+            "android": {
+                "default": {
+                    "projectId": "tranyx-app",
+                    "appId": "1:174332525079:android:ef728de52b8560128f7a52",
+                    "fileOutput": "android/app/google-services.json"
+                }
+            },
+            "ios": {
+                "default": {
+                    "projectId": "tranyx-app",
+                    "appId": "1:174332525079:ios:e3bdc5d3dfb2364e8f7a52",
+                    "uploadDebugSymbols": false,
+                    "fileOutput": "ios/Runner/GoogleService-Info.plist"
+                }
+            },
+            "dart": {
+                "lib/firebase_options.dart": {
+                    "projectId": "tranyx-app",
+                    "configurations": {
+                        "android": "1:174332525079:android:ef728de52b8560128f7a52",
+                        "ios": "1:174332525079:ios:a389e54587f7f1788f7a52"
+                    }
+                },
+                "lib/firebase_options_dev.dart": {
+                    "projectId": "tranyx-dev",
+                    "configurations": {
+                        "android": "1:709467070093:android:c5341824036633eddf4cc4",
+                        "ios": "1:709467070093:ios:c9665aafa77e6aacdf4cc4"
+                    }
+                },
+                "lib/firebase_options_uat.dart": {
+                    "projectId": "tranyx-uat",
+                    "configurations": {
+                        "android": "1:108125328804:android:53607ae40bd9cec1881d31",
+                        "ios": "1:108125328804:ios:e4d971551d771ec4881d31"
+                    }
+                },
+                "lib/firebase_options_prod.dart": {
+                    "projectId": "tranyx-app",
+                    "configurations": {
+                        "android": "1:174332525079:android:ef728de52b8560128f7a52",
+                        "ios": "1:174332525079:ios:a389e54587f7f1788f7a52"
+                    }
+                },
+                "lib/core/firebase/firebase_options_dev.dart": {
+                    "projectId": "tranyx-dev",
+                    "configurations": {
+                        "android": "1:709467070093:android:c5341824036633eddf4cc4",
+                        "ios": "1:709467070093:ios:68f59ea120e32538df4cc4"
+                    }
+                },
+                "lib/core/firebase/firebase_options_uat.dart": {
+                    "projectId": "tranyx-uat",
+                    "configurations": {
+                        "android": "1:108125328804:android:53607ae40bd9cec1881d31",
+                        "ios": "1:108125328804:ios:90de9f55b81ed0e5881d31"
+                    }
+                },
+                "lib/core/firebase/firebase_options_prod.dart": {
+                    "projectId": "tranyx-app",
+                    "configurations": {
+                        "android": "1:174332525079:android:ef728de52b8560128f7a52",
+                        "ios": "1:174332525079:ios:e3bdc5d3dfb2364e8f7a52"
+                    }
+                }
+            }
+        }
+    }
+}
