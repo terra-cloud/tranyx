@@ -3,11 +3,12 @@ import 'package:http/http.dart' as http;
 import 'package:jaspr/dom.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'package:web/web.dart' as web;
+import 'package:tranyx_web/services/web_interop.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
-import 'package:tranyx_web/services/web_interop.dart';
+
 import 'package:tranyx_web/services/firebase_service.dart';
+
 import '../state/app_state.dart';
 import '../client/views/auth_view.dart';
 import '../client/views/home_view.dart';
@@ -868,7 +869,7 @@ class TranyxAppState extends State<TranyxApp> {
         final invoiceUrl = data['invoice_url'] as String?;
         if (invoiceUrl != null) {
           // Open Xendit payment page in a new tab
-          web.window.open(invoiceUrl, '_blank');
+          openUrl(invoiceUrl);
         }
       } else {
         print('Xendit Invoice Creation Failed: ${response.statusCode} - ${response.body}');

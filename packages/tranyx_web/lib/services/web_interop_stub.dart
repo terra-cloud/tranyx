@@ -30,3 +30,5 @@ Future<String?> getPhantomPublicKeyIfConnected() async => null;
 Future<double?> getSolanaBalance(String publicKey) async => null;
 
 Future<String?> signInWithGoogleJs(Map<String, String> config) async => null;
+
+void openUrl(String url) {}
