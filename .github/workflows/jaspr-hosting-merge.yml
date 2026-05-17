@@ -15,17 +15,22 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@v1
 
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
       - name: Install dependencies
-        run: dart pub get
+        run: flutter pub get
 
       - name: Build Jaspr Web
         run: |
           if [[ "${{ github.base_ref }}" == "main" ]]; then
-            dart run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=prod
+            flutter pub run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=prod
           elif [[ "${{ github.base_ref }}" == "uat" ]]; then
-            dart run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=uat
+            flutter pub run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=uat
           elif [[ "${{ github.base_ref }}" == "develop" ]]; then
-            dart run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=dev
+            flutter pub run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=dev
           fi
 
       - name: Deploy to Firebase Hosting
