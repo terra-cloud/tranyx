@@ -10,9 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Dart
-        uses: dart-lang/setup-dart@v1
-
+      # Removed redundant setup-dart step; Flutter action provides Dart natively.
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -23,21 +21,21 @@ jobs:
 
       - name: Build Jaspr Web
         run: |
-          if [[ "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
             flutter pub run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=prod
-          elif [[ "${{ github.base_ref }}" == "uat" ]]; then
+          elif [[ "${{ github.ref_name }}" == "uat" ]]; then
             flutter pub run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=uat
-          elif [[ "${{ github.base_ref }}" == "develop" ]]; then
+          elif [[ "${{ github.ref_name }}" == "develop" ]]; then
             flutter pub run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=dev
           fi
 
       - name: Set Environment Variables
         id: set_env
         run: |
-          if [[ "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
             echo "sa_secret=${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}" >> $GITHUB_OUTPUT
             echo "project_id=tranyx-app" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.base_ref }}" == "uat" ]]; then
+          elif [[ "${{ github.ref_name }}" == "uat" ]]; then
             echo "sa_secret=${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT }}" >> $GITHUB_OUTPUT
             echo "project_id=tranyx-uat" >> $GITHUB_OUTPUT
           else
