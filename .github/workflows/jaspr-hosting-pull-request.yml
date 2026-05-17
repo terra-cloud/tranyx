@@ -14,19 +14,16 @@ jobs:
         uses: dart-lang/setup-dart@v1
 
       - name: Install dependencies
-        run: |
-          cd packages/tranyx_web
-          dart pub get
+        run: dart pub get 
 
       - name: Build Jaspr Web
         run: |
-          cd packages/tranyx_web
           if [[ "${{ github.base_ref }}" == "main" ]]; then
-            dart run jaspr:jaspr build --dart-define=ENV=prod
+            dart run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=prod
           elif [[ "${{ github.base_ref }}" == "uat" ]]; then
-            dart run jaspr:jaspr build --dart-define=ENV=uat
+            dart run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=uat
           elif [[ "${{ github.base_ref }}" == "develop" ]]; then
-            dart run jaspr:jaspr build --dart-define=ENV=dev
+            dart run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=dev
           fi
 
       - name: Deploy to Firebase Hosting
