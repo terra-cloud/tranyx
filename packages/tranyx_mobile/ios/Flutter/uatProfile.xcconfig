@@ -1,0 +1,7 @@
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.profile-uat.xcconfig"
+#include "Generated.xcconfig"
+
+ASSET_PREFIX=uat
+BUNDLE_NAME=Tranyx UAT
+BUNDLE_DISPLAY_NAME=Tranyx UAT
+GOOGLE_REVERSED_CLIENT_ID=com.googleusercontent.apps.108125328804-56ge8g06o798l4h56gaq14s4ijs1a397

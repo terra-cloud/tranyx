@@ -1,0 +1,8 @@
+name: tranyx_workspace
+environment:
+  sdk: ^3.11.5
+
+workspace:
+  - packages/shared
+  - packages/tranyx_mobile
+  - packages/tranyx_web

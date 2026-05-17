@@ -1,0 +1,7 @@
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug-production.xcconfig"
+#include "Generated.xcconfig"
+
+ASSET_PREFIX=production
+BUNDLE_NAME=Tranyx
+BUNDLE_DISPLAY_NAME=Tranyx
+GOOGLE_REVERSED_CLIENT_ID=com.googleusercontent.apps.174332525079-ch59nh7tj9r95janu4pktknub35lafaf
