@@ -201,3 +201,7 @@ Future<List<WebFile>> readFilesFromEvent(dynamic event) async {
     return [];
   }
 }
+
+void openUrl(String url) {
+  web.window.open(url, '_blank');
+}
