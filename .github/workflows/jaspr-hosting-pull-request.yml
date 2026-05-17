@@ -24,12 +24,13 @@ jobs:
           flutter pub global activate jaspr_cli
           echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
           export PATH="$PATH:$HOME/.pub-cache/bin"
+          cd packages/tranyx_web
           if [[ "${{ github.ref_name }}" == "main" ]]; then
-            flutter pub run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=prod
+            jaspr build --dart-define=ENV=prod
           elif [[ "${{ github.ref_name }}" == "uat" ]]; then
-            flutter pub run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=uat
+            jaspr build --dart-define=ENV=uat
           elif [[ "${{ github.ref_name }}" == "develop" ]]; then
-            flutter pub run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=dev
+            jaspr build --dart-define=ENV=dev
           fi
 
       - name: Set Environment Variables
