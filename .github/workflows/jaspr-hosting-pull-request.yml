@@ -14,10 +14,11 @@ jobs:
         uses: dart-lang/setup-dart@v1
 
       - name: Install dependencies
-        run: dart pub get
+        run: |
+          cd packages/tranyx_web
+          dart pub get
 
       - name: Build Jaspr Web
-        # Removed working-directory so this runs at the workspace root
         run: |
           cd packages/tranyx_web
           if [[ "${{ github.base_ref }}" == "main" ]]; then

@@ -16,7 +16,9 @@ jobs:
         uses: dart-lang/setup-dart@v1
 
       - name: Install dependencies
-        run: dart pub get
+        run: |
+          cd packages/tranyx_web
+          dart pub get
 
       - name: Build Jaspr Web
         run: |
