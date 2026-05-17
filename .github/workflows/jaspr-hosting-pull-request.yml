@@ -31,11 +31,25 @@ jobs:
             flutter pub run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=dev
           fi
 
+      - name: Set Environment Variables
+        id: set_env
+        run: |
+          if [[ "${{ github.base_ref }}" == "main" ]]; then
+            echo "sa_secret=${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}" >> $GITHUB_OUTPUT
+            echo "project_id=tranyx-app" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.base_ref }}" == "uat" ]]; then
+            echo "sa_secret=${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT }}" >> $GITHUB_OUTPUT
+            echo "project_id=tranyx-uat" >> $GITHUB_OUTPUT
+          else
+            echo "sa_secret=${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}" >> $GITHUB_OUTPUT
+            echo "project_id=tranyx-dev" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ github.base_ref == 'main' && secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP || github.base_ref == 'uat' && secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT || secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}
-          projectId: ${{ github.base_ref == 'main' && 'tranyx-app' || github.base_ref == 'uat' && 'tranyx-uat' || 'tranyx-dev' }}
+          firebaseServiceAccount: ${{ steps.set_env.outputs.sa_secret }}
+          projectId: ${{ steps.set_env.outputs.project_id }}
           channelId: live
           entryPoint: packages/tranyx_web
