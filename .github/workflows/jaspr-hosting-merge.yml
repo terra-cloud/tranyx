@@ -19,13 +19,13 @@ jobs:
         run: dart pub get
 
       - name: Build Jaspr Web
-        working-directory: packages/tranyx_web
         run: |
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
+          cd packages/tranyx_web
+          if [[ "${{ github.base_ref }}" == "main" ]]; then
             dart run jaspr:jaspr build --dart-define=ENV=prod
-          elif [[ "${{ github.ref_name }}" == "uat" ]]; then
+          elif [[ "${{ github.base_ref }}" == "uat" ]]; then
             dart run jaspr:jaspr build --dart-define=ENV=uat
-          elif [[ "${{ github.ref_name }}" == "develop" ]]; then
+          elif [[ "${{ github.base_ref }}" == "develop" ]]; then
             dart run jaspr:jaspr build --dart-define=ENV=dev
           fi
 
