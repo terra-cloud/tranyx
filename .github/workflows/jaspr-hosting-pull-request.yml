@@ -23,7 +23,6 @@ jobs:
         run: |
           flutter pub global activate jaspr_cli
           echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
-          cd packages/tranyx_web
           if [[ "${{ github.ref_name }}" == "main" ]]; then
             flutter pub run --directory=packages/tranyx_web jaspr:jaspr build --dart-define=ENV=prod
           elif [[ "${{ github.ref_name }}" == "uat" ]]; then
