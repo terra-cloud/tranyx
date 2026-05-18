@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "public": "packages/tranyx_web/build/web",
+    "public": "packages/tranyx_web/build/jaspr/web",
     "ignore": [
       "firebase.json",
       "**/.*",
