@@ -176,7 +176,19 @@ class TranyxAppState extends State<TranyxApp> {
   final _auth = FirebaseAuthService();
   GeminiService? _gemini;
 
-  FirestoreService get _firestore => FirestoreService(SessionStorage.idToken);
+  FirestoreService get _firestore => FirestoreService(SessionStorage.idToken, _handleTokenRefresh);
+
+  Future<String?> _handleTokenRefresh() async {
+    final rt = SessionStorage.refreshToken;
+    if (rt == null) return null;
+    try {
+      final newToken = await _auth.refreshIdToken(rt);
+      SessionStorage.updateIdToken(newToken);
+      return newToken;
+    } catch (_) {
+      return null;
+    }
+  }
 
   AccountType get currentViewMode => accountType == AccountType.hybrid ? hybridToggle : accountType;
 
@@ -252,7 +264,7 @@ class TranyxAppState extends State<TranyxApp> {
       SessionStorage.save(result);
 
       // Load user profile from Firestore to get account type
-      final profile = await FirestoreService(result.idToken).getUser(result.uid);
+      final profile = await FirestoreService(result.idToken, _handleTokenRefresh).getUser(result.uid);
 
       final type = profile?.accountType ?? AccountType.employer;
       SessionStorage.saveProfile(
@@ -277,7 +289,7 @@ class TranyxAppState extends State<TranyxApp> {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
         try {
-          await FirestoreService(result.idToken).linkWalletToUser(result.uid, walletKey);
+          await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(result.uid, walletKey);
         } catch (_) {}
       }
 
@@ -333,7 +345,7 @@ class TranyxAppState extends State<TranyxApp> {
         createdAt: DateTime.now(),
       );
 
-      await FirestoreService(result.idToken).saveUser(profile);
+      await FirestoreService(result.idToken, _handleTokenRefresh).saveUser(profile);
       SessionStorage.saveProfile(name: name, email: email, accountType: type.name);
 
       setState(() {
@@ -353,7 +365,7 @@ class TranyxAppState extends State<TranyxApp> {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
         try {
-          await FirestoreService(result.idToken).linkWalletToUser(result.uid, walletKey);
+          await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(result.uid, walletKey);
         } catch (_) {}
       }
 
@@ -421,7 +433,7 @@ class TranyxAppState extends State<TranyxApp> {
 
       SessionStorage.save(authResult);
 
-      var profile = await FirestoreService(authResult.idToken).getUser(authResult.uid);
+      var profile = await FirestoreService(authResult.idToken, _handleTokenRefresh).getUser(authResult.uid);
 
       if (profile == null) {
         // Redirect to register path to ask for role
@@ -455,7 +467,7 @@ class TranyxAppState extends State<TranyxApp> {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
         try {
-          await FirestoreService(authResult.idToken).linkWalletToUser(authResult.uid, walletKey);
+          await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(authResult.uid, walletKey);
         } catch (_) {}
       }
 
@@ -491,7 +503,7 @@ class TranyxAppState extends State<TranyxApp> {
         photoUrl: authResult.photoUrl,
       );
 
-      await FirestoreService(authResult.idToken).saveUser(profile);
+      await FirestoreService(authResult.idToken, _handleTokenRefresh).saveUser(profile);
       SessionStorage.saveProfile(
         name: profile.name,
         email: profile.email,
@@ -514,7 +526,7 @@ class TranyxAppState extends State<TranyxApp> {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
         try {
-          await FirestoreService(authResult.idToken).linkWalletToUser(authResult.uid, walletKey);
+          await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(authResult.uid, walletKey);
         } catch (_) {}
       }
 
@@ -576,7 +588,7 @@ class TranyxAppState extends State<TranyxApp> {
             SessionStorage.save(authResult);
 
             // Load user profile from Firestore to get account type
-            final profile = await FirestoreService(authResult.idToken).getUser(authResult.uid);
+            final profile = await FirestoreService(authResult.idToken, _handleTokenRefresh).getUser(authResult.uid);
             final type = profile?.accountType ?? AccountType.employer;
 
             SessionStorage.saveProfile(
@@ -706,22 +718,13 @@ class TranyxAppState extends State<TranyxApp> {
 
     final price = double.tryParse(priceRate) ?? 0.0;
 
-    // Check if we need to show the deposit modal for the 10% fee
-    if (price > 0 && !showDepositModal) {
-      setState(() {
-        depositAmount = price * 0.10;
-        showDepositModal = true;
-      });
-      return; // Stop here and wait for confirmation
-    }
-
     setState(() {
       isPostingJob = true;
       postJobError = null;
     });
 
     try {
-      final svc = FirestoreService(token);
+      final svc = FirestoreService(token, _handleTokenRefresh);
 
       // 1. Check user balance first
       final userDoc = await svc.getDocument('users/$uid');
@@ -746,11 +749,7 @@ class TranyxAppState extends State<TranyxApp> {
       // Update local state balance
       walletBalance = currentBal - price;
       if (userProfile != null) {
-        userProfile = UserProfile(
-          uid: userProfile!.uid,
-          name: userProfile!.name,
-          email: userProfile!.email,
-          accountType: userProfile!.accountType,
+        userProfile = userProfile!.copyWith(
           tyxBalance: walletBalance,
         );
       }
@@ -836,6 +835,8 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   String? pendingXenditInvoiceId;
+  String? pendingJobId;
+  Map<String, dynamic>? pendingApplicantData;
   bool isVerifyingPayment = false;
 
   Future<void> createXenditInvoice() async {
@@ -927,8 +928,9 @@ class TranyxAppState extends State<TranyxApp> {
         final checkData = jsonDecode(checkRes.body);
         final status = checkData['status'];
         if (status == 'PAID' || status == 'SETTLED') {
+          print("PAID XENDIT!");
           // Update Firebase
-          final svc = FirestoreService(token);
+          final svc = FirestoreService(token, _handleTokenRefresh);
           final userDoc = await svc.getDocument('users/$uid');
           if (userDoc != null) {
             final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
@@ -955,6 +957,12 @@ class TranyxAppState extends State<TranyxApp> {
           // Finalize job posting ONLY if we were in the middle of posting a job
           if (newJobTitle.isNotEmpty) {
             await handlePostJob();
+          } else if (pendingJobId != null && pendingApplicantData != null) {
+            final jId = pendingJobId!;
+            final aData = pendingApplicantData!;
+            pendingJobId = null;
+            pendingApplicantData = null;
+            await acceptApplicant(jId, aData);
           }
         } else if (status == 'EXPIRED') {
           setState(() {
@@ -974,7 +982,8 @@ class TranyxAppState extends State<TranyxApp> {
           postJobError = 'Failed to verify payment status.';
         });
       }
-    } catch (e) {
+    } catch (e, s) {
+      print("ERROR $e $s");
       setState(() {
         isVerifyingPayment = false;
         postJobError = 'Verification error: $e';
@@ -995,7 +1004,7 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() => isSavingProfile = true);
 
     try {
-      final svc = FirestoreService(token);
+      final svc = FirestoreService(token, _handleTokenRefresh);
 
       // Create withdrawal request record
       await svc.createOrUpdate('withdrawalRequests', {
@@ -1101,7 +1110,7 @@ class TranyxAppState extends State<TranyxApp> {
 
     setState(() => isPostingQuestion = true);
     try {
-      await FirestoreService(token).addQuestion(
+      await FirestoreService(token, _handleTokenRefresh).addQuestion(
         jobId: jobId,
         authorId: uid,
         authorName: userName.isEmpty ? 'Anonymous' : userName,
@@ -1126,7 +1135,7 @@ class TranyxAppState extends State<TranyxApp> {
     if (token == null || jobId.isEmpty) return;
 
     try {
-      await FirestoreService(token).answerQuestion(
+      await FirestoreService(token, _handleTokenRefresh).answerQuestion(
         jobId: jobId,
         questionId: questionId,
         answer: answer,
@@ -1144,7 +1153,7 @@ class TranyxAppState extends State<TranyxApp> {
     final jobId = selectedJobData?['id'] as String? ?? '';
     if (token == null || jobId.isEmpty) return;
     try {
-      await FirestoreService(token).deleteQuestion(jobId, questionId);
+      await FirestoreService(token, _handleTokenRefresh).deleteQuestion(jobId, questionId);
       await loadJobQuestions(jobId);
     } catch (_) {}
   }
@@ -1155,7 +1164,7 @@ class TranyxAppState extends State<TranyxApp> {
     final jobId = selectedJobData?['id'] as String? ?? '';
     if (token == null || uid == null || jobId.isEmpty) return;
     try {
-      await FirestoreService(token).toggleQuestionLike(jobId, questionId, uid, isLiked);
+      await FirestoreService(token, _handleTokenRefresh).toggleQuestionLike(jobId, questionId, uid, isLiked);
       await loadJobQuestions(jobId);
     } catch (_) {}
   }
@@ -1176,7 +1185,7 @@ class TranyxAppState extends State<TranyxApp> {
 
     setState(() => isSubmittingReport = true);
     try {
-      await FirestoreService(token).reportJob(jobId, employerId, uid, selectedReportReason);
+      await FirestoreService(token, _handleTokenRefresh).reportJob(jobId, employerId, uid, selectedReportReason);
       setState(() {
         isSubmittingReport = false;
         showReportModal = false;
@@ -1221,7 +1230,7 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     try {
-      final doc = await FirestoreService(token).getDocument('users/$employerId');
+      final doc = await FirestoreService(token, _handleTokenRefresh).getDocument('users/$employerId');
       setState(() {
         employerProfileData = doc;
         isLoadingEmployerProfile = false;
@@ -1238,7 +1247,7 @@ class TranyxAppState extends State<TranyxApp> {
     if (token == null) return;
     setState(() => isLoadingApplicants = true);
     try {
-      final apps = await FirestoreService(token).getApplications(jobId);
+      final apps = await FirestoreService(token, _handleTokenRefresh).getApplications(jobId);
       setState(() {
         jobApplicants = apps;
         isLoadingApplicants = false;
@@ -1255,7 +1264,7 @@ class TranyxAppState extends State<TranyxApp> {
 
     setState(() => isUpdatingJobStatus = true);
     try {
-      final svc = FirestoreService(token);
+      final svc = FirestoreService(token, _handleTokenRefresh);
       final jobDoc = await svc.getDocument('jobs/$jobId');
       if (jobDoc != null) {
         final updates = <String, dynamic>{
@@ -1267,6 +1276,74 @@ class TranyxAppState extends State<TranyxApp> {
         // Use counter offer if provided
         if (appData['isCounterOffer'] == true && appData['proposalRate'] != null) {
           final rate = (appData['proposalRate'] as num).toDouble();
+          final originalPrice = (jobDoc['pricingValue'] as num).toDouble();
+
+          if (rate > originalPrice) {
+            final diff = rate - originalPrice;
+            final uid = SessionStorage.uid;
+            final userDoc = await svc.getDocument('users/$uid');
+            final currentBal = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+
+            if (currentBal < diff) {
+              setState(() {
+                depositAmount = diff - currentBal;
+                showDepositModal = true;
+                isUpdatingJobStatus = false;
+
+                pendingJobId = jobId;
+                pendingApplicantData = appData;
+              });
+              return;
+            } else {
+              // Deduct difference from user balance
+              await svc.createOrUpdate('users/$uid', {
+                ...userDoc!,
+                'tyxBalance': currentBal - diff,
+              });
+
+              walletBalance = currentBal - diff;
+              if (userProfile != null) {
+                userProfile = userProfile!.copyWith(tyxBalance: walletBalance);
+              }
+
+              // Update escrow amount
+              final escrowDoc = await svc.getDocument('escrow/$jobId');
+              if (escrowDoc != null) {
+                await svc.createOrUpdate('escrow/$jobId', {
+                  ...escrowDoc,
+                  'amount': rate,
+                });
+              }
+            }
+          } else if (rate < originalPrice && rate > 0) {
+            // Refund the difference if the counter offer is lower than the original price
+            final diff = originalPrice - rate;
+            final uid = SessionStorage.uid;
+            final userDoc = await svc.getDocument('users/$uid');
+            final currentBal = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+
+            if (userDoc != null) {
+              await svc.createOrUpdate('users/$uid', {
+                ...userDoc,
+                'tyxBalance': currentBal + diff,
+              });
+
+              walletBalance = currentBal + diff;
+              if (userProfile != null) {
+                userProfile = userProfile!.copyWith(tyxBalance: walletBalance);
+              }
+            }
+
+            // Update escrow amount
+            final escrowDoc = await svc.getDocument('escrow/$jobId');
+            if (escrowDoc != null) {
+              await svc.createOrUpdate('escrow/$jobId', {
+                ...escrowDoc,
+                'amount': rate,
+              });
+            }
+          }
+
           if (rate > 0) {
             updates['pricingValue'] = rate;
             updates['pricingType'] = 'Fixed Task'; // or keep previous type
@@ -1300,7 +1377,7 @@ class TranyxAppState extends State<TranyxApp> {
       // Generate a 6-digit numeric code
       final code = (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString();
 
-      final svc = FirestoreService(token);
+      final svc = FirestoreService(token, _handleTokenRefresh);
       await svc.createOrUpdate('jobs/$jobId', {
         ...selectedJobData!,
         'completionCode': code,
@@ -1324,7 +1401,7 @@ class TranyxAppState extends State<TranyxApp> {
 
     setState(() => isCompletingJob = true);
     try {
-      final svc = FirestoreService(token);
+      final svc = FirestoreService(token, _handleTokenRefresh);
       final jobDoc = await svc.getDocument('jobs/${job['id']}');
 
       if (jobDoc != null) {
@@ -1405,7 +1482,7 @@ class TranyxAppState extends State<TranyxApp> {
 
     setState(() => isUpdatingJobStatus = true);
     try {
-      final svc = FirestoreService(token);
+      final svc = FirestoreService(token, _handleTokenRefresh);
       final jobDoc = await svc.getDocument('jobs/${job['id']}');
 
       if (jobDoc != null) {
@@ -1420,7 +1497,21 @@ class TranyxAppState extends State<TranyxApp> {
           final empDoc = await svc.getDocument('users/$employerId');
           if (empDoc != null) {
             final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            await svc.updateTyxBalance(employerId, currentBal + refundAmount);
+            final newBal = currentBal + refundAmount;
+
+            // Depending on if the method 'updateTyxBalance' exists, using createOrUpdate to be safe
+            await svc.createOrUpdate('users/$employerId', {
+              ...empDoc,
+              'tyxBalance': newBal,
+            });
+
+            // Update local balance if current user is the employer
+            if (employerId == SessionStorage.uid) {
+              walletBalance = newBal;
+              if (userProfile != null) {
+                userProfile = userProfile!.copyWith(tyxBalance: newBal);
+              }
+            }
           }
 
           // 3. Delete escrow
@@ -1453,7 +1544,7 @@ class TranyxAppState extends State<TranyxApp> {
     if (token == null || job == null) return;
     setState(() => isUpdatingSubStatus = true);
     try {
-      final svc = FirestoreService(token);
+      final svc = FirestoreService(token, _handleTokenRefresh);
       final jobDoc = await svc.getDocument('jobs/${job['id']}');
       if (jobDoc != null) {
         final updates = <String, dynamic>{
@@ -1489,7 +1580,7 @@ class TranyxAppState extends State<TranyxApp> {
     final job = selectedJobData;
     if (token == null || job == null) return;
     try {
-      final svc = FirestoreService(token);
+      final svc = FirestoreService(token, _handleTokenRefresh);
       final jobDoc = await svc.getDocument('jobs/${job['id']}');
       if (jobDoc != null) {
         await svc.createOrUpdate('jobs/${job['id']}', {
@@ -1512,7 +1603,7 @@ class TranyxAppState extends State<TranyxApp> {
       applyError = null;
     });
     try {
-      await FirestoreService(token).applyToJob(
+      await FirestoreService(token, _handleTokenRefresh).applyToJob(
         jobId: jobId,
         applicantUid: uid,
         applicantName: userName.isEmpty ? 'Anonymous' : userName,
@@ -1543,7 +1634,7 @@ class TranyxAppState extends State<TranyxApp> {
     final token = SessionStorage.idToken;
     if (token == null) return;
     try {
-      await FirestoreService(token).saveUser(updated);
+      await FirestoreService(token, _handleTokenRefresh).saveUser(updated);
       SessionStorage.saveProfile(
         name: updated.name,
         email: updated.email,
@@ -1566,23 +1657,10 @@ class TranyxAppState extends State<TranyxApp> {
     try {
       final existing = userProfile;
       if (existing == null) return;
-      final updated = UserProfile(
-        uid: existing.uid,
-        name: editName.isNotEmpty ? editName : existing.name,
-        email: editEmail.isNotEmpty ? editEmail : existing.email,
-        photoUrl: existing.photoUrl,
-        phoneNumber: editPhone.isNotEmpty ? editPhone : existing.phoneNumber,
-        accountType: existing.accountType,
-        employerType: existing.employerType,
-        businessName: existing.businessName,
-        businessPermit: existing.businessPermit,
-        industry: existing.industry,
-        taxId: existing.taxId,
-        headline: existing.headline,
-        hourlyRate: existing.hourlyRate,
-        skills: existing.skills,
-        rating: existing.rating,
-        createdAt: existing.createdAt,
+      final updated = existing.copyWith(
+        name: editName.isNotEmpty ? editName : null,
+        email: editEmail.isNotEmpty ? editEmail : null,
+        phoneNumber: editPhone.isNotEmpty ? editPhone : null,
       );
       await handleSaveProfile(updated);
       setState(() {
@@ -1608,25 +1686,13 @@ class TranyxAppState extends State<TranyxApp> {
       final existing = userProfile;
       if (existing == null) return;
       final skills = editSkills.isNotEmpty ? editSkills : existing.skills;
-      final updated = UserProfile(
-        uid: existing.uid,
-        name: existing.name,
-        email: existing.email,
-        photoUrl: existing.photoUrl,
-        phoneNumber: existing.phoneNumber,
-        accountType: existing.accountType,
-        employerType: existing.employerType,
-        businessName: editBusinessName.isNotEmpty ? editBusinessName : existing.businessName,
-        businessPermit: existing.businessPermit,
-        industry: editIndustry.isNotEmpty ? editIndustry : existing.industry,
-        taxId: editTaxId.isNotEmpty ? editTaxId : existing.taxId,
-        headline: editHeadline.isNotEmpty ? editHeadline : existing.headline,
-        hourlyRate: editHourlyRate.isNotEmpty
-            ? double.tryParse(editHourlyRate) ?? existing.hourlyRate
-            : existing.hourlyRate,
+      final updated = existing.copyWith(
+        businessName: editBusinessName.isNotEmpty ? editBusinessName : null,
+        industry: editIndustry.isNotEmpty ? editIndustry : null,
+        taxId: editTaxId.isNotEmpty ? editTaxId : null,
+        headline: editHeadline.isNotEmpty ? editHeadline : null,
+        hourlyRate: editHourlyRate.isNotEmpty ? (double.tryParse(editHourlyRate) ?? existing.hourlyRate) : null,
         skills: skills,
-        rating: existing.rating,
-        createdAt: existing.createdAt,
       );
       await handleSaveProfile(updated);
       setState(() {
@@ -1695,7 +1761,7 @@ class TranyxAppState extends State<TranyxApp> {
       final uid = SessionStorage.uid;
       if (token != null && uid != null) {
         try {
-          await FirestoreService(token).linkWalletToUser(uid, publicKey);
+          await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, publicKey);
         } catch (_) {}
       }
 

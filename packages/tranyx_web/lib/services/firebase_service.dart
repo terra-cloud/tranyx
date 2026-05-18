@@ -71,62 +71,72 @@ Future<Map<String, dynamic>> _post(
   String url,
   Map<String, dynamic> body, {
   String? idToken,
+  Future<String?> Function()? onTokenRefresh,
 }) async {
-  final headers = <String, String>{'Content-Type': 'application/json'};
-  if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-  final req = await _client.post(
-    Uri.parse(url),
-    headers: headers,
-    body: jsonEncode(body),
-  );
-
-  final data = jsonDecode(req.body) as Map<String, dynamic>;
-  if (req.statusCode >= 400) {
-    final err = data['error'] as Map? ?? {};
-    throw FirebaseException(err['message'] as String? ?? 'Request failed');
-  }
-  return data;
+  return _requestWithRetry(url, idToken, onTokenRefresh, (token) {
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (token != null) headers['Authorization'] = 'Bearer $token';
+    return _client.post(Uri.parse(url), headers: headers, body: jsonEncode(body));
+  });
 }
 
-Future<Map<String, dynamic>> _get(String url, {String? idToken}) async {
-  final headers = <String, String>{};
-  if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+Future<Map<String, dynamic>> _requestWithRetry(
+  String url,
+  String? initialToken,
+  Future<String?> Function()? onTokenRefresh,
+  Future<http.Response> Function(String? token) requestBuilder,
+) async {
+  var token = initialToken;
+  var req = await requestBuilder(token);
 
-  final req = await _client.get(Uri.parse(url), headers: headers);
-  if (req.statusCode == 404) return {};
-  final data = jsonDecode(req.body) as Map<String, dynamic>;
-  if (req.statusCode >= 400) {
-    final err = data['error'] as Map? ?? {};
-    throw FirebaseException(err['message'] as String? ?? 'Request failed');
+  if (req.statusCode == 401 && onTokenRefresh != null) {
+    try {
+      final newToken = await onTokenRefresh();
+      if (newToken != null) {
+        token = newToken;
+        req = await requestBuilder(token);
+      }
+    } catch (_) {
+      // Ignore refresh errors and let the original 401 propagate
+    }
   }
-  return data;
+
+  final bodyText = req.body.trim();
+  final data = bodyText.isNotEmpty ? jsonDecode(bodyText) : <String, dynamic>{};
+
+  if (req.statusCode >= 400) {
+    final err = (data is Map) ? (data['error'] as Map? ?? {}) : {};
+    throw FirebaseException(err['message'] as String? ?? 'Request failed', req.statusCode);
+  }
+  return data as Map<String, dynamic>;
+}
+
+Future<Map<String, dynamic>> _get(String url, {String? idToken, Future<String?> Function()? onTokenRefresh}) async {
+  return _requestWithRetry(url, idToken, onTokenRefresh, (token) {
+    final headers = <String, String>{};
+    if (token != null) headers['Authorization'] = 'Bearer $token';
+    return _client.get(Uri.parse(url), headers: headers);
+  });
 }
 
 Future<Map<String, dynamic>> _patch(
   String url,
   Map<String, dynamic> body, [
   String? idToken,
+  Future<String?> Function()? onTokenRefresh,
 ]) async {
-  final headers = <String, String>{'Content-Type': 'application/json'};
-  if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-  final req = await _client.patch(
-    Uri.parse(url),
-    headers: headers,
-    body: jsonEncode(body),
-  );
-  if (req.statusCode >= 400) {
-    final data = jsonDecode(req.body) as Map<String, dynamic>;
-    final err = data['error'] as Map? ?? {};
-    throw FirebaseException(err['message'] as String? ?? 'Firestore write failed: ${req.statusCode}');
-  }
-  return jsonDecode(req.body) as Map<String, dynamic>;
+  return _requestWithRetry(url, idToken, onTokenRefresh, (token) {
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (token != null) headers['Authorization'] = 'Bearer $token';
+    return _client.patch(Uri.parse(url), headers: headers, body: jsonEncode(body));
+  });
 }
 
 // ── Auth service ──────────────────────────────────────────────────────────────
 class FirebaseException implements Exception {
   final String message;
-  FirebaseException(this.message);
+  final int? statusCode;
+  FirebaseException(this.message, [this.statusCode]);
   @override
   String toString() => message;
 }
@@ -301,8 +311,13 @@ String _docId(Map<String, dynamic> doc) {
 
 // ── Firestore service ─────────────────────────────────────────────────────────
 class FirestoreService {
-  final String? idToken;
-  FirestoreService([this.idToken]);
+  String? idToken;
+  final Future<String?> Function()? onTokenRefresh;
+
+  FirestoreService([
+    this.idToken,
+    this.onTokenRefresh,
+  ]);
 
   // ── Utility ────────────────────────────────────────────────
   Future<void> setDocument(String path, Map<String, dynamic> data) async {
@@ -314,13 +329,14 @@ class FirestoreService {
       '$url?$queryString',
       body,
       idToken,
+      onTokenRefresh,
     );
   }
 
   Future<void> createOrUpdate(String path, Map<String, dynamic> data) async {
     final url = '$_firestoreBase/$path';
     final body = _toFirestoreFields(data);
-    await _patch(url, body, idToken);
+    await _patch(url, body, idToken, onTokenRefresh);
   }
 
   Future<void> deleteDocument(String path) async {
@@ -333,7 +349,7 @@ class FirestoreService {
   Future<Map<String, dynamic>?> getDocument(String path) async {
     try {
       final url = '$_firestoreBase/$path';
-      final res = await _get(url, idToken: idToken);
+      final res = await _get(url, idToken: idToken, onTokenRefresh: onTokenRefresh);
       if (res.isEmpty || !res.containsKey('fields')) return null;
       return _fromFirestoreDoc(res);
     } on FirebaseException {
@@ -401,7 +417,7 @@ class FirestoreService {
     if (req.statusCode >= 400) {
       final data = jsonDecode(req.body) as Map<String, dynamic>;
       final err = data['error'] as Map? ?? {};
-      throw FirebaseException(err['message'] as String? ?? 'Create job failed');
+      throw FirebaseException(err['message'] as String? ?? 'Create job failed', req.statusCode);
     }
 
     final result = jsonDecode(req.body) as Map<String, dynamic>;
@@ -735,6 +751,7 @@ class GeminiService {
         'Context: $descPart\n\n'
         'Task: Generate a professional and catchy job title (maximum 5 words) that perfectly fits this category and context. '
         'IMPORTANT: Detect the language of the Context. It should match the Job Title\'s language. '
+        'IMPORTANT: DO NOT include the explanation, just the description.'
         'If it is in English, generate the title in English. '
         'Return ONLY the title text. Do not include quotes or extra explanations.';
 

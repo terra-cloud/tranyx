@@ -40,14 +40,15 @@ class PaymentModalComponent extends StatelessComponent {
                 div(classes: 'flex items-center justify-center gap-2 border-b-2 border-indigo-500/30 pb-2 mx-8', [
                   input(
                     type: InputType.number,
-                    classes: 'w-full text-center text-4xl font-black text-indigo-400 bg-transparent border-none focus:outline-none placeholder:text-indigo-400/30',
+                    classes:
+                        'w-full text-center text-4xl font-black text-indigo-400 bg-transparent border-none focus:outline-none placeholder:text-indigo-400/30',
                     value: amount > 0 ? amount.toString() : '',
                     attributes: {'placeholder': '0.00', 'min': '1', 'step': '1'},
                     events: {
                       'input': (e) {
                         final val = (e.target as dynamic).value?.toString() ?? '';
                         s.setState(() => s.depositAmount = double.tryParse(val) ?? 0.0);
-                      }
+                      },
                     },
                   ),
                 ]),
@@ -76,7 +77,9 @@ class PaymentModalComponent extends StatelessComponent {
                     ],
                   ),
                   if (s.postJobError != null)
-                    p(classes: 'text-xs text-red-400 text-center mt-2 font-semibold', [Component.text(s.postJobError!)]),
+                    p(classes: 'text-xs text-red-400 text-center mt-2 font-semibold', [
+                      Component.text(s.postJobError!),
+                    ]),
                   button(
                     classes:
                         'w-full py-4 rounded-2xl font-bold ${isDark ? "text-zinc-400 hover:text-zinc-200" : "text-zinc-500 hover:text-zinc-700"} transition-colors',
@@ -101,7 +104,9 @@ class PaymentModalComponent extends StatelessComponent {
                     ],
                   ),
                   if (s.postJobError != null)
-                    p(classes: 'text-xs text-red-400 text-center mt-2 font-semibold', [Component.text(s.postJobError!)]),
+                    p(classes: 'text-xs text-red-400 text-center mt-2 font-semibold', [
+                      Component.text(s.postJobError!),
+                    ]),
                   button(
                     classes:
                         'w-full py-4 rounded-2xl font-bold ${isDark ? "text-zinc-400 hover:text-zinc-200" : "text-zinc-500 hover:text-zinc-700"} transition-colors',
@@ -110,7 +115,7 @@ class PaymentModalComponent extends StatelessComponent {
                     },
                     [Component.text('Cancel')],
                   ),
-                ]
+                ],
               ]),
             ]),
 

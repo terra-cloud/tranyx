@@ -9,6 +9,7 @@ class SessionStorage {
   static String? get accountType => null;
   static bool get hasSession => false;
   static void clear() {}
+  static void updateIdToken(String token) {}
 }
 
 String getHostname() => 'localhost';

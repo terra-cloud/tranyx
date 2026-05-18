@@ -49,7 +49,9 @@ Future<String?> getPhantomPublicKeyIfConnected() async {
 Future<String?> signInWithGoogleJs(Map<String, String> config) async {
   try {
     final jsConfig = JSObject();
-    for (final e in config.entries) jsConfig.setProperty(e.key.toJS, e.value.toJS);
+    for (final e in config.entries) {
+      jsConfig.setProperty(e.key.toJS, e.value.toJS);
+    }
     final res = await web.window.callMethod<JSPromise>('signInWithGoogle'.toJS, jsConfig).toDart;
     return (res as JSString).toDart;
   } catch (_) {
@@ -111,6 +113,10 @@ class SessionStorage {
     for (final k in [_uid, _tok, _ref, _nam, _eml, _act]) {
       web.window.localStorage.removeItem(k);
     }
+  }
+
+  static void updateIdToken(String token) {
+    web.window.localStorage.setItem(_tok, token);
   }
 }
 

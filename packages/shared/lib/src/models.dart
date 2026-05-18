@@ -136,6 +136,51 @@ class UserProfile {
     'jobsDone': jobsDone,
     'totalEarned': totalEarned,
   };
+
+  UserProfile copyWith({
+    String? name,
+    String? email,
+    String? photoUrl,
+    String? phoneNumber,
+    AccountType? accountType,
+    EmployerType? employerType,
+    String? businessName,
+    String? businessPermit,
+    String? industry,
+    String? taxId,
+    String? headline,
+    double? hourlyRate,
+    List<String>? skills,
+    double? rating,
+    DateTime? createdAt,
+    String? walletPublicKey,
+    double? tyxBalance,
+    int? jobsDone,
+    double? totalEarned,
+  }) {
+    return UserProfile(
+      uid: uid,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      photoUrl: photoUrl ?? this.photoUrl,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+      accountType: accountType ?? this.accountType,
+      employerType: employerType ?? this.employerType,
+      businessName: businessName ?? this.businessName,
+      businessPermit: businessPermit ?? this.businessPermit,
+      industry: industry ?? this.industry,
+      taxId: taxId ?? this.taxId,
+      headline: headline ?? this.headline,
+      hourlyRate: hourlyRate ?? this.hourlyRate,
+      skills: skills ?? this.skills,
+      rating: rating ?? this.rating,
+      createdAt: createdAt ?? this.createdAt,
+      walletPublicKey: walletPublicKey ?? this.walletPublicKey,
+      tyxBalance: tyxBalance ?? this.tyxBalance,
+      jobsDone: jobsDone ?? this.jobsDone,
+      totalEarned: totalEarned ?? this.totalEarned,
+    );
+  }
 }
 
 class Job {
