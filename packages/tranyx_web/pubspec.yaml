@@ -20,7 +20,7 @@ dev_dependencies:
   lints: ^6.0.0
 
 jaspr:
-  mode: server
+  mode: client
   # Pass --dart-define=ENV=dev|uat|prod to jaspr serve/build.
   # Example:
   #   dart run jaspr:jaspr serve --dart-define=ENV=dev

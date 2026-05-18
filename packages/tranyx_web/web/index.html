@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Welcome to Tranyx</title>
+    
+    <!-- External Scripts & Styles from main.server.dart -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-auth-compat.js"></script>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <link rel="stylesheet" href="styles.css">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+    <style>
+      html, body {
+        width: 100%;
+        min-height: 100vh;
+        padding: 0;
+        margin: 0;
+        font-family: 'Inter', sans-serif;
+        background-color: #09090b; /* zinc-950 */
+        color: #fafafa; /* zinc-50 */
+      }
+    </style>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        lucide.createIcons();
+        const observer = new MutationObserver(() => {
+          observer.disconnect();
+          lucide.createIcons();
+          observer.observe(document.body, { childList: true, subtree: true });
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+      });
+
+      window.signInWithGoogle = async function(config) {
+        if (!firebase.apps.length) {
+          firebase.initializeApp(config);
+        }
+        const provider = new firebase.auth.GoogleAuthProvider();
+        try {
+          const result = await firebase.auth().signInWithPopup(provider);
+          const idToken = await result.user.getIdToken();
+          return JSON.stringify({
+            uid: result.user.uid,
+            idToken: idToken,
+            refreshToken: result.user.refreshToken,
+            email: result.user.email,
+            displayName: result.user.displayName,
+            photoUrl: result.user.photoURL
+          });
+        } catch (error) {
+          console.error(error);
+          throw error;
+        }
+      };
+
+      // ── OSRM route helper (CSP-safe — real script, not eval) ──────────
+      window._osrmRoute = async function(elementId, fromLat, fromLng, toLat, toLng, color) {
+        const map = window['__lmap_' + elementId];
+        if (!map || !window.L) return;
+
+        const routeKey = '__lroute_' + elementId;
+        if (window[routeKey]) { window[routeKey].remove(); window[routeKey] = null; }
+
+        let coords = [[fromLat, fromLng], [toLat, toLng]];
+        try {
+          const url = 'https://router.project-osrm.org/route/v1/driving/'
+            + fromLng + ',' + fromLat + ';' + toLng + ',' + toLat
+            + '?overview=full&geometries=geojson';
+          const resp = await fetch(url);
+          const data = await resp.json();
+          coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+        } catch(e) { /* straight-line fallback */ }
+
+        const poly = L.polyline(coords, {
+          color: color, weight: 6, opacity: 0.9,
+          lineCap: 'round', lineJoin: 'round'
+        }).addTo(map);
+        window[routeKey] = poly;
+        map.fitBounds(poly.getBounds(), { padding: [40, 40] });
+      };
+    </script>
+</head>
+<body>
+    <!-- Jaspr will mount the app here automatically or inject the main.client.dart.js -->
+</body>
+</html>
