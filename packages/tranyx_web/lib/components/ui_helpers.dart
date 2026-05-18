@@ -5,6 +5,7 @@
 // - CSS class strings are plain Tailwind tokens — no Dart calls inside them
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:universal_web/web.dart' as web;
 
 /// Renders a Lucide icon via <i data-lucide="name" class="..."></i>
 /// The MutationObserver in index.html auto-renders them via Lucide JS.
@@ -50,25 +51,15 @@ Component inputField({
       ),
     div(classes: 'flex items-center', [
       if (iconName.isNotEmpty) lIcon(iconName, cls: 'w-5 h-5 mr-3 ${isDark ? 'text-zinc-600' : 'text-zinc-400'}'),
-      input(
+      input<String>(
         classes:
             'bg-transparent border-none outline-none w-full text-sm md:text-base font-medium ${isDark ? 'text-zinc-200' : 'text-zinc-900'}',
-        type: type == 'password'
-            ? InputType.password
-            : (type == 'email' ? InputType.email : InputType.text),
+        type: type == 'password' ? InputType.password : (type == 'email' ? InputType.email : InputType.text),
+        value: value,
         attributes: {
           'placeholder': placeholder,
-          'value': value,
         },
-        events: onChange != null
-            ? {
-                'input': (e) {
-                  // ignore: avoid_dynamic_calls
-                  final v = (e as dynamic).target?.value as String? ?? '';
-                  onChange(v);
-                },
-              }
-            : null,
+        onInput: onChange,
       ),
     ]),
   ]);

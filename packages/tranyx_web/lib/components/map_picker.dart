@@ -27,7 +27,9 @@ class _MapPickerState extends State<MapPickerComponent> {
   @override
   void initState() {
     super.initState();
-    _statusMsg = component.state.hasTracker ? 'Pan to 1st Point (e.g. Grocery Store)' : 'Pan to Site Location';
+    _statusMsg = (component.state.selectedJobCategory?.hasTracker ?? false)
+        ? 'Pan to 1st Point (e.g. Grocery Store)'
+        : 'Pan to Site Location';
     _initLeaflet();
   }
 
@@ -64,7 +66,7 @@ class _MapPickerState extends State<MapPickerComponent> {
     final address = await reverseGeocode(lat, lng);
     final s = component.state;
 
-    if (!s.hasTracker) {
+    if (!(s.selectedCategory?.hasTracker ?? false)) {
       // Single point mode
       setMarker(_mapId, 'pickup', lat, lng, '📍 Site: $address');
       s.setState(() {
@@ -106,8 +108,10 @@ class _MapPickerState extends State<MapPickerComponent> {
       if (s.pickupLat != null && s.destinationLat != null) {
         drawOSRMRoute(
           _mapId,
-          s.pickupLat!, s.pickupLng!,
-          s.destinationLat!, s.destinationLng!,
+          s.pickupLat!,
+          s.pickupLng!,
+          s.destinationLat!,
+          s.destinationLng!,
           '#6366f1',
         );
       }
