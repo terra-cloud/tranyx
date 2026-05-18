@@ -1,6 +1,5 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
-import 'package:web/web.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
@@ -246,7 +245,7 @@ class _ProfileMain extends StatelessComponent {
     String iconCls,
     bool isDark, {
     String? actionLabel,
-    void Function(Event)? onAction,
+    void Function(dynamic)? onAction,
   }) {
     final cardCls = isDark
         ? 'bg-zinc-900/50 border-zinc-800/50 hover:border-indigo-500/30'
