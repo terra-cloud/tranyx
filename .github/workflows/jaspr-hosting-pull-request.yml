@@ -58,7 +58,6 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}
           projectId: tranyx-app
-          entryPoint: packages/tranyx_web
 
       - name: Deploy PR Preview (uat)
         if: github.base_ref == 'uat'
@@ -67,7 +66,6 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT }}
           projectId: tranyx-uat
-          entryPoint: packages/tranyx_web
 
       - name: Deploy PR Preview (dev)
         if: github.base_ref != 'main' && github.base_ref != 'uat'
@@ -76,4 +74,3 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}
           projectId: tranyx-dev
-          entryPoint: packages/tranyx_web
