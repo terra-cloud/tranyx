@@ -1,6 +1,6 @@
 {
   "projects": {
-    "default": "tranyx-dev",
+    "default": "tranyx-app",
     "dev": "tranyx-dev",
     "uat": "tranyx-uat",
     "prod": "tranyx-app"

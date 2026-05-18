@@ -1,6 +1,6 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
-import 'package:tranyx_web/services/web_interop_stub.dart';
+import 'package:tranyx_web/services/web_interop.dart';
 import '../components/job_category_selector.dart';
 import 'package:shared/shared.dart';
 import '../services/firebase_service.dart';
