@@ -43,9 +43,8 @@ jobs:
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}
-          projectId: tranyx-app
           channelId: live
-          entryPoint: packages/tranyx_web
+          projectId: tranyx-app
 
       - name: Deploy to Firebase Hosting (uat)
         if: github.ref_name == 'uat'
@@ -55,7 +54,6 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT }}
           projectId: tranyx-uat
           channelId: live
-          entryPoint: packages/tranyx_web
 
       - name: Deploy to Firebase Hosting (dev)
         if: github.ref_name == 'develop'
@@ -65,4 +63,3 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}
           projectId: tranyx-dev
           channelId: live
-          entryPoint: packages/tranyx_web
