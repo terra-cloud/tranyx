@@ -52,28 +52,28 @@ jobs:
 
       # Deploy to prod project (PR preview — no channelId = auto preview channel)
       - name: Deploy PR Preview (prod)
-        if: github.base_ref == 'main'
+        if: github.ref_name == 'main'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}
+          channelId: live
           projectId: tranyx-app
-          entryPoint: packages/tranyx_web
 
       - name: Deploy PR Preview (uat)
-        if: github.base_ref == 'uat'
+        if: github.ref_name == 'uat'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT }}
           projectId: tranyx-uat
-          entryPoint: packages/tranyx_web
+          channelId: live
 
       - name: Deploy PR Preview (dev)
-        if: github.base_ref != 'main' && github.base_ref != 'uat'
+        if: github.ref_name == 'develop'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}
           projectId: tranyx-dev
-          entryPoint: packages/tranyx_web
+          channelId: live
