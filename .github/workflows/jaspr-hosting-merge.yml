@@ -18,15 +18,17 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Install dependencies
+      - name: Install workspace dependencies
         run: flutter pub get
 
-      - name: Build Jaspr Web
+      - name: Install Jaspr CLI
         run: |
           flutter pub global activate jaspr_cli
           echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
-          export PATH="$PATH:$HOME/.pub-cache/bin"
-          cd packages/tranyx_web
+
+      - name: Build Jaspr Web
+        working-directory: packages/tranyx_web
+        run: |
           if [[ "${{ github.ref_name }}" == "main" ]]; then
             jaspr build --dart-define=ENV=prod
           elif [[ "${{ github.ref_name }}" == "uat" ]]; then
@@ -35,25 +37,32 @@ jobs:
             jaspr build --dart-define=ENV=dev
           fi
 
-      - name: Set Environment Variables
-        id: set_env
-        run: |
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
-            echo "sa_secret=${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}" >> $GITHUB_OUTPUT
-            echo "project_id=tranyx-app" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref_name }}" == "uat" ]]; then
-            echo "sa_secret=${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT }}" >> $GITHUB_OUTPUT
-            echo "project_id=tranyx-uat" >> $GITHUB_OUTPUT
-          else
-            echo "sa_secret=${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}" >> $GITHUB_OUTPUT
-            echo "project_id=tranyx-dev" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Deploy to Firebase Hosting
+      - name: Deploy to Firebase Hosting (prod)
+        if: github.ref_name == 'main'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ steps.set_env.outputs.sa_secret }}
-          projectId: ${{ steps.set_env.outputs.project_id }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}
+          projectId: tranyx-app
+          channelId: live
+          entryPoint: packages/tranyx_web
+
+      - name: Deploy to Firebase Hosting (uat)
+        if: github.ref_name == 'uat'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT }}
+          projectId: tranyx-uat
+          channelId: live
+          entryPoint: packages/tranyx_web
+
+      - name: Deploy to Firebase Hosting (dev)
+        if: github.ref_name == 'develop'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}
+          projectId: tranyx-dev
           channelId: live
           entryPoint: packages/tranyx_web

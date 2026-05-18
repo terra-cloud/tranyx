@@ -32,9 +32,21 @@ void main() {
         script(src: 'https://unpkg.com/lucide@latest'),
         script(src: 'https://www.gstatic.com/firebasejs/10.12.1/firebase-app-compat.js'),
         script(src: 'https://www.gstatic.com/firebasejs/10.12.1/firebase-auth-compat.js'),
+        // Leaflet — loaded upfront so initMap() never races
+        link(
+          rel: 'stylesheet',
+          href: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+          attributes: {
+            'crossorigin': '',
+          },
+        ),
+        script(
+          src: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+          attributes: {'crossorigin': ''},
+        ),
         link(rel: 'stylesheet', href: 'styles.css'),
         script(
-          content: '''
+          content: """
               document.addEventListener('DOMContentLoaded', () => {
                 lucide.createIcons();
                 const observer = new MutationObserver(() => {
@@ -66,7 +78,35 @@ void main() {
                   throw error;
                 }
               };
-            ''',
+
+              // ── OSRM route helper (CSP-safe — real script, not eval) ──────────
+              // Fetches a real road route from OSRM and draws it on a Leaflet map.
+              // Falls back to a straight line if the API is unreachable.
+              window._osrmRoute = async function(elementId, fromLat, fromLng, toLat, toLng, color) {
+                const map = window['__lmap_' + elementId];
+                if (!map || !window.L) return;
+
+                const routeKey = '__lroute_' + elementId;
+                if (window[routeKey]) { window[routeKey].remove(); window[routeKey] = null; }
+
+                let coords = [[fromLat, fromLng], [toLat, toLng]];
+                try {
+                  const url = 'https://router.project-osrm.org/route/v1/driving/'
+                    + fromLng + ',' + fromLat + ';' + toLng + ',' + toLat
+                    + '?overview=full&geometries=geojson';
+                  const resp = await fetch(url);
+                  const data = await resp.json();
+                  coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                } catch(e) { /* straight-line fallback */ }
+
+                const poly = L.polyline(coords, {
+                  color: color, weight: 6, opacity: 0.9,
+                  lineCap: 'round', lineJoin: 'round'
+                }).addTo(map);
+                window[routeKey] = poly;
+                map.fitBounds(poly.getBounds(), { padding: [40, 40] });
+              };
+            """,
         ),
       ],
       styles: [

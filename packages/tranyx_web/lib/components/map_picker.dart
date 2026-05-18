@@ -33,15 +33,13 @@ class _MapPickerState extends State<MapPickerComponent> {
 
   Future<void> _initLeaflet() async {
     await ensureLeafletLoaded();
-    // Small delay for DOM to mount
-    await Future.delayed(const Duration(milliseconds: 300));
-    // Default centre: Metro Manila
-    initMap(_mapId, 14.5995, 120.9842, 12);
+    // initMap now polls for the DOM element itself — no fixed delay needed
+    await initMap(_mapId, 14.5995, 120.9842, 12);
 
     setState(() => _ready = true);
 
-    // Ensure map renders correctly
-    await Future.delayed(const Duration(milliseconds: 100));
+    // Ensure map renders correctly after state update paints the div
+    await Future.delayed(const Duration(milliseconds: 50));
     invalidateMapSize(_mapId);
 
     // Try to get user's real position for initial centre
@@ -106,10 +104,12 @@ class _MapPickerState extends State<MapPickerComponent> {
         s.destinationAddress = address;
       });
       if (s.pickupLat != null && s.destinationLat != null) {
-        drawRoute(_mapId, [
-          [s.pickupLat!, s.pickupLng!],
-          [s.destinationLat!, s.destinationLng!],
-        ], '#6366f1');
+        drawOSRMRoute(
+          _mapId,
+          s.pickupLat!, s.pickupLng!,
+          s.destinationLat!, s.destinationLng!,
+          '#6366f1',
+        );
       }
       setState(() {
         _pickingFor = 'pickup';

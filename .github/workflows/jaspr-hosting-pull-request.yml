@@ -4,27 +4,30 @@ permissions:
   checks: write
   contents: read
   pull-requests: write
+
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # Removed redundant setup-dart step; Flutter action provides Dart natively.
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          cache: true
 
-      - name: Install dependencies
+      - name: Install workspace dependencies
         run: flutter pub get
 
-      - name: Build Jaspr Web
+      - name: Install Jaspr CLI
         run: |
           flutter pub global activate jaspr_cli
           echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
-          export PATH="$PATH:$HOME/.pub-cache/bin"
-          cd packages/tranyx_web
+
+      - name: Build Jaspr Web
+        working-directory: packages/tranyx_web
+        run: |
           if [[ "${{ github.base_ref }}" == "main" ]]; then
             jaspr build --dart-define=ENV=prod
           elif [[ "${{ github.base_ref }}" == "uat" ]]; then
@@ -33,25 +36,29 @@ jobs:
             jaspr build --dart-define=ENV=dev
           fi
 
-      - name: Set Environment Variables
-        id: set_env
-        run: |
-          if [[ "${{ github.base_ref }}" == "main" ]]; then
-            echo "sa_secret=${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}" >> $GITHUB_OUTPUT
-            echo "project_id=tranyx-app" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.base_ref }}" == "uat" ]]; then
-            echo "sa_secret=${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT }}" >> $GITHUB_OUTPUT
-            echo "project_id=tranyx-uat" >> $GITHUB_OUTPUT
-          else
-            echo "sa_secret=${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}" >> $GITHUB_OUTPUT
-            echo "project_id=tranyx-dev" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Deploy to Firebase Hosting
+      - name: Deploy PR Preview to Firebase Hosting (prod project)
+        if: github.base_ref == 'main'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ steps.set_env.outputs.sa_secret }}
-          projectId: ${{ steps.set_env.outputs.project_id }}
-          channelId: live
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}
+          projectId: tranyx-app
+          entryPoint: packages/tranyx_web
+
+      - name: Deploy PR Preview to Firebase Hosting (uat project)
+        if: github.base_ref == 'uat'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT }}
+          projectId: tranyx-uat
+          entryPoint: packages/tranyx_web
+
+      - name: Deploy PR Preview to Firebase Hosting (dev project)
+        if: github.base_ref == 'develop'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}
+          projectId: tranyx-dev
           entryPoint: packages/tranyx_web
