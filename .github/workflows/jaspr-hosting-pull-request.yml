@@ -32,11 +32,26 @@ jobs:
             jaspr build --dart-define=ENV=prod
           elif [[ "${{ github.base_ref }}" == "uat" ]]; then
             jaspr build --dart-define=ENV=uat
-          elif [[ "${{ github.base_ref }}" == "develop" ]]; then
+          else
             jaspr build --dart-define=ENV=dev
           fi
 
-      - name: Deploy PR Preview to Firebase Hosting (prod project)
+      - name: Set Environment Variables
+        id: set_env
+        run: |
+          if [[ "${{ github.base_ref }}" == "main" ]]; then
+            echo "project_id=tranyx-app" >> $GITHUB_OUTPUT
+            echo "sa_key_name=FIREBASE_SERVICE_ACCOUNT_TRANYX_APP" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.base_ref }}" == "uat" ]]; then
+            echo "project_id=tranyx-uat" >> $GITHUB_OUTPUT
+            echo "sa_key_name=FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT" >> $GITHUB_OUTPUT
+          else
+            echo "project_id=tranyx-dev" >> $GITHUB_OUTPUT
+            echo "sa_key_name=FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV" >> $GITHUB_OUTPUT
+          fi
+
+      # Deploy to prod project (PR preview — no channelId = auto preview channel)
+      - name: Deploy PR Preview (prod)
         if: github.base_ref == 'main'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
@@ -45,7 +60,7 @@ jobs:
           projectId: tranyx-app
           entryPoint: packages/tranyx_web
 
-      - name: Deploy PR Preview to Firebase Hosting (uat project)
+      - name: Deploy PR Preview (uat)
         if: github.base_ref == 'uat'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
@@ -54,8 +69,8 @@ jobs:
           projectId: tranyx-uat
           entryPoint: packages/tranyx_web
 
-      - name: Deploy PR Preview to Firebase Hosting (dev project)
-        if: github.base_ref == 'develop'
+      - name: Deploy PR Preview (dev)
+        if: github.base_ref != 'main' && github.base_ref != 'uat'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
