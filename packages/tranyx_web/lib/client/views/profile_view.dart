@@ -1,5 +1,6 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:web/web.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
@@ -174,6 +175,8 @@ class _ProfileMain extends StatelessComponent {
               'wallet',
               'text-blue-400',
               isDark,
+              actionLabel: 'Top Up',
+              onAction: (_) => s.setState(() => s.showDepositModal = true),
             ),
         ],
       ),
@@ -236,25 +239,43 @@ class _ProfileMain extends StatelessComponent {
     ]);
   }
 
-  Component _stat(String value, String label, String icon, String iconCls, bool isDark) {
+  Component _stat(
+    String value,
+    String label,
+    String icon,
+    String iconCls,
+    bool isDark, {
+    String? actionLabel,
+    void Function(Event)? onAction,
+  }) {
     final cardCls = isDark
         ? 'bg-zinc-900/50 border-zinc-800/50 hover:border-indigo-500/30'
         : 'bg-white border-zinc-200 shadow-sm hover:border-indigo-500/30';
 
-    return div(classes: 'p-4 rounded-2xl border text-center transition-all duration-300 group $cardCls', [
-      div(
-        classes:
-            'w-10 h-10 rounded-xl bg-zinc-500/5 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform duration-300',
-        [lIcon(icon, cls: 'w-5 h-5 $iconCls')],
-      ),
-      p(classes: 'font-black text-xl md:text-2xl tracking-tight ${isDark ? "text-white" : "text-zinc-900"}', [
-        Component.text(value),
-      ]),
-      p(
-        classes: 'text-[10px] uppercase font-black tracking-widest mt-1 ${isDark ? "text-zinc-500" : "text-zinc-400"}',
-        [Component.text(label)],
-      ),
-    ]);
+    return div(
+      classes:
+          'p-4 rounded-2xl border text-center transition-all duration-300 group $cardCls ${onAction != null ? "cursor-pointer" : ""}',
+      events: onAction != null ? {'click': onAction} : null,
+      [
+        div(
+          classes:
+              'w-10 h-10 rounded-xl bg-zinc-500/5 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform duration-300',
+          [lIcon(icon, cls: 'w-5 h-5 $iconCls')],
+        ),
+        p(classes: 'font-black text-xl md:text-2xl tracking-tight ${isDark ? "text-white" : "text-zinc-900"}', [
+          Component.text(value),
+        ]),
+        p(
+          classes:
+              'text-[10px] uppercase font-black tracking-widest mt-1 ${isDark ? "text-zinc-500" : "text-zinc-400"}',
+          [Component.text(label)],
+        ),
+        if (actionLabel != null)
+          button(classes: 'mt-3 text-[10px] uppercase font-bold text-indigo-400 hover:text-indigo-300', [
+            Component.text(actionLabel),
+          ]),
+      ],
+    );
   }
 }
 

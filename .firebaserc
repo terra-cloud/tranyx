@@ -1,0 +1,20 @@
+{
+  "projects": {
+    "default": "tranyx-dev",
+    "dev": "tranyx-dev",
+    "uat": "tranyx-uat",
+    "prod": "tranyx-app"
+  },
+  "targets": {
+    "tranyx-app": {
+      "hosting": {
+        "tranyx-web-app": [
+          "tranyx-dev",
+          "tranyx-prod",
+          "tranyx-uat"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
