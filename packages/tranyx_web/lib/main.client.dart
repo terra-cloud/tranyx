@@ -10,18 +10,17 @@ import 'package:jaspr/client.dart';
 // This file is generated automatically by Jaspr, do not remove or edit.
 import 'main.client.options.dart';
 
+// Imports the [TranyxApp] component.
+import 'client/tranyx_app.dart';
+
 void main() {
   // Initializes the client environment with the generated default options.
   Jaspr.initializeApp(
     options: defaultClientOptions,
   );
-  // Starts the app.
-  //
-  // [ClientApp] automatically loads and renders all components annotated with @client.
-  //
-  // You can wrap this with additional [InheritedComponent]s to share state across multiple
-  // @client components if needed.
+  
+  // Starts the app on the client directly (SPA mode)
   runApp(
-    const ClientApp(),
+    const TranyxApp(),
   );
 }
