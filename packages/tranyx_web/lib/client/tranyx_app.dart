@@ -835,15 +835,26 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
-  Future<void> confirmDeposit() async {
-    final uid = SessionStorage.uid;
-    final token = SessionStorage.idToken;
-    if (uid == null || token == null) return;
+  String? pendingXenditInvoiceId;
+  bool isVerifyingPayment = false;
 
-    setState(() => isDepositing = true);
+  Future<void> createXenditInvoice() async {
+    final uid = SessionStorage.uid;
+    if (uid == null) return;
+
+    if (depositAmount <= 0) {
+      setState(() {
+        postJobError = 'Please enter a valid amount.';
+      });
+      return;
+    }
+
+    setState(() {
+      isDepositing = true;
+      postJobError = null;
+    });
 
     try {
-      // Create Xendit Invoice
       const apiKey = 'xnd_development_6en2scIVPSVNYySuAtoeoHL7NTZ0xl5tMfMsHbkJT3e2HnI7fyFxkC1LkDD3A';
       final basicAuth = base64Encode(utf8.encode('$apiKey:'));
       final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -867,37 +878,99 @@ class TranyxAppState extends State<TranyxApp> {
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body);
         final invoiceUrl = data['invoice_url'] as String?;
-        if (invoiceUrl != null) {
-          // Open Xendit payment page in a new tab
+        final invoiceId = data['id'] as String?;
+        
+        if (invoiceUrl != null && invoiceId != null) {
           openUrl(invoiceUrl);
+          setState(() {
+            isDepositing = false;
+            pendingXenditInvoiceId = invoiceId;
+          });
+        } else {
+          setState(() {
+            isDepositing = false;
+            postJobError = 'Failed to get invoice URL.';
+          });
         }
       } else {
-        print('Xendit Invoice Creation Failed: ${response.statusCode} - ${response.body}');
-        // Proceeding anyway for the MVP simulation if it fails due to CORS or other issues
-      }
-
-      final svc = FirestoreService(token);
-      final userDoc = await svc.getDocument('users/$uid');
-      if (userDoc != null) {
-        final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-        await svc.createOrUpdate('users/$uid', {
-          ...userDoc,
-          'tyxBalance': currentBal + depositAmount,
+        setState(() {
+          isDepositing = false;
+          postJobError = 'Xendit Invoice Creation Failed: ${response.statusCode}';
         });
-        walletBalance = currentBal + depositAmount;
       }
-
-      setState(() {
-        isDepositing = false;
-        showDepositModal = false;
-      });
-
-      // Now proceed to finalize with sufficient balance
-      await handlePostJob();
     } catch (e) {
       setState(() {
         isDepositing = false;
         postJobError = 'Top-up failed: $e';
+      });
+    }
+  }
+
+  Future<void> verifyXenditPayment() async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    final invoiceId = pendingXenditInvoiceId;
+    if (uid == null || token == null || invoiceId == null) return;
+
+    setState(() => isVerifyingPayment = true);
+
+    try {
+      const apiKey = 'xnd_development_6en2scIVPSVNYySuAtoeoHL7NTZ0xl5tMfMsHbkJT3e2HnI7fyFxkC1LkDD3A';
+      final basicAuth = base64Encode(utf8.encode('$apiKey:'));
+
+      final checkRes = await http.get(
+        Uri.parse('https://api.xendit.co/v2/invoices/$invoiceId'),
+        headers: {'Authorization': 'Basic $basicAuth'},
+      );
+
+      if (checkRes.statusCode == 200) {
+        final checkData = jsonDecode(checkRes.body);
+        final status = checkData['status'];
+        if (status == 'PAID' || status == 'SETTLED') {
+          // Update Firebase
+          final svc = FirestoreService(token);
+          final userDoc = await svc.getDocument('users/$uid');
+          if (userDoc != null) {
+            final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            await svc.createOrUpdate('users/$uid', {
+              ...userDoc,
+              'tyxBalance': currentBal + depositAmount,
+            });
+            walletBalance = currentBal + depositAmount;
+          }
+
+          setState(() {
+            isVerifyingPayment = false;
+            pendingXenditInvoiceId = null;
+            showDepositModal = false;
+          });
+
+          // Finalize job posting ONLY if we were in the middle of posting a job
+          if (newJobTitle.isNotEmpty) {
+            await handlePostJob();
+          }
+        } else if (status == 'EXPIRED') {
+          setState(() {
+            isVerifyingPayment = false;
+            pendingXenditInvoiceId = null;
+            postJobError = 'Invoice has expired. Please try again.';
+          });
+        } else {
+          setState(() {
+            isVerifyingPayment = false;
+            postJobError = 'Payment not completed yet. Status: $status';
+          });
+        }
+      } else {
+        setState(() {
+          isVerifyingPayment = false;
+          postJobError = 'Failed to verify payment status.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        isVerifyingPayment = false;
+        postJobError = 'Verification error: $e';
       });
     }
   }

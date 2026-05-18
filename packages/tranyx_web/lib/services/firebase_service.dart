@@ -306,10 +306,12 @@ class FirestoreService {
 
   // ── Utility ────────────────────────────────────────────────
   Future<void> setDocument(String path, Map<String, dynamic> data) async {
+    if (data.isEmpty) return;
     final url = '$_firestoreBase/$path';
     final body = _toFirestoreFields(data);
+    final queryString = data.keys.map((k) => 'updateMask.fieldPaths=$k').join('&');
     await _patch(
-      '$url?updateMask.fieldPaths=${data.keys.join(',updateMask.fieldPaths=')}',
+      '$url?$queryString',
       body,
       idToken,
     );

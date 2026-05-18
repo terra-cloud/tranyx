@@ -35,14 +35,23 @@ class PaymentModalComponent extends StatelessComponent {
             div(classes: 'p-8 space-y-6', [
               div(classes: 'text-center', [
                 span(classes: 'text-sm font-medium ${isDark ? "text-zinc-500" : "text-zinc-400"} block mb-1', [
-                  Component.text('Top-up Amount'),
+                  Component.text('Top-up Amount (₱)'),
                 ]),
-                div(classes: 'flex items-center justify-center gap-2', [
-                  span(classes: 'text-4xl font-black text-indigo-400', [
-                    Component.text('₱ ${amount.toStringAsFixed(2)}'),
-                  ]),
+                div(classes: 'flex items-center justify-center gap-2 border-b-2 border-indigo-500/30 pb-2 mx-8', [
+                  input(
+                    type: InputType.number,
+                    classes: 'w-full text-center text-4xl font-black text-indigo-400 bg-transparent border-none focus:outline-none placeholder:text-indigo-400/30',
+                    value: amount > 0 ? amount.toString() : '',
+                    attributes: {'placeholder': '0.00', 'min': '1', 'step': '1'},
+                    events: {
+                      'input': (e) {
+                        final val = (e.target as dynamic).value?.toString() ?? '';
+                        s.setState(() => s.depositAmount = double.tryParse(val) ?? 0.0);
+                      }
+                    },
+                  ),
                 ]),
-                span(classes: 'text-xs text-indigo-400/60 mt-2 block', [
+                span(classes: 'text-xs text-indigo-400/60 mt-3 block', [
                   Component.text('1 Tyxbit = 1 Peso (₱)'),
                 ]),
               ]),
@@ -54,25 +63,54 @@ class PaymentModalComponent extends StatelessComponent {
               ]),
 
               div(classes: 'space-y-3', [
-                button(
-                  classes:
-                      'w-full py-4 rounded-2xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
-                  events: {
-                    'click': (_) => s.confirmDeposit(),
-                  },
-                  [
-                    if (s.isDepositing) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                    Component.text(s.isDepositing ? 'Processing...' : 'Pay with Xendit'),
-                  ],
-                ),
-                button(
-                  classes:
-                      'w-full py-4 rounded-2xl font-bold ${isDark ? "text-zinc-400 hover:text-zinc-200" : "text-zinc-500 hover:text-zinc-700"} transition-colors',
-                  events: {
-                    'click': (_) => s.setState(() => s.showDepositModal = false),
-                  },
-                  [Component.text('Cancel')],
-                ),
+                if (s.pendingXenditInvoiceId != null) ...[
+                  button(
+                    classes:
+                        'w-full py-4 rounded-2xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center justify-center gap-2',
+                    events: {
+                      'click': (_) => s.verifyXenditPayment(),
+                    },
+                    [
+                      if (s.isVerifyingPayment) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                      Component.text(s.isVerifyingPayment ? 'Verifying...' : 'I already paid'),
+                    ],
+                  ),
+                  if (s.postJobError != null)
+                    p(classes: 'text-xs text-red-400 text-center mt-2 font-semibold', [Component.text(s.postJobError!)]),
+                  button(
+                    classes:
+                        'w-full py-4 rounded-2xl font-bold ${isDark ? "text-zinc-400 hover:text-zinc-200" : "text-zinc-500 hover:text-zinc-700"} transition-colors',
+                    events: {
+                      'click': (_) => s.setState(() {
+                        s.pendingXenditInvoiceId = null;
+                        s.showDepositModal = false;
+                      }),
+                    },
+                    [Component.text('Cancel')],
+                  ),
+                ] else ...[
+                  button(
+                    classes:
+                        'w-full py-4 rounded-2xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                    events: {
+                      'click': (_) => s.createXenditInvoice(),
+                    },
+                    [
+                      if (s.isDepositing) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                      Component.text(s.isDepositing ? 'Processing...' : 'Pay with Xendit'),
+                    ],
+                  ),
+                  if (s.postJobError != null)
+                    p(classes: 'text-xs text-red-400 text-center mt-2 font-semibold', [Component.text(s.postJobError!)]),
+                  button(
+                    classes:
+                        'w-full py-4 rounded-2xl font-bold ${isDark ? "text-zinc-400 hover:text-zinc-200" : "text-zinc-500 hover:text-zinc-700"} transition-colors',
+                    events: {
+                      'click': (_) => s.setState(() => s.showDepositModal = false),
+                    },
+                    [Component.text('Cancel')],
+                  ),
+                ]
               ]),
             ]),
 

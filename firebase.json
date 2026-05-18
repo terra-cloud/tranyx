@@ -1,0 +1,10 @@
+{
+  "hosting": {
+    "public": "packages/tranyx_web/build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ]
+  }
+}
