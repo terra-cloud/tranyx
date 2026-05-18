@@ -27,27 +27,35 @@ class _MapPickerState extends State<MapPickerComponent> {
   @override
   void initState() {
     super.initState();
-    _statusMsg = (component.state.selectedJobCategory?.hasTracker ?? false)
+    _statusMsg = (component.state.selectedCategory?.hasTracker ?? false)
         ? 'Pan to 1st Point (e.g. Grocery Store)'
         : 'Pan to Site Location';
     _initLeaflet();
   }
 
   Future<void> _initLeaflet() async {
+    print('DEBUG: _initLeaflet started');
     await ensureLeafletLoaded();
+    print('DEBUG: Leaflet loaded');
     // initMap now polls for the DOM element itself — no fixed delay needed
     await initMap(_mapId, 14.5995, 120.9842, 12);
+    print('DEBUG: initMap called');
 
     setState(() => _ready = true);
+    print('DEBUG: _ready set to true');
 
     // Ensure map renders correctly after state update paints the div
     await Future.delayed(const Duration(milliseconds: 50));
     invalidateMapSize(_mapId);
+    print('DEBUG: invalidateMapSize called');
 
     // Try to get user's real position for initial centre
     final pos = await getCurrentPosition();
     if (pos != null) {
       panTo(_mapId, pos.lat, pos.lng);
+      print('DEBUG: panned to position: ${pos.lat}, ${pos.lng}');
+    } else {
+      print('DEBUG: Could not get current position');
     }
   }
 
@@ -152,43 +160,50 @@ class _MapPickerState extends State<MapPickerComponent> {
         ],
       ),
 
-      // Map container
-      if (!_ready)
-        div(
-          classes:
-              'w-full h-72 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900" : "border-zinc-200 bg-zinc-100"} flex items-center justify-center',
-          [lIcon('loader-2', cls: 'w-8 h-8 animate-spin text-indigo-400')],
-        )
-      else
-        div(
-          classes:
-              'relative w-full h-72 rounded-2xl overflow-hidden border ${isDark ? "border-zinc-700" : "border-zinc-200"} shadow-inner',
-          [
-            div(
-              id: _mapId,
-              classes: 'w-full h-full',
-              attributes: {'style': 'z-index:0'},
-              [],
-            ),
-            // Center pin overlay
+      // Map container - always rendered so Leaflet can attach
+      div(
+        classes:
+            'relative w-full h-72 rounded-2xl overflow-hidden border ${isDark ? "border-zinc-700" : "border-zinc-200"} shadow-inner',
+        [
+          // Map element — always rendered so Leaflet can attach
+          div(
+            id: _mapId,
+            classes: 'w-full h-full',
+            attributes: {'style': 'z-index: 0'},
+            [],
+          ),
+          // Loading overlay (shown until map is ready)
+          if (!_ready)
             div(
               classes:
-                  'absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-full pointer-events-none z-[1000]',
+                  'absolute inset-0 flex flex-col items-center justify-center z-[400] '
+                  '${isDark ? "bg-zinc-900" : "bg-zinc-50"}',
               [
-                lIcon(
-                  _pickingFor == 'pickup' ? 'map-pin' : 'flag',
-                  cls: 'w-8 h-8 drop-shadow-md ${_pickingFor == 'pickup' ? 'text-blue-500' : 'text-green-500'}',
-                ),
-                // Shadow dot at the tip of the pin
-                div(
-                  classes:
-                      'absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1 w-2 h-1 bg-black/30 rounded-full blur-[1px]',
-                  [],
-                ),
+                lIcon('loader-2', cls: 'w-8 h-8 animate-spin text-indigo-500'),
+                p(classes: 'text-sm font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                  Component.text('Loading map…'),
+                ]),
               ],
             ),
-          ],
-        ),
+          // Center pin overlay
+          div(
+            classes:
+                'absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-full pointer-events-none z-[1000]',
+            [
+              lIcon(
+                _pickingFor == 'pickup' ? 'map-pin' : 'flag',
+                cls: 'w-8 h-8 drop-shadow-md ${_pickingFor == 'pickup' ? 'text-blue-500' : 'text-green-500'}',
+              ),
+              // Shadow dot at the tip of the pin
+              div(
+                classes:
+                    'absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1 w-2 h-1 bg-black/30 rounded-full blur-[1px]',
+                [],
+              ),
+            ],
+          ),
+        ],
+      ),
 
       // Confirm Button
       if (_ready)
@@ -205,7 +220,7 @@ class _MapPickerState extends State<MapPickerComponent> {
               lIcon('check-circle', cls: 'w-5 h-5'),
               Component.text(
                 _pickingFor == 'pickup'
-                    ? (s.hasTracker ? 'Confirm 1st Point' : 'Confirm Site Location')
+                    ? ((s.selectedCategory?.hasTracker ?? false) ? 'Confirm 1st Point' : 'Confirm Site Location')
                     : 'Confirm Delivery Point',
               ),
             ],
@@ -230,13 +245,13 @@ class _MapPickerState extends State<MapPickerComponent> {
           if (s.pickupAddress.isNotEmpty)
             _locationCard(
               icon: 'package',
-              label: s.hasTracker ? '1st Point' : 'Site Location',
+              label: (s.selectedCategory?.hasTracker ?? false) ? '1st Point' : 'Site Location',
               address: s.pickupAddress,
               color: 'blue',
               isDark: isDark,
               onClear: () {
                 removeMarker(_mapId, 'pickup');
-                if (s.hasTracker) removeMarker(_mapId, 'destination');
+                if (s.selectedCategory?.hasTracker ?? false) removeMarker(_mapId, 'destination');
                 s.setState(() {
                   s.pickupLat = null;
                   s.pickupLng = null;
@@ -247,7 +262,9 @@ class _MapPickerState extends State<MapPickerComponent> {
                 });
                 setState(() {
                   _pickingFor = 'pickup';
-                  _statusMsg = s.hasTracker ? 'Pan to 1st Point (e.g. Grocery Store)' : 'Pan to Site Location';
+                  _statusMsg = (s.selectedCategory?.hasTracker ?? false)
+                      ? 'Pan to 1st Point (e.g. Grocery Store)'
+                      : 'Pan to Site Location';
                 });
               },
             ),

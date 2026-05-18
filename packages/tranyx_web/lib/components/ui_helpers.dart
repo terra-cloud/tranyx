@@ -5,7 +5,6 @@
 // - CSS class strings are plain Tailwind tokens — no Dart calls inside them
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
-import 'package:universal_web/web.dart' as web;
 
 /// Renders a Lucide icon via <i data-lucide="name" class="..."></i>
 /// The MutationObserver in index.html auto-renders them via Lucide JS.

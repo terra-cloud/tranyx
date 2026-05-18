@@ -879,7 +879,7 @@ class TranyxAppState extends State<TranyxApp> {
         final data = jsonDecode(response.body);
         final invoiceUrl = data['invoice_url'] as String?;
         final invoiceId = data['id'] as String?;
-        
+
         if (invoiceUrl != null && invoiceId != null) {
           openUrl(invoiceUrl);
           setState(() {
@@ -932,11 +932,18 @@ class TranyxAppState extends State<TranyxApp> {
           final userDoc = await svc.getDocument('users/$uid');
           if (userDoc != null) {
             final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            final newBal = currentBal + depositAmount;
             await svc.createOrUpdate('users/$uid', {
               ...userDoc,
-              'tyxBalance': currentBal + depositAmount,
+              'tyxBalance': newBal,
             });
-            walletBalance = currentBal + depositAmount;
+            walletBalance = newBal;
+            if (userProfile != null) {
+              userProfile = UserProfile.fromMap(uid, {
+                ...userDoc,
+                'tyxBalance': newBal,
+              });
+            }
           }
 
           setState(() {
@@ -1044,6 +1051,7 @@ class TranyxAppState extends State<TranyxApp> {
     final urgency = jobMap['dateRequirement'] as String? ?? 'Flexible';
     final status = jobMap['status'] as String? ?? 'Open';
     final applicants = jobMap['applicantCount'] as int? ?? 0;
+    final hasTracker = jobMap['hasTracker'] as bool? ?? false;
 
     setState(() {
       selectedJobData = jobMap;
@@ -1057,6 +1065,7 @@ class TranyxAppState extends State<TranyxApp> {
       );
       jobsView = JobsView.details;
       jobQuestions = [];
+      this.hasTracker = hasTracker;
     });
 
     // Load questions
