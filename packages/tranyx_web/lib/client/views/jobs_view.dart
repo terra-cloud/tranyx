@@ -115,7 +115,7 @@ class JobsViewComponent extends StatelessComponent {
 
   List<Map<String, dynamic>> _getFilteredJobs(List<Map<String, dynamic>> jobs, TranyxAppState s) {
     final isNyxian = s.currentViewMode == AccountType.nyxian;
-    
+
     // Always apply home search query first if present
     if (s.homeSearchQuery.isNotEmpty) {
       final q = s.homeSearchQuery.toLowerCase();
@@ -567,11 +567,18 @@ class _JobDetails extends StatelessComponent {
                     ],
                   ),
                   div(
-                    classes: 'relative w-full py-4 rounded-2xl font-semibold border-2 border-dashed ${s.receiptPhotoUrl != null ? "border-green-500 text-green-500" : "border-zinc-500 text-zinc-500"} flex items-center justify-center gap-2 cursor-pointer hover:bg-zinc-500/10 transition-colors',
+                    classes:
+                        'relative w-full py-4 rounded-2xl font-semibold border-2 border-dashed ${s.receiptPhotoUrl != null ? "border-green-500 text-green-500" : "border-zinc-500 text-zinc-500"} flex items-center justify-center gap-2 cursor-pointer hover:bg-zinc-500/10 transition-colors',
                     [
                       if (s.isUploadingReceipt) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
                       lIcon(s.receiptPhotoUrl != null ? 'check' : 'upload', cls: 'w-5 h-5'),
-                      Component.text(s.isUploadingReceipt ? 'Uploading...' : s.receiptPhotoUrl != null ? 'Receipt Uploaded' : 'Upload Receipt/Photo'),
+                      Component.text(
+                        s.isUploadingReceipt
+                            ? 'Uploading...'
+                            : s.receiptPhotoUrl != null
+                            ? 'Receipt Uploaded'
+                            : 'Upload Receipt/Photo',
+                      ),
                       input(
                         type: InputType.file,
                         attributes: {'accept': 'image/*', 'capture': 'environment'},
@@ -581,9 +588,12 @@ class _JobDetails extends StatelessComponent {
                     ],
                   ),
                   button(
-                    classes: 'w-full py-4 rounded-2xl font-semibold text-white bg-yellow-600 hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+                    classes:
+                        'w-full py-4 rounded-2xl font-semibold text-white bg-yellow-600 hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
                     attributes: s.receiptPhotoUrl == null ? {'disabled': 'true'} : {},
-                    events: s.receiptPhotoUrl == null ? {} : {'click': (_) => s.handleUpdateNyxianSubStatus('paid_cashier')},
+                    events: s.receiptPhotoUrl == null
+                        ? {}
+                        : {'click': (_) => s.handleUpdateNyxianSubStatus('paid_cashier')},
                     [Component.text('Mark as Picked Up / Paid')],
                   ),
                 ]);
@@ -603,7 +613,8 @@ class _JobDetails extends StatelessComponent {
                     ],
                   ),
                   button(
-                    classes: 'w-full py-4 rounded-2xl font-semibold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors',
+                    classes:
+                        'w-full py-4 rounded-2xl font-semibold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors',
                     events: {'click': (_) => s.handleUpdateNyxianSubStatus('arrived_dropoff')},
                     [Component.text('Arrived at Destination')],
                   ),
@@ -617,23 +628,29 @@ class _JobDetails extends StatelessComponent {
                     div([
                       p(classes: 'font-bold text-indigo-400 text-sm', [Component.text('Task Completed')]),
                       p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                        Component.text(hasTracker ? 'Generate your payment code and show it to the Recipient.' : 'Waiting for Employer to generate payment code. Click below when they show it.'),
+                        Component.text(
+                          hasTracker
+                              ? 'Generate your payment code and show it to the Recipient.'
+                              : 'Waiting for Employer to generate payment code. Click below when they show it.',
+                        ),
                       ]),
                     ]),
                   ]),
                   if (hasTracker)
                     button(
-                      classes: 'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                      classes:
+                          'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
                       events: {'click': (_) => s.generateCompletionCode()},
                       [
                         if (s.isGeneratingCode) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                        lIcon('qr-code', cls: 'w-5 h-5'), 
-                        Component.text(s.isGeneratingCode ? 'Generating...' : 'Show Payment QR / Code')
+                        lIcon('qr-code', cls: 'w-5 h-5'),
+                        Component.text(s.isGeneratingCode ? 'Generating...' : 'Show Payment QR / Code'),
                       ],
                     )
                   else
                     button(
-                      classes: 'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                      classes:
+                          'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
                       events: {'click': (_) => s.setState(() => s.showCompletionScanner = true)},
                       [lIcon('key', cls: 'w-5 h-5'), Component.text('Enter Payment Code')],
                     ),
@@ -685,16 +702,23 @@ class _JobDetails extends StatelessComponent {
             ]);
           } else {
             // --- EMPLOYER VIEW ---
-            if (status == 'In Progress' || status == 'arrived_pickup' || status == 'paid_cashier' || status == 'in_transit') {
+            if (status == 'In Progress' ||
+                status == 'arrived_pickup' ||
+                status == 'paid_cashier' ||
+                status == 'in_transit') {
               return div(classes: 'space-y-3', [
                 div(classes: 'p-4 rounded-2xl border border-blue-500/30 bg-blue-500/10 flex items-center gap-3', [
                   lIcon('clock', cls: 'w-5 h-5 text-blue-400'),
                   div([
                     p(classes: 'font-bold text-blue-400 text-sm', [
-                      Component.text(hasTracker ? 'Delivery In Progress' : 'Work In Progress')
+                      Component.text(hasTracker ? 'Delivery In Progress' : 'Work In Progress'),
                     ]),
                     p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                      Component.text(hasTracker ? 'Nyxian is fulfilling your delivery order.' : 'Nyxian is currently working on your task.'),
+                      Component.text(
+                        hasTracker
+                            ? 'Nyxian is fulfilling your delivery order.'
+                            : 'Nyxian is currently working on your task.',
+                      ),
                     ]),
                   ]),
                 ]),
@@ -713,19 +737,25 @@ class _JobDetails extends StatelessComponent {
                   div([
                     p(classes: 'font-bold text-green-400 text-sm', [Component.text('Task Ready for Payment')]),
                     p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                      Component.text(hasTracker ? 'Nyxian has arrived. Enter the code they show you to release escrow.' : 'The Nyxian has marked the task as done. Generate a code to release escrow.'),
+                      Component.text(
+                        hasTracker
+                            ? 'Nyxian has arrived. Enter the code they show you to release escrow.'
+                            : 'The Nyxian has marked the task as done. Generate a code to release escrow.',
+                      ),
                     ]),
                   ]),
                 ]),
                 if (hasTracker)
                   button(
-                    classes: 'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                    classes:
+                        'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
                     events: {'click': (_) => s.setState(() => s.showCompletionScanner = true)},
                     [lIcon('key', cls: 'w-5 h-5'), Component.text('Enter Payment Code')],
                   )
                 else
                   button(
-                    classes: 'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                    classes:
+                        'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
                     events: {'click': (_) => s.generateCompletionCode()},
                     [
                       if (s.isGeneratingCode) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
@@ -820,12 +850,10 @@ class _JobDetails extends StatelessComponent {
                   classes:
                       'w-full px-4 py-4 text-center text-3xl font-black tracking-widest rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white focus:border-indigo-500" : "bg-white border-zinc-200 text-zinc-900 focus:border-indigo-500"} outline-none transition-colors',
                   attributes: {'placeholder': '------', 'maxlength': '6'},
-                  events: {
-                    'input': (e) => s.setState(() {
-                      // ignore: avoid_dynamic_calls
-                      s.completionScanInput = (e as dynamic).target?.value as String? ?? '';
-                    }),
-                  },
+                  value: s.completionScanInput,
+                  onInput: (dynamic v) => s.setState(() {
+                    s.completionScanInput = v as String;
+                  }),
                 ),
               ]),
               div(classes: 'flex gap-3', [

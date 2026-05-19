@@ -1206,6 +1206,7 @@ class TranyxAppState extends State<TranyxApp> {
         applicants: applicants,
       );
       selectedJobImageCarouselIndex = 0;
+      activeTab = AppTab.jobs;
       jobsView = JobsView.details;
       jobQuestions = [];
       this.hasTracker = hasTracker;
