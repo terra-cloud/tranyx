@@ -192,6 +192,11 @@ class TranyxAppState extends State<TranyxApp> {
   double walletBalance = 0.0;
   bool isRefreshingBalance = false;
   List<Map<String, dynamic>> userTransactions = [];
+  
+  // ── Notifications ───────────────────────────────────────────
+  List<Map<String, dynamic>> notifications = [];
+  bool showNotificationsDropdown = false;
+  Map<String, dynamic>? latestToastNotification;
 
   // ── Services ────────────────────────────────────────────────
   final _auth = FirebaseAuthService();
@@ -256,6 +261,36 @@ class TranyxAppState extends State<TranyxApp> {
     // Load jobs for current tab
     await loadJobs();
     await loadTransactions();
+    _startListeningNotifications();
+  }
+
+  void _startListeningNotifications() {
+    final uid = SessionStorage.uid;
+    if (uid == null) return;
+    listenToNotificationsJs(uid, (String jsonString) {
+      try {
+        final List<dynamic> rawList = jsonDecode(jsonString);
+        final parsed = rawList.map((e) => e as Map<String, dynamic>).toList();
+        parsed.sort((a, b) => (b['createdAt'] as num? ?? 0).compareTo(a['createdAt'] as num? ?? 0));
+        
+        setState(() {
+          // Identify if there are new notifications that we didn't have before
+          final newNotifs = parsed.where((n) => !notifications.any((existing) => existing['id'] == n['id'])).toList();
+          if (newNotifs.isNotEmpty) {
+            latestToastNotification = newNotifs.first;
+            // Clear toast after 5 seconds
+            Timer(const Duration(seconds: 5), () {
+              if (latestToastNotification?['id'] == newNotifs.first['id']) {
+                setState(() => latestToastNotification = null);
+              }
+            });
+          }
+          notifications = parsed;
+        });
+      } catch (e) {
+        print('Error parsing notifications: $e');
+      }
+    });
   }
 
   Future<void> _loadUserProfile() async {
@@ -320,6 +355,7 @@ class TranyxAppState extends State<TranyxApp> {
       _initGemini();
       await loadJobs();
       await loadTransactions();
+      _startListeningNotifications();
       // Auto-connect Phantom wallet if already trusted by the browser
       unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
     } on FirebaseException catch (e) {
@@ -1446,6 +1482,13 @@ class TranyxAppState extends State<TranyxApp> {
         }
 
         await svc.createOrUpdate('jobs/$jobId', updates);
+
+        final jobTitle = jobDoc['title'] as String? ?? 'Job';
+        await svc.createNotification(
+          uid: applicantUid,
+          title: 'Application Accepted',
+          message: 'You have been selected for the job "$jobTitle".',
+        );
       }
       setState(() => isUpdatingJobStatus = false);
       await loadJobs();
@@ -1744,6 +1787,17 @@ class TranyxAppState extends State<TranyxApp> {
         proposalRate: isCounterOffer ? (double.tryParse(applyPriceRate) ?? 0.0) : 0.0,
         isCounterOffer: isCounterOffer,
       );
+
+      final creatorId = selectedJobData?['creatorId'] as String?;
+      if (creatorId != null && creatorId.isNotEmpty) {
+        final jobTitle = selectedJobData?['title'] as String? ?? 'Job';
+        final appName = userName.isEmpty ? 'Anonymous' : userName;
+        await FirestoreService(token, _handleTokenRefresh).createNotification(
+          uid: creatorId,
+          title: 'New Applicant',
+          message: '$appName has applied to your job "$jobTitle".',
+        );
+      }
       setState(() {
         isSubmittingApplication = false;
         jobsView = JobsView.success;
@@ -2440,6 +2494,31 @@ class TranyxAppState extends State<TranyxApp> {
           ],
         ),
       ]),
+
+      // Toast Notification
+      if (latestToastNotification != null)
+        div(
+          classes:
+              'fixed top-6 right-6 max-w-sm w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl rounded-xl p-4 z-50 transform transition-all duration-500 flex items-start gap-3 translate-y-0 opacity-100',
+          [
+            div(classes: 'p-2 bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-lg flex-shrink-0', [
+              lIcon('bell', cls: 'w-5 h-5'),
+            ]),
+            div(classes: 'flex-1 pt-1', [
+              p(classes: 'text-sm font-bold text-zinc-900 dark:text-white', [
+                Component.text(latestToastNotification!['title'] as String? ?? 'Notification')
+              ]),
+              p(classes: 'text-xs text-zinc-500 mt-1', [
+                Component.text(latestToastNotification!['message'] as String? ?? '')
+              ]),
+            ]),
+            button(
+              classes: 'p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors rounded-lg',
+              events: {'click': (_) => setState(() => latestToastNotification = null)},
+              [lIcon('x', cls: 'w-4 h-4')],
+            ),
+          ],
+        ),
 
       // Category modal overlay
       if (showCategoryModal) CategoryModalComponent(state: this),

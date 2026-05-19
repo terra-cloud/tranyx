@@ -50,7 +50,8 @@ class TopHeaderComponent extends StatelessComponent {
             events: {},
             [
               lIcon('bell', cls: 'w-4 h-4'),
-              span([], classes: 'absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-500'),
+              if (s.notifications.isNotEmpty)
+                span([], classes: 'absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-500'),
             ],
           ),
 

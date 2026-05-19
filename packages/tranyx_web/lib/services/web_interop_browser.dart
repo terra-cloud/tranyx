@@ -59,6 +59,25 @@ Future<String?> signInWithGoogleJs(Map<String, String> config) async {
   }
 }
 
+// ── Notifications ────────────────────────────────────────────────────────────
+
+JSFunction? _notificationUnsub;
+
+void listenToNotificationsJs(String uid, void Function(String) callback) {
+  try {
+    _notificationUnsub?.callAsFunction();
+    final cb = callback.toJS;
+    final unsub = web.window.callMethod<JSFunction>('listenToNotifications'.toJS, uid.toJS, cb);
+    _notificationUnsub = unsub;
+  } catch (_) {}
+}
+
+void markNotificationReadJs(String notifId) {
+  try {
+    web.window.callMethod('markNotificationRead'.toJS, notifId.toJS);
+  } catch (_) {}
+}
+
 // ── Solana balance ────────────────────────────────────────────────────────────
 
 Future<double?> getSolanaBalance(String publicKey) async {

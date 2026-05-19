@@ -3,6 +3,7 @@
 // Run jaspr with: --dart-define=ENV=dev   (or uat / prod)
 
 import 'dart:convert';
+import 'dart:math';
 import 'package:http/http.dart' as http;
 
 import 'package:shared/shared.dart';
@@ -509,6 +510,60 @@ class FirestoreService {
     return transactions;
   }
 
+  /// Fetch notifications for [uid].
+  Future<List<Map<String, dynamic>>> getNotifications(String uid) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'notifications'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'uid'},
+            'op': 'EQUAL',
+            'value': {'stringValue': uid},
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) {
+      return [];
+    }
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final notifications = <Map<String, dynamic>>[];
+    for (final res in results) {
+      if (res is Map<String, dynamic> && res.containsKey('document')) {
+        final doc = res['document'] as Map<String, dynamic>;
+        final id = _docId(doc);
+        notifications.add({'id': id, ..._fromFirestoreDoc(doc)});
+      }
+    }
+    return notifications;
+  }
+
+  Future<void> createNotification({
+    required String uid,
+    required String title,
+    required String message,
+  }) async {
+    final docId = 'notif_${DateTime.now().millisecondsSinceEpoch}_${uid.substring(0, min(5, uid.length))}';
+    await createOrUpdate('notifications/$docId', {
+      'uid': uid,
+      'title': title,
+      'message': message,
+      'isRead': false,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
   /// Fetch all jobs where the user is the accepted applicant.
   Future<List<Map<String, dynamic>>> getAcceptedJobs(String uid) async {
     return _queryJobs([
@@ -884,7 +939,13 @@ class GeminiService {
     if (question.isEmpty) return 'Please ask a valid question.';
     final prompt =
         'You are the friendly, intelligent AI support assistant for Tranyx, a premium Web3 freelance gig marketplace in the Philippines. '
-        'Answer the following user support question in a friendly, helpful, and concise manner. '
+        'You must provide accurate support based on the following app flow:\n'
+        '1. Roles: Employers post jobs; Nyxians (workers) apply.\n'
+        '2. Payment: Employers deposit funds (PHP via GCash/Xendit or Crypto via Phantom) into Escrow when posting a job.\n'
+        '3. Standard Jobs: When work is done, the Employer generates a "Completion Code" from their dashboard, which they give to the Nyxian. The Nyxian inputs this code to release escrow.\n'
+        '4. Delivery (Tracker) Jobs: The Nyxian updates tracking stages (pickup, dropoff). At the final stage, the Nyxian generates a "Payment Code" which the Employer scans/inputs to release payment.\n'
+        '5. Fees: 3% platform fee is deducted from the payout to the Nyxian.\n'
+        'Answer the following user support question in a friendly, helpful, and concise manner based ONLY on the workflow above. '
         'If the question is in Tagalog or Waray-Waray, respond in that language. Otherwise respond in English. '
         'Keep the answer within 3-4 sentences.\n\n'
         'User Question: "$question"';

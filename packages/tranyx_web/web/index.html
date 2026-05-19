@@ -11,6 +11,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-firestore-compat.js"></script>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
@@ -61,6 +62,24 @@
           console.error(error);
           throw error;
         }
+      };
+
+      window.listenToNotifications = function(uid, callback) {
+        if (!firebase.apps.length) return () => {};
+        const db = firebase.firestore();
+        return db.collection('notifications')
+                 .where('uid', '==', uid)
+                 .where('isRead', '==', false)
+                 .onSnapshot((snapshot) => {
+                     const notifs = [];
+                     snapshot.forEach(doc => notifs.push({id: doc.id, ...doc.data()}));
+                     callback(JSON.stringify(notifs));
+                 });
+      };
+
+      window.markNotificationRead = function(notifId) {
+         if (!firebase.apps.length) return;
+         firebase.firestore().collection('notifications').doc(notifId).update({isRead: true});
       };
 
       // ── OSRM route helper (CSP-safe — real script, not eval) ──────────
