@@ -56,7 +56,8 @@ class TopHeaderComponent extends StatelessComponent {
 
           // Avatar
           div(
-            classes: 'w-9 h-9 rounded-full overflow-hidden border-2 border-indigo-500/40 cursor-pointer ml-1 flex items-center justify-center ${s.userPhotoUrl == null ? "bg-indigo-600" : ""}',
+            classes:
+                'w-9 h-9 rounded-full overflow-hidden border-2 border-indigo-500/40 cursor-pointer ml-1 flex items-center justify-center ${s.userPhotoUrl == null ? "bg-indigo-600" : ""}',
             events: {'click': (_) => s.switchTab(AppTab.profile)},
             [
               if (s.userPhotoUrl != null)

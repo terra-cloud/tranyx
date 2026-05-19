@@ -511,7 +511,10 @@ class FirestoreService {
     });
 
     final req = await _client.post(Uri.parse(url), headers: headers, body: body);
-    if (req.statusCode >= 400) return [];
+    if (req.statusCode >= 400) {
+      print('FIRESTORE QUERY ERROR: ${req.statusCode} - ${req.body}');
+      return [];
+    }
 
     final results = jsonDecode(req.body) as List;
     return results.where((r) => (r as Map).containsKey('document')).map((r) {
@@ -859,7 +862,7 @@ class ImgBBService {
         return keyVal;
       }
     } catch (_) {}
-    return ''; // Replace with default or fallback if needed
+    return '50952d72f276ff20aa3362f346b134ab'; // Fallback working apiKey from mobile
   }
 
   Future<String?> uploadImageBytes(List<int> bytes, String filename, {int? expiration}) async {

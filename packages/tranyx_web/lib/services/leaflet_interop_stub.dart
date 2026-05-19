@@ -8,7 +8,14 @@ void onMapClick(String elementId, void Function(double lat, double lng) onTap) {
 void setMarker(String elementId, String markerId, double lat, double lng, String? popupText) {}
 void removeMarker(String elementId, String markerId) {}
 void drawRoute(String elementId, List<List<double>> points, String color) {}
-Future<void> drawOSRMRoute(String elementId, double fromLat, double fromLng, double toLat, double toLng, String color) async {}
+Future<void> drawOSRMRoute(
+  String elementId,
+  double fromLat,
+  double fromLng,
+  double toLat,
+  double toLng,
+  String color,
+) async {}
 void panTo(String elementId, double lat, double lng) {}
 void destroyMap(String elementId) {}
 Future<String> reverseGeocode(double lat, double lng) async => '$lat, $lng';

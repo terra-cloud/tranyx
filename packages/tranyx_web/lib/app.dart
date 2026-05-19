@@ -17,15 +17,17 @@ class App extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     // This method is rerun every time the component is rebuilt.
-    
+
     // Renders a <div class="main"> html element with children.
     return div(classes: 'main bg-zinc-950 min-h-screen', [
       const Header(),
-      Router(routes: [
-        Route(path: '/', title: 'Home', builder: (context, state) => const Home()),
-        Route(path: '/about', title: 'About', builder: (context, state) => const About()),
-        Route(path: '/post-job', title: 'Post a Gig', builder: (context, state) => const PostJobPage()),
-      ]),
+      Router(
+        routes: [
+          Route(path: '/', title: 'Home', builder: (context, state) => const Home()),
+          Route(path: '/about', title: 'About', builder: (context, state) => const About()),
+          Route(path: '/post-job', title: 'Post a Gig', builder: (context, state) => const PostJobPage()),
+        ],
+      ),
     ]);
   }
 

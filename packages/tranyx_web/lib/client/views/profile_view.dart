@@ -286,6 +286,12 @@ class _PersonalInfo extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final s = state;
+    final isDark = s.isDark;
+
+    final currentName = s.editName.isNotEmpty ? s.editName : (s.userProfile?.name ?? s.userName);
+    final currentEmail = s.editEmail.isNotEmpty ? s.editEmail : (s.userProfile?.email ?? s.userEmail);
+    final currentTaxId = s.editTaxId.isNotEmpty ? s.editTaxId : (s.userProfile?.taxId ?? '');
+
     return div(classes: 'space-y-6', [
       subViewHeader(
         title: 'Personal Information',
@@ -298,7 +304,7 @@ class _PersonalInfo extends StatelessComponent {
           placeholder: 'Alex Rivera',
           iconName: 'user-circle',
           isDark: s.isDark,
-          value: s.userProfile?.name ?? s.userName,
+          value: currentName,
           onChange: (v) => s.setState(() => s.editName = v),
         ),
         inputField(
@@ -307,25 +313,70 @@ class _PersonalInfo extends StatelessComponent {
           iconName: 'mail',
           type: 'email',
           isDark: s.isDark,
-          value: s.userProfile?.email ?? s.userEmail,
+          value: currentEmail,
           onChange: (v) => s.setState(() => s.editEmail = v),
         ),
+        div(classes: 'space-y-1', [
+          label(
+            classes:
+                'block text-xs font-bold ${s.isDark ? "text-zinc-400" : "text-zinc-500"} uppercase tracking-wider mb-1',
+            [
+              Component.text('Phone Number (Starts with 9)'),
+            ],
+          ),
+          div(classes: 'flex gap-2 items-stretch', [
+            div(
+              classes:
+                  'px-4 py-3 rounded-2xl flex items-center bg-zinc-500/10 font-bold border border-zinc-500/20 text-zinc-500 text-sm',
+              [Component.text('+63')],
+            ),
+            div(classes: 'flex-1 relative', [
+              input(
+                type: InputType.text,
+                attributes: {'placeholder': '917 000 0000'},
+                value: s.formatPhone(s.editPhone),
+                classes:
+                    'w-full px-5 py-4 pl-12 rounded-2xl border bg-transparent font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all ${s.isDark ? "border-zinc-800 focus:border-indigo-500/50 text-white" : "border-zinc-200 focus:border-indigo-500 text-zinc-800"}',
+                events: {
+                  'input': (e) {
+                    // ignore: avoid_dynamic_calls
+                    final val = (e as dynamic).target?.value as String? ?? '';
+                    final digits = val.replaceAll(RegExp(r'\D'), '');
+                    var phoneNum = digits;
+                    if (phoneNum.startsWith('63')) phoneNum = phoneNum.substring(2);
+                    if (phoneNum.startsWith('0')) phoneNum = phoneNum.substring(1);
+                    if (phoneNum.length > 10) phoneNum = phoneNum.substring(0, 10);
+                    s.setState(() => s.editPhone = phoneNum);
+                  },
+                },
+              ),
+              span(classes: 'absolute left-4 top-1/2 -translate-y-1/2 opacity-50', [
+                lIcon('phone', cls: 'w-5 h-5'),
+              ]),
+            ]),
+          ]),
+        ]),
         inputField(
-          label: 'Phone Number',
-          placeholder: '+63 917 000 0000',
-          iconName: 'phone',
-          type: 'tel',
+          label: 'Tax ID / TIN (Philippines)',
+          placeholder: '000-000-000-000',
+          iconName: 'file-text',
           isDark: s.isDark,
-          value: s.userProfile?.phoneNumber ?? '',
-          onChange: (v) => s.setState(() => s.editPhone = v),
+          value: s.formatTIN(currentTaxId),
+          onChange: (v) {
+            final digits = v.replaceAll(RegExp(r'\D'), '');
+            final tin = digits.substring(0, digits.length > 12 ? 12 : digits.length);
+            s.setState(() => s.editTaxId = tin);
+          },
         ),
       ]),
       if (s.profileSaveError != null)
         p(classes: 'text-sm text-red-400 text-center', [Component.text(s.profileSaveError!)]),
       button(
         classes:
-            'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
-        events: {'click': (_) => s.handleSavePersonalInfo()},
+            'w-full py-4 rounded-2xl font-semibold text-white '
+            '${s.hasPersonalInfoChanges && s.isPersonalInfoValid ? "logo-gradient hover:opacity-90 transition-opacity cursor-pointer shadow-lg shadow-indigo-500/20" : "bg-zinc-800/50 text-zinc-500 border border-zinc-850 cursor-not-allowed"} '
+            'flex items-center justify-center gap-2',
+        events: (s.hasPersonalInfoChanges && s.isPersonalInfoValid) ? {'click': (_) => s.handleSavePersonalInfo()} : {},
         [
           if (s.isSavingProfile) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
           Component.text(s.isSavingProfile ? 'Saving...' : 'Save Changes'),
@@ -347,7 +398,17 @@ class _ProfessionalInfo extends StatelessComponent {
     final isNyxian = s.accountType == AccountType.nyxian || s.accountType == AccountType.hybrid;
     final isEmployer = s.accountType == AccountType.employer || s.accountType == AccountType.hybrid;
     final sectionCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+
+    final currentHeadline = s.editHeadline.isNotEmpty ? s.editHeadline : (s.userProfile?.headline ?? '');
+    final currentHourlyRate = s.editHourlyRate.isNotEmpty
+        ? s.editHourlyRate
+        : (s.userProfile?.hourlyRate?.toStringAsFixed(0) ?? '');
     final skills = s.editSkills.isNotEmpty ? s.editSkills : (s.userProfile?.skills ?? []);
+    final currentBusinessName = s.editBusinessName.isNotEmpty
+        ? s.editBusinessName
+        : (s.userProfile?.businessName ?? '');
+    final currentIndustry = s.editIndustry.isNotEmpty ? s.editIndustry : (s.userProfile?.industry ?? '');
+    final currentTaxId = s.editTaxId.isNotEmpty ? s.editTaxId : (s.userProfile?.taxId ?? '');
 
     return div(classes: 'space-y-6', [
       subViewHeader(
@@ -368,7 +429,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: 'e.g. Expert Electrician & Handyman',
             iconName: 'zap',
             isDark: isDark,
-            value: s.editHeadline.isNotEmpty ? s.editHeadline : (s.userProfile?.headline ?? ''),
+            value: currentHeadline,
             onChange: (v) => s.setState(() => s.editHeadline = v),
           ),
           inputField(
@@ -376,9 +437,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: '250',
             iconName: 'wallet',
             isDark: isDark,
-            value: s.editHourlyRate.isNotEmpty
-                ? s.editHourlyRate
-                : (s.userProfile?.hourlyRate?.toStringAsFixed(0) ?? ''),
+            value: currentHourlyRate,
             onChange: (v) => s.setState(() => s.editHourlyRate = v),
           ),
           div([
@@ -442,7 +501,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: 'Rivera Constructions',
             iconName: 'building',
             isDark: isDark,
-            value: s.editBusinessName.isNotEmpty ? s.editBusinessName : (s.userProfile?.businessName ?? ''),
+            value: currentBusinessName,
             onChange: (v) => s.setState(() => s.editBusinessName = v),
           ),
           inputField(
@@ -450,16 +509,20 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: 'Construction & Real Estate',
             iconName: 'briefcase',
             isDark: isDark,
-            value: s.editIndustry.isNotEmpty ? s.editIndustry : (s.userProfile?.industry ?? ''),
+            value: currentIndustry,
             onChange: (v) => s.setState(() => s.editIndustry = v),
           ),
           inputField(
-            label: 'Tax ID / TIN',
+            label: 'Tax ID / TIN (Philippines)',
             placeholder: '000-000-000-000',
             iconName: 'file-text',
             isDark: isDark,
-            value: s.editTaxId.isNotEmpty ? s.editTaxId : (s.userProfile?.taxId ?? ''),
-            onChange: (v) => s.setState(() => s.editTaxId = v),
+            value: s.formatTIN(currentTaxId),
+            onChange: (v) {
+              final digits = v.replaceAll(RegExp(r'\D'), '');
+              final tin = digits.substring(0, digits.length > 12 ? 12 : digits.length);
+              s.setState(() => s.editTaxId = tin);
+            },
           ),
         ]),
       ],
@@ -468,8 +531,12 @@ class _ProfessionalInfo extends StatelessComponent {
         p(classes: 'text-sm text-red-400 text-center', [Component.text(s.profileSaveError!)]),
       button(
         classes:
-            'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
-        events: {'click': (_) => s.handleSaveProfessionalInfo()},
+            'w-full py-4 rounded-2xl font-semibold text-white '
+            '${s.hasProfessionalInfoChanges && s.isProfessionalInfoValid ? "logo-gradient hover:opacity-90 transition-opacity cursor-pointer shadow-lg shadow-indigo-500/20" : "bg-zinc-800/50 text-zinc-500 border border-zinc-850 cursor-not-allowed"} '
+            'flex items-center justify-center gap-2',
+        events: (s.hasProfessionalInfoChanges && s.isProfessionalInfoValid)
+            ? {'click': (_) => s.handleSaveProfessionalInfo()}
+            : {},
         [
           if (s.isSavingProfile) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
           Component.text(s.isSavingProfile ? 'Saving...' : 'Save Changes'),
@@ -675,10 +742,63 @@ class _TrustVerification extends StatelessComponent {
   final TranyxAppState state;
   const _TrustVerification({required this.state});
 
+  Component verificationCard({
+    required String title,
+    required String desc,
+    required bool isVerified,
+    required bool isDark,
+    required void Function() onVerify,
+    required bool isSaving,
+  }) {
+    return div(
+      classes:
+          'p-5 rounded-2xl border ${isDark ? "bg-zinc-900/40 border-zinc-800/80" : "bg-white border-zinc-200/60 shadow-sm"} flex items-center justify-between gap-4',
+      [
+        div(classes: 'flex items-center gap-3', [
+          div(
+            classes:
+                'w-10 h-10 rounded-xl flex items-center justify-center '
+                '${isVerified ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+            [lIcon(isVerified ? 'check-circle' : 'circle', cls: 'w-5 h-5')],
+          ),
+          div([
+            p(classes: 'font-bold text-sm ${isDark ? "text-white" : "text-zinc-800"}', [Component.text(title)]),
+            p(classes: 'text-[11px] ${isDark ? "text-zinc-500" : "text-zinc-550"}', [Component.text(desc)]),
+          ]),
+        ]),
+        if (isVerified)
+          span(
+            classes:
+                'px-3 py-1 rounded-full text-xs font-bold bg-green-500/10 text-green-400 border border-green-500/20',
+            [
+              Component.text('Verified'),
+            ],
+          )
+        else
+          button(
+            classes:
+                'px-4 py-2 rounded-xl text-xs font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-1.5 min-w-[100px] justify-center',
+            events: isSaving ? {} : {'click': (_) => onVerify()},
+            [
+              if (isSaving) lIcon('loader-2', cls: 'w-3.5 h-3.5 animate-spin'),
+              Component.text(isSaving ? 'Verifying...' : 'Verify Now'),
+            ],
+          ),
+      ],
+    );
+  }
+
   @override
   Component build(BuildContext context) {
     final s = state;
     final isDark = s.isDark;
+
+    final isEmail = s.userProfile?.emailVerified ?? false;
+    final isPhone = s.userProfile?.phoneVerified ?? false;
+    final isId = s.userProfile?.idVerified ?? false;
+    final isBg = s.userProfile?.bgChecked ?? false;
+    final level = s.userProfile?.verificationLevel ?? 0;
+
     return div(classes: 'space-y-6', [
       subViewHeader(
         title: 'Trust & Verification',
@@ -687,20 +807,89 @@ class _TrustVerification extends StatelessComponent {
       ),
       div(
         classes:
-            'p-5 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"} text-center',
+            'p-6 rounded-3xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-md"} text-center relative overflow-hidden',
         [
-          lIcon('shield-check', cls: 'w-10 h-10 text-green-400 mx-auto mb-2'),
-          p(classes: 'font-bold text-lg', [Component.text('Identity Verification')]),
-          p(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-            Component.text('Complete verification to unlock all features'),
+          div([], classes: 'absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 pointer-events-none'),
+          div(classes: 'relative z-10 space-y-3', [
+            div(
+              classes:
+                  'w-16 h-16 rounded-full flex items-center justify-center mx-auto '
+                  '${level == 2
+                      ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                      : level == 1
+                      ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                      : "bg-zinc-500/10 text-zinc-500 border border-zinc-500/20"}',
+              [lIcon(level > 0 ? 'shield-check' : 'shield-alert', cls: 'w-8 h-8')],
+            ),
+            h4(classes: 'text-xl font-black tracking-tight', [
+              Component.text(
+                level == 2
+                    ? 'Fully Verified (Level 2)'
+                    : level == 1
+                    ? 'Basic Verified (Level 1)'
+                    : 'Unverified (Level 0)',
+              ),
+            ]),
+            p(classes: 'text-xs max-w-sm mx-auto ${isDark ? "text-zinc-400" : "text-zinc-500"} leading-relaxed', [
+              Component.text(
+                level == 2
+                    ? 'Amazing! You have completed all verification levels. You get maximum trust badge visibility!'
+                    : level == 1
+                    ? 'You have verified email & phone number. Complete ID & Background checks to become Fully Verified.'
+                    : 'Get started by verifying your profile details to gain trust from the community.',
+              ),
+            ]),
+            // Progress Bar
+            div(classes: 'w-full bg-zinc-700/20 rounded-full h-2 mt-4', [
+              div(
+                [],
+                classes: 'h-2 rounded-full logo-gradient transition-all duration-500',
+                attributes: {
+                  'style':
+                      'width: ${level == 2
+                          ? "100"
+                          : level == 1
+                          ? "50"
+                          : "15"}%',
+                },
+              ),
+            ]),
           ]),
         ],
       ),
       div(classes: 'space-y-3', [
-        verificationItem(title: 'Government ID', status: 'Verified', isDark: isDark),
-        verificationItem(title: 'Phone Number', status: 'Verified', isDark: isDark),
-        verificationItem(title: 'Email Address', status: 'Verified', isDark: isDark),
-        verificationItem(title: 'Background Check', status: 'Pending', isDark: isDark),
+        verificationCard(
+          title: 'Email Address',
+          desc: 'Verify ownership of your registered email address',
+          isVerified: isEmail,
+          isDark: isDark,
+          isSaving: s.isUpdatingVerification && !isEmail,
+          onVerify: () => s.updateVerificationField(email: true),
+        ),
+        verificationCard(
+          title: 'Phone Number',
+          desc: 'Add and verify a Philippine mobile number (+63)',
+          isVerified: isPhone,
+          isDark: isDark,
+          isSaving: s.isUpdatingVerification && !isPhone,
+          onVerify: () => s.updateVerificationField(phone: true),
+        ),
+        verificationCard(
+          title: 'Government ID',
+          desc: 'Submit your Driver License, Passport or National ID',
+          isVerified: isId,
+          isDark: isDark,
+          isSaving: s.isUpdatingVerification && !isId,
+          onVerify: () => s.updateVerificationField(id: true),
+        ),
+        verificationCard(
+          title: 'Background Check',
+          desc: 'Undergo criminal history background clearance',
+          isVerified: isBg,
+          isDark: isDark,
+          isSaving: s.isUpdatingVerification && !isBg,
+          onVerify: () => s.updateVerificationField(bg: true),
+        ),
       ]),
     ]);
   }

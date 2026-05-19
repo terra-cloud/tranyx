@@ -104,11 +104,11 @@ class JobsViewComponent extends StatelessComponent {
       ]);
     }
 
-    if (s.jobsView == JobsView.create) return _CreateJob(state: s).build(context);
-    if (s.jobsView == JobsView.details) return _JobDetails(state: s).build(context);
-    if (s.jobsView == JobsView.apply) return _ApplyJob(state: s).build(context);
-    if (s.jobsView == JobsView.review) return _ReviewApplicants(state: s).build(context);
-    if (s.jobsView == JobsView.success) return _SuccessScreen(state: s).build(context);
+    if (s.jobsView == JobsView.create) return _CreateJob(state: s);
+    if (s.jobsView == JobsView.details) return _JobDetails(state: s);
+    if (s.jobsView == JobsView.apply) return _ApplyJob(state: s);
+    if (s.jobsView == JobsView.review) return _ReviewApplicants(state: s);
+    if (s.jobsView == JobsView.success) return _SuccessScreen(state: s);
     return div([]);
   }
 
@@ -283,6 +283,66 @@ class _JobDetails extends StatelessComponent {
         }),
       ),
 
+      // Image Carousel above content
+      if (s.selectedJobData?['imageUrls'] != null && (s.selectedJobData!['imageUrls'] as List).isNotEmpty)
+        Builder(
+          builder: (context) {
+            final urls = List<String>.from(s.selectedJobData!['imageUrls'] as List);
+            final activeIdx = s.selectedJobImageCarouselIndex;
+            return div(
+              classes:
+                  'w-full h-72 rounded-3xl overflow-hidden relative group border ${isDark ? "border-zinc-800 bg-zinc-950" : "border-zinc-200 bg-zinc-100"} shadow-xl',
+              [
+                img(
+                  src: urls[activeIdx],
+                  classes:
+                      'w-full h-full object-cover transition-all duration-700 ease-in-out transform scale-100 hover:scale-105',
+                ),
+                div(
+                  [],
+                  classes:
+                      'absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20 pointer-events-none',
+                ),
+                if (urls.length > 1)
+                  button(
+                    classes:
+                        'absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition-all opacity-0 group-hover:opacity-100 border border-white/10 cursor-pointer',
+                    events: {
+                      'click': (_) => s.setState(() {
+                        s.selectedJobImageCarouselIndex = (activeIdx - 1 + urls.length) % urls.length;
+                      }),
+                    },
+                    [lIcon('chevron-left', cls: 'w-6 h-6')],
+                  ),
+                if (urls.length > 1)
+                  button(
+                    classes:
+                        'absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition-all opacity-0 group-hover:opacity-100 border border-white/10 cursor-pointer',
+                    events: {
+                      'click': (_) => s.setState(() {
+                        s.selectedJobImageCarouselIndex = (activeIdx + 1) % urls.length;
+                      }),
+                    },
+                    [lIcon('chevron-right', cls: 'w-6 h-6')],
+                  ),
+                div(
+                  classes:
+                      'absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10',
+                  [
+                    for (var i = 0; i < urls.length; i++)
+                      div(
+                        [],
+                        classes:
+                            'h-1.5 rounded-full transition-all duration-300 '
+                            '${i == activeIdx ? "w-4 bg-indigo-400" : "w-1.5 bg-white/40"}',
+                      ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+
       // Job meta chips
       div(classes: 'flex flex-wrap gap-2', [
         tagChip(job.rate, isDark),
@@ -403,25 +463,6 @@ class _JobDetails extends StatelessComponent {
           },
         ),
       ]),
-
-      if (s.selectedJobData?['imageUrls'] != null && (s.selectedJobData!['imageUrls'] as List).isNotEmpty)
-        div(classes: 'p-5 rounded-2xl border $cardCls overflow-hidden', [
-          p(classes: 'font-semibold mb-3', [Component.text('Attachments')]),
-          div(classes: 'flex gap-3 overflow-x-auto pb-2 snap-x', [
-            for (final url in s.selectedJobData!['imageUrls'] as List)
-              div(
-                classes:
-                    'w-48 h-32 flex-shrink-0 snap-center rounded-xl overflow-hidden border ${isDark ? "border-zinc-800" : "border-zinc-200"}',
-                [
-                  img(
-                    src: url as String,
-                    classes:
-                        'w-full h-full object-cover hover:scale-105 transition-transform duration-300 cursor-pointer',
-                  ),
-                ],
-              ),
-          ]),
-        ]),
 
       // Q&A section
       _qaSection(s, isDark),
@@ -841,60 +882,6 @@ class _JobDetails extends StatelessComponent {
           ),
         ]),
 
-      if (s.showDepositModal)
-        div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
-          div(
-            classes:
-                'w-full max-w-md p-6 rounded-3xl ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"} shadow-2xl animate-fade-up flex flex-col',
-            [
-              div(classes: 'flex items-center gap-3 mb-4', [
-                div(classes: 'p-3 bg-blue-500/20 rounded-xl', [lIcon('wallet', cls: 'w-6 h-6 text-blue-500')]),
-                h3(classes: 'text-xl font-bold', [Component.text('Deposit Required')]),
-              ]),
-              p(classes: 'text-sm mb-6 ${isDark ? "text-zinc-300" : "text-zinc-600"}', [
-                Component.text(
-                  'To ensure platform quality and security, the full job amount is held in escrow. You can top up your Tyxbit balance (1 Tyxbit = 1 PHP) securely powered by Xendit.',
-                ),
-              ]),
-              div(
-                classes:
-                    'p-4 rounded-xl mb-6 flex items-center justify-between border ${isDark ? "border-zinc-800 bg-zinc-800/50" : "border-zinc-200 bg-zinc-50"}',
-                [
-                  p(classes: 'font-semibold ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-                    Component.text('Amount due'),
-                  ]),
-                  p(classes: 'text-2xl font-bold logo-gradient-text', [
-                    Component.text('${s.depositAmount.toStringAsFixed(2)} Tyxbits'),
-                  ]),
-                ],
-              ),
-              div(classes: 'flex gap-3', [
-                button(
-                  classes:
-                      'flex-1 py-3 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-200 hover:bg-zinc-50 text-zinc-700"}',
-                  events: {
-                    'click': (_) => s.setState(() {
-                      s.showDepositModal = false;
-                      s.isDepositing = false;
-                      s.isPostingJob = false;
-                    }),
-                  },
-                  [Component.text('Cancel')],
-                ),
-                button(
-                  classes:
-                      'flex-1 py-3 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors flex items-center justify-center gap-2',
-                  events: s.isDepositing ? {} : {'click': (_) => s.handlePostJob()},
-                  [
-                    if (s.isDepositing) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
-                    Component.text('Pay with Xendit'),
-                  ],
-                ),
-              ]),
-            ],
-          ),
-        ]),
-
       if (s.showEmployerProfileModal)
         div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
           div(
@@ -915,39 +902,84 @@ class _JobDetails extends StatelessComponent {
                 Builder(
                   builder: (context) {
                     final emp = s.employerProfileData!;
+                    final name = emp['name'] as String? ?? emp['displayName'] as String? ?? 'Unknown';
                     final rating = (emp['rating'] as num?)?.toDouble() ?? 5.0;
-                    final about = emp['about'] as String? ?? 'No description provided.';
-                    final phone = emp['mobileNumber'] as String? ?? 'Not provided';
+                    final about = emp['about'] as String? ?? emp['headline'] as String? ?? 'No description provided.';
+                    final phone = emp['phoneNumber'] as String? ?? emp['mobileNumber'] as String? ?? 'Not provided';
+                    final photo = emp['photoUrl'] as String? ?? emp['profile_photo'] as String? ?? '';
+
+                    final businessName = emp['businessName'] as String? ?? '';
+                    final industry = emp['industry'] as String? ?? '';
+                    final hasBusinessInfo = businessName.isNotEmpty && industry.isNotEmpty;
+
+                    final isEmail = emp['emailVerified'] == true;
+                    final isPhone = emp['phoneVerified'] == true;
+                    final isId = emp['idVerified'] == true;
+                    final isBg = emp['bgChecked'] == true;
+                    final vLevel = emp['verificationLevel'] as int? ?? 0;
+
                     return div(classes: 'flex flex-col', [
                       div(classes: 'flex items-center gap-4 mb-6 mt-2', [
                         div(
                           classes:
-                              'w-16 h-16 rounded-full flex items-center justify-center bg-indigo-600 flex-shrink-0 overflow-hidden',
+                              'w-16 h-16 rounded-full flex items-center justify-center bg-indigo-600 flex-shrink-0 overflow-hidden relative',
                           [
-                            if ((emp['profile_photo'] as String?)?.isNotEmpty ?? false)
-                              img(src: emp['profile_photo'] as String, classes: 'w-full h-full object-cover')
+                            if (photo.isNotEmpty)
+                              img(src: photo, classes: 'w-full h-full object-cover')
                             else
                               span(classes: 'text-2xl font-bold text-white', [
-                                Component.text(
-                                  ((emp['displayName'] as String?) ?? '?').isNotEmpty
-                                      ? (emp['displayName'] as String)[0].toUpperCase()
-                                      : '?',
-                                ),
+                                Component.text(name.isNotEmpty ? name[0].toUpperCase() : '?'),
                               ]),
                           ],
                         ),
-                        div([
-                          h3(classes: 'text-xl font-bold', [
-                            Component.text(emp['displayName'] as String? ?? 'Unknown'),
-                          ]),
-                          div(
+                        div(classes: 'flex-1 min-w-0', [
+                          h3(
                             classes:
-                                'flex items-center gap-1 mt-1 text-sm font-medium ${isDark ? "text-zinc-400" : "text-zinc-600"}',
+                                'text-xl font-bold truncate leading-tight ${isDark ? "text-white" : "text-zinc-800"}',
                             [
-                              lIcon('star', cls: 'w-4 h-4 text-yellow-500 fill-current'),
-                              Component.text(rating.toStringAsFixed(1)),
+                              Component.text(
+                                hasBusinessInfo ? '$businessName' : name,
+                              ),
                             ],
                           ),
+                          if (hasBusinessInfo)
+                            p(classes: 'text-xs text-indigo-400 font-semibold mb-1 truncate', [
+                              Component.text('Industry: $industry'),
+                            ]),
+                          if (hasBusinessInfo)
+                            p(classes: 'text-[11px] ${isDark ? "text-zinc-400" : "text-zinc-500"} mb-1.5', [
+                              Component.text('Contact Person: $name'),
+                            ]),
+                          div(classes: 'flex items-center gap-2 mt-1', [
+                            div(
+                              classes:
+                                  'flex items-center gap-1 text-sm font-semibold ${isDark ? "text-zinc-400" : "text-zinc-650"} mr-2',
+                              [
+                                lIcon('star', cls: 'w-4 h-4 text-yellow-500 fill-current'),
+                                Component.text(rating.toStringAsFixed(1)),
+                              ],
+                            ),
+                            // Verification Badge
+                            div(
+                              classes:
+                                  'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold '
+                                  '${vLevel == 2
+                                      ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                                      : vLevel == 1
+                                      ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                                      : "bg-zinc-500/10 text-zinc-400 border border-zinc-500/20"}',
+                              [
+                                lIcon(vLevel > 0 ? 'shield-check' : 'shield-alert', cls: 'w-3 h-3'),
+                                Component.text(
+                                  vLevel == 2
+                                      ? 'Fully Verified'
+                                      : vLevel == 1
+                                      ? 'Basic Verified'
+                                      : 'Unverified',
+                                ),
+                              ],
+                            ),
+                          ]),
                         ]),
                       ]),
 
@@ -967,6 +999,68 @@ class _JobDetails extends StatelessComponent {
                             Component.text(phone),
                           ]),
                         ]),
+
+                        // Trust & Verification Status Dashboard summary
+                        div([
+                          p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-2', [
+                            Component.text('Verification Levels'),
+                          ]),
+                          div(
+                            classes:
+                                'p-3.5 rounded-2xl border ${isDark ? "bg-zinc-950 border-zinc-800" : "bg-zinc-50 border-zinc-200"} flex items-center justify-around gap-2 text-center',
+                            [
+                              div(classes: 'flex flex-col items-center gap-1', [
+                                div(
+                                  classes:
+                                      'p-1.5 rounded-lg ${isEmail ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+                                  [
+                                    lIcon('mail', cls: 'w-4 h-4'),
+                                  ],
+                                ),
+                                p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                                  Component.text('Email'),
+                                ]),
+                              ]),
+                              div(classes: 'flex flex-col items-center gap-1', [
+                                div(
+                                  classes:
+                                      'p-1.5 rounded-lg ${isPhone ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+                                  [
+                                    lIcon('phone', cls: 'w-4 h-4'),
+                                  ],
+                                ),
+                                p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                                  Component.text('Phone'),
+                                ]),
+                              ]),
+                              div(classes: 'flex flex-col items-center gap-1', [
+                                div(
+                                  classes:
+                                      'p-1.5 rounded-lg ${isId ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+                                  [
+                                    lIcon('file-text', cls: 'w-4 h-4'),
+                                  ],
+                                ),
+                                p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                                  Component.text('ID'),
+                                ]),
+                              ]),
+                              div(classes: 'flex flex-col items-center gap-1', [
+                                div(
+                                  classes:
+                                      'p-1.5 rounded-lg ${isBg ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+                                  [
+                                    lIcon('shield-check', cls: 'w-4 h-4'),
+                                  ],
+                                ),
+                                p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                                  Component.text('Background'),
+                                ]),
+                              ]),
+                            ],
+                          ),
+                        ]),
+
                         if (emp['skills'] != null && (emp['skills'] as List).isNotEmpty)
                           div([
                             p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-2', [
@@ -1148,6 +1242,16 @@ class _CreateJob extends StatelessComponent {
           ),
       ]),
 
+      if (s.postJobError != null)
+        div(
+          classes:
+              'p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm flex items-center gap-2 animate-fade-up',
+          [
+            lIcon('alert-circle', cls: 'w-5 h-5 flex-shrink-0 text-red-500'),
+            span([Component.text(s.postJobError!)]),
+          ],
+        ),
+
       if (step == 1) _step1(s, isDark),
       if (step == 2) _step2(s, isDark),
       if (step == 3) _step3(s, isDark),
@@ -1157,9 +1261,50 @@ class _CreateJob extends StatelessComponent {
             'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex justify-center items-center',
         events: {
           'click': (_) async {
-            if (step < 3) {
-              s.setState(() => s.createStep = step + 1);
+            s.setState(() => s.postJobError = null); // Reset error on click
+
+            if (step == 1) {
+              if (s.selectedCategory == null) {
+                s.setState(() => s.postJobError = 'Please select a job category.');
+                return;
+              }
+              if (s.newJobTitle.trim().isEmpty) {
+                s.setState(() => s.postJobError = 'Please enter a job title.');
+                return;
+              }
+              if (s.newJobDesc.trim().isEmpty) {
+                s.setState(() => s.postJobError = 'Please enter a job description.');
+                return;
+              }
+              s.setState(() => s.createStep = 2);
+            } else if (step == 2) {
+              if (s.locType == LocType.onsite) {
+                if (s.pickupAddress.trim().isEmpty || s.pickupLat == null || s.pickupLng == null) {
+                  final label = (s.selectedCategory?.hasTracker ?? false) ? '1st Point' : 'Site Location';
+                  s.setState(() => s.postJobError = 'Please pin the $label on the map.');
+                  return;
+                }
+                if (s.jobLandmark.trim().isEmpty) {
+                  s.setState(() => s.postJobError = 'Please enter a landmark or additional notes.');
+                  return;
+                }
+                if ((s.selectedCategory?.hasTracker ?? false) &&
+                    (s.destinationAddress.trim().isEmpty || s.destinationLat == null || s.destinationLng == null)) {
+                  s.setState(() => s.postJobError = 'Please pin the Delivery Point on the map.');
+                  return;
+                }
+              }
+              if (s.jobDateType != JobDateType.flexible && s.jobDate.trim().isEmpty) {
+                s.setState(() => s.postJobError = 'Please specify a job/target date.');
+                return;
+              }
+              s.setState(() => s.createStep = 3);
             } else {
+              final price = double.tryParse(s.priceRate) ?? 0.0;
+              if (price <= 0) {
+                s.setState(() => s.postJobError = 'Please enter a valid amount / rate greater than 0.');
+                return;
+              }
               if (s.isPostingJob) return;
               await s.handlePostJob();
             }
@@ -1328,6 +1473,16 @@ class _CreateJob extends StatelessComponent {
         isDark: isDark,
         onChange: (v) => s.setState(() => s.jobDateType = JobDateType.values.firstWhere((e) => e.name == v)),
       ),
+      if (s.jobDateType != JobDateType.flexible)
+        inputField(
+          label: s.jobDateType == JobDateType.onDate ? 'Date of Job' : 'Target Date',
+          placeholder: 'YYYY-MM-DD',
+          iconName: 'calendar',
+          type: 'date',
+          value: s.jobDate,
+          onChange: (v) => s.setState(() => s.jobDate = v),
+          isDark: isDark,
+        ),
       segmentedControl(
         options: const [
           ('Morning', 'morning'),
@@ -1495,28 +1650,36 @@ class _ReviewApplicants extends StatelessComponent {
                 classes:
                     'p-5 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"} flex flex-col md:flex-row md:items-center justify-between gap-4',
                 [
-                  div(classes: 'flex items-center gap-3', [
-                    div(classes: 'w-12 h-12 rounded-full overflow-hidden bg-zinc-800', [
-                      if ((app['applicantPhotoUrl'] as String?)?.isNotEmpty ?? false)
-                        img(src: app['applicantPhotoUrl'] as String, classes: 'w-full h-full object-cover')
-                      else
-                        div(
-                          classes: 'w-full h-full flex items-center justify-center logo-gradient text-white font-bold',
-                          [Component.text((app['applicantName'] as String?)?.substring(0, 1).toUpperCase() ?? '?')],
-                        ),
-                    ]),
-                    div([
-                      p(classes: 'font-bold', [Component.text(app['applicantName'] as String? ?? 'Anonymous')]),
-                      if (app['isCounterOffer'] == true)
-                        p(classes: 'text-sm font-semibold text-orange-400', [
-                          Component.text('Counter Offer: ₱ ${app['proposalRate']}'),
-                        ])
-                      else
-                        p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                          Component.text('Standard Rate'),
+                  button(
+                    classes:
+                        'flex items-center gap-3 text-left hover:opacity-85 transition-opacity cursor-pointer border-none bg-transparent p-0',
+                    events: {'click': (_) => s.viewEmployerProfile(app['applicantUid'] as String)},
+                    [
+                      div(classes: 'w-12 h-12 rounded-full overflow-hidden bg-zinc-800 flex-shrink-0', [
+                        if ((app['applicantPhotoUrl'] as String?)?.isNotEmpty ?? false)
+                          img(src: app['applicantPhotoUrl'] as String, classes: 'w-full h-full object-cover')
+                        else
+                          div(
+                            classes:
+                                'w-full h-full flex items-center justify-center logo-gradient text-white font-bold',
+                            [Component.text((app['applicantName'] as String?)?.substring(0, 1).toUpperCase() ?? '?')],
+                          ),
+                      ]),
+                      div([
+                        p(classes: 'font-bold hover:underline', [
+                          Component.text(app['applicantName'] as String? ?? 'Anonymous'),
                         ]),
-                    ]),
-                  ]),
+                        if (app['isCounterOffer'] == true)
+                          p(classes: 'text-sm font-semibold text-orange-400', [
+                            Component.text('Counter Offer: ₱ ${app['proposalRate']}'),
+                          ])
+                        else
+                          p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-650"}', [
+                            Component.text('Standard Rate'),
+                          ]),
+                      ]),
+                    ],
+                  ),
                   div(classes: 'flex-1 text-sm ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
                     Component.text(app['coverNote'] as String? ?? 'No cover note provided.'),
                   ]),

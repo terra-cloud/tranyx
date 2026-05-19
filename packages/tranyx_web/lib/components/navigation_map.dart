@@ -204,9 +204,8 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     final destLat = (job['destinationLat'] as num?)?.toDouble();
     final destLng = (job['destinationLng'] as num?)?.toDouble();
 
-    final bool pastPickup = subStatus == 'purchase_complete' ||
-        subStatus == 'heading_to_destination' ||
-        subStatus == 'arrived_destination';
+    final bool pastPickup =
+        subStatus == 'purchase_complete' || subStatus == 'heading_to_destination' || subStatus == 'arrived_destination';
 
     if (!pastPickup && pickupLat != null) {
       drawOSRMRoute(_mapId, fromLat, fromLng, pickupLat, pickupLng!, '#3b82f6');
@@ -261,7 +260,8 @@ class _NavigationMapState extends State<NavigationMapComponent> {
             // ── Floating top bar (status) ─────────────────────────────────
             if (_ready)
               div(
-                classes: 'absolute top-4 left-4 right-4 z-[400] flex items-center justify-between gap-2 pointer-events-none',
+                classes:
+                    'absolute top-4 left-4 right-4 z-[400] flex items-center justify-between gap-2 pointer-events-none',
                 [
                   // Status pill
                   div(
@@ -272,7 +272,8 @@ class _NavigationMapState extends State<NavigationMapComponent> {
                       div(classes: 'w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0', []),
                       div(classes: 'flex flex-col', [
                         span(
-                          classes: 'text-[9px] uppercase tracking-widest font-black ${isDark ? "text-zinc-500" : "text-zinc-400"}',
+                          classes:
+                              'text-[9px] uppercase tracking-widest font-black ${isDark ? "text-zinc-500" : "text-zinc-400"}',
                           [Component.text('Live Tracker')],
                         ),
                         span(classes: 'text-xs font-bold', [Component.text(_subStatusLabel(subStatus))]),
@@ -337,12 +338,10 @@ class _NavigationMapState extends State<NavigationMapComponent> {
           if (hasTracker && component.isNyxian && nextStatus != null)
             _nyxianActionCard(nextStatus, subStatus, isDark, s),
 
-          if (hasTracker && component.isNyxian && subStatus == 'arrived_destination')
-            _successCard(isDark),
+          if (hasTracker && component.isNyxian && subStatus == 'arrived_destination') _successCard(isDark),
 
           // Employer timeline
-          if (hasTracker && !component.isNyxian)
-            _timelineCard(subStatus, isDark),
+          if (hasTracker && !component.isNyxian) _timelineCard(subStatus, isDark),
 
           // ── OSM Navigate button (for Nyxian) ─────────────────────────────
           if (component.isNyxian && destLat != null)
@@ -371,12 +370,8 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     required bool isDark,
     bool fullWidth = false,
   }) {
-    final textCol = color == 'blue'
-        ? 'text-blue-400'
-        : (color == 'green' ? 'text-green-400' : 'text-indigo-400');
-    final bgCol = color == 'blue'
-        ? 'bg-blue-500/10'
-        : (color == 'green' ? 'bg-green-500/10' : 'bg-indigo-500/10');
+    final textCol = color == 'blue' ? 'text-blue-400' : (color == 'green' ? 'text-green-400' : 'text-indigo-400');
+    final bgCol = color == 'blue' ? 'bg-blue-500/10' : (color == 'green' ? 'bg-green-500/10' : 'bg-indigo-500/10');
     return div(
       classes:
           'flex items-center gap-3 p-4 rounded-2xl border '
@@ -424,8 +419,7 @@ class _NavigationMapState extends State<NavigationMapComponent> {
 
   Component _successCard(bool isDark) {
     return div(
-      classes:
-          'p-4 rounded-2xl border border-green-500/30 bg-green-500/10 flex items-center gap-3 justify-center',
+      classes: 'p-4 rounded-2xl border border-green-500/30 bg-green-500/10 flex items-center gap-3 justify-center',
       [
         lIcon('check-circle', cls: 'w-5 h-5 text-green-400'),
         p(classes: 'text-sm font-bold text-green-400', [
@@ -438,12 +432,15 @@ class _NavigationMapState extends State<NavigationMapComponent> {
   Component _timelineCard(String? subStatus, bool isDark) {
     final currentIdx = subStatus == null ? -1 : _kSubStatuses.indexWhere((e) => e.$1 == subStatus);
     return div(
-      classes:
-          'p-4 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"}',
+      classes: 'p-4 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"}',
       [
-        p(classes: 'text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-500" : "text-zinc-400"} mb-3', [
-          Component.text('Delivery Progress'),
-        ]),
+        p(
+          classes:
+              'text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-500" : "text-zinc-400"} mb-3',
+          [
+            Component.text('Delivery Progress'),
+          ],
+        ),
         div(classes: 'space-y-1', [
           for (int i = 0; i < _kSubStatuses.length; i++) ...[
             div(classes: 'flex items-center gap-3', [
@@ -470,7 +467,8 @@ class _NavigationMapState extends State<NavigationMapComponent> {
             ]),
             if (i < _kSubStatuses.length - 1)
               div(
-                classes: 'ml-2.5 w-0.5 h-3 ${i < currentIdx ? "bg-indigo-500/30" : (isDark ? "bg-zinc-800" : "bg-zinc-100")}',
+                classes:
+                    'ml-2.5 w-0.5 h-3 ${i < currentIdx ? "bg-indigo-500/30" : (isDark ? "bg-zinc-800" : "bg-zinc-100")}',
                 [],
               ),
           ],

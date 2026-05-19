@@ -21,11 +21,13 @@ Component lIcon(String name, {String cls = 'w-5 h-5'}) {
   );
 }
 
-/// Gradient logo hexagon badge.
+/// Logo component utilizing the new logo.svg.
 Component svgLogo({String size = 'w-8 h-8'}) {
-  return div(classes: 'p-3 rounded-2xl logo-gradient flex items-center justify-center', [
-    lIcon('hexagon', cls: '$size text-white'),
-  ]);
+  return img(
+    src: '/images/logo.svg',
+    classes: '$size object-contain',
+    attributes: {'alt': 'Tranyx Logo'},
+  );
 }
 
 /// Styled text input field with optional label and leading icon.
@@ -57,6 +59,7 @@ Component inputField({
         value: value,
         attributes: {
           'placeholder': placeholder,
+          if (type == 'date') 'type': 'date',
         },
         onInput: onChange,
       ),

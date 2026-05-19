@@ -18,7 +18,7 @@ void main() {
   Jaspr.initializeApp(
     options: defaultClientOptions,
   );
-  
+
   // Starts the app on the client directly (SPA mode)
   runApp(
     const TranyxApp(),

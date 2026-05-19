@@ -16,12 +16,11 @@ class Header extends StatelessComponent {
           to: '/',
           classes: 'flex items-center gap-2 group',
           children: [
-            div(
+            img(
+              src: '/images/logo.svg',
               classes:
-                  'w-10 h-10 rounded-xl logo-gradient flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform',
-              [
-                i([], classes: 'w-6 h-6 text-white', attributes: {'data-lucide': 'zap'}),
-              ],
+                  'w-10 h-10 object-contain shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform',
+              attributes: {'alt': 'Tranyx Logo'},
             ),
             span(classes: 'text-2xl font-black text-white tracking-tighter', [
               Component.text('TRANYX'),

@@ -54,6 +54,11 @@ class UserProfile {
   final double tyxBalance;
   final int jobsDone;
   final double totalEarned;
+  final int verificationLevel;
+  final bool emailVerified;
+  final bool phoneVerified;
+  final bool idVerified;
+  final bool bgChecked;
 
   const UserProfile({
     required this.uid,
@@ -76,6 +81,11 @@ class UserProfile {
     this.tyxBalance = 0.0,
     this.jobsDone = 0,
     this.totalEarned = 0.0,
+    this.verificationLevel = 0,
+    this.emailVerified = false,
+    this.phoneVerified = false,
+    this.idVerified = false,
+    this.bgChecked = false,
   });
 
   factory UserProfile.fromMap(String uid, Map<String, dynamic> map) {
@@ -111,6 +121,11 @@ class UserProfile {
       tyxBalance: (map['tyxBalance'] as num?)?.toDouble() ?? 0.0,
       jobsDone: map['jobsDone'] as int? ?? 0,
       totalEarned: (map['totalEarned'] as num?)?.toDouble() ?? 0.0,
+      verificationLevel: map['verificationLevel'] as int? ?? 0,
+      emailVerified: map['emailVerified'] as bool? ?? false,
+      phoneVerified: map['phoneVerified'] as bool? ?? false,
+      idVerified: map['idVerified'] as bool? ?? false,
+      bgChecked: map['bgChecked'] as bool? ?? false,
     );
   }
 
@@ -135,6 +150,11 @@ class UserProfile {
     'tyxBalance': tyxBalance,
     'jobsDone': jobsDone,
     'totalEarned': totalEarned,
+    'verificationLevel': verificationLevel,
+    'emailVerified': emailVerified,
+    'phoneVerified': phoneVerified,
+    'idVerified': idVerified,
+    'bgChecked': bgChecked,
   };
 
   UserProfile copyWith({
@@ -157,6 +177,11 @@ class UserProfile {
     double? tyxBalance,
     int? jobsDone,
     double? totalEarned,
+    int? verificationLevel,
+    bool? emailVerified,
+    bool? phoneVerified,
+    bool? idVerified,
+    bool? bgChecked,
   }) {
     return UserProfile(
       uid: uid,
@@ -179,6 +204,11 @@ class UserProfile {
       tyxBalance: tyxBalance ?? this.tyxBalance,
       jobsDone: jobsDone ?? this.jobsDone,
       totalEarned: totalEarned ?? this.totalEarned,
+      verificationLevel: verificationLevel ?? this.verificationLevel,
+      emailVerified: emailVerified ?? this.emailVerified,
+      phoneVerified: phoneVerified ?? this.phoneVerified,
+      idVerified: idVerified ?? this.idVerified,
+      bgChecked: bgChecked ?? this.bgChecked,
     );
   }
 }

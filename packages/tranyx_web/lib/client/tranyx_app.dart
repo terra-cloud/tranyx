@@ -74,6 +74,7 @@ class TranyxAppState extends State<TranyxApp> {
 
   // ── Jobs state ──────────────────────────────────────────────
   List<Map<String, dynamic>> myJobs = [];
+  List<Map<String, dynamic>> sessionPostedJobs = [];
   List<Map<String, dynamic>> availableJobs = [];
   bool isLoadingJobs = false;
   String? jobsError;
@@ -83,6 +84,7 @@ class TranyxAppState extends State<TranyxApp> {
 
   Map<String, dynamic>? selectedJobData; // raw Firestore map
   SelectedJob? selectedJob;
+  int selectedJobImageCarouselIndex = 0;
 
   bool isCounterOffer = false;
   int createStep = 1;
@@ -658,6 +660,7 @@ class TranyxAppState extends State<TranyxApp> {
       userEmail = '';
       userPhotoUrl = null;
       myJobs = [];
+      sessionPostedJobs = [];
       availableJobs = [];
       authError = null;
     });
@@ -682,13 +685,33 @@ class TranyxAppState extends State<TranyxApp> {
 
       final avail = await _firestore.getAvailableJobs(currentViewMode);
 
+      // De-duplicate by id
+      final seenIds = <String>{};
+      final merged = <Map<String, dynamic>>[];
+      
+      for (final job in sessionPostedJobs) {
+        final id = job['id'] as String?;
+        if (id != null) {
+          seenIds.add(id);
+          merged.add(job);
+        }
+      }
+      
+      for (final job in allMyJobs) {
+        final id = job['id'] as String?;
+        if (id != null && !seenIds.contains(id)) {
+          seenIds.add(id);
+          merged.add(job);
+        }
+      }
+
       // Find the first job with status 'In Progress' for the ongoing widget
-      final ongoing = allMyJobs.cast<Map<String, dynamic>?>().firstWhere(
+      final ongoing = merged.cast<Map<String, dynamic>?>().firstWhere(
         (j) => (j?['status'] as String?)?.toLowerCase() == 'in progress',
         orElse: () => null,
       );
       setState(() {
-        myJobs = allMyJobs;
+        myJobs = merged;
         availableJobs = avail;
         ongoingJob = ongoing;
         isLoadingJobs = false;
@@ -789,8 +812,7 @@ class TranyxAppState extends State<TranyxApp> {
       };
 
       // Create the job
-      final jobResponse = await svc.createJob(jobData);
-      final jobId = (jobResponse as Map)['id'];
+      final jobId = await svc.createJob(jobData);
 
       // Create escrow record
       await svc.createOrUpdate('escrow/$jobId', {
@@ -798,6 +820,12 @@ class TranyxAppState extends State<TranyxApp> {
         'employerId': uid,
         'status': 'held',
         'createdAt': now.millisecondsSinceEpoch,
+      });
+
+      // Add to sessionPostedJobs to display instantly on posting page
+      sessionPostedJobs.insert(0, {
+        'id': jobId,
+        ...jobData,
       });
 
       setState(() {
@@ -1072,6 +1100,7 @@ class TranyxAppState extends State<TranyxApp> {
         status: status,
         applicants: applicants,
       );
+      selectedJobImageCarouselIndex = 0;
       jobsView = JobsView.details;
       jobQuestions = [];
       this.hasTracker = hasTracker;
@@ -1630,6 +1659,159 @@ class TranyxAppState extends State<TranyxApp> {
 
   // ── Profile actions ─────────────────────────────────────────
 
+  bool isUpdatingVerification = false;
+
+  void initializeProfileEditing() {
+    final profile = userProfile;
+    if (profile == null) return;
+    editName = profile.name;
+    editEmail = profile.email;
+    editPhone = getDisplayPhone(profile.phoneNumber);
+    editTaxId = profile.taxId ?? '';
+    editHeadline = profile.headline ?? '';
+    editHourlyRate = profile.hourlyRate?.toString() ?? '';
+    editSkills = List<String>.from(profile.skills ?? []);
+    editBusinessName = profile.businessName ?? '';
+    editIndustry = profile.industry ?? '';
+    profileSaveError = null;
+  }
+
+  String getDisplayPhone(String? fullPhone) {
+    if (fullPhone == null) return '';
+    var p = fullPhone.replaceAll('+63', '').replaceAll(RegExp(r'\D'), '');
+    if (p.startsWith('0')) p = p.substring(1);
+    return p;
+  }
+
+  String formatPhone(String raw) {
+    final digits = raw.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return '';
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return '${digits.substring(0, 3)} ${digits.substring(3)}';
+    return '${digits.substring(0, 3)} ${digits.substring(3, 6)} ${digits.substring(6)}';
+  }
+
+  String formatTIN(String raw) {
+    final digits = raw.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return '';
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return '${digits.substring(0, 3)}-${digits.substring(3)}';
+    if (digits.length <= 9) return '${digits.substring(0, 3)}-${digits.substring(3, 6)}-${digits.substring(6)}';
+    return '${digits.substring(0, 3)}-${digits.substring(3, 6)}-${digits.substring(6, 9)}-${digits.substring(9, digits.length > 12 ? 12 : digits.length)}';
+  }
+
+  bool _listsEqual(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  bool get hasPersonalInfoChanges {
+    final profile = userProfile;
+    if (profile == null) return false;
+    
+    final formattedEditPhone = editPhone.trim().isNotEmpty ? '+63 ${editPhone.trim()}' : '';
+    final currentPhone = profile.phoneNumber ?? '';
+    final currentTaxId = profile.taxId ?? '';
+
+    return editName.trim() != profile.name ||
+           editEmail.trim() != profile.email ||
+           formattedEditPhone != currentPhone ||
+           editTaxId.trim() != currentTaxId;
+  }
+
+  bool get isPersonalInfoValid {
+    if (editPhone.trim().isNotEmpty) {
+      if (!editPhone.trim().startsWith('9') || editPhone.trim().length != 10) {
+        return false;
+      }
+    }
+    final digits = editTaxId.replaceAll(RegExp(r'\D'), '');
+    if (digits.isNotEmpty) {
+      if (digits.length != 9 && digits.length != 12) {
+        return false;
+      }
+    }
+    return editName.trim().isNotEmpty && editEmail.trim().isNotEmpty;
+  }
+
+  bool get hasProfessionalInfoChanges {
+    final profile = userProfile;
+    if (profile == null) return false;
+    final skillsChanged = !_listsEqual(editSkills, profile.skills ?? []);
+    return editHeadline.trim() != (profile.headline ?? '') ||
+           editHourlyRate.trim() != (profile.hourlyRate?.toString() ?? '') ||
+           skillsChanged ||
+           editBusinessName.trim() != (profile.businessName ?? '') ||
+           editIndustry.trim() != (profile.industry ?? '') ||
+           editTaxId.trim() != (profile.taxId ?? '');
+  }
+
+  bool get isProfessionalInfoValid {
+    final digits = editTaxId.replaceAll(RegExp(r'\D'), '');
+    if (digits.isNotEmpty) {
+      if (digits.length != 9 && digits.length != 12) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  int _calculateVerificationLevel({
+    required bool email,
+    required bool phone,
+    required bool id,
+    required bool bg,
+  }) {
+    if (email && phone && id && bg) {
+      return 2;
+    } else if (email && phone) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+
+  Future<void> updateVerificationField({
+    bool? email,
+    bool? phone,
+    bool? id,
+    bool? bg,
+  }) async {
+    final existing = userProfile;
+    if (existing == null) return;
+
+    setState(() => isUpdatingVerification = true);
+    try {
+      final nextEmail = email ?? existing.emailVerified;
+      final nextPhone = phone ?? existing.phoneVerified;
+      final nextId = id ?? existing.idVerified;
+      final nextBg = bg ?? existing.bgChecked;
+      
+      final nextLevel = _calculateVerificationLevel(
+        email: nextEmail,
+        phone: nextPhone,
+        id: nextId,
+        bg: nextBg,
+      );
+
+      final updated = existing.copyWith(
+        emailVerified: nextEmail,
+        phoneVerified: nextPhone,
+        idVerified: nextId,
+        bgChecked: nextBg,
+        verificationLevel: nextLevel,
+      );
+
+      await handleSaveProfile(updated);
+    } catch (_) {
+    } finally {
+      setState(() => isUpdatingVerification = false);
+    }
+  }
+
   Future<void> handleSaveProfile(UserProfile updated) async {
     final token = SessionStorage.idToken;
     if (token == null) return;
@@ -1650,6 +1832,7 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   Future<void> handleSavePersonalInfo() async {
+    if (!isPersonalInfoValid || !hasPersonalInfoChanges) return;
     setState(() {
       isSavingProfile = true;
       profileSaveError = null;
@@ -1657,10 +1840,14 @@ class TranyxAppState extends State<TranyxApp> {
     try {
       final existing = userProfile;
       if (existing == null) return;
+      
+      final formattedEditPhone = editPhone.trim().isNotEmpty ? '+63 ${editPhone.trim()}' : null;
+
       final updated = existing.copyWith(
-        name: editName.isNotEmpty ? editName : null,
-        email: editEmail.isNotEmpty ? editEmail : null,
-        phoneNumber: editPhone.isNotEmpty ? editPhone : null,
+        name: editName.trim().isNotEmpty ? editName.trim() : null,
+        email: editEmail.trim().isNotEmpty ? editEmail.trim() : null,
+        phoneNumber: formattedEditPhone,
+        taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
       );
       await handleSaveProfile(updated);
       setState(() {
@@ -1668,6 +1855,7 @@ class TranyxAppState extends State<TranyxApp> {
         editName = '';
         editEmail = '';
         editPhone = '';
+        editTaxId = '';
       });
     } catch (e) {
       setState(() {
@@ -1678,6 +1866,7 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   Future<void> handleSaveProfessionalInfo() async {
+    if (!isProfessionalInfoValid || !hasProfessionalInfoChanges) return;
     setState(() {
       isSavingProfile = true;
       profileSaveError = null;
@@ -1685,13 +1874,13 @@ class TranyxAppState extends State<TranyxApp> {
     try {
       final existing = userProfile;
       if (existing == null) return;
-      final skills = editSkills.isNotEmpty ? editSkills : existing.skills;
+      final skills = editSkills;
       final updated = existing.copyWith(
-        businessName: editBusinessName.isNotEmpty ? editBusinessName : null,
-        industry: editIndustry.isNotEmpty ? editIndustry : null,
-        taxId: editTaxId.isNotEmpty ? editTaxId : null,
-        headline: editHeadline.isNotEmpty ? editHeadline : null,
-        hourlyRate: editHourlyRate.isNotEmpty ? (double.tryParse(editHourlyRate) ?? existing.hourlyRate) : null,
+        businessName: editBusinessName.trim().isNotEmpty ? editBusinessName.trim() : '',
+        industry: editIndustry.trim().isNotEmpty ? editIndustry.trim() : '',
+        taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
+        headline: editHeadline.trim().isNotEmpty ? editHeadline.trim() : '',
+        hourlyRate: editHourlyRate.trim().isNotEmpty ? (double.tryParse(editHourlyRate) ?? existing.hourlyRate) : 0.0,
         skills: skills,
       );
       await handleSaveProfile(updated);
@@ -1900,6 +2089,19 @@ class TranyxAppState extends State<TranyxApp> {
 
         // Mobile bottom nav
         BottomNavComponent(state: this),
+
+        // Powered by Terra logo badge in bottom right corner
+        div(
+          classes:
+              'hidden md:flex items-center gap-1.5 absolute bottom-4 right-6 px-3 py-1.5 rounded-full border ${isDark ? "border-zinc-800 bg-zinc-900/60" : "border-zinc-200 bg-white/60"} backdrop-blur-md text-[10px] text-zinc-500 font-semibold z-40 transition-all hover:text-zinc-400',
+          [
+            Component.text('Powered by'),
+            img(
+              src: '/images/terra-logo.png',
+              classes: 'h-3.5 object-contain opacity-60 hover:opacity-85 transition-opacity',
+            ),
+          ],
+        ),
       ]),
 
       // Category modal overlay
