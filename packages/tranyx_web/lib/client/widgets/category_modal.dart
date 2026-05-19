@@ -117,6 +117,14 @@ class CategoryModalComponentState extends State<CategoryModalComponent> {
                               'flex items-center gap-2 p-3 rounded-xl border text-left transition-all card-hover ${isDark ? "bg-zinc-800/50 border-zinc-700 hover:border-indigo-500/50 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:border-indigo-400 text-zinc-700"}',
                           events: {
                             'click': (_) {
+                              final isNyxian = s.currentViewMode == AccountType.nyxian;
+
+                              if (isNyxian) {
+                                s.handleHomeSearch(cat.label);
+                                s.setState(() => s.showCategoryModal = false);
+                                return;
+                              }
+
                               s.selectedCategory = SelectedCategory(
                                 id: cat.id,
                                 label: cat.label,

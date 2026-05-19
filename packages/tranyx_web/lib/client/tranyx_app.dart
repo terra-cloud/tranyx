@@ -779,9 +779,12 @@ class TranyxAppState extends State<TranyxApp> {
         }
       }
 
-      // Find the first job with status 'In Progress' for the ongoing widget
+      // Find the first job with status 'In Progress' or 'Done' for the ongoing widget
       final ongoing = merged.cast<Map<String, dynamic>?>().firstWhere(
-        (j) => (j?['status'] as String?)?.toLowerCase() == 'in progress',
+        (j) {
+          final s = (j?['status'] as String?)?.toLowerCase();
+          return s == 'in progress' || s == 'done';
+        },
         orElse: () => null,
       );
       setState(() {

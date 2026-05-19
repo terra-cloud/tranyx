@@ -115,16 +115,20 @@ class JobsViewComponent extends StatelessComponent {
 
   List<Map<String, dynamic>> _getFilteredJobs(List<Map<String, dynamic>> jobs, TranyxAppState s) {
     final isNyxian = s.currentViewMode == AccountType.nyxian;
+    
+    // Always apply home search query first if present
+    if (s.homeSearchQuery.isNotEmpty) {
+      final q = s.homeSearchQuery.toLowerCase();
+      jobs = jobs.where((j) {
+        final title = (j['title'] as String?)?.toLowerCase() ?? '';
+        final desc = (j['description'] as String?)?.toLowerCase() ?? '';
+        final cat = (j['category'] as String?)?.toLowerCase() ?? '';
+        final catLabel = (j['categoryLabel'] as String?)?.toLowerCase() ?? '';
+        return title.contains(q) || desc.contains(q) || cat.contains(q) || catLabel.contains(q);
+      }).toList();
+    }
+
     if (!isNyxian) {
-      if (s.homeSearchQuery.isNotEmpty) {
-        final q = s.homeSearchQuery.toLowerCase();
-        return jobs.where((j) {
-          final title = (j['title'] as String?)?.toLowerCase() ?? '';
-          final desc = (j['description'] as String?)?.toLowerCase() ?? '';
-          final cat = (j['category'] as String?)?.toLowerCase() ?? '';
-          return title.contains(q) || desc.contains(q) || cat.contains(q);
-        }).toList();
-      }
       return jobs;
     }
 
@@ -151,17 +155,6 @@ class JobsViewComponent extends StatelessComponent {
       return jobs.where((j) {
         final val = (j['pricingValue'] as num?)?.toDouble() ?? 0.0;
         return val >= 1000;
-      }).toList();
-    }
-
-    // Apply home search query text filter
-    if (s.homeSearchQuery.isNotEmpty) {
-      final q = s.homeSearchQuery.toLowerCase();
-      return jobs.where((j) {
-        final title = (j['title'] as String?)?.toLowerCase() ?? '';
-        final desc = (j['description'] as String?)?.toLowerCase() ?? '';
-        final cat = (j['category'] as String?)?.toLowerCase() ?? '';
-        return title.contains(q) || desc.contains(q) || cat.contains(q);
       }).toList();
     }
 

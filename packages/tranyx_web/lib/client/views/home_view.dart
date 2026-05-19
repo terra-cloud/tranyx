@@ -102,6 +102,7 @@ class HomeViewComponent extends StatelessComponent {
               isDark,
               s,
               i,
+              isNyxian,
             ),
         ]),
       ]),
@@ -212,7 +213,7 @@ class HomeViewComponent extends StatelessComponent {
     );
   }
 
-  Component _categoryCard(CategoryItem cat, bool isDark, TranyxAppState s, int index) {
+  Component _categoryCard(CategoryItem cat, bool isDark, TranyxAppState s, int index, bool isNyxian) {
     final cardCls = isDark
         ? 'bg-zinc-900 border-zinc-800 hover:border-indigo-500/50'
         : 'bg-white border-zinc-200 shadow-sm hover:shadow-md';
@@ -221,14 +222,20 @@ class HomeViewComponent extends StatelessComponent {
           'flex flex-col items-center justify-center gap-3 p-5 rounded-2xl border transition-all card-hover text-center stagger-${index + 1} animate-fade-up $cardCls',
       events: {
         'click': (_) {
-          s.selectedCategory = SelectedCategory(
-            id: cat.id,
-            label: cat.label,
-            iconName: cat.icon,
-            hasTracker: cat.hasTracker,
-            color: 'text-indigo-400',
-          );
-          s.showCategoryModal = true;
+          if (isNyxian) {
+            // For Nyxians, clicking a category searches for it
+            s.handleHomeSearch(cat.label);
+          } else {
+            // For Employers, clicking a category opens the posting modal
+            s.selectedCategory = SelectedCategory(
+              id: cat.id,
+              label: cat.label,
+              iconName: cat.icon,
+              hasTracker: cat.hasTracker,
+              color: 'text-indigo-400',
+            );
+            s.showCategoryModal = true;
+          }
         },
       },
       [
