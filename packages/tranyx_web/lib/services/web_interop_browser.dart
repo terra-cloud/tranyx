@@ -160,3 +160,7 @@ Future<List<WebFile>> readFilesFromEvent(dynamic event) async {
 }
 
 void openUrl(String url) => web.window.open(url, '_blank');
+
+bool confirmDialog(String message) {
+  return web.window.confirm(message);
+}

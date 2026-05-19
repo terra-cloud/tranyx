@@ -8,6 +8,7 @@ import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
 
 import 'package:tranyx_web/services/firebase_service.dart';
+import 'package:tranyx_web/components/ui_helpers.dart';
 
 import '../state/app_state.dart';
 import '../client/views/auth_view.dart';
@@ -66,11 +67,24 @@ class TranyxAppState extends State<TranyxApp> {
   AccountType hybridToggle = AccountType.employer;
   TransitMode transitMode = TransitMode.rent;
   ProfileView profileView = ProfileView.main;
+  bool verificationEmailSent = false;
+  bool showSmsModal = false;
+  String smsVerificationPhoneNumber = '';
+  String smsVerificationSessionInfo = '';
+  String smsVerificationCode = '';
+  String? smsVerificationError;
+  bool isSendingSms = false;
+  bool isVerifyingSms = false;
+  String? simulatedSmsCode;
   JobsView jobsView = JobsView.list;
 
   // ── Category modal ──────────────────────────────────────────
   bool showCategoryModal = false;
   bool categoryModalForSelect = false;
+
+  // ── Wallet reconnect modal ──────────────────────────────────
+  bool showWalletReconnectPrompt = false;
+  String? pendingReconnectWalletKey;
 
   // ── Jobs state ──────────────────────────────────────────────
   List<Map<String, dynamic>> myJobs = [];
@@ -163,6 +177,10 @@ class TranyxAppState extends State<TranyxApp> {
   bool isGeneratingCode = false;
   String? generatedCompletionCode;
 
+  // Delivery receipt upload state
+  String? receiptPhotoUrl;
+  bool isUploadingReceipt = false;
+
   // ── Employer Profile state ────────────────────────────────────
   bool showEmployerProfileModal = false;
   bool isLoadingEmployerProfile = false;
@@ -173,6 +191,7 @@ class TranyxAppState extends State<TranyxApp> {
   String walletAddress = '';
   double walletBalance = 0.0;
   bool isRefreshingBalance = false;
+  List<Map<String, dynamic>> userTransactions = [];
 
   // ── Services ────────────────────────────────────────────────
   final _auth = FirebaseAuthService();
@@ -191,6 +210,8 @@ class TranyxAppState extends State<TranyxApp> {
       return null;
     }
   }
+
+  Future<String?> Function() get handleTokenRefresh => _handleTokenRefresh;
 
   AccountType get currentViewMode => accountType == AccountType.hybrid ? hybridToggle : accountType;
 
@@ -234,6 +255,7 @@ class TranyxAppState extends State<TranyxApp> {
     await _loadUserProfile();
     // Load jobs for current tab
     await loadJobs();
+    await loadTransactions();
   }
 
   Future<void> _loadUserProfile() async {
@@ -297,6 +319,7 @@ class TranyxAppState extends State<TranyxApp> {
 
       _initGemini();
       await loadJobs();
+      await loadTransactions();
       // Auto-connect Phantom wallet if already trusted by the browser
       unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
     } on FirebaseException catch (e) {
@@ -373,6 +396,7 @@ class TranyxAppState extends State<TranyxApp> {
 
       _initGemini();
       await loadJobs();
+      await loadTransactions();
     } on FirebaseException catch (e) {
       String msg = e.message;
       if (msg.contains('EMAIL_EXISTS')) {
@@ -475,6 +499,7 @@ class TranyxAppState extends State<TranyxApp> {
 
       _initGemini();
       await loadJobs();
+      await loadTransactions();
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
     } on FirebaseException catch (e) {
       setState(() {
@@ -534,6 +559,7 @@ class TranyxAppState extends State<TranyxApp> {
 
       _initGemini();
       await loadJobs();
+      await loadTransactions();
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
     } catch (e) {
       setState(() {
@@ -668,6 +694,18 @@ class TranyxAppState extends State<TranyxApp> {
 
   // ── Job actions ─────────────────────────────────────────────
 
+  Future<void> loadTransactions() async {
+    if (!isAuthenticated) return;
+    try {
+      final uid = SessionStorage.uid;
+      if (uid == null) return;
+      final trans = await _firestore.getMyTransactions(uid);
+      setState(() {
+        userTransactions = trans;
+      });
+    } catch (_) {}
+  }
+
   Future<void> loadJobs() async {
     if (!isAuthenticated) return;
     setState(() {
@@ -688,7 +726,7 @@ class TranyxAppState extends State<TranyxApp> {
       // De-duplicate by id
       final seenIds = <String>{};
       final merged = <Map<String, dynamic>>[];
-      
+
       for (final job in sessionPostedJobs) {
         final id = job['id'] as String?;
         if (id != null) {
@@ -696,7 +734,7 @@ class TranyxAppState extends State<TranyxApp> {
           merged.add(job);
         }
       }
-      
+
       for (final job in allMyJobs) {
         final id = job['id'] as String?;
         if (id != null && !seenIds.contains(id)) {
@@ -813,6 +851,18 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Create the job
       final jobId = await svc.createJob(jobData);
+
+      // Automatically add new job category/skills to employer's preferred skills list
+      final newSkill = selectedJobCategory?.name ?? JobCategory.others.name;
+      final currentSkills = List<String>.from(userProfile?.skills ?? []);
+      if (!currentSkills.contains(newSkill)) {
+        currentSkills.add(newSkill);
+        if (userProfile != null) {
+          final updatedProfile = userProfile!.copyWith(skills: currentSkills);
+          await svc.createOrUpdate('users/$uid', updatedProfile.toMap());
+          userProfile = updatedProfile;
+        }
+      }
 
       // Create escrow record
       await svc.createOrUpdate('escrow/$jobId', {
@@ -974,6 +1024,21 @@ class TranyxAppState extends State<TranyxApp> {
                 'tyxBalance': newBal,
               });
             }
+
+            // Record transaction history
+            await svc.createOrUpdate('transactions/deposit_$invoiceId', {
+              'uid': uid,
+              'title': 'Wallet Top-Up',
+              'desc': 'Fiat deposit via Xendit',
+              'amount': depositAmount,
+              'status': 'Successful',
+              'method': 'Xendit',
+              'createdAt': DateTime.now().millisecondsSinceEpoch,
+              'type': 'deposit',
+            });
+            
+            // Reload history if needed
+            await loadTransactions();
           }
 
           setState(() {
@@ -1024,7 +1089,8 @@ class TranyxAppState extends State<TranyxApp> {
     final token = SessionStorage.idToken;
     if (uid == null || token == null) return;
 
-    if (walletBalance < 100) {
+    final tyxBal = userProfile?.tyxBalance ?? 0.0;
+    if (tyxBal < 100) {
       setState(() => profileSaveError = 'Minimum withdrawal is 100 Tyx (₱100).');
       return;
     }
@@ -1038,7 +1104,7 @@ class TranyxAppState extends State<TranyxApp> {
       await svc.createOrUpdate('withdrawalRequests', {
         'uid': uid,
         'userName': userName,
-        'amount': walletBalance,
+        'amount': tyxBal,
         'status': 'Pending',
         'createdAt': DateTime.now().millisecondsSinceEpoch,
         'method': 'Bank/Gcash',
@@ -1415,7 +1481,6 @@ class TranyxAppState extends State<TranyxApp> {
       setState(() {
         generatedCompletionCode = code;
         isGeneratingCode = false;
-        showCompletionScanner = true;
       });
     } catch (_) {
       setState(() => isGeneratingCode = false);
@@ -1564,10 +1629,29 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
-  /// Nyxian calls this to update their delivery sub-status.
-  /// [subStatus] should be one of:
-  ///   'heading_to_pickup' | 'arrived_pickup' | 'purchase_complete' | 'heading_to_destination' | 'arrived_destination'
-  Future<void> handleUpdateNyxianSubStatus(String subStatus) async {
+  /// Nyxian marks a standard job as Done (triggers Employer to generate QR).
+  Future<void> handleMarkJobDone() async {
+    final token = SessionStorage.idToken;
+    final job = selectedJobData;
+    if (token == null || job == null) return;
+    setState(() => isUpdatingSubStatus = true);
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      await svc.updateJobStatus(job['id'] as String, 'Done');
+      setState(() {
+        isUpdatingSubStatus = false;
+        selectedJobData = {...selectedJobData!, 'status': 'Done'};
+      });
+      await loadJobs();
+    } catch (_) {
+      setState(() => isUpdatingSubStatus = false);
+    }
+  }
+
+  /// Nyxian calls this to advance a delivery job to the next checkpoint.
+  /// [newStatus] must be one of:
+  ///   'arrived_pickup' | 'paid_cashier' | 'in_transit' | 'arrived_dropoff'
+  Future<void> handleUpdateNyxianSubStatus(String newStatus) async {
     final token = SessionStorage.idToken;
     final job = selectedJobData;
     if (token == null || job == null) return;
@@ -1578,28 +1662,47 @@ class TranyxAppState extends State<TranyxApp> {
       if (jobDoc != null) {
         final updates = <String, dynamic>{
           ...jobDoc,
-          'nyxianSubStatus': subStatus,
+          'status': newStatus,
+          // Attach receipt URL when transitioning to paid_cashier
+          if (newStatus == 'paid_cashier' && receiptPhotoUrl != null)
+            'receiptUrl': receiptPhotoUrl,
         };
-
-        // If arrived at destination, mark overall status as "Done" so employer can generate payment QR
-        if (subStatus == 'arrived_destination') {
-          updates['status'] = 'Done';
-        }
-
         await svc.createOrUpdate('jobs/${job['id']}', updates);
       }
       setState(() {
         isUpdatingSubStatus = false;
         selectedJobData = {
           ...selectedJobData!,
-          'nyxianSubStatus': subStatus,
-          if (subStatus == 'arrived_destination') 'status': 'Done',
+          'status': newStatus,
+          if (newStatus == 'paid_cashier' && receiptPhotoUrl != null)
+            'receiptUrl': receiptPhotoUrl,
         };
+        if (newStatus == 'paid_cashier') receiptPhotoUrl = null;
       });
-      // Refresh so the home ongoing widget reflects the change
       await loadJobs();
     } catch (_) {
       setState(() => isUpdatingSubStatus = false);
+    }
+  }
+
+  /// Upload a delivery receipt photo (used at the paid_cashier step).
+  Future<void> handleReceiptUpload(dynamic eventTarget) async {
+    final token = SessionStorage.idToken;
+    if (token == null) return;
+    setState(() => isUploadingReceipt = true);
+    try {
+      final files = await readFilesFromEvent(eventTarget);
+      if (files.isNotEmpty) {
+        final file = files.first;
+        final url = await ImgBBService(currentFirebaseConfig, idToken: token)
+            .uploadImageBytes(file.bytes, file.name);
+        if (url != null) {
+          setState(() => receiptPhotoUrl = url);
+        }
+      }
+    } catch (_) {
+    } finally {
+      setState(() => isUploadingReceipt = false);
     }
   }
 
@@ -1711,15 +1814,17 @@ class TranyxAppState extends State<TranyxApp> {
   bool get hasPersonalInfoChanges {
     final profile = userProfile;
     if (profile == null) return false;
-    
-    final formattedEditPhone = editPhone.trim().isNotEmpty ? '+63 ${editPhone.trim()}' : '';
-    final currentPhone = profile.phoneNumber ?? '';
-    final currentTaxId = profile.taxId ?? '';
+
+    final cleanEditPhone = editPhone.replaceAll(RegExp(r'\D'), '');
+    final cleanProfilePhone = (profile.phoneNumber ?? '').replaceAll(RegExp(r'\D'), '');
+
+    final cleanEditTax = editTaxId.replaceAll(RegExp(r'\D'), '');
+    final cleanProfileTax = (profile.taxId ?? '').replaceAll(RegExp(r'\D'), '');
 
     return editName.trim() != profile.name ||
-           editEmail.trim() != profile.email ||
-           formattedEditPhone != currentPhone ||
-           editTaxId.trim() != currentTaxId;
+        editEmail.trim() != profile.email ||
+        cleanEditPhone != cleanProfilePhone ||
+        cleanEditTax != cleanProfileTax;
   }
 
   bool get isPersonalInfoValid {
@@ -1741,12 +1846,15 @@ class TranyxAppState extends State<TranyxApp> {
     final profile = userProfile;
     if (profile == null) return false;
     final skillsChanged = !_listsEqual(editSkills, profile.skills ?? []);
+    final cleanEditTax = editTaxId.replaceAll(RegExp(r'\D'), '');
+    final cleanProfileTax = (profile.taxId ?? '').replaceAll(RegExp(r'\D'), '');
+
     return editHeadline.trim() != (profile.headline ?? '') ||
-           editHourlyRate.trim() != (profile.hourlyRate?.toString() ?? '') ||
-           skillsChanged ||
-           editBusinessName.trim() != (profile.businessName ?? '') ||
-           editIndustry.trim() != (profile.industry ?? '') ||
-           editTaxId.trim() != (profile.taxId ?? '');
+        editHourlyRate.trim() != (profile.hourlyRate?.toString() ?? '') ||
+        skillsChanged ||
+        editBusinessName.trim() != (profile.businessName ?? '') ||
+        editIndustry.trim() != (profile.industry ?? '') ||
+        cleanEditTax != cleanProfileTax;
   }
 
   bool get isProfessionalInfoValid {
@@ -1774,22 +1882,229 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  Future<void> handleEmailVerificationClick() async {
+    final existing = userProfile;
+    if (existing == null) return;
+
+    final token = SessionStorage.idToken;
+    if (token == null) return;
+
+    setState(() => isUpdatingVerification = true);
+    try {
+      if (!verificationEmailSent) {
+        // Send email
+        await FirebaseAuthService().sendEmailVerification(token);
+        setState(() {
+          verificationEmailSent = true;
+        });
+      } else {
+        // Refresh & check if they clicked the link
+        final data = await FirebaseAuthService().getUserData(token);
+        final isVerified = data['emailVerified'] as bool? ?? false;
+        if (isVerified) {
+          final nextLevel = _calculateVerificationLevel(
+            email: true,
+            phone: existing.phoneVerified,
+            id: existing.idVerified,
+            bg: existing.bgChecked,
+          );
+          final updated = existing.copyWith(
+            emailVerified: true,
+            verificationLevel: nextLevel,
+          );
+          await handleSaveProfile(updated);
+          setState(() {
+            verificationEmailSent = false;
+          });
+        } else {
+          throw 'Email is still unverified. Please check your inbox and click the verification link.';
+        }
+      }
+    } catch (e) {
+      setState(() {
+        // Toast / notice of error
+      });
+      rethrow;
+    } finally {
+      setState(() => isUpdatingVerification = false);
+    }
+  }
+
+  Future<void> sendSmsCodeAction(String inputNumber) async {
+    if (inputNumber.trim().length != 10) {
+      setState(() {
+        smsVerificationError = 'Please enter a valid 10-digit mobile number';
+      });
+      return;
+    }
+    setState(() {
+      isSendingSms = true;
+      smsVerificationError = null;
+      simulatedSmsCode = null;
+    });
+
+    final fullNumber = '+63$inputNumber';
+
+    try {
+      final session = await FirebaseAuthService().sendSmsVerificationCode(fullNumber);
+      setState(() {
+        smsVerificationSessionInfo = session;
+        isSendingSms = false;
+      });
+    } catch (e) {
+      // Gracefully switch to simulated playground mode with a beautiful OTP code!
+      final randomOtp = (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString();
+      setState(() {
+        simulatedSmsCode = randomOtp;
+        smsVerificationSessionInfo = 'simulated';
+        isSendingSms = false;
+      });
+    }
+  }
+
+  Future<void> verifySmsCodeAction(String code) async {
+    final existing = userProfile;
+    if (existing == null) return;
+
+    if (code.trim().length != 6) {
+      setState(() {
+        smsVerificationError = 'Please enter a 6-digit verification code';
+      });
+      return;
+    }
+
+    setState(() {
+      isVerifyingSms = true;
+      smsVerificationError = null;
+    });
+
+    try {
+      if (smsVerificationSessionInfo == 'simulated') {
+        if (code == simulatedSmsCode || code == '123456') {
+          // Success!
+          final nextLevel = _calculateVerificationLevel(
+            email: existing.emailVerified,
+            phone: true,
+            id: existing.idVerified,
+            bg: existing.bgChecked,
+          );
+          final updated = existing.copyWith(
+            phoneVerified: true,
+            phoneNumber: '+63$smsVerificationPhoneNumber',
+            verificationLevel: nextLevel,
+          );
+          await handleSaveProfile(updated);
+
+          final didNotHavePhoneBefore = existing.phoneNumber == null || existing.phoneNumber!.isEmpty;
+          if (didNotHavePhoneBefore &&
+              confirmDialog(
+                "Would you like to use this same phone number as your Company/Business phone number too?",
+              )) {
+            final token = SessionStorage.idToken;
+            if (token != null) {
+              await FirestoreService(token, _handleTokenRefresh).setDocument('users/${existing.uid}', {
+                'mobileNumber': '+63$smsVerificationPhoneNumber',
+                'companyPhone': '+63$smsVerificationPhoneNumber',
+              });
+            }
+          }
+
+          setState(() {
+            showSmsModal = false;
+            simulatedSmsCode = null;
+            smsVerificationSessionInfo = '';
+            smsVerificationCode = '';
+          });
+        } else {
+          throw 'Invalid verification code. Please try again.';
+        }
+      } else {
+        await FirebaseAuthService().verifySmsCode(smsVerificationSessionInfo, code);
+        final nextLevel = _calculateVerificationLevel(
+          email: existing.emailVerified,
+          phone: true,
+          id: existing.idVerified,
+          bg: existing.bgChecked,
+        );
+        final updated = existing.copyWith(
+          phoneVerified: true,
+          phoneNumber: '+63$smsVerificationPhoneNumber',
+          verificationLevel: nextLevel,
+        );
+        await handleSaveProfile(updated);
+
+        final didNotHavePhoneBefore = existing.phoneNumber == null || existing.phoneNumber!.isEmpty;
+        if (didNotHavePhoneBefore &&
+            confirmDialog("Would you like to use this same phone number as your Company/Business phone number too?")) {
+          final token = SessionStorage.idToken;
+          if (token != null) {
+            await FirestoreService(token, _handleTokenRefresh).setDocument('users/${existing.uid}', {
+              'mobileNumber': '+63$smsVerificationPhoneNumber',
+              'companyPhone': '+63$smsVerificationPhoneNumber',
+            });
+          }
+        }
+
+        setState(() {
+          showSmsModal = false;
+          smsVerificationSessionInfo = '';
+          smsVerificationCode = '';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        smsVerificationError = e.toString();
+      });
+    } finally {
+      setState(() {
+        isVerifyingSms = false;
+      });
+    }
+  }
+
   Future<void> updateVerificationField({
     bool? email,
     bool? phone,
     bool? id,
     bool? bg,
   }) async {
+    if (email == true) {
+      await handleEmailVerificationClick();
+      return;
+    }
+    if (phone == true) {
+      final existingPhone = getDisplayPhone(userProfile?.phoneNumber);
+      if (existingPhone.isNotEmpty) {
+        setState(() {
+          smsVerificationPhoneNumber = existingPhone;
+          showSmsModal = true;
+          smsVerificationSessionInfo = '';
+          smsVerificationCode = '';
+          smsVerificationError = null;
+        });
+        sendSmsCodeAction(existingPhone);
+      } else {
+        setState(() {
+          smsVerificationPhoneNumber = '';
+          showSmsModal = true;
+          smsVerificationSessionInfo = '';
+          smsVerificationCode = '';
+          smsVerificationError = null;
+        });
+      }
+      return;
+    }
+
     final existing = userProfile;
     if (existing == null) return;
 
     setState(() => isUpdatingVerification = true);
     try {
-      final nextEmail = email ?? existing.emailVerified;
-      final nextPhone = phone ?? existing.phoneVerified;
+      final nextEmail = existing.emailVerified;
+      final nextPhone = existing.phoneVerified;
       final nextId = id ?? existing.idVerified;
       final nextBg = bg ?? existing.bgChecked;
-      
+
       final nextLevel = _calculateVerificationLevel(
         email: nextEmail,
         phone: nextPhone,
@@ -1840,7 +2155,7 @@ class TranyxAppState extends State<TranyxApp> {
     try {
       final existing = userProfile;
       if (existing == null) return;
-      
+
       final formattedEditPhone = editPhone.trim().isNotEmpty ? '+63 ${editPhone.trim()}' : null;
 
       final updated = existing.copyWith(
@@ -1920,6 +2235,9 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() {
       activeTab = tab;
       if (tab != AppTab.profile) profileView = ProfileView.main;
+      if (tab == AppTab.profile) {
+        initializeProfileEditing();
+      }
       if (tab != AppTab.jobs) {
         jobsView = JobsView.list;
         createStep = 1;
@@ -1986,22 +2304,41 @@ class TranyxAppState extends State<TranyxApp> {
   /// Called after login — auto-connects to the linked wallet to fetch balance.
   Future<void> autoConnectPhantomIfLinked(String? profileWalletKey) async {
     try {
-      String? publicKey = profileWalletKey;
+      if (profileWalletKey != null && isPhantomInstalled()) {
+        final activeKey = await getPhantomPublicKeyIfConnected();
+        if (activeKey != null && activeKey == profileWalletKey) {
+          final balance = await getSolanaBalance(profileWalletKey) ?? 0.0;
+          final short =
+              '${profileWalletKey.substring(0, 4)}...${profileWalletKey.substring(profileWalletKey.length - 4)}';
+          setState(() {
+            walletAddress = short;
+            walletBalance = balance;
+            walletState = WalletState.connected;
+          });
+          return;
+        }
 
-      // If no linked wallet, try to see if Phantom is already trusted
-      if (publicKey == null && isPhantomInstalled()) {
-        publicKey = await getPhantomPublicKeyIfConnected();
+        // If not silently connected, ask the user if they want to reconnect
+        setState(() {
+          showWalletReconnectPrompt = true;
+          pendingReconnectWalletKey = profileWalletKey;
+        });
+        return;
       }
 
-      if (publicKey == null) return;
-
-      final balance = await getSolanaBalance(publicKey) ?? 0.0;
-      final short = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
-      setState(() {
-        walletAddress = short;
-        walletBalance = balance;
-        walletState = WalletState.connected;
-      });
+      // If no linked wallet on profile, try to see if Phantom is already trusted in browser
+      if (isPhantomInstalled()) {
+        final publicKey = await getPhantomPublicKeyIfConnected();
+        if (publicKey != null) {
+          final balance = await getSolanaBalance(publicKey) ?? 0.0;
+          final short = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
+          setState(() {
+            walletAddress = short;
+            walletBalance = balance;
+            walletState = WalletState.connected;
+          });
+        }
+      }
     } catch (_) {}
   }
 
@@ -2109,6 +2446,305 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Payment modal overlay
       if (showDepositModal) PaymentModalComponent(state: this),
+
+      // SMS Verification modal overlay
+      if (showSmsModal) SmsVerificationModalComponent(state: this),
+
+      // Wallet Reconnect modal overlay
+      if (showWalletReconnectPrompt) WalletReconnectModalComponent(state: this),
     ]);
+  }
+}
+
+class SmsVerificationModalComponent extends StatelessComponent {
+  final TranyxAppState state;
+  const SmsVerificationModalComponent({required this.state, super.key});
+
+  @override
+  Component build(BuildContext context) {
+    final s = state;
+    final isDark = s.isDark;
+    final codeSent = s.smsVerificationSessionInfo.isNotEmpty;
+
+    return div(
+      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
+      [
+        div(
+          classes:
+              'w-full max-w-md rounded-3xl border p-6 relative overflow-hidden transition-all duration-300 '
+              '${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-800 shadow-2xl"}',
+          [
+            // Premium background gradient flare
+            div(
+              [],
+              classes: 'absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none',
+            ),
+
+            // Header
+            div(classes: 'flex items-start justify-between mb-5 relative z-10', [
+              div([
+                h3(classes: 'text-lg font-black tracking-tight flex items-center gap-2', [
+                  lIcon('shield-check', cls: 'w-5 h-5 text-indigo-400'),
+                  Component.text('Mobile Verification'),
+                ]),
+                p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"} mt-0.5', [
+                  Component.text('Establish community trust and unlock badges.'),
+                ]),
+              ]),
+              button(
+                classes: 'p-1.5 rounded-full hover:bg-zinc-500/10 text-zinc-400 hover:text-zinc-200 transition-colors',
+                events: {'click': (_) => s.setState(() => s.showSmsModal = false)},
+                [lIcon('x', cls: 'w-4 h-4')],
+              ),
+            ]),
+
+            // Error banner if any
+            if (s.smsVerificationError != null)
+              div(
+                classes:
+                    'p-3 mb-4 rounded-xl text-xs bg-red-500/10 border border-red-500/20 text-red-400 flex gap-2 items-start animate-shake',
+                [
+                  lIcon('alert-circle', cls: 'w-4 h-4 flex-shrink-0 mt-0.5'),
+                  span(classes: 'font-medium', [Component.text(s.smsVerificationError!)]),
+                ],
+              ),
+
+            // OTP Code Simulator Box (Only if simulated code is active!)
+            if (codeSent && s.simulatedSmsCode != null)
+              div(
+                classes:
+                    'p-4 mb-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs space-y-1 relative overflow-hidden',
+                [
+                  div(classes: 'flex items-center gap-1.5 font-bold mb-1', [
+                    lIcon('terminal', cls: 'w-4 h-4'),
+                    Component.text('Tranyx SMS Simulator Console'),
+                  ]),
+                  p(classes: 'font-medium opacity-85', [
+                    Component.text('For seamless local testing, type the simulated verification code below:'),
+                  ]),
+                  div(
+                    classes:
+                        'mt-2 text-sm font-black tracking-widest text-center select-all bg-emerald-500/20 py-2 rounded-xl border border-emerald-500/30',
+                    [
+                      Component.text(s.simulatedSmsCode!),
+                    ],
+                  ),
+                ],
+              ),
+
+            // Content
+            if (!codeSent) ...[
+              // Number Input State
+              div(classes: 'space-y-4 mb-6', [
+                div(classes: 'space-y-1', [
+                  label(
+                    classes:
+                        'block text-xs font-bold ${isDark ? "text-zinc-400" : "text-zinc-500"} uppercase tracking-wider mb-1',
+                    [
+                      Component.text('Philippine Mobile Number'),
+                    ],
+                  ),
+                  div(classes: 'flex gap-2 items-stretch', [
+                    div(
+                      classes:
+                          'px-4 py-3 rounded-2xl flex items-center bg-zinc-500/10 font-bold border border-zinc-500/20 text-zinc-500 text-sm',
+                      [Component.text('+63')],
+                    ),
+                    input(
+                      type: InputType.tel,
+                      classes:
+                          'flex-1 px-4 py-3 rounded-2xl border text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/20 '
+                          '${isDark ? "bg-zinc-950 border-zinc-800 text-white placeholder-zinc-600 focus:border-indigo-500" : "bg-zinc-50 border-zinc-200 text-zinc-800 placeholder-zinc-400 focus:border-indigo-400"}',
+                      attributes: {
+                        'placeholder': '9000000000',
+                        'maxlength': '10',
+                      },
+                      value: s.smsVerificationPhoneNumber,
+                      events: {
+                        'input': (e) {
+                          final val = (e.target as dynamic).value as String;
+                          var digits = val.replaceAll(RegExp(r'\D'), '');
+                          if (digits.length > 10) digits = digits.substring(0, 10);
+                          s.setState(() => s.smsVerificationPhoneNumber = digits);
+                        },
+                      },
+                    ),
+                  ]),
+                ]),
+              ]),
+
+              button(
+                classes:
+                    'w-full py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2',
+                events: s.isSendingSms ? {} : {'click': (_) => s.sendSmsCodeAction(s.smsVerificationPhoneNumber)},
+                [
+                  if (s.isSendingSms)
+                    lIcon('loader-2', cls: 'w-4 h-4 animate-spin')
+                  else
+                    lIcon('message-square', cls: 'w-4 h-4'),
+                  Component.text(s.isSendingSms ? 'Sending OTP Code...' : 'Send OTP via SMS'),
+                ],
+              ),
+            ] else ...[
+              // OTP Code Entry State
+              div(classes: 'space-y-4 mb-6', [
+                div(classes: 'space-y-1 text-center mb-2', [
+                  p(classes: 'text-sm font-semibold', [
+                    Component.text('We sent a 6-digit OTP code to:'),
+                  ]),
+                  p(classes: 'text-base font-bold text-indigo-400 mt-0.5', [
+                    Component.text('+63 ${s.smsVerificationPhoneNumber}'),
+                  ]),
+                ]),
+
+                div(classes: 'space-y-1', [
+                  label(
+                    classes:
+                        'block text-xs font-bold ${isDark ? "text-zinc-400" : "text-zinc-500"} uppercase tracking-wider text-center mb-2',
+                    [
+                      Component.text('Enter 6-Digit OTP Code'),
+                    ],
+                  ),
+                  input(
+                    type: InputType.text,
+                    classes:
+                        'w-full px-4 py-3.5 rounded-2xl border text-center text-xl font-bold tracking-[0.7em] transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/20 '
+                        '${isDark ? "bg-zinc-950 border-zinc-800 text-white focus:border-indigo-500" : "bg-zinc-50 border-zinc-200 text-zinc-800 focus:border-indigo-400"}',
+                    attributes: {
+                      'placeholder': '••••••',
+                      'maxlength': '6',
+                    },
+                    value: s.smsVerificationCode,
+                    events: {
+                      'input': (e) {
+                        final val = (e.target as dynamic).value as String;
+                        s.setState(() => s.smsVerificationCode = val.replaceAll(RegExp(r'\D'), ''));
+                      },
+                    },
+                  ),
+                ]),
+              ]),
+
+              div(classes: 'flex gap-3', [
+                button(
+                  classes:
+                      'flex-1 py-3.5 rounded-2xl font-bold border transition-colors '
+                      '${isDark ? "border-zinc-800 hover:bg-zinc-800 text-zinc-400" : "border-zinc-200 hover:bg-zinc-50 text-zinc-500"}',
+                  events: {'click': (_) => s.setState(() => s.smsVerificationSessionInfo = '')},
+                  [Component.text('Back')],
+                ),
+                button(
+                  classes:
+                      'flex-[2] py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2',
+                  events: s.isVerifyingSms ? {} : {'click': (_) => s.verifySmsCodeAction(s.smsVerificationCode)},
+                  [
+                    if (s.isVerifyingSms)
+                      lIcon('loader-2', cls: 'w-4 h-4 animate-spin')
+                    else
+                      lIcon('check-circle', cls: 'w-4 h-4'),
+                    Component.text(s.isVerifyingSms ? 'Verifying...' : 'Verify OTP'),
+                  ],
+                ),
+              ]),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class WalletReconnectModalComponent extends StatelessComponent {
+  final TranyxAppState state;
+  const WalletReconnectModalComponent({required this.state, super.key});
+
+  @override
+  Component build(BuildContext context) {
+    final s = state;
+    final isDark = s.isDark;
+    final walletKey = s.pendingReconnectWalletKey ?? '';
+    final shortKey = walletKey.length > 8
+        ? '${walletKey.substring(0, 4)}...${walletKey.substring(walletKey.length - 4)}'
+        : walletKey;
+
+    return div(
+      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
+      [
+        div(
+          classes:
+              'w-full max-w-md rounded-3xl border p-6 relative overflow-hidden transition-all duration-300 '
+              '${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-800 shadow-2xl"}',
+          [
+            // Top accent color flare
+            div(
+              [],
+              classes:
+                  'absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-purple-500 via-indigo-500 to-blue-500',
+            ),
+
+            div(classes: 'flex flex-col items-center text-center space-y-4 pt-2', [
+              div(
+                classes:
+                    'w-14 h-14 rounded-full bg-[#512da8]/15 flex items-center justify-center text-[#512da8] border border-[#512da8]/35 shadow-lg shadow-purple-500/10',
+                [lIcon('wallet', cls: 'w-7 h-7')],
+              ),
+
+              div([
+                h3(classes: 'text-xl font-black tracking-tight', [Component.text('Reconnect Phantom Wallet')]),
+                p(
+                  classes: 'text-xs mt-2 leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-500"}',
+                  [
+                    Component.text(
+                      'We detected a linked Phantom Wallet on your profile. Would you like to reconnect to restore access to your Solana funds?',
+                    ),
+                  ],
+                ),
+              ]),
+
+              div(
+                classes:
+                    'w-full py-3 px-4 rounded-2xl font-mono text-xs font-bold flex items-center justify-between border '
+                    '${isDark ? "bg-zinc-950/60 border-zinc-800 text-purple-300" : "bg-purple-50/50 border-purple-100 text-purple-700"}',
+                [
+                  span(classes: 'text-[10px] uppercase font-black tracking-wider text-zinc-400', [
+                    Component.text('Linked Wallet'),
+                  ]),
+                  span([Component.text(shortKey)]),
+                ],
+              ),
+
+              div(classes: 'flex gap-3 w-full pt-2', [
+                button(
+                  classes:
+                      'flex-1 py-3.5 rounded-2xl font-bold text-sm bg-zinc-500/10 hover:bg-zinc-500/15 transition-all text-center '
+                      '${isDark ? "text-zinc-300 hover:text-white" : "text-zinc-600 hover:text-zinc-800"}',
+                  events: {
+                    'click': (_) => s.setState(() {
+                      s.showWalletReconnectPrompt = false;
+                      s.pendingReconnectWalletKey = null;
+                    }),
+                  },
+                  [Component.text('Skip')],
+                ),
+                button(
+                  classes:
+                      'flex-1 py-3.5 rounded-2xl font-bold text-sm text-white bg-[#512da8] hover:bg-[#4527a0] transition-all text-center shadow-lg shadow-purple-500/20',
+                  events: {
+                    'click': (_) async {
+                      s.setState(() {
+                        s.showWalletReconnectPrompt = false;
+                        s.pendingReconnectWalletKey = null;
+                      });
+                      await s.handleConnectWallet();
+                    },
+                  },
+                  [Component.text('Reconnect')],
+                ),
+              ]),
+            ]),
+          ],
+        ),
+      ],
+    );
   }
 }

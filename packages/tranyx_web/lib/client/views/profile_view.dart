@@ -3,6 +3,8 @@ import 'package:jaspr/jaspr.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
+import '../../services/firebase_service.dart';
+import '../../services/web_interop.dart';
 import 'package:shared/shared.dart';
 
 class ProfileViewComponent extends StatelessComponent {
@@ -36,6 +38,7 @@ class ProfileViewComponent extends StatelessComponent {
       ProfileView.payment => _Payment(state: s),
       ProfileView.trust => _TrustVerification(state: s),
       ProfileView.support => _HelpSupport(state: s),
+      ProfileView.history => _HistoryView(state: s),
     };
   }
 }
@@ -51,12 +54,26 @@ class _ProfileMenu extends StatelessComponent {
     final isDark = s.isDark;
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
 
+    final String historyLabel;
+    switch (s.accountType) {
+      case AccountType.employer:
+        historyLabel = 'Purchase History';
+        break;
+      case AccountType.nyxian:
+        historyLabel = 'Earning History';
+        break;
+      case AccountType.hybrid:
+        historyLabel = 'History & Earnings';
+        break;
+    }
+
     final items = [
       (ProfileView.personal, 'user', 'Personal Information'),
       (ProfileView.professional, 'briefcase', 'Professional Info'),
       (ProfileView.payment, 'credit-card', 'Payment Methods'),
       (ProfileView.trust, 'shield-check', 'Trust & Verification'),
       (ProfileView.support, 'help-circle', 'Help & Support'),
+      (ProfileView.history, 'activity', historyLabel),
     ];
 
     return div(classes: 'rounded-3xl border p-4 $cardCls', [
@@ -105,7 +122,12 @@ class _ProfileMenu extends StatelessComponent {
     return button(
       classes:
           'w-full flex items-center gap-3 p-4 rounded-2xl transition-all text-left ${isActive ? activeCls : inactiveCls}',
-      events: {'click': (_) => s.setState(() => s.profileView = view)},
+      events: {
+        'click': (_) => s.setState(() {
+          s.profileView = view;
+          s.initializeProfileEditing();
+        }),
+      },
       [
         lIcon(icon, cls: 'w-5 h-5'),
         span(classes: 'text-sm font-medium', [Component.text(label)]),
@@ -139,7 +161,7 @@ class _ProfileMain extends StatelessComponent {
         [
           // Rating - Always shown
           _stat(
-            (s.userProfile?.rating ?? 5.0).toStringAsFixed(1),
+            (s.userProfile?.rating ?? 0.0).toStringAsFixed(1),
             'Rating',
             'star',
             'text-amber-400',
@@ -286,7 +308,6 @@ class _PersonalInfo extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final s = state;
-    final isDark = s.isDark;
 
     final currentName = s.editName.isNotEmpty ? s.editName : (s.userProfile?.name ?? s.userName);
     final currentEmail = s.editEmail.isNotEmpty ? s.editEmail : (s.userProfile?.email ?? s.userEmail);
@@ -301,7 +322,7 @@ class _PersonalInfo extends StatelessComponent {
       div(classes: 'space-y-4', [
         inputField(
           label: 'Full Name',
-          placeholder: 'Alex Rivera',
+          placeholder: 'Juan Dela Cruz',
           iconName: 'user-circle',
           isDark: s.isDark,
           value: currentName,
@@ -309,7 +330,7 @@ class _PersonalInfo extends StatelessComponent {
         ),
         inputField(
           label: 'Email Address',
-          placeholder: 'alex@example.com',
+          placeholder: 'juan@example.com',
           iconName: 'mail',
           type: 'email',
           isDark: s.isDark,
@@ -498,7 +519,7 @@ class _ProfessionalInfo extends StatelessComponent {
           ]),
           inputField(
             label: 'Company / Business Name',
-            placeholder: 'Rivera Constructions',
+            placeholder: 'Juan Constructions',
             iconName: 'building',
             isDark: isDark,
             value: currentBusinessName,
@@ -600,7 +621,7 @@ class _Payment extends StatelessComponent {
             div([
               p(classes: 'text-4xl font-black flex items-center gap-3', [
                 span(classes: 'text-2xl opacity-60', [Component.text('₱')]),
-                Component.text(s.walletBalance.toStringAsFixed(2)),
+                Component.text((s.userProfile?.tyxBalance ?? 0.0).toStringAsFixed(2)),
               ]),
               p(classes: 'text-xs opacity-60 mt-2 font-mono tracking-widest uppercase', [
                 Component.text('tranyx-tyxbit-v1 :: ${s.userProfile?.uid.substring(0, 8) ?? "tx-9921"}'),
@@ -608,22 +629,24 @@ class _Payment extends StatelessComponent {
             ]),
 
             div(classes: 'flex gap-3', [
-              button(
-                classes:
-                    'flex-1 py-3.5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 font-bold text-sm hover:bg-white/20 transition-all flex items-center justify-center gap-2',
-                events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
-                [lIcon('arrow-down-left', cls: 'w-4 h-4'), Component.text('Deposit')],
-              ),
-              button(
-                classes:
-                    'flex-1 py-3.5 rounded-2xl bg-black/20 backdrop-blur-md border border-white/10 font-bold text-sm hover:bg-black/30 transition-all flex items-center justify-center gap-2',
-                events: {'click': (_) => s.handleWithdrawTyx()},
-                [
-                  if (s.isSavingProfile) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
-                  lIcon('arrow-up-right', cls: 'w-4 h-4'),
-                  Component.text(s.isSavingProfile ? 'Processing...' : 'Withdraw'),
-                ],
-              ),
+              if (s.accountType == AccountType.employer || s.accountType == AccountType.hybrid)
+                button(
+                  classes:
+                      'flex-1 py-3.5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 font-bold text-sm hover:bg-white/20 transition-all flex items-center justify-center gap-2',
+                  events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
+                  [lIcon('arrow-down-left', cls: 'w-4 h-4'), Component.text('Deposit')],
+                ),
+              if (s.accountType == AccountType.nyxian || s.accountType == AccountType.hybrid)
+                button(
+                  classes:
+                      'flex-1 py-3.5 rounded-2xl bg-black/20 backdrop-blur-md border border-white/10 font-bold text-sm hover:bg-black/30 transition-all flex items-center justify-center gap-2',
+                  events: {'click': (_) => s.handleWithdrawTyx()},
+                  [
+                    if (s.isSavingProfile) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
+                    lIcon('arrow-up-right', cls: 'w-4 h-4'),
+                    Component.text(s.isSavingProfile ? 'Processing...' : 'Withdraw'),
+                  ],
+                ),
             ]),
           ]),
         ],
@@ -687,41 +710,30 @@ class _Payment extends StatelessComponent {
     }
 
     // Connected
-    return div(classes: 'p-5 rounded-2xl border border-purple-500/30 bg-purple-500/10', [
-      div(classes: 'flex items-center justify-between mb-3', [
-        div(classes: 'flex items-center gap-3', [
-          div(classes: 'p-2.5 rounded-xl phantom-gradient', [
-            lIcon('wallet', cls: 'w-5 h-5 text-white'),
+    final displayAddr = s.walletAddress.length > 8
+        ? '${s.walletAddress.substring(0, 4)}...${s.walletAddress.substring(s.walletAddress.length - 4)}'
+        : s.walletAddress;
+
+    return div(
+      classes:
+          'p-6 rounded-[2rem] border transition-all duration-300 '
+          '${isDark ? "bg-[#18181b]/60 border-zinc-800/80 text-white" : "bg-white border-zinc-200 text-zinc-800 shadow-sm"} space-y-6',
+      [
+        div(classes: 'flex items-center justify-between', [
+          div(classes: 'flex items-center gap-4', [
+            div(
+              classes:
+                  'w-12 h-12 rounded-full bg-[#512da8] flex items-center justify-center text-white shadow-lg shadow-purple-500/20',
+              [lIcon('wallet', cls: 'w-6 h-6')],
+            ),
+            div([
+              p(classes: 'font-extrabold text-indigo-400 tracking-tight text-base', [Component.text('Phantom Wallet')]),
+              p(classes: 'text-xs text-zinc-500 font-mono mt-0.5', [Component.text(displayAddr)]),
+            ]),
           ]),
-          div([
-            p(classes: 'font-semibold text-purple-300', [Component.text('Phantom Connected')]),
-            p(classes: 'text-xs text-purple-400 font-mono', [Component.text(s.walletAddress)]),
-          ]),
-        ]),
-        span(classes: 'px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300', [
-          Component.text('SOL'),
-        ]),
-      ]),
-      div(classes: 'flex items-center justify-between', [
-        div([
-          p(classes: 'text-xs text-purple-400', [Component.text('Balance')]),
-          p(classes: 'text-2xl font-bold text-purple-200', [
-            Component.text('${s.walletBalance.toStringAsFixed(2)} SOL'),
-          ]),
-        ]),
-        div(classes: 'flex gap-2', [
           button(
-            classes: 'p-2.5 rounded-xl bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors',
-            events: {'click': (_) => s.handleRefreshBalance()},
-            [
-              lIcon(
-                s.isRefreshingBalance ? 'loader-2' : 'refresh-cw',
-                cls: 'w-4 h-4 ${s.isRefreshingBalance ? "animate-spin" : ""}',
-              ),
-            ],
-          ),
-          button(
-            classes: 'p-2.5 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors',
+            classes:
+                'p-2 rounded-xl text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer',
             events: {
               'click': (_) => s.setState(() {
                 s.walletState = WalletState.disconnected;
@@ -729,11 +741,40 @@ class _Payment extends StatelessComponent {
                 s.walletBalance = 0;
               }),
             },
-            [lIcon('log-out', cls: 'w-4 h-4')],
+            [lIcon('log-out', cls: 'w-5 h-5')],
           ),
         ]),
-      ]),
-    ]);
+
+        div(classes: 'flex items-end justify-between pt-1', [
+          div([
+            p(classes: 'text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500 mb-1', [
+              Component.text('Balance'),
+            ]),
+            p(
+              classes:
+                  'text-3xl font-black flex items-baseline gap-1.5 '
+                  '${isDark ? "text-white" : "text-zinc-900"}',
+              [
+                Component.text(s.walletBalance.toStringAsFixed(2)),
+                span(classes: 'text-xs font-black text-zinc-500 tracking-wider', [Component.text('SOL')]),
+              ],
+            ),
+          ]),
+          button(
+            classes:
+                'p-3 rounded-2xl transition-all flex items-center justify-center border shadow-sm '
+                '${isDark ? "bg-zinc-800/80 border-zinc-700/60 hover:bg-zinc-800 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-600"}',
+            events: {'click': (_) => s.handleRefreshBalance()},
+            [
+              lIcon(
+                s.isRefreshingBalance ? 'loader-2' : 'refresh-cw',
+                cls: 'w-5 h-5 ${s.isRefreshingBalance ? "animate-spin" : ""}',
+              ),
+            ],
+          ),
+        ]),
+      ],
+    );
   }
 }
 
@@ -764,6 +805,11 @@ class _TrustVerification extends StatelessComponent {
           div([
             p(classes: 'font-bold text-sm ${isDark ? "text-white" : "text-zinc-800"}', [Component.text(title)]),
             p(classes: 'text-[11px] ${isDark ? "text-zinc-500" : "text-zinc-550"}', [Component.text(desc)]),
+            if (title == 'Email Address' && state.verificationEmailSent && !isVerified)
+              p(classes: 'text-[10px] text-indigo-400 font-semibold mt-1 flex items-center gap-1 animate-pulse', [
+                lIcon('mail', cls: 'w-3 h-3'),
+                Component.text('Verification link sent! Check your inbox/spam.'),
+              ]),
           ]),
         ]),
         if (isVerified)
@@ -774,6 +820,25 @@ class _TrustVerification extends StatelessComponent {
               Component.text('Verified'),
             ],
           )
+        else if (title == 'Email Address' && state.verificationEmailSent)
+          div(classes: 'flex gap-2 items-center', [
+            button(
+              classes:
+                  'px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-colors '
+                  '${isDark ? "border-zinc-800 hover:bg-zinc-800 text-zinc-400" : "border-zinc-200 hover:bg-zinc-100 text-zinc-650"}',
+              events: isSaving ? {} : {'click': (_) => onVerify()},
+              [Component.text('Resend')],
+            ),
+            button(
+              classes:
+                  'px-3 py-1.5 rounded-xl text-[11px] font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-1',
+              events: isSaving ? {} : {'click': (_) => onVerify()},
+              [
+                if (isSaving) lIcon('loader-2', cls: 'w-3 h-3 animate-spin'),
+                Component.text(isSaving ? 'Verifying...' : "I've Verified"),
+              ],
+            ),
+          ])
         else
           button(
             classes:
@@ -895,34 +960,1016 @@ class _TrustVerification extends StatelessComponent {
   }
 }
 
-// ── Help & Support ────────────────────────────────────────────
-class _HelpSupport extends StatelessComponent {
+class _HelpSupport extends StatefulComponent {
   final TranyxAppState state;
   const _HelpSupport({required this.state});
 
   @override
+  State<_HelpSupport> createState() => _HelpSupportState();
+}
+
+class _HelpSupportState extends State<_HelpSupport> {
+  int expandedFaqIndex = -1;
+  bool showChat = false;
+  bool showTicketForm = false;
+  bool isSubmitting = false;
+  String? submitSuccessMessage;
+  String? submitErrorMessage;
+
+  // Ticket Form Controllers/State
+  String ticketSubject = '';
+  String ticketDescription = '';
+  String ticketCategory = 'General';
+
+  // Chat State
+  final List<Map<String, dynamic>> chatMessages = [
+    {
+      'isUser': false,
+      'text': 'Hi! I am Nyx, your Tranyx AI support agent. How can I help you today?',
+      'time': 'Just now',
+    },
+  ];
+  String currentChatInput = '';
+  bool isAiTyping = false;
+
+  List<Map<String, String>> get faqData {
+    final type = component.state.accountType;
+    switch (type) {
+      case AccountType.employer:
+        return [
+          {
+            'title': 'How do I post a gig?',
+            'icon': 'briefcase',
+            'answer':
+                'Navigate to the "Find Workers" tab or dashboard. Click the "Post a Gig" button to open the creation modal. Enter a catchy job title, choose a category, specify required skills, set the budget in Tyx, and complete the escrow. The gig will instantly become visible to qualified Nyxian workers!',
+          },
+          {
+            'title': 'How does payment and Escrow work?',
+            'icon': 'credit-card',
+            'answer':
+                'Tranyx utilizes a secure, trustless in-app Escrow system. When you post a job, the designated funds are safely held in a project escrow. Once the worker delivers their work and you review and approve it, the funds are instantly released to their wallet. No delayed payouts, no hidden fees.',
+          },
+          {
+            'title': 'Why should I verify my TIN ID?',
+            'icon': 'shield-check',
+            'answer':
+                'Verifying your Tax Identification Number (TIN) unlocks the "Verified Employer" status. This dramatically boosts worker trust, increases the visibility of your gig listings, and qualifies you for posting higher-tier contracts.',
+          },
+          {
+            'title': 'How do I review and hire applicants?',
+            'icon': 'users',
+            'answer':
+                'Under "Manage Jobs", click on your posted gig to view the active applicants. You can inspect their profile, reviews, and verified skills. Once you find the perfect match, click "Hire" to lock in the escrow and begin!',
+          },
+          {
+            'title': 'How does the Escrow dispute system work?',
+            'icon': 'alert-circle',
+            'answer':
+                'If a worker fails to deliver or the output does not meet your project specification, you can raise a dispute. Our decentralized moderation team will examine the deliverables and the agreement, settling the escrow fairly.',
+          },
+        ];
+      case AccountType.nyxian:
+        return [
+          {
+            'title': 'How do I apply for jobs?',
+            'icon': 'briefcase',
+            'answer':
+                'Explore the active gig listings under "Find Jobs". When you find a gig matching your expertise, click "Apply Now". Present a brief proposal showing why you are the best fit. If the employer approves, they will hire you and the escrow goes active!',
+          },
+          {
+            'title': 'How and when do I get paid?',
+            'icon': 'credit-card',
+            'answer':
+                'Your payout is completely secured by our in-app Escrow. The moment you submit the gig deliverables and the employer approves them, the funds are instantly released from escrow directly into your virtual Tyx balance.',
+          },
+          {
+            'title': 'What is the minimum withdrawal limit?',
+            'icon': 'wallet',
+            'answer':
+                'To withdraw Tyx to your connected Solana or GCash wallet, a minimum balance of 100 Tyx is required. Withdrawals are processed safely through our payment bridge.',
+          },
+          {
+            'title': 'How do I increase my profile rating?',
+            'icon': 'star',
+            'answer':
+                'Completing jobs on time, communicating professionally, and delivering high-quality results will earn you stellar ratings (up to 5 stars). Higher ratings boost your visibility and make you a preferred choice for premium gigs!',
+          },
+          {
+            'title': 'What are verified skills and how do I add them?',
+            'icon': 'zap',
+            'answer':
+                'Go to your Profile and manage your skills list. Highlighting verified skills that match search criteria helps employers discover you automatically when searching for Nyxian professionals.',
+          },
+        ];
+      case AccountType.hybrid:
+        return [
+          {
+            'title': 'What is a Hybrid PRO account?',
+            'icon': 'zap',
+            'answer':
+                'A Hybrid account gives you the ultimate flexibility to act as both an Employer (posting jobs) and a Nyxian Worker (applying for gigs) using a single, unified profile and balance!',
+          },
+          {
+            'title': 'How do I switch between Employer and Worker views?',
+            'icon': 'refresh-cw',
+            'answer':
+                'You can seamlessly toggle your active mode using the role selector in the dashboard or sidebar. This dynamically switches your views, custom tabs, and actions so you can hire or apply on the fly.',
+          },
+          {
+            'title': 'Are my balance and ratings shared?',
+            'icon': 'credit-card',
+            'answer':
+                'Yes! Your Tyx balance is shared across both roles, meaning you can immediately use earnings from your completed gigs to post new jobs. However, your rating system is split into "Employer Rating" and "Worker Rating" to represent your reputation in both roles accurately.',
+          },
+          {
+            'title': 'Do I need to verify both profiles?',
+            'icon': 'shield-check',
+            'answer':
+                'No, a single verification process validates your identity globally. Verifying your email, phone number, or TIN ID applies premium badges to both your Employer and Worker interfaces.',
+          },
+          {
+            'title': 'How do fees work on a Hybrid account?',
+            'icon': 'wallet',
+            'answer':
+                'Posting a gig as an employer locks in the escrow budget, while receiving payouts as a worker is subject to standard minimal network processing fees upon withdrawal.',
+          },
+        ];
+    }
+  }
+
+  void toggleFaq(int index) {
+    setState(() {
+      expandedFaqIndex = (expandedFaqIndex == index) ? -1 : index;
+    });
+  }
+
+  Future<void> sendChatMessage() async {
+    final text = currentChatInput.trim();
+    if (text.isEmpty) return;
+
+    setState(() {
+      chatMessages.add({
+        'isUser': true,
+        'text': text,
+        'time': 'Just now',
+      });
+      currentChatInput = '';
+      isAiTyping = true;
+    });
+
+    try {
+      final gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken);
+      final response = await gemini.askSupportQuestion(text);
+
+      setState(() {
+        isAiTyping = false;
+        chatMessages.add({
+          'isUser': false,
+          'text': response,
+          'time': 'Just now',
+        });
+      });
+    } catch (e) {
+      setState(() {
+        isAiTyping = false;
+        chatMessages.add({
+          'isUser': false,
+          'text': 'Oops, I hit a snag: $e. Please feel free to raise a support ticket below!',
+          'time': 'Just now',
+        });
+      });
+    }
+  }
+
+  Future<void> submitTicket() async {
+    if (ticketSubject.trim().isEmpty || ticketDescription.trim().isEmpty) {
+      setState(() => submitErrorMessage = 'Please fill out all fields.');
+      return;
+    }
+
+    setState(() {
+      isSubmitting = true;
+      submitErrorMessage = null;
+      submitSuccessMessage = null;
+    });
+
+    try {
+      final uid = SessionStorage.uid;
+      final token = SessionStorage.idToken;
+      if (uid == null || token == null) throw 'Not authenticated';
+
+      final svc = FirestoreService(token, component.state.handleTokenRefresh);
+      await svc.createOrUpdate('supportTickets/${DateTime.now().millisecondsSinceEpoch}', {
+        'uid': uid,
+        'userEmail': component.state.userEmail,
+        'userName': component.state.userName,
+        'subject': ticketSubject,
+        'description': ticketDescription,
+        'category': ticketCategory,
+        'status': 'Open',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      });
+
+      setState(() {
+        isSubmitting = false;
+        submitSuccessMessage =
+            'Ticket submitted successfully! Ticket ID: #${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}.';
+        ticketSubject = '';
+        ticketDescription = '';
+        showTicketForm = false;
+      });
+    } catch (e) {
+      setState(() {
+        isSubmitting = false;
+        submitErrorMessage = 'Failed to submit ticket: $e';
+      });
+    }
+  }
+
+  @override
   Component build(BuildContext context) {
-    final s = state;
+    final s = component.state;
     final isDark = s.isDark;
+
     return div(classes: 'space-y-6', [
       subViewHeader(
         title: 'Help & Support',
         isDark: isDark,
         onBack: () => s.setState(() => s.profileView = ProfileView.main),
       ),
-      button(
-        classes:
-            'w-full flex items-center justify-center gap-3 py-4 rounded-2xl logo-gradient text-white font-semibold hover:opacity-90 transition-opacity',
-        events: {},
-        [lIcon('message-square', cls: 'w-5 h-5'), Component.text(' Start Live Chat')],
-      ),
-      div(classes: 'space-y-3', [
-        supportFaq(title: 'How do I post a job?', iconName: 'briefcase', isDark: isDark),
-        supportFaq(title: 'How does payment work?', iconName: 'credit-card', isDark: isDark),
-        supportFaq(title: 'How do I verify my identity?', iconName: 'shield-check', isDark: isDark),
-        supportFaq(title: 'What is a Nyxian Worker?', iconName: 'zap', isDark: isDark),
-        supportFaq(title: 'How to dispute a transaction?', iconName: 'alert-circle', isDark: isDark),
+
+      if (showChat) ...[
+        // Support Chat Box
+        div(
+          classes:
+              'w-full border rounded-[2rem] overflow-hidden flex flex-col transition-all duration-300 '
+              '${isDark ? "bg-zinc-950/80 border-zinc-800" : "bg-white border-zinc-200 shadow-xl"}',
+          [
+            // Chat Header
+            div(
+              classes:
+                  'px-6 py-4 border-b flex justify-between items-center '
+                  '${isDark ? "bg-zinc-900/40 border-zinc-800" : "bg-zinc-50 border-zinc-200"}',
+              [
+                div(classes: 'flex items-center gap-3', [
+                  div(
+                    classes: 'w-10 h-10 rounded-full logo-gradient flex items-center justify-center text-white',
+                    [lIcon('zap', cls: 'w-5 h-5 text-white animate-pulse')],
+                  ),
+                  div([
+                    p(classes: 'font-extrabold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                      Component.text('Nyx AI Support'),
+                    ]),
+                    p(classes: 'text-xs text-emerald-400 font-bold flex items-center gap-1.5', [
+                      span(classes: 'w-2 h-2 rounded-full bg-emerald-400 animate-ping', []),
+                      Component.text('Online Now'),
+                    ]),
+                  ]),
+                ]),
+                button(
+                  classes:
+                      'p-2 rounded-full border transition-all '
+                      '${isDark ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white" : "bg-zinc-100 border-zinc-200 text-zinc-600 hover:text-zinc-800"}',
+                  events: {'click': (_) => setState(() => showChat = false)},
+                  [lIcon('x', cls: 'w-4 h-4')],
+                ),
+              ],
+            ),
+
+            // Messages Container
+            div(
+              classes: 'p-6 h-[320px] overflow-y-auto space-y-4 ${isDark ? "bg-zinc-950/40" : "bg-zinc-50/50"}',
+              [
+                for (final msg in chatMessages)
+                  div(
+                    classes: 'flex ${msg['isUser'] == true ? "justify-end" : "justify-start"}',
+                    [
+                      div(
+                        classes:
+                            'max-w-[80%] px-4 py-3 rounded-2xl text-sm font-medium leading-relaxed '
+                            '${msg['isUser'] == true ? "bg-indigo-600 text-white rounded-tr-none" : (isDark ? "bg-zinc-900 text-zinc-200 border border-zinc-800 rounded-tl-none" : "bg-white text-zinc-800 border border-zinc-200 shadow-sm rounded-tl-none")}',
+                        [
+                          p([Component.text(msg['text'] as String)]),
+                        ],
+                      ),
+                    ],
+                  ),
+                if (isAiTyping)
+                  div(
+                    classes: 'flex justify-start',
+                    [
+                      div(
+                        classes:
+                            'px-4 py-3 rounded-2xl bg-zinc-900 text-zinc-400 border border-zinc-800 rounded-tl-none flex items-center gap-2',
+                        [
+                          lIcon('loader-2', cls: 'w-4 h-4 animate-spin text-indigo-400'),
+                          Component.text('Nyx is typing...'),
+                        ],
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+
+            // Input Row
+            div(
+              classes:
+                  'p-4 border-t flex gap-3 items-center '
+                  '${isDark ? "bg-zinc-900/20 border-zinc-800" : "bg-white border-zinc-200"}',
+              [
+                input<String>(
+                  classes:
+                      'flex-1 py-3 px-4 rounded-xl border outline-none text-sm transition-all '
+                      '${isDark ? "bg-zinc-950 border-zinc-800 text-white focus:border-indigo-500" : "bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-indigo-500"}',
+                  value: currentChatInput,
+                  attributes: {'placeholder': 'Ask me anything about Tranyx...'},
+                  onInput: (v) => setState(() => currentChatInput = v),
+                  events: {
+                    'keydown': (event) {
+                      final kEvent = event as dynamic;
+                      if (kEvent.key == 'Enter') {
+                        sendChatMessage();
+                      }
+                    },
+                  },
+                ),
+                button(
+                  classes:
+                      'p-3 rounded-xl logo-gradient text-white hover:opacity-90 transition-opacity flex items-center justify-center',
+                  events: {'click': (_) => sendChatMessage()},
+                  [lIcon('send', cls: 'w-5 h-5 text-white')],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ] else if (showTicketForm) ...[
+        // Support Ticket Form
+        div(
+          classes:
+              'w-full border rounded-[2rem] p-6 space-y-6 '
+              '${isDark ? "bg-zinc-950/80 border-zinc-800" : "bg-white border-zinc-200 shadow-xl"}',
+          [
+            div(classes: 'flex justify-between items-center', [
+              h3(classes: 'text-lg font-black tracking-tight ${isDark ? "text-zinc-150" : "text-zinc-800"}', [
+                Component.text('Submit Support Ticket'),
+              ]),
+              button(
+                classes:
+                    'p-2 rounded-full border transition-all '
+                    '${isDark ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white" : "bg-zinc-100 border-zinc-200 text-zinc-600 hover:text-zinc-800"}',
+                events: {'click': (_) => setState(() => showTicketForm = false)},
+                [lIcon('x', cls: 'w-4 h-4')],
+              ),
+            ]),
+
+            if (submitSuccessMessage != null)
+              div(
+                classes:
+                    'p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-medium flex items-center gap-2',
+                [lIcon('check-circle', cls: 'w-5 h-5'), Component.text(submitSuccessMessage!)],
+              ),
+
+            if (submitErrorMessage != null)
+              div(
+                classes:
+                    'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-medium flex items-center gap-2',
+                [lIcon('alert-circle', cls: 'w-5 h-5'), Component.text(submitErrorMessage!)],
+              ),
+
+            div(classes: 'space-y-4', [
+              // Ticket Subject
+              inputField(
+                label: 'Subject / Topic',
+                placeholder: 'e.g. Disputed Escrow or Payment issue',
+                iconName: 'file-text',
+                isDark: isDark,
+                value: ticketSubject,
+                onChange: (v) => setState(() => ticketSubject = v),
+              ),
+
+              // Category Selector
+              div(classes: 'space-y-2', [
+                span(classes: 'block text-xs font-medium ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                  Component.text('Issue Category'),
+                ]),
+                div(classes: 'flex gap-2 flex-wrap', [
+                  for (final cat in ['General', 'Payment', 'Escrow Dispute', 'Account Security'])
+                    button(
+                      classes:
+                          'px-4 py-2 text-xs font-bold rounded-xl border transition-all '
+                          '${ticketCategory == cat ? "bg-indigo-600 border-indigo-500 text-white" : (isDark ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800" : "bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100")}',
+                      events: {'click': (_) => setState(() => ticketCategory = cat)},
+                      [Component.text(cat)],
+                    ),
+                ]),
+              ]),
+
+              // Description Textarea
+              div(
+                classes:
+                    'p-4 rounded-2xl border transition-colors '
+                    '${isDark ? "bg-zinc-900 border-zinc-800 focus-within:border-indigo-500" : "bg-white border-zinc-200 focus-within:border-indigo-500 shadow-sm"}',
+                [
+                  span(classes: 'block text-xs font-medium mb-2 ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                    Component.text('Describe your problem detailedly'),
+                  ]),
+                  textarea(
+                    classes:
+                        'w-full bg-transparent border-none outline-none h-28 text-sm md:text-base font-medium resize-none ${isDark ? "text-zinc-200" : "text-zinc-900"}',
+                    attributes: {'placeholder': 'Please specify details or reference contract IDs...'},
+                    events: {
+                      'input': (e) {
+                        setState(() => ticketDescription = (e as dynamic).target?.value as String? ?? '');
+                      },
+                    },
+                    [Component.text(ticketDescription)],
+                  ),
+                ],
+              ),
+            ]),
+
+            button(
+              classes:
+                  'w-full py-4 rounded-xl logo-gradient text-white font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+              events: {'click': (_) => submitTicket()},
+              [
+                if (isSubmitting) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                Component.text(isSubmitting ? 'Submitting Ticket...' : 'Submit Support Ticket'),
+              ],
+            ),
+          ],
+        ),
+      ] else ...[
+        // Default View Option Buttons
+        div(classes: 'grid grid-cols-2 gap-4', [
+          button(
+            classes:
+                'py-6 px-4 rounded-[2rem] border transition-all text-center flex flex-col items-center justify-center gap-3 '
+                '${isDark ? "bg-zinc-900/60 border-zinc-800 hover:bg-zinc-800 hover:border-indigo-500/50" : "bg-white border-zinc-200 shadow-sm hover:shadow-md hover:border-indigo-400"}',
+            events: {'click': (_) => setState(() => showChat = true)},
+            [
+              div(
+                classes: 'w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400',
+                [lIcon('message-square', cls: 'w-6 h-6')],
+              ),
+              div([
+                p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                  Component.text('Start AI Chat'),
+                ]),
+                p(classes: 'text-xs text-zinc-500 mt-1', [
+                  Component.text('Instant dynamic answers'),
+                ]),
+              ]),
+            ],
+          ),
+          button(
+            classes:
+                'py-6 px-4 rounded-[2rem] border transition-all text-center flex flex-col items-center justify-center gap-3 '
+                '${isDark ? "bg-zinc-900/60 border-zinc-800 hover:bg-zinc-800 hover:border-indigo-500/50" : "bg-white border-zinc-200 shadow-sm hover:shadow-md hover:border-indigo-400"}',
+            events: {'click': (_) => setState(() => showTicketForm = true)},
+            [
+              div(
+                classes: 'w-12 h-12 rounded-2xl bg-violet-500/10 flex items-center justify-center text-violet-400',
+                [lIcon('file-text', cls: 'w-6 h-6')],
+              ),
+              div([
+                p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                  Component.text('Submit Ticket'),
+                ]),
+                p(classes: 'text-xs text-zinc-500 mt-1', [
+                  Component.text('Raise issue to admins'),
+                ]),
+              ]),
+            ],
+          ),
+        ]),
+      ],
+
+      // Expandable FAQ Section
+      div(classes: 'space-y-4 mt-6', [
+        p(classes: 'text-xs font-black uppercase tracking-[0.2em] opacity-60 mb-2', [
+          Component.text('Frequently Asked Questions'),
+        ]),
+        div(classes: 'space-y-3', [
+          for (int i = 0; i < faqData.length; i++) ...[
+            button(
+              classes:
+                  'w-full flex items-center justify-between p-5 rounded-2xl border transition-all text-left '
+                  '${isDark ? "bg-zinc-900/60 border-zinc-800 hover:bg-zinc-800" : "bg-white border-zinc-200 shadow-sm hover:shadow-md hover:bg-zinc-50"}',
+              events: {'click': (_) => toggleFaq(i)},
+              [
+                div(classes: 'flex items-center gap-4', [
+                  lIcon(faqData[i]['icon']!, cls: 'w-5 h-5 ${isDark ? "text-indigo-400" : "text-indigo-500"}'),
+                  span(
+                    classes: 'font-bold text-base ${isDark ? "text-zinc-200" : "text-zinc-800"}',
+                    [Component.text(faqData[i]['title']!)],
+                  ),
+                ]),
+                lIcon(
+                  expandedFaqIndex == i ? 'chevron-down' : 'chevron-right',
+                  cls: 'w-5 h-5 ${isDark ? "text-zinc-500" : "text-zinc-400"} transition-transform',
+                ),
+              ],
+            ),
+            if (expandedFaqIndex == i)
+              div(
+                classes:
+                    'p-6 rounded-2xl -mt-1 border border-t-0 animate-fade-in '
+                    '${isDark ? "bg-zinc-900/30 border-zinc-800 text-zinc-400" : "bg-zinc-50 border-zinc-150 text-zinc-600"}',
+                [
+                  p(classes: 'text-sm leading-relaxed font-medium', [
+                    Component.text(faqData[i]['answer']!),
+                  ]),
+                ],
+              ),
+          ],
+        ]),
       ]),
+    ]);
+  }
+}
+
+class _HistoryView extends StatefulComponent {
+  final TranyxAppState state;
+  const _HistoryView({required this.state});
+
+  @override
+  State<_HistoryView> createState() => _HistoryViewState();
+}
+
+class _HistoryViewState extends State<_HistoryView> {
+  String activeTab = 'earnings';
+  String activeFilter = 'daily';
+  int hoveredBarIndex = -1;
+
+  // Earnings dataset (kept static for graphs temporarily)
+  final Map<String, List<Map<String, dynamic>>> earningsData = {
+    'daily': [
+      {'label': 'Mon', 'value': 1200.0},
+      {'label': 'Tue', 'value': 800.0},
+      {'label': 'Wed', 'value': 1500.0},
+      {'label': 'Thu', 'value': 2100.0},
+      {'label': 'Fri', 'value': 950.0},
+      {'label': 'Sat', 'value': 3000.0},
+      {'label': 'Sun', 'value': 2400.0},
+    ],
+    'weekly': [
+      {'label': 'Week 1', 'value': 8500.0},
+      {'label': 'Week 2', 'value': 12000.0},
+      {'label': 'Week 3', 'value': 9800.0},
+      {'label': 'Week 4', 'value': 15400.0},
+    ],
+    'monthly': [
+      {'label': 'Jan', 'value': 38000.0},
+      {'label': 'Feb', 'value': 45000.0},
+      {'label': 'Mar', 'value': 42000.0},
+      {'label': 'Apr', 'value': 58000.0},
+      {'label': 'May', 'value': 64000.0},
+      {'label': 'Jun', 'value': 72000.0},
+    ],
+    'yearly': [
+      {'label': '2024', 'value': 450000.0},
+      {'label': '2025', 'value': 680000.0},
+      {'label': '2026', 'value': 320000.0},
+    ],
+  };
+
+  List<Map<String, dynamic>> earningsTransactions = [];
+  List<Map<String, dynamic>> purchaseTransactions = [];
+  List<Map<String, dynamic>> depositTransactions = [];
+
+  String _formatDate(int? ms) {
+    if (ms == null) return 'Unknown Date';
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[dt.month - 1]} ${dt.day.toString().padLeft(2, '0')}, ${dt.year}';
+  }
+
+  void _loadDbHistory() {
+    final myJobs = component.state.myJobs;
+    final uid = component.state.userProfile?.uid;
+    if (uid == null) return;
+
+    final eTrans = <Map<String, dynamic>>[];
+    final pTrans = <Map<String, dynamic>>[];
+    final dTrans = <Map<String, dynamic>>[];
+
+    for (final job in myJobs) {
+      if (job['status'] == 'Completed') {
+        final creatorId = job['creatorId'] as String?;
+        final applicantId = job['acceptedApplicantId'] as String?;
+        final title = job['title'] as String? ?? 'Job';
+        final price = (job['pricingValue'] as num?)?.toDouble() ?? 0.0;
+        final createdAt = job['createdAt'] as int?;
+
+        // If the user was the accepted applicant -> earnings
+        if (applicantId == uid) {
+          final payout = price * 0.97;
+          eTrans.add({
+            'title': title,
+            'desc': 'Completed contract',
+            'date': _formatDate(createdAt),
+            'amount': payout,
+            'status': 'Released',
+          });
+        }
+
+        // If the user was the creator -> purchases
+        if (creatorId == uid) {
+          pTrans.add({
+            'title': title,
+            'desc': 'Job payment',
+            'date': _formatDate(createdAt),
+            'amount': -price,
+            'status': 'Successful',
+          });
+        }
+      }
+    }
+
+    // Process userTransactions for deposits (or any other types)
+    for (final tx in component.state.userTransactions) {
+      final type = tx['type'] as String?;
+      final createdAt = tx['createdAt'] as int?;
+      if (type == 'deposit') {
+        dTrans.add({
+          'title': tx['title'] ?? 'Top-Up',
+          'desc': tx['desc'] ?? 'Deposit',
+          'date': _formatDate(createdAt),
+          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
+          'method': tx['method'] ?? 'Unknown',
+        });
+      }
+    }
+
+    // Sort descending by date (for now, assumes order of loading is fine, but lets reverse it so latest is first)
+    // For proper chronological order, we can also sort by date if needed.
+    setState(() {
+      earningsTransactions = eTrans.reversed.toList();
+      purchaseTransactions = pTrans.reversed.toList();
+      depositTransactions = dTrans.reversed.toList();
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final type = component.state.accountType;
+    if (type == AccountType.employer) {
+      activeTab = 'purchases';
+    } else {
+      activeTab = 'earnings';
+    }
+    _loadDbHistory();
+  }
+
+  @override
+  void didUpdateComponent(_HistoryView oldComponent) {
+    super.didUpdateComponent(oldComponent);
+    if (oldComponent.state.myJobs != component.state.myJobs ||
+        oldComponent.state.userTransactions != component.state.userTransactions) {
+      _loadDbHistory();
+    }
+  }
+
+  String formatCurrency(double val) {
+    if (val >= 1000) {
+      final parts = val.toStringAsFixed(0);
+      if (parts.length > 3) {
+        final len = parts.length;
+        final sub1 = parts.substring(0, len - 3);
+        final sub2 = parts.substring(len - 3);
+        return '₱$sub1,$sub2';
+      }
+    }
+    return '₱${val.toStringAsFixed(0)}';
+  }
+
+  Component _buildBar(int i, Map<String, dynamic> item, double maxVal) {
+    final val = item['value'] as double;
+    final pct = (val / maxVal) * 100;
+    final barHeight = pct < 8.0 ? 8.0 : pct;
+
+    return div(
+      classes: 'flex-1 flex flex-col items-center group relative z-10',
+      [
+        div(
+          classes:
+              'w-8 sm:w-10 rounded-t-lg transition-all duration-300 logo-gradient hover:opacity-90 relative cursor-pointer',
+          styles: Styles(
+            raw: {
+              'height': '${barHeight.toStringAsFixed(1)}%',
+            },
+          ),
+          events: {
+            'mouseenter': (_) => setState(() => hoveredBarIndex = i),
+            'mouseleave': (_) => setState(() => hoveredBarIndex = -1),
+          },
+          [],
+        ),
+        span(
+          classes:
+              'absolute bottom-[-24px] text-[10px] sm:text-xs font-bold ${component.state.isDark ? "text-zinc-500" : "text-zinc-400"} mt-2',
+          [Component.text(item['label'] as String)],
+        ),
+      ],
+    );
+  }
+
+  @override
+  Component build(BuildContext context) {
+    final s = component.state;
+    final isDark = s.isDark;
+    final type = s.accountType;
+
+    final showEarnings = (type == AccountType.nyxian || type == AccountType.hybrid);
+    final showPurchases = (type == AccountType.employer || type == AccountType.hybrid);
+    final showDeposits = (type == AccountType.employer || type == AccountType.hybrid);
+
+    final activeData = earningsData[activeFilter] ?? [];
+    double totalEarnedInFilter = 0.0;
+    double maxVal = 1.0;
+    for (final item in activeData) {
+      final v = item['value'] as double;
+      totalEarnedInFilter += v;
+      if (v > maxVal) maxVal = v;
+    }
+
+    final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+
+    return div(classes: 'space-y-6', [
+      subViewHeader(
+        title: type == AccountType.employer
+            ? 'Purchase History'
+            : (type == AccountType.nyxian ? 'Earning History' : 'History & Earnings'),
+        isDark: isDark,
+        onBack: () => s.setState(() => s.profileView = ProfileView.main),
+      ),
+
+      div(
+        classes: 'flex border-b ${isDark ? "border-zinc-800" : "border-zinc-200"} gap-6',
+        [
+          if (showEarnings)
+            button(
+              classes:
+                  'pb-3 text-sm font-bold transition-all border-b-2 '
+                  '${activeTab == 'earnings' ? "border-indigo-500 text-indigo-400" : "border-transparent text-zinc-400 hover:text-zinc-200"}',
+              events: {'click': (_) => setState(() => activeTab = 'earnings')},
+              [Component.text('Earnings & Analytics')],
+            ),
+          if (showPurchases)
+            button(
+              classes:
+                  'pb-3 text-sm font-bold transition-all border-b-2 '
+                  '${activeTab == 'purchases' ? "border-indigo-500 text-indigo-400" : "border-transparent text-zinc-400 hover:text-zinc-200"}',
+              events: {'click': (_) => setState(() => activeTab = 'purchases')},
+              [Component.text('Subscriptions & Purchases')],
+            ),
+          if (showDeposits)
+            button(
+              classes:
+                  'pb-3 text-sm font-bold transition-all border-b-2 '
+                  '${activeTab == 'deposits' ? "border-indigo-500 text-indigo-400" : "border-transparent text-zinc-400 hover:text-zinc-200"}',
+              events: {'click': (_) => setState(() => activeTab = 'deposits')},
+              [Component.text('Added Funds')],
+            ),
+        ],
+      ),
+
+      if (activeTab == 'earnings' && showEarnings) ...[
+        div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
+          div(classes: 'p-6 rounded-[2rem] border $cardCls flex items-center gap-4', [
+            div(classes: 'w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400', [
+              lIcon('dollar-sign', cls: 'w-6 h-6'),
+            ]),
+            div([
+              span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
+                Component.text('Total Earnings'),
+              ]),
+              p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
+                Component.text(formatCurrency(19900.0)),
+              ]),
+            ]),
+          ]),
+          div(classes: 'p-6 rounded-[2rem] border $cardCls flex items-center gap-4', [
+            div(classes: 'w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400', [
+              lIcon('wallet', cls: 'w-6 h-6'),
+            ]),
+            div([
+              span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
+                Component.text('Available TyxBalance'),
+              ]),
+              p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
+                Component.text(formatCurrency(s.userProfile?.tyxBalance ?? 0.0)),
+              ]),
+            ]),
+          ]),
+          div(classes: 'p-6 rounded-[2rem] border $cardCls flex items-center gap-4', [
+            div(classes: 'w-12 h-12 rounded-2xl bg-violet-500/10 flex items-center justify-center text-violet-400', [
+              lIcon('check-circle', cls: 'w-6 h-6'),
+            ]),
+            div([
+              span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
+                Component.text('Completed Jobs'),
+              ]),
+              p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
+                Component.text('4 Gigs'),
+              ]),
+            ]),
+          ]),
+        ]),
+
+        div(classes: 'p-6 rounded-[2rem] border $cardCls space-y-6', [
+          div(classes: 'flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4', [
+            div([
+              h4(classes: 'text-lg font-black tracking-tight ${isDark ? "text-zinc-150" : "text-zinc-800"}', [
+                Component.text('Earnings Chart'),
+              ]),
+              p(classes: 'text-xs text-zinc-500 font-medium', [
+                Component.text('Interactive visualization of your Nyxian revenue stream'),
+              ]),
+            ]),
+
+            div(classes: 'flex gap-1.5 p-1 rounded-xl bg-zinc-950/20 border border-zinc-800/40', [
+              for (final filter in ['daily', 'weekly', 'monthly', 'yearly'])
+                button(
+                  classes:
+                      'px-3 py-1.5 text-xs font-bold rounded-lg transition-all '
+                      '${activeFilter == filter ? "bg-indigo-600 text-white shadow-md" : "text-zinc-400 hover:text-zinc-200"}',
+                  events: {'click': (_) => setState(() => activeFilter = filter)},
+                  [Component.text(filter.substring(0, 1).toUpperCase() + filter.substring(1))],
+                ),
+            ]),
+          ]),
+
+          div(
+            classes:
+                'relative h-64 w-full flex items-end justify-between px-2 pt-8 pb-8 rounded-2xl bg-zinc-950/30 overflow-visible',
+            [
+              div(classes: 'absolute inset-x-0 bottom-8 top-4 flex flex-col justify-between pointer-events-none', [
+                for (int grid = 0; grid < 4; grid++)
+                  div(
+                    classes:
+                        'w-full border-b border-dashed ${isDark ? "border-zinc-900/80" : "border-zinc-200/50"} h-0',
+                    [],
+                  ),
+              ]),
+
+              if (hoveredBarIndex != -1 && hoveredBarIndex < activeData.length)
+                div(
+                  classes:
+                      'absolute top-2 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow-lg z-10 transition-all',
+                  [
+                    Component.text(
+                      '${activeData[hoveredBarIndex]['label']}: ${formatCurrency(activeData[hoveredBarIndex]['value'] as double)}',
+                    ),
+                  ],
+                ),
+
+              for (int i = 0; i < activeData.length; i++) _buildBar(i, activeData[i], maxVal),
+            ],
+          ),
+
+          div(
+            classes:
+                'flex justify-between items-center pt-2 text-xs font-bold text-zinc-500 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"}',
+            [
+              Component.text('Total in selected period:'),
+              span(classes: '${isDark ? "text-white" : "text-zinc-800"} text-sm font-black', [
+                Component.text(formatCurrency(totalEarnedInFilter)),
+              ]),
+            ],
+          ),
+        ]),
+
+        div(classes: 'space-y-3', [
+          p(classes: 'text-xs font-black uppercase tracking-[0.2em] opacity-60', [
+            Component.text('Completed Gig Payouts'),
+          ]),
+          div(
+            classes:
+                'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
+            [
+              for (final tx in earningsTransactions)
+                div(classes: 'p-5 flex justify-between items-center hover:bg-zinc-500/5 transition-colors', [
+                  div(classes: 'flex items-center gap-4', [
+                    div(
+                      classes:
+                          'w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400',
+                      [
+                        lIcon('arrow-down-left', cls: 'w-5 h-5'),
+                      ],
+                    ),
+                    div([
+                      p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                        Component.text(tx['title'] as String),
+                      ]),
+                      p(classes: 'text-xs text-zinc-500 mt-0.5', [
+                        Component.text('${tx['desc']} • ${tx['date']}'),
+                      ]),
+                    ]),
+                  ]),
+                  div(classes: 'text-right', [
+                    p(classes: 'font-black text-sm text-emerald-400', [
+                      Component.text('+ ${formatCurrency(tx['amount'] as double)}'),
+                    ]),
+                    span(
+                      classes:
+                          'inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400',
+                      [
+                        Component.text(tx['status'] as String),
+                      ],
+                    ),
+                  ]),
+                ]),
+            ],
+          ),
+        ]),
+      ] else if (activeTab == 'purchases' && showPurchases) ...[
+        div(classes: 'space-y-3', [
+          p(classes: 'text-xs font-black uppercase tracking-[0.2em] opacity-60', [
+            Component.text('Subscription & Platform Payments'),
+          ]),
+          div(
+            classes:
+                'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
+            [
+              for (final tx in purchaseTransactions)
+                div(classes: 'p-5 flex justify-between items-center hover:bg-zinc-500/5 transition-colors', [
+                  div(classes: 'flex items-center gap-4', [
+                    div(classes: 'w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-400', [
+                      lIcon('arrow-up-right', cls: 'w-5 h-5'),
+                    ]),
+                    div([
+                      p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                        Component.text(tx['title'] as String),
+                      ]),
+                      p(classes: 'text-xs text-zinc-500 mt-0.5', [
+                        Component.text('${tx['desc']} • ${tx['date']}'),
+                      ]),
+                    ]),
+                  ]),
+                  div(classes: 'text-right', [
+                    p(classes: 'font-black text-sm ${isDark ? "text-zinc-100" : "text-zinc-900"}', [
+                      Component.text(formatCurrency(tx['amount'] as double)),
+                    ]),
+                    span(
+                      classes:
+                          'inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400',
+                      [
+                        Component.text(tx['status'] as String),
+                      ],
+                    ),
+                  ]),
+                ]),
+            ],
+          ),
+        ]),
+      ] else if (activeTab == 'deposits' && showDeposits) ...[
+        div(classes: 'space-y-3', [
+          p(classes: 'text-xs font-black uppercase tracking-[0.2em] opacity-60', [
+            Component.text('Top-Up & Deposit History'),
+          ]),
+          div(
+            classes:
+                'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
+            [
+              for (final tx in depositTransactions)
+                div(classes: 'p-5 flex justify-between items-center hover:bg-zinc-500/5 transition-colors', [
+                  div(classes: 'flex items-center gap-4', [
+                    div(
+                      classes: 'w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center text-violet-400',
+                      [
+                        lIcon('plus-circle', cls: 'w-5 h-5'),
+                      ],
+                    ),
+                    div([
+                      p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                        Component.text(tx['title'] as String),
+                      ]),
+                      p(classes: 'text-xs text-zinc-500 mt-0.5', [
+                        Component.text('${tx['desc']} • ${tx['date']}'),
+                      ]),
+                    ]),
+                  ]),
+                  div(classes: 'text-right', [
+                    p(classes: 'font-black text-sm text-indigo-400', [
+                      Component.text('+ ${formatCurrency(tx['amount'] as double)}'),
+                    ]),
+                    span(
+                      classes:
+                          'inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-violet-500/10 text-violet-400',
+                      [
+                        Component.text(tx['method'] as String),
+                      ],
+                    ),
+                  ]),
+                ]),
+            ],
+          ),
+        ]),
+      ],
     ]);
   }
 }

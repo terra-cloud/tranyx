@@ -33,3 +33,5 @@ Future<double?> getSolanaBalance(String publicKey) async => null;
 Future<String?> signInWithGoogleJs(Map<String, String> config) async => null;
 
 void openUrl(String url) {}
+
+bool confirmDialog(String message) => false;

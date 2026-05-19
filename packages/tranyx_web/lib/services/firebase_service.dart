@@ -239,6 +239,39 @@ class FirebaseAuthService {
     if (users == null || users.isEmpty) throw FirebaseException('User not found');
     return users.first as Map<String, dynamic>;
   }
+
+  /// Send an email verification link to the user
+  Future<void> sendEmailVerification(String idToken) async {
+    await _post(
+      '$_authBase:sendOobCode?key=${currentFirebaseConfig.apiKey}',
+      {
+        'requestType': 'VERIFY_EMAIL',
+        'idToken': idToken,
+      },
+    );
+  }
+
+  /// Sends a SMS verification OTP code to the given phone number
+  Future<String> sendSmsVerificationCode(String phoneNumber) async {
+    final res = await _post(
+      '$_authBase:sendVerificationCode?key=${currentFirebaseConfig.apiKey}',
+      {
+        'phoneNumber': phoneNumber,
+      },
+    );
+    return res['sessionInfo'] as String? ?? '';
+  }
+
+  /// Verifies the SMS OTP code sent to the phone number
+  Future<Map<String, dynamic>> verifySmsCode(String sessionInfo, String code) async {
+    return await _post(
+      '$_authBase:signInWithPhoneNumber?key=${currentFirebaseConfig.apiKey}',
+      {
+        'sessionInfo': sessionInfo,
+        'code': code,
+      },
+    );
+  }
 }
 
 // ── Firestore value encoding / decoding ───────────────────────────────────────
@@ -435,6 +468,45 @@ class FirestoreService {
         },
       },
     ]);
+  }
+
+  /// Fetch all transactions for [uid].
+  Future<List<Map<String, dynamic>>> getMyTransactions(String uid) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'transactions'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'uid'},
+            'op': 'EQUAL',
+            'value': {'stringValue': uid},
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) {
+      return []; // Return empty if error or not found
+    }
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final transactions = <Map<String, dynamic>>[];
+    for (final res in results) {
+      if (res is Map<String, dynamic> && res.containsKey('document')) {
+        final doc = res['document'] as Map<String, dynamic>;
+        final id = _docId(doc);
+        transactions.add({'id': id, ..._fromFirestoreDoc(doc)});
+      }
+    }
+    return transactions;
   }
 
   /// Fetch all jobs where the user is the accepted applicant.
@@ -675,7 +747,7 @@ class FirestoreService {
     // 2. Deduct from employer profile
     final empDoc = await getDocument('users/$employerId');
     if (empDoc != null) {
-      final currentRating = (empDoc['rating'] as num?)?.toDouble() ?? 5.0;
+      final currentRating = (empDoc['rating'] as num?)?.toDouble() ?? 0.0;
       final newRating = (currentRating - 0.5).clamp(1.0, 5.0);
       await createOrUpdate('users/$employerId', {
         ...empDoc,
@@ -805,6 +877,17 @@ class GeminiService {
         'If the title is in English, the note MUST be in English. '
         'Mention having relevant experience, being reliable, and possessing the necessary tools. '
         'Keep it friendly and concise (2-3 sentences).';
+    return _generate(prompt);
+  }
+
+  Future<String> askSupportQuestion(String question) async {
+    if (question.isEmpty) return 'Please ask a valid question.';
+    final prompt =
+        'You are the friendly, intelligent AI support assistant for Tranyx, a premium Web3 freelance gig marketplace in the Philippines. '
+        'Answer the following user support question in a friendly, helpful, and concise manner. '
+        'If the question is in Tagalog or Waray-Waray, respond in that language. Otherwise respond in English. '
+        'Keep the answer within 3-4 sentences.\n\n'
+        'User Question: "$question"';
     return _generate(prompt);
   }
 

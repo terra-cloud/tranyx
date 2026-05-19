@@ -153,10 +153,7 @@ class _LoginScreenState extends State<_LoginScreen> {
             events: {'click': (_) => s.handleGoogleSignIn()},
             [
               // Google SVG Icon
-              img(
-                src: 'https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg',
-                classes: 'w-5 h-5',
-              ),
+              googleSvgIcon(size: 'w-5 h-5'),
               Component.text('Google'),
             ],
           ),
@@ -166,10 +163,7 @@ class _LoginScreenState extends State<_LoginScreen> {
             events: {'click': (_) => s.handlePhantomSignIn()},
             [
               // Phantom SVG Icon
-              img(
-                src: 'https://upload.wikimedia.org/wikipedia/commons/9/95/Phantom_Wallet_Logo.svg',
-                classes: 'w-5 h-5',
-              ),
+              phantomSvgIcon(size: 'w-5 h-5'),
               Component.text('Phantom Wallet'),
             ],
           ),
