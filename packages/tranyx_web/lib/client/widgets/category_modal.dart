@@ -1,5 +1,6 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:shared/shared.dart';
 import 'package:tranyx_web/constants/category_data.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
