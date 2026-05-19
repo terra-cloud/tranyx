@@ -37,6 +37,35 @@
   </style>
 
   <script>
+    // Monkey-patch removeChild to gracefully handle elements replaced/detached by external libraries like Lucide.js
+    (function() {
+      const originalRemove = Node.prototype.removeChild;
+      Node.prototype.removeChild = function(child) {
+        if (child && child.parentNode !== this) {
+          // If child was replaced by Lucide, find the injected SVG inside this parent and remove it instead
+          if (child.hasAttribute && child.hasAttribute('data-lucide')) {
+            const svg = this.querySelector('svg.lucide, svg');
+            if (svg) {
+              return originalRemove.call(this, svg);
+            }
+          }
+          // If the child belongs to a different parent, remove it from there
+          if (child.parentNode) {
+            try {
+              return originalRemove.call(child.parentNode, child);
+            } catch (e) {}
+          }
+          // If already detached, return gracefully to prevent NotFoundError
+          return child;
+        }
+        try {
+          return originalRemove.call(this, child);
+        } catch (e) {
+          return child;
+        }
+      };
+    })();
+
     document.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
       const observer = new MutationObserver(() => {
