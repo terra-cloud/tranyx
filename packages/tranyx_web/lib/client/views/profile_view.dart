@@ -1555,6 +1555,21 @@ class _HistoryViewState extends State<_HistoryView> {
     final pTrans = <Map<String, dynamic>>[];
     final dTrans = <Map<String, dynamic>>[];
 
+    // Initialize daily/weekly/monthly/yearly aggregates
+    final dailyAgg = {
+      'Mon': 0.0, 'Tue': 0.0, 'Wed': 0.0, 'Thu': 0.0, 'Fri': 0.0, 'Sat': 0.0, 'Sun': 0.0
+    };
+    final weeklyAgg = {
+      'Week 1': 0.0, 'Week 2': 0.0, 'Week 3': 0.0, 'Week 4': 0.0
+    };
+    final monthlyAgg = {
+      'Jan': 0.0, 'Feb': 0.0, 'Mar': 0.0, 'Apr': 0.0, 'May': 0.0, 'Jun': 0.0,
+      'Jul': 0.0, 'Aug': 0.0, 'Sep': 0.0, 'Oct': 0.0, 'Nov': 0.0, 'Dec': 0.0
+    };
+    final yearlyAgg = {
+      '2024': 0.0, '2025': 0.0, '2026': 0.0
+    };
+
     for (final job in myJobs) {
       if (job['status'] == 'Completed') {
         final creatorId = job['creatorId'] as String?;
@@ -1573,6 +1588,29 @@ class _HistoryViewState extends State<_HistoryView> {
             'amount': payout,
             'status': 'Released',
           });
+
+          // Aggregate for graphs
+          if (createdAt != null) {
+            final dt = DateTime.fromMillisecondsSinceEpoch(createdAt);
+            // Daily
+            final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            final dayName = days[dt.weekday - 1];
+            dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+
+            // Weekly (approximate based on day of month)
+            final wNum = ((dt.day - 1) ~/ 7) + 1;
+            final wName = 'Week ${wNum > 4 ? 4 : wNum}';
+            weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+
+            // Monthly
+            final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            final mName = months[dt.month - 1];
+            monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+
+            // Yearly
+            final yName = dt.year.toString();
+            yearlyAgg[yName] = (yearlyAgg[yName] ?? 0.0) + payout;
+          }
         }
 
         // If the user was the creator -> purchases
@@ -1581,7 +1619,7 @@ class _HistoryViewState extends State<_HistoryView> {
             'title': title,
             'desc': 'Job payment',
             'date': _formatDate(createdAt),
-            'amount': -price,
+            'amount': price,
             'status': 'Successful',
           });
         }
@@ -1603,8 +1641,45 @@ class _HistoryViewState extends State<_HistoryView> {
       }
     }
 
-    // Sort descending by date (for now, assumes order of loading is fine, but lets reverse it so latest is first)
-    // For proper chronological order, we can also sort by date if needed.
+    // Check if we have any dynamic earnings; if yes, overwrite the static graph data!
+    final hasDynamicEarnings = eTrans.isNotEmpty;
+    if (hasDynamicEarnings) {
+      earningsData['daily'] = dailyAgg.entries.map((e) => {'label': e.key, 'value': e.value}).toList();
+      earningsData['weekly'] = weeklyAgg.entries.map((e) => {'label': e.key, 'value': e.value}).toList();
+      earningsData['monthly'] = monthlyAgg.entries.map((e) => {'label': e.key, 'value': e.value}).toList();
+      earningsData['yearly'] = yearlyAgg.entries.map((e) => {'label': e.key, 'value': e.value}).toList();
+    } else {
+      // Restore fallback default mock data so it's not completely blank
+      earningsData['daily'] = [
+        {'label': 'Mon', 'value': 1200.0},
+        {'label': 'Tue', 'value': 800.0},
+        {'label': 'Wed', 'value': 1500.0},
+        {'label': 'Thu', 'value': 2100.0},
+        {'label': 'Fri', 'value': 950.0},
+        {'label': 'Sat', 'value': 3000.0},
+        {'label': 'Sun', 'value': 2400.0},
+      ];
+      earningsData['weekly'] = [
+        {'label': 'Week 1', 'value': 8500.0},
+        {'label': 'Week 2', 'value': 12000.0},
+        {'label': 'Week 3', 'value': 9800.0},
+        {'label': 'Week 4', 'value': 15400.0},
+      ];
+      earningsData['monthly'] = [
+        {'label': 'Jan', 'value': 38000.0},
+        {'label': 'Feb', 'value': 45000.0},
+        {'label': 'Mar', 'value': 42000.0},
+        {'label': 'Apr', 'value': 58000.0},
+        {'label': 'May', 'value': 64000.0},
+        {'label': 'Jun', 'value': 72000.0},
+      ];
+      earningsData['yearly'] = [
+        {'label': '2024', 'value': 450000.0},
+        {'label': '2025', 'value': 680000.0},
+        {'label': '2026', 'value': 320000.0},
+      ];
+    }
+
     setState(() {
       earningsTransactions = eTrans.reversed.toList();
       purchaseTransactions = pTrans.reversed.toList();

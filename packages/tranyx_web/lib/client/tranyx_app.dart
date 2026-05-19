@@ -21,6 +21,7 @@ import '../client/widgets/bottom_nav.dart';
 import '../client/widgets/top_header.dart';
 import '../client/widgets/category_modal.dart';
 import '../client/widgets/payment_modal.dart';
+import '../client/widgets/rating_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -93,6 +94,7 @@ class TranyxAppState extends State<TranyxApp> {
   bool isLoadingJobs = false;
   String? jobsError;
   String activeJobFilter = 'Recommended';
+  String activeJobPane = 'active'; // 'active'/'history' for employer, 'browse'/'my_gigs' for nyxian
   Map<String, dynamic>? ongoingJob; // first 'In Progress' job
   String homeSearchQuery = '';
 
@@ -176,6 +178,14 @@ class TranyxAppState extends State<TranyxApp> {
   bool isCompletingJob = false;
   bool isGeneratingCode = false;
   String? generatedCompletionCode;
+
+  // Rating State
+  bool showRatingPopup = false;
+  String? ratingTargetId;
+  String? ratingTargetName;
+  int ratingScore = 0;
+  String ratingComment = '';
+  bool isSubmittingRating = false;
 
   // Delivery receipt upload state
   String? receiptPhotoUrl;
@@ -277,10 +287,30 @@ class TranyxAppState extends State<TranyxApp> {
           // Identify if there are new notifications that we didn't have before
           final newNotifs = parsed.where((n) => !notifications.any((existing) => existing['id'] == n['id'])).toList();
           if (newNotifs.isNotEmpty) {
-            latestToastNotification = newNotifs.first;
+            final latest = newNotifs.first;
+            latestToastNotification = latest;
+
+            // Trigger rating popup in real-time if a job completion notification is received
+            if (latest['type'] == 'job_completed' && latest['isRead'] != true) {
+              showRatingPopup = true;
+              ratingTargetId = latest['senderUid'] as String?;
+              ratingTargetName = latest['senderName'] as String? ?? 'User';
+              ratingScore = 0;
+              ratingComment = '';
+
+              final token = SessionStorage.idToken;
+              if (token != null) {
+                final svc = FirestoreService(token, _handleTokenRefresh);
+                unawaited(svc.createOrUpdate('notifications/${latest['id']}', {
+                  ...latest,
+                  'isRead': true,
+                }));
+              }
+            }
+
             // Clear toast after 5 seconds
             Timer(const Duration(seconds: 5), () {
-              if (latestToastNotification?['id'] == newNotifs.first['id']) {
+              if (latestToastNotification?['id'] == latest['id']) {
                 setState(() => latestToastNotification = null);
               }
             });
@@ -1594,13 +1624,53 @@ class TranyxAppState extends State<TranyxApp> {
           ...jobDoc,
           'status': 'Completed',
         });
-      }
+        
+        String? targetId;
+        String? targetName;
+        if (currentViewMode == AccountType.employer) {
+           targetId = nyxianId;
+           if (nyxianId != null) {
+             final targetDoc = await svc.getDocument('users/$nyxianId');
+             targetName = targetDoc?['name'] as String? ?? 'Nyxian';
+           }
+        } else {
+           targetId = jobDoc['creatorId'] as String?;
+           if (targetId != null) {
+             final targetDoc = await svc.getDocument('users/$targetId');
+             targetName = targetDoc?['name'] as String? ?? 'Employer';
+           }
+        }
 
-      setState(() {
-        isCompletingJob = false;
-        showCompletionScanner = false;
-        completionScanInput = '';
-      });
+        setState(() {
+          isCompletingJob = false;
+          showCompletionScanner = false;
+          completionScanInput = '';
+          if (targetId != null) {
+            showRatingPopup = true;
+            ratingTargetId = targetId;
+            ratingTargetName = targetName;
+            ratingScore = 0;
+            ratingComment = '';
+          }
+        });
+
+        // Send a notification to the target user about job completion to trigger rating popup
+        if (targetId != null) {
+          final prefix = targetId.length > 5 ? targetId.substring(0, 5) : targetId;
+          final docId = 'notif_${DateTime.now().millisecondsSinceEpoch}_$prefix';
+          await svc.createOrUpdate('notifications/$docId', {
+            'uid': targetId,
+            'title': 'Gig Completed 🎉',
+            'message': '${userProfile?.name ?? "Someone"} has completed "${job['title']}". Click to rate them.',
+            'type': 'job_completed',
+            'jobId': job['id'],
+            'senderUid': SessionStorage.uid,
+            'senderName': userProfile?.name ?? 'User',
+            'isRead': false,
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+          });
+        }
+      }
       await loadJobs();
       if (selectedJobData != null) {
         selectJobAndLoadDetails({
@@ -1614,6 +1684,65 @@ class TranyxAppState extends State<TranyxApp> {
         profileSaveError = e.toString();
       });
     }
+  }
+
+  Future<void> handleConfirmRating(int score, String comment) async {
+    final token = SessionStorage.idToken;
+    final targetId = ratingTargetId;
+    if (token == null || targetId == null) return;
+
+    setState(() => isSubmittingRating = true);
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final targetDoc = await svc.getDocument('users/$targetId');
+      if (targetDoc != null) {
+        final currentRating = (targetDoc['rating'] as num?)?.toDouble() ?? 0.0;
+        final currentRatingCount = targetDoc['ratingCount'] as int? ?? 0;
+        
+        final double newRating;
+        if (currentRatingCount == 0) {
+          newRating = score.toDouble();
+        } else {
+          newRating = ((currentRating * currentRatingCount) + score) / (currentRatingCount + 1);
+        }
+
+        await svc.createOrUpdate('users/$targetId', {
+          ...targetDoc,
+          'rating': newRating,
+          'ratingCount': currentRatingCount + 1,
+        });
+
+        final jobId = selectedJobData?['id'] as String? ?? 'job_review';
+        await svc.createOrUpdate('users/$targetId/reviews/$jobId', {
+          'reviewerId': SessionStorage.uid,
+          'reviewerName': userProfile?.name ?? 'User',
+          'score': score,
+          'comment': comment,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+      
+      setState(() {
+        showRatingPopup = false;
+        ratingTargetId = null;
+        ratingTargetName = null;
+        isSubmittingRating = false;
+      });
+      await loadJobs();
+    } catch (e) {
+      setState(() {
+        isSubmittingRating = false;
+        showRatingPopup = false;
+      });
+    }
+  }
+
+  void handleSkipRating() {
+    setState(() {
+      showRatingPopup = false;
+      ratingTargetId = null;
+      ratingTargetName = null;
+    });
   }
 
   Future<void> handleCancelJob() async {
@@ -2535,6 +2664,9 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Wallet Reconnect modal overlay
       if (showWalletReconnectPrompt) WalletReconnectModalComponent(state: this),
+
+      // Rating modal overlay
+      if (showRatingPopup) RatingModalComponent(state: this),
     ]);
   }
 }

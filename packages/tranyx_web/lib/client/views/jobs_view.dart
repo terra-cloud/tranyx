@@ -24,7 +24,11 @@ class JobsViewComponent extends StatelessComponent {
         // Left list pane
         div(classes: 'w-full md:w-80 flex-shrink-0 space-y-4', [
           div(classes: 'flex items-center justify-between', [
-            h2(classes: 'text-xl font-bold', [Component.text(isNyxian ? 'Available Gigs' : 'My Postings')]),
+            h2(classes: 'text-xl font-bold', [
+              Component.text(isNyxian
+                  ? (s.activeJobPane == 'my_gigs' ? 'My Gigs' : 'Available Gigs')
+                  : (s.activeJobPane == 'history' ? 'Past History' : 'My Postings')),
+            ]),
             if (!isNyxian)
               button(
                 classes: 'flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient',
@@ -32,6 +36,40 @@ class JobsViewComponent extends StatelessComponent {
                 [lIcon('plus', cls: 'w-4 h-4'), Component.text(' New')],
               ),
           ]),
+
+          // Beautiful premium Segmented Tab Switcher
+          div(
+            classes: 'flex p-1 rounded-2xl ${isDark ? "bg-zinc-800/40" : "bg-zinc-100"} border ${isDark ? "border-zinc-800" : "border-zinc-200"}',
+            [
+              if (isNyxian) ...[
+                button(
+                  classes: 'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
+                      '${s.activeJobPane != 'my_gigs' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
+                  events: {'click': (_) => s.setState(() => s.activeJobPane = 'browse')},
+                  [Component.text('Browse Gigs')],
+                ),
+                button(
+                  classes: 'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
+                      '${s.activeJobPane == 'my_gigs' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
+                  events: {'click': (_) => s.setState(() => s.activeJobPane = 'my_gigs')},
+                  [Component.text('My Gigs')],
+                ),
+              ] else ...[
+                button(
+                  classes: 'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
+                      '${s.activeJobPane != 'history' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
+                  events: {'click': (_) => s.setState(() => s.activeJobPane = 'active')},
+                  [Component.text('Active')],
+                ),
+                button(
+                  classes: 'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
+                      '${s.activeJobPane == 'history' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
+                  events: {'click': (_) => s.setState(() => s.activeJobPane = 'history')},
+                  [Component.text('Completed')],
+                ),
+              ]
+            ],
+          ),
 
           if (s.homeSearchQuery.isNotEmpty)
             div(
@@ -57,7 +95,7 @@ class JobsViewComponent extends StatelessComponent {
             ),
 
           // Filters for both
-          if (isNyxian)
+          if (isNyxian && s.activeJobPane != 'my_gigs')
             div(classes: 'flex gap-2 flex-wrap mb-2', [
               _filterChip('Recommended', s.activeJobFilter == 'Recommended', isDark, s),
               _filterChip('High Paying', s.activeJobFilter == 'High Paying', isDark, s),
@@ -73,7 +111,9 @@ class JobsViewComponent extends StatelessComponent {
             else if (isNyxian)
               if (displayJobs.isEmpty)
                 div(classes: 'p-4 text-center text-zinc-500 text-sm', [
-                  Component.text('No available gigs match your filters.'),
+                  Component.text(s.activeJobPane == 'my_gigs'
+                      ? 'You have no active or completed gigs yet.'
+                      : 'No available gigs match your filters.'),
                 ])
               else
                 for (final j in displayJobs) _nyxianCard(j, isDark, s)
@@ -115,6 +155,27 @@ class JobsViewComponent extends StatelessComponent {
 
   List<Map<String, dynamic>> _getFilteredJobs(List<Map<String, dynamic>> jobs, TranyxAppState s) {
     final isNyxian = s.currentViewMode == AccountType.nyxian;
+
+    // Apply the active tab/pane filter
+    if (isNyxian) {
+      if (s.activeJobPane == 'my_gigs') {
+        jobs = s.myJobs;
+      } else {
+        jobs = s.availableJobs;
+      }
+    } else {
+      if (s.activeJobPane == 'history') {
+        jobs = s.myJobs.where((j) {
+          final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
+          return stat == 'completed' || stat == 'closed';
+        }).toList();
+      } else {
+        jobs = s.myJobs.where((j) {
+          final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
+          return stat != 'completed' && stat != 'closed';
+        }).toList();
+      }
+    }
 
     // Always apply home search query first if present
     if (s.homeSearchQuery.isNotEmpty) {
@@ -191,7 +252,9 @@ class JobsViewComponent extends StatelessComponent {
         ? '₱ ${pricingValue.toStringAsFixed(0)}${pricingType.isNotEmpty ? " / $pricingType" : ""}'
         : 'Negotiable';
     final isActive = status == 'Active' || status == 'Open';
-    final statusCls = isActive ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400';
+    final statusCls = status == 'Completed'
+        ? 'bg-zinc-700/50 text-zinc-400'
+        : (isActive ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400');
     final cardCls = isDark
         ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
         : 'bg-white border-zinc-200 shadow-sm hover:shadow-md';
