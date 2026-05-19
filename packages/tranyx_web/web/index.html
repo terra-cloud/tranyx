@@ -116,6 +116,36 @@
       firebase.firestore().collection('notifications').doc(notifId).update({ isRead: true });
     };
 
+    window.listenToJobs = function (uid, callback) {
+      if (!firebase.apps.length) return () => { };
+      const db = firebase.firestore();
+      
+      const unsub1 = db.collection('jobs')
+        .where('employerId', '==', uid)
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          callback(JSON.stringify({ type: 'employer', jobs: list }));
+        }, (error) => {
+          console.error("Employer jobs listener error:", error);
+        });
+
+      const unsub2 = db.collection('jobs')
+        .where('acceptedApplicantId', '==', uid)
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          callback(JSON.stringify({ type: 'nyxian', jobs: list }));
+        }, (error) => {
+          console.error("Nyxian jobs listener error:", error);
+        });
+
+      return () => {
+        unsub1();
+        unsub2();
+      };
+    };
+
     // ── OSRM route helper (CSP-safe — real script, not eval) ──────────
     window._osrmRoute = async function (elementId, fromLat, fromLng, toLat, toLng, color) {
       const map = window['__lmap_' + elementId];

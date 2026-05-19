@@ -90,6 +90,8 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Jobs state ──────────────────────────────────────────────
   List<Map<String, dynamic>> myJobs = [];
   List<Map<String, dynamic>> sessionPostedJobs = [];
+  List<Map<String, dynamic>> realtimeEmployerJobs = [];
+  List<Map<String, dynamic>> realtimeNyxianJobs = [];
   List<Map<String, dynamic>> availableJobs = [];
   bool isLoadingJobs = false;
   String? jobsError;
@@ -202,7 +204,7 @@ class TranyxAppState extends State<TranyxApp> {
   double walletBalance = 0.0;
   bool isRefreshingBalance = false;
   List<Map<String, dynamic>> userTransactions = [];
-  
+
   // ── Notifications ───────────────────────────────────────────
   List<Map<String, dynamic>> notifications = [];
   bool showNotificationsDropdown = false;
@@ -272,6 +274,7 @@ class TranyxAppState extends State<TranyxApp> {
     await loadJobs();
     await loadTransactions();
     _startListeningNotifications();
+    _startListeningJobs();
   }
 
   void _startListeningNotifications() {
@@ -282,7 +285,7 @@ class TranyxAppState extends State<TranyxApp> {
         final List<dynamic> rawList = jsonDecode(jsonString);
         final parsed = rawList.map((e) => e as Map<String, dynamic>).toList();
         parsed.sort((a, b) => (b['createdAt'] as num? ?? 0).compareTo(a['createdAt'] as num? ?? 0));
-        
+
         setState(() {
           // Identify if there are new notifications that we didn't have before
           final newNotifs = parsed.where((n) => !notifications.any((existing) => existing['id'] == n['id'])).toList();
@@ -301,10 +304,12 @@ class TranyxAppState extends State<TranyxApp> {
               final token = SessionStorage.idToken;
               if (token != null) {
                 final svc = FirestoreService(token, _handleTokenRefresh);
-                unawaited(svc.createOrUpdate('notifications/${latest['id']}', {
-                  ...latest,
-                  'isRead': true,
-                }));
+                unawaited(
+                  svc.createOrUpdate('notifications/${latest['id']}', {
+                    ...latest,
+                    'isRead': true,
+                  }),
+                );
               }
             }
 
@@ -319,6 +324,80 @@ class TranyxAppState extends State<TranyxApp> {
         });
       } catch (e) {
         print('Error parsing notifications: $e');
+      }
+    });
+  }
+
+  void _startListeningJobs() {
+    final uid = SessionStorage.uid;
+    if (uid == null) return;
+
+    listenToJobsJs(uid, (String jsonString) {
+      try {
+        final Map<String, dynamic> data = jsonDecode(jsonString);
+        final String type = data['type'] as String;
+        final List<dynamic> rawJobs = data['jobs'] as List? ?? [];
+        final parsed = rawJobs.map((e) => e as Map<String, dynamic>).toList();
+
+        setState(() {
+          if (type == 'employer') {
+            realtimeEmployerJobs = parsed;
+          } else {
+            realtimeNyxianJobs = parsed;
+          }
+
+          // Combine and de-duplicate
+          final seenIds = <String>{};
+          final merged = <Map<String, dynamic>>[];
+
+          for (final job in sessionPostedJobs) {
+            final id = job['id'] as String?;
+            if (id != null) {
+              seenIds.add(id);
+              merged.add(job);
+            }
+          }
+
+          for (final job in realtimeEmployerJobs) {
+            final id = job['id'] as String?;
+            if (id != null && !seenIds.contains(id)) {
+              seenIds.add(id);
+              merged.add(job);
+            }
+          }
+
+          for (final job in realtimeNyxianJobs) {
+            final id = job['id'] as String?;
+            if (id != null && !seenIds.contains(id)) {
+              seenIds.add(id);
+              merged.add(job);
+            }
+          }
+
+          myJobs = merged;
+
+          // Find ongoing job from merged list
+          ongoingJob = merged.cast<Map<String, dynamic>?>().firstWhere(
+            (j) {
+              final s = (j?['status'] as String?)?.toLowerCase();
+              return s == 'in progress' || s == 'done';
+            },
+            orElse: () => null,
+          );
+
+          // Update selectedJobData in real-time if it's currently open
+          if (selectedJobData != null) {
+            final match = merged.firstWhere(
+              (j) => j['id'] == selectedJobData!['id'],
+              orElse: () => <String, dynamic>{},
+            );
+            if (match.isNotEmpty) {
+              selectedJobData = match;
+            }
+          }
+        });
+      } catch (e) {
+        print('Error parsing realtime jobs: $e');
       }
     });
   }
@@ -386,6 +465,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadJobs();
       await loadTransactions();
       _startListeningNotifications();
+      _startListeningJobs();
       // Auto-connect Phantom wallet if already trusted by the browser
       unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
     } on FirebaseException catch (e) {
@@ -743,6 +823,7 @@ class TranyxAppState extends State<TranyxApp> {
 
   void handleLogout() {
     SessionStorage.clear();
+    stopListeningToJobsJs();
     setState(() {
       isAuthenticated = false;
       authView = AuthView.login;
@@ -1105,7 +1186,7 @@ class TranyxAppState extends State<TranyxApp> {
               'createdAt': DateTime.now().millisecondsSinceEpoch,
               'type': 'deposit',
             });
-            
+
             // Reload history if needed
             await loadTransactions();
           }
@@ -1587,7 +1668,9 @@ class TranyxAppState extends State<TranyxApp> {
         // 1. Release from Escrow (with graceful developer fallback if document is missing in sandbox)
         final escrowDoc = await svc.getDocument('escrow/${job['id']}');
         if (escrowDoc == null) {
-          print('Escrow record not found for job ${job['id']}. Proceeding with graceful fallback using pricing value: $price');
+          print(
+            'Escrow record not found for job ${job['id']}. Proceeding with graceful fallback using pricing value: $price',
+          );
         }
 
         // Deduct 3% fee
@@ -1626,21 +1709,21 @@ class TranyxAppState extends State<TranyxApp> {
           ...jobDoc,
           'status': 'Completed',
         });
-        
+
         String? targetId;
         String? targetName;
         if (currentViewMode == AccountType.employer) {
-           targetId = nyxianId;
-           if (nyxianId != null) {
-             final targetDoc = await svc.getDocument('users/$nyxianId');
-             targetName = targetDoc?['name'] as String? ?? 'Nyxian';
-           }
+          targetId = nyxianId;
+          if (nyxianId != null) {
+            final targetDoc = await svc.getDocument('users/$nyxianId');
+            targetName = targetDoc?['name'] as String? ?? 'Nyxian';
+          }
         } else {
-           targetId = jobDoc['creatorId'] as String?;
-           if (targetId != null) {
-             final targetDoc = await svc.getDocument('users/$targetId');
-             targetName = targetDoc?['name'] as String? ?? 'Employer';
-           }
+          targetId = jobDoc['creatorId'] as String?;
+          if (targetId != null) {
+            final targetDoc = await svc.getDocument('users/$targetId');
+            targetName = targetDoc?['name'] as String? ?? 'Employer';
+          }
         }
 
         setState(() {
@@ -1700,7 +1783,7 @@ class TranyxAppState extends State<TranyxApp> {
       if (targetDoc != null) {
         final currentRating = (targetDoc['rating'] as num?)?.toDouble() ?? 0.0;
         final currentRatingCount = targetDoc['ratingCount'] as int? ?? 0;
-        
+
         final double newRating;
         if (currentRatingCount == 0) {
           newRating = score.toDouble();
@@ -1722,8 +1805,21 @@ class TranyxAppState extends State<TranyxApp> {
           'comment': comment,
           'timestamp': DateTime.now().millisecondsSinceEpoch,
         });
+
+        // Also update the job document
+        final jId = selectedJobData?['id'] as String?;
+        if (jId != null) {
+          final jobDoc = await svc.getDocument('jobs/$jId');
+          if (jobDoc != null) {
+            await svc.createOrUpdate('jobs/$jId', {
+              ...jobDoc,
+              if (accountType == AccountType.employer) 'employerRated': true,
+              if (accountType == AccountType.nyxian) 'nyxianRated': true,
+            });
+          }
+        }
       }
-      
+
       setState(() {
         showRatingPopup = false;
         ratingTargetId = null;
@@ -1842,8 +1938,7 @@ class TranyxAppState extends State<TranyxApp> {
           ...jobDoc,
           'status': newStatus,
           // Attach receipt URL when transitioning to paid_cashier
-          if (newStatus == 'paid_cashier' && receiptPhotoUrl != null)
-            'receiptUrl': receiptPhotoUrl,
+          if (newStatus == 'paid_cashier' && receiptPhotoUrl != null) 'receiptUrl': receiptPhotoUrl,
         };
         await svc.createOrUpdate('jobs/${job['id']}', updates);
       }
@@ -1852,8 +1947,7 @@ class TranyxAppState extends State<TranyxApp> {
         selectedJobData = {
           ...selectedJobData!,
           'status': newStatus,
-          if (newStatus == 'paid_cashier' && receiptPhotoUrl != null)
-            'receiptUrl': receiptPhotoUrl,
+          if (newStatus == 'paid_cashier' && receiptPhotoUrl != null) 'receiptUrl': receiptPhotoUrl,
         };
         if (newStatus == 'paid_cashier') receiptPhotoUrl = null;
       });
@@ -1872,8 +1966,7 @@ class TranyxAppState extends State<TranyxApp> {
       final files = await readFilesFromEvent(eventTarget);
       if (files.isNotEmpty) {
         final file = files.first;
-        final url = await ImgBBService(currentFirebaseConfig, idToken: token)
-            .uploadImageBytes(file.bytes, file.name);
+        final url = await ImgBBService(currentFirebaseConfig, idToken: token).uploadImageBytes(file.bytes, file.name);
         if (url != null) {
           setState(() => receiptPhotoUrl = url);
         }
@@ -2636,15 +2729,19 @@ class TranyxAppState extends State<TranyxApp> {
           classes:
               'fixed top-6 right-6 max-w-sm w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl rounded-xl p-4 z-50 transform transition-all duration-500 flex items-start gap-3 translate-y-0 opacity-100',
           [
-            div(classes: 'p-2 bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-lg flex-shrink-0', [
-              lIcon('bell', cls: 'w-5 h-5'),
-            ]),
+            div(
+              classes:
+                  'p-2 bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-lg flex-shrink-0',
+              [
+                lIcon('bell', cls: 'w-5 h-5'),
+              ],
+            ),
             div(classes: 'flex-1 pt-1', [
               p(classes: 'text-sm font-bold text-zinc-900 dark:text-white', [
-                Component.text(latestToastNotification!['title'] as String? ?? 'Notification')
+                Component.text(latestToastNotification!['title'] as String? ?? 'Notification'),
               ]),
               p(classes: 'text-xs text-zinc-500 mt-1', [
-                Component.text(latestToastNotification!['message'] as String? ?? '')
+                Component.text(latestToastNotification!['message'] as String? ?? ''),
               ]),
             ]),
             button(

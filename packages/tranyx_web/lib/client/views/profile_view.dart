@@ -39,6 +39,7 @@ class ProfileViewComponent extends StatelessComponent {
       ProfileView.trust => _TrustVerification(state: s),
       ProfileView.support => _HelpSupport(state: s),
       ProfileView.history => _HistoryView(state: s),
+      ProfileView.reviews => _ReviewsView(state: s),
     };
   }
 }
@@ -74,6 +75,7 @@ class _ProfileMenu extends StatelessComponent {
       (ProfileView.trust, 'shield-check', 'Trust & Verification'),
       (ProfileView.support, 'help-circle', 'Help & Support'),
       (ProfileView.history, 'activity', historyLabel),
+      (ProfileView.reviews, 'star', 'Ratings & Reviews'),
     ];
 
     return div(classes: 'rounded-3xl border p-4 $cardCls', [
@@ -1556,19 +1558,23 @@ class _HistoryViewState extends State<_HistoryView> {
     final dTrans = <Map<String, dynamic>>[];
 
     // Initialize daily/weekly/monthly/yearly aggregates
-    final dailyAgg = {
-      'Mon': 0.0, 'Tue': 0.0, 'Wed': 0.0, 'Thu': 0.0, 'Fri': 0.0, 'Sat': 0.0, 'Sun': 0.0
-    };
-    final weeklyAgg = {
-      'Week 1': 0.0, 'Week 2': 0.0, 'Week 3': 0.0, 'Week 4': 0.0
-    };
+    final dailyAgg = {'Mon': 0.0, 'Tue': 0.0, 'Wed': 0.0, 'Thu': 0.0, 'Fri': 0.0, 'Sat': 0.0, 'Sun': 0.0};
+    final weeklyAgg = {'Week 1': 0.0, 'Week 2': 0.0, 'Week 3': 0.0, 'Week 4': 0.0};
     final monthlyAgg = {
-      'Jan': 0.0, 'Feb': 0.0, 'Mar': 0.0, 'Apr': 0.0, 'May': 0.0, 'Jun': 0.0,
-      'Jul': 0.0, 'Aug': 0.0, 'Sep': 0.0, 'Oct': 0.0, 'Nov': 0.0, 'Dec': 0.0
+      'Jan': 0.0,
+      'Feb': 0.0,
+      'Mar': 0.0,
+      'Apr': 0.0,
+      'May': 0.0,
+      'Jun': 0.0,
+      'Jul': 0.0,
+      'Aug': 0.0,
+      'Sep': 0.0,
+      'Oct': 0.0,
+      'Nov': 0.0,
+      'Dec': 0.0,
     };
-    final yearlyAgg = {
-      '2024': 0.0, '2025': 0.0, '2026': 0.0
-    };
+    final yearlyAgg = {'2024': 0.0, '2025': 0.0, '2026': 0.0};
 
     for (final job in myJobs) {
       if (job['status'] == 'Completed') {
@@ -2044,6 +2050,214 @@ class _HistoryViewState extends State<_HistoryView> {
             ],
           ),
         ]),
+      ],
+    ]);
+  }
+}
+
+class _ReviewsView extends StatefulComponent {
+  final TranyxAppState state;
+  const _ReviewsView({required this.state, super.key});
+
+  @override
+  State<_ReviewsView> createState() => _ReviewsViewState();
+}
+
+class _ReviewsViewState extends State<_ReviewsView> {
+  List<Map<String, dynamic>> reviews = [];
+  bool isLoading = true;
+  String? errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReviews();
+  }
+
+  Future<void> _loadReviews() async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) {
+      setState(() {
+        isLoading = false;
+        errorMessage = 'Not logged in';
+      });
+      return;
+    }
+
+    setState(() {
+      isLoading = true;
+      errorMessage = null;
+    });
+
+    try {
+      final svc = FirestoreService(token, component.state.handleTokenRefresh);
+      final fetched = await svc.getReviews(uid);
+      setState(() {
+        reviews = fetched;
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        errorMessage = 'Failed to load reviews: $e';
+        isLoading = false;
+      });
+    }
+  }
+
+  String _obfuscateName(String? name) {
+    if (name == null || name.trim().isEmpty) return 'Anonymous';
+    final parts = name.trim().split(' ');
+    return parts
+        .map((part) {
+          if (part.isEmpty) return '';
+          if (part.length == 1) return '${part[0]}***';
+          return '${part[0]}***';
+        })
+        .join(' ');
+  }
+
+  String _formatDate(int? ms) {
+    if (ms == null) return 'Unknown Date';
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[dt.month - 1]} ${dt.day.toString().padLeft(2, '0')}, ${dt.year}';
+  }
+
+  @override
+  Component build(BuildContext context) {
+    final s = component.state;
+    final isDark = s.isDark;
+    final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+    final textCls = isDark ? 'text-zinc-100' : 'text-zinc-800';
+    final textMuted = isDark ? 'text-zinc-400' : 'text-zinc-500';
+
+    final rating = s.userProfile?.rating ?? 0.0;
+    final count = reviews.length;
+
+    return div(classes: 'space-y-6', [
+      // Header with Back arrow on mobile
+      div(classes: 'flex items-center gap-3 md:gap-0', [
+        button(
+          classes:
+              'md:hidden p-2 rounded-xl border ${isDark ? "border-zinc-800 text-zinc-300" : "border-zinc-200 text-zinc-600"}',
+          events: {'click': (_) => s.setState(() => s.profileView = ProfileView.main)},
+          [lIcon('arrow-left', cls: 'w-5 h-5')],
+        ),
+        h2(classes: 'text-2xl font-bold $textCls', [Component.text('Ratings & Reviews')]),
+      ]),
+
+      if (isLoading)
+        div(classes: 'py-12 flex flex-col items-center justify-center gap-3', [
+          div(classes: 'w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin', []),
+          p(classes: 'text-sm $textMuted', [Component.text('Loading your reviews...')]),
+        ])
+      else if (errorMessage != null)
+        div(classes: 'p-6 rounded-3xl border border-red-500/20 bg-red-500/5 text-center', [
+          p(classes: 'text-red-400 font-medium', [Component.text(errorMessage!)]),
+          button(
+            classes:
+                'mt-4 px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-2xl text-xs transition-colors',
+            events: {'click': (_) => _loadReviews()},
+            [Component.text('Try Again')],
+          ),
+        ])
+      else ...[
+        // Summary Card
+        div(classes: 'p-6 rounded-[2rem] border $cardCls flex flex-col sm:flex-row items-center gap-6 justify-between', [
+          div(classes: 'flex items-center gap-4', [
+            div(
+              classes:
+                  'w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-400 text-3xl font-black',
+              [
+                Component.text(rating.toStringAsFixed(1)),
+              ],
+            ),
+            div([
+              h3(classes: 'font-bold text-lg $textCls', [Component.text('Your Average Rating')]),
+              div(classes: 'flex items-center gap-2 mt-1', [
+                div(classes: 'flex text-amber-400 gap-0.5', [
+                  for (int i = 1; i <= 5; i++)
+                    lIcon(
+                      'star',
+                      cls: 'w-4 h-4 ${i <= rating.round() ? "fill-amber-400 text-amber-400" : "text-zinc-600"}',
+                    ),
+                ]),
+                span(classes: 'text-xs $textMuted', [
+                  Component.text('Based on $count ${count == 1 ? "review" : "reviews"}'),
+                ]),
+              ]),
+            ]),
+          ]),
+          button(
+            classes:
+                'px-5 py-3 rounded-2xl border ${isDark ? "border-zinc-800 text-zinc-300 hover:bg-zinc-800" : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"} font-bold text-sm transition-all',
+            events: {'click': (_) => _loadReviews()},
+            [Component.text('Refresh Reviews')],
+          ),
+        ]),
+
+        // Review list header
+        h3(classes: 'text-lg font-bold mt-8 $textCls', [
+          Component.text('Recent Feedback'),
+        ]),
+
+        if (reviews.isEmpty)
+          div(
+            classes:
+                'p-12 text-center rounded-[2rem] border border-dashed ${isDark ? "border-zinc-800" : "border-zinc-200"}',
+            [
+              div(
+                classes:
+                    'w-12 h-12 rounded-full bg-zinc-500/10 flex items-center justify-center text-zinc-400 mx-auto mb-4',
+                [
+                  lIcon('message-square', cls: 'w-6 h-6'),
+                ],
+              ),
+              p(classes: 'font-bold $textCls', [Component.text('No reviews yet')]),
+              p(classes: 'text-sm $textMuted mt-1', [
+                Component.text('Completed gigs will show feedback here once rated.'),
+              ]),
+            ],
+          )
+        else
+          div(classes: 'space-y-4', [
+            for (final r in reviews)
+              div(classes: 'p-6 rounded-[2rem] border $cardCls transition-all hover:translate-y-[-2px] hover:shadow-lg', [
+                div(classes: 'flex items-start justify-between gap-4', [
+                  div(classes: 'flex items-center gap-3', [
+                    div(
+                      classes:
+                          'w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center font-bold text-indigo-400',
+                      [
+                        Component.text((r['reviewerName'] as String? ?? 'A')[0].toUpperCase()),
+                      ],
+                    ),
+                    div([
+                      p(classes: 'font-bold text-sm $textCls', [
+                        Component.text(_obfuscateName(r['reviewerName'] as String?)),
+                      ]),
+                      p(classes: 'text-xs $textMuted mt-0.5', [
+                        Component.text(_formatDate(r['timestamp'] as int?)),
+                      ]),
+                    ]),
+                  ]),
+                  // Score
+                  div(classes: 'flex text-amber-400 gap-0.5', [
+                    for (int i = 1; i <= 5; i++)
+                      lIcon(
+                        'star',
+                        cls:
+                            'w-4 h-4 ${i <= (r['score'] as int? ?? 0) ? "fill-amber-400 text-amber-400" : "text-zinc-600"}',
+                      ),
+                  ]),
+                ]),
+                if (r['comment'] != null && (r['comment'] as String).isNotEmpty)
+                  p(classes: 'mt-4 text-sm leading-relaxed ${isDark ? "text-zinc-300" : "text-zinc-600"} italic', [
+                    Component.text('"${r['comment']}"'),
+                  ]),
+              ]),
+          ]),
       ],
     ]);
   }

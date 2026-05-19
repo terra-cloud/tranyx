@@ -25,9 +25,11 @@ class JobsViewComponent extends StatelessComponent {
         div(classes: 'w-full md:w-80 flex-shrink-0 space-y-4', [
           div(classes: 'flex items-center justify-between', [
             h2(classes: 'text-xl font-bold', [
-              Component.text(isNyxian
-                  ? (s.activeJobPane == 'my_gigs' ? 'My Gigs' : 'Available Gigs')
-                  : (s.activeJobPane == 'history' ? 'Past History' : 'My Postings')),
+              Component.text(
+                isNyxian
+                    ? (s.activeJobPane == 'my_gigs' ? 'My Gigs' : 'Available Gigs')
+                    : (s.activeJobPane == 'history' ? 'Past History' : 'My Postings'),
+              ),
             ]),
             if (!isNyxian)
               button(
@@ -39,35 +41,40 @@ class JobsViewComponent extends StatelessComponent {
 
           // Beautiful premium Segmented Tab Switcher
           div(
-            classes: 'flex p-1 rounded-2xl ${isDark ? "bg-zinc-800/40" : "bg-zinc-100"} border ${isDark ? "border-zinc-800" : "border-zinc-200"}',
+            classes:
+                'flex p-1 rounded-2xl ${isDark ? "bg-zinc-800/40" : "bg-zinc-100"} border ${isDark ? "border-zinc-800" : "border-zinc-200"}',
             [
               if (isNyxian) ...[
                 button(
-                  classes: 'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
+                  classes:
+                      'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
                       '${s.activeJobPane != 'my_gigs' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
                   events: {'click': (_) => s.setState(() => s.activeJobPane = 'browse')},
                   [Component.text('Browse Gigs')],
                 ),
                 button(
-                  classes: 'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
+                  classes:
+                      'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
                       '${s.activeJobPane == 'my_gigs' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
                   events: {'click': (_) => s.setState(() => s.activeJobPane = 'my_gigs')},
                   [Component.text('My Gigs')],
                 ),
               ] else ...[
                 button(
-                  classes: 'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
+                  classes:
+                      'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
                       '${s.activeJobPane != 'history' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
                   events: {'click': (_) => s.setState(() => s.activeJobPane = 'active')},
                   [Component.text('Active')],
                 ),
                 button(
-                  classes: 'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
+                  classes:
+                      'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
                       '${s.activeJobPane == 'history' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
                   events: {'click': (_) => s.setState(() => s.activeJobPane = 'history')},
                   [Component.text('Completed')],
                 ),
-              ]
+              ],
             ],
           ),
 
@@ -111,9 +118,11 @@ class JobsViewComponent extends StatelessComponent {
             else if (isNyxian)
               if (displayJobs.isEmpty)
                 div(classes: 'p-4 text-center text-zinc-500 text-sm', [
-                  Component.text(s.activeJobPane == 'my_gigs'
-                      ? 'You have no active or completed gigs yet.'
-                      : 'No available gigs match your filters.'),
+                  Component.text(
+                    s.activeJobPane == 'my_gigs'
+                        ? 'You have no active or completed gigs yet.'
+                        : 'No available gigs match your filters.',
+                  ),
                 ])
               else
                 for (final j in displayJobs) _nyxianCard(j, isDark, s)
@@ -830,18 +839,41 @@ class _JobDetails extends StatelessComponent {
             }
 
             if (status == 'Completed') {
-              return div(
-                classes: 'p-4 rounded-2xl border border-green-500/30 bg-green-500/10 flex items-center gap-3',
-                [
-                  lIcon('heart', cls: 'w-6 h-6 text-green-400'),
-                  div([
-                    p(classes: 'font-bold text-green-400 text-sm', [Component.text('Job Completed & Paid')]),
-                    p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                      Component.text('Payment has been transferred to your Tyxbit wallet.'),
+              final employerRated = s.selectedJobData?['employerRated'] == true;
+              return div(classes: 'space-y-3', [
+                div(
+                  classes: 'p-4 rounded-2xl border border-green-500/30 bg-green-500/10 flex items-center gap-3',
+                  [
+                    lIcon('heart', cls: 'w-6 h-6 text-green-400'),
+                    div([
+                      p(classes: 'font-bold text-green-400 text-sm', [Component.text('Job Completed & Paid')]),
+                      p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                        Component.text('Payment has been transferred to the Nyxian.'),
+                      ]),
                     ]),
-                  ]),
-                ],
-              );
+                  ],
+                ),
+                if (!employerRated)
+                  button(
+                    classes:
+                        'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                    events: {
+                      'click': (_) {
+                        s.setState(() {
+                          s.showRatingPopup = true;
+                          s.ratingTargetId = s.selectedJobData?['acceptedApplicantId'] as String?;
+                          s.ratingTargetName = s.selectedJobData?['acceptedApplicantName'] as String? ?? 'Nyxian';
+                          s.ratingScore = 0;
+                          s.ratingComment = '';
+                        });
+                      },
+                    },
+                    [
+                      lIcon('star', cls: 'w-5 h-5 fill-white'),
+                      Component.text('Rate Nyxian'),
+                    ],
+                  ),
+              ]);
             }
 
             // Default: Open job employer management buttons
@@ -1278,40 +1310,53 @@ class _JobDetails extends StatelessComponent {
   }
 
   Component _qaSection(TranyxAppState s, bool isDark) {
+    final status = (s.selectedJobData?['status'] as String? ?? '').toLowerCase();
+    final isOngoing = status == 'in progress' || status == 'ongoing';
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
     final isOwner = s.selectedJobData?['creatorId'] == s.userProfile?.uid;
     return div(classes: 'p-5 rounded-2xl border space-y-4 $cardCls', [
       p(classes: 'font-semibold', [Component.text('Public Q&A')]),
-      if (s.isLoadingQuestions)
-        div(classes: 'flex justify-center py-4', [lIcon('loader-2', cls: 'w-5 h-5 animate-spin text-indigo-400')])
-      else if (s.jobQuestions.isEmpty)
-        p(classes: 'text-sm ${isDark ? "text-zinc-600" : "text-zinc-400"}', [
-          Component.text('No questions yet. Be the first to ask!'),
-        ])
-      else
-        for (final qa in s.jobQuestions) _qaItem(qa, isOwner, s, isDark),
+      if (isOngoing)
+        div(
+          classes:
+              'p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-amber-500 text-xs font-semibold flex items-center gap-2',
+          [
+            lIcon('lock', cls: 'w-4 h-4'),
+            Component.text('Public Q&A is disabled because this job is currently in progress.'),
+          ],
+        )
+      else ...[
+        if (s.isLoadingQuestions)
+          div(classes: 'flex justify-center py-4', [lIcon('loader-2', cls: 'w-5 h-5 animate-spin text-indigo-400')])
+        else if (s.jobQuestions.isEmpty)
+          p(classes: 'text-sm ${isDark ? "text-zinc-600" : "text-zinc-400"}', [
+            Component.text('No questions yet. Be the first to ask!'),
+          ])
+        else
+          for (final qa in s.jobQuestions) _qaItem(qa, isOwner, s, isDark),
 
-      if (!isOwner)
-        div(classes: 'flex gap-2 pt-2', [
-          input(
-            classes:
-                'flex-1 px-4 py-2.5 rounded-xl border text-sm ${isDark ? "bg-zinc-800 border-zinc-700 text-zinc-200" : "bg-zinc-50 border-zinc-200 text-zinc-800"} outline-none',
-            type: InputType.text,
-            attributes: {'placeholder': 'Ask a question...', 'value': s.newQuestionText},
-            events: {
-              'input': (e) {
-                // ignore: avoid_dynamic_calls
-                final v = (e as dynamic).target?.value as String? ?? '';
-                s.setState(() => s.newQuestionText = v);
+        if (!isOwner)
+          div(classes: 'flex gap-2 pt-2', [
+            input(
+              classes:
+                  'flex-1 px-4 py-2.5 rounded-xl border text-sm ${isDark ? "bg-zinc-800 border-zinc-700 text-zinc-200" : "bg-zinc-50 border-zinc-200 text-zinc-800"} outline-none',
+              type: InputType.text,
+              attributes: {'placeholder': 'Ask a question...', 'value': s.newQuestionText},
+              events: {
+                'input': (e) {
+                  // ignore: avoid_dynamic_calls
+                  final v = (e as dynamic).target?.value as String? ?? '';
+                  s.setState(() => s.newQuestionText = v);
+                },
               },
-            },
-          ),
-          button(
-            classes: 'px-4 py-2.5 rounded-xl logo-gradient text-white',
-            events: {'click': (_) => s.handleAskQuestion()},
-            [lIcon('send', cls: 'w-4 h-4')],
-          ),
-        ]),
+            ),
+            button(
+              classes: 'px-4 py-2.5 rounded-xl logo-gradient text-white',
+              events: {'click': (_) => s.handleAskQuestion()},
+              [lIcon('send', cls: 'w-4 h-4')],
+            ),
+          ]),
+      ],
     ]);
   }
 

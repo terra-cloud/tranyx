@@ -402,6 +402,25 @@ class FirestoreService {
     return UserProfile.fromMap(uid, data);
   }
 
+  Future<List<Map<String, dynamic>>> getReviews(String uid) async {
+    final url = '$_firestoreBase/users/$uid/reviews';
+    final headers = <String, String>{};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final req = await _client.get(Uri.parse(url), headers: headers);
+    if (req.statusCode >= 400) return [];
+
+    final data = jsonDecode(req.body) as Map<String, dynamic>;
+    final docs = data['documents'] as List? ?? [];
+    final result = docs.map((d) {
+      final doc = d as Map<String, dynamic>;
+      final id = _docId(doc);
+      return {'id': id, ..._fromFirestoreDoc(doc)};
+    }).toList();
+    result.sort((a, b) => (b['timestamp'] as int? ?? 0).compareTo(a['timestamp'] as int? ?? 0));
+    return result;
+  }
+
   Future<void> saveUser(UserProfile profile) async {
     await createOrUpdate('users/${profile.uid}', profile.toMap());
   }

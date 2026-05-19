@@ -9,7 +9,7 @@ enum AuthView { login, registerPath, registerDetails, kycPending }
 
 enum JobsView { list, details, create, apply, review, success }
 
-enum ProfileView { main, personal, professional, payment, trust, support, history }
+enum ProfileView { main, personal, professional, payment, trust, support, history, reviews }
 
 enum TransitMode { rent, host }
 

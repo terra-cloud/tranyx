@@ -183,3 +183,21 @@ void openUrl(String url) => web.window.open(url, '_blank');
 bool confirmDialog(String message) {
   return web.window.confirm(message);
 }
+
+JSFunction? _jobsUnsub;
+
+void listenToJobsJs(String uid, void Function(String) callback) {
+  try {
+    _jobsUnsub?.callAsFunction();
+    final cb = callback.toJS;
+    final unsub = web.window.callMethod<JSFunction>('listenToJobs'.toJS, uid.toJS, cb);
+    _jobsUnsub = unsub;
+  } catch (_) {}
+}
+
+void stopListeningToJobsJs() {
+  try {
+    _jobsUnsub?.callAsFunction();
+    _jobsUnsub = null;
+  } catch (_) {}
+}

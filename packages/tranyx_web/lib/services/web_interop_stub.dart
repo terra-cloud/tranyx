@@ -39,3 +39,6 @@ void markNotificationReadJs(String notifId) {}
 void openUrl(String url) {}
 
 bool confirmDialog(String message) => false;
+
+void listenToJobsJs(String uid, void Function(String) callback) {}
+void stopListeningToJobsJs() {}
