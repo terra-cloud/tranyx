@@ -1616,12 +1616,7 @@ class _CreateJob extends StatelessComponent {
             classes:
                 'w-full bg-transparent border-none outline-none text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"} min-h-[100px]',
             attributes: {'placeholder': 'Describe the job requirements...'},
-            events: {
-              'input': (e) {
-                // ignore: avoid_dynamic_calls
-                s.setState(() => s.newJobDesc = (e as dynamic).target?.value as String? ?? '');
-              },
-            },
+            onInput: (value) => s.setState(() => s.newJobDesc = value),
             [Component.text(s.newJobDesc)],
           ),
         ]),
@@ -1822,12 +1817,7 @@ class _ApplyJob extends StatelessComponent {
           classes:
               'w-full bg-transparent border-none outline-none text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"} min-h-[120px]',
           attributes: {'placeholder': 'Write a brief cover note...'},
-          events: {
-            'input': (e) {
-              // ignore: avoid_dynamic_calls
-              s.setState(() => s.coverNote = (e as dynamic).target?.value as String? ?? '');
-            },
-          },
+          onInput: (value) => s.setState(() => s.coverNote = value),
           [Component.text(s.coverNote)],
         ),
       ]),
