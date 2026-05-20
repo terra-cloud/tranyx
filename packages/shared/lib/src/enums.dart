@@ -910,7 +910,7 @@ enum JobCategory {
       JobCategory.organizer ||
       JobCategory.garbageHauling ||
       JobCategory.septicTankCleaning ||
-      JobCategory.garden  er ||
+      JobCategory.gardener ||
       JobCategory.grassCutting ||
       JobCategory.poolCleaning ||
       JobCategory.carWash ||
