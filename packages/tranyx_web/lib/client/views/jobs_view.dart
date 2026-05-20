@@ -1077,16 +1077,24 @@ class _JobDetails extends StatelessComponent {
 
             // Default: Open job employer management buttons
             return div(classes: 'flex gap-3', [
+              button(
+                classes:
+                    'py-4 px-6 rounded-2xl font-semibold border ${isDark ? "border-red-500/30 text-red-400 hover:bg-red-500/10" : "border-red-200 text-red-500 hover:bg-red-50"} transition-colors flex items-center justify-center cursor-pointer',
+                events: {
+                  'click': (_) => s.setState(() => s.showDeleteConfirm = true),
+                },
+                [lIcon('trash-2', cls: 'w-5 h-5')],
+              ),
               if (job.applicants == 0)
                 button(
                   classes:
-                      'flex-1 py-4 rounded-2xl font-semibold ${isDark ? "bg-zinc-800 hover:bg-zinc-700 text-zinc-200" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"} transition-colors flex items-center justify-center gap-2',
+                      'flex-1 py-4 rounded-2xl font-semibold ${isDark ? "bg-zinc-800 hover:bg-zinc-700 text-zinc-200" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"} transition-colors flex items-center justify-center gap-2 cursor-pointer',
                   events: {},
                   [lIcon('edit-2', cls: 'w-4 h-4'), Component.text(' Edit')],
                 ),
               button(
                 classes:
-                    'flex-1 py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                    'flex-1 py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2 cursor-pointer',
                 events: {
                   'click': (_) {
                     s.loadApplicants(s.selectedJobData!['id'] as String);
@@ -1899,9 +1907,16 @@ class _CreateJob extends StatelessComponent {
   }
 
   Component _step2(TranyxAppState s, bool isDark) {
+    final isOnSiteOnly = s.selectedJobCategory?.onSiteOnly ?? false;
+    if (isOnSiteOnly && s.locType != LocType.onsite) {
+      s.locType = LocType.onsite;
+    }
+
     return div(classes: 'space-y-4', [
       segmentedControl(
-        options: const [('On-site', 'onsite'), ('Remote', 'remote')],
+        options: isOnSiteOnly
+            ? const [('On-site', 'onsite')]
+            : const [('On-site', 'onsite'), ('Remote', 'remote')],
         selected: s.locType.name,
         isDark: isDark,
         onChange: (v) => s.setState(() => s.locType = v == 'onsite' ? LocType.onsite : LocType.remote),

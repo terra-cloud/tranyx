@@ -141,6 +141,9 @@ class CategoryModalComponentState extends State<CategoryModalComponent> {
                               s.selectedJobCategory = cat;
                               s.selectedJobCategoryGroup = entry.key;
                               s.postJobError = null;
+                              if (cat.onSiteOnly) {
+                                s.locType = LocType.onsite;
+                              }
 
                               // Set tracker requirement based on category
                               // Groups 5 (Delivery) and 6 (Moving) require tracking, plus Towing (402)

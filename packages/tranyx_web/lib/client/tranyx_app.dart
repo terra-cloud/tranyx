@@ -23,6 +23,7 @@ import '../client/widgets/top_header.dart';
 import '../client/widgets/category_modal.dart';
 import '../client/widgets/payment_modal.dart';
 import '../client/widgets/rating_modal.dart';
+import '../client/widgets/delete_confirm_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -184,6 +185,7 @@ class TranyxAppState extends State<TranyxApp> {
 
   // Rating State
   bool showRatingPopup = false;
+  bool showDeleteConfirm = false;
   String? ratingTargetId;
   String? ratingTargetName;
   int ratingScore = 0;
@@ -295,6 +297,7 @@ class TranyxAppState extends State<TranyxApp> {
       jobsView = JobsView.list;
       selectedJob = null;
       selectedJobData = null;
+      showDeleteConfirm = false;
       _stopSelectedJobRealtime();
     });
   }
@@ -2199,6 +2202,85 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  Future<void> handleDeletePosting(String jobId) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null || jobId.isEmpty) return;
+
+    setState(() => isUpdatingJobStatus = true);
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final jobDoc = await svc.getDocument('jobs/$jobId');
+
+      if (jobDoc == null) {
+        throw 'Job posting not found';
+      }
+
+      // Check permissions
+      if (jobDoc['creatorId'] != uid) {
+        throw 'You are not authorized to delete this posting';
+      }
+
+      // Check status: only Open jobs can be deleted/cancelled
+      final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+      if (status != 'open') {
+        throw 'Only open job postings can be deleted';
+      }
+
+      // 1. Check for escrow
+      final escrowDoc = await svc.getEscrow(jobId);
+      double refundAmount = 0.0;
+      if (escrowDoc != null) {
+        refundAmount = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+
+        // 2. Refund to Employer
+        final empDoc = await svc.getDocument('users/$uid');
+        if (empDoc != null) {
+          final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+          final newBal = currentBal + refundAmount;
+
+          await svc.createOrUpdate('users/$uid', {
+            ...empDoc,
+            'tyxBalance': newBal,
+          });
+
+          // Update local balance
+          walletBalance = newBal;
+          if (userProfile != null) {
+            userProfile = userProfile!.copyWith(tyxBalance: newBal);
+          }
+        }
+
+        // 3. Delete escrow document
+        await svc.deleteDocument('escrow/$jobId');
+      }
+
+      // 4. Delete the job document
+      await svc.deleteDocument('jobs/$jobId');
+
+      // Update local lists
+      myJobs.removeWhere((j) => j['id'] == jobId);
+      sessionPostedJobs.removeWhere((j) => j['id'] == jobId);
+
+      setState(() {
+        isUpdatingJobStatus = false;
+        showDeleteConfirm = false;
+        jobsView = JobsView.list;
+        selectedJob = null;
+        selectedJobData = null;
+      });
+
+      _stopSelectedJobRealtime();
+      showAppToast('Posting Deleted', 'Job posting has been deleted and the ₱ ${refundAmount.toStringAsFixed(0)} held escrow has been returned to your balance.');
+    } catch (e) {
+      setState(() {
+        isUpdatingJobStatus = false;
+        showDeleteConfirm = false;
+      });
+      showAppToast('Error Deleting Posting', e.toString());
+    }
+  }
+
   /// Nyxian marks a standard job as Done (triggers Employer to generate QR).
   Future<void> handleMarkJobDone() async {
     final token = SessionStorage.idToken;
@@ -3065,6 +3147,9 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Rating modal overlay
       if (showRatingPopup) RatingModalComponent(state: this),
+
+      // Delete confirmation modal overlay
+      if (showDeleteConfirm) DeleteConfirmModalComponent(state: this),
 
       // Chat overlay
       if (showChat) ChatWidget(state: this),

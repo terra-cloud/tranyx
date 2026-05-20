@@ -883,6 +883,86 @@ enum JobCategory {
     this.icon, {
     this.hasTracker = false,
   });
+
+  bool get onSiteOnly {
+    return switch (this) {
+      JobCategory.electrician ||
+      JobCategory.plumber ||
+      JobCategory.mason ||
+      JobCategory.carpenter ||
+      JobCategory.painter ||
+      JobCategory.welder ||
+      JobCategory.tileInstaller ||
+      JobCategory.roofer ||
+      JobCategory.cabinetMaker ||
+      JobCategory.doorOrWindowRepair ||
+      JobCategory.applianceRepair ||
+      JobCategory.airconCleaning ||
+      JobCategory.pestControl ||
+      JobCategory.furnitureAssembly ||
+      JobCategory.curtainInstaller ||
+      JobCategory.locksmith ||
+      JobCategory.houseCleaning ||
+      JobCategory.deepCleaning ||
+      JobCategory.laundry ||
+      JobCategory.windowCleaning ||
+      JobCategory.carWashHomeService ||
+      JobCategory.organizer ||
+      JobCategory.garbageHauling ||
+      JobCategory.septicTankCleaning ||
+      JobCategory.garden  er ||
+      JobCategory.grassCutting ||
+      JobCategory.poolCleaning ||
+      JobCategory.carWash ||
+      JobCategory.tireReplacement ||
+      JobCategory.batteryJumpstart ||
+      JobCategory.oilChange ||
+      JobCategory.mobileMechanic ||
+      JobCategory.towing ||
+      JobCategory.motorcycleTuneUp ||
+      JobCategory.personalShopper ||
+      JobCategory.groceryDelivery ||
+      JobCategory.parcelDelivery ||
+      JobCategory.documentRunner ||
+      JobCategory.foodDelivery ||
+      JobCategory.prescriptionPickup ||
+      JobCategory.queueingService ||
+      JobCategory.laundryPickup ||
+      JobCategory.furnitureMoving ||
+      JobCategory.truckRental ||
+      JobCategory.packing ||
+      JobCategory.storageOrganization ||
+      JobCategory.furnitureDisposal ||
+      JobCategory.relocationService ||
+      JobCategory.babysitter ||
+      JobCategory.elderlyCare ||
+      JobCategory.petSitting ||
+      JobCategory.petGrooming ||
+      JobCategory.houseSitter ||
+      JobCategory.haircut ||
+      JobCategory.makeupArtist ||
+      JobCategory.massageTherapist ||
+      JobCategory.nailTechnician ||
+      JobCategory.personalTrainer ||
+      JobCategory.photographer ||
+      JobCategory.eventDecorator ||
+      JobCategory.partyHelper ||
+      JobCategory.flyerDistribution ||
+      JobCategory.surveyTaker ||
+      JobCategory.posterInstallation ||
+      JobCategory.petPoopScooping ||
+      JobCategory.waterDelivery ||
+      JobCategory.trashBinCleaning ||
+      JobCategory.balloonDecoration ||
+      JobCategory.seasonalHelper ||
+      JobCategory.queueProxy ||
+      JobCategory.eventHelper ||
+      JobCategory.eventHelper_misc ||
+      JobCategory.foodServer ||
+      JobCategory.surveyor => true,
+      _ => false,
+    };
+  }
 }
 
 enum JobCategoryGroup {
