@@ -59,6 +59,23 @@ Future<String?> signInWithGoogleJs(Map<String, String> config) async {
   }
 }
 
+void initFirebaseJs(Map<String, dynamic> config) {
+  try {
+    final jsConfig = JSObject();
+    for (final e in config.entries) {
+      final val = e.value;
+      if (val is String) {
+        jsConfig.setProperty(e.key.toJS, val.toJS);
+      } else if (val is num) {
+        jsConfig.setProperty(e.key.toJS, val.toJS);
+      } else if (val is bool) {
+        jsConfig.setProperty(e.key.toJS, val.toJS);
+      }
+    }
+    web.window.callMethod('initFirebase'.toJS, jsConfig);
+  } catch (_) {}
+}
+
 // ── Notifications ────────────────────────────────────────────────────────────
 
 JSFunction? _notificationUnsub;
@@ -199,5 +216,72 @@ void stopListeningToJobsJs() {
   try {
     _jobsUnsub?.callAsFunction();
     _jobsUnsub = null;
+  } catch (_) {}
+}
+
+// ── Chat Interop ─────────────────────────────────────────────────────────────
+
+void listenToChatJs(String chatId, void Function(String) callback) {
+  try {
+    final cb = callback.toJS;
+    web.window.callMethod('listenToChat'.toJS, chatId.toJS, cb);
+  } catch (_) {}
+}
+
+void unlistenChatJs(String chatId) {
+  try {
+    web.window.callMethod('unlistenChat'.toJS, chatId.toJS);
+  } catch (_) {}
+}
+
+String sendChatMessageJs(String chatId, String senderId, String senderName, String text, {String? photoUrl}) {
+  try {
+    final msgObj = JSObject();
+    msgObj.setProperty('senderId'.toJS, senderId.toJS);
+    msgObj.setProperty('senderName'.toJS, senderName.toJS);
+    msgObj.setProperty('text'.toJS, text.toJS);
+    msgObj.setProperty('photoUrl'.toJS, (photoUrl ?? '').toJS);
+
+    final result = web.window.callMethod<JSString>(
+      'sendChatMessage'.toJS,
+      chatId.toJS,
+      msgObj,
+    );
+    return result.toDart;
+  } catch (_) {
+    return 'error';
+  }
+}
+
+Future<String?> uploadChatPhotoJs(String chatId, String base64Data, String mimeType) async {
+  try {
+    final result = await web.window.callMethod<JSPromise>(
+      'uploadChatPhoto'.toJS,
+      chatId.toJS,
+      base64Data.toJS,
+      mimeType.toJS,
+    ).toDart;
+    if (result == null) return null;
+    return (result as JSString).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
+JSFunction? _jobDetailsUnsub;
+
+void listenToJobDetailsJs(String jobId, void Function(String) callback) {
+  try {
+    _jobDetailsUnsub?.callAsFunction();
+    final cb = callback.toJS;
+    final unsub = web.window.callMethod<JSFunction>('listenToJobDetails'.toJS, jobId.toJS, cb);
+    _jobDetailsUnsub = unsub;
+  } catch (_) {}
+}
+
+void stopListeningToJobDetailsJs() {
+  try {
+    _jobDetailsUnsub?.callAsFunction();
+    _jobDetailsUnsub = null;
   } catch (_) {}
 }

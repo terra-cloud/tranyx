@@ -462,40 +462,150 @@ class _JobDetails extends StatelessComponent {
           ],
         ),
 
-      // Creator info
-      button(
-        classes:
-            'w-full p-4 rounded-2xl border $cardCls flex items-center justify-between text-left hover:opacity-80 transition-opacity',
-        events: {'click': (_) => s.viewEmployerProfile(s.selectedJobData!['creatorId'] as String)},
-        [
-          div(classes: 'flex items-center gap-3', [
-            div(
-              classes:
-                  'w-10 h-10 rounded-full flex items-center justify-center bg-indigo-600 flex-shrink-0 overflow-hidden',
-              [
-                if ((s.selectedJobData?['creatorPhotoUrl'] as String?)?.isNotEmpty ?? false)
-                  img(src: s.selectedJobData!['creatorPhotoUrl'] as String, classes: 'w-full h-full object-cover')
-                else
-                  span(classes: 'text-sm font-bold text-white', [
-                    Component.text(
-                      ((s.selectedJobData?['creatorName'] as String?) ?? '?').isNotEmpty
-                          ? (s.selectedJobData!['creatorName'] as String)[0].toUpperCase()
-                          : '?',
+      // Creator/Worker info and Chat
+      Builder(
+        builder: (context) {
+          final acceptedId = s.selectedJobData?['acceptedApplicantId'] as String?;
+          final isAccepted = acceptedId == s.userProfile?.uid;
+          final isChatActive = status != 'Completed' && status != 'Complete' && status != 'Cancelled';
+
+          if (isNyxian) {
+            // Nyxian View: Show Employer Card
+            return div(classes: 'space-y-3', [
+              // Employer info card
+              button(
+                classes:
+                    'w-full p-4 rounded-2xl border $cardCls flex items-center justify-between text-left hover:opacity-80 transition-opacity',
+                events: {'click': (_) => s.viewEmployerProfile(s.selectedJobData!['creatorId'] as String)},
+                [
+                  div(classes: 'flex items-center gap-3', [
+                    div(
+                      classes:
+                          'w-10 h-10 rounded-full flex items-center justify-center bg-indigo-600 flex-shrink-0 overflow-hidden',
+                      [
+                        if ((s.selectedJobData?['creatorPhotoUrl'] as String?)?.isNotEmpty ?? false)
+                          img(src: s.selectedJobData!['creatorPhotoUrl'] as String, classes: 'w-full h-full object-cover')
+                        else
+                          span(classes: 'text-sm font-bold text-white', [
+                            Component.text(
+                              ((s.selectedJobData?['creatorName'] as String?) ?? '?').isNotEmpty
+                                  ? (s.selectedJobData!['creatorName'] as String)[0].toUpperCase()
+                                  : '?',
+                            ),
+                          ]),
+                      ],
                     ),
+                    div([
+                      p(classes: 'font-semibold text-sm', [
+                        Component.text(s.selectedJobData?['creatorName'] as String? ?? 'Unknown'),
+                      ]),
+                      p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                        Component.text('Employer'),
+                      ]),
+                    ]),
                   ]),
-              ],
-            ),
-            div([
-              p(classes: 'font-semibold text-sm', [
-                Component.text(s.selectedJobData?['creatorName'] as String? ?? 'Unknown'),
-              ]),
-              p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                Component.text(s.selectedJobData?['category'] as String? ?? ''),
-              ]),
-            ]),
-          ]),
-          lIcon('chevron-right', cls: 'w-4 h-4 ${isDark ? "text-zinc-600" : "text-zinc-400"}'),
-        ],
+                  lIcon('chevron-right', cls: 'w-4 h-4 ${isDark ? "text-zinc-600" : "text-zinc-400"}'),
+                ],
+              ),
+              // Chat with Employer button
+              if (acceptedId != null && isAccepted && isChatActive)
+                button(
+                  classes:
+                      'w-full py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20',
+                  events: {'click': (_) => s.openChat(s.selectedJobData!['id'] as String)},
+                  [
+                    lIcon('message-square', cls: 'w-5 h-5'),
+                    Component.text('Chat with Employer'),
+                  ],
+                ),
+            ]);
+          } else {
+            // Employer View
+            final showWorkerCard = acceptedId != null && acceptedId.isNotEmpty;
+            final workerName = s.acceptedApplicantProfile?['name'] as String? ??
+                s.selectedJobData?['acceptedApplicantName'] as String? ?? 'Nyxian';
+            final workerPhotoUrl = s.acceptedApplicantProfile?['photoUrl'] as String? ??
+                s.selectedJobData?['acceptedApplicantPhotoUrl'] as String? ?? '';
+
+            return div(classes: 'space-y-3', [
+              // Creator info card (shows Employer themselves)
+              div(
+                classes:
+                    'w-full p-4 rounded-2xl border $cardCls flex items-center justify-between',
+                [
+                  div(classes: 'flex items-center gap-3', [
+                    div(
+                      classes:
+                          'w-10 h-10 rounded-full flex items-center justify-center bg-zinc-700 flex-shrink-0 overflow-hidden',
+                      [
+                        if ((s.selectedJobData?['creatorPhotoUrl'] as String?)?.isNotEmpty ?? false)
+                          img(src: s.selectedJobData!['creatorPhotoUrl'] as String, classes: 'w-full h-full object-cover')
+                        else
+                          span(classes: 'text-sm font-bold text-white', [
+                            Component.text(
+                              ((s.selectedJobData?['creatorName'] as String?) ?? '?').isNotEmpty
+                                  ? (s.selectedJobData!['creatorName'] as String)[0].toUpperCase()
+                                  : '?',
+                            ),
+                          ]),
+                      ],
+                    ),
+                    div([
+                      p(classes: 'font-semibold text-sm', [
+                        Component.text(s.selectedJobData?['creatorName'] as String? ?? 'Unknown'),
+                      ]),
+                      p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                        Component.text('You (Employer)'),
+                      ]),
+                    ]),
+                  ]),
+                ],
+              ),
+              // Worker info card (if accepted)
+              if (showWorkerCard)
+                div(
+                  classes: 'w-full p-4 rounded-2xl border $cardCls flex flex-col gap-3',
+                  [
+                    div(classes: 'flex items-center justify-between', [
+                      div(classes: 'flex items-center gap-3', [
+                        div(
+                          classes:
+                              'w-10 h-10 rounded-full flex items-center justify-center bg-indigo-600 flex-shrink-0 overflow-hidden',
+                          [
+                            if (workerPhotoUrl.isNotEmpty)
+                              img(src: workerPhotoUrl, classes: 'w-full h-full object-cover')
+                            else
+                              span(classes: 'text-sm font-bold text-white', [
+                                Component.text(workerName.isNotEmpty ? workerName[0].toUpperCase() : 'N'),
+                              ]),
+                          ],
+                        ),
+                        div([
+                          p(classes: 'font-semibold text-sm', [
+                            Component.text(workerName),
+                          ]),
+                          p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                            Component.text('Accepted Nyxian'),
+                          ]),
+                        ]),
+                      ]),
+                    ]),
+                    // Chat button
+                    if (isChatActive)
+                      button(
+                        classes:
+                            'w-full py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20',
+                        events: {'click': (_) => s.openChat(s.selectedJobData!['id'] as String)},
+                        [
+                          lIcon('message-square', cls: 'w-5 h-5'),
+                          Component.text('Chat with Nyxian'),
+                        ],
+                      ),
+                  ],
+                ),
+            ]);
+          }
+        },
       ),
 
       // Description
@@ -850,7 +960,7 @@ class _JobDetails extends StatelessComponent {
                     ]),
                   ]),
                 ]),
-                if (status == 'paid_cashier' && (s.selectedJobData?['receiptUrl'] as String?) != null)
+                if ((s.selectedJobData?['receiptUrl'] as String?) != null)
                   div(classes: 'mt-2 p-3 rounded-xl border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
                     p(classes: 'text-xs font-bold text-indigo-400 mb-2', [Component.text('Receipt / Item Photo')]),
                     img(src: s.selectedJobData!['receiptUrl'] as String, classes: 'w-full h-auto rounded-lg'),
@@ -871,6 +981,11 @@ class _JobDetails extends StatelessComponent {
                     ]),
                   ]),
                 ]),
+                if ((s.selectedJobData?['receiptUrl'] as String?) != null)
+                  div(classes: 'mt-2 p-3 rounded-xl border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+                    p(classes: 'text-xs font-bold text-indigo-400 mb-2', [Component.text('Receipt / Item Photo')]),
+                    img(src: s.selectedJobData!['receiptUrl'] as String, classes: 'w-full h-auto rounded-lg'),
+                  ]),
                 button(
                   classes:
                       'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',

@@ -59,6 +59,7 @@ class UserProfile {
   final bool phoneVerified;
   final bool idVerified;
   final bool bgChecked;
+  final bool isPremium;
 
   const UserProfile({
     required this.uid,
@@ -86,6 +87,7 @@ class UserProfile {
     this.phoneVerified = false,
     this.idVerified = false,
     this.bgChecked = false,
+    this.isPremium = false,
   });
 
   factory UserProfile.fromMap(String uid, Map<String, dynamic> map) {
@@ -126,6 +128,7 @@ class UserProfile {
       phoneVerified: map['phoneVerified'] as bool? ?? false,
       idVerified: map['idVerified'] as bool? ?? false,
       bgChecked: map['bgChecked'] as bool? ?? false,
+      isPremium: map['isPremium'] as bool? ?? false,
     );
   }
 
@@ -155,6 +158,7 @@ class UserProfile {
     'phoneVerified': phoneVerified,
     'idVerified': idVerified,
     'bgChecked': bgChecked,
+    'isPremium': isPremium,
   };
 
   UserProfile copyWith({
@@ -182,6 +186,7 @@ class UserProfile {
     bool? phoneVerified,
     bool? idVerified,
     bool? bgChecked,
+    bool? isPremium,
   }) {
     return UserProfile(
       uid: uid,
@@ -209,6 +214,7 @@ class UserProfile {
       phoneVerified: phoneVerified ?? this.phoneVerified,
       idVerified: idVerified ?? this.idVerified,
       bgChecked: bgChecked ?? this.bgChecked,
+      isPremium: isPremium ?? this.isPremium,
     );
   }
 }

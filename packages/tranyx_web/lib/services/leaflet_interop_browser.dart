@@ -108,14 +108,15 @@ Future<void> initMap(String elementId, double lat, double lng, int zoom, {bool i
   final tileOpts = JSObject();
   tileOpts.setProperty(
     'attribution'.toJS,
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'.toJS,
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'.toJS,
   );
-  tileOpts.setProperty('subdomains'.toJS, 'abcd'.toJS);
-  tileOpts.setProperty('maxZoom'.toJS, 20.toJS);
+  tileOpts.setProperty('subdomains'.toJS, 'abc'.toJS);
+  tileOpts.setProperty('maxZoom'.toJS, 19.toJS);
+  if (isDark) {
+    tileOpts.setProperty('className'.toJS, 'map-tiles-dark'.toJS);
+  }
 
-  final tileUrl = isDark
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png';
+  const tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
   L
       .callMethod<JSObject>(
