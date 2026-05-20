@@ -727,6 +727,53 @@ class FirestoreService {
     }).toList();
   }
 
+  // ── Chat Messages ──────────────────────────────────────────
+
+  Future<List<Map<String, dynamic>>> getChatMessages(String jobId) async {
+    final url = '$_firestoreBase/jobs/$jobId/messages';
+    final headers = <String, String>{};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final req = await _client.get(Uri.parse(url), headers: headers);
+    if (req.statusCode >= 400) return [];
+
+    final data = jsonDecode(req.body) as Map<String, dynamic>;
+    final docs = data['documents'] as List? ?? [];
+    final messages = docs.map((d) {
+      final doc = d as Map<String, dynamic>;
+      final id = _docId(doc);
+      return {'id': id, ..._fromFirestoreDoc(doc)};
+    }).toList();
+
+    // Sort by timestamp ascending
+    messages.sort((a, b) => (a['timestamp'] as int? ?? 0).compareTo(b['timestamp'] as int? ?? 0));
+    return messages;
+  }
+
+  Future<void> sendChatMessage({
+    required String jobId,
+    required String messageId,
+    required String senderId,
+    required String senderName,
+    String? senderPhotoUrl,
+    required String text,
+    String? imageUrl,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final messageData = {
+      'senderId': senderId,
+      'senderName': senderName,
+      if (senderPhotoUrl != null) 'senderPhotoUrl': senderPhotoUrl,
+      'text': text,
+      if (imageUrl != null) 'imageUrl': imageUrl,
+      'timestamp': now,
+    };
+
+    final url = '$_firestoreBase/jobs/$jobId/messages/$messageId';
+    final body = _toFirestoreFields(messageData);
+    await _patch(url, body, idToken, onTokenRefresh);
+  }
+
   // ── Questions ──────────────────────────────────────────────
 
   Future<String> addQuestion({

@@ -165,11 +165,11 @@ class _MapPickerState extends State<MapPickerComponent> {
   classes:
       'relative w-full h-72 rounded-2xl overflow-hidden border ${isDark ? "border-zinc-700" : "border-zinc-200"} shadow-inner',
   [
-    // Map element — FORCE a min-height or explicit height inline if h-full fails
+    // Map element
     div(
       id: _mapId,
-      classes: 'w-full h-full absolute inset-0', // Added absolute inset-0 to force fill the h-72 parent
-      attributes: {'style': 'z-index: 1; min-height: 500px;'}, // 288px matches Tailwind's h-72
+      classes: 'absolute inset-0',
+      attributes: {'style': 'z-index: 1; height: 100%; width: 100%;'},
       [],
     ),
     // Loading overlay (shown until map is ready)

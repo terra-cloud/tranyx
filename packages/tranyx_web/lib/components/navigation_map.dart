@@ -497,7 +497,7 @@ class _NavigationMapState extends State<NavigationMapComponent> {
             div(
               id: _mapId,
               classes: 'absolute inset-0',
-              attributes: {'style': 'z-index: 1'},
+              attributes: {'style': 'z-index: 1; height: 100%; width: 100%;'},
               [],
             ),
 

@@ -18,6 +18,7 @@ import '../client/views/transit_view.dart';
 import '../client/views/profile_view.dart';
 import '../client/widgets/sidebar.dart';
 import '../client/widgets/bottom_nav.dart';
+import '../client/widgets/chat_widget.dart';
 import '../client/widgets/top_header.dart';
 import '../client/widgets/category_modal.dart';
 import '../client/widgets/payment_modal.dart';
@@ -210,8 +211,18 @@ class TranyxAppState extends State<TranyxApp> {
   bool showNotificationsDropdown = false;
   Map<String, dynamic>? latestToastNotification;
 
+  // ── Chat ─────────────────────────────────────────────────────
+  bool showChat = false;
+  String currentChatId = '';
+  List<Map<String, dynamic>> chatMessages = [];
+  String chatInputText = '';
+  bool chatPiiBlocked = false;
+  bool isUploadingChatPhoto = false;
+  Map<String, dynamic>? acceptedApplicantProfile;
+
   // ── Selected-job live-refresh timer ─────────────────────────
   Timer? _selectedJobRefreshTimer;
+
 
   // ── Services ────────────────────────────────────────────────
   final _auth = FirebaseAuthService();
@@ -299,7 +310,7 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     // Load full profile from Firestore
-    await _loadUserProfile();
+    await loadUserProfile();
     // Load jobs for current tab
     await loadJobs();
     await loadTransactions();
@@ -310,6 +321,14 @@ class TranyxAppState extends State<TranyxApp> {
   void _startListeningNotifications() {
     final uid = SessionStorage.uid;
     if (uid == null) return;
+    initFirebaseJs({
+      'apiKey': currentFirebaseConfig.apiKey,
+      'authDomain': currentFirebaseConfig.authDomain,
+      'projectId': currentFirebaseConfig.projectId,
+      'storageBucket': currentFirebaseConfig.storageBucket,
+      'messagingSenderId': currentFirebaseConfig.messagingSenderId,
+      'appId': currentFirebaseConfig.appId,
+    });
     listenToNotificationsJs(uid, (String jsonString) {
       try {
         final List<dynamic> rawList = jsonDecode(jsonString);
@@ -364,6 +383,14 @@ class TranyxAppState extends State<TranyxApp> {
   void _startListeningJobs() {
     final uid = SessionStorage.uid;
     if (uid == null) return;
+    initFirebaseJs({
+      'apiKey': currentFirebaseConfig.apiKey,
+      'authDomain': currentFirebaseConfig.authDomain,
+      'projectId': currentFirebaseConfig.projectId,
+      'storageBucket': currentFirebaseConfig.storageBucket,
+      'messagingSenderId': currentFirebaseConfig.messagingSenderId,
+      'appId': currentFirebaseConfig.appId,
+    });
 
     listenToJobsJs(uid, (String jsonString) {
       try {
@@ -455,7 +482,7 @@ class TranyxAppState extends State<TranyxApp> {
     });
   }
 
-  Future<void> _loadUserProfile() async {
+  Future<void> loadUserProfile() async {
     final uid = SessionStorage.uid;
     if (uid == null) return;
     try {
@@ -596,6 +623,8 @@ class TranyxAppState extends State<TranyxApp> {
       _initGemini();
       await loadJobs();
       await loadTransactions();
+      _startListeningNotifications();
+      _startListeningJobs();
     } on FirebaseException catch (e) {
       String msg = e.message;
       if (msg.contains('EMAIL_EXISTS')) {
@@ -699,6 +728,8 @@ class TranyxAppState extends State<TranyxApp> {
       _initGemini();
       await loadJobs();
       await loadTransactions();
+      _startListeningNotifications();
+      _startListeningJobs();
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
     } on FirebaseException catch (e) {
       setState(() {
@@ -759,6 +790,8 @@ class TranyxAppState extends State<TranyxApp> {
       _initGemini();
       await loadJobs();
       await loadTransactions();
+      _startListeningNotifications();
+      _startListeningJobs();
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
     } catch (e) {
       setState(() {
@@ -1399,6 +1432,23 @@ class TranyxAppState extends State<TranyxApp> {
       }
     }
 
+    final acceptedId = jobMap['acceptedApplicantId'] as String?;
+    if (acceptedId != null && acceptedId.isNotEmpty) {
+      try {
+        final token = SessionStorage.idToken;
+        if (token != null) {
+          final doc = await FirestoreService(token, _handleTokenRefresh).getDocument('users/$acceptedId');
+          setState(() {
+            acceptedApplicantProfile = doc;
+          });
+        }
+      } catch (_) {}
+    } else {
+      setState(() {
+        acceptedApplicantProfile = null;
+      });
+    }
+
     // Keep selectedJobData fresh via periodic Firestore polls
     _startSelectedJobPolling();
   }
@@ -1489,6 +1539,88 @@ class TranyxAppState extends State<TranyxApp> {
       showReportModal = true;
       selectedReportReason = '';
     });
+  }
+
+  // ── Chat Actions ──────────────────────────────────────────────
+  void openChat(String jobId) {
+    final uid = SessionStorage.uid;
+    if (uid == null || jobId.isEmpty) return;
+    final cId = 'job_$jobId';
+    setState(() {
+      showChat = true;
+      currentChatId = cId;
+      chatMessages = [];
+      chatInputText = '';
+      chatPiiBlocked = false;
+    });
+    listenToChatJs(cId, (String jsonStr) {
+      try {
+        final raw = jsonDecode(jsonStr) as List<dynamic>;
+        setState(() {
+          chatMessages = raw.map((m) {
+            final map = Map<String, dynamic>.from(m as Map);
+            // Normalize Firestore timestamp
+            if (map['createdAt'] is Map) {
+              final ts = map['createdAt'] as Map;
+              map['createdAt'] = (ts['_seconds'] as int? ?? 0) * 1000 +
+                  ((ts['_nanoseconds'] as int? ?? 0) ~/ 1000000);
+            }
+            return map;
+          }).toList();
+        });
+      } catch (_) {}
+    });
+  }
+
+  void closeChat() {
+    if (currentChatId.isNotEmpty) unlistenChatJs(currentChatId);
+    setState(() {
+      showChat = false;
+      currentChatId = '';
+      chatMessages = [];
+      chatInputText = '';
+      chatPiiBlocked = false;
+    });
+  }
+
+  void sendChatMessage() {
+    final uid = SessionStorage.uid;
+    if (uid == null || currentChatId.isEmpty || chatInputText.trim().isEmpty) return;
+    final text = chatInputText.trim();
+    final name = userProfile?.name ?? userName;
+    final result = sendChatMessageJs(currentChatId, uid, name, text);
+    if (result == 'pii_blocked') {
+      setState(() => chatPiiBlocked = true);
+      Timer(const Duration(seconds: 3), () {
+        setState(() => chatPiiBlocked = false);
+      });
+      return;
+    }
+    setState(() {
+      chatInputText = '';
+      chatPiiBlocked = false;
+    });
+  }
+
+  Future<void> sendChatPhoto(dynamic event) async {
+    final uid = SessionStorage.uid;
+    if (uid == null || currentChatId.isEmpty) return;
+    setState(() => isUploadingChatPhoto = true);
+    try {
+      final files = await readFilesFromEvent(event);
+      if (files.isEmpty) return;
+      final file = files.first;
+      final name = userProfile?.name ?? userName;
+      final b64 = base64Encode(file.bytes as List<int>);
+      final mime = file.name.endsWith('.png') ? 'image/png' : 'image/jpeg';
+      final url = await uploadChatPhotoJs(currentChatId, b64, mime);
+      if (url != null) {
+        sendChatMessageJs(currentChatId, uid, name, '', photoUrl: url);
+      }
+    } catch (_) {
+    } finally {
+      setState(() => isUploadingChatPhoto = false);
+    }
   }
 
   Future<void> submitJobReport() async {
@@ -1814,7 +1946,7 @@ class TranyxAppState extends State<TranyxApp> {
           }
         });
 
-        await _loadUserProfile();
+        await loadUserProfile();
 
         // Send a notification to the target user about job completion to trigger rating popup
         if (targetId != null) {
@@ -2843,6 +2975,9 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Rating modal overlay
       if (showRatingPopup) RatingModalComponent(state: this),
+
+      // Chat overlay
+      if (showChat) ChatWidget(state: this),
     ]);
   }
 }

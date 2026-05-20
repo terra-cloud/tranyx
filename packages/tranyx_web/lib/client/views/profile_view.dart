@@ -1596,7 +1596,8 @@ class _HistoryViewState extends State<_HistoryView> {
 
     for (final job in myJobs) {
       final status = job['status'] as String? ?? '';
-      if (status == 'Completed' || status == 'completed') {
+      final lowerStatus = status.toLowerCase();
+      if (lowerStatus == 'completed' || lowerStatus == 'done' || lowerStatus == 'complete') {
         final creatorId = job['creatorId'] as String?;
         final applicantId = job['acceptedApplicantId'] as String?;
         final title = job['title'] as String? ?? 'Job';
@@ -1734,6 +1735,7 @@ class _HistoryViewState extends State<_HistoryView> {
       activeTab = 'earnings';
     }
     _loadDbHistory();
+    component.state.loadUserProfile();
   }
 
   @override
@@ -1742,6 +1744,7 @@ class _HistoryViewState extends State<_HistoryView> {
     if (oldComponent.state.myJobs != component.state.myJobs ||
         oldComponent.state.userTransactions != component.state.userTransactions) {
       _loadDbHistory();
+      component.state.loadUserProfile();
     }
   }
 
@@ -1768,12 +1771,20 @@ class _HistoryViewState extends State<_HistoryView> {
 
   Component _buildBar(int i, Map<String, dynamic> item, double maxVal) {
     final val = (item['value'] as num).toDouble();
-    final pct = (val / maxVal) * 100;
+    final pct = maxVal > 0 ? (val / maxVal) * 100 : 0.0;
     final barHeight = pct < 8.0 ? 8.0 : pct;
 
     return div(
       classes: 'h-full flex-1 flex flex-col justify-end items-center group relative z-10',
       [
+        // Tooltip
+        div(
+          classes:
+              'absolute top-[-36px] opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none z-20 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-lg whitespace-nowrap',
+          [
+            Component.text('${item['label']}: ${formatCurrency(val)}'),
+          ],
+        ),
         div(
           classes:
               'w-8 sm:w-10 rounded-t-lg transition-all duration-300 logo-gradient hover:opacity-90 relative cursor-pointer',
@@ -1782,10 +1793,6 @@ class _HistoryViewState extends State<_HistoryView> {
               'height': '${barHeight.toStringAsFixed(1)}%',
             },
           ),
-          events: {
-            'mouseenter': (_) => setState(() => hoveredBarIndex = i),
-            'mouseleave': (_) => setState(() => hoveredBarIndex = -1),
-          },
           [],
         ),
         span(
@@ -1935,19 +1942,6 @@ class _HistoryViewState extends State<_HistoryView> {
                     [],
                   ),
               ]),
-
-              div(
-                classes:
-                    'absolute top-2 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow-lg z-20 pointer-events-none transition-all duration-200 '
-                    '${hoveredBarIndex != -1 && hoveredBarIndex < activeData.length ? "opacity-100 scale-100" : "opacity-0 scale-95"}',
-                [
-                  Component.text(
-                    hoveredBarIndex != -1 && hoveredBarIndex < activeData.length
-                        ? '${activeData[hoveredBarIndex]['label']}: ${formatCurrency((activeData[hoveredBarIndex]['value'] as num).toDouble())}'
-                        : '',
-                  ),
-                ],
-              ),
 
               for (int i = 0; i < activeData.length; i++) _buildBar(i, activeData[i], maxVal),
             ],

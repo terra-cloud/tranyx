@@ -174,3 +174,13 @@ textarea {
   resize: vertical;
   min-height: 80px;
 }
+
+/* ── Leaflet Dark Mode Tiles ── */
+.map-tiles-dark {
+  filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+}
+
+/* Fix Leaflet map tiles squished by Tailwind preflight reset */
+.leaflet-container img {
+  max-width: none !important;
+}

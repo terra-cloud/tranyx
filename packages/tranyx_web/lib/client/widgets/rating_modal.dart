@@ -107,9 +107,27 @@ class _RatingModalComponentState extends State<RatingModalComponent> {
 
   Component _buildStarIcon(int index, int activeScore, int hoveredScore) {
     final isStarred = index <= (hoveredScore > 0 ? hoveredScore : activeScore);
-    if (isStarred) {
-      return lIcon('star', cls: 'w-8 h-8 text-amber-400 fill-amber-400');
-    }
-    return lIcon('star', cls: 'w-8 h-8 text-zinc-500');
+    return span(
+      classes: 'inline-flex items-center justify-center',
+      [
+        svg(
+          [
+            polygon(
+              [],
+              points: '12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2',
+            ),
+          ],
+          attributes: {
+            'viewBox': '0 0 24 24',
+            'fill': isStarred ? '#fbbf24' : 'none',
+            'stroke': isStarred ? '#fbbf24' : 'currentColor',
+            'stroke-width': '2',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round',
+          },
+          classes: 'w-8 h-8 ${isStarred ? "text-amber-400" : "text-zinc-500"}',
+        ),
+      ],
+    );
   }
 }
