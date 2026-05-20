@@ -33,8 +33,16 @@ class JobsViewComponent extends StatelessComponent {
             ]),
             if (!isNyxian)
               button(
-                classes: 'flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient',
-                events: {'click': (_) => s.setState(() => s.jobsView = JobsView.create)},
+                classes: 'flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient ${!s.canPostJob ? "opacity-60 cursor-not-allowed" : ""}',
+                events: {
+                  'click': (_) {
+                    if (!s.canPostJob) {
+                      s.showAppToast('Posting Locked', 'Normal accounts are limited to 1 active job.');
+                    } else {
+                      s.setState(() => s.jobsView = JobsView.create);
+                    }
+                  }
+                },
                 [lIcon('plus', cls: 'w-4 h-4'), Component.text(' New')],
               ),
           ]),
@@ -243,6 +251,37 @@ class JobsViewComponent extends StatelessComponent {
   }
 
   Component _draftCard(bool isDark, TranyxAppState s) {
+    final canPost = s.canPostJob;
+    if (!canPost) {
+      final activeJobTitle = s.firstActiveJob?['title'] as String? ?? 'Active Job';
+      return div(
+        classes: 'w-full p-6 rounded-2xl border-2 border-dashed ${isDark ? "border-zinc-800 bg-zinc-950/40" : "border-zinc-200 bg-zinc-50/50"} flex flex-col items-center justify-center gap-3 text-center',
+        [
+          div(classes: 'w-10 h-10 rounded-full bg-amber-500/15 text-amber-500 flex items-center justify-center border border-amber-500/20', [
+            lIcon('lock', cls: 'w-5 h-5')
+          ]),
+          h4(classes: 'text-sm font-bold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+            Component.text('Posting Locked')
+          ]),
+          p(classes: 'text-xs max-w-md ${isDark ? "text-zinc-500" : "text-zinc-400"} leading-relaxed', [
+            Component.text('Normal accounts are limited to 1 active job at a time. Please complete your current ongoing job ("$activeJobTitle") to unlock posting new gigs.'),
+          ]),
+          button(
+            classes: 'mt-1 px-4 py-2 rounded-xl text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer',
+            events: {
+              'click': (_) {
+                final activeJob = s.firstActiveJob;
+                if (activeJob != null) {
+                  s.selectJobAndLoadDetails(activeJob);
+                }
+              }
+            },
+            [Component.text('View Ongoing Job')]
+          )
+        ]
+      );
+    }
+
     return button(
       classes:
           'w-full p-4 rounded-2xl border-2 border-dashed ${isDark ? "border-zinc-700 hover:border-indigo-500" : "border-zinc-300 hover:border-indigo-400"} transition-colors flex items-center justify-center gap-2 ${isDark ? "text-zinc-500 hover:text-indigo-400" : "text-zinc-400 hover:text-indigo-500"}',
@@ -357,10 +396,7 @@ class _JobDetails extends StatelessComponent {
       subViewHeader(
         title: job.title,
         isDark: isDark,
-        onBack: () => s.setState(() {
-          s.jobsView = JobsView.list;
-          s.selectedJob = null;
-        }),
+        onBack: () => s.exitJobDetails(),
       ),
 
       // Image Carousel above content

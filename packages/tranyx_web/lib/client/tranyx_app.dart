@@ -220,8 +220,7 @@ class TranyxAppState extends State<TranyxApp> {
   bool isUploadingChatPhoto = false;
   Map<String, dynamic>? acceptedApplicantProfile;
 
-  // ── Selected-job live-refresh timer ─────────────────────────
-  Timer? _selectedJobRefreshTimer;
+
 
 
   // ── Services ────────────────────────────────────────────────
@@ -244,31 +243,110 @@ class TranyxAppState extends State<TranyxApp> {
 
   Future<String?> Function() get handleTokenRefresh => _handleTokenRefresh;
 
-  /// Polls Firestore every 4 s to keep [selectedJobData] fresh while a
-  /// detail / review screen is open. Stops automatically when no job is open.
-  void _startSelectedJobPolling() {
-    _selectedJobRefreshTimer?.cancel();
-    _selectedJobRefreshTimer = Timer.periodic(const Duration(seconds: 4), (_) async {
-      final jobId = selectedJobData?['id'] as String?;
-      final token = SessionStorage.idToken;
-      if (jobId == null || token == null) return;
+  bool get canPostJob {
+    final uid = SessionStorage.uid;
+    if (uid == null) return false;
+    final isPremium = userProfile?.isPremium ?? false;
+    if (isPremium) return true;
+
+    // Filter active jobs posted by this user
+    final activeCount = myJobs.where((j) {
+      final isCreator = j['creatorId'] == uid;
+      if (!isCreator) return false;
+      final s = (j['status'] as String?)?.toLowerCase();
+      final isTerminal = s == 'completed' || s == 'done' || s == 'complete';
+      return !isTerminal;
+    }).length;
+
+    return activeCount == 0;
+  }
+
+  Map<String, dynamic>? get firstActiveJob {
+    final uid = SessionStorage.uid;
+    if (uid == null) return null;
+    try {
+      return myJobs.firstWhere((j) {
+        final isCreator = j['creatorId'] == uid;
+        if (!isCreator) return false;
+        final s = (j['status'] as String?)?.toLowerCase();
+        final isTerminal = s == 'completed' || s == 'done' || s == 'complete';
+        return !isTerminal;
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void showAppToast(String title, String message) {
+    setState(() {
+      latestToastNotification = {
+        'id': DateTime.now().millisecondsSinceEpoch.toString(),
+        'title': title,
+        'message': message,
+      };
+    });
+    Timer(const Duration(seconds: 5), () {
+      setState(() => latestToastNotification = null);
+    });
+  }
+
+  void exitJobDetails() {
+    setState(() {
+      jobsView = JobsView.list;
+      selectedJob = null;
+      selectedJobData = null;
+      _stopSelectedJobRealtime();
+    });
+  }
+
+  void _startSelectedJobRealtime(String jobId) {
+    stopListeningToJobDetailsJs();
+    listenToJobDetailsJs(jobId, (String jsonString) {
       try {
-        final fresh = await FirestoreService(token, _handleTokenRefresh).getDocument('jobs/$jobId');
-        if (fresh != null && fresh['status'] != selectedJobData?['status']) {
+        final Map<String, dynamic> data = jsonDecode(jsonString);
+        final String type = data['type'] as String;
+        if (type == 'job') {
+          final Map<String, dynamic> fresh = data['data'] as Map<String, dynamic>;
           setState(() {
-            selectedJobData = {...selectedJobData!, ...fresh};
+            if (selectedJobData != null && selectedJobData!['id'] == fresh['id']) {
+              selectedJobData = {...selectedJobData!, ...fresh};
+              
+              final title = fresh['title'] as String? ?? selectedJob?.title ?? '';
+              final rate = fresh['pricingValue'] != null 
+                  ? '₱ ${(fresh['pricingValue'] as num).toStringAsFixed(0)}' 
+                  : selectedJob?.rate ?? '';
+              final urgency = fresh['dateRequirement'] as String? ?? selectedJob?.urgency ?? '';
+              final status = fresh['status'] as String? ?? selectedJob?.status ?? '';
+              final applicants = fresh['applicantCount'] as int? ?? selectedJob?.applicants ?? 0;
+              selectedJob = SelectedJob(
+                title: title,
+                rate: rate,
+                distance: selectedJob?.distance ?? '—',
+                urgency: urgency,
+                status: status,
+                applicants: applicants,
+              );
+            }
+            
             // Sync session copy too
             final idx = sessionPostedJobs.indexWhere((j) => j['id'] == jobId);
             if (idx != -1) sessionPostedJobs[idx] = selectedJobData!;
           });
+        } else if (type == 'applications') {
+          final List<dynamic> rawApps = data['data'] as List? ?? [];
+          final apps = rawApps.map((e) => e as Map<String, dynamic>).toList();
+          setState(() {
+            jobApplicants = apps;
+          });
         }
-      } catch (_) {}
+      } catch (e) {
+        print('Error parsing realtime job details: $e');
+      }
     });
   }
 
-  void _stopSelectedJobPolling() {
-    _selectedJobRefreshTimer?.cancel();
-    _selectedJobRefreshTimer = null;
+  void _stopSelectedJobRealtime() {
+    stopListeningToJobDetailsJs();
   }
 
   AccountType get currentViewMode => accountType == AccountType.hybrid ? hybridToggle : accountType;
@@ -1021,6 +1099,13 @@ class TranyxAppState extends State<TranyxApp> {
     final token = SessionStorage.idToken;
     if (uid == null || token == null) return;
 
+    if (!canPostJob) {
+      setState(() {
+        postJobError = 'Normal accounts can only have 1 active job at a time. Please complete your current ongoing job before posting a new one.';
+      });
+      return;
+    }
+
     final price = double.tryParse(priceRate) ?? 0.0;
 
     setState(() {
@@ -1449,8 +1534,10 @@ class TranyxAppState extends State<TranyxApp> {
       });
     }
 
-    // Keep selectedJobData fresh via periodic Firestore polls
-    _startSelectedJobPolling();
+    // Keep selectedJobData fresh via real-time listener
+    if (jobId.isNotEmpty) {
+      _startSelectedJobRealtime(jobId);
+    }
   }
 
   Future<void> loadJobQuestions(String jobId) async {
@@ -1611,7 +1698,7 @@ class TranyxAppState extends State<TranyxApp> {
       if (files.isEmpty) return;
       final file = files.first;
       final name = userProfile?.name ?? userName;
-      final b64 = base64Encode(file.bytes as List<int>);
+      final b64 = base64Encode(file.bytes);
       final mime = file.name.endsWith('.png') ? 'image/png' : 'image/jpeg';
       final url = await uploadChatPhotoJs(currentChatId, b64, mime);
       if (url != null) {
@@ -2732,6 +2819,9 @@ class TranyxAppState extends State<TranyxApp> {
       if (tab != AppTab.jobs) {
         jobsView = JobsView.list;
         createStep = 1;
+        selectedJob = null;
+        selectedJobData = null;
+        _stopSelectedJobRealtime();
       }
     });
     if (tab == AppTab.jobs) loadJobs();
