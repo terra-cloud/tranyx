@@ -172,13 +172,19 @@ class PostJobPageState extends State<PostJobPage> {
     String value,
     void Function(String) onChange,
   ) {
+    final inputId = 'post-job-${labelText.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}';
     return div(classes: 'space-y-2', [
       label(classes: 'block text-sm font-medium text-zinc-400', [Component.text(labelText)]),
       input(
         classes:
             'w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-zinc-100 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all outline-none',
         type: type,
-        attributes: {'placeholder': placeholder, 'value': value},
+        attributes: {
+          'placeholder': placeholder,
+          'value': value,
+          'id': inputId,
+          'name': inputId,
+        },
         events: {
           'input': (e) {
             // ignore: avoid_dynamic_calls

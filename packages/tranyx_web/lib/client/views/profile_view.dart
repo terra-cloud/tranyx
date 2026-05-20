@@ -356,7 +356,11 @@ class _PersonalInfo extends StatelessComponent {
             div(classes: 'flex-1 relative', [
               input(
                 type: InputType.text,
-                attributes: {'placeholder': '917 000 0000'},
+                attributes: {
+                  'placeholder': '917 000 0000',
+                  'id': 'edit-profile-phone-input',
+                  'name': 'phone',
+                },
                 value: s.formatPhone(s.editPhone),
                 classes:
                     'w-full px-5 py-4 pl-12 rounded-2xl border bg-transparent font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all ${s.isDark ? "border-zinc-800 focus:border-indigo-500/50 text-white" : "border-zinc-200 focus:border-indigo-500 text-zinc-800"}',
@@ -486,7 +490,12 @@ class _ProfessionalInfo extends StatelessComponent {
                   classes:
                       'px-3 py-1.5 rounded-lg text-xs border ${isDark ? "bg-zinc-800 border-zinc-700 text-zinc-200" : "bg-zinc-50 border-zinc-200"} outline-none w-28',
                   type: InputType.text,
-                  attributes: {'placeholder': '+ Add skill', 'value': s.newSkillInput},
+                  attributes: {
+                    'placeholder': '+ Add skill',
+                    'value': s.newSkillInput,
+                    'id': 'edit-profile-skill-input',
+                    'name': 'new_skill',
+                  },
                   events: {
                     'input': (e) {
                       // ignore: avoid_dynamic_calls
@@ -1284,7 +1293,11 @@ class _HelpSupportState extends State<_HelpSupport> {
                       'flex-1 py-3 px-4 rounded-xl border outline-none text-sm transition-all '
                       '${isDark ? "bg-zinc-950 border-zinc-800 text-white focus:border-indigo-500" : "bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-indigo-500"}',
                   value: currentChatInput,
-                  attributes: {'placeholder': 'Ask me anything about Tranyx...'},
+                  attributes: {
+                    'placeholder': 'Ask me anything about Tranyx...',
+                    'id': 'support-chat-input',
+                    'name': 'support_chat_message',
+                  },
                   onInput: (v) => setState(() => currentChatInput = v),
                   events: {
                     'keydown': (event) {
@@ -1540,6 +1553,8 @@ class _HistoryViewState extends State<_HistoryView> {
   List<Map<String, dynamic>> earningsTransactions = [];
   List<Map<String, dynamic>> purchaseTransactions = [];
   List<Map<String, dynamic>> depositTransactions = [];
+  double totalEarningsSum = 0.0;
+  int completedGigsCount = 0;
 
   String _formatDate(int? ms) {
     if (ms == null) return 'Unknown Date';
@@ -1556,6 +1571,9 @@ class _HistoryViewState extends State<_HistoryView> {
     final eTrans = <Map<String, dynamic>>[];
     final pTrans = <Map<String, dynamic>>[];
     final dTrans = <Map<String, dynamic>>[];
+
+    double earningsSum = 0.0;
+    int gigsCount = 0;
 
     // Initialize daily/weekly/monthly/yearly aggregates
     final dailyAgg = {'Mon': 0.0, 'Tue': 0.0, 'Wed': 0.0, 'Thu': 0.0, 'Fri': 0.0, 'Sat': 0.0, 'Sun': 0.0};
@@ -1577,22 +1595,26 @@ class _HistoryViewState extends State<_HistoryView> {
     final yearlyAgg = {'2024': 0.0, '2025': 0.0, '2026': 0.0};
 
     for (final job in myJobs) {
-      if (job['status'] == 'Completed') {
+      final status = job['status'] as String? ?? '';
+      if (status == 'Completed' || status == 'completed') {
         final creatorId = job['creatorId'] as String?;
         final applicantId = job['acceptedApplicantId'] as String?;
         final title = job['title'] as String? ?? 'Job';
         final price = (job['pricingValue'] as num?)?.toDouble() ?? 0.0;
-        final createdAt = job['createdAt'] as int?;
+        final createdAt = (job['createdAt'] as num?)?.toInt();
 
         // If the user was the accepted applicant -> earnings
         if (applicantId == uid) {
           final payout = price * 0.97;
+          earningsSum += payout;
+          gigsCount++;
           eTrans.add({
             'title': title,
             'desc': 'Completed contract',
             'date': _formatDate(createdAt),
             'amount': payout,
             'status': 'Released',
+            'timestamp': createdAt ?? 0,
           });
 
           // Aggregate for graphs
@@ -1627,6 +1649,7 @@ class _HistoryViewState extends State<_HistoryView> {
             'date': _formatDate(createdAt),
             'amount': price,
             'status': 'Successful',
+            'timestamp': createdAt ?? 0,
           });
         }
       }
@@ -1635,7 +1658,7 @@ class _HistoryViewState extends State<_HistoryView> {
     // Process userTransactions for deposits (or any other types)
     for (final tx in component.state.userTransactions) {
       final type = tx['type'] as String?;
-      final createdAt = tx['createdAt'] as int?;
+      final createdAt = (tx['createdAt'] as num?)?.toInt();
       if (type == 'deposit') {
         dTrans.add({
           'title': tx['title'] ?? 'Top-Up',
@@ -1643,6 +1666,7 @@ class _HistoryViewState extends State<_HistoryView> {
           'date': _formatDate(createdAt),
           'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
           'method': tx['method'] ?? 'Unknown',
+          'timestamp': createdAt ?? 0,
         });
       }
     }
@@ -1686,10 +1710,17 @@ class _HistoryViewState extends State<_HistoryView> {
       ];
     }
 
+    // Sort descending by timestamp (latest first)
+    eTrans.sort((t1, t2) => (t2['timestamp'] as int).compareTo(t1['timestamp'] as int));
+    pTrans.sort((t1, t2) => (t2['timestamp'] as int).compareTo(t1['timestamp'] as int));
+    dTrans.sort((t1, t2) => (t2['timestamp'] as int).compareTo(t1['timestamp'] as int));
+
     setState(() {
-      earningsTransactions = eTrans.reversed.toList();
-      purchaseTransactions = pTrans.reversed.toList();
-      depositTransactions = dTrans.reversed.toList();
+      earningsTransactions = eTrans;
+      purchaseTransactions = pTrans;
+      depositTransactions = dTrans;
+      totalEarningsSum = hasDynamicEarnings ? earningsSum : 19900.0;
+      completedGigsCount = hasDynamicEarnings ? gigsCount : 4;
     });
   }
 
@@ -1715,25 +1746,33 @@ class _HistoryViewState extends State<_HistoryView> {
   }
 
   String formatCurrency(double val) {
-    if (val >= 1000) {
-      final parts = val.toStringAsFixed(0);
-      if (parts.length > 3) {
-        final len = parts.length;
-        final sub1 = parts.substring(0, len - 3);
-        final sub2 = parts.substring(len - 3);
-        return '₱$sub1,$sub2';
+    final parts = val.toStringAsFixed(2);
+    final dotIndex = parts.indexOf('.');
+    final integerPart = dotIndex != -1 ? parts.substring(0, dotIndex) : parts;
+    final decimalPart = dotIndex != -1 ? parts.substring(dotIndex) : '';
+
+    if (integerPart.length > 3) {
+      final buffer = StringBuffer();
+      final len = integerPart.length;
+      for (int i = 0; i < len; i++) {
+        buffer.write(integerPart[i]);
+        final remaining = len - 1 - i;
+        if (remaining > 0 && remaining % 3 == 0) {
+          buffer.write(',');
+        }
       }
+      return '₱${buffer.toString()}$decimalPart';
     }
-    return '₱${val.toStringAsFixed(0)}';
+    return '₱$parts';
   }
 
   Component _buildBar(int i, Map<String, dynamic> item, double maxVal) {
-    final val = item['value'] as double;
+    final val = (item['value'] as num).toDouble();
     final pct = (val / maxVal) * 100;
     final barHeight = pct < 8.0 ? 8.0 : pct;
 
     return div(
-      classes: 'flex-1 flex flex-col items-center group relative z-10',
+      classes: 'h-full flex-1 flex flex-col justify-end items-center group relative z-10',
       [
         div(
           classes:
@@ -1772,7 +1811,7 @@ class _HistoryViewState extends State<_HistoryView> {
     double totalEarnedInFilter = 0.0;
     double maxVal = 1.0;
     for (final item in activeData) {
-      final v = item['value'] as double;
+      final v = (item['value'] as num).toDouble();
       totalEarnedInFilter += v;
       if (v > maxVal) maxVal = v;
     }
@@ -1829,7 +1868,7 @@ class _HistoryViewState extends State<_HistoryView> {
                 Component.text('Total Earnings'),
               ]),
               p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text(formatCurrency(19900.0)),
+                Component.text(formatCurrency(totalEarningsSum)),
               ]),
             ]),
           ]),
@@ -1855,7 +1894,7 @@ class _HistoryViewState extends State<_HistoryView> {
                 Component.text('Completed Jobs'),
               ]),
               p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text('4 Gigs'),
+                Component.text('$completedGigsCount Gigs'),
               ]),
             ]),
           ]),
@@ -1897,16 +1936,18 @@ class _HistoryViewState extends State<_HistoryView> {
                   ),
               ]),
 
-              if (hoveredBarIndex != -1 && hoveredBarIndex < activeData.length)
-                div(
-                  classes:
-                      'absolute top-2 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow-lg z-10 transition-all',
-                  [
-                    Component.text(
-                      '${activeData[hoveredBarIndex]['label']}: ${formatCurrency(activeData[hoveredBarIndex]['value'] as double)}',
-                    ),
-                  ],
-                ),
+              div(
+                classes:
+                    'absolute top-2 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow-lg z-20 pointer-events-none transition-all duration-200 '
+                    '${hoveredBarIndex != -1 && hoveredBarIndex < activeData.length ? "opacity-100 scale-100" : "opacity-0 scale-95"}',
+                [
+                  Component.text(
+                    hoveredBarIndex != -1 && hoveredBarIndex < activeData.length
+                        ? '${activeData[hoveredBarIndex]['label']}: ${formatCurrency((activeData[hoveredBarIndex]['value'] as num).toDouble())}'
+                        : '',
+                  ),
+                ],
+              ),
 
               for (int i = 0; i < activeData.length; i++) _buildBar(i, activeData[i], maxVal),
             ],
@@ -1953,7 +1994,7 @@ class _HistoryViewState extends State<_HistoryView> {
                   ]),
                   div(classes: 'text-right', [
                     p(classes: 'font-black text-sm text-emerald-400', [
-                      Component.text('+ ${formatCurrency(tx['amount'] as double)}'),
+                      Component.text('+ ${formatCurrency((tx['amount'] as num).toDouble())}'),
                     ]),
                     span(
                       classes:
@@ -1991,9 +2032,9 @@ class _HistoryViewState extends State<_HistoryView> {
                       ]),
                     ]),
                   ]),
-                  div(classes: 'text-right', [
+                   div(classes: 'text-right', [
                     p(classes: 'font-black text-sm ${isDark ? "text-zinc-100" : "text-zinc-900"}', [
-                      Component.text(formatCurrency(tx['amount'] as double)),
+                      Component.text(formatCurrency((tx['amount'] as num).toDouble())),
                     ]),
                     span(
                       classes:
@@ -2034,9 +2075,9 @@ class _HistoryViewState extends State<_HistoryView> {
                       ]),
                     ]),
                   ]),
-                  div(classes: 'text-right', [
+                   div(classes: 'text-right', [
                     p(classes: 'font-black text-sm text-indigo-400', [
-                      Component.text('+ ${formatCurrency(tx['amount'] as double)}'),
+                      Component.text('+ ${formatCurrency((tx['amount'] as num).toDouble())}'),
                     ]),
                     span(
                       classes:

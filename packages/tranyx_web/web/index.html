@@ -4,8 +4,6 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://*.googleapis.com https://*.firebaseapp.com https://*.firebase.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; img-src 'self' data: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://unpkg.com https://*.googleusercontent.com; connect-src 'self' https://*.project-osrm.org https://*.googleapis.com https://*.firebaseio.com wss://*.googleapis.com wss://*.firebaseio.com; font-src 'self' https://fonts.gstatic.com;">
-  <title>Welcome to Tranyx</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
 
   <!-- External Scripts & Styles from main.server.dart -->
@@ -38,40 +36,66 @@
   </style>
 
   <script>
-    // Monkey-patch removeChild to gracefully handle elements replaced/detached by external libraries like Lucide.js
-    (function() {
+    (function () {
+      // 1. Monkey-patch Node.prototype.parentNode getter
+      const originalParentNode = Object.getOwnPropertyDescriptor(Node.prototype, 'parentNode').get;
+      Object.defineProperty(Node.prototype, 'parentNode', {
+        get() {
+          const parent = originalParentNode.call(this);
+          if (parent === null && this.__originalParent) {
+            return this.__originalParent;
+          }
+          return parent;
+        },
+        configurable: true
+      });
+
+      // 2. Monkey-patch Node.prototype.removeChild
       const originalRemove = Node.prototype.removeChild;
-      Node.prototype.removeChild = function(child) {
+      Node.prototype.removeChild = function (child) {
         if (child && child.parentNode !== this) {
-          // If child was replaced by Lucide, find the injected SVG inside this parent and remove it instead
           if (child.hasAttribute && child.hasAttribute('data-lucide')) {
             const svg = this.querySelector('svg.lucide, svg');
             if (svg) {
-              return originalRemove.call(this, svg);
+              try { return originalRemove.call(this, svg); } catch (_) { }
             }
           }
-          // If the child belongs to a different parent, remove it from there
           if (child.parentNode) {
-            try {
-              return originalRemove.call(child.parentNode, child);
-            } catch (e) {}
+            try { return originalRemove.call(child.parentNode, child); } catch (_) { }
           }
-          // If already detached, return gracefully to prevent NotFoundError
           return child;
         }
+
         try {
           return originalRemove.call(this, child);
         } catch (e) {
+          // If it throws NotFoundError because it was replaced, try to find and remove the SVG
+          if (child && child.hasAttribute && child.hasAttribute('data-lucide')) {
+            const svg = this.querySelector('svg.lucide, svg');
+            if (svg) {
+              try { return originalRemove.call(this, svg); } catch (_) { }
+            }
+          }
           return child;
         }
       };
     })();
 
-    document.addEventListener('DOMContentLoaded', () => {
+    function initLucideIcons() {
+      // Set __originalParent on any icon elements before Lucide replaces them
+      document.querySelectorAll('i[data-lucide]').forEach(i => {
+        if (i.parentNode && !i.__originalParent) {
+          i.__originalParent = i.parentNode;
+        }
+      });
       lucide.createIcons();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      initLucideIcons();
       const observer = new MutationObserver(() => {
         observer.disconnect();
-        lucide.createIcons();
+        initLucideIcons();
         observer.observe(document.body, { childList: true, subtree: true });
       });
       observer.observe(document.body, { childList: true, subtree: true });
@@ -104,11 +128,12 @@
       const db = firebase.firestore();
       return db.collection('notifications')
         .where('uid', '==', uid)
-        .where('isRead', '==', false)
         .onSnapshot((snapshot) => {
           const notifs = [];
           snapshot.forEach(doc => notifs.push({ id: doc.id, ...doc.data() }));
           callback(JSON.stringify(notifs));
+        }, (error) => {
+          console.error("Notifications listener error:", error);
         });
     };
 
@@ -120,7 +145,7 @@
     window.listenToJobs = function (uid, callback) {
       if (!firebase.apps.length) return () => { };
       const db = firebase.firestore();
-      
+
       const unsub1 = db.collection('jobs')
         .where('employerId', '==', uid)
         .onSnapshot((snapshot) => {
@@ -150,20 +175,66 @@
     // ── OSRM route helper (CSP-safe — real script, not eval) ──────────
     window._osrmRoute = async function (elementId, fromLat, fromLng, toLat, toLng, color) {
       const map = window['__lmap_' + elementId];
-      if (!map || !window.L) return;
+      if (!map || !window.L) return JSON.stringify({ error: 'No map or Leaflet' });
 
       const routeKey = '__lroute_' + elementId;
       if (window[routeKey]) { window[routeKey].remove(); window[routeKey] = null; }
 
       let coords = [[fromLat, fromLng], [toLat, toLng]];
+      let distance = 0;
+      let duration = 0;
+      let steps = [];
+
       try {
         const url = 'https://router.project-osrm.org/route/v1/driving/'
           + fromLng + ',' + fromLat + ';' + toLng + ',' + toLat
-          + '?overview=full&geometries=geojson';
+          + '?overview=full&geometries=geojson&steps=true';
         const resp = await fetch(url);
         const data = await resp.json();
-        coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-      } catch (e) { /* straight-line fallback */ }
+        if (data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
+          distance = route.distance;
+          duration = route.duration;
+          if (route.legs && route.legs[0] && route.legs[0].steps) {
+            steps = route.legs[0].steps.map(step => {
+              const type = step.maneuver.type;
+              const modifier = step.maneuver.modifier;
+              const name = step.name || "";
+              let instruction = "Continue";
+              if (type === 'depart') {
+                instruction = "Depart" + (name ? " on " + name : "");
+              } else if (type === 'arrive') {
+                instruction = "Arrive at destination";
+              } else if (['turn', 'new name', 'ramp', 'fork', 'merge'].includes(type)) {
+                let action = "Continue";
+                if (modifier === 'left') action = "Turn left";
+                else if (modifier === 'right') action = "Turn right";
+                else if (modifier === 'sharp left') action = "Turn sharp left";
+                else if (modifier === 'sharp right') action = "Turn sharp right";
+                else if (modifier === 'slight left') action = "Turn slight left";
+                else if (modifier === 'slight right') action = "Turn slight right";
+                else if (modifier === 'straight') action = "Go straight";
+                else if (modifier === 'uturn') action = "Make a U-turn";
+                instruction = action + (name ? " on " + name : "");
+              } else {
+                instruction = "Continue" + (name ? " on " + name : "");
+              }
+              return {
+                instruction: instruction,
+                distance: step.distance,
+                duration: step.duration,
+                lat: step.maneuver.location[1],
+                lng: step.maneuver.location[0],
+                type: type,
+                modifier: modifier
+              };
+            });
+          }
+        }
+      } catch (e) {
+        console.error("OSRM Route API error:", e);
+      }
 
       const poly = L.polyline(coords, {
         color: color, weight: 6, opacity: 0.9,
@@ -171,6 +242,22 @@
       }).addTo(map);
       window[routeKey] = poly;
       map.fitBounds(poly.getBounds(), { padding: [40, 40] });
+
+      return JSON.stringify({
+        distance: distance,
+        duration: duration,
+        coordinates: coords,
+        steps: steps
+      });
+    };
+
+    window.speakText = function (text) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
     };
   </script>
 </head>

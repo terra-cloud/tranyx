@@ -54,6 +54,8 @@ class HomeViewComponent extends StatelessComponent {
             attributes: {
               'placeholder': isNyxian ? 'Search available gigs...' : 'Search for a service or Nyxian...',
               'value': s.homeSearchQuery,
+              'id': 'home-search-input',
+              'name': 'search',
             },
             events: {
               'input': (e) {

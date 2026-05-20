@@ -210,6 +210,9 @@ class TranyxAppState extends State<TranyxApp> {
   bool showNotificationsDropdown = false;
   Map<String, dynamic>? latestToastNotification;
 
+  // ── Selected-job live-refresh timer ─────────────────────────
+  Timer? _selectedJobRefreshTimer;
+
   // ── Services ────────────────────────────────────────────────
   final _auth = FirebaseAuthService();
   GeminiService? _gemini;
@@ -229,6 +232,33 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   Future<String?> Function() get handleTokenRefresh => _handleTokenRefresh;
+
+  /// Polls Firestore every 4 s to keep [selectedJobData] fresh while a
+  /// detail / review screen is open. Stops automatically when no job is open.
+  void _startSelectedJobPolling() {
+    _selectedJobRefreshTimer?.cancel();
+    _selectedJobRefreshTimer = Timer.periodic(const Duration(seconds: 4), (_) async {
+      final jobId = selectedJobData?['id'] as String?;
+      final token = SessionStorage.idToken;
+      if (jobId == null || token == null) return;
+      try {
+        final fresh = await FirestoreService(token, _handleTokenRefresh).getDocument('jobs/$jobId');
+        if (fresh != null && fresh['status'] != selectedJobData?['status']) {
+          setState(() {
+            selectedJobData = {...selectedJobData!, ...fresh};
+            // Sync session copy too
+            final idx = sessionPostedJobs.indexWhere((j) => j['id'] == jobId);
+            if (idx != -1) sessionPostedJobs[idx] = selectedJobData!;
+          });
+        }
+      } catch (_) {}
+    });
+  }
+
+  void _stopSelectedJobPolling() {
+    _selectedJobRefreshTimer?.cancel();
+    _selectedJobRefreshTimer = null;
+  }
 
   AccountType get currentViewMode => accountType == AccountType.hybrid ? hybridToggle : accountType;
 
@@ -284,11 +314,14 @@ class TranyxAppState extends State<TranyxApp> {
       try {
         final List<dynamic> rawList = jsonDecode(jsonString);
         final parsed = rawList.map((e) => e as Map<String, dynamic>).toList();
-        parsed.sort((a, b) => (b['createdAt'] as num? ?? 0).compareTo(a['createdAt'] as num? ?? 0));
+        parsed.sort((notifA, notifB) => (notifB['createdAt'] as num? ?? 0).compareTo(notifA['createdAt'] as num? ?? 0));
 
         setState(() {
+          // Filter out read notifications locally
+          final unreadNotifs = parsed.where((n) => n['isRead'] != true).toList();
+          
           // Identify if there are new notifications that we didn't have before
-          final newNotifs = parsed.where((n) => !notifications.any((existing) => existing['id'] == n['id'])).toList();
+          final newNotifs = unreadNotifs.where((n) => !notifications.any((existing) => existing['id'] == n['id'])).toList();
           if (newNotifs.isNotEmpty) {
             final latest = newNotifs.first;
             latestToastNotification = latest;
@@ -320,7 +353,7 @@ class TranyxAppState extends State<TranyxApp> {
               }
             });
           }
-          notifications = parsed;
+          notifications = unreadNotifs;
         });
       } catch (e) {
         print('Error parsing notifications: $e');
@@ -346,7 +379,19 @@ class TranyxAppState extends State<TranyxApp> {
             realtimeNyxianJobs = parsed;
           }
 
-          // Combine and de-duplicate
+          // Sync sessionPostedJobs with fresh real-time data so Firestore
+          // status changes (e.g. arrived_dropoff) always win over stale session copies.
+          final allRealtime = [...realtimeEmployerJobs, ...realtimeNyxianJobs];
+          for (final fresh in allRealtime) {
+            final id = fresh['id'] as String?;
+            if (id == null) continue;
+            final idx = sessionPostedJobs.indexWhere((j) => j['id'] == id);
+            if (idx != -1) {
+              sessionPostedJobs[idx] = fresh;
+            }
+          }
+
+          // Combine and de-duplicate (session jobs now have fresh data)
           final seenIds = <String>{};
           final merged = <Map<String, dynamic>>[];
 
@@ -380,7 +425,15 @@ class TranyxAppState extends State<TranyxApp> {
           ongoingJob = merged.cast<Map<String, dynamic>?>().firstWhere(
             (j) {
               final s = (j?['status'] as String?)?.toLowerCase();
-              return s == 'in progress' || s == 'done';
+              return s == 'in progress' ||
+                  s == 'in_progress' ||
+                  s == 'ongoing' ||
+                  s == 'heading_to_pickup' ||
+                  s == 'arrived_pickup' ||
+                  s == 'paid_cashier' ||
+                  s == 'in_transit' ||
+                  s == 'arrived_dropoff' ||
+                  s == 'done';
             },
             orElse: () => null,
           );
@@ -890,11 +943,19 @@ class TranyxAppState extends State<TranyxApp> {
         }
       }
 
-      // Find the first job with status 'In Progress' or 'Done' for the ongoing widget
+      // Find the first job with status 'In Progress', active delivery, or 'Done' for the ongoing widget
       final ongoing = merged.cast<Map<String, dynamic>?>().firstWhere(
         (j) {
           final s = (j?['status'] as String?)?.toLowerCase();
-          return s == 'in progress' || s == 'done';
+          return s == 'in progress' ||
+              s == 'in_progress' ||
+              s == 'ongoing' ||
+              s == 'heading_to_pickup' ||
+              s == 'arrived_pickup' ||
+              s == 'paid_cashier' ||
+              s == 'in_transit' ||
+              s == 'arrived_dropoff' ||
+              s == 'done';
         },
         orElse: () => null,
       );
@@ -1304,7 +1365,12 @@ class TranyxAppState extends State<TranyxApp> {
     final urgency = jobMap['dateRequirement'] as String? ?? 'Flexible';
     final status = jobMap['status'] as String? ?? 'Open';
     final applicants = jobMap['applicantCount'] as int? ?? 0;
-    final hasTracker = jobMap['hasTracker'] as bool? ?? false;
+    final catName = (jobMap['category'] as String? ?? '').toLowerCase();
+    final cat = JobCategory.values.firstWhere(
+      (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
+      orElse: () => JobCategory.others,
+    );
+    final hasTracker = jobMap['hasTracker'] == true || jobMap['hasTracker'] == 'true' || cat.hasTracker;
 
     setState(() {
       selectedJobData = jobMap;
@@ -1332,6 +1398,9 @@ class TranyxAppState extends State<TranyxApp> {
         await loadApplicants(jobId);
       }
     }
+
+    // Keep selectedJobData fresh via periodic Firestore polls
+    _startSelectedJobPolling();
   }
 
   Future<void> loadJobQuestions(String jobId) async {
@@ -1730,6 +1799,12 @@ class TranyxAppState extends State<TranyxApp> {
           isCompletingJob = false;
           showCompletionScanner = false;
           completionScanInput = '';
+          if (nyxianId == uid && userProfile != null) {
+            userProfile = userProfile!.copyWith(
+              tyxBalance: userProfile!.tyxBalance + nyxianPayout,
+              totalEarned: userProfile!.totalEarned + nyxianPayout,
+            );
+          }
           if (targetId != null) {
             showRatingPopup = true;
             ratingTargetId = targetId;
@@ -1738,6 +1813,8 @@ class TranyxAppState extends State<TranyxApp> {
             ratingComment = '';
           }
         });
+
+        await _loadUserProfile();
 
         // Send a notification to the target user about job completion to trigger rating popup
         if (targetId != null) {
@@ -2727,7 +2804,7 @@ class TranyxAppState extends State<TranyxApp> {
       if (latestToastNotification != null)
         div(
           classes:
-              'fixed top-6 right-6 max-w-sm w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl rounded-xl p-4 z-50 transform transition-all duration-500 flex items-start gap-3 translate-y-0 opacity-100',
+              'fixed top-6 right-6 max-w-sm w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl rounded-xl p-4 z-[9999] transform transition-all duration-500 flex items-start gap-3 translate-y-0 opacity-100',
           [
             div(
               classes:
@@ -2872,6 +2949,8 @@ class SmsVerificationModalComponent extends StatelessComponent {
                       attributes: {
                         'placeholder': '9000000000',
                         'maxlength': '10',
+                        'id': 'verification-phone-input',
+                        'name': 'phone',
                       },
                       value: s.smsVerificationPhoneNumber,
                       events: {
@@ -2927,6 +3006,8 @@ class SmsVerificationModalComponent extends StatelessComponent {
                     attributes: {
                       'placeholder': '••••••',
                       'maxlength': '6',
+                      'id': 'verification-otp-input',
+                      'name': 'otp',
                     },
                     value: s.smsVerificationCode,
                     events: {

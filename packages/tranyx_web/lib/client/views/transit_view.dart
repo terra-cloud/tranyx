@@ -78,7 +78,11 @@ class TransitViewComponent extends StatelessComponent {
           input(
             classes: 'bg-transparent border-none outline-none flex-1 text-sm',
             type: InputType.search,
-            attributes: {'placeholder': 'Search vehicles, location...'},
+            attributes: {
+              'placeholder': 'Search vehicles, location...',
+              'id': 'transit-search-input',
+              'name': 'search',
+            },
           ),
         ],
       ),

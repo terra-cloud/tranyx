@@ -43,7 +43,13 @@ class PaymentModalComponent extends StatelessComponent {
                     classes:
                         'w-full text-center text-4xl font-black text-indigo-400 bg-transparent border-none focus:outline-none placeholder:text-indigo-400/30',
                     value: amount > 0 ? amount.toString() : '',
-                    attributes: {'placeholder': '0.00', 'min': '1', 'step': '1'},
+                    attributes: {
+                      'placeholder': '0.00',
+                      'min': '1',
+                      'step': '1',
+                      'id': 'topup-amount-input',
+                      'name': 'amount',
+                    },
                     events: {
                       'input': (e) {
                         final val = (e.target as dynamic).value?.toString() ?? '';

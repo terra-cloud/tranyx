@@ -1,6 +1,7 @@
 // Browser-only Leaflet interop.
 // Conditionally exported from leaflet_interop.dart — never compiled on server.
 import 'dart:async';
+import 'dart:convert';
 import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 import 'dart:js_interop';
@@ -205,7 +206,7 @@ void drawRoute(String elementId, List<List<double>> points, String color) {
 /// Draws a real road route using OSRM.
 /// Delegates to `window._osrmRoute` defined in main.server.dart's script block
 /// so no eval() is needed (CSP-safe).
-Future<void> drawOSRMRoute(
+Future<Map<String, dynamic>?> drawOSRMRoute(
   String elementId,
   double fromLat,
   double fromLng,
@@ -214,7 +215,7 @@ Future<void> drawOSRMRoute(
   String color,
 ) async {
   final fn = window.getProperty<JSFunction?>('_osrmRoute'.toJS);
-  if (fn == null) return;
+  if (fn == null) return null;
   final args = [
     elementId.toJS,
     fromLat.toJS,
@@ -224,7 +225,20 @@ Future<void> drawOSRMRoute(
     color.toJS,
   ].toJS;
   final promise = fn.callAsFunction(null, args) as JSPromise;
-  await promise.toDart;
+  final res = await promise.toDart;
+  if (res == null) return null;
+  final jsonStr = (res as JSString).toDart;
+  try {
+    return jsonDecode(jsonStr) as Map<String, dynamic>;
+  } catch (_) {
+    return null;
+  }
+}
+
+void speakText(String text) {
+  final fn = window.getProperty<JSFunction?>('speakText'.toJS);
+  if (fn == null) return;
+  fn.callAsFunction(null, text.toJS);
 }
 
 void panTo(String elementId, double lat, double lng) {

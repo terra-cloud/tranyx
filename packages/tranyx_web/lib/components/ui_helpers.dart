@@ -109,6 +109,10 @@ Component inputField({
       ? 'bg-zinc-900 border-zinc-800 focus-within:border-indigo-500'
       : 'bg-white border-zinc-200 focus-within:border-indigo-500 shadow-sm';
 
+  final inputId = label.isNotEmpty
+      ? label.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+      : 'input_${placeholder.hashCode}';
+
   return div(classes: 'p-4 rounded-2xl border transition-colors $borderCls', [
     if (label.isNotEmpty)
       span(
@@ -125,6 +129,8 @@ Component inputField({
         attributes: {
           'placeholder': placeholder,
           if (type == 'date') 'type': 'date',
+          'id': inputId,
+          'name': inputId,
         },
         onInput: onChange,
       ),

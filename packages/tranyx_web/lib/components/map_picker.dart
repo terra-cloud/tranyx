@@ -161,50 +161,49 @@ class _MapPickerState extends State<MapPickerComponent> {
         ],
       ),
 
-      // Map container - always rendered so Leaflet can attach
+      div(
+  classes:
+      'relative w-full h-72 rounded-2xl overflow-hidden border ${isDark ? "border-zinc-700" : "border-zinc-200"} shadow-inner',
+  [
+    // Map element — FORCE a min-height or explicit height inline if h-full fails
+    div(
+      id: _mapId,
+      classes: 'w-full h-full absolute inset-0', // Added absolute inset-0 to force fill the h-72 parent
+      attributes: {'style': 'z-index: 1; min-height: 500px;'}, // 288px matches Tailwind's h-72
+      [],
+    ),
+    // Loading overlay (shown until map is ready)
+    if (!_ready)
       div(
         classes:
-            'relative w-full h-72 rounded-2xl overflow-hidden border ${isDark ? "border-zinc-700" : "border-zinc-200"} shadow-inner',
+            'absolute inset-0 flex flex-col items-center justify-center z-[400] '
+            '${isDark ? "bg-zinc-900" : "bg-zinc-50"}',
         [
-          // Map element — always rendered so Leaflet can attach
-          div(
-            id: _mapId,
-            classes: 'w-full h-full',
-            attributes: {'style': 'z-index: 0'},
-            [],
-          ),
-          // Loading overlay (shown until map is ready)
-          if (!_ready)
-            div(
-              classes:
-                  'absolute inset-0 flex flex-col items-center justify-center z-[400] '
-                  '${isDark ? "bg-zinc-900" : "bg-zinc-50"}',
-              [
-                lIcon('loader-2', cls: 'w-8 h-8 animate-spin text-indigo-500'),
-                p(classes: 'text-sm font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                  Component.text('Loading map…'),
-                ]),
-              ],
-            ),
-          // Center pin overlay
-          div(
-            classes:
-                'absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-full pointer-events-none z-[1000]',
-            [
-              lIcon(
-                _pickingFor == 'pickup' ? 'map-pin' : 'flag',
-                cls: 'w-8 h-8 drop-shadow-md ${_pickingFor == 'pickup' ? 'text-blue-500' : 'text-green-500'}',
-              ),
-              // Shadow dot at the tip of the pin
-              div(
-                classes:
-                    'absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1 w-2 h-1 bg-black/30 rounded-full blur-[1px]',
-                [],
-              ),
-            ],
-          ),
+          lIcon('loader-2', cls: 'w-8 h-8 animate-spin text-indigo-500'),
+          p(classes: 'text-sm font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+            Component.text('Loading map…'),
+          ]),
         ],
       ),
+    // Center pin overlay
+    div(
+      classes:
+          'absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-full pointer-events-none z-[1000]',
+      [
+        lIcon(
+          _pickingFor == 'pickup' ? 'map-pin' : 'flag',
+          cls: 'w-8 h-8 drop-shadow-md ${_pickingFor == 'pickup' ? 'text-blue-500' : 'text-green-500'}',
+        ),
+        // Shadow dot at the tip of the pin
+        div(
+          classes:
+              'absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1 w-2 h-1 bg-black/30 rounded-full blur-[1px]',
+          [],
+        ),
+      ],
+    ),
+  ],
+),
 
       // Confirm Button
       if (_ready)
