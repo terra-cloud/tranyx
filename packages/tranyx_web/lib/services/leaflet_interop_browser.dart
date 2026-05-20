@@ -82,7 +82,7 @@ void clearWatch(int id) => window.navigator.geolocation.clearWatch(id);
 JSObject? _L() => window.getProperty<JSObject?>('L'.toJS);
 JSObject? _map(String id) => window.getProperty<JSObject?>('__lmap_$id'.toJS);
 
-Future<void> initMap(String elementId, double lat, double lng, int zoom) async {
+Future<void> initMap(String elementId, double lat, double lng, int zoom, {bool isDark = true}) async {
   final found = await _waitForElement(elementId);
   if (!found) return;
 
@@ -107,12 +107,19 @@ Future<void> initMap(String elementId, double lat, double lng, int zoom) async {
   final tileOpts = JSObject();
   tileOpts.setProperty(
     'attribution'.toJS,
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'.toJS,
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'.toJS,
   );
+  tileOpts.setProperty('subdomains'.toJS, 'abcd'.toJS);
+  tileOpts.setProperty('maxZoom'.toJS, 20.toJS);
+
+  final tileUrl = isDark
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png';
+
   L
       .callMethod<JSObject>(
         'tileLayer'.toJS,
-        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'.toJS,
+        tileUrl.toJS,
         tileOpts,
       )
       .callMethod<JSAny>('addTo'.toJS, m);

@@ -85,7 +85,8 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     final cLng = pickupLng ?? 120.9842;
 
     // initMap now polls for the DOM element — no fixed delay needed
-    await initMap(_mapId, cLat, cLng, 14);
+    final isDark = component.state.isDark;
+    await initMap(_mapId, cLat, cLng, 14, isDark: isDark);
 
     // Draw named place markers
     if (pickupLat != null) {

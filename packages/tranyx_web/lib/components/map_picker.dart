@@ -38,8 +38,9 @@ class _MapPickerState extends State<MapPickerComponent> {
     await ensureLeafletLoaded();
     print('DEBUG: Leaflet loaded');
     // initMap now polls for the DOM element itself — no fixed delay needed
-    await initMap(_mapId, 14.5995, 120.9842, 12);
-    print('DEBUG: initMap called');
+    final isDark = component.state.isDark;
+    await initMap(_mapId, 14.5995, 120.9842, 12, isDark: isDark);
+    print('DEBUG: initMap called with isDark=$isDark');
 
     setState(() => _ready = true);
     print('DEBUG: _ready set to true');
