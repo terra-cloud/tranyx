@@ -206,6 +206,7 @@ class _NavigationMapState extends State<NavigationMapComponent> {
 
   void _startPolling() {
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (_isSimulating) return;
       final token = component.state.idToken;
       final jobId = component.state.selectedJobData!['id'];
       if (token == null || jobId == null) return;
@@ -299,20 +300,22 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     final jobId = component.state.selectedJobData!['id'];
     if (token == null || jobId == null) return;
     try {
-      await FirestoreService(token).createOrUpdate('jobs/$jobId', {
-        'nyxianLat': lat,
-        'nyxianLng': lng,
-      });
+      if (component.isNyxian) {
+        await FirestoreService(token).createOrUpdate('jobs/$jobId', {
+          'nyxianLat': lat,
+          'nyxianLng': lng,
+        });
+      }
       final rawStatus = component.state.selectedJobData!['status'] as String? ?? 'Open';
       final subStatus = component.state.selectedJobData!['nyxianSubStatus'] as String? ??
           ((rawStatus == 'In Progress' || rawStatus == 'in_progress' || rawStatus == 'onGoing' || rawStatus == 'ongoing' || rawStatus == 'Open')
               ? null
               : rawStatus);
-      setMarker(_mapId, 'nyxian', lat, lng, '🛵 You — ${_subStatusLabel(subStatus)}');
+      setMarker(_mapId, 'nyxian', lat, lng, component.isNyxian ? '🛵 You — ${_subStatusLabel(subStatus)}' : '🛵 Courier (Simulated) — ${_subStatusLabel(subStatus)}');
       
       double? bearing;
       double? pitch;
-      if (component.isNyxian) {
+      if (component.isNyxian || _isSimulating) {
         pitch = 45.0;
         if (_isSimulating && _simulationCoordIndex + 1 < _routeCoordinates.length) {
           final nextCoord = _routeCoordinates[_simulationCoordIndex + 1];
@@ -481,6 +484,14 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     setState(() {
       _isSimulating = false;
     });
+    if (!component.isNyxian) {
+      final job = component.state.selectedJobData!;
+      final nyxianLat = (job['nyxianLat'] as num?)?.toDouble();
+      final nyxianLng = (job['nyxianLng'] as num?)?.toDouble();
+      final targetLat = nyxianLat ?? (job['pickupLat'] as num?)?.toDouble() ?? 14.5995;
+      final targetLng = nyxianLng ?? (job['pickupLng'] as num?)?.toDouble() ?? 120.9842;
+      panTo(_mapId, targetLat, targetLng, bearing: 0.0, pitch: 0.0);
+    }
   }
 
   @override
@@ -513,6 +524,12 @@ class _NavigationMapState extends State<NavigationMapComponent> {
       remainingMetricStr = '• $distStr ($durStr)';
     }
 
+    final showNavigationOverlay = _ready &&
+        (component.isNyxian || _isSimulating) &&
+        (subStatus == 'heading_to_pickup' || subStatus == 'in_transit' || _isSimulating) &&
+        _routeSteps.isNotEmpty &&
+        _currentStepIndex < _routeSteps.length;
+
     return div(
       classes: 'flex flex-col gap-4',
       [
@@ -527,7 +544,7 @@ class _NavigationMapState extends State<NavigationMapComponent> {
             MapContainer(
               key: const ValueKey('map-navigator'),
               id: _mapId,
-              classes: 'w-full h-full',
+              classes: 'w-full h-full ${isDark ? "theme-dark" : "theme-light"}',
               styles: Styles(raw: {
                 'z-index': '1',
                 'position': 'absolute !important',
@@ -555,11 +572,11 @@ class _NavigationMapState extends State<NavigationMapComponent> {
             ),
 
             // Turn-by-Turn Navigation Overlay
-            if (_ready && component.isNyxian && (subStatus == 'heading_to_pickup' || subStatus == 'in_transit') && _routeSteps.isNotEmpty && _currentStepIndex < _routeSteps.length)
+            if (showNavigationOverlay)
               _navigationOverlay(isDark),
 
             // ── Floating top bar (status) ─────────────────────────────────
-            if (_ready && !(_ready && component.isNyxian && (subStatus == 'heading_to_pickup' || subStatus == 'in_transit') && _routeSteps.isNotEmpty && _currentStepIndex < _routeSteps.length))
+            if (_ready && !showNavigationOverlay)
               div(
                 classes:
                     'absolute top-4 left-4 right-4 z-[400] flex items-center justify-between gap-2 pointer-events-none',
@@ -663,32 +680,33 @@ class _NavigationMapState extends State<NavigationMapComponent> {
           // Employer timeline
           if (hasTracker && !component.isNyxian) _timelineCard(subStatus, isDark),
 
-          // ── OSM Navigate & Simulate buttons (for Nyxian) ─────────────────────────────
-          if (component.isNyxian && destLat != null)
+          // ── OSM Navigate & Simulate buttons ─────────────────────────────
+          if (destLat != null)
             div(classes: 'flex gap-2.5 w-full', [
-              button(
-                classes:
-                    'flex-1 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all hover:scale-[1.01] active:scale-[0.99] '
-                    '${isDark ? "bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white" : "bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 text-zinc-900"}',
-                events: {
-                  'click': (_) => openOSMNavigation(destLat, destLng!),
-                },
-                [
-                  lIcon('navigation', cls: 'w-4 h-4 text-indigo-400'),
-                  Component.text('Open Navigation (OSM)'),
-                ],
-              ),
+              if (component.isNyxian)
+                button(
+                  classes:
+                      'flex-1 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all hover:scale-[1.01] active:scale-[0.99] '
+                      '${isDark ? "bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white" : "bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 text-zinc-900"}',
+                  events: {
+                    'click': (_) => openOSMNavigation(destLat, destLng!),
+                  },
+                  [
+                    lIcon('navigation', cls: 'w-4 h-4 text-indigo-400'),
+                    Component.text('Open Navigation (OSM)'),
+                  ],
+                ),
               if (_routeCoordinates.isNotEmpty)
                 button(
                   classes:
-                      'px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all hover:scale-[1.01] active:scale-[0.99] '
+                      '${component.isNyxian ? "px-5" : "flex-1"} py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all hover:scale-[1.01] active:scale-[0.99] '
                       '${_isSimulating ? "bg-rose-500 text-white hover:bg-rose-600 shadow-lg shadow-rose-500/20" : (isDark ? "bg-zinc-800 text-indigo-400 hover:bg-zinc-700 border border-zinc-700" : "bg-zinc-100 text-indigo-600 hover:bg-zinc-200 border border-zinc-200")}',
                   events: {
                     'click': (_) => _toggleSimulation(),
                   },
                   [
                     lIcon(_isSimulating ? 'square' : 'play', cls: 'w-4 h-4'),
-                    Component.text(_isSimulating ? 'Stop Sim' : 'Simulate'),
+                    Component.text(_isSimulating ? 'Stop Simulation' : (component.isNyxian ? 'Simulate' : 'Preview Navigation (Simulate)')),
                   ],
                 ),
             ]),

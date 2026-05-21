@@ -172,7 +172,7 @@ class _MapPickerState extends State<MapPickerComponent> {
           MapContainer(
             key: const ValueKey('map-picker'),
             id: _mapId,
-            classes: 'w-full h-full',
+            classes: 'w-full h-full ${isDark ? "theme-dark" : "theme-light"}',
             styles: Styles(raw: {
               'z-index': '1',
               'position': 'absolute !important',
