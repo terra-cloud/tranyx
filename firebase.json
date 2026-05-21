@@ -1,4 +1,7 @@
 {
+  "firestore": {
+    "indexes": "packages/tranyx_web/firestore.indexes.json"
+  },
   "hosting": {
     "public": "packages/tranyx_web/build/jaspr",
     "ignore": [

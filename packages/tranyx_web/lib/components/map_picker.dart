@@ -42,11 +42,11 @@ class _MapPickerState extends State<MapPickerComponent> {
     await initMap(_mapId, 14.5995, 120.9842, 12, isDark: isDark);
     print('DEBUG: initMap called with isDark=$isDark');
 
-    setState(() => _ready = true);
+    setState(() => _ready = true);  
     print('DEBUG: _ready set to true');
 
     // Ensure map renders correctly after state update paints the div
-    await Future.delayed(const Duration(milliseconds: 50));
+    await Future.delayed(const Duration(milliseconds: 150));
     invalidateMapSize(_mapId);
     print('DEBUG: invalidateMapSize called');
 

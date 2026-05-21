@@ -24,6 +24,12 @@ import '../client/widgets/category_modal.dart';
 import '../client/widgets/payment_modal.dart';
 import '../client/widgets/rating_modal.dart';
 import '../client/widgets/delete_confirm_modal.dart';
+import '../client/components/list_vehicle_modal.dart';
+import '../client/components/book_vehicle_modal.dart';
+import '../client/components/extend_rental_modal.dart';
+import '../client/components/rental_tracker_map.dart';
+import '../client/components/manage_vehicle_modal.dart';
+import '../client/components/vehicle_qa_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -85,6 +91,15 @@ class TranyxAppState extends State<TranyxApp> {
   bool showCategoryModal = false;
   bool categoryModalForSelect = false;
 
+  // ── Transit modales ──────────────────────────────────────────
+  bool showListVehicleModal = false;
+  bool showBookVehicleModal = false;
+  bool showExtendRentalModal = false;
+  bool showRentalTrackerMap = false;
+  bool showManageVehicleModal = false;
+  bool showVehicleQaModal = false;
+  Map<String, dynamic>? selectedRentalData;
+
   // ── Wallet reconnect modal ──────────────────────────────────
   bool showWalletReconnectPrompt = false;
   String? pendingReconnectWalletKey;
@@ -95,6 +110,8 @@ class TranyxAppState extends State<TranyxApp> {
   List<Map<String, dynamic>> realtimeEmployerJobs = [];
   List<Map<String, dynamic>> realtimeNyxianJobs = [];
   List<Map<String, dynamic>> availableJobs = [];
+  List<Map<String, dynamic>> realtimeRentals = [];
+  List<Map<String, dynamic>> renterPendingRequests = [];
   bool isLoadingJobs = false;
   String? jobsError;
   String activeJobFilter = 'Recommended';
@@ -230,6 +247,7 @@ class TranyxAppState extends State<TranyxApp> {
   GeminiService? _gemini;
 
   FirestoreService get _firestore => FirestoreService(SessionStorage.idToken, _handleTokenRefresh);
+  FirestoreService get firestore => _firestore;
 
   Future<String?> _handleTokenRefresh() async {
     final rt = SessionStorage.refreshToken;
@@ -397,6 +415,7 @@ class TranyxAppState extends State<TranyxApp> {
     await loadTransactions();
     _startListeningNotifications();
     _startListeningJobs();
+    _startListeningRentals();
   }
 
   void _startListeningNotifications() {
@@ -563,6 +582,33 @@ class TranyxAppState extends State<TranyxApp> {
     });
   }
 
+  void _startListeningRentals() {
+    listenToRentalsJs((String jsonString) {
+      try {
+        final List<dynamic> raw = jsonDecode(jsonString);
+        final parsed = raw.map((e) => e as Map<String, dynamic>).toList();
+        setState(() {
+          realtimeRentals = parsed;
+        });
+      } catch (e) {
+        print('Error parsing realtime rentals: $e');
+      }
+    });
+  }
+
+  Future<void> loadRenterPendingRequests() async {
+    final uid = SessionStorage.uid;
+    if (uid == null) return;
+    try {
+      final list = await _firestore.getRenterPendingRequests(uid);
+      setState(() {
+        renterPendingRequests = list;
+      });
+    } catch (e) {
+      print('Error loading renter pending requests: $e');
+    }
+  }
+
   Future<void> loadUserProfile() async {
     final uid = SessionStorage.uid;
     if (uid == null) return;
@@ -627,6 +673,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
+      _startListeningRentals();
       // Auto-connect Phantom wallet if already trusted by the browser
       unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
     } on FirebaseException catch (e) {
@@ -706,6 +753,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
+      _startListeningRentals();
     } on FirebaseException catch (e) {
       String msg = e.message;
       if (msg.contains('EMAIL_EXISTS')) {
@@ -811,6 +859,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
+      _startListeningRentals();
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
     } on FirebaseException catch (e) {
       setState(() {
@@ -873,6 +922,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
+      _startListeningRentals();
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
     } catch (e) {
       setState(() {
@@ -1632,18 +1682,17 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   // ── Chat Actions ──────────────────────────────────────────────
-  void openChat(String jobId) {
+  void openChat(String chatId) {
     final uid = SessionStorage.uid;
-    if (uid == null || jobId.isEmpty) return;
-    final cId = 'job_$jobId';
+    if (uid == null || chatId.isEmpty) return;
     setState(() {
       showChat = true;
-      currentChatId = cId;
+      currentChatId = chatId;
       chatMessages = [];
       chatInputText = '';
       chatPiiBlocked = false;
     });
-    listenToChatJs(cId, (String jsonStr) {
+    listenToChatJs(chatId, (String jsonStr) {
       try {
         final raw = jsonDecode(jsonStr) as List<dynamic>;
         setState(() {
@@ -2907,6 +2956,7 @@ class TranyxAppState extends State<TranyxApp> {
       }
     });
     if (tab == AppTab.jobs) loadJobs();
+    if (tab == AppTab.transit) loadRenterPendingRequests();
   }
 
   // ── Wallet ──────────────────────────────────────────────────
@@ -3135,6 +3185,24 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Category modal overlay
       if (showCategoryModal) CategoryModalComponent(state: this),
+
+      // List Vehicle modal overlay
+      if (showListVehicleModal) ListVehicleModalComponent(appState: this),
+
+      // Book Vehicle modal overlay
+      if (showBookVehicleModal) BookVehicleModalComponent(appState: this),
+
+      // Extend Rental modal overlay
+      if (showExtendRentalModal) ExtendRentalModalComponent(appState: this),
+
+      // Rental Tracker Map overlay
+      if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this),
+
+      // Manage Vehicle modal overlay
+      if (showManageVehicleModal) ManageVehicleModalComponent(appState: this),
+
+      // Public Vehicle Q&A modal overlay
+      if (showVehicleQaModal && selectedRentalData != null) VehicleQaModalComponent(appState: this, rentalId: selectedRentalData!['id']),
 
       // Payment modal overlay
       if (showDepositModal) PaymentModalComponent(state: this),

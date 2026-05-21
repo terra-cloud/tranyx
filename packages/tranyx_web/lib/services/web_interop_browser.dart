@@ -285,3 +285,104 @@ void stopListeningToJobDetailsJs() {
     _jobDetailsUnsub = null;
   } catch (_) {}
 }
+
+JSFunction? _rentalsUnsub;
+
+void listenToRentalsJs(void Function(String) callback) {
+  try {
+    _rentalsUnsub?.callAsFunction();
+    final cb = callback.toJS;
+    final unsub = web.window.callMethod<JSFunction>('listenToRentals'.toJS, cb);
+    _rentalsUnsub = unsub;
+  } catch (_) {}
+}
+
+void stopListeningToRentalsJs() {
+  try {
+    _rentalsUnsub?.callAsFunction();
+    _rentalsUnsub = null;
+  } catch (_) {}
+}
+
+JSFunction? _rentalDetailsUnsub;
+
+void listenToRentalDetailsJs(String rentalId, void Function(String) callback) {
+  try {
+    _rentalDetailsUnsub?.callAsFunction();
+    final cb = callback.toJS;
+    final unsub = web.window.callMethod<JSFunction>('listenToRentalDetails'.toJS, rentalId.toJS, cb);
+    _rentalDetailsUnsub = unsub;
+  } catch (_) {}
+}
+
+void stopListeningToRentalDetailsJs() {
+  try {
+    _rentalDetailsUnsub?.callAsFunction();
+    _rentalDetailsUnsub = null;
+  } catch (_) {}
+}
+
+// ── Signature Pad ─────────────────────────────────────────────────────────────
+
+void initSignaturePadJs(String canvasId) {
+  try {
+    web.window.callMethod('initSignaturePad'.toJS, canvasId.toJS);
+  } catch (_) {}
+}
+
+void clearSignaturePadJs(String canvasId) {
+  try {
+    web.window.callMethod('clearSignaturePad'.toJS, canvasId.toJS);
+  } catch (_) {}
+}
+
+bool isSignaturePadEmptyJs(String canvasId) {
+  try {
+    final result = web.window.callMethod<JSBoolean>('isSignaturePadEmpty'.toJS, canvasId.toJS);
+    return result.toDart;
+  } catch (_) {
+    return true;
+  }
+}
+
+String getSignatureDataUrlJs(String canvasId) {
+  try {
+    final result = web.window.callMethod<JSString>('getSignatureDataUrl'.toJS, canvasId.toJS);
+    return result.toDart;
+  } catch (_) {
+    return '';
+  }
+}
+
+// ── Rental Q&A Interop ────────────────────────────────────────────────────────
+
+void listenToRentalQAJs(String rentalId, void Function(String) callback) {
+  try {
+    final cb = callback.toJS;
+    web.window.callMethod('listenToRentalQA'.toJS, rentalId.toJS, cb);
+  } catch (_) {}
+}
+
+void unlistenRentalQAJs(String rentalId) {
+  try {
+    web.window.callMethod('unlistenRentalQA'.toJS, rentalId.toJS);
+  } catch (_) {}
+}
+
+void postRentalQuestionJs(String rentalId, String uid, String name, String photoUrl, String text) {
+  try {
+    web.window.callMethodVarArgs(
+      'postRentalQuestion'.toJS,
+      [rentalId.toJS, uid.toJS, name.toJS, photoUrl.toJS, text.toJS],
+    );
+  } catch (_) {}
+}
+
+void answerRentalQuestionJs(String rentalId, String questionId, String answerText) {
+  try {
+    web.window.callMethod(
+      'answerRentalQuestion'.toJS,
+      rentalId.toJS, questionId.toJS, answerText.toJS,
+    );
+  } catch (_) {}
+}
