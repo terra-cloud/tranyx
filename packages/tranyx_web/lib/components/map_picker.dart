@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr/dom.dart';
-import '../services/leaflet_interop.dart';
+import '../services/map_interop.dart';
+import 'map_container.dart';
 import '../client/tranyx_app.dart';
 import 'ui_helpers.dart';
 
@@ -30,13 +31,13 @@ class _MapPickerState extends State<MapPickerComponent> {
     _statusMsg = (component.state.selectedCategory?.hasTracker ?? false)
         ? 'Pan to 1st Point (e.g. Grocery Store)'
         : 'Pan to Site Location';
-    _initLeaflet();
+    _initMap();
   }
 
-  Future<void> _initLeaflet() async {
-    print('DEBUG: _initLeaflet started');
-    await ensureLeafletLoaded();
-    print('DEBUG: Leaflet loaded');
+  Future<void> _initMap() async {
+    print('DEBUG: _initMap started');
+    await ensureMapLibreLoaded();
+    print('DEBUG: MapLibre loaded');
     // initMap now polls for the DOM element itself — no fixed delay needed
     final isDark = component.state.isDark;
     await initMap(_mapId, 14.5995, 120.9842, 12, isDark: isDark);
@@ -46,7 +47,7 @@ class _MapPickerState extends State<MapPickerComponent> {
     print('DEBUG: _ready set to true');
 
     // Ensure map renders correctly after state update paints the div
-    await Future.delayed(const Duration(milliseconds: 150));
+    await Future.delayed(const Duration(milliseconds: 600));
     invalidateMapSize(_mapId);
     print('DEBUG: invalidateMapSize called');
 
@@ -55,6 +56,7 @@ class _MapPickerState extends State<MapPickerComponent> {
     if (pos != null) {
       panTo(_mapId, pos.lat, pos.lng);
       print('DEBUG: panned to position: ${pos.lat}, ${pos.lng}');
+      invalidateMapSize(_mapId);
     } else {
       print('DEBUG: Could not get current position');
     }
@@ -162,29 +164,39 @@ class _MapPickerState extends State<MapPickerComponent> {
       ),
 
       div(
-  classes:
-      'relative w-full h-72 rounded-2xl overflow-hidden border ${isDark ? "border-zinc-700" : "border-zinc-200"} shadow-inner',
-  [
-    // Map element
-    div(
-      id: _mapId,
-      classes: 'absolute inset-0',
-      attributes: {'style': 'z-index: 1; height: 100%; width: 100%;'},
-      [],
-    ),
-    // Loading overlay (shown until map is ready)
-    if (!_ready)
-      div(
         classes:
-            'absolute inset-0 flex flex-col items-center justify-center z-[400] '
-            '${isDark ? "bg-zinc-900" : "bg-zinc-50"}',
+            'relative w-full rounded-2xl overflow-hidden border ${isDark ? "border-zinc-700" : "border-zinc-200"} shadow-inner',
+        styles: Styles(raw: {'height': '320px'}),
         [
-          lIcon('loader-2', cls: 'w-8 h-8 animate-spin text-indigo-500'),
-          p(classes: 'text-sm font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-            Component.text('Loading map…'),
-          ]),
-        ],
-      ),
+          // Map element
+          MapContainer(
+            key: const ValueKey('map-picker'),
+            id: _mapId,
+            classes: 'w-full h-full',
+            styles: Styles(raw: {
+              'z-index': '1',
+              'position': 'absolute !important',
+              'top': '0',
+              'left': '0',
+              'right': '0',
+              'bottom': '0',
+              'height': '100%',
+              'width': '100%',
+            }),
+          ),
+          // Loading overlay (shown until map is ready)
+          div(
+            classes:
+                'absolute inset-0 flex flex-col items-center justify-center z-[400] '
+                '${isDark ? "bg-zinc-900" : "bg-zinc-50"} '
+                '${_ready ? "hidden" : ""}',
+            [
+              lIcon('loader-2', cls: 'w-8 h-8 animate-spin text-indigo-500'),
+              p(classes: 'text-sm font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                Component.text('Loading map…'),
+              ]),
+            ],
+          ),
     // Center pin overlay
     div(
       classes:
