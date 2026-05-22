@@ -3,7 +3,8 @@ import 'dart:math' as math;
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr/dom.dart';
 import 'package:shared/shared.dart';
-import '../services/leaflet_interop.dart';
+import '../services/map_interop.dart';
+import 'map_container.dart';
 import '../services/firebase_service.dart';
 import '../client/tranyx_app.dart';
 import 'ui_helpers.dart';
@@ -80,6 +81,34 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     _init();
   }
 
+  Future<void> _initializeNyxianLocation() async {
+    // 1. Try real GPS first
+    try {
+      final pos = await getCurrentPosition();
+      if (pos != null) {
+        _myLat = pos.lat;
+        _myLng = pos.lng;
+        return;
+      }
+    } catch (_) {}
+
+    // 2. Try Firestore stored position
+    final job = component.state.selectedJobData!;
+    final dbLat = (job['nyxianLat'] as num?)?.toDouble();
+    final dbLng = (job['nyxianLng'] as num?)?.toDouble();
+    if (dbLat != null && dbLng != null) {
+      _myLat = dbLat;
+      _myLng = dbLng;
+      return;
+    }
+
+    // 3. Fallback offset from pickup location
+    final pickupLat = (job['pickupLat'] as num?)?.toDouble() ?? 14.5995;
+    final pickupLng = (job['pickupLng'] as num?)?.toDouble() ?? 120.9842;
+    _myLat = pickupLat - 0.015;
+    _myLng = pickupLng - 0.015;
+  }
+
   @override
   void dispose() {
     _pollTimer?.cancel();
@@ -90,8 +119,112 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     super.dispose();
   }
 
+  @override
+  void didUpdateComponent(NavigationMapComponent oldWidget) {
+    super.didUpdateComponent(oldWidget);
+    
+    final oldJob = oldWidget.state.selectedJobData;
+    final newJob = component.state.selectedJobData;
+    
+    if (oldJob != null && newJob != null) {
+      final oldId = oldJob['id'];
+      final newId = newJob['id'];
+      
+      final oldRawStatus = oldJob['status'] as String? ?? 'Open';
+      final oldSubStatus = oldJob['nyxianSubStatus'] as String? ??
+          ((oldRawStatus == 'In Progress' || oldRawStatus == 'in_progress' || oldRawStatus == 'onGoing' || oldRawStatus == 'ongoing' || oldRawStatus == 'Open')
+              ? null
+              : oldRawStatus);
+              
+      final newRawStatus = newJob['status'] as String? ?? 'Open';
+      final newSubStatus = newJob['nyxianSubStatus'] as String? ??
+          ((newRawStatus == 'In Progress' || newRawStatus == 'in_progress' || newRawStatus == 'onGoing' || newRawStatus == 'ongoing' || newRawStatus == 'Open')
+              ? null
+              : newRawStatus);
+              
+      if (oldId != newId || oldSubStatus != newSubStatus) {
+        _handleSubStatusChange(newSubStatus);
+      }
+    }
+  }
+
+  Future<void> _handleSubStatusChange(String? subStatus) async {
+    if (!_ready) return;
+    
+    final job = component.state.selectedJobData!;
+    final pickupLat = (job['pickupLat'] as num?)?.toDouble();
+    final pickupLng = (job['pickupLng'] as num?)?.toDouble();
+    final destLat = (job['destinationLat'] as num?)?.toDouble();
+    final destLng = (job['destinationLng'] as num?)?.toDouble();
+    
+    final bool isNavigating = (subStatus == 'heading_to_pickup' || subStatus == 'in_transit');
+    final pitch = isNavigating ? 45.0 : 0.0;
+    final zoom = isNavigating ? 16.5 : 14.0;
+    
+    final bool pastPickup =
+        subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
+        
+    double startLat;
+    double startLng;
+    double endLat;
+    double endLng;
+    String color;
+    
+    if (component.isNyxian) {
+      if (_myLat == null) {
+        await _initializeNyxianLocation();
+      }
+      startLat = _myLat!;
+      startLng = _myLng!;
+    } else {
+      final nyxianLat = (job['nyxianLat'] as num?)?.toDouble();
+      final nyxianLng = (job['nyxianLng'] as num?)?.toDouble();
+      if (nyxianLat != null && nyxianLng != null) {
+        startLat = nyxianLat;
+        startLng = nyxianLng;
+      } else {
+        startLat = pickupLat ?? 14.5995;
+        startLng = pickupLng ?? 120.9842;
+      }
+    }
+    
+    if (!pastPickup && pickupLat != null) {
+      endLat = pickupLat;
+      endLng = pickupLng!;
+      color = '#3b82f6';
+    } else if (destLat != null) {
+      endLat = destLat;
+      endLng = destLng!;
+      color = '#6366f1';
+    } else {
+      return;
+    }
+    
+    if (component.isNyxian) {
+      _updateRouteAndSteps(startLat, startLng, endLat, endLng, color).then((_) {
+        double? bearing;
+        if (isNavigating && _routeSteps.isNotEmpty) {
+          if (_currentStepIndex < _routeSteps.length) {
+            final step = _routeSteps[_currentStepIndex];
+            bearing = _calculateBearing(startLat, startLng, (step['lat'] as num).toDouble(), (step['lng'] as num).toDouble());
+          }
+        }
+        panTo(_mapId, startLat, startLng, bearing: bearing ?? 0.0, pitch: pitch, zoom: zoom);
+      });
+    } else {
+      _updateEmployerRoute(startLat, startLng, endLat, endLng, color).then((_) {
+        double? bearing;
+        if (isNavigating && _routeSteps.isNotEmpty) {
+          final step = _routeSteps[0];
+          bearing = _calculateBearing(startLat, startLng, (step['lat'] as num).toDouble(), (step['lng'] as num).toDouble());
+        }
+        panTo(_mapId, startLat, startLng, bearing: bearing ?? 0.0, pitch: pitch, zoom: zoom);
+      });
+    }
+  }
+
   Future<void> _init() async {
-    await ensureLeafletLoaded();
+    await ensureMapLibreLoaded();
 
     final job = component.state.selectedJobData!;
     final pickupLat = (job['pickupLat'] as num?)?.toDouble();
@@ -102,9 +235,18 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     final cLat = pickupLat ?? 14.5995;
     final cLng = pickupLng ?? 120.9842;
 
+    final rawStatus = job['status'] as String? ?? 'Open';
+    final subStatus = job['nyxianSubStatus'] as String? ??
+        ((rawStatus == 'In Progress' || rawStatus == 'in_progress' || rawStatus == 'onGoing' || rawStatus == 'ongoing' || rawStatus == 'Open')
+            ? null
+            : rawStatus);
+    final bool isNavigating = (subStatus == 'heading_to_pickup' || subStatus == 'in_transit');
+    final pitch = isNavigating ? 45.0 : 0.0;
+    final zoom = isNavigating ? 16.5 : 14.0;
+
     // initMap now polls for the DOM element — no fixed delay needed
     final isDark = component.state.isDark;
-    await initMap(_mapId, cLat, cLng, 14, isDark: isDark);
+    await initMap(_mapId, cLat, cLng, zoom, isDark: isDark, pitch: pitch);
 
     // Draw named place markers
     if (pickupLat != null) {
@@ -117,32 +259,56 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     // Draw real OSRM road route
     if (pickupLat != null && destLat != null && !_routeDrawn) {
       _routeDrawn = true;
-      final rawStatus = job['status'] as String? ?? 'Open';
-      final subStatus = job['nyxianSubStatus'] as String? ??
-          ((rawStatus == 'In Progress' || rawStatus == 'in_progress' || rawStatus == 'onGoing' || rawStatus == 'ongoing' || rawStatus == 'Open')
-              ? null
-              : rawStatus);
       final bool pastPickup =
           subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
       final nyxianLat = (job['nyxianLat'] as num?)?.toDouble();
       final nyxianLng = (job['nyxianLng'] as num?)?.toDouble();
 
-      if (!component.isNyxian && nyxianLat != null && nyxianLng != null) {
-        setMarker(_mapId, 'nyxian', nyxianLat, nyxianLng, _nyxianMarkerLabel(subStatus));
-        if (!pastPickup) {
-          await _updateEmployerRoute(nyxianLat, nyxianLng, pickupLat, pickupLng!, '#3b82f6');
-        } else {
-          await _updateEmployerRoute(nyxianLat, nyxianLng, destLat, destLng!, '#6366f1');
+      double startLat;
+      double startLng;
+      double endLat;
+      double endLng;
+      String color;
+
+      if (component.isNyxian) {
+        await _initializeNyxianLocation();
+        if (_myLat != null) {
+          setMarker(_mapId, 'nyxian', _myLat!, _myLng!, '🛵 You — ${_subStatusLabel(subStatus)}');
         }
+        startLat = _myLat!;
+        startLng = _myLng!;
       } else {
-        await _updateRouteAndSteps(pickupLat, pickupLng!, destLat, destLng!, '#6366f1');
+        if (nyxianLat != null && nyxianLng != null) {
+          setMarker(_mapId, 'nyxian', nyxianLat, nyxianLng, _nyxianMarkerLabel(subStatus));
+          startLat = nyxianLat;
+          startLng = nyxianLng;
+        } else {
+          startLat = pickupLat;
+          startLng = pickupLng!;
+        }
+      }
+
+      if (!pastPickup) {
+        endLat = pickupLat;
+        endLng = pickupLng!;
+        color = '#3b82f6';
+      } else {
+        endLat = destLat;
+        endLng = destLng!;
+        color = '#6366f1';
+      }
+
+      if (component.isNyxian) {
+        await _updateRouteAndSteps(startLat, startLng, endLat, endLng, color);
+      } else {
+        await _updateEmployerRoute(startLat, startLng, endLat, endLng, color);
       }
     }
 
     setState(() => _ready = true);
 
     // Small invalidate to fix tile rendering after layout
-    await Future.delayed(const Duration(milliseconds: 80));
+    await Future.delayed(const Duration(milliseconds: 600));
     invalidateMapSize(_mapId);
 
     if (component.isNyxian) {
@@ -204,6 +370,7 @@ class _NavigationMapState extends State<NavigationMapComponent> {
 
   void _startPolling() {
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (_isSimulating) return;
       final token = component.state.idToken;
       final jobId = component.state.selectedJobData!['id'];
       if (token == null || jobId == null) return;
@@ -222,7 +389,27 @@ class _NavigationMapState extends State<NavigationMapComponent> {
 
         if (lat != null && lng != null) {
           setMarker(_mapId, 'nyxian', lat, lng, _nyxianMarkerLabel(subStatus));
-          panTo(_mapId, lat, lng);
+          _myLat = lat;
+          _myLng = lng;
+
+          double? bearing;
+          double? pitch;
+          double? zoom;
+          final bool isNavigating = (subStatus == 'heading_to_pickup' || subStatus == 'in_transit');
+
+          if (isNavigating) {
+            pitch = 45.0;
+            zoom = 16.5;
+            if (_routeSteps.isNotEmpty && _currentStepIndex < _routeSteps.length) {
+              final step = _routeSteps[_currentStepIndex];
+              bearing = _calculateBearing(lat, lng, (step['lat'] as num).toDouble(), (step['lng'] as num).toDouble());
+            }
+          } else {
+            pitch = 0.0;
+            bearing = 0.0;
+            zoom = 14.0;
+          }
+          panTo(_mapId, lat, lng, bearing: bearing, pitch: pitch, zoom: zoom);
 
           final pickupLat = (job['pickupLat'] as num?)?.toDouble();
           final pickupLng = (job['pickupLng'] as num?)?.toDouble();
@@ -279,22 +466,60 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     }
   }
 
+  double _calculateBearing(double lat1, double lon1, double lat2, double lon2) {
+    final dLon = (lon2 - lon1) * math.pi / 180.0;
+    final lat1Rad = lat1 * math.pi / 180.0;
+    final lat2Rad = lat2 * math.pi / 180.0;
+
+    final y = math.sin(dLon) * math.cos(lat2Rad);
+    final x = math.cos(lat1Rad) * math.sin(lat2Rad) -
+        math.sin(lat1Rad) * math.cos(lat2Rad) * math.cos(dLon);
+
+    final brng = math.atan2(y, x) * 180.0 / math.pi;
+    return (brng + 360.0) % 360.0;
+  }
+
   Future<void> _updateFirestoreLocation(double lat, double lng) async {
     final token = component.state.idToken;
     final jobId = component.state.selectedJobData!['id'];
     if (token == null || jobId == null) return;
     try {
-      await FirestoreService(token).createOrUpdate('jobs/$jobId', {
-        'nyxianLat': lat,
-        'nyxianLng': lng,
-      });
+      if (component.isNyxian) {
+        await FirestoreService(token).createOrUpdate('jobs/$jobId', {
+          'nyxianLat': lat,
+          'nyxianLng': lng,
+        });
+      }
       final rawStatus = component.state.selectedJobData!['status'] as String? ?? 'Open';
       final subStatus = component.state.selectedJobData!['nyxianSubStatus'] as String? ??
           ((rawStatus == 'In Progress' || rawStatus == 'in_progress' || rawStatus == 'onGoing' || rawStatus == 'ongoing' || rawStatus == 'Open')
               ? null
               : rawStatus);
-      setMarker(_mapId, 'nyxian', lat, lng, '🛵 You — ${_subStatusLabel(subStatus)}');
-      panTo(_mapId, lat, lng);
+      setMarker(_mapId, 'nyxian', lat, lng, component.isNyxian ? '🛵 You — ${_subStatusLabel(subStatus)}' : '🛵 Courier (Simulated) — ${_subStatusLabel(subStatus)}');
+      
+      double? bearing;
+      double? pitch;
+      double? zoom;
+      final bool isNavigating = (subStatus == 'heading_to_pickup' || subStatus == 'in_transit' || _isSimulating);
+      
+      if (isNavigating) {
+        pitch = 45.0;
+        zoom = 16.5;
+        if (_isSimulating && _simulationCoordIndex + 1 < _routeCoordinates.length) {
+          final nextCoord = _routeCoordinates[_simulationCoordIndex + 1];
+          bearing = _calculateBearing(lat, lng, nextCoord[0], nextCoord[1]);
+        } else if (_routeCoordinates.isNotEmpty) {
+          if (_currentStepIndex < _routeSteps.length) {
+            final step = _routeSteps[_currentStepIndex];
+            bearing = _calculateBearing(lat, lng, (step['lat'] as num).toDouble(), (step['lng'] as num).toDouble());
+          }
+        }
+      } else {
+        pitch = 0.0;
+        bearing = 0.0;
+        zoom = 14.0;
+      }
+      panTo(_mapId, lat, lng, bearing: bearing, pitch: pitch, zoom: zoom);
     } catch (_) {}
   }
 
@@ -367,10 +592,14 @@ class _NavigationMapState extends State<NavigationMapComponent> {
 
       if (_currentStepIndex != _lastSpokenStepIndex) {
         _lastSpokenStepIndex = _currentStepIndex;
-        speakText(instruction);
+        if (component.isNyxian) {
+          speakText(instruction);
+        }
       } else if (_distanceToNextStep <= 50.0 && _distanceToNextStep > 20.0 && _currentStepIndex != _lastSpokenWarningIndex) {
         _lastSpokenWarningIndex = _currentStepIndex;
-        speakText("In 50 meters, $instruction");
+        if (component.isNyxian) {
+          speakText("In 50 meters, $instruction");
+        }
       }
     }
 
@@ -426,7 +655,9 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     _simulationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_simulationCoordIndex >= _routeCoordinates.length) {
         _stopSimulation();
-        speakText("You have arrived at your destination.");
+        if (component.isNyxian) {
+          speakText("You have arrived at your destination.");
+        }
         return;
       }
 
@@ -451,6 +682,14 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     setState(() {
       _isSimulating = false;
     });
+    if (!component.isNyxian) {
+      final job = component.state.selectedJobData!;
+      final nyxianLat = (job['nyxianLat'] as num?)?.toDouble();
+      final nyxianLng = (job['nyxianLng'] as num?)?.toDouble();
+      final targetLat = nyxianLat ?? (job['pickupLat'] as num?)?.toDouble() ?? 14.5995;
+      final targetLng = nyxianLng ?? (job['pickupLng'] as num?)?.toDouble() ?? 120.9842;
+      panTo(_mapId, targetLat, targetLng, bearing: 0.0, pitch: 0.0);
+    }
   }
 
   @override
@@ -483,6 +722,12 @@ class _NavigationMapState extends State<NavigationMapComponent> {
       remainingMetricStr = '• $distStr ($durStr)';
     }
 
+    final showNavigationOverlay = _ready &&
+        component.isNyxian &&
+        (subStatus == 'heading_to_pickup' || subStatus == 'in_transit' || _isSimulating) &&
+        _routeSteps.isNotEmpty &&
+        _currentStepIndex < _routeSteps.length;
+
     return div(
       classes: 'flex flex-col gap-4',
       [
@@ -491,36 +736,45 @@ class _NavigationMapState extends State<NavigationMapComponent> {
           classes:
               'relative w-full rounded-[2rem] overflow-hidden border shadow-2xl '
               '${isDark ? "border-zinc-800" : "border-zinc-200"}',
-          attributes: {'style': 'height: 420px'},
+          styles: Styles(raw: {'height': '420px'}),
           [
-            // Map element — always rendered so Leaflet can attach
-            div(
+            // Map element — always rendered so MapLibre can attach
+            MapContainer(
+              key: const ValueKey('map-navigator'),
               id: _mapId,
-              classes: 'absolute inset-0',
-              attributes: {'style': 'z-index: 1; height: 100%; width: 100%;'},
-              [],
+              classes: 'w-full h-full ${isDark ? "theme-dark" : "theme-light"}',
+              styles: Styles(raw: {
+                'z-index': '1',
+                'position': 'absolute !important',
+                'top': '0',
+                'left': '0',
+                'right': '0',
+                'bottom': '0',
+                'height': '100%',
+                'width': '100%',
+              }),
             ),
 
             // Loading overlay (shown until map is ready)
-            if (!_ready)
-              div(
-                classes:
-                    'absolute inset-0 flex flex-col items-center justify-center gap-4 z-[2] '
-                    '${isDark ? "bg-zinc-900" : "bg-zinc-50"}',
-                [
-                  lIcon('loader-2', cls: 'w-10 h-10 animate-spin text-indigo-500'),
-                  p(classes: 'text-sm font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                    Component.text('Loading map…'),
-                  ]),
-                ],
-              ),
+            div(
+              classes:
+                  'absolute inset-0 flex flex-col items-center justify-center gap-4 z-[2] '
+                  '${isDark ? "bg-zinc-900" : "bg-zinc-50"} '
+                  '${_ready ? "hidden" : ""}',
+              [
+                lIcon('loader-2', cls: 'w-10 h-10 animate-spin text-indigo-500'),
+                p(classes: 'text-sm font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                  Component.text('Loading map…'),
+                ]),
+              ],
+            ),
 
             // Turn-by-Turn Navigation Overlay
-            if (_ready && component.isNyxian && (subStatus == 'heading_to_pickup' || subStatus == 'in_transit') && _routeSteps.isNotEmpty && _currentStepIndex < _routeSteps.length)
+            if (showNavigationOverlay)
               _navigationOverlay(isDark),
 
             // ── Floating top bar (status) ─────────────────────────────────
-            if (_ready && !(_ready && component.isNyxian && (subStatus == 'heading_to_pickup' || subStatus == 'in_transit') && _routeSteps.isNotEmpty && _currentStepIndex < _routeSteps.length))
+            if (_ready && !showNavigationOverlay)
               div(
                 classes:
                     'absolute top-4 left-4 right-4 z-[400] flex items-center justify-between gap-2 pointer-events-none',
@@ -556,12 +810,25 @@ class _NavigationMapState extends State<NavigationMapComponent> {
                         '${isDark ? "bg-zinc-900/85 border-zinc-700/60 text-white" : "bg-white/85 border-white text-zinc-900"}',
                     events: {
                       'click': (_) {
+                        final pitch = component.isNyxian ? 45.0 : 0.0;
                         if (_myLat != null) {
-                          panTo(_mapId, _myLat!, _myLng!);
+                          double? bearing;
+                          if (component.isNyxian) {
+                            if (_isSimulating && _simulationCoordIndex + 1 < _routeCoordinates.length) {
+                              final nextCoord = _routeCoordinates[_simulationCoordIndex + 1];
+                              bearing = _calculateBearing(_myLat!, _myLng!, nextCoord[0], nextCoord[1]);
+                            } else if (_routeCoordinates.isNotEmpty && _currentStepIndex < _routeSteps.length) {
+                              final step = _routeSteps[_currentStepIndex];
+                              bearing = _calculateBearing(_myLat!, _myLng!, (step['lat'] as num).toDouble(), (step['lng'] as num).toDouble());
+                            }
+                          }
+                          panTo(_mapId, _myLat!, _myLng!, bearing: bearing, pitch: pitch);
                         } else {
                           final pLat = (job['pickupLat'] as num?)?.toDouble();
                           final pLng = (job['pickupLng'] as num?)?.toDouble();
-                          if (pLat != null) panTo(_mapId, pLat, pLng!);
+                          if (pLat != null) {
+                            panTo(_mapId, pLat, pLng!, pitch: pitch);
+                          }
                         }
                       },
                     },
@@ -611,8 +878,8 @@ class _NavigationMapState extends State<NavigationMapComponent> {
           // Employer timeline
           if (hasTracker && !component.isNyxian) _timelineCard(subStatus, isDark),
 
-          // ── OSM Navigate & Simulate buttons (for Nyxian) ─────────────────────────────
-          if (component.isNyxian && destLat != null)
+          // ── OSM Navigate & Simulate buttons ─────────────────────────────
+          if (destLat != null && component.isNyxian)
             div(classes: 'flex gap-2.5 w-full', [
               button(
                 classes:
@@ -636,7 +903,7 @@ class _NavigationMapState extends State<NavigationMapComponent> {
                   },
                   [
                     lIcon(_isSimulating ? 'square' : 'play', cls: 'w-4 h-4'),
-                    Component.text(_isSimulating ? 'Stop Sim' : 'Simulate'),
+                    Component.text(_isSimulating ? 'Stop Simulation' : 'Simulate'),
                   ],
                 ),
             ]),

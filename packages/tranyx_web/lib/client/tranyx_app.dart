@@ -23,6 +23,13 @@ import '../client/widgets/top_header.dart';
 import '../client/widgets/category_modal.dart';
 import '../client/widgets/payment_modal.dart';
 import '../client/widgets/rating_modal.dart';
+import '../client/widgets/delete_confirm_modal.dart';
+import '../client/components/list_vehicle_modal.dart';
+import '../client/components/book_vehicle_modal.dart';
+import '../client/components/extend_rental_modal.dart';
+import '../client/components/rental_tracker_map.dart';
+import '../client/components/manage_vehicle_modal.dart';
+import '../client/components/vehicle_qa_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -84,6 +91,15 @@ class TranyxAppState extends State<TranyxApp> {
   bool showCategoryModal = false;
   bool categoryModalForSelect = false;
 
+  // ── Transit modales ──────────────────────────────────────────
+  bool showListVehicleModal = false;
+  bool showBookVehicleModal = false;
+  bool showExtendRentalModal = false;
+  bool showRentalTrackerMap = false;
+  bool showManageVehicleModal = false;
+  bool showVehicleQaModal = false;
+  Map<String, dynamic>? selectedRentalData;
+
   // ── Wallet reconnect modal ──────────────────────────────────
   bool showWalletReconnectPrompt = false;
   String? pendingReconnectWalletKey;
@@ -94,6 +110,8 @@ class TranyxAppState extends State<TranyxApp> {
   List<Map<String, dynamic>> realtimeEmployerJobs = [];
   List<Map<String, dynamic>> realtimeNyxianJobs = [];
   List<Map<String, dynamic>> availableJobs = [];
+  List<Map<String, dynamic>> realtimeRentals = [];
+  List<Map<String, dynamic>> renterPendingRequests = [];
   bool isLoadingJobs = false;
   String? jobsError;
   String activeJobFilter = 'Recommended';
@@ -184,6 +202,7 @@ class TranyxAppState extends State<TranyxApp> {
 
   // Rating State
   bool showRatingPopup = false;
+  bool showDeleteConfirm = false;
   String? ratingTargetId;
   String? ratingTargetName;
   int ratingScore = 0;
@@ -220,8 +239,7 @@ class TranyxAppState extends State<TranyxApp> {
   bool isUploadingChatPhoto = false;
   Map<String, dynamic>? acceptedApplicantProfile;
 
-  // ── Selected-job live-refresh timer ─────────────────────────
-  Timer? _selectedJobRefreshTimer;
+
 
 
   // ── Services ────────────────────────────────────────────────
@@ -229,6 +247,7 @@ class TranyxAppState extends State<TranyxApp> {
   GeminiService? _gemini;
 
   FirestoreService get _firestore => FirestoreService(SessionStorage.idToken, _handleTokenRefresh);
+  FirestoreService get firestore => _firestore;
 
   Future<String?> _handleTokenRefresh() async {
     final rt = SessionStorage.refreshToken;
@@ -244,31 +263,111 @@ class TranyxAppState extends State<TranyxApp> {
 
   Future<String?> Function() get handleTokenRefresh => _handleTokenRefresh;
 
-  /// Polls Firestore every 4 s to keep [selectedJobData] fresh while a
-  /// detail / review screen is open. Stops automatically when no job is open.
-  void _startSelectedJobPolling() {
-    _selectedJobRefreshTimer?.cancel();
-    _selectedJobRefreshTimer = Timer.periodic(const Duration(seconds: 4), (_) async {
-      final jobId = selectedJobData?['id'] as String?;
-      final token = SessionStorage.idToken;
-      if (jobId == null || token == null) return;
+  bool get canPostJob {
+    final uid = SessionStorage.uid;
+    if (uid == null) return false;
+    final isPremium = userProfile?.isPremium ?? false;
+    if (isPremium) return true;
+
+    // Filter active jobs posted by this user
+    final activeCount = myJobs.where((j) {
+      final isCreator = j['creatorId'] == uid;
+      if (!isCreator) return false;
+      final s = (j['status'] as String?)?.toLowerCase();
+      final isTerminal = s == 'completed' || s == 'done' || s == 'complete' || s == 'cancelled' || s == 'closed';
+      return !isTerminal;
+    }).length;
+
+    return activeCount == 0;
+  }
+
+  Map<String, dynamic>? get firstActiveJob {
+    final uid = SessionStorage.uid;
+    if (uid == null) return null;
+    try {
+      return myJobs.firstWhere((j) {
+        final isCreator = j['creatorId'] == uid;
+        if (!isCreator) return false;
+        final s = (j['status'] as String?)?.toLowerCase();
+        final isTerminal = s == 'completed' || s == 'done' || s == 'complete' || s == 'cancelled' || s == 'closed';
+        return !isTerminal;
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void showAppToast(String title, String message) {
+    setState(() {
+      latestToastNotification = {
+        'id': DateTime.now().millisecondsSinceEpoch.toString(),
+        'title': title,
+        'message': message,
+      };
+    });
+    Timer(const Duration(seconds: 5), () {
+      setState(() => latestToastNotification = null);
+    });
+  }
+
+  void exitJobDetails() {
+    setState(() {
+      jobsView = JobsView.list;
+      selectedJob = null;
+      selectedJobData = null;
+      showDeleteConfirm = false;
+      _stopSelectedJobRealtime();
+    });
+  }
+
+  void _startSelectedJobRealtime(String jobId) {
+    stopListeningToJobDetailsJs();
+    listenToJobDetailsJs(jobId, (String jsonString) {
       try {
-        final fresh = await FirestoreService(token, _handleTokenRefresh).getDocument('jobs/$jobId');
-        if (fresh != null && fresh['status'] != selectedJobData?['status']) {
+        final Map<String, dynamic> data = jsonDecode(jsonString);
+        final String type = data['type'] as String;
+        if (type == 'job') {
+          final Map<String, dynamic> fresh = data['data'] as Map<String, dynamic>;
           setState(() {
-            selectedJobData = {...selectedJobData!, ...fresh};
+            if (selectedJobData != null && selectedJobData!['id'] == fresh['id']) {
+              selectedJobData = {...selectedJobData!, ...fresh};
+              
+              final title = fresh['title'] as String? ?? selectedJob?.title ?? '';
+              final rate = fresh['pricingValue'] != null 
+                  ? '₱ ${(fresh['pricingValue'] as num).toStringAsFixed(0)}' 
+                  : selectedJob?.rate ?? '';
+              final urgency = fresh['dateRequirement'] as String? ?? selectedJob?.urgency ?? '';
+              final status = fresh['status'] as String? ?? selectedJob?.status ?? '';
+              final applicants = fresh['applicantCount'] as int? ?? selectedJob?.applicants ?? 0;
+              selectedJob = SelectedJob(
+                title: title,
+                rate: rate,
+                distance: selectedJob?.distance ?? '—',
+                urgency: urgency,
+                status: status,
+                applicants: applicants,
+              );
+            }
+            
             // Sync session copy too
             final idx = sessionPostedJobs.indexWhere((j) => j['id'] == jobId);
             if (idx != -1) sessionPostedJobs[idx] = selectedJobData!;
           });
+        } else if (type == 'applications') {
+          final List<dynamic> rawApps = data['data'] as List? ?? [];
+          final apps = rawApps.map((e) => e as Map<String, dynamic>).toList();
+          setState(() {
+            jobApplicants = apps;
+          });
         }
-      } catch (_) {}
+      } catch (e) {
+        print('Error parsing realtime job details: $e');
+      }
     });
   }
 
-  void _stopSelectedJobPolling() {
-    _selectedJobRefreshTimer?.cancel();
-    _selectedJobRefreshTimer = null;
+  void _stopSelectedJobRealtime() {
+    stopListeningToJobDetailsJs();
   }
 
   AccountType get currentViewMode => accountType == AccountType.hybrid ? hybridToggle : accountType;
@@ -316,6 +415,7 @@ class TranyxAppState extends State<TranyxApp> {
     await loadTransactions();
     _startListeningNotifications();
     _startListeningJobs();
+    _startListeningRentals();
   }
 
   void _startListeningNotifications() {
@@ -452,15 +552,12 @@ class TranyxAppState extends State<TranyxApp> {
           ongoingJob = merged.cast<Map<String, dynamic>?>().firstWhere(
             (j) {
               final s = (j?['status'] as String?)?.toLowerCase();
-              return s == 'in progress' ||
-                  s == 'in_progress' ||
-                  s == 'ongoing' ||
-                  s == 'heading_to_pickup' ||
-                  s == 'arrived_pickup' ||
-                  s == 'paid_cashier' ||
-                  s == 'in_transit' ||
-                  s == 'arrived_dropoff' ||
-                  s == 'done';
+              return s != null &&
+                  s != 'open' &&
+                  s != 'completed' &&
+                  s != 'cancelled' &&
+                  s != 'held' &&
+                  s != 'pending';
             },
             orElse: () => null,
           );
@@ -480,6 +577,33 @@ class TranyxAppState extends State<TranyxApp> {
         print('Error parsing realtime jobs: $e');
       }
     });
+  }
+
+  void _startListeningRentals() {
+    listenToRentalsJs((String jsonString) {
+      try {
+        final List<dynamic> raw = jsonDecode(jsonString);
+        final parsed = raw.map((e) => e as Map<String, dynamic>).toList();
+        setState(() {
+          realtimeRentals = parsed;
+        });
+      } catch (e) {
+        print('Error parsing realtime rentals: $e');
+      }
+    });
+  }
+
+  Future<void> loadRenterPendingRequests() async {
+    final uid = SessionStorage.uid;
+    if (uid == null) return;
+    try {
+      final list = await _firestore.getRenterPendingRequests(uid);
+      setState(() {
+        renterPendingRequests = list;
+      });
+    } catch (e) {
+      print('Error loading renter pending requests: $e');
+    }
   }
 
   Future<void> loadUserProfile() async {
@@ -546,6 +670,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
+      _startListeningRentals();
       // Auto-connect Phantom wallet if already trusted by the browser
       unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
     } on FirebaseException catch (e) {
@@ -625,6 +750,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
+      _startListeningRentals();
     } on FirebaseException catch (e) {
       String msg = e.message;
       if (msg.contains('EMAIL_EXISTS')) {
@@ -730,6 +856,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
+      _startListeningRentals();
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
     } on FirebaseException catch (e) {
       setState(() {
@@ -792,6 +919,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
+      _startListeningRentals();
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
     } catch (e) {
       setState(() {
@@ -980,15 +1108,12 @@ class TranyxAppState extends State<TranyxApp> {
       final ongoing = merged.cast<Map<String, dynamic>?>().firstWhere(
         (j) {
           final s = (j?['status'] as String?)?.toLowerCase();
-          return s == 'in progress' ||
-              s == 'in_progress' ||
-              s == 'ongoing' ||
-              s == 'heading_to_pickup' ||
-              s == 'arrived_pickup' ||
-              s == 'paid_cashier' ||
-              s == 'in_transit' ||
-              s == 'arrived_dropoff' ||
-              s == 'done';
+          return s != null &&
+              s != 'open' &&
+              s != 'completed' &&
+              s != 'cancelled' &&
+              s != 'held' &&
+              s != 'pending';
         },
         orElse: () => null,
       );
@@ -1020,6 +1145,13 @@ class TranyxAppState extends State<TranyxApp> {
     final uid = SessionStorage.uid;
     final token = SessionStorage.idToken;
     if (uid == null || token == null) return;
+
+    if (!canPostJob) {
+      setState(() {
+        postJobError = 'Normal accounts can only have 1 active job at a time. Please complete your current ongoing job before posting a new one.';
+      });
+      return;
+    }
 
     final price = double.tryParse(priceRate) ?? 0.0;
 
@@ -1449,8 +1581,10 @@ class TranyxAppState extends State<TranyxApp> {
       });
     }
 
-    // Keep selectedJobData fresh via periodic Firestore polls
-    _startSelectedJobPolling();
+    // Keep selectedJobData fresh via real-time listener
+    if (jobId.isNotEmpty) {
+      _startSelectedJobRealtime(jobId);
+    }
   }
 
   Future<void> loadJobQuestions(String jobId) async {
@@ -1542,18 +1676,17 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   // ── Chat Actions ──────────────────────────────────────────────
-  void openChat(String jobId) {
+  void openChat(String chatId) {
     final uid = SessionStorage.uid;
-    if (uid == null || jobId.isEmpty) return;
-    final cId = 'job_$jobId';
+    if (uid == null || chatId.isEmpty) return;
     setState(() {
       showChat = true;
-      currentChatId = cId;
+      currentChatId = chatId;
       chatMessages = [];
       chatInputText = '';
       chatPiiBlocked = false;
     });
-    listenToChatJs(cId, (String jsonStr) {
+    listenToChatJs(chatId, (String jsonStr) {
       try {
         final raw = jsonDecode(jsonStr) as List<dynamic>;
         setState(() {
@@ -1611,7 +1744,7 @@ class TranyxAppState extends State<TranyxApp> {
       if (files.isEmpty) return;
       final file = files.first;
       final name = userProfile?.name ?? userName;
-      final b64 = base64Encode(file.bytes as List<int>);
+      final b64 = base64Encode(file.bytes);
       final mime = file.name.endsWith('.png') ? 'image/png' : 'image/jpeg';
       final url = await uploadChatPhotoJs(currentChatId, b64, mime);
       if (url != null) {
@@ -2064,38 +2197,81 @@ class TranyxAppState extends State<TranyxApp> {
 
       if (jobDoc != null) {
         final employerId = jobDoc['creatorId'] as String?;
+        final nyxianId = jobDoc['acceptedApplicantId'] as String?;
+
+        final catName = (jobDoc['category'] as String? ?? '').toLowerCase();
+        final cat = JobCategory.values.firstWhere(
+          (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
+          orElse: () => JobCategory.others,
+        );
+        final hasTracker = jobDoc['hasTracker'] == true || jobDoc['hasTracker'] == 'true' || cat.hasTracker;
+
+        final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+        final reachedFirstPoint = hasTracker && (
+          status == 'arrived_pickup' ||
+          status == 'paid_cashier' ||
+          status == 'in_transit' ||
+          status == 'arrived_dropoff' ||
+          status == 'done' ||
+          status == 'completed'
+        );
 
         // 1. Check for escrow
         final escrowDoc = await svc.getEscrow(job['id'] as String);
         if (escrowDoc != null && employerId != null) {
-          final refundAmount = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+          final totalEscrow = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+          final double compensation = reachedFirstPoint ? (totalEscrow >= 20.0 ? 20.0 : totalEscrow) : 0.0;
+          final refundAmount = totalEscrow - compensation;
 
           // 2. Refund to Employer
-          final empDoc = await svc.getDocument('users/$employerId');
-          if (empDoc != null) {
-            final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            final newBal = currentBal + refundAmount;
+          if (refundAmount > 0.0) {
+            final empDoc = await svc.getDocument('users/$employerId');
+            if (empDoc != null) {
+              final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final newBal = currentBal + refundAmount;
 
-            // Depending on if the method 'updateTyxBalance' exists, using createOrUpdate to be safe
-            await svc.createOrUpdate('users/$employerId', {
-              ...empDoc,
-              'tyxBalance': newBal,
-            });
+              await svc.createOrUpdate('users/$employerId', {
+                ...empDoc,
+                'tyxBalance': newBal,
+              });
 
-            // Update local balance if current user is the employer
-            if (employerId == SessionStorage.uid) {
-              walletBalance = newBal;
-              if (userProfile != null) {
-                userProfile = userProfile!.copyWith(tyxBalance: newBal);
+              // Update local balance if current user is the employer
+              if (employerId == SessionStorage.uid) {
+                walletBalance = newBal;
+                if (userProfile != null) {
+                  userProfile = userProfile!.copyWith(tyxBalance: newBal);
+                }
               }
             }
           }
 
-          // 3. Delete escrow
+          // 3. Compensation to Nyxian
+          if (compensation > 0.0 && nyxianId != null) {
+            final nyxDoc = await svc.getDocument('users/$nyxianId');
+            if (nyxDoc != null) {
+              final nyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final newNyxBal = nyxBal + compensation;
+
+              await svc.createOrUpdate('users/$nyxianId', {
+                ...nyxDoc,
+                'tyxBalance': newNyxBal,
+              });
+
+              // Update local balance if current user is the Nyxian
+              if (nyxianId == SessionStorage.uid) {
+                walletBalance = newNyxBal;
+                if (userProfile != null) {
+                  userProfile = userProfile!.copyWith(tyxBalance: newNyxBal);
+                }
+              }
+            }
+          }
+
+          // 4. Delete escrow
           await svc.deleteDocument('escrow/${job['id']}');
         }
 
-        // 4. Update Job Status
+        // 5. Update Job Status
         await svc.updateJobStatus(job['id'] as String, 'Cancelled');
       }
 
@@ -2109,6 +2285,85 @@ class TranyxAppState extends State<TranyxApp> {
       }
     } catch (e) {
       setState(() => isUpdatingJobStatus = false);
+    }
+  }
+
+  Future<void> handleDeletePosting(String jobId) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null || jobId.isEmpty) return;
+
+    setState(() => isUpdatingJobStatus = true);
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final jobDoc = await svc.getDocument('jobs/$jobId');
+
+      if (jobDoc == null) {
+        throw 'Job posting not found';
+      }
+
+      // Check permissions
+      if (jobDoc['creatorId'] != uid) {
+        throw 'You are not authorized to delete this posting';
+      }
+
+      // Check status: only Open jobs can be deleted/cancelled
+      final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+      if (status != 'open') {
+        throw 'Only open job postings can be deleted';
+      }
+
+      // 1. Check for escrow
+      final escrowDoc = await svc.getEscrow(jobId);
+      double refundAmount = 0.0;
+      if (escrowDoc != null) {
+        refundAmount = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+
+        // 2. Refund to Employer
+        final empDoc = await svc.getDocument('users/$uid');
+        if (empDoc != null) {
+          final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+          final newBal = currentBal + refundAmount;
+
+          await svc.createOrUpdate('users/$uid', {
+            ...empDoc,
+            'tyxBalance': newBal,
+          });
+
+          // Update local balance
+          walletBalance = newBal;
+          if (userProfile != null) {
+            userProfile = userProfile!.copyWith(tyxBalance: newBal);
+          }
+        }
+
+        // 3. Delete escrow document
+        await svc.deleteDocument('escrow/$jobId');
+      }
+
+      // 4. Delete the job document
+      await svc.deleteDocument('jobs/$jobId');
+
+      // Update local lists
+      myJobs.removeWhere((j) => j['id'] == jobId);
+      sessionPostedJobs.removeWhere((j) => j['id'] == jobId);
+
+      setState(() {
+        isUpdatingJobStatus = false;
+        showDeleteConfirm = false;
+        jobsView = JobsView.list;
+        selectedJob = null;
+        selectedJobData = null;
+      });
+
+      _stopSelectedJobRealtime();
+      showAppToast('Posting Deleted', 'Job posting has been deleted and the ₱ ${refundAmount.toStringAsFixed(0)} held escrow has been returned to your balance.');
+    } catch (e) {
+      setState(() {
+        isUpdatingJobStatus = false;
+        showDeleteConfirm = false;
+      });
+      showAppToast('Error Deleting Posting', e.toString());
     }
   }
 
@@ -2732,9 +2987,13 @@ class TranyxAppState extends State<TranyxApp> {
       if (tab != AppTab.jobs) {
         jobsView = JobsView.list;
         createStep = 1;
+        selectedJob = null;
+        selectedJobData = null;
+        _stopSelectedJobRealtime();
       }
     });
     if (tab == AppTab.jobs) loadJobs();
+    if (tab == AppTab.transit) loadRenterPendingRequests();
   }
 
   // ── Wallet ──────────────────────────────────────────────────
@@ -2964,6 +3223,24 @@ class TranyxAppState extends State<TranyxApp> {
       // Category modal overlay
       if (showCategoryModal) CategoryModalComponent(state: this),
 
+      // List Vehicle modal overlay
+      if (showListVehicleModal) ListVehicleModalComponent(appState: this),
+
+      // Book Vehicle modal overlay
+      if (showBookVehicleModal) BookVehicleModalComponent(appState: this),
+
+      // Extend Rental modal overlay
+      if (showExtendRentalModal) ExtendRentalModalComponent(appState: this),
+
+      // Rental Tracker Map overlay
+      if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this),
+
+      // Manage Vehicle modal overlay
+      if (showManageVehicleModal) ManageVehicleModalComponent(appState: this),
+
+      // Public Vehicle Q&A modal overlay
+      if (showVehicleQaModal && selectedRentalData != null) VehicleQaModalComponent(appState: this, rentalId: selectedRentalData!['id']),
+
       // Payment modal overlay
       if (showDepositModal) PaymentModalComponent(state: this),
 
@@ -2975,6 +3252,9 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Rating modal overlay
       if (showRatingPopup) RatingModalComponent(state: this),
+
+      // Delete confirmation modal overlay
+      if (showDeleteConfirm) DeleteConfirmModalComponent(state: this),
 
       // Chat overlay
       if (showChat) ChatWidget(state: this),

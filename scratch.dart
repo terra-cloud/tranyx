@@ -1,10 +1,7 @@
-import 'package:http/http.dart' as http;
+import 'dart:js_interop';
 
-void main() async {
-  // Use user's Firebase Project ID (tranyx-8eb6c) and test firestore.
-  final url =
-      'https://firestore.googleapis.com/v1/projects/tranyx-8eb6c/databases/(default)/documents/config/app_config';
-  final res = await http.get(Uri.parse(url));
-  print(res.statusCode);
-  print(res.body);
+void main() {
+  final list = [1.23.toJS, 4.56.toJS];
+  final jsArr = list.toJS;
+  print(jsArr);
 }

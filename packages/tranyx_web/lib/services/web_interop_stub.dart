@@ -54,3 +54,20 @@ Future<String?> uploadChatPhotoJs(String chatId, String base64Data, String mimeT
 void listenToJobDetailsJs(String jobId, void Function(String) callback) {}
 void stopListeningToJobDetailsJs() {}
 
+// Rental stubs
+void listenToRentalsJs(void Function(String) callback) {}
+void stopListeningToRentalsJs() {}
+void listenToRentalDetailsJs(String rentalId, void Function(String) callback) {}
+void stopListeningToRentalDetailsJs() {}
+
+// Signature pad stubs
+void initSignaturePadJs(String canvasId) {}
+void clearSignaturePadJs(String canvasId) {}
+bool isSignaturePadEmptyJs(String canvasId) => true;
+String getSignatureDataUrlJs(String canvasId) => '';
+
+// Rental Q&A stubs
+void listenToRentalQAJs(String rentalId, void Function(String) callback) {}
+void unlistenRentalQAJs(String rentalId) {}
+void postRentalQuestionJs(String rentalId, String uid, String name, String photoUrl, String text) {}
+void answerRentalQuestionJs(String rentalId, String questionId, String answerText) {}

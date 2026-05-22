@@ -1,35 +1,44 @@
-// Browser-only Leaflet interop.
-// Conditionally exported from leaflet_interop.dart — never compiled on server.
+// Browser-only MapLibre interop.
+// Conditionally exported from map_interop.dart — never compiled on server.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 import 'dart:js_interop';
-// package:web re-exports dart:js_interop types AND provides DOM APIs.
-// Import WITHOUT an alias so extension methods (.toJS, .toDart, etc.) are in scope.
-// Do NOT also import 'dart:js_interop_unsafe' — it duplicates extension members
-// and causes a dart2js "toJS defined in multiple extensions" ambiguity.
 import 'package:web/web.dart';
 
-// ── Leaflet loader ────────────────────────────────────────────────────────────
+// ── MapLibre loader ────────────────────────────────────────────────────────────
 
-/// Waits until `window.L` is available (Leaflet loaded from the page <head>).
-Future<void> ensureLeafletLoaded() async {
-  // Fast path — Leaflet already in <head>
-  final existing = window.getProperty<JSAny?>('L'.toJS);
+/// Waits until `window.maplibregl` is available (MapLibre loaded from the page <head>).
+Future<void> ensureMapLibreLoaded() async {
+  // Fast path — MapLibre already loaded on window
+  final existing = window.getProperty<JSAny?>('maplibregl'.toJS);
   if (existing != null) return;
 
-  // Slow path — inject dynamically if somehow missing
-  final head = document.head!;
+  // Check if a script is already in the document (either from index.html or previous call)
+  final existingScript = document.querySelector('script[src*="maplibre-gl"]');
+  if (existingScript != null) {
+    // Just wait until window.maplibregl becomes available (max 10 seconds)
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (DateTime.now().isBefore(deadline)) {
+      if (window.getProperty<JSAny?>('maplibregl'.toJS) != null) return;
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+  }
 
-  final lnk = document.createElement('link') as HTMLLinkElement;
-  lnk.rel = 'stylesheet';
-  lnk.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-  head.appendChild(lnk);
+  // Slow path — inject dynamically if missing
+  final head = document.head!;
+  
+  if (document.querySelector('link[href*="maplibre-gl"]') == null) {
+    final lnk = document.createElement('link') as HTMLLinkElement;
+    lnk.rel = 'stylesheet';
+    lnk.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
+    head.appendChild(lnk);
+  }
 
   final completer = Completer<void>();
   final scr = document.createElement('script') as HTMLScriptElement;
-  scr.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  scr.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
   scr.onLoad.listen((_) => completer.complete());
   head.appendChild(scr);
 
@@ -78,17 +87,22 @@ int watchPosition(void Function(double lat, double lng) onUpdate) {
 
 void clearWatch(int id) => window.navigator.geolocation.clearWatch(id);
 
-// ── Leaflet map lifecycle ─────────────────────────────────────────────────────
+// ── MapLibre map lifecycle ─────────────────────────────────────────────────────
 
-JSObject? _L() => window.getProperty<JSObject?>('L'.toJS);
 JSObject? _map(String id) => window.getProperty<JSObject?>('__lmap_$id'.toJS);
 
-Future<void> initMap(String elementId, double lat, double lng, int zoom, {bool isDark = true}) async {
+Future<void> initMap(String elementId, double lat, double lng, double zoom, {bool isDark = true, double pitch = 0, double bearing = 0}) async {
   final found = await _waitForElement(elementId);
-  if (!found) return;
+  if (!found) {
+    print('ERROR: Map element with ID "$elementId" was not found in the DOM.');
+    return;
+  }
 
-  final L = _L();
-  if (L == null) return;
+  final maplibregl = window.getProperty<JSObject?>('maplibregl'.toJS);
+  if (maplibregl == null) {
+    print('ERROR: window.maplibregl is not defined when initializing map.');
+    return;
+  }
 
   // Destroy any stale map on this element
   final mapKey = '__lmap_$elementId'.toJS;
@@ -100,33 +114,57 @@ Future<void> initMap(String elementId, double lat, double lng, int zoom, {bool i
     window.setProperty(mapKey, null);
   }
 
-  final opts = JSObject();
-  opts.setProperty('center'.toJS, [lat.toJS, lng.toJS].toJS);
-  opts.setProperty('zoom'.toJS, zoom.toJS);
-  final m = L.callMethod<JSObject>('map'.toJS, elementId.toJS, opts);
+  try {
+    // Create raster-style specification locally to avoid needing any MapLibre / Mapbox API Key
+    final style = JSObject();
+    style.setProperty('version'.toJS, 8.toJS);
+    
+    final sources = JSObject();
+    final rasterTiles = JSObject();
+    rasterTiles.setProperty('type'.toJS, 'raster'.toJS);
+    
+    final tileUrl = isDark
+        ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    final tiles = [tileUrl.toJS].toJS;
+    
+    rasterTiles.setProperty('tiles'.toJS, tiles);
+    rasterTiles.setProperty('tileSize'.toJS, 256.toJS);
+    rasterTiles.setProperty(
+      'attribution'.toJS,
+      isDark
+        ? '© CARTO, © OpenStreetMap'.toJS
+        : '© OpenStreetMap'.toJS
+    );
+    sources.setProperty('raster-tiles'.toJS, rasterTiles);
+    style.setProperty('sources'.toJS, sources);
 
-  final tileOpts = JSObject();
-  tileOpts.setProperty(
-    'attribution'.toJS,
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'.toJS,
-  );
-  tileOpts.setProperty('subdomains'.toJS, 'abc'.toJS);
-  tileOpts.setProperty('maxZoom'.toJS, 19.toJS);
-  if (isDark) {
-    tileOpts.setProperty('className'.toJS, 'map-tiles-dark'.toJS);
+    final layer = JSObject();
+    layer.setProperty('id'.toJS, 'simple-tiles'.toJS);
+    layer.setProperty('type'.toJS, 'raster'.toJS);
+    layer.setProperty('source'.toJS, 'raster-tiles'.toJS);
+    layer.setProperty('minzoom'.toJS, 0.toJS);
+    layer.setProperty('maxzoom'.toJS, 19.toJS);
+    final layers = [layer].toJS;
+    style.setProperty('layers'.toJS, layers);
+
+    final opts = JSObject();
+    opts.setProperty('container'.toJS, elementId.toJS);
+    opts.setProperty('style'.toJS, style);
+    
+    // MapLibre expects center as [lng, lat]
+    opts.setProperty('center'.toJS, [lng.toJS, lat.toJS].toJS);
+    opts.setProperty('zoom'.toJS, zoom.toJS);
+    opts.setProperty('pitch'.toJS, pitch.toJS);
+    opts.setProperty('bearing'.toJS, bearing.toJS);
+
+    final m = window.callMethod<JSObject>('_createMap'.toJS, opts);
+    window.setProperty(mapKey, m);
+    print('DEBUG: MapLibre map successfully created on element ID "$elementId".');
+  } catch (e) {
+    print('ERROR: Failed during initMap execution for element ID "$elementId": $e');
+    rethrow;
   }
-
-  const tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-
-  L
-      .callMethod<JSObject>(
-        'tileLayer'.toJS,
-        tileUrl.toJS,
-        tileOpts,
-      )
-      .callMethod<JSAny>('addTo'.toJS, m);
-
-  window.setProperty(mapKey, m);
 }
 
 void onMapClick(String elementId, void Function(double lat, double lng) onTap) {
@@ -136,7 +174,7 @@ void onMapClick(String elementId, void Function(double lat, double lng) onTap) {
     'on'.toJS,
     'click'.toJS,
     ((JSObject e) {
-      final ll = e.getProperty<JSObject>('latlng'.toJS);
+      final ll = e.getProperty<JSObject>('lngLat'.toJS);
       final lat = ll.getProperty<JSNumber>('lat'.toJS).toDartDouble;
       final lng = ll.getProperty<JSNumber>('lng'.toJS).toDartDouble;
       onTap(lat, lng);
@@ -151,23 +189,39 @@ void setMarker(
   double lng,
   String? popupText,
 ) {
-  final L = _L();
   final m = _map(elementId);
-  if (L == null || m == null) return;
+  if (m == null) return;
 
   final storeKey = '__lmarker_${elementId}_$markerId'.toJS;
   final existing = window.getProperty<JSObject?>(storeKey);
+  
   if (existing != null) {
-    existing.callMethod<JSAny>('setLatLng'.toJS, [lat.toJS, lng.toJS].toJS);
+    existing.callMethod<JSAny>('setLngLat'.toJS, [lng.toJS, lat.toJS].toJS);
     if (popupText != null) {
-      existing.callMethod<JSAny>('setPopupContent'.toJS, popupText.toJS);
+      final popup = existing.callMethod<JSObject?>('getPopup'.toJS);
+      if (popup != null) {
+        popup.callMethod<JSAny>('setHTML'.toJS, popupText.toJS);
+      } else {
+        final newPopup = window.callMethod<JSObject>('_createPopup'.toJS);
+        newPopup.callMethod<JSAny>('setHTML'.toJS, popupText.toJS);
+        existing.callMethod<JSAny>('setPopup'.toJS, newPopup);
+      }
     }
   } else {
-    final latLng = L.callMethod<JSObject>('latLng'.toJS, lat.toJS, lng.toJS);
-    final marker = L.callMethod<JSObject>('marker'.toJS, latLng).callMethod<JSObject>('addTo'.toJS, m);
+    final marker = window.callMethod<JSObject>('_createMarker'.toJS);
+    marker.callMethod<JSObject>('setLngLat'.toJS, [lng.toJS, lat.toJS].toJS);
+    
     if (popupText != null) {
-      marker.callMethod<JSObject>('bindPopup'.toJS, popupText.toJS).callMethod<JSAny>('openPopup'.toJS);
+      final popup = window.callMethod<JSObject>('_createPopup'.toJS);
+      popup.callMethod<JSAny>('setHTML'.toJS, popupText.toJS);
+      marker.callMethod<JSObject>('setPopup'.toJS, popup);
+      marker.callMethod<JSAny>('addTo'.toJS, m);
+      // Toggle to open the popup immediately
+      marker.callMethod<JSAny>('togglePopup'.toJS);
+    } else {
+      marker.callMethod<JSAny>('addTo'.toJS, m);
     }
+    
     window.setProperty(storeKey, marker);
   }
 }
@@ -181,32 +235,79 @@ void removeMarker(String elementId, String markerId) {
   }
 }
 
-// drawRoute: straight-line polyline (kept for backward compat)
 void drawRoute(String elementId, List<List<double>> points, String color) {
-  final L = _L();
   final m = _map(elementId);
-  if (L == null || m == null) return;
+  if (m == null) return;
 
   final routeKey = '__lroute_$elementId'.toJS;
   final existing = window.getProperty<JSObject?>(routeKey);
   if (existing != null) {
-    existing.callMethod<JSAny>('remove'.toJS);
+    try {
+      final sourceId = existing.getProperty<JSString>('sourceId'.toJS);
+      final layerId = existing.getProperty<JSString>('layerId'.toJS);
+      if (m.callMethod<JSBoolean>('getLayer'.toJS, layerId).toDart) {
+        m.callMethod<JSAny>('removeLayer'.toJS, layerId);
+      }
+      if (m.callMethod<JSBoolean>('getSource'.toJS, sourceId).toDart) {
+        m.callMethod<JSAny>('removeSource'.toJS, sourceId);
+      }
+    } catch (_) {}
     window.setProperty(routeKey, null);
   }
 
-  final jsPoints = points.map((p) => [p[0].toJS, p[1].toJS].toJS).toList().toJS;
-  final opts = JSObject();
-  opts.setProperty('color'.toJS, color.toJS);
-  opts.setProperty('weight'.toJS, 5.toJS);
-  opts.setProperty('opacity'.toJS, 0.85.toJS);
-  final poly = L.callMethod<JSObject>('polyline'.toJS, jsPoints, opts).callMethod<JSObject>('addTo'.toJS, m);
-  window.setProperty(routeKey, poly);
-  m.callMethod<JSAny>('fitBounds'.toJS, poly.callMethod<JSObject>('getBounds'.toJS));
+  // Convert [[lat, lng], ...] to [[lng, lat], ...] for MapLibre
+  final rawCoords = points.map((p) => [p[1].toJS, p[0].toJS].toJS).toList().toJS;
+
+  final geojson = JSObject();
+  geojson.setProperty('type'.toJS, 'Feature'.toJS);
+  geojson.setProperty('properties'.toJS, JSObject());
+  
+  final geom = JSObject();
+  geom.setProperty('type'.toJS, 'LineString'.toJS);
+  geom.setProperty('coordinates'.toJS, rawCoords);
+  geojson.setProperty('geometry'.toJS, geom);
+
+  final sourceId = 'route_straight_$elementId';
+  final layerId = 'route_straight_layer_$elementId';
+
+  final srcOpts = JSObject();
+  srcOpts.setProperty('type'.toJS, 'geojson'.toJS);
+  srcOpts.setProperty('data'.toJS, geojson);
+  m.callMethod<JSAny>('addSource'.toJS, sourceId.toJS, srcOpts);
+
+  final paintOpts = JSObject();
+  paintOpts.setProperty('line-color'.toJS, color.toJS);
+  paintOpts.setProperty('line-width'.toJS, 5.toJS);
+  paintOpts.setProperty('line-opacity'.toJS, 0.85.toJS);
+
+  final layoutOpts = JSObject();
+  layoutOpts.setProperty('line-join'.toJS, 'round'.toJS);
+  layoutOpts.setProperty('line-cap'.toJS, 'round'.toJS);
+
+  final layerOpts = JSObject();
+  layerOpts.setProperty('id'.toJS, layerId.toJS);
+  layerOpts.setProperty('type'.toJS, 'line'.toJS);
+  layerOpts.setProperty('source'.toJS, sourceId.toJS);
+  layerOpts.setProperty('paint'.toJS, paintOpts);
+  layerOpts.setProperty('layout'.toJS, layoutOpts);
+
+  m.callMethod<JSAny>('addLayer'.toJS, layerOpts);
+
+  final routeTracker = JSObject();
+  routeTracker.setProperty('sourceId'.toJS, sourceId.toJS);
+  routeTracker.setProperty('layerId'.toJS, layerId.toJS);
+  window.setProperty(routeKey, routeTracker);
+
+  // Fit bounds
+  final bounds = window.callMethod<JSObject>('_createLngLatBounds'.toJS);
+  points.forEach((p) {
+    bounds.callMethod<JSAny>('extend'.toJS, [p[1].toJS, p[0].toJS].toJS);
+  });
+  final fitOpts = JSObject();
+  fitOpts.setProperty('padding'.toJS, 40.toJS);
+  m.callMethod<JSAny>('fitBounds'.toJS, bounds, fitOpts);
 }
 
-/// Draws a real road route using OSRM.
-/// Delegates to `window._osrmRoute` defined in main.server.dart's script block
-/// so no eval() is needed (CSP-safe).
 Future<Map<String, dynamic>?> drawOSRMRoute(
   String elementId,
   double fromLat,
@@ -242,8 +343,24 @@ void speakText(String text) {
   fn.callAsFunction(null, text.toJS);
 }
 
-void panTo(String elementId, double lat, double lng) {
-  _map(elementId)?.callMethod<JSAny>('panTo'.toJS, [lat.toJS, lng.toJS].toJS);
+void panTo(String elementId, double lat, double lng, {double? bearing, double? pitch, double? zoom}) {
+  final m = _map(elementId);
+  if (m == null) return;
+
+  final opts = JSObject();
+  opts.setProperty('center'.toJS, [lng.toJS, lat.toJS].toJS);
+  if (bearing != null) {
+    opts.setProperty('bearing'.toJS, bearing.toJS);
+  }
+  if (pitch != null) {
+    opts.setProperty('pitch'.toJS, pitch.toJS);
+  }
+  if (zoom != null) {
+    opts.setProperty('zoom'.toJS, zoom.toJS);
+  }
+  opts.setProperty('duration'.toJS, 1000.toJS); // 1s smooth camera glide
+
+  m.callMethod<JSAny>('easeTo'.toJS, opts);
 }
 
 ({double lat, double lng})? getMapCenter(String elementId) {
@@ -257,12 +374,30 @@ void panTo(String elementId, double lat, double lng) {
 }
 
 void invalidateMapSize(String elementId) {
-  _map(elementId)?.callMethod<JSAny>('invalidateSize'.toJS);
+  _map(elementId)?.callMethod<JSAny>('resize'.toJS);
 }
 
 void destroyMap(String elementId) {
   final m = _map(elementId);
   if (m == null) return;
+  
+  // Clean up any route if present
+  final routeKey = '__lroute_$elementId'.toJS;
+  final route = window.getProperty<JSObject?>(routeKey);
+  if (route != null) {
+    try {
+      final sourceId = route.getProperty<JSString>('sourceId'.toJS);
+      final layerId = route.getProperty<JSString>('layerId'.toJS);
+      if (m.callMethod<JSBoolean>('getLayer'.toJS, layerId).toDart) {
+        m.callMethod<JSAny>('removeLayer'.toJS, layerId);
+      }
+      if (m.callMethod<JSBoolean>('getSource'.toJS, sourceId).toDart) {
+        m.callMethod<JSAny>('removeSource'.toJS, sourceId);
+      }
+    } catch (_) {}
+    window.setProperty(routeKey, null);
+  }
+
   m.callMethod<JSAny>('remove'.toJS);
   window.setProperty('__lmap_$elementId'.toJS, null);
 }
@@ -283,7 +418,6 @@ Future<String> reverseGeocode(double lat, double lng) async {
 
 // ── OSM Navigation ────────────────────────────────────────────────────────────
 
-/// Opens OSM directions in a new tab (no Google Maps).
 void openOSMNavigation(double destLat, double destLng) {
   window.open(
     'https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=;$destLat,$destLng',
@@ -448,4 +582,42 @@ Future<double?> getSolanaBalance(String publicKey) async {
   } catch (_) {
     return null;
   }
+}
+
+void setupMapInteractionListener(
+  String elementId,
+  void Function() onInteractionStart,
+  void Function() onInteractionEnd,
+) {
+  final m = _map(elementId);
+  if (m == null) return;
+
+  m.callMethod<JSAny>(
+    'on'.toJS,
+    'dragstart'.toJS,
+    (() {
+      onInteractionStart();
+    }).toJS,
+  );
+  m.callMethod<JSAny>(
+    'on'.toJS,
+    'zoomstart'.toJS,
+    (() {
+      onInteractionStart();
+    }).toJS,
+  );
+  m.callMethod<JSAny>(
+    'on'.toJS,
+    'dragend'.toJS,
+    (() {
+      onInteractionEnd();
+    }).toJS,
+  );
+  m.callMethod<JSAny>(
+    'on'.toJS,
+    'zoomend'.toJS,
+    (() {
+      onInteractionEnd();
+    }).toJS,
+  );
 }

@@ -24,7 +24,9 @@ class JobListView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final isDarkMode = ref.watch(themeModeProvider);
     final currentViewMode = ref.watch(currentViewModeProvider);
-    final currentTab = ref.watch(jobListTabProvider);
+    final profile = ref.watch(userProfileProvider).value;
+    final isPureNyxian = profile?.accountType == AccountType.nyxian;
+    final currentTab = isPureNyxian ? 0 : ref.watch(jobListTabProvider);
 
     final AsyncValue<List<Job>> jobsAsync = currentTab == 0
         ? ref.watch(availableJobsProvider)
@@ -41,9 +43,11 @@ class JobListView extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  currentViewMode == AccountType.employer
-                      ? (currentTab == 0 ? "Available Gigs" : "My Postings")
-                      : (currentTab == 0 ? "Available Jobs" : "My Gigs"),
+                  isPureNyxian
+                      ? "Available Jobs"
+                      : (currentViewMode == AccountType.employer
+                          ? (currentTab == 0 ? "Available Gigs" : "My Postings")
+                          : (currentTab == 0 ? "Available Jobs" : "My Gigs")),
                   style: TextStyle(
                     fontSize: isTablet ? 24 : 28,
                     fontWeight: FontWeight.bold,
@@ -52,11 +56,13 @@ class JobListView extends ConsumerWidget {
                         : AppColors.lightText,
                   ),
                 ),
-                const SizedBox(height: 12),
-                _buildAnimatedTabs(ref, isDarkMode),
+                if (!isPureNyxian) ...[
+                  const SizedBox(height: 12),
+                  _buildAnimatedTabs(ref, isDarkMode),
+                ],
               ],
             ),
-            if (!isTablet)
+            if (!isTablet && !isPureNyxian)
               GestureDetector(
                 onTap: () =>
                     ref.read(jobsViewProvider.notifier).state = 'create',
@@ -72,7 +78,7 @@ class JobListView extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 24),
-        if (isTablet) ...[
+        if (isTablet && !isPureNyxian) ...[
           UIHelpers.buildPrimaryButton(
             "+ Create New Listing",
             () => ref.read(jobsViewProvider.notifier).state = 'create',
