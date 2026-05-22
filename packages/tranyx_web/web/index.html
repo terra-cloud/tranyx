@@ -7,20 +7,23 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
 
   <title>Tranyx — Decentralized Freelance Gig Marketplace</title>
-  <meta name="description" content="Find premium freelance gigs and trusted Nyxians in the Philippines. Web3-powered escrow, real-time tracking, and verified identities.">
+  <meta name="description"
+    content="Find premium freelance gigs and trusted Nyxians in the Philippines. Web3-powered escrow, real-time tracking, and verified identities.">
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://tranyx-app.web.app/">
   <meta property="og:title" content="Tranyx — Decentralized Freelance Gig Marketplace">
-  <meta property="og:description" content="Find premium freelance gigs and trusted Nyxians in the Philippines. Web3-powered escrow, real-time tracking, and verified identities.">
+  <meta property="og:description"
+    content="Find premium freelance gigs and trusted Nyxians in the Philippines. Web3-powered escrow, real-time tracking, and verified identities.">
   <meta property="og:image" content="https://tranyx-app.web.app/images/logo.png">
 
   <!-- Twitter / X -->
   <meta property="twitter:card" content="summary_large_image">
   <meta property="twitter:url" content="https://tranyx-app.web.app/">
   <meta property="twitter:title" content="Tranyx — Decentralized Freelance Gig Marketplace">
-  <meta property="twitter:description" content="Find premium freelance gigs and trusted Nyxians in the Philippines. Web3-powered escrow, real-time tracking, and verified identities.">
+  <meta property="twitter:description"
+    content="Find premium freelance gigs and trusted Nyxians in the Philippines. Web3-powered escrow, real-time tracking, and verified identities.">
   <meta property="twitter:image" content="https://tranyx-app.web.app/images/logo.png">
 
   <!-- External Scripts & Styles from main.server.dart -->
@@ -30,8 +33,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-firestore-compat.js"></script>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <link rel="stylesheet" href="styles.css">
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
@@ -117,6 +120,52 @@
       });
       observer.observe(document.body, { childList: true, subtree: true });
     });
+
+    window._createMap = function (options) {
+      console.log("DEBUG: _createMap called with options:", options);
+      if (!window.maplibregl) {
+        console.error("DEBUG: maplibregl is not defined on window!");
+        return null;
+      }
+      try {
+        const map = new maplibregl.Map(options);
+        console.log("DEBUG: maplibregl.Map constructed successfully");
+        map.addControl(new maplibregl.NavigationControl(), 'top-right');
+        return map;
+      } catch (e) {
+        console.error("DEBUG: Failed to construct maplibregl.Map:", e);
+        const errDiv = document.createElement('div');
+        errDiv.className = 'maplibre-error-overlay';
+        errDiv.style.position = 'absolute';
+        errDiv.style.bottom = '10px';
+        errDiv.style.left = '10px';
+        errDiv.style.backgroundColor = '#ef4444';
+        errDiv.style.color = 'white';
+        errDiv.style.padding = '12px 16px';
+        errDiv.style.borderRadius = '8px';
+        errDiv.style.zIndex = '9999';
+        errDiv.style.fontSize = '12px';
+        errDiv.style.fontWeight = 'bold';
+        errDiv.style.boxShadow = '0 4px 6px -1px rgb(0 0 0 / 0.1)';
+        errDiv.innerText = "MapLibre Error: " + e.message;
+        document.body.appendChild(errDiv);
+        throw e;
+      }
+    };
+    window._createMarker = function (options) {
+      console.log("DEBUG: _createMarker called with options:", options);
+      if (!window.maplibregl) return null;
+      return new maplibregl.Marker(options);
+    };
+    window._createPopup = function (options) {
+      console.log("DEBUG: _createPopup called with options:", options);
+      if (!window.maplibregl) return null;
+      return new maplibregl.Popup(options);
+    };
+    window._createLngLatBounds = function () {
+      if (!window.maplibregl) return null;
+      return new maplibregl.LngLatBounds();
+    };
 
     window.initFirebase = function (config) {
       if (!firebase.apps.length) {
@@ -223,13 +272,54 @@
       };
     };
 
+    window.listenToRentals = function (callback) {
+      if (!firebase.apps.length) return () => { };
+      const db = firebase.firestore();
+      const unsub = db.collection('rentals')
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          callback(JSON.stringify(list));
+        }, (error) => {
+          console.error("Rentals list listener error:", error);
+        });
+      return unsub;
+    };
+
+    window.listenToRentalDetails = function (rentalId, callback) {
+      if (!firebase.apps.length) return () => { };
+      const db = firebase.firestore();
+      const unsub = db.collection('rentals').doc(rentalId)
+        .onSnapshot((doc) => {
+          if (doc.exists) {
+            callback(JSON.stringify({ id: doc.id, ...doc.data() }));
+          }
+        }, (error) => {
+          console.error("Rental details listener error:", error);
+        });
+      return unsub;
+    };
+
     // ── OSRM route helper (CSP-safe — real script, not eval) ──────────
     window._osrmRoute = async function (elementId, fromLat, fromLng, toLat, toLng, color) {
       const map = window['__lmap_' + elementId];
-      if (!map || !window.L) return JSON.stringify({ error: 'No map or Leaflet' });
+      if (!map || !window.maplibregl) return JSON.stringify({ error: 'No map or MapLibre' });
 
       const routeKey = '__lroute_' + elementId;
-      if (window[routeKey]) { window[routeKey].remove(); window[routeKey] = null; }
+      const existing = window[routeKey];
+      if (existing) {
+        try {
+          if (map.getLayer(existing.layerId)) {
+            map.removeLayer(existing.layerId);
+          }
+          if (map.getSource(existing.sourceId)) {
+            map.removeSource(existing.sourceId);
+          }
+        } catch (e) {
+          console.error("Error removing old route:", e);
+        }
+        window[routeKey] = null;
+      }
 
       let coords = [[fromLat, fromLng], [toLat, toLng]];
       let distance = 0;
@@ -287,12 +377,46 @@
         console.error("OSRM Route API error:", e);
       }
 
-      const poly = L.polyline(coords, {
-        color: color, weight: 6, opacity: 0.9,
-        lineCap: 'round', lineJoin: 'round'
-      }).addTo(map);
-      window[routeKey] = poly;
-      map.fitBounds(poly.getBounds(), { padding: [40, 40] });
+      const rawCoords = coords.map(c => [c[1], c[0]]);
+      const sourceId = 'route_' + elementId;
+      const layerId = 'route_layer_' + elementId;
+
+      try {
+        map.addSource(sourceId, {
+          'type': 'geojson',
+          'data': {
+            'type': 'Feature',
+            'properties': {},
+            'geometry': {
+              'type': 'LineString',
+              'coordinates': rawCoords
+            }
+          }
+        });
+
+        map.addLayer({
+          'id': layerId,
+          'type': 'line',
+          'source': sourceId,
+          'layout': {
+            'line-join': 'round',
+            'line-cap': 'round'
+          },
+          'paint': {
+            'line-color': color,
+            'line-width': 6,
+            'line-opacity': 0.9
+          }
+        });
+
+        window[routeKey] = { sourceId: sourceId, layerId: layerId };
+
+        const bounds = new maplibregl.LngLatBounds();
+        rawCoords.forEach(c => bounds.extend(c));
+        map.fitBounds(bounds, { padding: 40 });
+      } catch (err) {
+        console.error("Error drawing route on MapLibre map:", err);
+      }
 
       return JSON.stringify({
         distance: distance,
@@ -379,6 +503,136 @@
         return null;
       }
     };
+
+    // ── Signature Pad ──────────────────────────────────────────────────────────
+    window.initSignaturePad = function (canvasId) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      let isDrawing = false;
+      let lastX = 0, lastY = 0;
+
+      function getPos(e, canvas) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        if (e.touches) {
+          return {
+            x: (e.touches[0].clientX - rect.left) * scaleX,
+            y: (e.touches[0].clientY - rect.top) * scaleY,
+          };
+        }
+        return {
+          x: (e.clientX - rect.left) * scaleX,
+          y: (e.clientY - rect.top) * scaleY,
+        };
+      }
+
+      ctx.strokeStyle = '#a855f7';
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      function onStart(e) {
+        e.preventDefault();
+        isDrawing = true;
+        const pos = getPos(e, canvas);
+        lastX = pos.x; lastY = pos.y;
+        ctx.beginPath();
+        ctx.moveTo(lastX, lastY);
+      }
+      function onMove(e) {
+        e.preventDefault();
+        if (!isDrawing) return;
+        const pos = getPos(e, canvas);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+        lastX = pos.x; lastY = pos.y;
+      }
+      function onEnd(e) { e.preventDefault(); isDrawing = false; }
+
+      canvas.addEventListener('mousedown', onStart);
+      canvas.addEventListener('mousemove', onMove);
+      canvas.addEventListener('mouseup', onEnd);
+      canvas.addEventListener('mouseleave', onEnd);
+      canvas.addEventListener('touchstart', onStart, { passive: false });
+      canvas.addEventListener('touchmove', onMove, { passive: false });
+      canvas.addEventListener('touchend', onEnd);
+      canvas.__signaturePadInitialized = true;
+    };
+
+    window.clearSignaturePad = function (canvasId) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+
+    window.isSignaturePadEmpty = function (canvasId) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return true;
+      const ctx = canvas.getContext('2d');
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      for (let i = 3; i < data.length; i += 4) {
+        if (data[i] > 0) return false;
+      }
+      return true;
+    };
+
+    window.getSignatureDataUrl = function (canvasId) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return '';
+      return canvas.toDataURL('image/png');
+    };
+
+    // ── Rental Q&A ─────────────────────────────────────────────────────────────
+    const _rentalQAUnsubs = {};
+
+    window.listenToRentalQA = function (rentalId, callback) {
+      if (!firebase.apps.length) return;
+      if (_rentalQAUnsubs[rentalId]) { _rentalQAUnsubs[rentalId](); }
+      const db = firebase.firestore();
+      const unsub = db.collection('rentals').doc(rentalId).collection('questions')
+        .orderBy('createdAt', 'asc')
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          callback(JSON.stringify(list));
+        }, (err) => {
+          console.error('Rental Q&A listener error:', err);
+        });
+      _rentalQAUnsubs[rentalId] = unsub;
+    };
+
+    window.unlistenRentalQA = function (rentalId) {
+      if (_rentalQAUnsubs[rentalId]) {
+        _rentalQAUnsubs[rentalId]();
+        delete _rentalQAUnsubs[rentalId];
+      }
+    };
+
+    window.postRentalQuestion = function (rentalId, uid, name, photoUrl, text) {
+      if (!firebase.apps.length) return;
+      const db = firebase.firestore();
+      db.collection('rentals').doc(rentalId).collection('questions').add({
+        uid: uid,
+        name: name,
+        photoUrl: photoUrl || '',
+        text: text,
+        answer: null,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    };
+
+    window.answerRentalQuestion = function (rentalId, questionId, answerText) {
+      if (!firebase.apps.length) return;
+      const db = firebase.firestore();
+      db.collection('rentals').doc(rentalId).collection('questions').doc(questionId).update({
+        answer: answerText,
+        answeredAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    };
+
   </script>
 </head>
 

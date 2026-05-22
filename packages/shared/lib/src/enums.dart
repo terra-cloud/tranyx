@@ -1153,3 +1153,21 @@ enum JobCategoryGroup {
     this.categories,
   );
 }
+
+enum VehicleType {
+  car,
+  motorcycle,
+  truck,
+  suv,
+  van;
+
+  String get label => name[0].toUpperCase() + name.substring(1);
+  String get icon => switch (this) {
+    car => 'car',
+    motorcycle => 'bike',
+    truck => 'truck',
+    suv => 'shield',
+    van => 'truck',
+  };
+}
+

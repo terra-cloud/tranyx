@@ -27,7 +27,7 @@ class JobsViewComponent extends StatelessComponent {
             h2(classes: 'text-xl font-bold', [
               Component.text(
                 isNyxian
-                    ? (s.activeJobPane == 'my_gigs' ? 'My Gigs' : 'Available Gigs')
+                    ? (s.activeJobPane == 'active' ? 'Active Gigs' : (s.activeJobPane == 'history' ? 'Past Gigs' : 'Available Gigs'))
                     : (s.activeJobPane == 'history' ? 'Past History' : 'My Postings'),
               ),
             ]),
@@ -56,16 +56,23 @@ class JobsViewComponent extends StatelessComponent {
                 button(
                   classes:
                       'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
-                      '${s.activeJobPane != 'my_gigs' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
+                      '${s.activeJobPane != 'active' && s.activeJobPane != 'history' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
                   events: {'click': (_) => s.setState(() => s.activeJobPane = 'browse')},
                   [Component.text('Browse Gigs')],
                 ),
                 button(
                   classes:
                       'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
-                      '${s.activeJobPane == 'my_gigs' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
-                  events: {'click': (_) => s.setState(() => s.activeJobPane = 'my_gigs')},
-                  [Component.text('My Gigs')],
+                      '${s.activeJobPane == 'active' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
+                  events: {'click': (_) => s.setState(() => s.activeJobPane = 'active')},
+                  [Component.text('Active')],
+                ),
+                button(
+                  classes:
+                      'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
+                      '${s.activeJobPane == 'history' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
+                  events: {'click': (_) => s.setState(() => s.activeJobPane = 'history')},
+                  [Component.text('Completed')],
                 ),
               ] else ...[
                 button(
@@ -175,8 +182,16 @@ class JobsViewComponent extends StatelessComponent {
 
     // Apply the active tab/pane filter
     if (isNyxian) {
-      if (s.activeJobPane == 'my_gigs') {
-        jobs = s.myJobs;
+      if (s.activeJobPane == 'history') {
+        jobs = s.myJobs.where((j) {
+          final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
+          return stat == 'completed' || stat == 'closed';
+        }).toList();
+      } else if (s.activeJobPane == 'active') {
+        jobs = s.myJobs.where((j) {
+          final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
+          return stat != 'completed' && stat != 'closed';
+        }).toList();
       } else {
         jobs = s.availableJobs;
       }
@@ -2170,6 +2185,16 @@ class _ReviewApplicants extends StatelessComponent {
             Component.text('An applicant has been accepted and is working on this gig.'),
           ]),
         ]),
+        if ((job?['receiptUrl'] as String?) != null)
+          div(classes: 'p-6 rounded-3xl border border-indigo-500/20 bg-indigo-500/5 space-y-3', [
+            div(classes: 'flex items-center gap-2 text-indigo-400 font-bold text-sm', [
+              lIcon('receipt', cls: 'w-5 h-5'),
+              Component.text('Receipt / Item Photo'),
+            ]),
+            div(classes: 'rounded-2xl overflow-hidden border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+              img(src: job!['receiptUrl'] as String, classes: 'w-full h-auto max-h-96 object-cover'),
+            ]),
+          ]),
         if (hasTracker && (job?['pickupLat'] != null) && (job?['destinationLat'] != null))
           NavigationMapComponent(state: s, isNyxian: false),
       ] else if (status == 'Done' || status == 'arrived_dropoff') ...[
@@ -2193,6 +2218,16 @@ class _ReviewApplicants extends StatelessComponent {
             ],
           ),
         ]),
+        if ((job?['receiptUrl'] as String?) != null)
+          div(classes: 'p-6 rounded-3xl border border-indigo-500/20 bg-indigo-500/5 space-y-3', [
+            div(classes: 'flex items-center gap-2 text-indigo-400 font-bold text-sm', [
+              lIcon('receipt', cls: 'w-5 h-5'),
+              Component.text('Receipt / Item Photo'),
+            ]),
+            div(classes: 'rounded-2xl overflow-hidden border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+              img(src: job!['receiptUrl'] as String, classes: 'w-full h-auto max-h-96 object-cover'),
+            ]),
+          ]),
         if (hasTracker && (job?['pickupLat'] != null) && (job?['destinationLat'] != null))
           NavigationMapComponent(state: s, isNyxian: false),
       ] else if (status == 'Completed' || status == 'completed') ...[
@@ -2203,6 +2238,16 @@ class _ReviewApplicants extends StatelessComponent {
             Component.text('This job has been successfully finished.'),
           ]),
         ]),
+        if ((job?['receiptUrl'] as String?) != null)
+          div(classes: 'p-6 rounded-3xl border border-indigo-500/20 bg-indigo-500/5 space-y-3', [
+            div(classes: 'flex items-center gap-2 text-indigo-400 font-bold text-sm', [
+              lIcon('receipt', cls: 'w-5 h-5'),
+              Component.text('Receipt / Item Photo'),
+            ]),
+            div(classes: 'rounded-2xl overflow-hidden border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+              img(src: job!['receiptUrl'] as String, classes: 'w-full h-auto max-h-96 object-cover'),
+            ]),
+          ]),
       ],
     ]);
   }

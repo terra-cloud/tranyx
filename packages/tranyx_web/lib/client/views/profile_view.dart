@@ -1553,8 +1553,23 @@ class _HistoryViewState extends State<_HistoryView> {
   List<Map<String, dynamic>> earningsTransactions = [];
   List<Map<String, dynamic>> purchaseTransactions = [];
   List<Map<String, dynamic>> depositTransactions = [];
+  List<Map<String, dynamic>> _dbRentalHistory = [];
   double totalEarningsSum = 0.0;
   int completedGigsCount = 0;
+
+  void _loadRentalHistory() async {
+    final uid = component.state.userProfile?.uid;
+    if (uid == null) return;
+    try {
+      final list = await component.state.firestore.getMyRentalHistory(uid);
+      setState(() {
+        _dbRentalHistory = list;
+        _loadDbHistory();
+      });
+    } catch (e) {
+      print('Error loading db rental history: $e');
+    }
+  }
 
   String _formatDate(int? ms) {
     if (ms == null) return 'Unknown Date';
@@ -1656,6 +1671,128 @@ class _HistoryViewState extends State<_HistoryView> {
       }
     }
 
+    // Process Vehicle Rentals
+    for (final rentalMap in component.state.realtimeRentals) {
+      final rental = VehicleRental.fromMap(rentalMap, rentalMap['id'] ?? '');
+      final status = rental.status.toLowerCase();
+      if (status == 'completed' || status == 'complete') {
+        final creatorId = rental.hostId;
+        final applicantId = rental.renteeId;
+        final title = '${rental.year} ${rental.brand} ${rental.model}';
+        final price = rental.totalCost ?? 0.0;
+        final createdAtMs = rental.createdAt.millisecondsSinceEpoch;
+        
+        // If the user was the host -> earnings
+        if (creatorId == uid) {
+          final payout = price * 0.95; // 5% host commission fee deducted
+          earningsSum += payout;
+          gigsCount++;
+          eTrans.add({
+            'title': title,
+            'desc': 'Completed vehicle rental',
+            'date': _formatDate(createdAtMs),
+            'amount': payout,
+            'status': 'Released',
+            'timestamp': createdAtMs,
+          });
+
+          // Aggregate for graphs
+          final dt = rental.createdAt;
+          // Daily
+          final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+          final dayName = days[dt.weekday - 1];
+          dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+
+          // Weekly
+          final wNum = ((dt.day - 1) ~/ 7) + 1;
+          final wName = 'Week ${wNum > 4 ? 4 : wNum}';
+          weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+
+          // Monthly
+          final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          final mName = months[dt.month - 1];
+          monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+
+          // Yearly
+          final yName = dt.year.toString();
+          yearlyAgg[yName] = (yearlyAgg[yName] ?? 0.0) + payout;
+        }
+
+        // If the user was the rentee -> purchases
+        if (applicantId == uid) {
+          pTrans.add({
+            'title': title,
+            'desc': 'Vehicle rental payment',
+            'date': _formatDate(createdAtMs),
+            'amount': price,
+            'status': 'Successful',
+            'timestamp': createdAtMs,
+          });
+        }
+      }
+    }
+
+    // Process DB Vehicle Rentals
+    for (final rentalMap in _dbRentalHistory) {
+      final rental = VehicleRental.fromMap(rentalMap, rentalMap['id'] ?? '');
+      final creatorId = rental.hostId;
+      final applicantId = rental.renteeId;
+      final title = '${rental.year} ${rental.brand} ${rental.model}';
+      final price = rental.totalCost ?? 0.0;
+      final createdAtMs = rental.createdAt.millisecondsSinceEpoch;
+      
+      // If the user was the host -> earnings
+      if (creatorId == uid) {
+        final payout = price * 0.95; // 5% host commission fee deducted
+        earningsSum += payout;
+        gigsCount++;
+        
+        final alreadyAdded = eTrans.any((e) => e['timestamp'] == createdAtMs && e['title'] == title);
+        if (!alreadyAdded) {
+          eTrans.add({
+            'title': title,
+            'desc': 'Completed vehicle rental',
+            'date': _formatDate(createdAtMs),
+            'amount': payout,
+            'status': 'Released',
+            'timestamp': createdAtMs,
+          });
+
+          // Aggregate for graphs
+          final dt = rental.createdAt;
+          final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+          final dayName = days[dt.weekday - 1];
+          dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+
+          final wNum = ((dt.day - 1) ~/ 7) + 1;
+          final wName = 'Week ${wNum > 4 ? 4 : wNum}';
+          weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+
+          final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          final mName = months[dt.month - 1];
+          monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+
+          final yName = dt.year.toString();
+          yearlyAgg[yName] = (yearlyAgg[yName] ?? 0.0) + payout;
+        }
+      }
+
+      // If the user was the rentee -> purchases
+      if (applicantId == uid) {
+        final alreadyAdded = pTrans.any((p) => p['timestamp'] == createdAtMs && p['title'] == title);
+        if (!alreadyAdded) {
+          pTrans.add({
+            'title': title,
+            'desc': 'Vehicle rental payment',
+            'date': _formatDate(createdAtMs),
+            'amount': price,
+            'status': 'Successful',
+            'timestamp': createdAtMs,
+          });
+        }
+      }
+    }
+
     // Process userTransactions for deposits (or any other types)
     for (final tx in component.state.userTransactions) {
       final type = tx['type'] as String?;
@@ -1734,7 +1871,7 @@ class _HistoryViewState extends State<_HistoryView> {
     } else {
       activeTab = 'earnings';
     }
-    _loadDbHistory();
+    _loadRentalHistory();
     component.state.loadUserProfile();
   }
 
@@ -1742,8 +1879,9 @@ class _HistoryViewState extends State<_HistoryView> {
   void didUpdateComponent(_HistoryView oldComponent) {
     super.didUpdateComponent(oldComponent);
     if (oldComponent.state.myJobs != component.state.myJobs ||
-        oldComponent.state.userTransactions != component.state.userTransactions) {
-      _loadDbHistory();
+        oldComponent.state.userTransactions != component.state.userTransactions ||
+        oldComponent.state.realtimeRentals != component.state.realtimeRentals) {
+      _loadRentalHistory();
       component.state.loadUserProfile();
     }
   }

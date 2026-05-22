@@ -60,13 +60,10 @@ class _ChatWidgetState extends State<ChatWidget> {
               classes:
                   '$headerBg backdrop-blur-md border-b $border flex items-center gap-3 px-5 py-4 flex-shrink-0',
               [
-                div(
-                  classes: 'p-2 rounded-xl bg-indigo-500/20',
-                  [lIcon('message-circle', cls: 'w-5 h-5 text-indigo-400')],
-                ),
+                div(classes: 'p-2 rounded-xl bg-indigo-500/20', [lIcon('message-circle', cls: 'w-5 h-5 text-indigo-400')]),
                 div(classes: 'flex-1', [
                   p(classes: 'font-bold text-sm ${isDark ? "text-white" : "text-zinc-900"}',
-                      [Component.text('Job Chat')]),
+                      [Component.text(s.currentChatId.startsWith('rental_') ? 'Rental Chat' : 'Job Chat')]),
                   p(classes: 'text-[11px] ${isDark ? "text-zinc-400" : "text-zinc-500"}',
                       [Component.text('Messages are monitored. No sharing of personal contact info.')]),
                 ]),

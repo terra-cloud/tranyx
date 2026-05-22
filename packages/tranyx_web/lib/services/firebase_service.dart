@@ -895,6 +895,799 @@ class FirestoreService {
     result.sort((a, b) => (a['createdAt'] as int? ?? 0).compareTo(b['createdAt'] as int? ?? 0));
     return result;
   }
+
+  // ── Vehicle Rentals ──────────────────────────────────────────
+
+  /// Create a new vehicle rental posting, deducting 0.5% listing fee
+  Future<String> createRental(VehicleRental rental) async {
+    final host = await getUser(rental.hostId);
+    if (host == null) {
+      throw Exception('Host profile not found.');
+    }
+    final listingFee = 0.005 * rental.priceDaily;
+    if (host.tyxBalance < listingFee) {
+      throw Exception('Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+    }
+
+    // Deduct fee
+    final newBalance = host.tyxBalance - listingFee;
+    await updateTyxBalance(rental.hostId, newBalance);
+
+    // Save transaction record
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    final txData = {
+      'uid': rental.hostId,
+      'type': 'listing_fee',
+      'amount': listingFee,
+      'title': 'Vehicle Listing Fee',
+      'desc': '0.5% posting fee for ${rental.brand} ${rental.model} (${rental.year})',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('transactions/$txId', txData);
+
+    // Post rental document
+    final url = '$_firestoreBase/rentals';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final req = await _client.post(
+      Uri.parse(url),
+      headers: headers,
+      body: jsonEncode(_toFirestoreFields(rental.toMap())),
+    );
+
+    if (req.statusCode >= 400) {
+      final data = jsonDecode(req.body) as Map<String, dynamic>;
+      final err = data['error'] as Map? ?? {};
+      throw FirebaseException(err['message'] as String? ?? 'Create rental failed', req.statusCode);
+    }
+
+    final result = jsonDecode(req.body) as Map<String, dynamic>;
+    return _docId(result);
+  }
+
+  /// Delete rental posting and refund listing fee
+  Future<void> deleteRental(String rentalId) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+
+    final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+    final host = await getUser(rental.hostId);
+    if (host != null) {
+      final listingFee = 0.005 * rental.priceDaily;
+      final newBalance = host.tyxBalance + listingFee;
+      await updateTyxBalance(rental.hostId, newBalance);
+
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'uid': rental.hostId,
+        'type': 'refund',
+        'amount': listingFee,
+        'title': 'Listing Fee Refund',
+        'desc': 'Refund for deleted listing: ${rental.brand} ${rental.model}',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      await setDocument('transactions/$txId', txData);
+    }
+
+    await deleteDocument('rentals/$rentalId');
+  }
+
+  /// Fetch all rentals
+  Future<List<VehicleRental>> getRentals() async {
+    final url = '$_firestoreBase/rentals';
+    final headers = <String, String>{};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final req = await _client.get(Uri.parse(url), headers: headers);
+    if (req.statusCode >= 400) return [];
+
+    final data = jsonDecode(req.body) as Map<String, dynamic>;
+    final docs = data['documents'] as List? ?? [];
+    return docs.map((d) {
+      final doc = d as Map<String, dynamic>;
+      final id = _docId(doc);
+      return VehicleRental.fromMap(_fromFirestoreDoc(doc), id);
+    }).toList();
+  }
+
+  /// Fetch specific rental
+  Future<VehicleRental?> getRental(String rentalId) async {
+    final doc = await getDocument('rentals/$rentalId');
+    if (doc == null) return null;
+    return VehicleRental.fromMap(doc, rentalId);
+  }
+
+  /// Book a vehicle rental (includes escrow payment with 3% renter booking fee)
+  Future<void> bookRental({
+    required String rentalId,
+    required String renteeId,
+    required String renteeName,
+    required String? renteePhotoUrl,
+    required String durationType,
+    required int multiplier,
+    required String signatureName,
+    required String licenseNumber,
+    required double totalCost,
+  }) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+    final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+
+    if (rental.status != 'Available') {
+      throw Exception('Vehicle is no longer available for booking.');
+    }
+
+    final rentee = await getUser(renteeId);
+    if (rentee == null) throw Exception('Renter profile not found.');
+
+    final bookingFee = totalCost * 0.03;
+    final totalRequired = totalCost + bookingFee;
+
+    if (rentee.tyxBalance < totalRequired) {
+      throw Exception('Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+    }
+
+    // Deduct from renter
+    final newRenterBalance = rentee.tyxBalance - totalRequired;
+    await updateTyxBalance(renteeId, newRenterBalance);
+
+    // Save transaction record for renter
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    final txData = {
+      'uid': renteeId,
+      'type': 'payment',
+      'amount': totalRequired,
+      'title': 'Vehicle Booking',
+      'desc': 'Booked ${rental.brand} ${rental.model} for $multiplier $durationType(s)',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('transactions/$txId', txData);
+
+    // Put funds in Escrow
+    final escrowDoc = {
+      'rentalId': rentalId,
+      'renteeId': renteeId,
+      'hostId': rental.hostId,
+      'amount': totalCost,
+      'status': 'Held',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('rental_escrows/$rentalId', escrowDoc);
+
+    // Update rental document with booking details
+    final now = DateTime.now();
+    Duration duration;
+    if (durationType == '12h') {
+      duration = Duration(hours: 12 * multiplier);
+    } else if (durationType == 'weekly') {
+      duration = Duration(days: 7 * multiplier);
+    } else if (durationType == 'monthly') {
+      duration = Duration(days: 30 * multiplier);
+    } else {
+      // daily
+      duration = Duration(days: multiplier);
+    }
+    final endDate = now.add(duration);
+
+    final updatedData = {
+      'status': 'Booked',
+      'renteeId': renteeId,
+      'renteeName': renteeName,
+      'renteePhotoUrl': renteePhotoUrl,
+      'rentalDurationType': durationType,
+      'rentalMultiplier': multiplier,
+      'startDate': now.millisecondsSinceEpoch,
+      'endDate': endDate.millisecondsSinceEpoch,
+      'totalCost': totalCost,
+      'renteeSignatureName': signatureName,
+      'renteeLicenseNumber': licenseNumber,
+      'signedAt': now.millisecondsSinceEpoch,
+      'trackingLat': rental.pickupLat,
+      'trackingLng': rental.pickupLng,
+    };
+
+    await setDocument('rentals/$rentalId', updatedData);
+
+    // Create notifications for both parties
+    await createNotification(
+      uid: rental.hostId,
+      title: 'Vehicle Booked',
+      message: 'Your vehicle ${rental.brand} ${rental.model} has been booked by $renteeName.',
+    );
+    await createNotification(
+      uid: renteeId,
+      title: 'Rental Booking Successful',
+      message: 'You have booked ${rental.brand} ${rental.model}. Please sign terms and coordinate pickup.',
+    );
+  }
+
+  /// Update rental status
+  Future<void> updateRentalStatus(String rentalId, String status) async {
+    await setDocument('rentals/$rentalId', {'status': status});
+
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc != null) {
+      final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+      // Notify rentee if status changes
+      if (rental.renteeId != null) {
+        await createNotification(
+          uid: rental.renteeId!,
+          title: 'Rental Status Update',
+          message: 'Your rental for ${rental.brand} is now: $status.',
+        );
+      }
+      await createNotification(
+        uid: rental.hostId,
+        title: 'Rental Status Update',
+        message: 'Your rental for ${rental.brand} is now: $status.',
+      );
+    }
+  }
+
+  /// Update rental tracking location
+  Future<void> updateRentalTracking(String rentalId, double lat, double lng) async {
+    await setDocument('rentals/$rentalId', {
+      'trackingLat': lat,
+      'trackingLng': lng,
+    });
+  }
+
+  /// Complete rental (releases escrow to host, minus 5% platform commission, saves to history, resets listing to Available)
+  Future<void> completeRental(String rentalId) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+    final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+
+    final host = await getUser(rental.hostId);
+    if (host == null) throw Exception('Host profile not found.');
+
+    // Verify payment is held in escrow before releasing
+    final escrowDoc = await getDocument('rental_escrows/$rentalId');
+    if (escrowDoc == null) {
+      throw Exception('Escrow transaction not found. Payout aborted to ensure secure transaction.');
+    }
+    if (escrowDoc['status'] != 'Held') {
+      throw Exception('Escrow is not in Held status. Current status: ${escrowDoc['status']}. Payout aborted.');
+    }
+
+    final cost = rental.totalCost ?? 0.0;
+    final commission = cost * 0.05;
+    final hostPayout = cost - commission;
+
+    // Release payout to host
+    final newHostBalance = host.tyxBalance + hostPayout;
+    await updateTyxBalance(rental.hostId, newHostBalance);
+
+    // Save transaction for host
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    final txData = {
+      'uid': rental.hostId,
+      'type': 'payment',
+      'amount': hostPayout,
+      'title': 'Rental Earnings Payout',
+      'desc': 'Payout for rental ${rental.brand} ${rental.model} (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('transactions/$txId', txData);
+
+    // Update escrow status
+    await setDocument('rental_escrows/$rentalId', {
+      'status': 'Released',
+      'releasedAt': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    // Save transaction and rental details to history
+    final historyId = 'rh_${DateTime.now().microsecondsSinceEpoch}';
+    final historyDoc = {
+      ...rentalDoc,
+      'status': 'Completed',
+      'completedAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('rental_history/$historyId', historyDoc);
+
+    // Reset the rental listing document status back to Available and clear rentee fields
+    await setDocument('rentals/$rentalId', {
+      'status': 'Available',
+      'renteeId': '',
+      'renteeName': '',
+      'renteePhotoUrl': '',
+      'rentalDurationType': '',
+      'rentalMultiplier': 0,
+      'startDate': 0,
+      'endDate': 0,
+      'totalCost': 0.0,
+      'renteeSignatureName': '',
+      'renteeLicenseNumber': '',
+      'signedAt': 0,
+      'trackingLat': 0.0,
+      'trackingLng': 0.0,
+    });
+
+    // Notifications
+    await createNotification(
+      uid: rental.hostId,
+      title: 'Rental Completed & Paid',
+      message: 'Rental for ${rental.brand} completed. Payout of ${hostPayout.toStringAsFixed(2)} TYXBIT credited to your wallet.',
+    );
+    if (rental.renteeId != null && rental.renteeId!.isNotEmpty) {
+      await createNotification(
+        uid: rental.renteeId!,
+        title: 'Rental Completed',
+        message: 'Your rental for ${rental.brand} has been successfully completed. Thank you!',
+      );
+    }
+  }
+
+  /// Submit a vehicle rental booking request (debits rentee and puts in request-specific escrow)
+  Future<void> createBookingRequest({
+    required String rentalId,
+    required String renteeId,
+    required String renteeName,
+    required String? renteePhotoUrl,
+    required String durationType,
+    required int multiplier,
+    required String signatureName,
+    required String licenseNumber,
+    required double totalCost,
+    required bool hireWithDriver,
+  }) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+    final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+
+    if (rental.status != 'Available') {
+      throw Exception('Vehicle is no longer available.');
+    }
+
+    final rentee = await getUser(renteeId);
+    if (rentee == null) throw Exception('Renter profile not found.');
+
+    final bookingFee = totalCost * 0.03;
+    final totalRequired = totalCost + bookingFee;
+
+    if (rentee.tyxBalance < totalRequired) {
+      throw Exception('Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+    }
+
+    // Deduct from renter
+    final newRenterBalance = rentee.tyxBalance - totalRequired;
+    await updateTyxBalance(renteeId, newRenterBalance);
+
+    // Save transaction record for renter
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    final txData = {
+      'uid': renteeId,
+      'type': 'payment',
+      'amount': totalRequired,
+      'title': 'Vehicle Booking Request',
+      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('transactions/$txId', txData);
+
+    // Save request document
+    final requestId = 'req_${DateTime.now().microsecondsSinceEpoch}';
+    final requestDoc = {
+      'id': requestId,
+      'rentalId': rentalId,
+      'renteeId': renteeId,
+      'renteeName': renteeName,
+      'renteePhotoUrl': renteePhotoUrl ?? '',
+      'durationType': durationType,
+      'multiplier': multiplier,
+      'totalCost': totalCost,
+      'bookingFee': bookingFee,
+      'signatureName': signatureName,
+      'licenseNumber': licenseNumber,
+      'hireWithDriver': hireWithDriver,
+      'status': 'Pending',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'hostId': rental.hostId,
+      'brand': rental.brand,
+      'model': rental.model,
+      'year': rental.year,
+    };
+    await setDocument('rental_requests/$requestId', requestDoc);
+
+    // Put funds in escrow for this specific request
+    final escrowDoc = {
+      'requestId': requestId,
+      'rentalId': rentalId,
+      'renteeId': renteeId,
+      'hostId': rental.hostId,
+      'amount': totalCost,
+      'status': 'Held',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('rental_escrows/$requestId', escrowDoc);
+
+    // Notify host
+    await createNotification(
+      uid: rental.hostId,
+      title: 'Booking Request Received',
+      message: '$renteeName wants to book your ${rental.brand} ${rental.model}.',
+    );
+  }
+
+  /// Approve a booking request and automatically reject all other requests for the same vehicle
+  Future<void> approveBookingRequest(String requestId, String rentalId) async {
+    final reqDoc = await getDocument('rental_requests/$requestId');
+    if (reqDoc == null) throw Exception('Booking request not found.');
+    if (reqDoc['status'] != 'Pending') throw Exception('Request is already processed.');
+
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+    final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+    if (rental.status != 'Available') {
+      throw Exception('Vehicle is no longer available (already booked).');
+    }
+
+    final renteeId = reqDoc['renteeId'] as String;
+    final renteeName = reqDoc['renteeName'] as String;
+    final durationType = reqDoc['durationType'] as String;
+    final multiplier = (reqDoc['multiplier'] as num).toInt();
+    final totalCost = (reqDoc['totalCost'] as num).toDouble();
+    final hireWithDriver = reqDoc['hireWithDriver'] as bool? ?? false;
+
+    // 1. Approve this request
+    await setDocument('rental_requests/$requestId', {'status': 'Approved'});
+
+    // 2. Move request's escrow to standard rental escrow
+    final reqEscrowDoc = await getDocument('rental_escrows/$requestId');
+    if (reqEscrowDoc != null) {
+      await setDocument('rental_escrows/$rentalId', {
+        'rentalId': rentalId,
+        'renteeId': renteeId,
+        'hostId': rental.hostId,
+        'amount': totalCost,
+        'status': 'Held',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      });
+      await deleteDocument('rental_escrows/$requestId');
+    }
+
+    // 3. Update the rental listing document with renter details
+    final now = DateTime.now();
+    Duration duration;
+    if (durationType == '12h') {
+      duration = Duration(hours: 12 * multiplier);
+    } else if (durationType == 'weekly') {
+      duration = Duration(days: 7 * multiplier);
+    } else if (durationType == 'monthly') {
+      duration = Duration(days: 30 * multiplier);
+    } else {
+      duration = Duration(days: multiplier);
+    }
+    final endDate = now.add(duration);
+
+    await setDocument('rentals/$rentalId', {
+      'status': 'Booked',
+      'renteeId': renteeId,
+      'renteeName': renteeName,
+      'renteePhotoUrl': reqDoc['renteePhotoUrl'] ?? '',
+      'rentalDurationType': durationType,
+      'rentalMultiplier': multiplier,
+      'startDate': now.millisecondsSinceEpoch,
+      'endDate': endDate.millisecondsSinceEpoch,
+      'totalCost': totalCost,
+      'renteeSignatureName': reqDoc['signatureName'] ?? '',
+      'renteeLicenseNumber': reqDoc['licenseNumber'] ?? '',
+      'signedAt': now.millisecondsSinceEpoch,
+      'trackingLat': rental.pickupLat,
+      'trackingLng': rental.pickupLng,
+      'hireWithDriver': hireWithDriver,
+    });
+
+    // 4. Reject all other pending requests for the same vehicle
+    final allRequests = await getPendingRequestsForVehicle(rentalId);
+    for (final otherReq in allRequests) {
+      final otherReqId = otherReq['id'] as String;
+      if (otherReqId == requestId) continue;
+      try {
+        await rejectBookingRequest(otherReqId);
+      } catch (e) {
+        print('Error rejecting other request $otherReqId: $e');
+      }
+    }
+
+    // Notifications
+    await createNotification(
+      uid: renteeId,
+      title: 'Booking Request Approved',
+      message: 'Your request to book ${rental.brand} ${rental.model} has been approved!',
+    );
+    await createNotification(
+      uid: rental.hostId,
+      title: 'Booking Confirmed',
+      message: 'You approved $renteeName\'s booking for ${rental.brand} ${rental.model}.',
+    );
+  }
+
+  /// Reject a booking request and refund the rentee's wallet
+  Future<void> rejectBookingRequest(String requestId) async {
+    final reqDoc = await getDocument('rental_requests/$requestId');
+    if (reqDoc == null) return;
+    if (reqDoc['status'] != 'Pending') return;
+
+    final renteeId = reqDoc['renteeId'] as String;
+    final totalCost = (reqDoc['totalCost'] as num).toDouble();
+    final bookingFee = (reqDoc['bookingFee'] as num).toDouble();
+    final refundAmount = totalCost + bookingFee;
+
+    // Set request status to Rejected
+    await setDocument('rental_requests/$requestId', {'status': 'Rejected'});
+
+    // Refund rentee
+    final rentee = await getUser(renteeId);
+    if (rentee != null) {
+      await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
+
+      // Save transaction record for refund
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'uid': renteeId,
+        'type': 'refund',
+        'amount': refundAmount,
+        'title': 'Booking Request Refund',
+        'desc': 'Refund for rejected request of ${reqDoc['brand']} ${reqDoc['model']}',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      await setDocument('transactions/$txId', txData);
+    }
+
+    // Release/delete the held escrow
+    await deleteDocument('rental_escrows/$requestId');
+
+    // Notify renter
+    await createNotification(
+      uid: renteeId,
+      title: 'Booking Request Rejected',
+      message: 'Your request to book ${reqDoc['brand']} ${reqDoc['model']} was rejected. Funds have been refunded.',
+    );
+  }
+
+  /// Fetch all pending requests for a specific vehicle, filtered in-memory
+  Future<List<Map<String, dynamic>>> getPendingRequestsForVehicle(String rentalId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'rental_requests'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'rentalId'},
+            'op': 'EQUAL',
+            'value': {'stringValue': rentalId},
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map<String, dynamic>;
+        final name = doc['name'] as String;
+        final parts = name.split('/');
+        final docId = parts.last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        if (data['status'] == 'Pending') {
+          list.add(data);
+        }
+      }
+    }
+    return list;
+  }
+
+  /// Fetch all pending requests submitted by a renter, filtered in-memory
+  Future<List<Map<String, dynamic>>> getRenterPendingRequests(String renteeId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'rental_requests'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'renteeId'},
+            'op': 'EQUAL',
+            'value': {'stringValue': renteeId},
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map<String, dynamic>;
+        final name = doc['name'] as String;
+        final parts = name.split('/');
+        final docId = parts.last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        if (data['status'] == 'Pending') {
+          list.add(data);
+        }
+      }
+    }
+    return list;
+  }
+
+  /// Fetch all completed rental history (both as host and rentee)
+  Future<List<Map<String, dynamic>>> getMyRentalHistory(String uid) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    // Query as Host
+    final bodyHost = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'rental_history'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'hostId'},
+            'op': 'EQUAL',
+            'value': {'stringValue': uid},
+          },
+        },
+      },
+    });
+
+    // Query as Rentee
+    final bodyRentee = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'rental_history'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'renteeId'},
+            'op': 'EQUAL',
+            'value': {'stringValue': uid},
+          },
+        },
+      },
+    });
+
+    final list = <Map<String, dynamic>>[];
+    final ids = <String>{};
+
+    Future<void> runQuery(String body) async {
+      try {
+        final req = await http.post(Uri.parse(url), headers: headers, body: body);
+        if (req.statusCode >= 400) return;
+        final List<dynamic> results = jsonDecode(req.body);
+        for (final r in results) {
+          if (r is Map && r.containsKey('document')) {
+            final doc = r['document'] as Map<String, dynamic>;
+            final name = doc['name'] as String;
+            final parts = name.split('/');
+            final docId = parts.last;
+            if (ids.contains(docId)) continue;
+            ids.add(docId);
+            final data = _fromFirestoreDoc(doc);
+            data['id'] = docId;
+            list.add(data);
+          }
+        }
+      } catch (e) {
+        print('Error running history query: $e');
+      }
+    }
+
+    await runQuery(bodyHost);
+    await runQuery(bodyRentee);
+
+    // Sort by completedAt descending
+    list.sort((a, b) {
+      final tA = a['completedAt'] ?? a['createdAt'] ?? 0;
+      final tB = b['completedAt'] ?? b['createdAt'] ?? 0;
+      return tB.compareTo(tA);
+    });
+
+    return list;
+  }
+
+  /// Cancel rental (refunds escrow to rentee, renter booking fee is kept by platform)
+  Future<void> cancelRental(String rentalId) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+    final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+
+    if (rental.renteeId == null) {
+      // If it was never booked, host can just delete it or update status. Let's delete/reset it.
+      await setDocument('rentals/$rentalId', {'status': 'Available'});
+      return;
+    }
+
+    final rentee = await getUser(rental.renteeId!);
+    if (rentee == null) throw Exception('Rentee profile not found.');
+
+    final cost = rental.totalCost ?? 0.0;
+
+    // Refund escrow to renter
+    final newRenterBalance = rentee.tyxBalance + cost;
+    await updateTyxBalance(rental.renteeId!, newRenterBalance);
+
+    // Save transaction for renter
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    final txData = {
+      'uid': rental.renteeId!,
+      'type': 'refund',
+      'amount': cost,
+      'title': 'Rental Booking Refund',
+      'desc': 'Refund for cancelled rental: ${rental.brand} ${rental.model}',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('transactions/$txId', txData);
+
+    // Update escrow status
+    await setDocument('rental_escrows/$rentalId', {
+      'status': 'Refunded',
+      'cancelledAt': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    // Reset rental listing to Available and clear rentee fields
+    final resetData = {
+      'status': 'Available',
+      'renteeId': null,
+      'renteeName': null,
+      'renteePhotoUrl': null,
+      'rentalDurationType': null,
+      'rentalMultiplier': null,
+      'startDate': null,
+      'endDate': null,
+      'totalCost': null,
+      'renteeSignatureName': null,
+      'renteeLicenseNumber': null,
+      'signedAt': null,
+      'trackingLat': null,
+      'trackingLng': null,
+    };
+    await setDocument('rentals/$rentalId', resetData);
+
+    // Notifications
+    await createNotification(
+      uid: rental.hostId,
+      title: 'Rental Booking Cancelled',
+      message: 'Rental booking for ${rental.brand} ${rental.model} was cancelled. The listing is now available again.',
+    );
+    await createNotification(
+      uid: rental.renteeId!,
+      title: 'Rental Cancelled & Refunded',
+      message: 'Your rental booking has been cancelled. Refund of ${cost.toStringAsFixed(2)} TYXBIT credited back to your wallet.',
+    );
+  }
 }
 
 // ── Gemini AI service ─────────────────────────────────────────────────────────
