@@ -23,11 +23,9 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
   @override
   void initState() {
     super.initState();
-    component.appState.setState(() {
-      component.appState.pickupAddress = '';
-      component.appState.pickupLat = null;
-      component.appState.pickupLng = null;
-    });
+    component.appState.pickupAddress = '';
+    component.appState.pickupLat = null;
+    component.appState.pickupLng = null;
   }
 
   // Form Fields
@@ -69,7 +67,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
   // Derived calculations
   double get _listingFee {
     final daily = double.tryParse(_priceDaily) ?? 0;
-    return daily * 0.005; // 0.5% of daily rate
+    return daily * 0.015; // 1.5% of daily rate
   }
 
   void _submit() async {
@@ -337,7 +335,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                 ]),
                 div(classes: 'mt-6 p-4 rounded-xl bg-purple-500/10 border border-purple-500/20 mb-6', [
                   div(classes: 'flex justify-between text-sm mb-2', [
-                    span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [Component.text('Platform Listing Fee (0.5% of Daily)')]),
+                    span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [Component.text('Platform Listing Fee (1.5% of Daily)')]),
                     span(classes: 'font-bold text-purple-400', [Component.text('${_listingFee.toStringAsFixed(2)} TYX')]),
                   ]),
                   p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}', [Component.text('To maintain quality, a small anti-spam fee is required to list your vehicle.')]),
@@ -348,11 +346,11 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                     label(classes: 'block text-sm font-semibold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
                       Component.text('Offer Driver Services (Host provides driver / serves as driver)')
                     ]),
-                    input(
+                    input<bool>(
                       type: InputType.checkbox,
                       classes: 'rounded border-zinc-300 text-purple-600 focus:ring-purple-500 w-5 h-5 cursor-pointer',
-                      attributes: _offersDriver ? {'checked': 'checked'} : {},
-                      events: {'change': (e) => setState(() => _offersDriver = (e.target as dynamic).checked as bool)},
+                      checked: _offersDriver,
+                      onChange: (val) => setState(() => _offersDriver = val),
                     ),
                   ]),
                   if (_offersDriver) ...[

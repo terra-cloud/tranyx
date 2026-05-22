@@ -898,13 +898,13 @@ class FirestoreService {
 
   // ── Vehicle Rentals ──────────────────────────────────────────
 
-  /// Create a new vehicle rental posting, deducting 0.5% listing fee
+  /// Create a new vehicle rental posting, deducting 1.5% listing fee
   Future<String> createRental(VehicleRental rental) async {
     final host = await getUser(rental.hostId);
     if (host == null) {
       throw Exception('Host profile not found.');
     }
-    final listingFee = 0.005 * rental.priceDaily;
+    final listingFee = 0.015 * rental.priceDaily;
     if (host.tyxBalance < listingFee) {
       throw Exception('Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.');
     }
@@ -920,7 +920,7 @@ class FirestoreService {
       'type': 'listing_fee',
       'amount': listingFee,
       'title': 'Vehicle Listing Fee',
-      'desc': '0.5% posting fee for ${rental.brand} ${rental.model} (${rental.year})',
+      'desc': '1.5% posting fee for ${rental.brand} ${rental.model} (${rental.year})',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -953,23 +953,21 @@ class FirestoreService {
     if (rentalDoc == null) throw Exception('Rental listing not found.');
 
     final rental = VehicleRental.fromMap(rentalDoc, rentalId);
-    final host = await getUser(rental.hostId);
-    if (host != null) {
-      final listingFee = 0.005 * rental.priceDaily;
-      final newBalance = host.tyxBalance + listingFee;
-      await updateTyxBalance(rental.hostId, newBalance);
+    
+    // Safety check: Cannot delete booked or ongoing rentals
+    if (rental.status != 'Available') {
+      throw Exception('Cannot delete a vehicle listing that is currently booked or active.');
+    }
 
-      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-      final txData = {
-        'uid': rental.hostId,
-        'type': 'refund',
-        'amount': listingFee,
-        'title': 'Listing Fee Refund',
-        'desc': 'Refund for deleted listing: ${rental.brand} ${rental.model}',
-        'method': 'Tranyx Wallet',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-      };
-      await setDocument('transactions/$txId', txData);
+    // Fetch all pending requests for this vehicle and reject/refund them
+    final pendingRequests = await getPendingRequestsForVehicle(rentalId);
+    for (final req in pendingRequests) {
+      final requestId = req['id'] as String;
+      try {
+        await rejectBookingRequest(requestId);
+      } catch (e) {
+        print('Error rejecting request $requestId during vehicle deletion: $e');
+      }
     }
 
     await deleteDocument('rentals/$rentalId');
@@ -1235,6 +1233,12 @@ class FirestoreService {
     required String licenseNumber,
     required double totalCost,
     required bool hireWithDriver,
+    required String rentalType,
+    required String? deliveryAddress,
+    double? deliveryLat,
+    double? deliveryLng,
+    required int startDate,
+    required int endDate,
   }) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
@@ -1292,6 +1296,12 @@ class FirestoreService {
       'brand': rental.brand,
       'model': rental.model,
       'year': rental.year,
+      'rentalType': rentalType,
+      'deliveryAddress': deliveryAddress ?? '',
+      'deliveryLat': deliveryLat,
+      'deliveryLng': deliveryLng,
+      'startDate': startDate,
+      'endDate': endDate,
     };
     await setDocument('rental_requests/$requestId', requestDoc);
 
@@ -1334,18 +1344,25 @@ class FirestoreService {
     final multiplier = (reqDoc['multiplier'] as num).toInt();
     final totalCost = (reqDoc['totalCost'] as num).toDouble();
     final hireWithDriver = reqDoc['hireWithDriver'] as bool? ?? false;
+    final rentalType = reqDoc['rentalType'] as String? ?? 'pickup';
+    final deliveryAddress = reqDoc['deliveryAddress'] as String? ?? '';
+    final startDate = (reqDoc['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+    final endDate = (reqDoc['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
 
     // 1. Approve this request
     await setDocument('rental_requests/$requestId', {'status': 'Approved'});
 
-    // 2. Move request's escrow to standard rental escrow
+    // 2. Move request's escrow to standard rental escrow (include bookingFee for full-refund tracking)
     final reqEscrowDoc = await getDocument('rental_escrows/$requestId');
+    final reqBookingFee = (reqDoc['bookingFee'] as num? ?? totalCost * 0.03).toDouble();
     if (reqEscrowDoc != null) {
       await setDocument('rental_escrows/$rentalId', {
         'rentalId': rentalId,
         'renteeId': renteeId,
         'hostId': rental.hostId,
         'amount': totalCost,
+        'bookingFee': reqBookingFee,
+        'totalPaid': totalCost + reqBookingFee,
         'status': 'Held',
         'createdAt': DateTime.now().millisecondsSinceEpoch,
       });
@@ -1354,17 +1371,6 @@ class FirestoreService {
 
     // 3. Update the rental listing document with renter details
     final now = DateTime.now();
-    Duration duration;
-    if (durationType == '12h') {
-      duration = Duration(hours: 12 * multiplier);
-    } else if (durationType == 'weekly') {
-      duration = Duration(days: 7 * multiplier);
-    } else if (durationType == 'monthly') {
-      duration = Duration(days: 30 * multiplier);
-    } else {
-      duration = Duration(days: multiplier);
-    }
-    final endDate = now.add(duration);
 
     await setDocument('rentals/$rentalId', {
       'status': 'Booked',
@@ -1373,15 +1379,19 @@ class FirestoreService {
       'renteePhotoUrl': reqDoc['renteePhotoUrl'] ?? '',
       'rentalDurationType': durationType,
       'rentalMultiplier': multiplier,
-      'startDate': now.millisecondsSinceEpoch,
-      'endDate': endDate.millisecondsSinceEpoch,
+      'startDate': startDate,
+      'endDate': endDate,
       'totalCost': totalCost,
+      'bookingFee': reqBookingFee,
       'renteeSignatureName': reqDoc['signatureName'] ?? '',
       'renteeLicenseNumber': reqDoc['licenseNumber'] ?? '',
       'signedAt': now.millisecondsSinceEpoch,
       'trackingLat': rental.pickupLat,
       'trackingLng': rental.pickupLng,
       'hireWithDriver': hireWithDriver,
+      'rentalType': rentalType,
+      'deliveryAddress': deliveryAddress,
+      'currentRequestId': requestId,
     });
 
     // 4. Reject all other pending requests for the same vehicle
@@ -1617,14 +1627,14 @@ class FirestoreService {
     return list;
   }
 
-  /// Cancel rental (refunds escrow to rentee, renter booking fee is kept by platform)
+  /// Cancel rental — full refund (totalCost + bookingFee) back to rentee
   Future<void> cancelRental(String rentalId) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
     final rental = VehicleRental.fromMap(rentalDoc, rentalId);
 
-    if (rental.renteeId == null) {
-      // If it was never booked, host can just delete it or update status. Let's delete/reset it.
+    if (rental.renteeId == null || rental.renteeId!.isEmpty) {
+      // Never booked — just reset status
       await setDocument('rentals/$rentalId', {'status': 'Available'});
       return;
     }
@@ -1632,33 +1642,48 @@ class FirestoreService {
     final rentee = await getUser(rental.renteeId!);
     if (rentee == null) throw Exception('Rentee profile not found.');
 
-    final cost = rental.totalCost ?? 0.0;
+    final baseCost = rental.totalCost ?? 0.0;
 
-    // Refund escrow to renter
-    final newRenterBalance = rentee.tyxBalance + cost;
-    await updateTyxBalance(rental.renteeId!, newRenterBalance);
+    // Retrieve booking fee from rental doc; fallback to escrow doc; fallback to 3% of base
+    double bookingFee = (rentalDoc['bookingFee'] as num?)?.toDouble() ?? 0.0;
+    if (bookingFee == 0.0) {
+      final escrowDoc = await getDocument('rental_escrows/$rentalId');
+      bookingFee = (escrowDoc?['bookingFee'] as num?)?.toDouble() ?? baseCost * 0.03;
+    }
+    final fullRefundAmount = baseCost + bookingFee;
+    const cancellationFee = 2.0; // flat platform cancellation processing fee
+    final refundToRentee = (fullRefundAmount - cancellationFee).clamp(0.0, double.infinity);
 
-    // Save transaction for renter
+    // Refund (total - 2 TYXBIT fee) to rentee
+    await updateTyxBalance(rental.renteeId!, rentee.tyxBalance + refundToRentee);
+
+    // Save refund transaction
     final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
     final txData = {
       'uid': rental.renteeId!,
       'type': 'refund',
-      'amount': cost,
-      'title': 'Rental Booking Refund',
-      'desc': 'Refund for cancelled rental: ${rental.brand} ${rental.model}',
+      'amount': refundToRentee,
+      'title': 'Rental Cancellation — Refund',
+      'desc': 'Refund for cancelled rental: ${rental.brand} ${rental.model} (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
     await setDocument('transactions/$txId', txData);
 
-    // Update escrow status
+    // Mark escrow as Refunded
     await setDocument('rental_escrows/$rentalId', {
       'status': 'Refunded',
       'cancelledAt': DateTime.now().millisecondsSinceEpoch,
     });
 
-    // Reset rental listing to Available and clear rentee fields
-    final resetData = {
+    // Mark current request as Cancelled
+    final currentRequestId = rentalDoc['currentRequestId'] as String?;
+    if (currentRequestId != null) {
+      await setDocument('rental_requests/$currentRequestId', {'status': 'Cancelled'});
+    }
+
+    // Reset rental listing to Available
+    await setDocument('rentals/$rentalId', {
       'status': 'Available',
       'renteeId': null,
       'renteeName': null,
@@ -1668,13 +1693,16 @@ class FirestoreService {
       'startDate': null,
       'endDate': null,
       'totalCost': null,
+      'bookingFee': null,
       'renteeSignatureName': null,
       'renteeLicenseNumber': null,
       'signedAt': null,
       'trackingLat': null,
       'trackingLng': null,
-    };
-    await setDocument('rentals/$rentalId', resetData);
+      'rentalType': null,
+      'deliveryAddress': null,
+      'currentRequestId': null,
+    });
 
     // Notifications
     await createNotification(
@@ -1684,9 +1712,304 @@ class FirestoreService {
     );
     await createNotification(
       uid: rental.renteeId!,
-      title: 'Rental Cancelled & Refunded',
-      message: 'Your rental booking has been cancelled. Refund of ${cost.toStringAsFixed(2)} TYXBIT credited back to your wallet.',
+      title: 'Rental Cancelled — Refund Issued',
+      message: 'Your rental was cancelled. ${refundToRentee.toStringAsFixed(2)} TYXBIT refunded (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee).',
     );
+  }
+
+  /// Fetch all approved requests for a specific vehicle
+  Future<List<Map<String, dynamic>>> getApprovedRequestsForVehicle(String rentalId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'rental_requests'},
+        ],
+        'where': {
+          'compositeFilter': {
+            'op': 'AND',
+            'filters': [
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'rentalId'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': rentalId},
+                }
+              },
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'status'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': 'Approved'},
+                }
+              }
+            ]
+          }
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map<String, dynamic>;
+        final name = doc['name'] as String;
+        final docId = name.split('/').last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        list.add(data);
+      }
+    }
+    return list;
+  }
+
+  /// Fetch all pending extensions for a specific vehicle
+  Future<List<Map<String, dynamic>>> getPendingExtensionsForVehicle(String rentalId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'rental_extensions'},
+        ],
+        'where': {
+          'compositeFilter': {
+            'op': 'AND',
+            'filters': [
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'rentalId'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': rentalId},
+                }
+              },
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'status'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': 'Pending'},
+                }
+              }
+            ]
+          }
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map<String, dynamic>;
+        final name = doc['name'] as String;
+        final docId = name.split('/').last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        list.add(data);
+      }
+    }
+    return list;
+  }
+
+  /// Create a pending extension request and debit the rentee's balance into extension escrow
+  Future<void> createExtensionRequest({
+    required String rentalId,
+    required String renteeId,
+    required int extendHours,
+    required double fee,
+  }) async {
+    final rentee = await getUser(renteeId);
+    if (rentee == null) throw Exception('Renter profile not found.');
+    if (rentee.tyxBalance < fee) {
+      throw Exception('Insufficient balance. Extension requires ${fee.toStringAsFixed(2)} TYXBIT, but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+    }
+
+    // Debit rentee
+    await updateTyxBalance(renteeId, rentee.tyxBalance - fee);
+
+    // Save transaction
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    final txData = {
+      'uid': renteeId,
+      'type': 'payment',
+      'amount': fee,
+      'title': 'Rental Extension Request',
+      'desc': 'Requested extension of $extendHours hour(s) for vehicle rental.',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('transactions/$txId', txData);
+
+    // Create pending extension request doc
+    final extensionId = 'ext_${DateTime.now().microsecondsSinceEpoch}';
+    final extensionDoc = {
+      'id': extensionId,
+      'rentalId': rentalId,
+      'renteeId': renteeId,
+      'extendHours': extendHours,
+      'fee': fee,
+      'status': 'Pending',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('rental_extensions/$extensionId', extensionDoc);
+
+    // Put funds in extension escrow
+    final escrowDoc = {
+      'extensionId': extensionId,
+      'rentalId': rentalId,
+      'renteeId': renteeId,
+      'amount': fee,
+      'status': 'Held',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('rental_extension_escrows/$extensionId', escrowDoc);
+  }
+
+  /// Auto-approve extension (no overlap): debit rentee and update rental immediately
+  Future<void> autoApproveExtension({
+    required String rentalId,
+    required String renteeId,
+    required int extendHours,
+    required double fee,
+  }) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+
+    final rentee = await getUser(renteeId);
+    if (rentee == null) throw Exception('Renter profile not found.');
+    if (rentee.tyxBalance < fee) {
+      throw Exception('Insufficient balance. Extension requires ${fee.toStringAsFixed(2)} TYXBIT, but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+    }
+
+    // Debit rentee
+    await updateTyxBalance(renteeId, rentee.tyxBalance - fee);
+
+    // Save transaction
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    final txData = {
+      'uid': renteeId,
+      'type': 'payment',
+      'amount': fee,
+      'title': 'Rental Extension (Auto-Approved)',
+      'desc': 'Extended rental by $extendHours hour(s) automatically.',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('transactions/$txId', txData);
+
+    // Add fee directly to rental escrow
+    final escrowDoc = await getDocument('rental_escrows/$rentalId');
+    if (escrowDoc != null) {
+      final currentAmount = (escrowDoc['amount'] as num? ?? 0.0).toDouble();
+      await setDocument('rental_escrows/$rentalId', {
+        ...escrowDoc,
+        'amount': currentAmount + fee,
+      });
+    }
+
+    // Update rental endDate and totalCost
+    final currentEndMs = rentalDoc['endDate'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+    final currentCost = (rentalDoc['totalCost'] as num? ?? 0.0).toDouble();
+
+    final newEndDate = DateTime.fromMillisecondsSinceEpoch(currentEndMs).add(Duration(hours: extendHours));
+
+    await setDocument('rentals/$rentalId', {
+      ...rentalDoc,
+      'endDate': newEndDate.millisecondsSinceEpoch,
+      'totalCost': currentCost + fee,
+    });
+  }
+
+  /// Approve pending extension request (move escrow and update rental)
+  Future<void> approveExtension(String extensionId) async {
+    final extDoc = await getDocument('rental_extensions/$extensionId');
+    if (extDoc == null) throw Exception('Extension request not found.');
+    if (extDoc['status'] != 'Pending') throw Exception('Extension already processed.');
+
+    final rentalId = extDoc['rentalId'] as String;
+    final extendHours = (extDoc['extendHours'] as num).toInt();
+    final fee = (extDoc['fee'] as num).toDouble();
+
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+
+    // 1. Mark request approved
+    await setDocument('rental_extensions/$extensionId', {'status': 'Approved'});
+
+    // 2. Merge extension escrow into main rental escrow
+    final extEscrow = await getDocument('rental_extension_escrows/$extensionId');
+    if (extEscrow != null) {
+      final escrowDoc = await getDocument('rental_escrows/$rentalId');
+      if (escrowDoc != null) {
+        final currentAmount = (escrowDoc['amount'] as num? ?? 0.0).toDouble();
+        await setDocument('rental_escrows/$rentalId', {
+          ...escrowDoc,
+          'amount': currentAmount + fee,
+        });
+      }
+      await deleteDocument('rental_extension_escrows/$extensionId');
+    }
+
+    // 3. Update rental endDate and totalCost
+    final currentEndMs = rentalDoc['endDate'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+    final currentCost = (rentalDoc['totalCost'] as num? ?? 0.0).toDouble();
+
+    final newEndDate = DateTime.fromMillisecondsSinceEpoch(currentEndMs).add(Duration(hours: extendHours));
+
+    await setDocument('rentals/$rentalId', {
+      ...rentalDoc,
+      'endDate': newEndDate.millisecondsSinceEpoch,
+      'totalCost': currentCost + fee,
+    });
+  }
+
+  /// Reject pending extension request (refund rentee and delete request escrow)
+  Future<void> rejectExtension(String extensionId) async {
+    final extDoc = await getDocument('rental_extensions/$extensionId');
+    if (extDoc == null) return;
+    if (extDoc['status'] != 'Pending') return;
+
+    final renteeId = extDoc['renteeId'] as String;
+    final fee = (extDoc['fee'] as num).toDouble();
+
+    // 1. Mark request rejected
+    await setDocument('rental_extensions/$extensionId', {'status': 'Rejected'});
+
+    // 2. Refund rentee
+    final rentee = await getUser(renteeId);
+    if (rentee != null) {
+      await updateTyxBalance(renteeId, rentee.tyxBalance + fee);
+
+      // Save refund transaction
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'uid': renteeId,
+        'type': 'refund',
+        'amount': fee,
+        'title': 'Rental Extension Refund',
+        'desc': 'Refund for rejected rental extension request.',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      await setDocument('transactions/$txId', txData);
+    }
+
+    // 3. Delete extension escrow
+    await deleteDocument('rental_extension_escrows/$extensionId');
   }
 }
 

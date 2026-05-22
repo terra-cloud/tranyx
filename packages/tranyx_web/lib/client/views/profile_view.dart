@@ -61,7 +61,9 @@ class _ProfileMenu extends StatelessComponent {
         historyLabel = 'Purchase History';
         break;
       case AccountType.nyxian:
-        historyLabel = 'Earning History';
+        final hasRentals = s.realtimeRentals.any((r) => r['renteeId'] == s.userProfile?.uid);
+        final hasPayments = s.userTransactions.any((tx) => tx['type'] == 'payment');
+        historyLabel = (hasRentals || hasPayments) ? 'History & Earnings' : 'Earning History';
         break;
       case AccountType.hybrid:
         historyLabel = 'History & Earnings';
@@ -159,7 +161,7 @@ class _ProfileMain extends StatelessComponent {
       // Stats row
       div(
         classes:
-            'grid grid-cols-2 md:grid-cols-${s.accountType == AccountType.hybrid ? "4" : (s.accountType == AccountType.nyxian ? "3" : "2")} gap-4',
+            'grid grid-cols-2 md:grid-cols-${s.accountType == AccountType.employer ? "2" : "3"} gap-4',
         [
           // Rating - Always shown
           _stat(
@@ -180,27 +182,18 @@ class _ProfileMain extends StatelessComponent {
               isDark,
             ),
 
-          // Earned - Shown for Nyxian and Hybrid
-          if (s.accountType != AccountType.employer)
-            _stat(
-              '₱ ${(s.userProfile?.totalEarned ?? 0.0).toStringAsFixed(2)}',
-              'Earned',
-              'trending-up',
-              'text-emerald-400',
-              isDark,
-            ),
-
-          // Balance - Shown for Employer and Hybrid
-          if (s.accountType != AccountType.nyxian)
-            _stat(
-              '₱ ${(s.userProfile?.tyxBalance ?? 0.0).toStringAsFixed(2)}',
-              'Balance',
-              'wallet',
-              'text-blue-400',
-              isDark,
-              actionLabel: 'Top Up',
-              onAction: (_) => s.setState(() => s.showDepositModal = true),
-            ),
+          // Balance - Always shown for everyone
+          _stat(
+            '₱ ${(s.userProfile?.tyxBalance ?? 0.0).toStringAsFixed(2)}',
+            'Balance',
+            'wallet',
+            'text-blue-400',
+            isDark,
+            actionLabel: s.accountType == AccountType.nyxian ? 'Withdraw' : 'Top Up',
+            onAction: s.accountType == AccountType.nyxian
+                ? (_) => s.handleWithdrawTyx()
+                : (_) => s.setState(() => s.showDepositModal = true),
+          ),
         ],
       ),
 
@@ -1720,11 +1713,14 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the rentee -> purchases
         if (applicantId == uid) {
+          final bookingFee = price * 0.03; // 3% platform booking fee
           pTrans.add({
             'title': title,
             'desc': 'Vehicle rental payment',
             'date': _formatDate(createdAtMs),
-            'amount': price,
+            'amount': price + bookingFee,
+            'baseAmount': price,
+            'bookingFee': bookingFee,
             'status': 'Successful',
             'timestamp': createdAtMs,
           });
@@ -1781,11 +1777,14 @@ class _HistoryViewState extends State<_HistoryView> {
       if (applicantId == uid) {
         final alreadyAdded = pTrans.any((p) => p['timestamp'] == createdAtMs && p['title'] == title);
         if (!alreadyAdded) {
+          final bookingFee = price * 0.03;
           pTrans.add({
             'title': title,
             'desc': 'Vehicle rental payment',
             'date': _formatDate(createdAtMs),
-            'amount': price,
+            'amount': price + bookingFee,
+            'baseAmount': price,
+            'bookingFee': bookingFee,
             'status': 'Successful',
             'timestamp': createdAtMs,
           });
@@ -1948,9 +1947,10 @@ class _HistoryViewState extends State<_HistoryView> {
     final isDark = s.isDark;
     final type = s.accountType;
 
+    final hasPurchaseHistory = purchaseTransactions.isNotEmpty;
     final showEarnings = (type == AccountType.nyxian || type == AccountType.hybrid);
-    final showPurchases = (type == AccountType.employer || type == AccountType.hybrid);
-    final showDeposits = (type == AccountType.employer || type == AccountType.hybrid);
+    final showPurchases = (type == AccountType.employer || type == AccountType.hybrid || (type == AccountType.nyxian && hasPurchaseHistory));
+    final showDeposits = (type == AccountType.employer || type == AccountType.hybrid || (type == AccountType.nyxian && hasPurchaseHistory));
 
     final activeData = earningsData[activeFilter] ?? [];
     double totalEarnedInFilter = 0.0;
@@ -1967,7 +1967,7 @@ class _HistoryViewState extends State<_HistoryView> {
       subViewHeader(
         title: type == AccountType.employer
             ? 'Purchase History'
-            : (type == AccountType.nyxian ? 'Earning History' : 'History & Earnings'),
+            : ((type == AccountType.nyxian && !hasPurchaseHistory) ? 'Earning History' : 'History & Earnings'),
         isDark: isDark,
         onBack: () => s.setState(() => s.profileView = ProfileView.main),
       ),
@@ -2150,7 +2150,7 @@ class _HistoryViewState extends State<_HistoryView> {
                 'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
             [
               for (final tx in purchaseTransactions)
-                div(classes: 'p-5 flex justify-between items-center hover:bg-zinc-500/5 transition-colors', [
+                div(classes: 'p-5 flex justify-between items-start hover:bg-zinc-500/5 transition-colors', [
                   div(classes: 'flex items-center gap-4', [
                     div(classes: 'w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-400', [
                       lIcon('arrow-up-right', cls: 'w-5 h-5'),
@@ -2162,11 +2162,21 @@ class _HistoryViewState extends State<_HistoryView> {
                       p(classes: 'text-xs text-zinc-500 mt-0.5', [
                         Component.text('${tx['desc']} • ${tx['date']}'),
                       ]),
+                      // Fee breakdown if available
+                      if (tx['bookingFee'] != null) ...[
+                        p(classes: 'text-xs text-zinc-500 mt-1', [
+                          Component.text('Rental: ${formatCurrency((tx['baseAmount'] as num).toDouble())}'),
+                        ]),
+                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
+                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
+                          Component.text('Platform fee (3%): − ${formatCurrency((tx['bookingFee'] as num).toDouble())}'),
+                        ]),
+                      ],
                     ]),
                   ]),
                    div(classes: 'text-right', [
                     p(classes: 'font-black text-sm ${isDark ? "text-zinc-100" : "text-zinc-900"}', [
-                      Component.text(formatCurrency((tx['amount'] as num).toDouble())),
+                      Component.text('− ${formatCurrency((tx['amount'] as num).toDouble())}'),
                     ]),
                     span(
                       classes:
@@ -2230,7 +2240,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
 class _ReviewsView extends StatefulComponent {
   final TranyxAppState state;
-  const _ReviewsView({required this.state, super.key});
+  const _ReviewsView({required this.state});
 
   @override
   State<_ReviewsView> createState() => _ReviewsViewState();

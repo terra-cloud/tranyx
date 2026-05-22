@@ -14,6 +14,7 @@ class ManageVehicleModalComponent extends StatefulComponent {
 class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   bool _isLoadingRequests = false;
   List<Map<String, dynamic>> _requests = [];
+  List<Map<String, dynamic>> _extensions = [];
   String? _error;
   bool _isProcessing = false;
   bool _showConfirmDelete = false;
@@ -35,11 +36,13 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
 
     try {
       final list = await component.appState.firestore.getPendingRequestsForVehicle(r['id']);
+      final extList = await component.appState.firestore.getPendingExtensionsForVehicle(r['id']);
       setState(() {
         _requests = list;
+        _extensions = extList;
       });
     } catch (e) {
-      setState(() => _error = 'Failed to load requests: $e');
+      setState(() => _error = 'Failed to load requests & extensions: $e');
     } finally {
       setState(() => _isLoadingRequests = false);
     }
@@ -78,6 +81,50 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     try {
       await component.appState.firestore.rejectBookingRequest(requestId);
       _loadRequests(); // Refresh request list
+    } catch (e) {
+      setState(() => _error = e.toString());
+    } finally {
+      setState(() => _isProcessing = false);
+    }
+  }
+
+  void _approveExtension(String extensionId) async {
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+
+    try {
+      await component.appState.firestore.approveExtension(extensionId);
+      
+      // Reload rental details to get updated end date
+      final r = component.appState.selectedRentalData;
+      if (r != null) {
+        final updatedRental = await component.appState.firestore.getRental(r['id']);
+        if (updatedRental != null) {
+          component.appState.setState(() {
+            component.appState.selectedRentalData = updatedRental.toMap();
+          });
+        }
+      }
+      
+      _loadRequests(); // Refresh lists
+    } catch (e) {
+      setState(() => _error = e.toString());
+    } finally {
+      setState(() => _isProcessing = false);
+    }
+  }
+
+  void _rejectExtension(String extensionId) async {
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+
+    try {
+      await component.appState.firestore.rejectExtension(extensionId);
+      _loadRequests(); // Refresh lists
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -145,6 +192,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     final year = r['year'] ?? '';
     final plateNumber = r['plateNumber'] ?? 'N/A';
     final dailyRate = r['dailyRate'] ?? r['priceDaily'] ?? 0.0;
+    final rentalType = r['rentalType'] as String? ?? 'pickup';
 
     final modalCls = isDark
         ? 'bg-zinc-900 border border-zinc-800 text-white'
@@ -203,7 +251,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                       span([Component.text('Are you sure you want to delete this listing?')]),
                     ]),
                     p(classes: 'text-zinc-400 text-xs', [
-                      Component.text('This will permanently remove the vehicle from Tranyx. Your listing fee will be refunded to your balance.')
+                      Component.text('This will permanently remove the vehicle from Tranyx. Your listing fee is non-refundable.')
                     ]),
                     div(classes: 'flex items-center gap-2 mt-1', [
                       button(
@@ -284,9 +332,15 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                           div(
                             classes: 'mb-4 p-3.5 rounded-xl text-xs ${isDark ? "bg-zinc-900 text-zinc-400" : "bg-zinc-50 text-zinc-600"}',
                             [
-                              div(classes: 'flex justify-between mb-1', [
+                              div(classes: 'flex flex-col gap-1.5 mb-2', [
                                 span([Component.text('Contract Signature:')]),
-                                span(classes: 'font-bold italic text-purple-400', [Component.text(req['signatureName'] ?? 'Unsigned')]),
+                                if (req['signatureName'] != null && req['signatureName'].toString().startsWith('data:image/'))
+                                  img(
+                                    src: req['signatureName'].toString(),
+                                    classes: 'max-h-16 h-auto object-contain bg-white rounded-lg p-1 max-w-[200px] mt-1',
+                                  )
+                                else
+                                  span(classes: 'font-bold italic text-purple-400', [Component.text(req['signatureName'] ?? 'Unsigned')]),
                               ]),
                               div(classes: 'flex justify-between', [
                                 span([Component.text('Requested Date:')]),
@@ -363,21 +417,91 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                             span(classes: 'text-zinc-500', [Component.text('End Date:')]),
                             span([Component.text(DateTime.fromMillisecondsSinceEpoch(r['endDate'] as int).toString().substring(0, 16))]),
                           ]),
+                        if (r['renteeSignatureName'] != null)
+                          div(classes: 'flex flex-col gap-1.5 mt-2 pt-2 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+                            span(classes: 'text-zinc-500 text-xs', [Component.text('Contract Signature:')]),
+                            if (r['renteeSignatureName'].toString().startsWith('data:image/'))
+                              img(
+                                src: r['renteeSignatureName'].toString(),
+                                classes: 'max-h-16 h-auto object-contain bg-white rounded-lg p-1 max-w-[200px] mt-1',
+                              )
+                            else
+                              span(classes: 'font-bold italic text-purple-400', [Component.text(r['renteeSignatureName'] ?? 'Unsigned')]),
+                          ]),
                       ],
                     ),
+
+                    if (_extensions.isNotEmpty) ...[
+                      h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4 mt-6', [Component.text('Pending Extension Requests (${_extensions.length})')]),
+                      div(classes: 'flex flex-col gap-4 mb-6', [
+                        for (final ext in _extensions)
+                          div(
+                            classes: 'p-5 rounded-2xl border transition-all ${isDark ? "bg-zinc-950 border-zinc-800 hover:border-zinc-700" : "bg-white border-zinc-200 hover:shadow-md"}',
+                            [
+                              div(classes: 'flex items-start justify-between mb-4', [
+                                div([
+                                  p(classes: 'font-bold text-sm', [Component.text('Extension Request')]),
+                                  p(classes: 'text-xs text-zinc-500 mt-1', [
+                                    Component.text('Requested: ${DateTime.fromMillisecondsSinceEpoch(ext["createdAt"] ?? 0).toString().substring(0, 16)}')
+                                  ]),
+                                ]),
+                                div(classes: 'text-right', [
+                                  p(classes: 'font-black text-purple-400', [Component.text('₱${ext["fee"]}')]),
+                                  p(classes: 'text-xs text-zinc-500', [Component.text('+${ext["extendHours"]} hour(s)')]),
+                                ]),
+                              ]),
+                              div(classes: 'flex items-center gap-2', [
+                                button(
+                                  classes: 'flex-1 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity',
+                                  events: {'click': (_) => _approveExtension(ext['id'])},
+                                  disabled: _isProcessing,
+                                  [Component.text('Approve')],
+                                ),
+                                button(
+                                  classes: 'px-4 py-2 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-800 hover:bg-zinc-900 text-zinc-400 hover:text-white" : "border-zinc-200 hover:bg-zinc-50 text-zinc-500"} transition-colors',
+                                  events: {'click': (_) => _rejectExtension(ext['id'])},
+                                  disabled: _isProcessing,
+                                  [Component.text('Reject')],
+                                ),
+                              ]),
+                            ],
+                          ),
+                      ]),
+                    ],
                   ],
                 ),
 
                 // Controls to advance status
                 div(classes: 'flex flex-col gap-3', [
                   if (status == 'Booked')
+                    if (rentalType == 'deliver')
+                      button(
+                        classes: 'w-full py-3 rounded-2xl text-sm font-semibold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2',
+                        events: {'click': (_) => _updateStatus('On the way to Rentee')},
+                        disabled: _isProcessing,
+                        [
+                          lIcon('truck', cls: 'w-5 h-5'),
+                          Component.text('Start Delivery (On the way)'),
+                        ],
+                      )
+                    else
+                      button(
+                        classes: 'w-full py-3 rounded-2xl text-sm font-semibold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2',
+                        events: {'click': (_) => _updateStatus('Ongoing')},
+                        disabled: _isProcessing,
+                        [
+                          lIcon('key', cls: 'w-5 h-5'),
+                          Component.text('Hand Over & Start Rental'),
+                        ],
+                      )
+                  else if (status == 'On the way to Rentee')
                     button(
                       classes: 'w-full py-3 rounded-2xl text-sm font-semibold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2',
                       events: {'click': (_) => _updateStatus('Ongoing')},
                       disabled: _isProcessing,
                       [
                         lIcon('key', cls: 'w-5 h-5'),
-                        Component.text('Hand Over & Start Rental'),
+                        Component.text('Hand Over & Start Rental (Turned Over)'),
                       ],
                     )
                   else if (status == 'Ongoing')

@@ -36,13 +36,61 @@ class _ExtendRentalModalState extends State<ExtendRentalModalComponent> {
     try {
       final r = component.appState.selectedRentalData;
       if (r == null) throw Exception('No rental selected.');
-      
-      // Update the rental document to add extension fee / time
-      // For now, we'll just mock this as a simple update since the Firestore API isn't fully detailed for extensions yet.
-      await component.appState.firestore.createOrUpdate('rentals/${r['id']}', {
-        'totalPrice': (r['totalPrice'] as num? ?? 0).toDouble() + _totalExtensionFee,
-        // Add hours to some return date...
-      });
+      final rentalId = r['id'] as String;
+
+      // Fetch all approved booking requests for this vehicle
+      final approvedRequests = await component.appState.firestore.getApprovedRequestsForVehicle(rentalId);
+
+      final currentEndMs = r['endDate'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+      final extendMs = currentEndMs + (_extendHours * 3600 * 1000);
+
+      // Check if the extended period overlaps with any other approved booking
+      bool hasOverlap = false;
+      for (final req in approvedRequests) {
+        final reqId = req['id'] as String?;
+        if (reqId != null && reqId == r['currentRequestId']) {
+          // Skip the current active booking itself
+          continue;
+        }
+
+        final reqStart = (req['startDate'] as num?)?.toInt() ?? 0;
+        final reqEnd = (req['endDate'] as num?)?.toInt() ?? 0;
+
+        // Overlap check: reqStart < extendMs && reqEnd > currentEndMs
+        if (reqStart < extendMs && reqEnd > currentEndMs) {
+          hasOverlap = true;
+          break;
+        }
+      }
+
+      final uid = component.appState.userProfile?.uid;
+      if (uid == null || uid.isEmpty) {
+        throw Exception('User is not authenticated.');
+      }
+
+      if (hasOverlap) {
+        await component.appState.firestore.createExtensionRequest(
+          rentalId: rentalId,
+          renteeId: uid,
+          extendHours: _extendHours,
+          fee: _totalExtensionFee,
+        );
+        component.appState.showAppToast(
+          'Extension Pending',
+          'Overlap detected. Pending extension request submitted for host approval.',
+        );
+      } else {
+        await component.appState.firestore.autoApproveExtension(
+          rentalId: rentalId,
+          renteeId: uid,
+          extendHours: _extendHours,
+          fee: _totalExtensionFee,
+        );
+        component.appState.showAppToast(
+          'Extension Approved',
+          'No overlap detected. Rental extended successfully.',
+        );
+      }
 
       // Close modal
       component.appState.setState(() {

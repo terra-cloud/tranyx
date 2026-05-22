@@ -91,7 +91,7 @@ void clearWatch(int id) => window.navigator.geolocation.clearWatch(id);
 
 JSObject? _map(String id) => window.getProperty<JSObject?>('__lmap_$id'.toJS);
 
-Future<void> initMap(String elementId, double lat, double lng, int zoom, {bool isDark = true, double pitch = 0, double bearing = 0}) async {
+Future<void> initMap(String elementId, double lat, double lng, double zoom, {bool isDark = true, double pitch = 0, double bearing = 0}) async {
   final found = await _waitForElement(elementId);
   if (!found) {
     print('ERROR: Map element with ID "$elementId" was not found in the DOM.');
@@ -343,7 +343,7 @@ void speakText(String text) {
   fn.callAsFunction(null, text.toJS);
 }
 
-void panTo(String elementId, double lat, double lng, {double? bearing, double? pitch}) {
+void panTo(String elementId, double lat, double lng, {double? bearing, double? pitch, double? zoom}) {
   final m = _map(elementId);
   if (m == null) return;
 
@@ -354,6 +354,9 @@ void panTo(String elementId, double lat, double lng, {double? bearing, double? p
   }
   if (pitch != null) {
     opts.setProperty('pitch'.toJS, pitch.toJS);
+  }
+  if (zoom != null) {
+    opts.setProperty('zoom'.toJS, zoom.toJS);
   }
   opts.setProperty('duration'.toJS, 1000.toJS); // 1s smooth camera glide
 
@@ -579,4 +582,42 @@ Future<double?> getSolanaBalance(String publicKey) async {
   } catch (_) {
     return null;
   }
+}
+
+void setupMapInteractionListener(
+  String elementId,
+  void Function() onInteractionStart,
+  void Function() onInteractionEnd,
+) {
+  final m = _map(elementId);
+  if (m == null) return;
+
+  m.callMethod<JSAny>(
+    'on'.toJS,
+    'dragstart'.toJS,
+    (() {
+      onInteractionStart();
+    }).toJS,
+  );
+  m.callMethod<JSAny>(
+    'on'.toJS,
+    'zoomstart'.toJS,
+    (() {
+      onInteractionStart();
+    }).toJS,
+  );
+  m.callMethod<JSAny>(
+    'on'.toJS,
+    'dragend'.toJS,
+    (() {
+      onInteractionEnd();
+    }).toJS,
+  );
+  m.callMethod<JSAny>(
+    'on'.toJS,
+    'zoomend'.toJS,
+    (() {
+      onInteractionEnd();
+    }).toJS,
+  );
 }

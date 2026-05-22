@@ -2,6 +2,7 @@ import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:tranyx_web/components/map_picker.dart';
 import 'package:tranyx_web/components/navigation_map.dart';
+import 'package:tranyx_web/services/web_interop.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
@@ -185,12 +186,12 @@ class JobsViewComponent extends StatelessComponent {
       if (s.activeJobPane == 'history') {
         jobs = s.myJobs.where((j) {
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
-          return stat == 'completed' || stat == 'closed';
+          return stat == 'completed' || stat == 'closed' || stat == 'cancelled';
         }).toList();
       } else if (s.activeJobPane == 'active') {
         jobs = s.myJobs.where((j) {
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
-          return stat != 'completed' && stat != 'closed';
+          return stat != 'completed' && stat != 'closed' && stat != 'cancelled';
         }).toList();
       } else {
         jobs = s.availableJobs;
@@ -199,12 +200,12 @@ class JobsViewComponent extends StatelessComponent {
       if (s.activeJobPane == 'history') {
         jobs = s.myJobs.where((j) {
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
-          return stat == 'completed' || stat == 'closed';
+          return stat == 'completed' || stat == 'closed' || stat == 'cancelled';
         }).toList();
       } else {
         jobs = s.myJobs.where((j) {
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
-          return stat != 'completed' && stat != 'closed';
+          return stat != 'completed' && stat != 'closed' && stat != 'cancelled';
         }).toList();
       }
     }
@@ -753,16 +754,35 @@ class _JobDetails extends StatelessComponent {
                       ]),
                     ],
                   ),
-                  button(
-                    classes:
-                        'w-full py-4 rounded-2xl font-semibold text-white bg-green-600 hover:bg-green-500 transition-colors flex items-center justify-center gap-2',
-                    events: {'click': (_) => s.handleMarkJobDone()},
-                    [
-                      if (s.isUpdatingSubStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                      lIcon('check-circle', cls: 'w-5 h-5'),
-                      Component.text(s.isUpdatingSubStatus ? 'Updating...' : 'Mark as Done'),
-                    ],
-                  ),
+                  div(classes: 'flex gap-3', [
+                    button(
+                      classes:
+                          'flex-1 py-4 rounded-2xl font-semibold text-red-500 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-all flex items-center justify-center gap-2',
+                      events: {
+                        'click': (_) {
+                          final confirmed = confirmDialog('Are you sure you want to cancel this job?');
+                          if (confirmed) {
+                            s.handleCancelJob();
+                          }
+                        }
+                      },
+                      [
+                        if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                        lIcon('x-circle', cls: 'w-5 h-5'),
+                        Component.text(s.isUpdatingJobStatus ? 'Cancelling...' : 'Cancel Job'),
+                      ],
+                    ),
+                    button(
+                      classes:
+                          'flex-1 py-4 rounded-2xl font-semibold text-white bg-green-600 hover:bg-green-500 transition-colors flex items-center justify-center gap-2',
+                      events: {'click': (_) => s.handleMarkJobDone()},
+                      [
+                        if (s.isUpdatingSubStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                        lIcon('check-circle', cls: 'w-5 h-5'),
+                        Component.text(s.isUpdatingSubStatus ? 'Updating...' : 'Mark as Done'),
+                      ],
+                    ),
+                  ]),
                 ]);
               } else if (isOngoingStatus && hasTracker) {
                 // DELIVERY JOB: Step 1 (In Progress -> Heading to Pickup)
@@ -779,15 +799,34 @@ class _JobDetails extends StatelessComponent {
                       ]),
                     ],
                   ),
-                  button(
-                    classes:
-                        'w-full py-4 rounded-2xl font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors',
-                    events: {'click': (_) => s.handleUpdateNyxianSubStatus('heading_to_pickup')},
-                    [
-                      if (s.isUpdatingSubStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                      Component.text(s.isUpdatingSubStatus ? 'Updating...' : 'Go to First Point'),
-                    ],
-                  ),
+                  div(classes: 'flex gap-3', [
+                    button(
+                      classes:
+                          'flex-1 py-4 rounded-2xl font-semibold text-red-500 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-all flex items-center justify-center gap-2',
+                      events: {
+                        'click': (_) {
+                          final confirmed = confirmDialog('Are you sure you want to cancel this job?');
+                          if (confirmed) {
+                            s.handleCancelJob();
+                          }
+                        }
+                      },
+                      [
+                        if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                        lIcon('x-circle', cls: 'w-5 h-5'),
+                        Component.text(s.isUpdatingJobStatus ? 'Cancelling...' : 'Cancel Job'),
+                      ],
+                    ),
+                    button(
+                      classes:
+                          'flex-1 py-4 rounded-2xl font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors flex items-center justify-center gap-2',
+                      events: {'click': (_) => s.handleUpdateNyxianSubStatus('heading_to_pickup')},
+                      [
+                        if (s.isUpdatingSubStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                        Component.text(s.isUpdatingSubStatus ? 'Updating...' : 'Go to First Point'),
+                      ],
+                    ),
+                  ]),
                   NavigationMapComponent(state: s, isNyxian: true),
                 ]);
               } else if (status == 'heading_to_pickup') {
@@ -805,15 +844,34 @@ class _JobDetails extends StatelessComponent {
                       ]),
                     ],
                   ),
-                  button(
-                    classes:
-                        'w-full py-4 rounded-2xl font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors',
-                    events: {'click': (_) => s.handleUpdateNyxianSubStatus('arrived_pickup')},
-                    [
-                      if (s.isUpdatingSubStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                      Component.text(s.isUpdatingSubStatus ? 'Updating...' : 'Arrived at First Point'),
-                    ],
-                  ),
+                  div(classes: 'flex gap-3', [
+                    button(
+                      classes:
+                          'flex-1 py-4 rounded-2xl font-semibold text-red-500 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-all flex items-center justify-center gap-2',
+                      events: {
+                        'click': (_) {
+                          final confirmed = confirmDialog('Are you sure you want to cancel this job?');
+                          if (confirmed) {
+                            s.handleCancelJob();
+                          }
+                        }
+                      },
+                      [
+                        if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                        lIcon('x-circle', cls: 'w-5 h-5'),
+                        Component.text(s.isUpdatingJobStatus ? 'Cancelling...' : 'Cancel Job'),
+                      ],
+                    ),
+                    button(
+                      classes:
+                          'flex-1 py-4 rounded-2xl font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors flex items-center justify-center gap-2',
+                      events: {'click': (_) => s.handleUpdateNyxianSubStatus('arrived_pickup')},
+                      [
+                        if (s.isUpdatingSubStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                        Component.text(s.isUpdatingSubStatus ? 'Updating...' : 'Arrived at First Point'),
+                      ],
+                    ),
+                  ]),
                   NavigationMapComponent(state: s, isNyxian: true),
                 ]);
               } else if (status == 'arrived_pickup') {
@@ -953,6 +1011,19 @@ class _JobDetails extends StatelessComponent {
                     ]),
                   ],
                 );
+              } else if (status == 'Cancelled') {
+                return div(
+                  classes: 'p-4 rounded-2xl border border-red-500/30 bg-red-500/10 flex items-center gap-3',
+                  [
+                    lIcon('x-circle', cls: 'w-6 h-6 text-red-400'),
+                    div([
+                      p(classes: 'font-bold text-red-400 text-sm', [Component.text('Gig Cancelled')]),
+                      p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                        Component.text('This gig has been cancelled.'),
+                      ]),
+                    ]),
+                  ],
+                );
               }
             }
 
@@ -1011,6 +1082,41 @@ class _JobDetails extends StatelessComponent {
                     ]),
                   ]),
                 ]),
+                Builder(
+                  builder: (context) {
+                    final statusLower = status.toLowerCase();
+                    final reachedFirstPoint = hasTracker && (
+                      statusLower == 'arrived_pickup' ||
+                      statusLower == 'paid_cashier' ||
+                      statusLower == 'in_transit' ||
+                      statusLower == 'arrived_dropoff' ||
+                      statusLower == 'done' ||
+                      statusLower == 'completed'
+                    );
+
+                    final msg = reachedFirstPoint
+                        ? 'The Nyxian has reached/passed the first point. If you cancel, the Nyxian will be compensated 20 tyxbits from the escrow, and the remaining escrow will be refunded to you. Are you sure you want to cancel?'
+                        : 'Are you sure you want to cancel this job? You will receive a 100% refund of the escrow.';
+
+                    return button(
+                      classes:
+                          'w-full py-4 rounded-2xl font-semibold text-red-500 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-all flex items-center justify-center gap-2',
+                      events: {
+                        'click': (_) {
+                          final confirmed = confirmDialog(msg);
+                          if (confirmed) {
+                            s.handleCancelJob();
+                          }
+                        }
+                      },
+                      [
+                        if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                        lIcon('x-circle', cls: 'w-5 h-5'),
+                        Component.text(s.isUpdatingJobStatus ? 'Cancelling...' : 'Cancel Job'),
+                      ],
+                    );
+                  },
+                ),
                 if ((s.selectedJobData?['receiptUrl'] as String?) != null)
                   div(classes: 'mt-2 p-3 rounded-xl border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
                     p(classes: 'text-xs font-bold text-indigo-400 mb-2', [Component.text('Receipt / Item Photo')]),
@@ -1088,6 +1194,21 @@ class _JobDetails extends StatelessComponent {
                     ],
                   ),
               ]);
+            }
+
+            if (status == 'Cancelled') {
+              return div(
+                classes: 'p-4 rounded-2xl border border-red-500/30 bg-red-500/10 flex items-center gap-3',
+                [
+                  lIcon('x-circle', cls: 'w-6 h-6 text-red-400'),
+                  div([
+                    p(classes: 'font-bold text-red-400 text-sm', [Component.text('Gig Cancelled')]),
+                    p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                      Component.text('This job posting has been cancelled.'),
+                    ]),
+                  ]),
+                ],
+              );
             }
 
             // Default: Open job employer management buttons

@@ -274,7 +274,7 @@ class TranyxAppState extends State<TranyxApp> {
       final isCreator = j['creatorId'] == uid;
       if (!isCreator) return false;
       final s = (j['status'] as String?)?.toLowerCase();
-      final isTerminal = s == 'completed' || s == 'done' || s == 'complete';
+      final isTerminal = s == 'completed' || s == 'done' || s == 'complete' || s == 'cancelled' || s == 'closed';
       return !isTerminal;
     }).length;
 
@@ -289,7 +289,7 @@ class TranyxAppState extends State<TranyxApp> {
         final isCreator = j['creatorId'] == uid;
         if (!isCreator) return false;
         final s = (j['status'] as String?)?.toLowerCase();
-        final isTerminal = s == 'completed' || s == 'done' || s == 'complete';
+        final isTerminal = s == 'completed' || s == 'done' || s == 'complete' || s == 'cancelled' || s == 'closed';
         return !isTerminal;
       });
     } catch (_) {
@@ -552,15 +552,12 @@ class TranyxAppState extends State<TranyxApp> {
           ongoingJob = merged.cast<Map<String, dynamic>?>().firstWhere(
             (j) {
               final s = (j?['status'] as String?)?.toLowerCase();
-              return s == 'in progress' ||
-                  s == 'in_progress' ||
-                  s == 'ongoing' ||
-                  s == 'heading_to_pickup' ||
-                  s == 'arrived_pickup' ||
-                  s == 'paid_cashier' ||
-                  s == 'in_transit' ||
-                  s == 'arrived_dropoff' ||
-                  s == 'done';
+              return s != null &&
+                  s != 'open' &&
+                  s != 'completed' &&
+                  s != 'cancelled' &&
+                  s != 'held' &&
+                  s != 'pending';
             },
             orElse: () => null,
           );
@@ -1111,15 +1108,12 @@ class TranyxAppState extends State<TranyxApp> {
       final ongoing = merged.cast<Map<String, dynamic>?>().firstWhere(
         (j) {
           final s = (j?['status'] as String?)?.toLowerCase();
-          return s == 'in progress' ||
-              s == 'in_progress' ||
-              s == 'ongoing' ||
-              s == 'heading_to_pickup' ||
-              s == 'arrived_pickup' ||
-              s == 'paid_cashier' ||
-              s == 'in_transit' ||
-              s == 'arrived_dropoff' ||
-              s == 'done';
+          return s != null &&
+              s != 'open' &&
+              s != 'completed' &&
+              s != 'cancelled' &&
+              s != 'held' &&
+              s != 'pending';
         },
         orElse: () => null,
       );
@@ -2203,38 +2197,81 @@ class TranyxAppState extends State<TranyxApp> {
 
       if (jobDoc != null) {
         final employerId = jobDoc['creatorId'] as String?;
+        final nyxianId = jobDoc['acceptedApplicantId'] as String?;
+
+        final catName = (jobDoc['category'] as String? ?? '').toLowerCase();
+        final cat = JobCategory.values.firstWhere(
+          (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
+          orElse: () => JobCategory.others,
+        );
+        final hasTracker = jobDoc['hasTracker'] == true || jobDoc['hasTracker'] == 'true' || cat.hasTracker;
+
+        final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+        final reachedFirstPoint = hasTracker && (
+          status == 'arrived_pickup' ||
+          status == 'paid_cashier' ||
+          status == 'in_transit' ||
+          status == 'arrived_dropoff' ||
+          status == 'done' ||
+          status == 'completed'
+        );
 
         // 1. Check for escrow
         final escrowDoc = await svc.getEscrow(job['id'] as String);
         if (escrowDoc != null && employerId != null) {
-          final refundAmount = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+          final totalEscrow = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+          final double compensation = reachedFirstPoint ? (totalEscrow >= 20.0 ? 20.0 : totalEscrow) : 0.0;
+          final refundAmount = totalEscrow - compensation;
 
           // 2. Refund to Employer
-          final empDoc = await svc.getDocument('users/$employerId');
-          if (empDoc != null) {
-            final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            final newBal = currentBal + refundAmount;
+          if (refundAmount > 0.0) {
+            final empDoc = await svc.getDocument('users/$employerId');
+            if (empDoc != null) {
+              final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final newBal = currentBal + refundAmount;
 
-            // Depending on if the method 'updateTyxBalance' exists, using createOrUpdate to be safe
-            await svc.createOrUpdate('users/$employerId', {
-              ...empDoc,
-              'tyxBalance': newBal,
-            });
+              await svc.createOrUpdate('users/$employerId', {
+                ...empDoc,
+                'tyxBalance': newBal,
+              });
 
-            // Update local balance if current user is the employer
-            if (employerId == SessionStorage.uid) {
-              walletBalance = newBal;
-              if (userProfile != null) {
-                userProfile = userProfile!.copyWith(tyxBalance: newBal);
+              // Update local balance if current user is the employer
+              if (employerId == SessionStorage.uid) {
+                walletBalance = newBal;
+                if (userProfile != null) {
+                  userProfile = userProfile!.copyWith(tyxBalance: newBal);
+                }
               }
             }
           }
 
-          // 3. Delete escrow
+          // 3. Compensation to Nyxian
+          if (compensation > 0.0 && nyxianId != null) {
+            final nyxDoc = await svc.getDocument('users/$nyxianId');
+            if (nyxDoc != null) {
+              final nyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final newNyxBal = nyxBal + compensation;
+
+              await svc.createOrUpdate('users/$nyxianId', {
+                ...nyxDoc,
+                'tyxBalance': newNyxBal,
+              });
+
+              // Update local balance if current user is the Nyxian
+              if (nyxianId == SessionStorage.uid) {
+                walletBalance = newNyxBal;
+                if (userProfile != null) {
+                  userProfile = userProfile!.copyWith(tyxBalance: newNyxBal);
+                }
+              }
+            }
+          }
+
+          // 4. Delete escrow
           await svc.deleteDocument('escrow/${job['id']}');
         }
 
-        // 4. Update Job Status
+        // 5. Update Job Status
         await svc.updateJobStatus(job['id'] as String, 'Cancelled');
       }
 
