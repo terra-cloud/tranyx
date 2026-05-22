@@ -59,6 +59,7 @@ class UserProfile {
   final bool phoneVerified;
   final bool idVerified;
   final bool bgChecked;
+  final bool isPremium;
 
   const UserProfile({
     required this.uid,
@@ -86,6 +87,7 @@ class UserProfile {
     this.phoneVerified = false,
     this.idVerified = false,
     this.bgChecked = false,
+    this.isPremium = false,
   });
 
   factory UserProfile.fromMap(String uid, Map<String, dynamic> map) {
@@ -126,6 +128,7 @@ class UserProfile {
       phoneVerified: map['phoneVerified'] as bool? ?? false,
       idVerified: map['idVerified'] as bool? ?? false,
       bgChecked: map['bgChecked'] as bool? ?? false,
+      isPremium: map['isPremium'] as bool? ?? false,
     );
   }
 
@@ -155,6 +158,7 @@ class UserProfile {
     'phoneVerified': phoneVerified,
     'idVerified': idVerified,
     'bgChecked': bgChecked,
+    'isPremium': isPremium,
   };
 
   UserProfile copyWith({
@@ -182,6 +186,7 @@ class UserProfile {
     bool? phoneVerified,
     bool? idVerified,
     bool? bgChecked,
+    bool? isPremium,
   }) {
     return UserProfile(
       uid: uid,
@@ -209,6 +214,7 @@ class UserProfile {
       phoneVerified: phoneVerified ?? this.phoneVerified,
       idVerified: idVerified ?? this.idVerified,
       bgChecked: bgChecked ?? this.bgChecked,
+      isPremium: isPremium ?? this.isPremium,
     );
   }
 }
@@ -556,3 +562,227 @@ class JobGroup {
     required this.categories,
   });
 }
+
+class VehicleRental {
+  final String id;
+  final String hostId;
+  final String hostName;
+  final String? hostPhotoUrl;
+  final String brand;
+  final String model;
+  final int year;
+  final VehicleType type;
+  final String plateNumber;
+  final double vehicleValue;
+  final String ltoCrNumber;
+  final String ltoOrNumber;
+  final String insuranceProvider;
+  final String insurancePolicyNumber;
+  final String? franchisePermit;
+  final String interiorPhotoUrl;
+  final String frontPhotoUrl;
+  final String backPhotoUrl;
+  final String contractType; // 'tranyx' | 'custom'
+  final String contractTerms;
+  final double price12h;
+  final double priceDaily;
+  final double priceWeekly;
+  final double priceMonthly;
+  final double extensionRatePerHour;
+  final double latePenaltyRatePerHour;
+  final String status; // 'Available', 'Booked', 'On the Way', 'Active', 'Returning', 'Completed', 'Cancelled'
+  
+  // Driver services info
+  final bool offersDriver;
+  final double driverDailyPrice;
+  final String driverNote;
+  final String driverLicenseNumber;
+
+  // Renter and active booking info
+  final String? renteeId;
+  final String? renteeName;
+  final String? renteePhotoUrl;
+  final String? rentalDurationType; // '12h', 'daily', 'weekly', 'monthly'
+  final int? rentalMultiplier;
+  final DateTime? startDate;
+  final DateTime? endDate;
+  final double? totalCost;
+  final String? renteeSignatureName;
+  final String? renteeLicenseNumber;
+  final DateTime? signedAt;
+  final bool? hireWithDriver;
+
+  // Live coordinates
+  final double? trackingLat;
+  final double? trackingLng;
+
+  // Hosting location
+  final String pickupAddress;
+  final double pickupLat;
+  final double pickupLng;
+  final DateTime createdAt;
+
+  const VehicleRental({
+    required this.id,
+    required this.hostId,
+    required this.hostName,
+    this.hostPhotoUrl,
+    required this.brand,
+    required this.model,
+    required this.year,
+    required this.type,
+    required this.plateNumber,
+    required this.vehicleValue,
+    required this.ltoCrNumber,
+    required this.ltoOrNumber,
+    required this.insuranceProvider,
+    required this.insurancePolicyNumber,
+    this.franchisePermit,
+    required this.interiorPhotoUrl,
+    required this.frontPhotoUrl,
+    required this.backPhotoUrl,
+    required this.contractType,
+    required this.contractTerms,
+    required this.price12h,
+    required this.priceDaily,
+    required this.priceWeekly,
+    required this.priceMonthly,
+    required this.extensionRatePerHour,
+    required this.latePenaltyRatePerHour,
+    required this.status,
+    this.offersDriver = false,
+    this.driverDailyPrice = 0.0,
+    this.driverNote = '',
+    this.driverLicenseNumber = '',
+    this.renteeId,
+    this.renteeName,
+    this.renteePhotoUrl,
+    this.rentalDurationType,
+    this.rentalMultiplier,
+    this.startDate,
+    this.endDate,
+    this.totalCost,
+    this.renteeSignatureName,
+    this.renteeLicenseNumber,
+    this.signedAt,
+    this.hireWithDriver,
+    this.trackingLat,
+    this.trackingLng,
+    required this.pickupAddress,
+    required this.pickupLat,
+    required this.pickupLng,
+    required this.createdAt,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'hostId': hostId,
+      'hostName': hostName,
+      'hostPhotoUrl': hostPhotoUrl,
+      'brand': brand,
+      'model': model,
+      'year': year,
+      'type': type.name,
+      'plateNumber': plateNumber,
+      'vehicleValue': vehicleValue,
+      'ltoCrNumber': ltoCrNumber,
+      'ltoOrNumber': ltoOrNumber,
+      'insuranceProvider': insuranceProvider,
+      'insurancePolicyNumber': insurancePolicyNumber,
+      'franchisePermit': franchisePermit,
+      'interiorPhotoUrl': interiorPhotoUrl,
+      'frontPhotoUrl': frontPhotoUrl,
+      'backPhotoUrl': backPhotoUrl,
+      'contractType': contractType,
+      'contractTerms': contractTerms,
+      'price12h': price12h,
+      'priceDaily': priceDaily,
+      'priceWeekly': priceWeekly,
+      'priceMonthly': priceMonthly,
+      'extensionRatePerHour': extensionRatePerHour,
+      'latePenaltyRatePerHour': latePenaltyRatePerHour,
+      'status': status,
+      'offersDriver': offersDriver,
+      'driverDailyPrice': driverDailyPrice,
+      'driverNote': driverNote,
+      'driverLicenseNumber': driverLicenseNumber,
+      'renteeId': renteeId,
+      'renteeName': renteeName,
+      'renteePhotoUrl': renteePhotoUrl,
+      'rentalDurationType': rentalDurationType,
+      'rentalMultiplier': rentalMultiplier,
+      'startDate': startDate?.millisecondsSinceEpoch,
+      'endDate': endDate?.millisecondsSinceEpoch,
+      'totalCost': totalCost,
+      'renteeSignatureName': renteeSignatureName,
+      'renteeLicenseNumber': renteeLicenseNumber,
+      'signedAt': signedAt?.millisecondsSinceEpoch,
+      'hireWithDriver': hireWithDriver,
+      'trackingLat': trackingLat,
+      'trackingLng': trackingLng,
+      'pickupAddress': pickupAddress,
+      'pickupLat': pickupLat,
+      'pickupLng': pickupLng,
+      'createdAt': createdAt.millisecondsSinceEpoch,
+    };
+  }
+
+  factory VehicleRental.fromMap(Map<String, dynamic> map, String id) {
+    final vType = VehicleType.values.firstWhere(
+      (e) => e.name == map['type'],
+      orElse: () => VehicleType.car,
+    );
+    return VehicleRental(
+      id: id,
+      hostId: map['hostId'] ?? '',
+      hostName: map['hostName'] ?? '',
+      hostPhotoUrl: map['hostPhotoUrl'],
+      brand: map['brand'] ?? '',
+      model: map['model'] ?? '',
+      year: map['year'] is int ? map['year'] : int.tryParse(map['year']?.toString() ?? '') ?? 0,
+      type: vType,
+      plateNumber: map['plateNumber'] ?? '',
+      vehicleValue: (map['vehicleValue'] as num?)?.toDouble() ?? 0.0,
+      ltoCrNumber: map['ltoCrNumber'] ?? '',
+      ltoOrNumber: map['ltoOrNumber'] ?? '',
+      insuranceProvider: map['insuranceProvider'] ?? '',
+      insurancePolicyNumber: map['insurancePolicyNumber'] ?? '',
+      franchisePermit: map['franchisePermit'],
+      interiorPhotoUrl: map['interiorPhotoUrl'] ?? '',
+      frontPhotoUrl: map['frontPhotoUrl'] ?? '',
+      backPhotoUrl: map['backPhotoUrl'] ?? '',
+      contractType: map['contractType'] ?? 'tranyx',
+      contractTerms: map['contractTerms'] ?? '',
+      price12h: (map['price12h'] as num?)?.toDouble() ?? 0.0,
+      priceDaily: (map['priceDaily'] as num?)?.toDouble() ?? 0.0,
+      priceWeekly: (map['priceWeekly'] as num?)?.toDouble() ?? 0.0,
+      priceMonthly: (map['priceMonthly'] as num?)?.toDouble() ?? 0.0,
+      extensionRatePerHour: (map['extensionRatePerHour'] as num?)?.toDouble() ?? 0.0,
+      latePenaltyRatePerHour: (map['latePenaltyRatePerHour'] as num?)?.toDouble() ?? 0.0,
+      status: map['status'] ?? 'Available',
+      offersDriver: map['offersDriver'] as bool? ?? false,
+      driverDailyPrice: (map['driverDailyPrice'] as num?)?.toDouble() ?? 0.0,
+      driverNote: map['driverNote'] ?? '',
+      driverLicenseNumber: map['driverLicenseNumber'] ?? '',
+      renteeId: map['renteeId'],
+      renteeName: map['renteeName'],
+      renteePhotoUrl: map['renteePhotoUrl'],
+      rentalDurationType: map['rentalDurationType'],
+      rentalMultiplier: map['rentalMultiplier'],
+      startDate: map['startDate'] != null ? DateTime.fromMillisecondsSinceEpoch(map['startDate']) : null,
+      endDate: map['endDate'] != null ? DateTime.fromMillisecondsSinceEpoch(map['endDate']) : null,
+      totalCost: (map['totalCost'] as num?)?.toDouble(),
+      renteeSignatureName: map['renteeSignatureName'],
+      renteeLicenseNumber: map['renteeLicenseNumber'],
+      signedAt: map['signedAt'] != null ? DateTime.fromMillisecondsSinceEpoch(map['signedAt']) : null,
+      hireWithDriver: map['hireWithDriver'] as bool?,
+      trackingLat: (map['trackingLat'] as num?)?.toDouble(),
+      trackingLng: (map['trackingLng'] as num?)?.toDouble(),
+      pickupAddress: map['pickupAddress'] ?? '',
+      pickupLat: (map['pickupLat'] as num?)?.toDouble() ?? 0.0,
+      pickupLng: (map['pickupLng'] as num?)?.toDouble() ?? 0.0,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
+    );
+  }
+}
+

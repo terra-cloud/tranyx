@@ -32,6 +32,8 @@ Future<double?> getSolanaBalance(String publicKey) async => null;
 
 Future<String?> signInWithGoogleJs(Map<String, String> config) async => null;
 
+void initFirebaseJs(Map<String, dynamic> config) {}
+
 void listenToNotificationsJs(String uid, void Function(String) callback) {}
 
 void markNotificationReadJs(String notifId) {}
@@ -42,3 +44,30 @@ bool confirmDialog(String message) => false;
 
 void listenToJobsJs(String uid, void Function(String) callback) {}
 void stopListeningToJobsJs() {}
+
+void listenToChatJs(String chatId, void Function(String) callback) {}
+void unlistenChatJs(String chatId) {}
+String sendChatMessageJs(String chatId, String senderId, String senderName, String text, {String? photoUrl}) => 'ok';
+Future<String?> uploadChatPhotoJs(String chatId, String base64Data, String mimeType) async => null;
+
+// Job Details stubs
+void listenToJobDetailsJs(String jobId, void Function(String) callback) {}
+void stopListeningToJobDetailsJs() {}
+
+// Rental stubs
+void listenToRentalsJs(void Function(String) callback) {}
+void stopListeningToRentalsJs() {}
+void listenToRentalDetailsJs(String rentalId, void Function(String) callback) {}
+void stopListeningToRentalDetailsJs() {}
+
+// Signature pad stubs
+void initSignaturePadJs(String canvasId) {}
+void clearSignaturePadJs(String canvasId) {}
+bool isSignaturePadEmptyJs(String canvasId) => true;
+String getSignatureDataUrlJs(String canvasId) => '';
+
+// Rental Q&A stubs
+void listenToRentalQAJs(String rentalId, void Function(String) callback) {}
+void unlistenRentalQAJs(String rentalId) {}
+void postRentalQuestionJs(String rentalId, String uid, String name, String photoUrl, String text) {}
+void answerRentalQuestionJs(String rentalId, String questionId, String answerText) {}

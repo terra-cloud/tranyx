@@ -15,7 +15,7 @@ class TopHeaderComponent extends StatelessComponent {
     final borderCls = isDark ? 'border-zinc-800 bg-zinc-900/60' : 'border-zinc-200 bg-white/80';
 
     return header(
-      classes: 'relative flex items-center justify-between px-6 py-4 border-b $borderCls backdrop-blur-sm flex-shrink-0 z-30',
+      classes: 'relative flex items-center justify-between px-6 py-4 border-b $borderCls backdrop-blur-sm flex-shrink-0 z-50',
       [
         // Mobile logo (hidden on desktop where sidebar shows it)
         div(classes: 'flex items-center gap-3 md:hidden', [
@@ -102,7 +102,7 @@ class _NotificationsDropdown extends StatelessComponent {
 
     return div(
       classes:
-          'absolute right-0 top-full mt-2 w-80 max-h-96 overflow-y-auto rounded-2xl shadow-xl border z-50 animate-fade-down ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"}',
+          'absolute right-0 top-full mt-2 w-80 max-h-96 overflow-y-auto rounded-2xl shadow-xl border z-[100] animate-fade-down ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"}',
       [
         div(classes: 'p-4 border-b ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between sticky top-0 ${isDark ? "bg-zinc-900/90" : "bg-white/90"} backdrop-blur-md', [
           h3(classes: 'font-bold ${isDark ? "text-white" : "text-zinc-900"}', [Component.text('Notifications')]),
