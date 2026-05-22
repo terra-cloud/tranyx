@@ -1,0 +1,29 @@
+name: Enforce Branch Flow
+
+on:
+  pull_request:
+    branches:
+      - main
+      - uat
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-source-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check UAT Target
+        if: github.base_ref == 'uat' && github.head_ref != 'develop'
+        run: |
+          echo "❌ ERROR: The 'uat' branch can only accept merges originating from 'develop'."
+          echo "Current source branch: ${{ github.head_ref }}"
+          exit 1
+
+      - name: Check Main Target
+        if: github.base_ref == 'main' && github.head_ref != 'uat'
+        run: |
+          echo "❌ ERROR: The 'main' branch can only accept merges originating from 'uat'."
+          echo "Current source branch: ${{ github.head_ref }}"
+          exit 1
+
+      - name: Flow is Correct
+        run: echo "✅ Branch flow validation passed!"
