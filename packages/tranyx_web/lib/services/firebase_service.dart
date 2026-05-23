@@ -1229,7 +1229,6 @@ class FirestoreService {
     required String? renteePhotoUrl,
     required String durationType,
     required int multiplier,
-    required String signatureName,
     required String licenseNumber,
     required double totalCost,
     required bool hireWithDriver,
@@ -1287,7 +1286,7 @@ class FirestoreService {
       'multiplier': multiplier,
       'totalCost': totalCost,
       'bookingFee': bookingFee,
-      'signatureName': signatureName,
+      'signatureName': '', // Signature not signed yet
       'licenseNumber': licenseNumber,
       'hireWithDriver': hireWithDriver,
       'status': 'Pending',
@@ -1326,7 +1325,7 @@ class FirestoreService {
   }
 
   /// Approve a booking request and automatically reject all other requests for the same vehicle
-  Future<void> approveBookingRequest(String requestId, String rentalId) async {
+  Future<void> approveBookingRequest(String requestId, String rentalId, bool allowChat) async {
     final reqDoc = await getDocument('rental_requests/$requestId');
     if (reqDoc == null) throw Exception('Booking request not found.');
     if (reqDoc['status'] != 'Pending') throw Exception('Request is already processed.');
@@ -1369,11 +1368,9 @@ class FirestoreService {
       await deleteDocument('rental_escrows/$requestId');
     }
 
-    // 3. Update the rental listing document with renter details
-    final now = DateTime.now();
-
+    // 3. Update the rental listing document with renter details - Status set to "Awaiting Signature"
     await setDocument('rentals/$rentalId', {
-      'status': 'Booked',
+      'status': 'Awaiting Signature',
       'renteeId': renteeId,
       'renteeName': renteeName,
       'renteePhotoUrl': reqDoc['renteePhotoUrl'] ?? '',
@@ -1383,15 +1380,16 @@ class FirestoreService {
       'endDate': endDate,
       'totalCost': totalCost,
       'bookingFee': reqBookingFee,
-      'renteeSignatureName': reqDoc['signatureName'] ?? '',
+      'renteeSignatureName': '',
       'renteeLicenseNumber': reqDoc['licenseNumber'] ?? '',
-      'signedAt': now.millisecondsSinceEpoch,
+      'signedAt': 0,
       'trackingLat': rental.pickupLat,
       'trackingLng': rental.pickupLng,
       'hireWithDriver': hireWithDriver,
       'rentalType': rentalType,
       'deliveryAddress': deliveryAddress,
       'currentRequestId': requestId,
+      'allowChat': allowChat,
     });
 
     // 4. Reject all other pending requests for the same vehicle
@@ -1410,12 +1408,36 @@ class FirestoreService {
     await createNotification(
       uid: renteeId,
       title: 'Booking Request Approved',
-      message: 'Your request to book ${rental.brand} ${rental.model} has been approved!',
+      message: 'Your request to book ${rental.brand} ${rental.model} has been approved! Please sign the contract to activate the rental.',
     );
     await createNotification(
       uid: rental.hostId,
-      title: 'Booking Confirmed',
-      message: 'You approved $renteeName\'s booking for ${rental.brand} ${rental.model}.',
+      title: 'Booking Approved',
+      message: 'You approved $renteeName\'s booking request for ${rental.brand} ${rental.model}. Awaiting renter\'s signature.',
+    );
+  }
+
+  /// Sign vehicle contract to activate booking
+  Future<void> signVehicleContract(String rentalId, String signatureDataUrl) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+
+    final now = DateTime.now();
+    await setDocument('rentals/$rentalId', {
+      'status': 'Booked',
+      'renteeSignatureName': signatureDataUrl,
+      'signedAt': now.millisecondsSinceEpoch,
+    });
+
+    final hostId = rentalDoc['hostId'] as String;
+    final renteeName = rentalDoc['renteeName'] as String? ?? 'Renter';
+    final brand = rentalDoc['brand'] ?? '';
+    final model = rentalDoc['model'] ?? '';
+
+    await createNotification(
+      uid: hostId,
+      title: 'Contract Signed',
+      message: '$renteeName has signed the contract for your vehicle $brand $model. Booking is now active and ready for handover.',
     );
   }
 
@@ -2011,6 +2033,647 @@ class FirestoreService {
     // 3. Delete extension escrow
     await deleteDocument('rental_extension_escrows/$extensionId');
   }
+
+  // ── Property Rentals ──────────────────────────────────────────
+
+  /// Create a new property rental posting, deducting 1.5% listing fee
+  Future<String> createPropertyRental(PropertyRental property) async {
+    final host = await getUser(property.hostId);
+    if (host == null) {
+      throw Exception('Host profile not found.');
+    }
+    final listingFee = 0.015 * property.priceMonthly;
+    if (host.tyxBalance < listingFee) {
+      throw Exception('Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+    }
+
+    // Deduct fee
+    final newBalance = host.tyxBalance - listingFee;
+    await updateTyxBalance(property.hostId, newBalance);
+
+    // Save transaction record
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    final txData = {
+      'uid': property.hostId,
+      'type': 'listing_fee',
+      'amount': listingFee,
+      'title': 'Property Listing Fee',
+      'desc': '1.5% posting fee for property: ${property.title}',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('transactions/$txId', txData);
+
+    // Post property document
+    final url = '$_firestoreBase/properties';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final req = await _client.post(
+      Uri.parse(url),
+      headers: headers,
+      body: jsonEncode(_toFirestoreFields(property.toMap())),
+    );
+
+    if (req.statusCode >= 400) {
+      final data = jsonDecode(req.body) as Map<String, dynamic>;
+      final err = data['error'] as Map? ?? {};
+      throw FirebaseException(err['message'] as String? ?? 'Create property rental failed', req.statusCode);
+    }
+
+    final result = jsonDecode(req.body) as Map<String, dynamic>;
+    return _docId(result);
+  }
+
+  /// Delete property rental posting and reject pending requests
+  Future<void> deletePropertyRental(String propertyId) async {
+    final propDoc = await getDocument('properties/$propertyId');
+    if (propDoc == null) throw Exception('Property listing not found.');
+
+    final property = PropertyRental.fromMap(propDoc, propertyId);
+    if (property.status != 'Available') {
+      throw Exception('Cannot delete a property listing that is currently booked or active.');
+    }
+
+    // Fetch and reject all pending requests for this property
+    final pendingRequests = await getPropertyPendingRequestsForProperty(propertyId);
+    for (final req in pendingRequests) {
+      final requestId = req['id'] as String;
+      try {
+        await rejectPropertyBookingRequest(requestId);
+      } catch (e) {
+        print('Error rejecting request $requestId during property deletion: $e');
+      }
+    }
+
+    await deleteDocument('properties/$propertyId');
+  }
+
+  /// Fetch all properties
+  Future<List<PropertyRental>> getPropertyRentals() async {
+    final url = '$_firestoreBase/properties';
+    final headers = <String, String>{};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final req = await _client.get(Uri.parse(url), headers: headers);
+    if (req.statusCode >= 400) return [];
+
+    final data = jsonDecode(req.body) as Map<String, dynamic>;
+    final docs = data['documents'] as List? ?? [];
+    return docs.map((d) {
+      final doc = d as Map<String, dynamic>;
+      final id = _docId(doc);
+      return PropertyRental.fromMap(_fromFirestoreDoc(doc), id);
+    }).toList();
+  }
+
+  /// Fetch specific property
+  Future<PropertyRental?> getPropertyRental(String propertyId) async {
+    final doc = await getDocument('properties/$propertyId');
+    if (doc == null) return null;
+    return PropertyRental.fromMap(doc, propertyId);
+  }
+
+  /// Submit a property rental booking request (debits rentee and puts in request-specific escrow)
+  Future<void> createPropertyBookingRequest({
+    required String propertyId,
+    required String renteeId,
+    required String renteeName,
+    required String? renteePhotoUrl,
+    required String durationType,
+    required int multiplier,
+    required double totalCost,
+    required String contractType,
+    required String contractTerms,
+    required int startDate,
+    required int endDate,
+  }) async {
+    final propDoc = await getDocument('properties/$propertyId');
+    if (propDoc == null) throw Exception('Property listing not found.');
+    final property = PropertyRental.fromMap(propDoc, propertyId);
+
+    if (property.status != 'Available') {
+      throw Exception('Property is no longer available.');
+    }
+
+    final rentee = await getUser(renteeId);
+    if (rentee == null) throw Exception('Renter profile not found.');
+
+    final bookingFee = totalCost * 0.03;
+    final totalRequired = totalCost + bookingFee;
+
+    if (rentee.tyxBalance < totalRequired) {
+      throw Exception('Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+    }
+
+    // Deduct from renter
+    final newRenterBalance = rentee.tyxBalance - totalRequired;
+    await updateTyxBalance(renteeId, newRenterBalance);
+
+    // Save transaction record for renter
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    final txData = {
+      'uid': renteeId,
+      'type': 'payment',
+      'amount': totalRequired,
+      'title': 'Property Booking Request',
+      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('transactions/$txId', txData);
+
+    // Save request document
+    final requestId = 'req_${DateTime.now().microsecondsSinceEpoch}';
+    final requestDoc = {
+      'id': requestId,
+      'propertyId': propertyId,
+      'renteeId': renteeId,
+      'renteeName': renteeName,
+      'renteePhotoUrl': renteePhotoUrl ?? '',
+      'durationType': durationType,
+      'multiplier': multiplier,
+      'totalCost': totalCost,
+      'bookingFee': bookingFee,
+      'signatureName': '', // unsigned
+      'status': 'Pending',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'hostId': property.hostId,
+      'title': property.title,
+      'propertyType': property.type.name,
+      'category': property.category.name,
+      'contractType': contractType,
+      'contractTerms': contractTerms,
+      'startDate': startDate,
+      'endDate': endDate,
+    };
+    await setDocument('property_requests/$requestId', requestDoc);
+
+    // Put funds in escrow for this specific request
+    final escrowDoc = {
+      'requestId': requestId,
+      'propertyId': propertyId,
+      'renteeId': renteeId,
+      'hostId': property.hostId,
+      'amount': totalCost,
+      'status': 'Held',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('property_escrows/$requestId', escrowDoc);
+
+    // Notify host
+    await createNotification(
+      uid: property.hostId,
+      title: 'Booking Request Received',
+      message: '$renteeName wants to rent your property: "${property.title}".',
+    );
+  }
+
+  /// Approve a booking request, set status to Awaiting Signature, reject other requests
+  Future<void> approvePropertyBookingRequest(String requestId, String propertyId, bool allowChat) async {
+    final reqDoc = await getDocument('property_requests/$requestId');
+    if (reqDoc == null) throw Exception('Booking request not found.');
+    if (reqDoc['status'] != 'Pending') throw Exception('Request is already processed.');
+
+    final propDoc = await getDocument('properties/$propertyId');
+    if (propDoc == null) throw Exception('Property listing not found.');
+    final property = PropertyRental.fromMap(propDoc, propertyId);
+    if (property.status != 'Available') {
+      throw Exception('Property is no longer available (already rented).');
+    }
+
+    final renteeId = reqDoc['renteeId'] as String;
+    final renteeName = reqDoc['renteeName'] as String;
+    final durationType = reqDoc['durationType'] as String;
+    final multiplier = (reqDoc['multiplier'] as num).toInt();
+    final totalCost = (reqDoc['totalCost'] as num).toDouble();
+    final startDate = (reqDoc['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+    final endDate = (reqDoc['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 30)).millisecondsSinceEpoch;
+
+    // 1. Approve request
+    await setDocument('property_requests/$requestId', {'status': 'Approved'});
+
+    // 2. Move escrow
+    final reqEscrowDoc = await getDocument('property_escrows/$requestId');
+    final reqBookingFee = (reqDoc['bookingFee'] as num? ?? totalCost * 0.03).toDouble();
+    if (reqEscrowDoc != null) {
+      await setDocument('property_escrows/$propertyId', {
+        'propertyId': propertyId,
+        'renteeId': renteeId,
+        'hostId': property.hostId,
+        'amount': totalCost,
+        'bookingFee': reqBookingFee,
+        'totalPaid': totalCost + reqBookingFee,
+        'status': 'Held',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      });
+      await deleteDocument('property_escrows/$requestId');
+    }
+
+    // 3. Update property listing
+    await setDocument('properties/$propertyId', {
+      'status': 'Awaiting Signature',
+      'renteeId': renteeId,
+      'renteeName': renteeName,
+      'renteePhotoUrl': reqDoc['renteePhotoUrl'] ?? '',
+      'rentalDurationType': durationType,
+      'rentalMultiplier': multiplier,
+      'startDate': startDate,
+      'endDate': endDate,
+      'totalCost': totalCost,
+      'bookingFee': reqBookingFee,
+      'renteeSignatureName': '',
+      'signedAt': 0,
+      'currentRequestId': requestId,
+      'allowChat': allowChat,
+    });
+
+    // 4. Reject other requests
+    final allRequests = await getPropertyPendingRequestsForProperty(propertyId);
+    for (final otherReq in allRequests) {
+      final otherReqId = otherReq['id'] as String;
+      if (otherReqId == requestId) continue;
+      try {
+        await rejectPropertyBookingRequest(otherReqId);
+      } catch (e) {
+        print('Error rejecting other request $otherReqId: $e');
+      }
+    }
+
+    // Notifications
+    await createNotification(
+      uid: renteeId,
+      title: 'Property Request Approved',
+      message: 'Your request to rent "${property.title}" has been approved! Please sign the lease agreement to finalize.',
+    );
+    await createNotification(
+      uid: property.hostId,
+      title: 'Booking Approved',
+      message: 'You approved $renteeName\'s request for "${property.title}". Awaiting tenant signature.',
+    );
+  }
+
+  /// Reject a property booking request and refund rentee
+  Future<void> rejectPropertyBookingRequest(String requestId) async {
+    final reqDoc = await getDocument('property_requests/$requestId');
+    if (reqDoc == null) return;
+    if (reqDoc['status'] != 'Pending') return;
+
+    final renteeId = reqDoc['renteeId'] as String;
+    final totalCost = (reqDoc['totalCost'] as num).toDouble();
+    final bookingFee = (reqDoc['bookingFee'] as num).toDouble();
+    final refundAmount = totalCost + bookingFee;
+
+    await setDocument('property_requests/$requestId', {'status': 'Rejected'});
+
+    final rentee = await getUser(renteeId);
+    if (rentee != null) {
+      await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
+
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'uid': renteeId,
+        'type': 'refund',
+        'amount': refundAmount,
+        'title': 'Property Booking Refund',
+        'desc': 'Refund for rejected request of property "${reqDoc['title']}"',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      await setDocument('transactions/$txId', txData);
+    }
+
+    await deleteDocument('property_escrows/$requestId');
+
+    await createNotification(
+      uid: renteeId,
+      title: 'Booking Request Rejected',
+      message: 'Your request to rent "${reqDoc['title']}" was rejected. Funds have been refunded.',
+    );
+  }
+
+  /// Sign property contract to activate lease
+  Future<void> signPropertyContract(String propertyId, String signatureDataUrl) async {
+    final propDoc = await getDocument('properties/$propertyId');
+    if (propDoc == null) throw Exception('Property listing not found.');
+
+    final now = DateTime.now();
+    await setDocument('properties/$propertyId', {
+      'status': 'Booked',
+      'renteeSignatureName': signatureDataUrl,
+      'signedAt': now.millisecondsSinceEpoch,
+    });
+
+    final hostId = propDoc['hostId'] as String;
+    final renteeName = propDoc['renteeName'] as String? ?? 'Renter';
+    final title = propDoc['title'] ?? '';
+
+    await createNotification(
+      uid: hostId,
+      title: 'Lease Agreement Signed',
+      message: '$renteeName has signed the Lease Agreement for "${title}". The lease is now active.',
+    );
+  }
+
+  /// Update property status
+  Future<void> updatePropertyStatus(String propertyId, String status) async {
+    await setDocument('properties/$propertyId', {'status': status});
+
+    final propDoc = await getDocument('properties/$propertyId');
+    if (propDoc != null) {
+      final property = PropertyRental.fromMap(propDoc, propertyId);
+      if (property.renteeId != null) {
+        await createNotification(
+          uid: property.renteeId!,
+          title: 'Lease Status Update',
+          message: 'Your lease for "${property.title}" is now: $status.',
+        );
+      }
+      await createNotification(
+        uid: property.hostId,
+        title: 'Lease Status Update',
+        message: 'Your property "${property.title}" lease is now: $status.',
+      );
+    }
+  }
+
+  /// Complete property rental (releases escrow to host minus 5% commission, archives to history, sets status to Completed)
+  Future<void> completePropertyRental(String propertyId) async {
+    final propDoc = await getDocument('properties/$propertyId');
+    if (propDoc == null) throw Exception('Property listing not found.');
+    final property = PropertyRental.fromMap(propDoc, propertyId);
+
+    final host = await getUser(property.hostId);
+    if (host == null) throw Exception('Host profile not found.');
+
+    final escrowDoc = await getDocument('property_escrows/$propertyId');
+    if (escrowDoc == null) {
+      throw Exception('Escrow transaction not found. Payout aborted to ensure secure transaction.');
+    }
+    if (escrowDoc['status'] != 'Held') {
+      throw Exception('Escrow is not in Held status. Current status: ${escrowDoc['status']}. Payout aborted.');
+    }
+
+    final cost = property.totalCost ?? 0.0;
+    final commission = cost * 0.05;
+    final hostPayout = cost - commission;
+
+    // Release payout
+    final newHostBalance = host.tyxBalance + hostPayout;
+    await updateTyxBalance(property.hostId, newHostBalance);
+
+    // Save transaction record
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    final txData = {
+      'uid': property.hostId,
+      'type': 'payment',
+      'amount': hostPayout,
+      'title': 'Property Rental Payout',
+      'desc': 'Earnings payout for "${property.title}" (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('transactions/$txId', txData);
+
+    // Update escrow
+    await setDocument('property_escrows/$propertyId', {
+      'status': 'Released',
+      'releasedAt': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    // Save to history
+    final historyId = 'ph_${DateTime.now().microsecondsSinceEpoch}';
+    final historyDoc = {
+      ...propDoc,
+      'status': 'Completed',
+      'completedAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('property_history/$historyId', historyDoc);
+
+    // Update active property listing to Completed (does NOT reset to Available, preserving non-retention)
+    await setDocument('properties/$propertyId', {
+      'status': 'Completed',
+    });
+
+    // Notifications
+    await createNotification(
+      uid: property.hostId,
+      title: 'Lease Completed & Paid',
+      message: 'Lease for "${property.title}" has been completed. Payout of ${hostPayout.toStringAsFixed(2)} TYXBIT credited to your wallet.',
+    );
+    if (property.renteeId != null && property.renteeId!.isNotEmpty) {
+      await createNotification(
+        uid: property.renteeId!,
+        title: 'Lease Term Completed',
+        message: 'Your lease for "${property.title}" has successfully ended. Thank you!',
+      );
+    }
+  }
+
+  /// Fetch all pending requests for a property
+  Future<List<Map<String, dynamic>>> getPropertyPendingRequestsForProperty(String propertyId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'property_requests'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'propertyId'},
+            'op': 'EQUAL',
+            'value': {'stringValue': propertyId},
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map<String, dynamic>;
+        final name = doc['name'] as String;
+        final docId = name.split('/').last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        if (data['status'] == 'Pending') {
+          list.add(data);
+        }
+      }
+    }
+    return list;
+  }
+
+  /// Fetch approved request for a property
+  Future<List<Map<String, dynamic>>> getPropertyApprovedRequests(String propertyId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'property_requests'},
+        ],
+        'where': {
+          'compositeFilter': {
+            'op': 'AND',
+            'filters': [
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'propertyId'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': propertyId},
+                }
+              },
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'status'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': 'Approved'},
+                }
+              }
+            ]
+          }
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map<String, dynamic>;
+        final name = doc['name'] as String;
+        final docId = name.split('/').last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        list.add(data);
+      }
+    }
+    return list;
+  }
+
+  /// Fetch pending property requests for a host
+  Future<List<Map<String, dynamic>>> getPropertyPendingRequestsForHost(String hostId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'property_requests'},
+        ],
+        'where': {
+          'compositeFilter': {
+            'op': 'AND',
+            'filters': [
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'hostId'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': hostId},
+                }
+              },
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'status'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': 'Pending'},
+                }
+              }
+            ]
+          }
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map<String, dynamic>;
+        final name = doc['name'] as String;
+        final docId = name.split('/').last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        list.add(data);
+      }
+    }
+    return list;
+  }
+
+  /// Fetch pending property requests submitted by a renter
+  Future<List<Map<String, dynamic>>> getPropertyPendingRequestsForRenter(String renteeId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'property_requests'},
+        ],
+        'where': {
+          'compositeFilter': {
+            'op': 'AND',
+            'filters': [
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'renteeId'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': renteeId},
+                }
+              },
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'status'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': 'Pending'},
+                }
+              }
+            ]
+          }
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map<String, dynamic>;
+        final name = doc['name'] as String;
+        final docId = name.split('/').last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        list.add(data);
+      }
+    }
+    return list;
+  }
+
 }
 
 // ── Gemini AI service ─────────────────────────────────────────────────────────

@@ -633,6 +633,83 @@
       });
     };
 
+    // ── Property Q&A ─────────────────────────────────────────────────────────────
+    const _propertyQAUnsubs = {};
+
+    window.listenToPropertyQA = function (propertyId, callback) {
+      if (!firebase.apps.length) return;
+      if (_propertyQAUnsubs[propertyId]) { _propertyQAUnsubs[propertyId](); }
+      const db = firebase.firestore();
+      const unsub = db.collection('properties').doc(propertyId).collection('questions')
+        .orderBy('createdAt', 'asc')
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          callback(JSON.stringify(list));
+        }, (err) => {
+          console.error('Property Q&A listener error:', err);
+        });
+      _propertyQAUnsubs[propertyId] = unsub;
+    };
+
+    window.unlistenPropertyQA = function (propertyId) {
+      if (_propertyQAUnsubs[propertyId]) {
+        _propertyQAUnsubs[propertyId]();
+        delete _propertyQAUnsubs[propertyId];
+      }
+    };
+
+    window.postPropertyQuestion = function (propertyId, uid, name, photoUrl, text) {
+      if (!firebase.apps.length) return;
+      const db = firebase.firestore();
+      db.collection('properties').doc(propertyId).collection('questions').add({
+        uid: uid,
+        name: name,
+        photoUrl: photoUrl || '',
+        text: text,
+        answer: null,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    };
+
+    window.answerPropertyQuestion = function (propertyId, questionId, answerText) {
+      if (!firebase.apps.length) return;
+      const db = firebase.firestore();
+      db.collection('properties').doc(propertyId).collection('questions').doc(questionId).update({
+        answer: answerText,
+        answeredAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    };
+
+    // ── Properties List ────────────────────────────────────────────────────────
+    window.listenToProperties = function (callback) {
+      if (!firebase.apps.length) return () => { };
+      const db = firebase.firestore();
+      const unsub = db.collection('properties')
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          callback(JSON.stringify(list));
+        }, (error) => {
+          console.error("Properties list listener error:", error);
+        });
+      return unsub;
+    };
+
+    window.listenToPropertyDetails = function (propertyId, callback) {
+      if (!firebase.apps.length) return () => { };
+      const db = firebase.firestore();
+      const unsub = db.collection('properties').doc(propertyId)
+        .onSnapshot((doc) => {
+          if (doc.exists) {
+            callback(JSON.stringify({ id: doc.id, ...doc.data() }));
+          }
+        }, (error) => {
+          console.error("Property details listener error:", error);
+        });
+      return unsub;
+    };
+
   </script>
 </head>
 

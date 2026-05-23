@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr/dom.dart';
+import 'package:web/web.dart' as web;
 import '../services/map_interop.dart';
 import 'map_container.dart';
 import '../client/tranyx_app.dart';
@@ -24,6 +25,9 @@ class _MapPickerState extends State<MapPickerComponent> {
   String _statusMsg = '';
   bool _ready = false;
   bool _confirming = false;
+  String _searchQuery = '';
+  bool _isSearching = false;
+  List<Map<String, dynamic>> _searchResults = [];
 
   @override
   void initState() {
@@ -143,6 +147,46 @@ class _MapPickerState extends State<MapPickerComponent> {
     setState(() => _geolocating = false);
   }
 
+  Future<void> _performSearch() async {
+    final query = _searchQuery.trim();
+    if (query.isEmpty) return;
+    setState(() {
+      _isSearching = true;
+      _searchResults = [];
+    });
+    try {
+      final results = await searchAddress(query);
+      setState(() {
+        _searchResults = results;
+      });
+    } catch (e) {
+      print('ERROR: search failed: $e');
+    } finally {
+      setState(() {
+        _isSearching = false;
+      });
+    }
+  }
+
+  void _selectSearchResult(Map<String, dynamic> res) {
+    final latStr = res['lat'] as String?;
+    final lonStr = res['lon'] as String?;
+    final displayName = res['display_name'] as String?;
+    if (latStr != null && lonStr != null) {
+      final lat = double.tryParse(latStr);
+      final lng = double.tryParse(lonStr);
+      if (lat != null && lng != null) {
+        panTo(_mapId, lat, lng);
+        setState(() {
+          _searchResults = [];
+          if (displayName != null) {
+            _searchQuery = displayName;
+          }
+        });
+      }
+    }
+  }
+
   @override
   Component build(BuildContext context) {
     final s = component.state;
@@ -184,6 +228,94 @@ class _MapPickerState extends State<MapPickerComponent> {
               'width': '100%',
             }),
           ),
+          // Address search overlay
+          if (_ready)
+            div(
+              classes: 'absolute top-3 left-3 right-3 z-[1010] flex flex-col gap-1.5',
+              [
+                div(
+                  classes: 'flex gap-2 p-1.5 rounded-xl border shadow-lg backdrop-blur-md '
+                      '${isDark ? "bg-zinc-900/95 border-zinc-700/80" : "bg-white/95 border-zinc-200/80"}',
+                  [
+                    lIcon('search', cls: 'w-4 h-4 my-auto ml-2 ${isDark ? "text-zinc-400" : "text-zinc-500"}'),
+                    input(
+                      classes: 'flex-1 bg-transparent border-0 outline-none text-sm px-1 '
+                          '${isDark ? "text-white placeholder-zinc-500" : "text-zinc-900 placeholder-zinc-400"}',
+                      attributes: {
+                        'type': 'text',
+                        'placeholder': 'Search address...',
+                        'value': _searchQuery,
+                      },
+                      events: {
+                        'input': (e) {
+                          final val = (e.target as web.HTMLInputElement).value;
+                          setState(() {
+                            _searchQuery = val;
+                            if (val.isEmpty) {
+                              _searchResults = [];
+                            }
+                          });
+                        },
+                        'keydown': (e) {
+                          final ke = e as web.KeyboardEvent;
+                          if (ke.key == 'Enter') {
+                            ke.preventDefault();
+                            _performSearch();
+                          }
+                        }
+                      },
+                    ),
+                    if (_searchQuery.isNotEmpty)
+                      button(
+                        classes: 'p-1 rounded-md hover:bg-zinc-500/20 my-auto',
+                        events: {
+                          'click': (_) {
+                            setState(() {
+                              _searchQuery = '';
+                              _searchResults = [];
+                            });
+                          }
+                        },
+                        [
+                          lIcon('x', cls: 'w-3.5 h-3.5 ${isDark ? "text-zinc-400" : "text-zinc-500"}'),
+                        ],
+                      ),
+                    button(
+                      classes: 'px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors flex items-center gap-1',
+                      events: {
+                        'click': (_) => _performSearch(),
+                      },
+                      [
+                        if (_isSearching)
+                          lIcon('loader-2', cls: 'w-3 h-3 animate-spin')
+                        else
+                          Component.text('Search'),
+                      ],
+                    ),
+                  ],
+                ),
+                
+                // Search Results dropdown
+                if (_searchResults.isNotEmpty)
+                  div(
+                    classes: 'max-h-36 overflow-y-auto rounded-xl border shadow-xl flex flex-col divide-y '
+                        '${isDark ? "bg-zinc-900 border-zinc-700 divide-zinc-800" : "bg-white border-zinc-200 divide-zinc-100"}',
+                    _searchResults.map((res) {
+                      final displayName = res['display_name'] as String? ?? '';
+                      return button(
+                        classes: 'px-4 py-2.5 text-left text-xs transition-colors hover:bg-indigo-600/10 '
+                            '${isDark ? "text-zinc-300 hover:text-white" : "text-zinc-700 hover:text-indigo-900"}',
+                        events: {
+                          'click': (_) => _selectSearchResult(res),
+                        },
+                        [
+                          span([Component.text(displayName)]),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+              ],
+            ),
           // Loading overlay (shown until map is ready)
           div(
             classes:
@@ -197,25 +329,25 @@ class _MapPickerState extends State<MapPickerComponent> {
               ]),
             ],
           ),
-    // Center pin overlay
-    div(
-      classes:
-          'absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-full pointer-events-none z-[1000]',
-      [
-        lIcon(
-          _pickingFor == 'pickup' ? 'map-pin' : 'flag',
-          cls: 'w-8 h-8 drop-shadow-md ${_pickingFor == 'pickup' ? 'text-blue-500' : 'text-green-500'}',
-        ),
-        // Shadow dot at the tip of the pin
-        div(
-          classes:
-              'absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1 w-2 h-1 bg-black/30 rounded-full blur-[1px]',
-          [],
-        ),
-      ],
-    ),
-  ],
-),
+          // Center pin overlay
+          div(
+            classes:
+                'absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-full pointer-events-none z-[1000]',
+            [
+              lIcon(
+                _pickingFor == 'pickup' ? 'map-pin' : 'flag',
+                cls: 'w-8 h-8 drop-shadow-md ${_pickingFor == 'pickup' ? 'text-blue-500' : 'text-green-500'}',
+              ),
+              // Shadow dot at the tip of the pin
+              div(
+                classes:
+                    'absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1 w-2 h-1 bg-black/30 rounded-full blur-[1px]',
+                [],
+              ),
+            ],
+          ),
+        ],
+      ),
 
       // Confirm Button
       if (_ready)

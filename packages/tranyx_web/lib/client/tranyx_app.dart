@@ -30,6 +30,11 @@ import '../client/components/extend_rental_modal.dart';
 import '../client/components/rental_tracker_map.dart';
 import '../client/components/manage_vehicle_modal.dart';
 import '../client/components/vehicle_qa_modal.dart';
+import '../client/components/list_property_modal.dart';
+import '../client/components/book_property_modal.dart';
+import '../client/components/manage_property_modal.dart';
+import '../client/components/property_qa_modal.dart';
+import '../client/components/sign_contract_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -99,6 +104,22 @@ class TranyxAppState extends State<TranyxApp> {
   bool showManageVehicleModal = false;
   bool showVehicleQaModal = false;
   Map<String, dynamic>? selectedRentalData;
+
+  // ── Property state ──────────────────────────────────────────
+  RentalCategory activeRentalCategory = RentalCategory.vehicles;
+  bool showListPropertyModal = false;
+  bool showBookPropertyModal = false;
+  bool showManagePropertyModal = false;
+  bool showPropertyQaModal = false;
+  bool showSignContractModal = false;
+  Map<String, dynamic>? selectedPropertyData;
+  UserProfile? renterProfilePreview;
+  List<PropertyRental> realtimeProperties = [];
+  List<Map<String, dynamic>> propertyRenterPendingRequests = [];
+  String? signingContractId;
+  String? signingContractTitle;
+  String? signingContractTerms;
+  bool signingContractIsProperty = false;
 
   // ── Wallet reconnect modal ──────────────────────────────────
   bool showWalletReconnectPrompt = false;
@@ -416,6 +437,7 @@ class TranyxAppState extends State<TranyxApp> {
     _startListeningNotifications();
     _startListeningJobs();
     _startListeningRentals();
+    _startListeningProperties();
   }
 
   void _startListeningNotifications() {
@@ -591,6 +613,38 @@ class TranyxAppState extends State<TranyxApp> {
         print('Error parsing realtime rentals: $e');
       }
     });
+  }
+
+  void _startListeningProperties() {
+    listenToPropertiesJs((String jsonString) {
+      try {
+        final List<dynamic> raw = jsonDecode(jsonString);
+        final parsed = raw.map((e) {
+          final map = e as Map<String, dynamic>;
+          final id = map['id'] ?? '';
+          return PropertyRental.fromMap(map, id);
+        }).toList();
+        setState(() {
+          realtimeProperties = parsed;
+        });
+      } catch (e) {
+        print('Error parsing realtime properties: $e');
+      }
+    });
+    _loadRenterPendingPropertyRequests();
+  }
+
+  Future<void> _loadRenterPendingPropertyRequests() async {
+    final uid = SessionStorage.uid;
+    if (uid == null) return;
+    try {
+      final list = await _firestore.getPropertyPendingRequestsForRenter(uid);
+      setState(() {
+        propertyRenterPendingRequests = list;
+      });
+    } catch (e) {
+      print('Error loading property renter pending requests: $e');
+    }
   }
 
   Future<void> loadRenterPendingRequests() async {
@@ -1038,6 +1092,8 @@ class TranyxAppState extends State<TranyxApp> {
   void handleLogout() {
     SessionStorage.clear();
     stopListeningToJobsJs();
+    stopListeningToRentalsJs();
+    stopListeningToPropertiesJs();
     setState(() {
       isAuthenticated = false;
       authView = AuthView.login;
@@ -1679,6 +1735,52 @@ class TranyxAppState extends State<TranyxApp> {
   void openChat(String chatId) {
     final uid = SessionStorage.uid;
     if (uid == null || chatId.isEmpty) return;
+
+    // Check if chatting is allowed for vehicle rentals
+    if (chatId.startsWith('rental_')) {
+      final parts = chatId.split('_');
+      if (parts.length >= 2) {
+        final rentalId = parts[1];
+        final rental = realtimeRentals.firstWhere(
+          (r) => r['id'] == rentalId,
+          orElse: () => <String, dynamic>{},
+        );
+        if (rental.isNotEmpty) {
+          final allowChatVal = rental['allowChat'] as bool? ?? false;
+          final isHost = rental['hostId'] == uid;
+          if (!isHost && !allowChatVal) {
+            print('Chat blocked: Vehicle host has not enabled chatting.');
+            return;
+          }
+        }
+      }
+    }
+
+    // Check if chatting is allowed for properties
+    if (chatId.startsWith('property_')) {
+      final parts = chatId.split('_');
+      if (parts.length >= 2) {
+        final propertyId = parts[1];
+        final prop = realtimeProperties.firstWhere(
+          (p) => p.id == propertyId,
+          orElse: () => PropertyRental(
+            id: '', hostId: '', hostName: '', title: '', description: '',
+            type: PropertyType.house, category: PropertyCategory.residential,
+            priceMonthly: 0, priceWeekly: 0, priceDaily: 0, depositMonths: 0,
+            address: '', latitude: 0, longitude: 0, photoUrls: [], amenities: [],
+            status: '', contractType: '', contractTerms: '', createdAt: DateTime.now(), allowChat: false,
+          ),
+        );
+        if (prop.id.isNotEmpty) {
+          final isHost = prop.hostId == uid;
+          if (!isHost && !prop.allowChat) {
+            print('Chat blocked: Property host has not enabled chatting.');
+            return;
+          }
+        }
+      }
+    }
+
     setState(() {
       showChat = true;
       currentChatId = chatId;
@@ -3240,6 +3342,40 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Public Vehicle Q&A modal overlay
       if (showVehicleQaModal && selectedRentalData != null) VehicleQaModalComponent(appState: this, rentalId: selectedRentalData!['id']),
+
+      // List Property modal overlay
+      if (showListPropertyModal) ListPropertyModalComponent(appState: this),
+
+      // Book Property modal overlay
+      if (showBookPropertyModal) BookPropertyModalComponent(appState: this),
+
+      // Manage Property modal overlay
+      if (showManagePropertyModal) ManagePropertyModalComponent(appState: this),
+
+      // Public Property Q&A modal overlay
+      if (showPropertyQaModal) PropertyQaModalComponent(appState: this),
+
+      // Unified Sign Contract modal overlay
+      if (showSignContractModal && signingContractId != null) SignContractModalComponent(
+        appState: this,
+        title: signingContractTitle ?? '',
+        contractTerms: signingContractTerms ?? '',
+        rentalId: signingContractId!,
+        isProperty: signingContractIsProperty,
+        onSigned: () {
+          setState(() {
+            showSignContractModal = false;
+            signingContractId = null;
+            signingContractTitle = null;
+            signingContractTerms = null;
+          });
+          if (signingContractIsProperty) {
+            _startListeningProperties();
+          } else {
+            _restoreSession();
+          }
+        },
+      ),
 
       // Payment modal overlay
       if (showDepositModal) PaymentModalComponent(state: this),
