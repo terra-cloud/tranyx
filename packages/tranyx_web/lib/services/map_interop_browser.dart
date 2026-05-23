@@ -416,6 +416,23 @@ Future<String> reverseGeocode(double lat, double lng) async {
   }
 }
 
+Future<List<Map<String, dynamic>>> searchAddress(String query) async {
+  try {
+    final url = 'https://nominatim.openstreetmap.org/search?format=json&q=${Uri.encodeComponent(query)}&limit=5';
+    final resp = await window.fetch(url.toJS).toDart;
+    final jsonText = await resp.text().toDart;
+    final text = jsonText.toDart;
+    final decoded = jsonDecode(text);
+    if (decoded is List) {
+      return decoded.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+    }
+    return [];
+  } catch (e) {
+    print('ERROR searching address: $e');
+    return [];
+  }
+}
+
 // ── OSM Navigation ────────────────────────────────────────────────────────────
 
 void openOSMNavigation(double destLat, double destLng) {

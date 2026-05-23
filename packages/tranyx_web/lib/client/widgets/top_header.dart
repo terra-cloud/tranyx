@@ -84,7 +84,7 @@ class TopHeaderComponent extends StatelessComponent {
     return switch (tab) {
       AppTab.home => 'Dashboard',
       AppTab.jobs => 'Jobs & Gigs',
-      AppTab.transit => 'Transit Hub',
+      AppTab.transit => 'Rentals Hub',
       AppTab.profile => 'My Profile',
     };
   }

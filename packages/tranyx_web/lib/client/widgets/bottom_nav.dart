@@ -20,7 +20,7 @@ class BottomNavComponent extends StatelessComponent {
         div(classes: 'flex items-center justify-around px-2 py-2', [
           _navItem(AppTab.home, 'home', 'Home', s, isDark),
           _navItem(AppTab.jobs, 'briefcase', 'Jobs', s, isDark),
-          _navItem(AppTab.transit, 'car', 'Transit', s, isDark),
+          _navItem(AppTab.transit, 'key', 'Rentals', s, isDark),
           _navItem(AppTab.profile, 'user', 'Profile', s, isDark),
         ]),
       ],

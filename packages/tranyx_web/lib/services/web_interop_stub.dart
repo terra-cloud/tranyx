@@ -71,3 +71,15 @@ void listenToRentalQAJs(String rentalId, void Function(String) callback) {}
 void unlistenRentalQAJs(String rentalId) {}
 void postRentalQuestionJs(String rentalId, String uid, String name, String photoUrl, String text) {}
 void answerRentalQuestionJs(String rentalId, String questionId, String answerText) {}
+
+// Property Q&A stubs
+void listenToPropertyQAJs(String propertyId, void Function(String) callback) {}
+void unlistenPropertyQAJs(String propertyId) {}
+void postPropertyQuestionJs(String propertyId, String uid, String name, String photoUrl, String text) {}
+void answerPropertyQuestionJs(String propertyId, String questionId, String answerText) {}
+
+// Properties List stubs
+void listenToPropertiesJs(void Function(String) callback) {}
+void stopListeningToPropertiesJs() {}
+void listenToPropertyDetailsJs(String propertyId, void Function(String) callback) {}
+void stopListeningToPropertyDetailsJs() {}

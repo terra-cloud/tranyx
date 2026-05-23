@@ -386,3 +386,74 @@ void answerRentalQuestionJs(String rentalId, String questionId, String answerTex
     );
   } catch (_) {}
 }
+
+// ── Property Q&A Interop ────────────────────────────────────────────────────────
+
+void listenToPropertyQAJs(String propertyId, void Function(String) callback) {
+  try {
+    final cb = callback.toJS;
+    web.window.callMethod('listenToPropertyQA'.toJS, propertyId.toJS, cb);
+  } catch (_) {}
+}
+
+void unlistenPropertyQAJs(String propertyId) {
+  try {
+    web.window.callMethod('unlistenPropertyQA'.toJS, propertyId.toJS);
+  } catch (_) {}
+}
+
+void postPropertyQuestionJs(String propertyId, String uid, String name, String photoUrl, String text) {
+  try {
+    web.window.callMethodVarArgs(
+      'postPropertyQuestion'.toJS,
+      [propertyId.toJS, uid.toJS, name.toJS, photoUrl.toJS, text.toJS],
+    );
+  } catch (_) {}
+}
+
+void answerPropertyQuestionJs(String propertyId, String questionId, String answerText) {
+  try {
+    web.window.callMethod(
+      'answerPropertyQuestion'.toJS,
+      propertyId.toJS, questionId.toJS, answerText.toJS,
+    );
+  } catch (_) {}
+}
+
+// ── Properties List Interop ──────────────────────────────────────────────────
+
+JSFunction? _propertiesUnsub;
+
+void listenToPropertiesJs(void Function(String) callback) {
+  try {
+    _propertiesUnsub?.callAsFunction();
+    final cb = callback.toJS;
+    final unsub = web.window.callMethod<JSFunction>('listenToProperties'.toJS, cb);
+    _propertiesUnsub = unsub;
+  } catch (_) {}
+}
+
+void stopListeningToPropertiesJs() {
+  try {
+    _propertiesUnsub?.callAsFunction();
+    _propertiesUnsub = null;
+  } catch (_) {}
+}
+
+JSFunction? _propertyDetailsUnsub;
+
+void listenToPropertyDetailsJs(String propertyId, void Function(String) callback) {
+  try {
+    _propertyDetailsUnsub?.callAsFunction();
+    final cb = callback.toJS;
+    final unsub = web.window.callMethod<JSFunction>('listenToPropertyDetails'.toJS, propertyId.toJS, cb);
+    _propertyDetailsUnsub = unsub;
+  } catch (_) {}
+}
+
+void stopListeningToPropertyDetailsJs() {
+  try {
+    _propertyDetailsUnsub?.callAsFunction();
+    _propertyDetailsUnsub = null;
+  } catch (_) {}
+}
