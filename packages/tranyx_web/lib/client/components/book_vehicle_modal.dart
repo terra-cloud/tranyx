@@ -7,7 +7,6 @@ import '../../components/ui_helpers.dart';
 import '../../components/map_container.dart';
 import '../../constants/contract_drafts.dart';
 import '../../services/map_interop.dart';
-import '../../services/web_interop.dart';
 
 class BookVehicleModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -163,17 +162,6 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
   }
 
   void _book() async {
-    final canvasId = 'sig-pad-${component.appState.selectedRentalData?['id'] ?? 'default'}';
-    if (isSignaturePadEmptyJs(canvasId)) {
-      setState(() => _error = 'Please draw your signature on the signature pad.');
-      return;
-    }
-    final signatureDataUrl = getSignatureDataUrlJs(canvasId);
-    if (signatureDataUrl.isEmpty) {
-      setState(() => _error = 'Could not capture signature. Please try again.');
-      return;
-    }
-    
     setState(() {
       _isBooking = true;
       _error = null;
@@ -219,7 +207,6 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         renteePhotoUrl: user.photoUrl,
         durationType: _selectedPackage,
         multiplier: _quantity,
-        signatureName: signatureDataUrl,
         licenseNumber: _licenseNumber,
         totalCost: _totalPrice,
         hireWithDriver: _hireWithDriver,
@@ -551,43 +538,6 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                        setState(() => _licenseNumber = formatted);
                      }},
                    ),
-
-                  () {
-                    final canvasId = 'sig-pad-${r['id'] ?? 'default'}';
-                    // Init pad after first render (idempotent)
-                    Future.microtask(() => initSignaturePadJs(canvasId));
-
-                    return div(classes: 'mb-2', [
-                      div(classes: 'flex items-center justify-between mb-2', [
-                        label(
-                          classes: 'block text-sm font-semibold ${isDark ? "text-zinc-300" : "text-zinc-700"}',
-                          [Component.text('Draw your signature')],
-                        ),
-                        button(
-                          classes: 'text-xs text-zinc-400 hover:text-red-400 underline transition-colors',
-                          events: {'click': (_) {
-                            clearSignaturePadJs(canvasId);
-                          }},
-                          [Component.text('Clear')],
-                        ),
-                      ]),
-                      div(
-                        classes: 'rounded-2xl border-2 border-dashed ${isDark ? "border-zinc-700 bg-zinc-900/60" : "border-zinc-300 bg-zinc-50"} overflow-hidden',
-                        [
-                          Component.element(
-                            tag: 'canvas',
-                            id: canvasId,
-                            classes: 'w-full touch-none cursor-crosshair block',
-                            attributes: {'width': '600', 'height': '140'},
-                          ),
-                        ],
-                      ),
-                      p(classes: 'text-xs text-zinc-500 mt-1.5 flex items-center gap-1', [
-                        lIcon('pen-tool', cls: 'w-3 h-3'),
-                        Component.text('Sign with your mouse or finger'),
-                      ]),
-                    ]);
-                  }(),
                 ]),
                 
                 div(classes: 'p-5 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-3', [
@@ -656,7 +606,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                   events: {'click': (e) => _book()},
                   [
                     if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                    Component.text(_isBooking ? 'Processing...' : 'Sign & Pay')
+                    Component.text(_isBooking ? 'Processing...' : 'Submit Request')
                   ]
                 ),
             ]),

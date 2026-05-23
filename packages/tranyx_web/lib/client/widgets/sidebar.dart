@@ -24,7 +24,7 @@ class SidebarComponent extends StatelessComponent {
         div(classes: 'flex-1 space-y-4 w-full px-4', [
           _navItem(AppTab.home, 'home', 'Dashboard', s),
           _navItem(AppTab.jobs, 'briefcase', 'Jobs', s),
-          _navItem(AppTab.transit, 'car', 'Transit', s),
+          _navItem(AppTab.transit, 'key', 'Rentals', s),
           _navItem(AppTab.profile, 'user', 'Profile', s),
         ]),
 
