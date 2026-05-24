@@ -73,21 +73,26 @@ class _SignContractModalState extends State<SignContractModalComponent> {
       classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
       [
         div(
-          classes: 'w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] '
+          classes:
+              'w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] '
               '${isDark ? "bg-zinc-900 border border-zinc-800 text-white" : "bg-white text-zinc-900 shadow-xl"}',
           [
             // Header
-            div(classes: 'p-6 border-b ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between', [
-              div([
-                h2(classes: 'text-xl font-black tracking-tight', [Component.text('Sign Agreement')]),
-                p(classes: 'text-xs text-zinc-500', [Component.text(component.title)]),
-              ]),
-              button(
-                classes: 'p-2 rounded-full hover:bg-zinc-800/20 transition-colors',
-                events: {'click': (_) => component.onSigned()}, // close modal
-                [lIcon('x', cls: 'w-6 h-6')],
-              ),
-            ]),
+            div(
+              classes:
+                  'p-6 border-b ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between',
+              [
+                div([
+                  h2(classes: 'text-xl font-black tracking-tight', [Component.text('Sign Agreement')]),
+                  p(classes: 'text-xs text-zinc-500', [Component.text(component.title)]),
+                ]),
+                button(
+                  classes: 'p-2 rounded-full hover:bg-zinc-800/20 transition-colors',
+                  events: {'click': (_) => component.onSigned()}, // close modal
+                  [lIcon('x', cls: 'w-6 h-6')],
+                ),
+              ],
+            ),
 
             // Body
             div(classes: 'p-6 flex-1 overflow-y-auto space-y-5', [
@@ -97,13 +102,19 @@ class _SignContractModalState extends State<SignContractModalComponent> {
                 ]),
 
               p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-                Component.text('Please read the agreement details and sign in the designated box below to activate the lease/rental.'),
+                Component.text(
+                  'Please read the agreement details and sign in the designated box below to activate the lease/rental.',
+                ),
               ]),
 
               // Scrollable Terms
-              div(classes: 'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 h-44 overflow-y-auto text-xs leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                p(classes: 'whitespace-pre-wrap', [Component.text(component.contractTerms)]),
-              ]),
+              div(
+                classes:
+                    'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 h-44 overflow-y-auto text-xs leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-600"}',
+                [
+                  p(classes: 'whitespace-pre-wrap', [Component.text(component.contractTerms)]),
+                ],
+              ),
 
               // Signature Canvas Box
               div([
@@ -119,7 +130,8 @@ class _SignContractModalState extends State<SignContractModalComponent> {
                   ),
                 ]),
                 div(
-                  classes: 'rounded-2xl border-2 border-dashed ${isDark ? "border-zinc-700 bg-zinc-900/60" : "border-zinc-300 bg-zinc-50"} overflow-hidden',
+                  classes:
+                      'rounded-2xl border-2 border-dashed ${isDark ? "border-zinc-700 bg-zinc-900/60" : "border-zinc-300 bg-zinc-50"} overflow-hidden',
                   [
                     Component.element(
                       tag: 'canvas',
@@ -137,22 +149,28 @@ class _SignContractModalState extends State<SignContractModalComponent> {
             ]),
 
             // Footer
-            div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-end gap-3', [
-              button(
-                classes: 'px-5 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors text-sm',
-                events: {'click': (_) => component.onSigned()},
-                [Component.text('Cancel')],
-              ),
-              button(
-                classes: 'px-6 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 text-sm border-0 cursor-pointer',
-                events: {'click': (_) => _submitSignature()},
-                disabled: _isSigning,
-                [
-                  if (_isSigning) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                  Component.text(_isSigning ? 'Activating...' : 'Sign & Activate'),
-                ],
-              ),
-            ]),
+            div(
+              classes:
+                  'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-end gap-3',
+              [
+                button(
+                  classes:
+                      'px-5 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors text-sm',
+                  events: {'click': (_) => component.onSigned()},
+                  [Component.text('Cancel')],
+                ),
+                button(
+                  classes:
+                      'px-6 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 text-sm border-0 cursor-pointer',
+                  events: {'click': (_) => _submitSignature()},
+                  disabled: _isSigning,
+                  [
+                    if (_isSigning) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                    Component.text(_isSigning ? 'Activating...' : 'Sign & Activate'),
+                  ],
+                ),
+              ],
+            ),
           ],
         ),
       ],

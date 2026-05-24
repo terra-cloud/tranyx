@@ -4,6 +4,7 @@ import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
 import '../../services/web_interop.dart';
+
 class TopHeaderComponent extends StatelessComponent {
   final TranyxAppState state;
   const TopHeaderComponent({required this.state, super.key});
@@ -15,7 +16,8 @@ class TopHeaderComponent extends StatelessComponent {
     final borderCls = isDark ? 'border-zinc-800 bg-zinc-900/60' : 'border-zinc-200 bg-white/80';
 
     return header(
-      classes: 'relative flex items-center justify-between px-6 py-4 border-b $borderCls backdrop-blur-sm flex-shrink-0 z-50',
+      classes:
+          'relative flex items-center justify-between px-6 py-4 border-b $borderCls backdrop-blur-sm flex-shrink-0 z-50',
       [
         // Mobile logo (hidden on desktop where sidebar shows it)
         div(classes: 'flex items-center gap-3 md:hidden', [
@@ -57,8 +59,7 @@ class TopHeaderComponent extends StatelessComponent {
                   span([], classes: 'absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-500'),
               ],
             ),
-            if (s.showNotificationsDropdown)
-              _NotificationsDropdown(state: s, isDark: isDark),
+            if (s.showNotificationsDropdown) _NotificationsDropdown(state: s, isDark: isDark),
           ]),
 
           // Avatar
@@ -104,31 +105,37 @@ class _NotificationsDropdown extends StatelessComponent {
       classes:
           'absolute right-0 top-full mt-2 w-80 max-h-96 overflow-y-auto rounded-2xl shadow-xl border z-[100] animate-fade-down ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"}',
       [
-        div(classes: 'p-4 border-b ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between sticky top-0 ${isDark ? "bg-zinc-900/90" : "bg-white/90"} backdrop-blur-md', [
-          h3(classes: 'font-bold ${isDark ? "text-white" : "text-zinc-900"}', [Component.text('Notifications')]),
-          button(
-            classes: 'text-xs font-semibold text-indigo-500 hover:text-indigo-400',
-            events: {
-              'click': (_) {
-                for (final n in notifications) {
-                  final id = n['id'] as String?;
-                  if (id != null) {
-                    markNotificationReadJs(id);
+        div(
+          classes:
+              'p-4 border-b ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between sticky top-0 ${isDark ? "bg-zinc-900/90" : "bg-white/90"} backdrop-blur-md',
+          [
+            h3(classes: 'font-bold ${isDark ? "text-white" : "text-zinc-900"}', [Component.text('Notifications')]),
+            button(
+              classes: 'text-xs font-semibold text-indigo-500 hover:text-indigo-400',
+              events: {
+                'click': (_) {
+                  for (final n in notifications) {
+                    final id = n['id'] as String?;
+                    if (id != null) {
+                      markNotificationReadJs(id);
+                    }
                   }
-                }
-                s.setState(() {
-                  s.notifications.clear();
-                  s.showNotificationsDropdown = false;
-                });
+                  s.setState(() {
+                    s.notifications.clear();
+                    s.showNotificationsDropdown = false;
+                  });
+                },
               },
-            },
-            [Component.text('Clear All')],
-          ),
-        ]),
+              [Component.text('Clear All')],
+            ),
+          ],
+        ),
         if (notifications.isEmpty)
           div(classes: 'p-8 text-center', [
             lIcon('bell-off', cls: 'w-8 h-8 mx-auto mb-3 opacity-20 ${isDark ? "text-white" : "text-zinc-900"}'),
-            p(classes: 'text-sm font-medium ${isDark ? "text-zinc-500" : "text-zinc-400"}', [Component.text('No new notifications')]),
+            p(classes: 'text-sm font-medium ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+              Component.text('No new notifications'),
+            ]),
           ])
         else
           div(classes: 'divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-100"}', [
@@ -147,10 +154,18 @@ class _NotificationsDropdown extends StatelessComponent {
                   },
                 },
                 [
-                  p(classes: 'text-sm font-bold ${isDark ? "text-zinc-200" : "text-zinc-800"}', [Component.text(n['title'] as String? ?? 'Notification')]),
-                  p(classes: 'text-xs mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}', [Component.text(n['message'] as String? ?? '')]),
+                  p(classes: 'text-sm font-bold ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                    Component.text(n['title'] as String? ?? 'Notification'),
+                  ]),
+                  p(classes: 'text-xs mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                    Component.text(n['message'] as String? ?? ''),
+                  ]),
                   p(classes: 'text-[10px] mt-2 font-medium opacity-50', [
-                    Component.text(DateTime.fromMillisecondsSinceEpoch(n['createdAt'] as int? ?? DateTime.now().millisecondsSinceEpoch).toString().substring(0, 16)),
+                    Component.text(
+                      DateTime.fromMillisecondsSinceEpoch(
+                        n['createdAt'] as int? ?? DateTime.now().millisecondsSinceEpoch,
+                      ).toString().substring(0, 16),
+                    ),
                   ]),
                 ],
               ),

@@ -160,8 +160,7 @@ class _ProfileMain extends StatelessComponent {
 
       // Stats row
       div(
-        classes:
-            'grid grid-cols-2 md:grid-cols-${s.accountType == AccountType.employer ? "2" : "3"} gap-4',
+        classes: 'grid grid-cols-2 md:grid-cols-${s.accountType == AccountType.employer ? "2" : "3"} gap-4',
         [
           // Rating - Always shown
           _stat(
@@ -1674,7 +1673,7 @@ class _HistoryViewState extends State<_HistoryView> {
         final title = '${rental.year} ${rental.brand} ${rental.model}';
         final price = rental.totalCost ?? 0.0;
         final createdAtMs = rental.createdAt.millisecondsSinceEpoch;
-        
+
         // If the user was the host -> earnings
         if (creatorId == uid) {
           final payout = price * 0.95; // 5% host commission fee deducted
@@ -1736,13 +1735,13 @@ class _HistoryViewState extends State<_HistoryView> {
       final title = '${rental.year} ${rental.brand} ${rental.model}';
       final price = rental.totalCost ?? 0.0;
       final createdAtMs = rental.createdAt.millisecondsSinceEpoch;
-      
+
       // If the user was the host -> earnings
       if (creatorId == uid) {
         final payout = price * 0.95; // 5% host commission fee deducted
         earningsSum += payout;
         gigsCount++;
-        
+
         final alreadyAdded = eTrans.any((e) => e['timestamp'] == createdAtMs && e['title'] == title);
         if (!alreadyAdded) {
           eTrans.add({
@@ -1949,8 +1948,14 @@ class _HistoryViewState extends State<_HistoryView> {
 
     final hasPurchaseHistory = purchaseTransactions.isNotEmpty;
     final showEarnings = (type == AccountType.nyxian || type == AccountType.hybrid);
-    final showPurchases = (type == AccountType.employer || type == AccountType.hybrid || (type == AccountType.nyxian && hasPurchaseHistory));
-    final showDeposits = (type == AccountType.employer || type == AccountType.hybrid || (type == AccountType.nyxian && hasPurchaseHistory));
+    final showPurchases =
+        (type == AccountType.employer ||
+        type == AccountType.hybrid ||
+        (type == AccountType.nyxian && hasPurchaseHistory));
+    final showDeposits =
+        (type == AccountType.employer ||
+        type == AccountType.hybrid ||
+        (type == AccountType.nyxian && hasPurchaseHistory));
 
     final activeData = earningsData[activeFilter] ?? [];
     double totalEarnedInFilter = 0.0;
@@ -2169,12 +2174,14 @@ class _HistoryViewState extends State<_HistoryView> {
                         ]),
                         p(classes: 'text-xs text-amber-500/80 mt-0.5', [
                           lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
-                          Component.text('Platform fee (3%): − ${formatCurrency((tx['bookingFee'] as num).toDouble())}'),
+                          Component.text(
+                            'Platform fee (3%): − ${formatCurrency((tx['bookingFee'] as num).toDouble())}',
+                          ),
                         ]),
                       ],
                     ]),
                   ]),
-                   div(classes: 'text-right', [
+                  div(classes: 'text-right', [
                     p(classes: 'font-black text-sm ${isDark ? "text-zinc-100" : "text-zinc-900"}', [
                       Component.text('− ${formatCurrency((tx['amount'] as num).toDouble())}'),
                     ]),
@@ -2217,7 +2224,7 @@ class _HistoryViewState extends State<_HistoryView> {
                       ]),
                     ]),
                   ]),
-                   div(classes: 'text-right', [
+                  div(classes: 'text-right', [
                     p(classes: 'font-black text-sm text-indigo-400', [
                       Component.text('+ ${formatCurrency((tx['amount'] as num).toDouble())}'),
                     ]),

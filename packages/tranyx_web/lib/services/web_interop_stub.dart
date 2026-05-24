@@ -10,6 +10,11 @@ class SessionStorage {
   static bool get hasSession => false;
   static void clear() {}
   static void updateIdToken(String token) {}
+
+  static String? get pendingQrJobId => null;
+  static set pendingQrJobId(String? val) {}
+  static String? get pendingQrCode => null;
+  static set pendingQrCode(String? val) {}
 }
 
 String getHostname() => 'localhost';
@@ -83,3 +88,7 @@ void listenToPropertiesJs(void Function(String) callback) {}
 void stopListeningToPropertiesJs() {}
 void listenToPropertyDetailsJs(String propertyId, void Function(String) callback) {}
 void stopListeningToPropertyDetailsJs() {}
+
+String getUrlOrigin() => 'http://localhost:8080';
+Map<String, String> getUrlQueryParams() => const {};
+void clearUrlParams() {}

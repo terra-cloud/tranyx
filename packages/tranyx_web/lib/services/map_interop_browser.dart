@@ -28,7 +28,7 @@ Future<void> ensureMapLibreLoaded() async {
 
   // Slow path — inject dynamically if missing
   final head = document.head!;
-  
+
   if (document.querySelector('link[href*="maplibre-gl"]') == null) {
     final lnk = document.createElement('link') as HTMLLinkElement;
     lnk.rel = 'stylesheet';
@@ -91,7 +91,15 @@ void clearWatch(int id) => window.navigator.geolocation.clearWatch(id);
 
 JSObject? _map(String id) => window.getProperty<JSObject?>('__lmap_$id'.toJS);
 
-Future<void> initMap(String elementId, double lat, double lng, double zoom, {bool isDark = true, double pitch = 0, double bearing = 0}) async {
+Future<void> initMap(
+  String elementId,
+  double lat,
+  double lng,
+  double zoom, {
+  bool isDark = true,
+  double pitch = 0,
+  double bearing = 0,
+}) async {
   final found = await _waitForElement(elementId);
   if (!found) {
     print('ERROR: Map element with ID "$elementId" was not found in the DOM.');
@@ -118,24 +126,19 @@ Future<void> initMap(String elementId, double lat, double lng, double zoom, {boo
     // Create raster-style specification locally to avoid needing any MapLibre / Mapbox API Key
     final style = JSObject();
     style.setProperty('version'.toJS, 8.toJS);
-    
+
     final sources = JSObject();
     final rasterTiles = JSObject();
     rasterTiles.setProperty('type'.toJS, 'raster'.toJS);
-    
+
     final tileUrl = isDark
         ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
         : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     final tiles = [tileUrl.toJS].toJS;
-    
+
     rasterTiles.setProperty('tiles'.toJS, tiles);
     rasterTiles.setProperty('tileSize'.toJS, 256.toJS);
-    rasterTiles.setProperty(
-      'attribution'.toJS,
-      isDark
-        ? '© CARTO, © OpenStreetMap'.toJS
-        : '© OpenStreetMap'.toJS
-    );
+    rasterTiles.setProperty('attribution'.toJS, isDark ? '© CARTO, © OpenStreetMap'.toJS : '© OpenStreetMap'.toJS);
     sources.setProperty('raster-tiles'.toJS, rasterTiles);
     style.setProperty('sources'.toJS, sources);
 
@@ -151,7 +154,7 @@ Future<void> initMap(String elementId, double lat, double lng, double zoom, {boo
     final opts = JSObject();
     opts.setProperty('container'.toJS, elementId.toJS);
     opts.setProperty('style'.toJS, style);
-    
+
     // MapLibre expects center as [lng, lat]
     opts.setProperty('center'.toJS, [lng.toJS, lat.toJS].toJS);
     opts.setProperty('zoom'.toJS, zoom.toJS);
@@ -194,7 +197,7 @@ void setMarker(
 
   final storeKey = '__lmarker_${elementId}_$markerId'.toJS;
   final existing = window.getProperty<JSObject?>(storeKey);
-  
+
   if (existing != null) {
     existing.callMethod<JSAny>('setLngLat'.toJS, [lng.toJS, lat.toJS].toJS);
     if (popupText != null) {
@@ -210,7 +213,7 @@ void setMarker(
   } else {
     final marker = window.callMethod<JSObject>('_createMarker'.toJS);
     marker.callMethod<JSObject>('setLngLat'.toJS, [lng.toJS, lat.toJS].toJS);
-    
+
     if (popupText != null) {
       final popup = window.callMethod<JSObject>('_createPopup'.toJS);
       popup.callMethod<JSAny>('setHTML'.toJS, popupText.toJS);
@@ -221,7 +224,7 @@ void setMarker(
     } else {
       marker.callMethod<JSAny>('addTo'.toJS, m);
     }
-    
+
     window.setProperty(storeKey, marker);
   }
 }
@@ -261,7 +264,7 @@ void drawRoute(String elementId, List<List<double>> points, String color) {
   final geojson = JSObject();
   geojson.setProperty('type'.toJS, 'Feature'.toJS);
   geojson.setProperty('properties'.toJS, JSObject());
-  
+
   final geom = JSObject();
   geom.setProperty('type'.toJS, 'LineString'.toJS);
   geom.setProperty('coordinates'.toJS, rawCoords);
@@ -380,7 +383,7 @@ void invalidateMapSize(String elementId) {
 void destroyMap(String elementId) {
   final m = _map(elementId);
   if (m == null) return;
-  
+
   // Clean up any route if present
   final routeKey = '__lroute_$elementId'.toJS;
   final route = window.getProperty<JSObject?>(routeKey);

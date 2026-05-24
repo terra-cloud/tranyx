@@ -906,7 +906,9 @@ class FirestoreService {
     }
     final listingFee = 0.015 * rental.priceDaily;
     if (host.tyxBalance < listingFee) {
-      throw Exception('Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+      throw Exception(
+        'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+      );
     }
 
     // Deduct fee
@@ -953,7 +955,7 @@ class FirestoreService {
     if (rentalDoc == null) throw Exception('Rental listing not found.');
 
     final rental = VehicleRental.fromMap(rentalDoc, rentalId);
-    
+
     // Safety check: Cannot delete booked or ongoing rentals
     if (rental.status != 'Available') {
       throw Exception('Cannot delete a vehicle listing that is currently booked or active.');
@@ -1025,7 +1027,9 @@ class FirestoreService {
     final totalRequired = totalCost + bookingFee;
 
     if (rentee.tyxBalance < totalRequired) {
-      throw Exception('Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+      throw Exception(
+        'Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+      );
     }
 
     // Deduct from renter
@@ -1167,7 +1171,8 @@ class FirestoreService {
       'type': 'payment',
       'amount': hostPayout,
       'title': 'Rental Earnings Payout',
-      'desc': 'Payout for rental ${rental.brand} ${rental.model} (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+      'desc':
+          'Payout for rental ${rental.brand} ${rental.model} (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -1210,7 +1215,8 @@ class FirestoreService {
     await createNotification(
       uid: rental.hostId,
       title: 'Rental Completed & Paid',
-      message: 'Rental for ${rental.brand} completed. Payout of ${hostPayout.toStringAsFixed(2)} TYXBIT credited to your wallet.',
+      message:
+          'Rental for ${rental.brand} completed. Payout of ${hostPayout.toStringAsFixed(2)} TYXBIT credited to your wallet.',
     );
     if (rental.renteeId != null && rental.renteeId!.isNotEmpty) {
       await createNotification(
@@ -1254,7 +1260,9 @@ class FirestoreService {
     final totalRequired = totalCost + bookingFee;
 
     if (rentee.tyxBalance < totalRequired) {
-      throw Exception('Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+      throw Exception(
+        'Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+      );
     }
 
     // Deduct from renter
@@ -1346,7 +1354,8 @@ class FirestoreService {
     final rentalType = reqDoc['rentalType'] as String? ?? 'pickup';
     final deliveryAddress = reqDoc['deliveryAddress'] as String? ?? '';
     final startDate = (reqDoc['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
-    final endDate = (reqDoc['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
+    final endDate =
+        (reqDoc['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
 
     // 1. Approve this request
     await setDocument('rental_requests/$requestId', {'status': 'Approved'});
@@ -1408,12 +1417,14 @@ class FirestoreService {
     await createNotification(
       uid: renteeId,
       title: 'Booking Request Approved',
-      message: 'Your request to book ${rental.brand} ${rental.model} has been approved! Please sign the contract to activate the rental.',
+      message:
+          'Your request to book ${rental.brand} ${rental.model} has been approved! Please sign the contract to activate the rental.',
     );
     await createNotification(
       uid: rental.hostId,
       title: 'Booking Approved',
-      message: 'You approved $renteeName\'s booking request for ${rental.brand} ${rental.model}. Awaiting renter\'s signature.',
+      message:
+          'You approved $renteeName\'s booking request for ${rental.brand} ${rental.model}. Awaiting renter\'s signature.',
     );
   }
 
@@ -1437,7 +1448,8 @@ class FirestoreService {
     await createNotification(
       uid: hostId,
       title: 'Contract Signed',
-      message: '$renteeName has signed the contract for your vehicle $brand $model. Booking is now active and ready for handover.',
+      message:
+          '$renteeName has signed the contract for your vehicle $brand $model. Booking is now active and ready for handover.',
     );
   }
 
@@ -1686,7 +1698,8 @@ class FirestoreService {
       'type': 'refund',
       'amount': refundToRentee,
       'title': 'Rental Cancellation — Refund',
-      'desc': 'Refund for cancelled rental: ${rental.brand} ${rental.model} (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
+      'desc':
+          'Refund for cancelled rental: ${rental.brand} ${rental.model} (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -1735,7 +1748,8 @@ class FirestoreService {
     await createNotification(
       uid: rental.renteeId!,
       title: 'Rental Cancelled — Refund Issued',
-      message: 'Your rental was cancelled. ${refundToRentee.toStringAsFixed(2)} TYXBIT refunded (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee).',
+      message:
+          'Your rental was cancelled. ${refundToRentee.toStringAsFixed(2)} TYXBIT refunded (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee).',
     );
   }
 
@@ -1760,17 +1774,17 @@ class FirestoreService {
                   'field': {'fieldPath': 'rentalId'},
                   'op': 'EQUAL',
                   'value': {'stringValue': rentalId},
-                }
+                },
               },
               {
                 'fieldFilter': {
                   'field': {'fieldPath': 'status'},
                   'op': 'EQUAL',
                   'value': {'stringValue': 'Approved'},
-                }
-              }
-            ]
-          }
+                },
+              },
+            ],
+          },
         },
       },
     });
@@ -1814,17 +1828,17 @@ class FirestoreService {
                   'field': {'fieldPath': 'rentalId'},
                   'op': 'EQUAL',
                   'value': {'stringValue': rentalId},
-                }
+                },
               },
               {
                 'fieldFilter': {
                   'field': {'fieldPath': 'status'},
                   'op': 'EQUAL',
                   'value': {'stringValue': 'Pending'},
-                }
-              }
-            ]
-          }
+                },
+              },
+            ],
+          },
         },
       },
     });
@@ -1857,7 +1871,9 @@ class FirestoreService {
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
     if (rentee.tyxBalance < fee) {
-      throw Exception('Insufficient balance. Extension requires ${fee.toStringAsFixed(2)} TYXBIT, but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+      throw Exception(
+        'Insufficient balance. Extension requires ${fee.toStringAsFixed(2)} TYXBIT, but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+      );
     }
 
     // Debit rentee
@@ -1914,7 +1930,9 @@ class FirestoreService {
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
     if (rentee.tyxBalance < fee) {
-      throw Exception('Insufficient balance. Extension requires ${fee.toStringAsFixed(2)} TYXBIT, but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+      throw Exception(
+        'Insufficient balance. Extension requires ${fee.toStringAsFixed(2)} TYXBIT, but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+      );
     }
 
     // Debit rentee
@@ -2044,7 +2062,9 @@ class FirestoreService {
     }
     final listingFee = 0.015 * property.priceMonthly;
     if (host.tyxBalance < listingFee) {
-      throw Exception('Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+      throw Exception(
+        'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+      );
     }
 
     // Deduct fee
@@ -2163,7 +2183,9 @@ class FirestoreService {
     final totalRequired = totalCost + bookingFee;
 
     if (rentee.tyxBalance < totalRequired) {
-      throw Exception('Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.');
+      throw Exception(
+        'Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+      );
     }
 
     // Deduct from renter
@@ -2248,7 +2270,8 @@ class FirestoreService {
     final multiplier = (reqDoc['multiplier'] as num).toInt();
     final totalCost = (reqDoc['totalCost'] as num).toDouble();
     final startDate = (reqDoc['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
-    final endDate = (reqDoc['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 30)).millisecondsSinceEpoch;
+    final endDate =
+        (reqDoc['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 30)).millisecondsSinceEpoch;
 
     // 1. Approve request
     await setDocument('property_requests/$requestId', {'status': 'Approved'});
@@ -2304,7 +2327,8 @@ class FirestoreService {
     await createNotification(
       uid: renteeId,
       title: 'Property Request Approved',
-      message: 'Your request to rent "${property.title}" has been approved! Please sign the lease agreement to finalize.',
+      message:
+          'Your request to rent "${property.title}" has been approved! Please sign the lease agreement to finalize.',
     );
     await createNotification(
       uid: property.hostId,
@@ -2429,7 +2453,8 @@ class FirestoreService {
       'type': 'payment',
       'amount': hostPayout,
       'title': 'Property Rental Payout',
-      'desc': 'Earnings payout for "${property.title}" (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+      'desc':
+          'Earnings payout for "${property.title}" (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -2459,7 +2484,8 @@ class FirestoreService {
     await createNotification(
       uid: property.hostId,
       title: 'Lease Completed & Paid',
-      message: 'Lease for "${property.title}" has been completed. Payout of ${hostPayout.toStringAsFixed(2)} TYXBIT credited to your wallet.',
+      message:
+          'Lease for "${property.title}" has been completed. Payout of ${hostPayout.toStringAsFixed(2)} TYXBIT credited to your wallet.',
     );
     if (property.renteeId != null && property.renteeId!.isNotEmpty) {
       await createNotification(
@@ -2533,17 +2559,17 @@ class FirestoreService {
                   'field': {'fieldPath': 'propertyId'},
                   'op': 'EQUAL',
                   'value': {'stringValue': propertyId},
-                }
+                },
               },
               {
                 'fieldFilter': {
                   'field': {'fieldPath': 'status'},
                   'op': 'EQUAL',
                   'value': {'stringValue': 'Approved'},
-                }
-              }
-            ]
-          }
+                },
+              },
+            ],
+          },
         },
       },
     });
@@ -2587,17 +2613,17 @@ class FirestoreService {
                   'field': {'fieldPath': 'hostId'},
                   'op': 'EQUAL',
                   'value': {'stringValue': hostId},
-                }
+                },
               },
               {
                 'fieldFilter': {
                   'field': {'fieldPath': 'status'},
                   'op': 'EQUAL',
                   'value': {'stringValue': 'Pending'},
-                }
-              }
-            ]
-          }
+                },
+              },
+            ],
+          },
         },
       },
     });
@@ -2641,17 +2667,17 @@ class FirestoreService {
                   'field': {'fieldPath': 'renteeId'},
                   'op': 'EQUAL',
                   'value': {'stringValue': renteeId},
-                }
+                },
               },
               {
                 'fieldFilter': {
                   'field': {'fieldPath': 'status'},
                   'op': 'EQUAL',
                   'value': {'stringValue': 'Pending'},
-                }
-              }
-            ]
-          }
+                },
+              },
+            ],
+          },
         },
       },
     });
@@ -2673,7 +2699,6 @@ class FirestoreService {
     }
     return list;
   }
-
 }
 
 // ── Gemini AI service ─────────────────────────────────────────────────────────

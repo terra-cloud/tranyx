@@ -57,15 +57,18 @@ class _ChatWidgetState extends State<ChatWidget> {
           [
             // ── Header ──────────────────────────────────────────────────
             div(
-              classes:
-                  '$headerBg backdrop-blur-md border-b $border flex items-center gap-3 px-5 py-4 flex-shrink-0',
+              classes: '$headerBg backdrop-blur-md border-b $border flex items-center gap-3 px-5 py-4 flex-shrink-0',
               [
-                div(classes: 'p-2 rounded-xl bg-indigo-500/20', [lIcon('message-circle', cls: 'w-5 h-5 text-indigo-400')]),
+                div(classes: 'p-2 rounded-xl bg-indigo-500/20', [
+                  lIcon('message-circle', cls: 'w-5 h-5 text-indigo-400'),
+                ]),
                 div(classes: 'flex-1', [
-                  p(classes: 'font-bold text-sm ${isDark ? "text-white" : "text-zinc-900"}',
-                      [Component.text(s.currentChatId.startsWith('rental_') ? 'Rental Chat' : 'Job Chat')]),
-                  p(classes: 'text-[11px] ${isDark ? "text-zinc-400" : "text-zinc-500"}',
-                      [Component.text('Messages are monitored. No sharing of personal contact info.')]),
+                  p(classes: 'font-bold text-sm ${isDark ? "text-white" : "text-zinc-900"}', [
+                    Component.text(s.currentChatId.startsWith('rental_') ? 'Rental Chat' : 'Job Chat'),
+                  ]),
+                  p(classes: 'text-[11px] ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                    Component.text('Messages are monitored. No sharing of personal contact info.'),
+                  ]),
                 ]),
                 button(
                   classes:
@@ -87,10 +90,12 @@ class _ChatWidgetState extends State<ChatWidget> {
                       classes: 'p-4 rounded-2xl bg-indigo-500/10',
                       [lIcon('message-circle', cls: 'w-8 h-8 text-indigo-400')],
                     ),
-                    p(classes: 'text-sm font-semibold ${isDark ? "text-zinc-400" : "text-zinc-500"}',
-                        [Component.text('No messages yet')]),
-                    p(classes: 'text-xs ${isDark ? "text-zinc-600" : "text-zinc-400"}',
-                        [Component.text('Start the conversation below')]),
+                    p(classes: 'text-sm font-semibold ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                      Component.text('No messages yet'),
+                    ]),
+                    p(classes: 'text-xs ${isDark ? "text-zinc-600" : "text-zinc-400"}', [
+                      Component.text('Start the conversation below'),
+                    ]),
                   ])
                 else
                   for (final msg in msgs) _buildMessage(msg, uid, isDark),
@@ -105,8 +110,7 @@ class _ChatWidgetState extends State<ChatWidget> {
                 [
                   lIcon('shield-alert', cls: 'w-4 h-4 text-red-400 flex-shrink-0'),
                   p(classes: 'text-xs font-semibold text-red-400', [
-                    Component.text(
-                        'Message blocked: sharing phone numbers or emails is not allowed.'),
+                    Component.text('Message blocked: sharing phone numbers or emails is not allowed.'),
                   ]),
                 ],
               ),
@@ -183,9 +187,7 @@ class _ChatWidgetState extends State<ChatWidget> {
                         ? 'p-2.5 rounded-xl bg-indigo-500/30 text-white/50 cursor-not-allowed'
                         : 'p-2.5 rounded-xl logo-gradient text-white hover:opacity-90 transition-opacity',
                     attributes: s.chatInputText.trim().isEmpty ? {'disabled': 'true'} : {},
-                    events: s.chatInputText.trim().isEmpty
-                        ? {}
-                        : {'click': (_) => s.sendChatMessage()},
+                    events: s.chatInputText.trim().isEmpty ? {} : {'click': (_) => s.sendChatMessage()},
                     [lIcon('send', cls: 'w-5 h-5')],
                   ),
                 ]),
@@ -224,8 +226,9 @@ class _ChatWidgetState extends State<ChatWidget> {
           ),
         div(classes: 'max-w-[72%] flex flex-col ${isMine ? "items-end" : "items-start"} gap-1', [
           if (!isMine)
-            span(classes: 'text-[10px] font-bold px-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}',
-                [Component.text(senderName)]),
+            span(classes: 'text-[10px] font-bold px-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+              Component.text(senderName),
+            ]),
           div(
             classes: '$bubbleBg rounded-2xl ${isMine ? "rounded-br-md" : "rounded-bl-md"} px-4 py-2.5 shadow-sm',
             [
@@ -250,9 +253,10 @@ class _ChatWidgetState extends State<ChatWidget> {
             [
               span(classes: 'text-[10px] font-bold text-white', [
                 Component.text(
-                    (msg['senderName'] as String? ?? '?').isNotEmpty
-                        ? (msg['senderName'] as String)[0].toUpperCase()
-                        : '?'),
+                  (msg['senderName'] as String? ?? '?').isNotEmpty
+                      ? (msg['senderName'] as String)[0].toUpperCase()
+                      : '?',
+                ),
               ]),
             ],
           ),

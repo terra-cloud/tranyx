@@ -220,6 +220,8 @@ class TranyxAppState extends State<TranyxApp> {
   bool isCompletingJob = false;
   bool isGeneratingCode = false;
   String? generatedCompletionCode;
+  String? pendingQrJobId;
+  String? pendingQrCode;
 
   // Rating State
   bool showRatingPopup = false;
@@ -259,9 +261,6 @@ class TranyxAppState extends State<TranyxApp> {
   bool chatPiiBlocked = false;
   bool isUploadingChatPhoto = false;
   Map<String, dynamic>? acceptedApplicantProfile;
-
-
-
 
   // ── Services ────────────────────────────────────────────────
   final _auth = FirebaseAuthService();
@@ -352,10 +351,10 @@ class TranyxAppState extends State<TranyxApp> {
           setState(() {
             if (selectedJobData != null && selectedJobData!['id'] == fresh['id']) {
               selectedJobData = {...selectedJobData!, ...fresh};
-              
+
               final title = fresh['title'] as String? ?? selectedJob?.title ?? '';
-              final rate = fresh['pricingValue'] != null 
-                  ? '₱ ${(fresh['pricingValue'] as num).toStringAsFixed(0)}' 
+              final rate = fresh['pricingValue'] != null
+                  ? '₱ ${(fresh['pricingValue'] as num).toStringAsFixed(0)}'
                   : selectedJob?.rate ?? '';
               final urgency = fresh['dateRequirement'] as String? ?? selectedJob?.urgency ?? '';
               final status = fresh['status'] as String? ?? selectedJob?.status ?? '';
@@ -369,7 +368,7 @@ class TranyxAppState extends State<TranyxApp> {
                 applicants: applicants,
               );
             }
-            
+
             // Sync session copy too
             final idx = sessionPostedJobs.indexWhere((j) => j['id'] == jobId);
             if (idx != -1) sessionPostedJobs[idx] = selectedJobData!;
@@ -400,10 +399,15 @@ class TranyxAppState extends State<TranyxApp> {
   @override
   void initState() {
     super.initState();
+    _initGemini();
+    // Load any pending QR details from SessionStorage
+    pendingQrJobId = SessionStorage.pendingQrJobId;
+    pendingQrCode = SessionStorage.pendingQrCode;
     if (SessionStorage.hasSession) {
       _restoreSession();
+    } else {
+      handleQrVerificationParams();
     }
-    _initGemini();
   }
 
   void _initGemini() {
@@ -438,6 +442,12 @@ class TranyxAppState extends State<TranyxApp> {
     _startListeningJobs();
     _startListeningRentals();
     _startListeningProperties();
+    await handleQrVerificationParams();
+
+    // Auto-execute pending QR verification if one exists and we are logged in
+    if (pendingQrJobId != null && pendingQrCode != null) {
+      await executePendingQrVerification();
+    }
   }
 
   void _startListeningNotifications() {
@@ -460,9 +470,11 @@ class TranyxAppState extends State<TranyxApp> {
         setState(() {
           // Filter out read notifications locally
           final unreadNotifs = parsed.where((n) => n['isRead'] != true).toList();
-          
+
           // Identify if there are new notifications that we didn't have before
-          final newNotifs = unreadNotifs.where((n) => !notifications.any((existing) => existing['id'] == n['id'])).toList();
+          final newNotifs = unreadNotifs
+              .where((n) => !notifications.any((existing) => existing['id'] == n['id']))
+              .toList();
           if (newNotifs.isNotEmpty) {
             final latest = newNotifs.first;
             latestToastNotification = latest;
@@ -574,12 +586,7 @@ class TranyxAppState extends State<TranyxApp> {
           ongoingJob = merged.cast<Map<String, dynamic>?>().firstWhere(
             (j) {
               final s = (j?['status'] as String?)?.toLowerCase();
-              return s != null &&
-                  s != 'open' &&
-                  s != 'completed' &&
-                  s != 'cancelled' &&
-                  s != 'held' &&
-                  s != 'pending';
+              return s != null && s != 'open' && s != 'completed' && s != 'cancelled' && s != 'held' && s != 'pending';
             },
             orElse: () => null,
           );
@@ -727,6 +734,10 @@ class TranyxAppState extends State<TranyxApp> {
       _startListeningRentals();
       // Auto-connect Phantom wallet if already trusted by the browser
       unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
+
+      if (pendingQrJobId != null && pendingQrCode != null) {
+        await executePendingQrVerification();
+      }
     } on FirebaseException catch (e) {
       String msg = e.message;
       if (msg.contains('INVALID_LOGIN_CREDENTIALS') ||
@@ -805,6 +816,10 @@ class TranyxAppState extends State<TranyxApp> {
       _startListeningNotifications();
       _startListeningJobs();
       _startListeningRentals();
+
+      if (pendingQrJobId != null && pendingQrCode != null) {
+        await executePendingQrVerification();
+      }
     } on FirebaseException catch (e) {
       String msg = e.message;
       if (msg.contains('EMAIL_EXISTS')) {
@@ -912,6 +927,10 @@ class TranyxAppState extends State<TranyxApp> {
       _startListeningJobs();
       _startListeningRentals();
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
+
+      if (pendingQrJobId != null && pendingQrCode != null) {
+        await executePendingQrVerification();
+      }
     } on FirebaseException catch (e) {
       setState(() {
         authError = e.message;
@@ -975,6 +994,10 @@ class TranyxAppState extends State<TranyxApp> {
       _startListeningJobs();
       _startListeningRentals();
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
+
+      if (pendingQrJobId != null && pendingQrCode != null) {
+        await executePendingQrVerification();
+      }
     } catch (e) {
       setState(() {
         authError = e.toString();
@@ -1053,6 +1076,10 @@ class TranyxAppState extends State<TranyxApp> {
             _initGemini();
             await loadJobs();
             unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
+
+            if (pendingQrJobId != null && pendingQrCode != null) {
+              await executePendingQrVerification();
+            }
             return;
           } catch (e) {
             // Token refresh failed, fallback to manual login
@@ -1164,12 +1191,7 @@ class TranyxAppState extends State<TranyxApp> {
       final ongoing = merged.cast<Map<String, dynamic>?>().firstWhere(
         (j) {
           final s = (j?['status'] as String?)?.toLowerCase();
-          return s != null &&
-              s != 'open' &&
-              s != 'completed' &&
-              s != 'cancelled' &&
-              s != 'held' &&
-              s != 'pending';
+          return s != null && s != 'open' && s != 'completed' && s != 'cancelled' && s != 'held' && s != 'pending';
         },
         orElse: () => null,
       );
@@ -1204,7 +1226,8 @@ class TranyxAppState extends State<TranyxApp> {
 
     if (!canPostJob) {
       setState(() {
-        postJobError = 'Normal accounts can only have 1 active job at a time. Please complete your current ongoing job before posting a new one.';
+        postJobError =
+            'Normal accounts can only have 1 active job at a time. Please complete your current ongoing job before posting a new one.';
       });
       return;
     }
@@ -1764,11 +1787,27 @@ class TranyxAppState extends State<TranyxApp> {
         final prop = realtimeProperties.firstWhere(
           (p) => p.id == propertyId,
           orElse: () => PropertyRental(
-            id: '', hostId: '', hostName: '', title: '', description: '',
-            type: PropertyType.house, category: PropertyCategory.residential,
-            priceMonthly: 0, priceWeekly: 0, priceDaily: 0, depositMonths: 0,
-            address: '', latitude: 0, longitude: 0, photoUrls: [], amenities: [],
-            status: '', contractType: '', contractTerms: '', createdAt: DateTime.now(), allowChat: false,
+            id: '',
+            hostId: '',
+            hostName: '',
+            title: '',
+            description: '',
+            type: PropertyType.house,
+            category: PropertyCategory.residential,
+            priceMonthly: 0,
+            priceWeekly: 0,
+            priceDaily: 0,
+            depositMonths: 0,
+            address: '',
+            latitude: 0,
+            longitude: 0,
+            photoUrls: [],
+            amenities: [],
+            status: '',
+            contractType: '',
+            contractTerms: '',
+            createdAt: DateTime.now(),
+            allowChat: false,
           ),
         );
         if (prop.id.isNotEmpty) {
@@ -1797,8 +1836,7 @@ class TranyxAppState extends State<TranyxApp> {
             // Normalize Firestore timestamp
             if (map['createdAt'] is Map) {
               final ts = map['createdAt'] as Map;
-              map['createdAt'] = (ts['_seconds'] as int? ?? 0) * 1000 +
-                  ((ts['_nanoseconds'] as int? ?? 0) ~/ 1000000);
+              map['createdAt'] = (ts['_seconds'] as int? ?? 0) * 1000 + ((ts['_nanoseconds'] as int? ?? 0) ~/ 1000000);
             }
             return map;
           }).toList();
@@ -2215,6 +2253,176 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  Future<void> handleQrVerificationParams() async {
+    final params = getUrlQueryParams();
+    final action = params['action'];
+    final qJobId = params['jobId'];
+    final qCode = params['code'];
+
+    if (action == 'verify_qr' && qJobId != null && qCode != null) {
+      clearUrlParams();
+
+      SessionStorage.pendingQrJobId = qJobId;
+      SessionStorage.pendingQrCode = qCode;
+      pendingQrJobId = qJobId;
+      pendingQrCode = qCode;
+
+      final uid = SessionStorage.uid;
+      final email = SessionStorage.email ?? userProfile?.email ?? '';
+      final name = SessionStorage.displayName ?? userProfile?.name ?? '';
+      final isAnonymous = uid == null || email.isEmpty || email.contains('anonymous') || name == 'Anonymous';
+
+      if (!isAuthenticated || isAnonymous) {
+        if (isAuthenticated) {
+          handleLogout();
+        }
+        setState(() {
+          authView = AuthView.login;
+          authError = 'Please log in with your registered Nyxian account to verify the QR code payment.';
+        });
+        showAppToast('Login Required', 'Please log in to verify the QR code and receive payment.');
+      } else {
+        await executePendingQrVerification();
+      }
+    }
+  }
+
+  Future<void> executePendingQrVerification() async {
+    final jobId = pendingQrJobId;
+    final code = pendingQrCode;
+    if (jobId == null || code == null) return;
+
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) return;
+
+    showAppToast('Verifying QR Code', 'Validating payment release...');
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final jobDoc = await svc.getDocument('jobs/$jobId');
+
+      if (jobDoc == null) {
+        throw 'Job not found.';
+      }
+
+      final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+      if (status == 'completed') {
+        throw 'This job is already completed.';
+      }
+
+      // Check verification/completion code
+      final correctCode = jobDoc['completionCode'] as String? ?? jobDoc['verificationCode'] as String?;
+      if (code.trim() != correctCode?.trim()) {
+        throw 'Invalid or expired verification code.';
+      }
+
+      // Check if logged user is the correct Nyxian
+      final nyxianId = jobDoc['acceptedApplicantId'] as String? ?? jobDoc['nyxianId'] as String?;
+      if (nyxianId != uid) {
+        throw 'Verification failed: You are not the assigned Nyxian for this job.';
+      }
+
+      // Release payment from escrow and credit the Nyxian
+      final price = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
+      final platformFee = price * 0.03;
+      final nyxianPayout = price - platformFee;
+
+      // 1. Release escrow
+      await svc.deleteDocument('escrow/$jobId');
+
+      // 2. Add to Nyxian Wallet
+      final nyxDoc = await svc.getDocument('users/$uid');
+      if (nyxDoc != null) {
+        final currentNyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+        final currentJobsDone = nyxDoc['jobsDone'] as int? ?? 0;
+        final currentEarned = (nyxDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
+
+        await svc.createOrUpdate('users/$uid', {
+          ...nyxDoc,
+          'tyxBalance': currentNyxBal + nyxianPayout,
+          'jobsDone': currentJobsDone + 1,
+          'totalEarned': currentEarned + nyxianPayout,
+        });
+      }
+
+      // 3. Record platform fee
+      await svc.createOrUpdate('platform_fees/$jobId', {
+        'jobId': jobId,
+        'amount': platformFee,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+
+      // 4. Mark job as complete
+      await svc.createOrUpdate('jobs/$jobId', {
+        ...jobDoc,
+        'status': 'Completed',
+      });
+
+      // Update local state
+      setState(() {
+        pendingQrJobId = null;
+        pendingQrCode = null;
+        if (userProfile != null) {
+          userProfile = userProfile!.copyWith(
+            tyxBalance: userProfile!.tyxBalance + nyxianPayout,
+            totalEarned: userProfile!.totalEarned + nyxianPayout,
+          );
+        }
+      });
+      SessionStorage.pendingQrJobId = null;
+      SessionStorage.pendingQrCode = null;
+
+      showAppToast('Payment Released! 🎉', '₱ ${nyxianPayout.toStringAsFixed(2)} has been credited to your wallet.');
+
+      // Send a notification to the Employer (creatorId) about job completion to trigger rating popup
+      final employerId = jobDoc['creatorId'] as String?;
+      if (employerId != null) {
+        final prefix = employerId.length > 5 ? employerId.substring(0, 5) : employerId;
+        final docId = 'notif_${DateTime.now().millisecondsSinceEpoch}_$prefix';
+        await svc.createOrUpdate('notifications/$docId', {
+          'uid': employerId,
+          'title': 'Gig Completed 🎉',
+          'message': '${userProfile?.name ?? "Someone"} has completed "${jobDoc['title']}". Click to rate them.',
+          'type': 'job_completed',
+          'jobId': jobId,
+          'senderUid': uid,
+          'senderName': userProfile?.name ?? 'User',
+          'isRead': false,
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+
+      // Reload profile & lists
+      await loadUserProfile();
+      await loadJobs();
+
+      // Show details & rating popup for the employer
+      final updatedJob = await svc.getDocument('jobs/$jobId');
+      if (updatedJob != null) {
+        setState(() {
+          selectedJobData = {'id': jobId, ...updatedJob};
+          final employerId = updatedJob['creatorId'] as String?;
+          if (employerId != null) {
+            showRatingPopup = true;
+            ratingTargetId = employerId;
+            ratingTargetName = updatedJob['creatorName'] as String? ?? 'Employer';
+            ratingScore = 0;
+            ratingComment = '';
+          }
+        });
+      }
+    } catch (e) {
+      setState(() {
+        pendingQrJobId = null;
+        pendingQrCode = null;
+      });
+      SessionStorage.pendingQrJobId = null;
+      SessionStorage.pendingQrCode = null;
+      showAppToast('Verification Error', e.toString());
+    }
+  }
+
   Future<void> handleConfirmRating(int score, String comment) async {
     final token = SessionStorage.idToken;
     final targetId = ratingTargetId;
@@ -2309,14 +2517,14 @@ class TranyxAppState extends State<TranyxApp> {
         final hasTracker = jobDoc['hasTracker'] == true || jobDoc['hasTracker'] == 'true' || cat.hasTracker;
 
         final status = (jobDoc['status'] as String? ?? '').toLowerCase();
-        final reachedFirstPoint = hasTracker && (
-          status == 'arrived_pickup' ||
-          status == 'paid_cashier' ||
-          status == 'in_transit' ||
-          status == 'arrived_dropoff' ||
-          status == 'done' ||
-          status == 'completed'
-        );
+        final reachedFirstPoint =
+            hasTracker &&
+            (status == 'arrived_pickup' ||
+                status == 'paid_cashier' ||
+                status == 'in_transit' ||
+                status == 'arrived_dropoff' ||
+                status == 'done' ||
+                status == 'completed');
 
         // 1. Check for escrow
         final escrowDoc = await svc.getEscrow(job['id'] as String);
@@ -2459,7 +2667,10 @@ class TranyxAppState extends State<TranyxApp> {
       });
 
       _stopSelectedJobRealtime();
-      showAppToast('Posting Deleted', 'Job posting has been deleted and the ₱ ${refundAmount.toStringAsFixed(0)} held escrow has been returned to your balance.');
+      showAppToast(
+        'Posting Deleted',
+        'Job posting has been deleted and the ₱ ${refundAmount.toStringAsFixed(0)} held escrow has been returned to your balance.',
+      );
     } catch (e) {
       setState(() {
         isUpdatingJobStatus = false;
@@ -3341,7 +3552,8 @@ class TranyxAppState extends State<TranyxApp> {
       if (showManageVehicleModal) ManageVehicleModalComponent(appState: this),
 
       // Public Vehicle Q&A modal overlay
-      if (showVehicleQaModal && selectedRentalData != null) VehicleQaModalComponent(appState: this, rentalId: selectedRentalData!['id']),
+      if (showVehicleQaModal && selectedRentalData != null)
+        VehicleQaModalComponent(appState: this, rentalId: selectedRentalData!['id']),
 
       // List Property modal overlay
       if (showListPropertyModal) ListPropertyModalComponent(appState: this),
@@ -3356,26 +3568,27 @@ class TranyxAppState extends State<TranyxApp> {
       if (showPropertyQaModal) PropertyQaModalComponent(appState: this),
 
       // Unified Sign Contract modal overlay
-      if (showSignContractModal && signingContractId != null) SignContractModalComponent(
-        appState: this,
-        title: signingContractTitle ?? '',
-        contractTerms: signingContractTerms ?? '',
-        rentalId: signingContractId!,
-        isProperty: signingContractIsProperty,
-        onSigned: () {
-          setState(() {
-            showSignContractModal = false;
-            signingContractId = null;
-            signingContractTitle = null;
-            signingContractTerms = null;
-          });
-          if (signingContractIsProperty) {
-            _startListeningProperties();
-          } else {
-            _restoreSession();
-          }
-        },
-      ),
+      if (showSignContractModal && signingContractId != null)
+        SignContractModalComponent(
+          appState: this,
+          title: signingContractTitle ?? '',
+          contractTerms: signingContractTerms ?? '',
+          rentalId: signingContractId!,
+          isProperty: signingContractIsProperty,
+          onSigned: () {
+            setState(() {
+              showSignContractModal = false;
+              signingContractId = null;
+              signingContractTitle = null;
+              signingContractTerms = null;
+            });
+            if (signingContractIsProperty) {
+              _startListeningProperties();
+            } else {
+              _restoreSession();
+            }
+          },
+        ),
 
       // Payment modal overlay
       if (showDepositModal) PaymentModalComponent(state: this),

@@ -122,6 +122,8 @@ class SessionStorage {
   static const _nam = 'tranyx_name';
   static const _eml = 'tranyx_email';
   static const _act = 'tranyx_account_type';
+  static const _qrJobId = 'tranyx_pending_qr_job_id';
+  static const _qrCode = 'tranyx_pending_qr_code';
 
   static void save(dynamic auth) {
     web.window.localStorage.setItem(_uid, auth.uid as String);
@@ -144,6 +146,24 @@ class SessionStorage {
   static String? get email => web.window.localStorage.getItem(_eml);
   static String? get accountType => web.window.localStorage.getItem(_act);
   static bool get hasSession => uid != null && idToken != null;
+
+  static String? get pendingQrJobId => web.window.localStorage.getItem(_qrJobId);
+  static set pendingQrJobId(String? val) {
+    if (val != null) {
+      web.window.localStorage.setItem(_qrJobId, val);
+    } else {
+      web.window.localStorage.removeItem(_qrJobId);
+    }
+  }
+
+  static String? get pendingQrCode => web.window.localStorage.getItem(_qrCode);
+  static set pendingQrCode(String? val) {
+    if (val != null) {
+      web.window.localStorage.setItem(_qrCode, val);
+    } else {
+      web.window.localStorage.removeItem(_qrCode);
+    }
+  }
 
   static void clear() {
     for (final k in [_uid, _tok, _ref, _nam, _eml, _act]) {
@@ -255,12 +275,14 @@ String sendChatMessageJs(String chatId, String senderId, String senderName, Stri
 
 Future<String?> uploadChatPhotoJs(String chatId, String base64Data, String mimeType) async {
   try {
-    final result = await web.window.callMethod<JSPromise>(
-      'uploadChatPhoto'.toJS,
-      chatId.toJS,
-      base64Data.toJS,
-      mimeType.toJS,
-    ).toDart;
+    final result = await web.window
+        .callMethod<JSPromise>(
+          'uploadChatPhoto'.toJS,
+          chatId.toJS,
+          base64Data.toJS,
+          mimeType.toJS,
+        )
+        .toDart;
     if (result == null) return null;
     return (result as JSString).toDart;
   } catch (_) {
@@ -382,7 +404,9 @@ void answerRentalQuestionJs(String rentalId, String questionId, String answerTex
   try {
     web.window.callMethod(
       'answerRentalQuestion'.toJS,
-      rentalId.toJS, questionId.toJS, answerText.toJS,
+      rentalId.toJS,
+      questionId.toJS,
+      answerText.toJS,
     );
   } catch (_) {}
 }
@@ -415,7 +439,9 @@ void answerPropertyQuestionJs(String propertyId, String questionId, String answe
   try {
     web.window.callMethod(
       'answerPropertyQuestion'.toJS,
-      propertyId.toJS, questionId.toJS, answerText.toJS,
+      propertyId.toJS,
+      questionId.toJS,
+      answerText.toJS,
     );
   } catch (_) {}
 }
@@ -455,5 +481,33 @@ void stopListeningToPropertyDetailsJs() {
   try {
     _propertyDetailsUnsub?.callAsFunction();
     _propertyDetailsUnsub = null;
+  } catch (_) {}
+}
+
+String getUrlOrigin() => web.window.location.origin;
+
+Map<String, String> getUrlQueryParams() {
+  try {
+    final href = web.window.location.href;
+    final queryStart = href.indexOf('?');
+    if (queryStart != -1) {
+      final queryString = href.substring(queryStart + 1);
+      final cleanQuery = queryString.contains('#') ? queryString.substring(0, queryString.indexOf('#')) : queryString;
+      return Uri.splitQueryString(cleanQuery);
+    }
+    return const {};
+  } catch (_) {
+    return const {};
+  }
+}
+
+void clearUrlParams() {
+  try {
+    final href = web.window.location.href;
+    final queryStart = href.indexOf('?');
+    if (queryStart != -1) {
+      final newUrl = href.substring(0, queryStart);
+      web.window.history.replaceState(null, '', newUrl);
+    }
   } catch (_) {}
 }

@@ -8,7 +8,7 @@ String buildDefaultTranyxContract(VehicleRental rental) {
   final yearStr = rental.year > 0 ? '${rental.year}' : '[Vehicle Year]';
   final plateStr = rental.plateNumber.isNotEmpty ? rental.plateNumber : '[Plate Number]';
   final valueStr = rental.vehicleValue > 0 ? '${rental.vehicleValue} TYXBIT' : '[Vehicle Value]';
-  
+
   return '''
 ==================================================================
 TRANYX PEER-TO-PEER VEHICLE RENTAL AGREEMENT
@@ -73,7 +73,7 @@ Signed At (Epoch Timestamp): ${rental.signedAt != null ? rental.signedAt!.toIso8
 String buildDefaultPropertyContract(PropertyRental rental) {
   final typeStr = rental.type.label;
   final catStr = rental.category.label;
-  
+
   return '''
 ==================================================================
 TRANYX PEER-TO-PEER PROPERTY LEASE AGREEMENT
