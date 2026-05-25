@@ -1192,16 +1192,26 @@ enum PropertyType {
 
   String get label {
     switch (this) {
-      case house: return 'Full House';
-      case bedSpace: return 'Bed Space';
-      case room: return 'Private Room';
-      case condo: return 'Condominium';
-      case apartment: return 'Apartment';
-      case commercialSpace: return 'Other Commercial Space';
-      case office: return 'Office Space';
-      case coworking: return 'Coworking / Workspace';
-      case retail: return 'Retail / Storefront';
-      case warehouse: return 'Warehouse / Storage';
+      case house:
+        return 'Full House';
+      case bedSpace:
+        return 'Bed Space';
+      case room:
+        return 'Private Room';
+      case condo:
+        return 'Condominium';
+      case apartment:
+        return 'Apartment';
+      case commercialSpace:
+        return 'Other Commercial Space';
+      case office:
+        return 'Office Space';
+      case coworking:
+        return 'Coworking / Workspace';
+      case retail:
+        return 'Retail / Storefront';
+      case warehouse:
+        return 'Warehouse / Storage';
     }
   }
 
@@ -1231,4 +1241,3 @@ enum PropertyType {
     }
   }
 }
-

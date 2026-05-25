@@ -24,7 +24,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
   int _activeImageIndex = 0;
   String? _lastRentalId;
   bool _hireWithDriver = false;
-  
+
   bool _isBooking = false;
   String? _error;
 
@@ -42,26 +42,30 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
   DateTime? _startDate;
   List<Map<String, dynamic>> _approvedRequests = [];
   DateTime _calendarMonth = DateTime.now();
-  
+
   double get _basePrice {
     final r = component.appState.selectedRentalData;
     if (r == null) return 0;
-    
+
     switch (_selectedPackage) {
-      case '12h': return ((r['price12h'] ?? r['halfDayRate']) as num?)?.toDouble() ?? 0;
-      case 'Weekly': return ((r['priceWeekly'] ?? r['weeklyRate']) as num?)?.toDouble() ?? 0;
-      case 'Monthly': return ((r['priceMonthly'] ?? r['monthlyRate']) as num?)?.toDouble() ?? 0;
-      default: return ((r['priceDaily'] ?? r['dailyRate']) as num?)?.toDouble() ?? 0;
+      case '12h':
+        return ((r['price12h'] ?? r['halfDayRate']) as num?)?.toDouble() ?? 0;
+      case 'Weekly':
+        return ((r['priceWeekly'] ?? r['weeklyRate']) as num?)?.toDouble() ?? 0;
+      case 'Monthly':
+        return ((r['priceMonthly'] ?? r['monthlyRate']) as num?)?.toDouble() ?? 0;
+      default:
+        return ((r['priceDaily'] ?? r['dailyRate']) as num?)?.toDouble() ?? 0;
     }
   }
 
   double get _driverPrice {
     final r = component.appState.selectedRentalData;
     if (r == null || !_hireWithDriver) return 0;
-    
+
     final offers = r['offersDriver'] as bool? ?? false;
     if (!offers) return 0;
-    
+
     final driverDaily = (r['driverDailyPrice'] as num?)?.toDouble() ?? 0.0;
     double days = 1.0;
     if (_selectedPackage == '12h') {
@@ -73,7 +77,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     } else {
       days = 1.0;
     }
-    
+
     return driverDaily * days * _quantity;
   }
 
@@ -142,7 +146,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     final weekdayOfFirst = firstDayOfMonth.weekday; // 1 = Monday, 7 = Sunday
     final startOffset = weekdayOfFirst == 7 ? 0 : weekdayOfFirst;
     final daysInMonth = DateTime(year, month + 1, 0).day;
-    
+
     final List<DateTime?> days = List.generate(startOffset, (_) => null);
     for (int d = 1; d <= daysInMonth; d++) {
       days.add(DateTime(year, month, d));
@@ -198,7 +202,31 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         setState(() => _error = 'Selected dates overlap with an existing booking schedule.');
         return;
       }
-      
+
+      final totalRequired = _totalPrice + _bookingFee;
+      if (user.tyxBalance < totalRequired) {
+        component.appState.setState(() {
+          component.appState.depositAmount = totalRequired - user.tyxBalance;
+          component.appState.showDepositModal = true;
+          component.appState.pendingVehicleBookingData = {
+            'rentalId': r['id'],
+            'durationType': _selectedPackage,
+            'multiplier': _quantity,
+            'licenseNumber': _licenseNumber,
+            'totalCost': _totalPrice,
+            'hireWithDriver': _hireWithDriver,
+            'rentalType': _rentalType,
+            'deliveryAddress': _rentalType == 'deliver' ? _deliveryAddress.trim() : null,
+            'deliveryLat': _rentalType == 'deliver' ? _deliveryLat : null,
+            'deliveryLng': _rentalType == 'deliver' ? _deliveryLng : null,
+            'startDate': _startDate!.millisecondsSinceEpoch,
+            'endDate': _computedEndDate.millisecondsSinceEpoch,
+          };
+          component.appState.showBookVehicleModal = false;
+        });
+        return;
+      }
+
       // Submit booking request
       await component.appState.firestore.createBookingRequest(
         rentalId: r['id'],
@@ -217,7 +245,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         startDate: _startDate!.millisecondsSinceEpoch,
         endDate: _computedEndDate.millisecondsSinceEpoch,
       );
-      
+
       // Close modal
       component.appState.setState(() {
         component.appState.showBookVehicleModal = false;
@@ -236,10 +264,10 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     if (!component.appState.showBookVehicleModal || component.appState.selectedRentalData == null) {
       return div([]);
     }
-    
+
     final isDark = component.appState.isDark;
     final r = component.appState.selectedRentalData!;
-    
+
     // Safety check: do not show / allow renting if it's the owner
     final currentUid = component.appState.userProfile?.uid;
     if (r['hostId'] != null && currentUid != null && r['hostId'] == currentUid) {
@@ -278,49 +306,59 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     String type = typeVal?.toString().split('.').last ?? '';
     if (type.toLowerCase() == 'null') type = '';
 
-    return div(
-      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
-      [
-        div(
-          classes:
-              'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
-          [
-            // Header
-            div(classes: 'sticky top-0 z-10 flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md', [
+    return div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in', [
+      div(
+        classes:
+            'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
+        [
+          // Header
+          div(
+            classes:
+                'sticky top-0 z-10 flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
+            [
               div([
                 h2(classes: 'text-2xl font-bold', [Component.text('Book $brand $model')]),
                 p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-500"} capitalize', [Component.text(type)]),
               ]),
               button(
                 classes: 'p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors',
-                events: {'click': (e) => component.appState.setState(() {
-                  component.appState.showBookVehicleModal = false;
-                  component.appState.selectedRentalData = null;
-                })},
+                events: {
+                  'click': (e) => component.appState.setState(() {
+                    component.appState.showBookVehicleModal = false;
+                    component.appState.selectedRentalData = null;
+                  }),
+                },
                 [lIcon('x', cls: 'w-6 h-6')],
               ),
-            ]),
+            ],
+          ),
 
-            // Body
-            div(classes: 'p-6 flex-1 space-y-6', [
-              if (_error != null)
-                div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium', [
-                  Component.text(_error!),
-                ]),
-                
-              if (_step == 1) ...[
-                // Step 1: Packages and Details
-                () {
-                  final front = r['frontPhotoUrl'] ?? r['frontPhoto'] ?? r['photoUrl'];
-                  final interior = r['interiorPhotoUrl'] ?? r['interiorPhoto'];
-                  final back = r['backPhotoUrl'] ?? r['backPhoto'];
+          // Body
+          div(classes: 'p-6 flex-1 space-y-6', [
+            if (_error != null)
+              div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium', [
+                Component.text(_error!),
+              ]),
 
-                  final List<String> images = [];
-                  if (front != null && front.toString().isNotEmpty && front.toString() != 'null') images.add(front.toString());
-                  if (interior != null && interior.toString().isNotEmpty && interior.toString() != 'null') images.add(interior.toString());
-                  if (back != null && back.toString().isNotEmpty && back.toString() != 'null') images.add(back.toString());
+            if (_step == 1) ...[
+              // Step 1: Packages and Details
+              () {
+                final front = r['frontPhotoUrl'] ?? r['frontPhoto'] ?? r['photoUrl'];
+                final interior = r['interiorPhotoUrl'] ?? r['interiorPhoto'];
+                final back = r['backPhotoUrl'] ?? r['backPhoto'];
 
-                  return div(classes: 'aspect-video w-full rounded-2xl overflow-hidden bg-zinc-800 flex items-center justify-center mb-6 relative group select-none', [
+                final List<String> images = [];
+                if (front != null && front.toString().isNotEmpty && front.toString() != 'null')
+                  images.add(front.toString());
+                if (interior != null && interior.toString().isNotEmpty && interior.toString() != 'null')
+                  images.add(interior.toString());
+                if (back != null && back.toString().isNotEmpty && back.toString() != 'null')
+                  images.add(back.toString());
+
+                return div(
+                  classes:
+                      'aspect-video w-full rounded-2xl overflow-hidden bg-zinc-800 flex items-center justify-center mb-6 relative group select-none',
+                  [
                     if (images.isNotEmpty) ...[
                       img(
                         src: images[_activeImageIndex % images.length],
@@ -328,80 +366,119 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                         attributes: {'alt': '$brand $model image'},
                       ),
                       // Gradient overlay
-                      div(classes: 'absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none', []),
-                      
+                      div(
+                        classes: 'absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none',
+                        [],
+                      ),
+
                       // Left arrow button
                       if (images.length > 1)
                         button(
-                          classes: 'absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors backdrop-blur-[2px] cursor-pointer border-0 outline-none',
+                          classes:
+                              'absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors backdrop-blur-[2px] cursor-pointer border-0 outline-none',
                           events: {
                             'click': (e) {
                               setState(() {
                                 _activeImageIndex = (_activeImageIndex - 1 + images.length) % images.length;
                               });
-                            }
+                            },
                           },
                           [lIcon('chevron-left', cls: 'w-6 h-6')],
                         ),
-                        
+
                       // Right arrow button
                       if (images.length > 1)
                         button(
-                          classes: 'absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors backdrop-blur-[2px] cursor-pointer border-0 outline-none',
+                          classes:
+                              'absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors backdrop-blur-[2px] cursor-pointer border-0 outline-none',
                           events: {
                             'click': (e) {
                               setState(() {
                                 _activeImageIndex = (_activeImageIndex + 1) % images.length;
                               });
-                            }
+                            },
                           },
                           [lIcon('chevron-right', cls: 'w-6 h-6')],
                         ),
-                        
+
                       // Indicator dots & label
-                      div(classes: 'absolute bottom-4 left-0 right-0 flex flex-col items-center gap-2 pointer-events-none', [
-                        if (images.length > 1)
-                          div(classes: 'flex gap-1.5', [
-                            for (int i = 0; i < images.length; i++)
-                              div(
-                                classes: 'h-1.5 rounded-full transition-all duration-300 ${i == (_activeImageIndex % images.length) ? "w-6 bg-purple-500" : "w-1.5 bg-white/55"}',
-                                [],
-                              ),
+                      div(
+                        classes:
+                            'absolute bottom-4 left-0 right-0 flex flex-col items-center gap-2 pointer-events-none',
+                        [
+                          if (images.length > 1)
+                            div(classes: 'flex gap-1.5', [
+                              for (int i = 0; i < images.length; i++)
+                                div(
+                                  classes:
+                                      'h-1.5 rounded-full transition-all duration-300 ${i == (_activeImageIndex % images.length) ? "w-6 bg-purple-500" : "w-1.5 bg-white/55"}',
+                                  [],
+                                ),
+                            ]),
+                          p(classes: 'text-white text-xs font-semibold drop-shadow-sm', [
+                            Component.text('${(_activeImageIndex % images.length) + 1} of ${images.length}'),
                           ]),
-                        p(classes: 'text-white text-xs font-semibold drop-shadow-sm', [
-                          Component.text('${(_activeImageIndex % images.length) + 1} of ${images.length}')
-                        ]),
-                      ]),
+                        ],
+                      ),
                     ] else ...[
                       lIcon('image', cls: 'w-12 h-12 text-zinc-600'),
-                      div(classes: 'absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-4', [
-                         p(classes: 'text-white font-bold', [Component.text('No photos available')])
-                       ])
-                    ]
-                  ]);
-                }(),
+                      div(
+                        classes: 'absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-4',
+                        [
+                          p(classes: 'text-white font-bold', [Component.text('No photos available')]),
+                        ],
+                      ),
+                    ],
+                  ],
+                );
+              }(),
 
-                h3(classes: 'text-lg font-bold mb-4', [Component.text('Select Rental Package')]),
-                div(classes: 'grid grid-cols-2 gap-3', [
-                  _packageOption('12h', '12 Hours', ((r['price12h'] ?? r['halfDayRate']) as num?)?.toDouble() ?? 0, isDark),
-                  _packageOption('Daily', 'Daily', ((r['priceDaily'] ?? r['dailyRate']) as num?)?.toDouble() ?? 0, isDark),
-                  _packageOption('Weekly', 'Weekly', ((r['priceWeekly'] ?? r['weeklyRate']) as num?)?.toDouble() ?? 0, isDark),
-                  _packageOption('Monthly', 'Monthly', ((r['priceMonthly'] ?? r['monthlyRate']) as num?)?.toDouble() ?? 0, isDark),
-                ]),
-                
-                if (r['offersDriver'] == true) ...[
-                  div(classes: 'mt-6 p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-950/40" : "border-zinc-200 bg-zinc-50/50"}', [
+              h3(classes: 'text-lg font-bold mb-4', [Component.text('Select Rental Package')]),
+              div(classes: 'grid grid-cols-2 gap-3', [
+                _packageOption(
+                  '12h',
+                  '12 Hours',
+                  ((r['price12h'] ?? r['halfDayRate']) as num?)?.toDouble() ?? 0,
+                  isDark,
+                ),
+                _packageOption(
+                  'Daily',
+                  'Daily',
+                  ((r['priceDaily'] ?? r['dailyRate']) as num?)?.toDouble() ?? 0,
+                  isDark,
+                ),
+                _packageOption(
+                  'Weekly',
+                  'Weekly',
+                  ((r['priceWeekly'] ?? r['weeklyRate']) as num?)?.toDouble() ?? 0,
+                  isDark,
+                ),
+                _packageOption(
+                  'Monthly',
+                  'Monthly',
+                  ((r['priceMonthly'] ?? r['monthlyRate']) as num?)?.toDouble() ?? 0,
+                  isDark,
+                ),
+              ]),
+
+              if (r['offersDriver'] == true) ...[
+                div(
+                  classes:
+                      'mt-6 p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-950/40" : "border-zinc-200 bg-zinc-50/50"}',
+                  [
                     div(classes: 'flex items-center justify-between mb-3', [
                       div([
                         h4(classes: 'font-bold text-sm flex items-center gap-1.5', [
                           lIcon('user', cls: 'w-4 h-4 text-purple-400'),
-                          Component.text('Driver Service Available')
+                          Component.text('Driver Service Available'),
                         ]),
                         p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"} mt-0.5', [
-                          Component.text('Daily Driver Fee: ₱ ${((r['driverDailyPrice'] ?? 0) as num).toDouble().toStringAsFixed(2)}')
+                          Component.text(
+                            'Daily Driver Fee: ₱ ${((r['driverDailyPrice'] ?? 0) as num).toDouble().toStringAsFixed(2)}',
+                          ),
                         ]),
                         p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"} mt-1 font-mono', [
-                          Component.text('License: ${_obscureLicenseNumber(r['driverLicenseNumber']?.toString())}')
+                          Component.text('License: ${_obscureLicenseNumber(r['driverLicenseNumber']?.toString())}'),
                         ]),
                       ]),
                       input<bool>(
@@ -412,101 +489,134 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                       ),
                     ]),
                     if (r['driverNote'] != null && r['driverNote'].toString().trim().isNotEmpty)
-                      p(classes: 'text-xs italic ${isDark ? "text-zinc-400" : "text-zinc-500"} border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} pt-2 mt-2', [
-                        Component.text('Driver Note: ${r['driverNote']}')
-                      ]),
-                  ]),
-                ],
+                      p(
+                        classes:
+                            'text-xs italic ${isDark ? "text-zinc-400" : "text-zinc-500"} border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} pt-2 mt-2',
+                        [Component.text('Driver Note: ${r['driverNote']}')],
+                      ),
+                  ],
+                ),
+              ],
 
-                div(classes: 'mt-6', [
-                   label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [Component.text('Quantity (e.g. 2 Days, 3 Weeks)')]),
-                   input(
-                     classes: 'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
-                     type: InputType.number,
-                     attributes: {'value': _quantity.toString(), 'min': '1'},
-                     events: {'input': (e) => setState(() => _quantity = int.tryParse((e.target as dynamic).value) ?? 1)},
-                   ),
+              div(classes: 'mt-6', [
+                label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                  Component.text('Quantity (e.g. 2 Days, 3 Weeks)'),
                 ]),
+                input(
+                  classes:
+                      'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
+                  type: InputType.number,
+                  attributes: {'value': _quantity.toString(), 'min': '1'},
+                  events: {'input': (e) => setState(() => _quantity = int.tryParse((e.target as dynamic).value) ?? 1)},
+                ),
+              ]),
 
-                h3(classes: 'text-lg font-bold mb-3 mt-6', [Component.text('Delivery Method')]),
-                div(classes: 'grid grid-cols-2 gap-3 mb-4', [
-                  button(
-                    classes: 'py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all border-0 outline-none cursor-pointer '
-                        '${_rentalType == 'pickup' ? "bg-purple-500 text-white shadow-lg shadow-purple-500/20" : (isDark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700" : "bg-zinc-150 text-zinc-700 hover:bg-zinc-200 border border-zinc-200")}',
-                    events: {'click': (_) => setState(() => _rentalType = 'pickup')},
-                    [
-                      lIcon('map-pin', cls: 'w-4 h-4'),
-                      Component.text('Self-Pickup'),
-                    ],
-                  ),
-                  button(
-                    classes: 'py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all border-0 outline-none cursor-pointer '
-                        '${_rentalType == 'deliver' ? "bg-purple-500 text-white shadow-lg shadow-purple-500/20" : (isDark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700" : "bg-zinc-150 text-zinc-700 hover:bg-zinc-200 border border-zinc-200")}',
-                    events: {'click': (_) => setState(() => _rentalType = 'deliver')},
-                    [
-                      lIcon('truck', cls: 'w-4 h-4'),
-                      Component.text('Delivery'),
-                    ],
-                  ),
-                ]),
-                
-                if (_rentalType == 'pickup')
-                  div(classes: 'p-4 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-950/40" : "border-zinc-200 bg-zinc-50/50"} mb-6 text-sm', [
+              h3(classes: 'text-lg font-bold mb-3 mt-6', [Component.text('Delivery Method')]),
+              div(classes: 'grid grid-cols-2 gap-3 mb-4', [
+                button(
+                  classes:
+                      'py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all border-0 outline-none cursor-pointer '
+                      '${_rentalType == 'pickup' ? "bg-purple-500 text-white shadow-lg shadow-purple-500/20" : (isDark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700" : "bg-zinc-150 text-zinc-700 hover:bg-zinc-200 border border-zinc-200")}',
+                  events: {'click': (_) => setState(() => _rentalType = 'pickup')},
+                  [
+                    lIcon('map-pin', cls: 'w-4 h-4'),
+                    Component.text('Self-Pickup'),
+                  ],
+                ),
+                button(
+                  classes:
+                      'py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all border-0 outline-none cursor-pointer '
+                      '${_rentalType == 'deliver' ? "bg-purple-500 text-white shadow-lg shadow-purple-500/20" : (isDark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700" : "bg-zinc-150 text-zinc-700 hover:bg-zinc-200 border border-zinc-200")}',
+                  events: {'click': (_) => setState(() => _rentalType = 'deliver')},
+                  [
+                    lIcon('truck', cls: 'w-4 h-4'),
+                    Component.text('Delivery'),
+                  ],
+                ),
+              ]),
+
+              if (_rentalType == 'pickup')
+                div(
+                  classes:
+                      'p-4 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-950/40" : "border-zinc-200 bg-zinc-50/50"} mb-6 text-sm',
+                  [
                     p(classes: 'font-semibold mb-1 flex items-center gap-1.5 text-zinc-400', [
                       lIcon('map-pin', cls: 'w-4 h-4 text-purple-400'),
-                      Component.text('Vehicle Address')
+                      Component.text('Vehicle Address'),
                     ]),
                     p(classes: 'font-medium', [Component.text('${r['pickupLocation'] ?? 'Address not specified'}')]),
-                  ])
-                else
-                  _deliveryMapPicker(isDark),
+                  ],
+                )
+              else
+                _deliveryMapPicker(isDark),
 
-                _calendarGrid(isDark),
+              _calendarGrid(isDark),
 
-                div(classes: 'flex items-center gap-4 mt-4', [
-                  span(classes: 'text-sm font-semibold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [Component.text('Start Time:')]),
-                  div(classes: 'flex gap-2 flex-1', [
-                    select(
-                      classes: 'p-2 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors flex-1',
-                      events: {
-                        'change': (e) {
-                          if (_startDate != null) {
-                            final hour = int.tryParse((e.target as dynamic).value) ?? 9;
-                            setState(() {
-                              _startDate = DateTime(_startDate!.year, _startDate!.month, _startDate!.day, hour, _startDate!.minute);
-                            });
-                          }
+              div(classes: 'flex items-center gap-4 mt-4', [
+                span(classes: 'text-sm font-semibold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                  Component.text('Start Time:'),
+                ]),
+                div(classes: 'flex gap-2 flex-1', [
+                  select(
+                    classes:
+                        'p-2 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors flex-1',
+                    events: {
+                      'change': (e) {
+                        if (_startDate != null) {
+                          final hour = int.tryParse((e.target as dynamic).value) ?? 9;
+                          setState(() {
+                            _startDate = DateTime(
+                              _startDate!.year,
+                              _startDate!.month,
+                              _startDate!.day,
+                              hour,
+                              _startDate!.minute,
+                            );
+                          });
                         }
                       },
-                      [
-                        () {
-                          final now = DateTime.now();
-                          final isToday = _startDate != null &&
-                              _startDate!.year == now.year &&
-                              _startDate!.month == now.month &&
-                              _startDate!.day == now.day;
-                          final minHour = isToday ? now.hour + 1 : 0;
-                          // If current selection is in the past for today, bump to minHour
-                          if (isToday && (_startDate?.hour ?? 0) < minHour) {
-                            Future.microtask(() => setState(() {
-                              _startDate = DateTime(_startDate!.year, _startDate!.month, _startDate!.day, minHour.clamp(0, 23), 0);
-                            }));
-                          }
-                          return div(classes: 'flex-1', [
-                            for (int h = minHour; h < 24; h++)
-                              option(
-                                value: h.toString(),
-                                attributes: (_startDate?.hour == h) ? {'selected': 'selected'} : {},
-                                [Component.text('${h.toString().padLeft(2, '0')}:00')],
-                              ),
-                          ]);
-                        }(),
-                      ],
-                    ),
-                  ]),
+                    },
+                    [
+                      () {
+                        final now = DateTime.now();
+                        final isToday =
+                            _startDate != null &&
+                            _startDate!.year == now.year &&
+                            _startDate!.month == now.month &&
+                            _startDate!.day == now.day;
+                        final minHour = isToday ? now.hour + 1 : 0;
+                        // If current selection is in the past for today, bump to minHour
+                        if (isToday && (_startDate?.hour ?? 0) < minHour) {
+                          Future.microtask(
+                            () => setState(() {
+                              _startDate = DateTime(
+                                _startDate!.year,
+                                _startDate!.month,
+                                _startDate!.day,
+                                minHour.clamp(0, 23),
+                                0,
+                              );
+                            }),
+                          );
+                        }
+                        return div(classes: 'flex-1', [
+                          for (int h = minHour; h < 24; h++)
+                            option(
+                              value: h.toString(),
+                              attributes: (_startDate?.hour == h) ? {'selected': 'selected'} : {},
+                              [Component.text('${h.toString().padLeft(2, '0')}:00')],
+                            ),
+                        ]);
+                      }(),
+                    ],
+                  ),
                 ]),
+              ]),
 
-                div(classes: 'mt-4 p-4 rounded-xl ${isDark ? "bg-purple-950/20 text-purple-300" : "bg-purple-50 text-purple-800"} text-xs space-y-1', [
+              div(
+                classes:
+                    'mt-4 p-4 rounded-xl ${isDark ? "bg-purple-950/20 text-purple-300" : "bg-purple-50 text-purple-800"} text-xs space-y-1',
+                [
                   div(classes: 'flex justify-between', [
                     span([Component.text('Starts:')]),
                     span(classes: 'font-semibold', [Component.text(_formatDateTime(_startDate))]),
@@ -515,105 +625,142 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                     span([Component.text('Ends:')]),
                     span(classes: 'font-semibold', [Component.text(_formatDateTime(_computedEndDate))]),
                   ]),
+                ],
+              ),
+            ] else if (_step == 2) ...[
+              // Step 2: Contract and Checkout
+              h3(classes: 'text-lg font-bold mb-2', [
+                Component.text(
+                  r['contractType'] == 'Custom Contract'
+                      ? 'Host\'s Custom Rental Agreement'
+                      : 'Tranyx P2P Rental Agreement',
+                ),
+              ]),
+              div(
+                classes:
+                    'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 h-64 overflow-y-auto mb-4',
+                [
+                  p(
+                    classes:
+                        'whitespace-pre-wrap text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"} leading-relaxed',
+                    [
+                      Component.text(
+                        r['contractType'] == 'Custom Contract'
+                            ? r['contractTerms'] ?? 'No terms provided.'
+                            : buildDefaultTranyxContract(VehicleRental.fromMap(r, r['id'])),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+
+              div(classes: 'mb-6', [
+                label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                  Component.text('Driver\'s License Number'),
                 ]),
-                
-              ] else if (_step == 2) ...[
-                // Step 2: Contract and Checkout
-                h3(classes: 'text-lg font-bold mb-2', [Component.text(r['contractType'] == 'Custom Contract' ? 'Host\'s Custom Rental Agreement' : 'Tranyx P2P Rental Agreement')]),
-                div(classes: 'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 h-64 overflow-y-auto mb-4', [
-                  p(classes: 'whitespace-pre-wrap text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"} leading-relaxed', [
-                    Component.text(r['contractType'] == 'Custom Contract' ? r['contractTerms'] ?? 'No terms provided.' : buildDefaultTranyxContract(VehicleRental.fromMap(r, r['id']))),
+                input(
+                  classes:
+                      'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors mb-4',
+                  attributes: {'value': _licenseNumber, 'placeholder': 'e.g., N01-23-456789'},
+                  events: {
+                    'input': (e) {
+                      final val = (e.target as dynamic).value as String;
+                      final formatted = _formatLicenseNumber(val);
+                      (e.target as dynamic).value = formatted;
+                      setState(() => _licenseNumber = formatted);
+                    },
+                  },
+                ),
+              ]),
+
+              div(classes: 'p-5 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-3', [
+                div(classes: 'flex justify-between text-sm', [
+                  span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
+                    Component.text('$_quantity x $_selectedPackage Vehicle Rate'),
+                  ]),
+                  span(classes: 'font-bold', [Component.text('₱ ${(_basePrice * _quantity).toStringAsFixed(2)}')]),
+                ]),
+                if (_hireWithDriver)
+                  div(classes: 'flex justify-between text-sm text-purple-400', [
+                    span([Component.text('Driver Service (Included)')]),
+                    span(classes: 'font-bold', [Component.text('₱ ${_driverPrice.toStringAsFixed(2)}')]),
+                  ]),
+                div(classes: 'flex justify-between text-sm', [
+                  span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
+                    Component.text('Platform Booking Fee (3%)'),
+                  ]),
+                  span(classes: 'font-bold text-purple-400', [Component.text('₱ ${_bookingFee.toStringAsFixed(2)}')]),
+                ]),
+                div(classes: 'h-px w-full bg-purple-500/20 my-2', []),
+                div(classes: 'flex justify-between', [
+                  span(classes: 'font-bold', [Component.text('Total Amount')]),
+                  span(classes: 'font-black text-xl text-purple-400', [
+                    Component.text('₱ ${(_totalPrice + _bookingFee).toStringAsFixed(2)}'),
                   ]),
                 ]),
-                
-                div(classes: 'mb-6', [
-                   label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [Component.text('Driver\'s License Number')]),
-                   input(
-                     classes: 'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors mb-4',
-                     attributes: {'value': _licenseNumber, 'placeholder': 'e.g., N01-23-456789'},
-                     events: {'input': (e) {
-                       final val = (e.target as dynamic).value as String;
-                       final formatted = _formatLicenseNumber(val);
-                       (e.target as dynamic).value = formatted;
-                       setState(() => _licenseNumber = formatted);
-                     }},
-                   ),
-                ]),
-                
-                div(classes: 'p-5 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-3', [
-                   div(classes: 'flex justify-between text-sm', [
-                     span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [Component.text('$_quantity x $_selectedPackage Vehicle Rate')]),
-                     span(classes: 'font-bold', [Component.text('₱ ${(_basePrice * _quantity).toStringAsFixed(2)}')]),
-                   ]),
-                   if (_hireWithDriver)
-                     div(classes: 'flex justify-between text-sm text-purple-400', [
-                       span([Component.text('Driver Service (Included)')]),
-                       span(classes: 'font-bold', [Component.text('₱ ${_driverPrice.toStringAsFixed(2)}')]),
-                     ]),
-                   div(classes: 'flex justify-between text-sm', [
-                     span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [Component.text('Platform Booking Fee (3%)')]),
-                     span(classes: 'font-bold text-purple-400', [Component.text('₱ ${_bookingFee.toStringAsFixed(2)}')]),
-                   ]),
-                   div(classes: 'h-px w-full bg-purple-500/20 my-2', []),
-                   div(classes: 'flex justify-between', [
-                     span(classes: 'font-bold', [Component.text('Total Amount')]),
-                     span(classes: 'font-black text-xl text-purple-400', [Component.text('₱ ${(_totalPrice + _bookingFee).toStringAsFixed(2)}')]),
-                   ]),
-                ]),
-              ],
-            ]),
+              ]),
+            ],
+          ]),
 
-            // Footer
-            div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between', [
-              if (_step > 1)
-                button(
-                  classes: 'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
-                  events: {'click': (e) => setState(() => _step--)},
-                  [Component.text('Back')]
-                )
-              else div([]),
-              
-              if (_step < 2)
-                button(
-                  classes: 'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
-                  events: {'click': (e) {
-                     if (_basePrice <= 0) {
-                       setState(() => _error = 'Selected package is not available for this vehicle.');
-                       return;
-                     }
-                     if (_startDate == null) {
-                       setState(() => _error = 'Please select a start date on the calendar.');
-                       return;
-                     }
-                     if (_rentalType == 'deliver' && _deliveryAddress.trim().isEmpty) {
-                       setState(() => _error = 'Please pin your delivery address on the map.');
-                       return;
-                     }
-                     if (_hasBookingOverlap) {
-                       setState(() => _error = 'The selected range overlaps with an existing booking schedule. Please select another date/time.');
-                       return;
-                     }
-                     setState(() {
-                       _error = null;
-                       _step++;
-                     });
-                  }},
-                  [Component.text('Review Contract')]
-                )
-              else
-                button(
-                  classes: 'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
-                  events: {'click': (e) => _book()},
-                  [
-                    if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                    Component.text(_isBooking ? 'Processing...' : 'Submit Request')
-                  ]
-                ),
-            ]),
-          ]
-        )
-      ]
-    );
+          // Footer
+          div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between', [
+            if (_step > 1)
+              button(
+                classes:
+                    'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
+                events: {'click': (e) => setState(() => _step--)},
+                [Component.text('Back')],
+              )
+            else
+              div([]),
+
+            if (_step < 2)
+              button(
+                classes:
+                    'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
+                events: {
+                  'click': (e) {
+                    if (_basePrice <= 0) {
+                      setState(() => _error = 'Selected package is not available for this vehicle.');
+                      return;
+                    }
+                    if (_startDate == null) {
+                      setState(() => _error = 'Please select a start date on the calendar.');
+                      return;
+                    }
+                    if (_rentalType == 'deliver' && _deliveryAddress.trim().isEmpty) {
+                      setState(() => _error = 'Please pin your delivery address on the map.');
+                      return;
+                    }
+                    if (_hasBookingOverlap) {
+                      setState(
+                        () => _error =
+                            'The selected range overlaps with an existing booking schedule. Please select another date/time.',
+                      );
+                      return;
+                    }
+                    setState(() {
+                      _error = null;
+                      _step++;
+                    });
+                  },
+                },
+                [Component.text('Review Contract')],
+              )
+            else
+              button(
+                classes:
+                    'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
+                events: {'click': (e) => _book()},
+                [
+                  if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                  Component.text(_isBooking ? 'Processing...' : 'Submit Request'),
+                ],
+              ),
+          ]),
+        ],
+      ),
+    ]);
   }
 
   /// Inline map picker for delivery address — single-point pan-to-confirm.
@@ -653,16 +800,18 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
               key: const ValueKey('delivery-map-picker'),
               id: _deliveryMapId,
               classes: 'w-full h-full ${isDark ? "theme-dark" : "theme-light"}',
-              styles: Styles(raw: {
-                'z-index': '1',
-                'position': 'absolute !important',
-                'top': '0',
-                'left': '0',
-                'right': '0',
-                'bottom': '0',
-                'height': '100%',
-                'width': '100%',
-              }),
+              styles: Styles(
+                raw: {
+                  'z-index': '1',
+                  'position': 'absolute !important',
+                  'top': '0',
+                  'left': '0',
+                  'right': '0',
+                  'bottom': '0',
+                  'height': '100%',
+                  'width': '100%',
+                },
+              ),
             );
           }(),
           // Loading overlay
@@ -694,45 +843,44 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         ],
       ),
       // Confirm button
-      if (_deliveryMapReady) ...
-        [
-          button(
-            classes:
-                'w-full mt-3 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all '
-                '${_deliveryMapConfirming ? "bg-zinc-700 text-zinc-400 cursor-not-allowed" : "bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-500/20"}',
-            events: _deliveryMapConfirming
-                ? {}
-                : {
-                    'click': (_) async {
-                      setState(() => _deliveryMapConfirming = true);
-                      final center = getMapCenter(_deliveryMapId);
-                      if (center != null) {
-                        final addr = await reverseGeocode(center.lat, center.lng);
-                        if (mounted) {
-                          setState(() {
-                            _deliveryLat = center.lat;
-                            _deliveryLng = center.lng;
-                            _deliveryAddress = addr;
-                            _deliveryMapConfirming = false;
-                          });
-                          setMarker(_deliveryMapId, 'delivery', center.lat, center.lng, '📍 Delivery: $addr');
-                        }
-                      } else {
-                        setState(() => _deliveryMapConfirming = false);
+      if (_deliveryMapReady) ...[
+        button(
+          classes:
+              'w-full mt-3 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all '
+              '${_deliveryMapConfirming ? "bg-zinc-700 text-zinc-400 cursor-not-allowed" : "bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-500/20"}',
+          events: _deliveryMapConfirming
+              ? {}
+              : {
+                  'click': (_) async {
+                    setState(() => _deliveryMapConfirming = true);
+                    final center = getMapCenter(_deliveryMapId);
+                    if (center != null) {
+                      final addr = await reverseGeocode(center.lat, center.lng);
+                      if (mounted) {
+                        setState(() {
+                          _deliveryLat = center.lat;
+                          _deliveryLng = center.lng;
+                          _deliveryAddress = addr;
+                          _deliveryMapConfirming = false;
+                        });
+                        setMarker(_deliveryMapId, 'delivery', center.lat, center.lng, '📍 Delivery: $addr');
                       }
-                    },
+                    } else {
+                      setState(() => _deliveryMapConfirming = false);
+                    }
                   },
-            [
-              if (_deliveryMapConfirming) ...[
-                lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
-                Component.text('Confirming…'),
-              ] else ...[
-                lIcon('check-circle', cls: 'w-4 h-4'),
-                Component.text('Confirm Delivery Location'),
-              ],
+                },
+          [
+            if (_deliveryMapConfirming) ...[
+              lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
+              Component.text('Confirming…'),
+            ] else ...[
+              lIcon('check-circle', cls: 'w-4 h-4'),
+              Component.text('Confirm Delivery Location'),
             ],
-          ),
-        ],
+          ],
+        ),
+      ],
       // Use my location button
       button(
         classes:
@@ -762,8 +910,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
       // Confirmed address preview
       if (_deliveryAddress.isNotEmpty)
         div(
-          classes:
-              'mt-3 p-3 rounded-xl border border-purple-500/30 bg-purple-500/10 flex items-start gap-3',
+          classes: 'mt-3 p-3 rounded-xl border border-purple-500/30 bg-purple-500/10 flex items-start gap-3',
           [
             lIcon('map-pin', cls: 'w-4 h-4 text-purple-400 flex-shrink-0 mt-0.5'),
             div(classes: 'flex-1 min-w-0', [
@@ -797,103 +944,125 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     final days = _generateCalendarDays();
     final weekHeaders = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
     final formatter = '${_monthName(_calendarMonth.month)} ${_calendarMonth.year}';
-    
-    return div(classes: 'mt-6 p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-950/20" : "border-zinc-200 bg-zinc-50/30"}', [
-      div(classes: 'flex items-center justify-between mb-4', [
-        h4(classes: 'font-bold text-sm', [Component.text('Select Start Date & Schedule')]),
-        div(classes: 'flex gap-2', [
-          button(
-            classes: 'p-1.5 rounded-lg border-0 cursor-pointer outline-none ${isDark ? "bg-zinc-850 hover:bg-zinc-800 text-zinc-300" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"}',
-            events: {
-              'click': (_) => setState(() {
-                _calendarMonth = DateTime(_calendarMonth.year, _calendarMonth.month - 1, 1);
-              })
-            },
-            [lIcon('chevron-left', cls: 'w-4 h-4')],
-          ),
-          span(classes: 'text-sm font-semibold min-w-[100px] text-center', [Component.text(formatter)]),
-          button(
-            classes: 'p-1.5 rounded-lg border-0 cursor-pointer outline-none ${isDark ? "bg-zinc-850 hover:bg-zinc-800 text-zinc-300" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"}',
-            events: {
-              'click': (_) => setState(() {
-                _calendarMonth = DateTime(_calendarMonth.year, _calendarMonth.month + 1, 1);
-              })
-            },
-            [lIcon('chevron-right', cls: 'w-4 h-4')],
-          ),
+
+    return div(
+      classes:
+          'mt-6 p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-950/20" : "border-zinc-200 bg-zinc-50/30"}',
+      [
+        div(classes: 'flex items-center justify-between mb-4', [
+          h4(classes: 'font-bold text-sm', [Component.text('Select Start Date & Schedule')]),
+          div(classes: 'flex gap-2', [
+            button(
+              classes:
+                  'p-1.5 rounded-lg border-0 cursor-pointer outline-none ${isDark ? "bg-zinc-850 hover:bg-zinc-800 text-zinc-300" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"}',
+              events: {
+                'click': (_) => setState(() {
+                  _calendarMonth = DateTime(_calendarMonth.year, _calendarMonth.month - 1, 1);
+                }),
+              },
+              [lIcon('chevron-left', cls: 'w-4 h-4')],
+            ),
+            span(classes: 'text-sm font-semibold min-w-[100px] text-center', [Component.text(formatter)]),
+            button(
+              classes:
+                  'p-1.5 rounded-lg border-0 cursor-pointer outline-none ${isDark ? "bg-zinc-850 hover:bg-zinc-800 text-zinc-300" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"}',
+              events: {
+                'click': (_) => setState(() {
+                  _calendarMonth = DateTime(_calendarMonth.year, _calendarMonth.month + 1, 1);
+                }),
+              },
+              [lIcon('chevron-right', cls: 'w-4 h-4')],
+            ),
+          ]),
         ]),
-      ]),
-      // Weeks Header
-      div(classes: 'grid grid-cols-7 gap-1 text-center text-xs font-semibold text-zinc-400 mb-2', [
-        for (final wh in weekHeaders) div([Component.text(wh)]),
-      ]),
-      // Days Grid
-      div(classes: 'grid grid-cols-7 gap-1', [
-        for (final day in days)
-          if (day == null)
-            div([])
-          else
-            () {
-              final isBooked = _isDateBooked(day);
-              final isPast = _isDateInPast(day);
-              final isSelectedStart = _startDate != null &&
-                  _startDate!.year == day.year &&
-                  _startDate!.month == day.month &&
-                  _startDate!.day == day.day;
-              
-              final endRange = _computedEndDate;
-              final isInRange = _startDate != null &&
-                  day.isAfter(_startDate!) &&
-                  day.isBefore(DateTime(endRange.year, endRange.month, endRange.day, 23, 59, 59));
-                  
-              final isEndRange = _startDate != null &&
-                  endRange.year == day.year &&
-                  endRange.month == day.month &&
-                  endRange.day == day.day;
-                  
-              String bgClass = '';
-              String textClass = '';
-              bool clickable = true;
-              
-              if (isPast) {
-                bgClass = 'bg-transparent opacity-30';
-                textClass = isDark ? 'text-zinc-650' : 'text-zinc-300';
-                clickable = false;
-              } else if (isBooked) {
-                bgClass = isDark ? 'bg-red-500/10 border border-red-500/20' : 'bg-red-50 border border-red-100';
-                textClass = 'text-red-500';
-                clickable = false;
-              } else if (isSelectedStart) {
-                bgClass = 'bg-purple-500 text-white font-bold rounded-xl';
-              } else if (isEndRange) {
-                bgClass = 'bg-purple-500 text-white font-bold rounded-xl';
-              } else if (isInRange) {
-                bgClass = isDark ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-50 text-purple-700';
-              } else {
-                bgClass = isDark ? 'hover:bg-zinc-800' : 'hover:bg-zinc-100';
-                textClass = isDark ? 'text-zinc-200' : 'text-zinc-800';
-              }
-              
-              return button(
-                classes: 'aspect-square flex items-center justify-center text-xs rounded-xl transition-all border-0 outline-none $bgClass $textClass ${clickable ? "cursor-pointer" : "cursor-not-allowed"}',
-                attributes: clickable ? {} : {'disabled': 'disabled'},
-                events: clickable ? {
-                  'click': (_) => setState(() {
-                    final hour = _startDate?.hour ?? 9;
-                    _startDate = DateTime(day.year, day.month, day.day, hour, 0);
-                  })
-                } : {},
-                [Component.text('${day.day}')],
-              );
-            }(),
-      ]),
-    ]);
+        // Weeks Header
+        div(classes: 'grid grid-cols-7 gap-1 text-center text-xs font-semibold text-zinc-400 mb-2', [
+          for (final wh in weekHeaders) div([Component.text(wh)]),
+        ]),
+        // Days Grid
+        div(classes: 'grid grid-cols-7 gap-1', [
+          for (final day in days)
+            if (day == null)
+              div([])
+            else
+              () {
+                final isBooked = _isDateBooked(day);
+                final isPast = _isDateInPast(day);
+                final isSelectedStart =
+                    _startDate != null &&
+                    _startDate!.year == day.year &&
+                    _startDate!.month == day.month &&
+                    _startDate!.day == day.day;
+
+                final endRange = _computedEndDate;
+                final isInRange =
+                    _startDate != null &&
+                    day.isAfter(_startDate!) &&
+                    day.isBefore(DateTime(endRange.year, endRange.month, endRange.day, 23, 59, 59));
+
+                final isEndRange =
+                    _startDate != null &&
+                    endRange.year == day.year &&
+                    endRange.month == day.month &&
+                    endRange.day == day.day;
+
+                String bgClass = '';
+                String textClass = '';
+                bool clickable = true;
+
+                if (isPast) {
+                  bgClass = 'bg-transparent opacity-30';
+                  textClass = isDark ? 'text-zinc-650' : 'text-zinc-300';
+                  clickable = false;
+                } else if (isBooked) {
+                  bgClass = isDark ? 'bg-red-500/10 border border-red-500/20' : 'bg-red-50 border border-red-100';
+                  textClass = 'text-red-500';
+                  clickable = false;
+                } else if (isSelectedStart) {
+                  bgClass = 'bg-purple-500 text-white font-bold rounded-xl';
+                } else if (isEndRange) {
+                  bgClass = 'bg-purple-500 text-white font-bold rounded-xl';
+                } else if (isInRange) {
+                  bgClass = isDark ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-50 text-purple-700';
+                } else {
+                  bgClass = isDark ? 'hover:bg-zinc-800' : 'hover:bg-zinc-100';
+                  textClass = isDark ? 'text-zinc-200' : 'text-zinc-800';
+                }
+
+                return button(
+                  classes:
+                      'aspect-square flex items-center justify-center text-xs rounded-xl transition-all border-0 outline-none $bgClass $textClass ${clickable ? "cursor-pointer" : "cursor-not-allowed"}',
+                  attributes: clickable ? {} : {'disabled': 'disabled'},
+                  events: clickable
+                      ? {
+                          'click': (_) => setState(() {
+                            final hour = _startDate?.hour ?? 9;
+                            _startDate = DateTime(day.year, day.month, day.day, hour, 0);
+                          }),
+                        }
+                      : {},
+                  [Component.text('${day.day}')],
+                );
+              }(),
+        ]),
+      ],
+    );
   }
 
   String _monthName(int month) {
     const names = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
     ];
     return names[month - 1];
   }
@@ -906,15 +1075,18 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
   Component _packageOption(String id, String labelText, double price, bool isDark) {
     final isSelected = _selectedPackage == id;
     return div(
-      classes: 'p-4 rounded-xl border-2 cursor-pointer transition-all ${isSelected ? "border-purple-500 bg-purple-500/10" : (isDark ? "border-zinc-800 hover:border-zinc-700 bg-zinc-800/30" : "border-zinc-200 hover:border-zinc-300 bg-zinc-50")}',
+      classes:
+          'p-4 rounded-xl border-2 cursor-pointer transition-all ${isSelected ? "border-purple-500 bg-purple-500/10" : (isDark ? "border-zinc-800 hover:border-zinc-700 bg-zinc-800/30" : "border-zinc-200 hover:border-zinc-300 bg-zinc-50")}',
       events: {'click': (_) => setState(() => _selectedPackage = id)},
       [
         p(classes: 'font-semibold mb-1 ${isSelected ? "text-purple-400" : ""}', [Component.text(labelText)]),
         p(classes: 'font-bold text-lg', [
-           if (price > 0) Component.text('₱ ${price.toStringAsFixed(0)}')
-           else span(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-400"}', [Component.text('Not Available')])
+          if (price > 0)
+            Component.text('₱ ${price.toStringAsFixed(0)}')
+          else
+            span(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-400"}', [Component.text('Not Available')]),
         ]),
-      ]
+      ],
     );
   }
 

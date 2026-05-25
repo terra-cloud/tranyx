@@ -1,11 +1,13 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:web/web.dart' as web;
 import 'package:tranyx_web/components/map_picker.dart';
 import 'package:tranyx_web/components/navigation_map.dart';
 import 'package:tranyx_web/services/web_interop.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
+import '../utils/geo_helper.dart';
 import 'package:shared/shared.dart';
 
 class JobsViewComponent extends StatelessComponent {
@@ -28,13 +30,16 @@ class JobsViewComponent extends StatelessComponent {
             h2(classes: 'text-xl font-bold', [
               Component.text(
                 isNyxian
-                    ? (s.activeJobPane == 'active' ? 'Active Gigs' : (s.activeJobPane == 'history' ? 'Past Gigs' : 'Available Gigs'))
+                    ? (s.activeJobPane == 'active'
+                          ? 'Active Gigs'
+                          : (s.activeJobPane == 'history' ? 'Past Gigs' : 'Available Gigs'))
                     : (s.activeJobPane == 'history' ? 'Past History' : 'My Postings'),
               ),
             ]),
             if (!isNyxian)
               button(
-                classes: 'flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient ${!s.canPostJob ? "opacity-60 cursor-not-allowed" : ""}',
+                classes:
+                    'flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient ${!s.canPostJob ? "opacity-60 cursor-not-allowed" : ""}',
                 events: {
                   'click': (_) {
                     if (!s.canPostJob) {
@@ -42,7 +47,7 @@ class JobsViewComponent extends StatelessComponent {
                     } else {
                       s.setState(() => s.jobsView = JobsView.create);
                     }
-                  }
+                  },
                 },
                 [lIcon('plus', cls: 'w-4 h-4'), Component.text(' New')],
               ),
@@ -117,14 +122,76 @@ class JobsViewComponent extends StatelessComponent {
               ],
             ),
 
-          // Filters for both
-          if (isNyxian && s.activeJobPane != 'my_gigs')
+          // Filters for Nyxian browse pane
+          if (isNyxian &&
+              s.activeJobPane != 'my_gigs' &&
+              s.activeJobPane != 'active' &&
+              s.activeJobPane != 'history') ...[
             div(classes: 'flex gap-2 flex-wrap mb-2', [
               _filterChip('Recommended', s.activeJobFilter == 'Recommended', isDark, s),
               _filterChip('High Paying', s.activeJobFilter == 'High Paying', isDark, s),
-              _filterChip('Near Me', s.activeJobFilter == 'Near Me', isDark, s),
               _filterChip('All', s.activeJobFilter == 'All', isDark, s),
             ]),
+            // Geofence distance row
+            div(classes: 'flex flex-wrap items-center gap-3 mb-2', [
+              div(classes: 'flex items-center gap-2 text-xs', [
+                span(
+                  classes: 'font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"} flex items-center gap-1',
+                  [
+                    lIcon('map-pin', cls: 'w-3.5 h-3.5 text-purple-400'),
+                    Component.text('Distance:'),
+                  ],
+                ),
+                select(
+                  classes:
+                      'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
+                  events: {
+                    'change': (e) {
+                      final val = (e.target as web.HTMLSelectElement).value;
+                      s.setState(() => s.geofenceRadius = double.parse(val));
+                    },
+                  },
+                  [
+                    option(value: '5.0', selected: s.geofenceRadius == 5.0, [Component.text('Within 5 km')]),
+                    option(value: '15.0', selected: s.geofenceRadius == 15.0, [Component.text('Within 15 km')]),
+                    option(
+                      value: '30.0',
+                      selected: s.geofenceRadius == 30.0,
+                      [Component.text('Within 30 km')],
+                    ),
+                    option(
+                      value: '50.0',
+                      selected: s.geofenceRadius == 50.0,
+                      [Component.text('Within 50 km')],
+                    ),
+                    option(
+                      value: '100.0',
+                      selected: s.geofenceRadius == 100.0,
+                      [Component.text('Within 100 km')],
+                    ),
+                    option(
+                      value: '9999.0',
+                      selected: s.geofenceRadius >= 999.0,
+                      [Component.text('Any Distance')],
+                    ),
+                  ],
+                ),
+              ]),
+              // Remote toggle
+              button(
+                classes:
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer '
+                    '${s.includeRemoteJobs ? "bg-indigo-600 border-indigo-500 text-white" : (isDark ? "bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 border-zinc-200 text-zinc-500 hover:bg-zinc-200")}',
+                events: {
+                  'click': (_) => s.setState(() => s.includeRemoteJobs = !s.includeRemoteJobs),
+                },
+                [
+                  lIcon('wifi', cls: 'w-3 h-3'),
+                  Component.text('Remote Gigs'),
+                ],
+              ),
+            ]),
+          ],
 
           div(classes: 'space-y-3', [
             if (s.isLoadingJobs)
@@ -180,6 +247,7 @@ class JobsViewComponent extends StatelessComponent {
 
   List<Map<String, dynamic>> _getFilteredJobs(List<Map<String, dynamic>> jobs, TranyxAppState s) {
     final isNyxian = s.currentViewMode == AccountType.nyxian;
+    final isBrowsePane = isNyxian && s.activeJobPane != 'active' && s.activeJobPane != 'history';
 
     // Apply the active tab/pane filter
     if (isNyxian) {
@@ -224,6 +292,53 @@ class JobsViewComponent extends StatelessComponent {
 
     if (!isNyxian) {
       return jobs;
+    }
+
+    // ── Geofence + Remote filter (browse pane only) ──────────────
+    if (isBrowsePane) {
+      jobs = jobs.where((j) {
+        final locationType = (j['locationType'] as String?)?.toLowerCase() ?? 'on-site';
+        final isRemote = locationType == 'remote';
+
+        if (isRemote) {
+          // Remote gigs: show only when includeRemoteJobs is enabled
+          return s.includeRemoteJobs;
+        } else {
+          // On-site gigs: apply geofence distance filter
+          final jobLat = (j['latitude'] as num?)?.toDouble();
+          final jobLng = (j['longitude'] as num?)?.toDouble();
+          if (jobLat == null || jobLng == null) {
+            // No coordinates stored — include if radius is broad enough
+            return s.geofenceRadius >= 999.0;
+          }
+          if (s.geofenceRadius < 999.0) {
+            final dist = calculateDistance(s.userLatitude, s.userLongitude, jobLat, jobLng);
+            return dist <= s.geofenceRadius;
+          }
+          return true;
+        }
+      }).toList();
+
+      // Sort: remote gigs last, on-site gigs sorted by distance (closest first)
+      jobs.sort((a, b) {
+        final aType = (a['locationType'] as String?)?.toLowerCase() ?? 'on-site';
+        final bType = (b['locationType'] as String?)?.toLowerCase() ?? 'on-site';
+        final aIsRemote = aType == 'remote';
+        final bIsRemote = bType == 'remote';
+
+        if (aIsRemote && !bIsRemote) return 1;
+        if (!aIsRemote && bIsRemote) return -1;
+        if (aIsRemote && bIsRemote) return 0;
+
+        // Both on-site: sort by distance
+        final aLat = (a['latitude'] as num?)?.toDouble() ?? s.userLatitude;
+        final aLng = (a['longitude'] as num?)?.toDouble() ?? s.userLongitude;
+        final bLat = (b['latitude'] as num?)?.toDouble() ?? s.userLatitude;
+        final bLng = (b['longitude'] as num?)?.toDouble() ?? s.userLongitude;
+        final aDist = calculateDistance(s.userLatitude, s.userLongitude, aLat, aLng);
+        final bDist = calculateDistance(s.userLatitude, s.userLongitude, bLat, bLng);
+        return aDist.compareTo(bDist);
+      });
     }
 
     if (s.activeJobFilter == 'All') return jobs;
@@ -271,30 +386,36 @@ class JobsViewComponent extends StatelessComponent {
     if (!canPost) {
       final activeJobTitle = s.firstActiveJob?['title'] as String? ?? 'Active Job';
       return div(
-        classes: 'w-full p-6 rounded-2xl border-2 border-dashed ${isDark ? "border-zinc-800 bg-zinc-950/40" : "border-zinc-200 bg-zinc-50/50"} flex flex-col items-center justify-center gap-3 text-center',
+        classes:
+            'w-full p-6 rounded-2xl border-2 border-dashed ${isDark ? "border-zinc-800 bg-zinc-950/40" : "border-zinc-200 bg-zinc-50/50"} flex flex-col items-center justify-center gap-3 text-center',
         [
-          div(classes: 'w-10 h-10 rounded-full bg-amber-500/15 text-amber-500 flex items-center justify-center border border-amber-500/20', [
-            lIcon('lock', cls: 'w-5 h-5')
-          ]),
+          div(
+            classes:
+                'w-10 h-10 rounded-full bg-amber-500/15 text-amber-500 flex items-center justify-center border border-amber-500/20',
+            [lIcon('lock', cls: 'w-5 h-5')],
+          ),
           h4(classes: 'text-sm font-bold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
-            Component.text('Posting Locked')
+            Component.text('Posting Locked'),
           ]),
           p(classes: 'text-xs max-w-md ${isDark ? "text-zinc-500" : "text-zinc-400"} leading-relaxed', [
-            Component.text('Normal accounts are limited to 1 active job at a time. Please complete your current ongoing job ("$activeJobTitle") to unlock posting new gigs.'),
+            Component.text(
+              'Normal accounts are limited to 1 active job at a time. Please complete your current ongoing job ("$activeJobTitle") to unlock posting new gigs.',
+            ),
           ]),
           button(
-            classes: 'mt-1 px-4 py-2 rounded-xl text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer',
+            classes:
+                'mt-1 px-4 py-2 rounded-xl text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer',
             events: {
               'click': (_) {
                 final activeJob = s.firstActiveJob;
                 if (activeJob != null) {
                   s.selectJobAndLoadDetails(activeJob);
                 }
-              }
+              },
             },
-            [Component.text('View Ongoing Job')]
-          )
-        ]
+            [Component.text('View Ongoing Job')],
+          ),
+        ],
       );
     }
 
@@ -355,6 +476,18 @@ class JobsViewComponent extends StatelessComponent {
     final locationType = j['locationType'] as String? ?? 'Remote';
     final dateReq = j['dateRequirement'] as String? ?? 'Flexible';
     final isUrgent = dateReq == 'On Date';
+    final isRemote = locationType.toLowerCase() == 'remote';
+
+    // Compute distance for on-site gigs
+    String? distanceLabel;
+    if (!isRemote) {
+      final jobLat = (j['latitude'] as num?)?.toDouble();
+      final jobLng = (j['longitude'] as num?)?.toDouble();
+      if (jobLat != null && jobLng != null) {
+        final dist = calculateDistance(s.userLatitude, s.userLongitude, jobLat, jobLng);
+        distanceLabel = dist < 1.0 ? '${(dist * 1000).round()} m away' : '${dist.toStringAsFixed(1)} km away';
+      }
+    }
 
     final badgeText = status == 'Open' ? dateReq.toUpperCase() : status.toUpperCase();
     final badgeCls = status == 'In Progress'
@@ -374,7 +507,24 @@ class JobsViewComponent extends StatelessComponent {
       div(classes: 'flex items-center justify-between', [
         div(classes: 'flex items-center gap-3 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
           span(classes: 'font-bold text-indigo-400 text-sm', [Component.text(rate)]),
-          div(classes: 'flex items-center gap-1', [lIcon('map-pin', cls: 'w-3 h-3'), Component.text(locationType)]),
+          if (isRemote)
+            span(
+              classes:
+                  'flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-indigo-500/15 text-indigo-400',
+              [lIcon('wifi', cls: 'w-3 h-3'), Component.text('Remote')],
+            )
+          else ...[
+            div(
+              classes: 'flex items-center gap-1',
+              [lIcon('map-pin', cls: 'w-3 h-3'), Component.text(locationType)],
+            ),
+            if (distanceLabel != null)
+              span(
+                classes:
+                    'flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-purple-500/15 text-purple-400',
+                [lIcon('navigation', cls: 'w-3 h-3'), Component.text(distanceLabel)],
+              ),
+          ],
         ]),
         button(
           classes: 'px-3 py-1.5 rounded-lg text-xs font-semibold logo-gradient text-white',
@@ -536,7 +686,10 @@ class _JobDetails extends StatelessComponent {
                           'w-10 h-10 rounded-full flex items-center justify-center bg-indigo-600 flex-shrink-0 overflow-hidden',
                       [
                         if ((s.selectedJobData?['creatorPhotoUrl'] as String?)?.isNotEmpty ?? false)
-                          img(src: s.selectedJobData!['creatorPhotoUrl'] as String, classes: 'w-full h-full object-cover')
+                          img(
+                            src: s.selectedJobData!['creatorPhotoUrl'] as String,
+                            classes: 'w-full h-full object-cover',
+                          )
                         else
                           span(classes: 'text-sm font-bold text-white', [
                             Component.text(
@@ -574,16 +727,19 @@ class _JobDetails extends StatelessComponent {
           } else {
             // Employer View
             final showWorkerCard = acceptedId != null && acceptedId.isNotEmpty;
-            final workerName = s.acceptedApplicantProfile?['name'] as String? ??
-                s.selectedJobData?['acceptedApplicantName'] as String? ?? 'Nyxian';
-            final workerPhotoUrl = s.acceptedApplicantProfile?['photoUrl'] as String? ??
-                s.selectedJobData?['acceptedApplicantPhotoUrl'] as String? ?? '';
+            final workerName =
+                s.acceptedApplicantProfile?['name'] as String? ??
+                s.selectedJobData?['acceptedApplicantName'] as String? ??
+                'Nyxian';
+            final workerPhotoUrl =
+                s.acceptedApplicantProfile?['photoUrl'] as String? ??
+                s.selectedJobData?['acceptedApplicantPhotoUrl'] as String? ??
+                '';
 
             return div(classes: 'space-y-3', [
               // Creator info card (shows Employer themselves)
               div(
-                classes:
-                    'w-full p-4 rounded-2xl border $cardCls flex items-center justify-between',
+                classes: 'w-full p-4 rounded-2xl border $cardCls flex items-center justify-between',
                 [
                   div(classes: 'flex items-center gap-3', [
                     div(
@@ -591,7 +747,10 @@ class _JobDetails extends StatelessComponent {
                           'w-10 h-10 rounded-full flex items-center justify-center bg-zinc-700 flex-shrink-0 overflow-hidden',
                       [
                         if ((s.selectedJobData?['creatorPhotoUrl'] as String?)?.isNotEmpty ?? false)
-                          img(src: s.selectedJobData!['creatorPhotoUrl'] as String, classes: 'w-full h-full object-cover')
+                          img(
+                            src: s.selectedJobData!['creatorPhotoUrl'] as String,
+                            classes: 'w-full h-full object-cover',
+                          )
                         else
                           span(classes: 'text-sm font-bold text-white', [
                             Component.text(
@@ -733,8 +892,10 @@ class _JobDetails extends StatelessComponent {
             (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
             orElse: () => JobCategory.others,
           );
-          final hasTracker = s.selectedJobData?['hasTracker'] == true || s.selectedJobData?['hasTracker'] == 'true' || cat.hasTracker;
-          final isOngoingStatus = status == 'In Progress' || status == 'in_progress' || status == 'onGoing' || status == 'ongoing';
+          final hasTracker =
+              s.selectedJobData?['hasTracker'] == true || s.selectedJobData?['hasTracker'] == 'true' || cat.hasTracker;
+          final isOngoingStatus =
+              status == 'In Progress' || status == 'in_progress' || status == 'onGoing' || status == 'ongoing';
 
           if (isNyxian) {
             // --- NYXIAN VIEW ---
@@ -764,7 +925,7 @@ class _JobDetails extends StatelessComponent {
                           if (confirmed) {
                             s.handleCancelJob();
                           }
-                        }
+                        },
                       },
                       [
                         if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
@@ -809,7 +970,7 @@ class _JobDetails extends StatelessComponent {
                           if (confirmed) {
                             s.handleCancelJob();
                           }
-                        }
+                        },
                       },
                       [
                         if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
@@ -854,7 +1015,7 @@ class _JobDetails extends StatelessComponent {
                           if (confirmed) {
                             s.handleCancelJob();
                           }
-                        }
+                        },
                       },
                       [
                         if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
@@ -927,8 +1088,10 @@ class _JobDetails extends StatelessComponent {
                 ]);
               } else if (status == 'paid_cashier') {
                 // DELIVERY JOB: Step 4 (Paid Cashier -> Going to Destination)
-                final destName = s.selectedJobData?['routing']?['secondPoint']?['label'] as String? ??
-                                 s.selectedJobData?['destinationAddress'] as String? ?? 'Destination';
+                final destName =
+                    s.selectedJobData?['routing']?['secondPoint']?['label'] as String? ??
+                    s.selectedJobData?['destinationAddress'] as String? ??
+                    'Destination';
                 return div(classes: 'space-y-3', [
                   div(
                     classes: 'p-4 rounded-2xl border border-indigo-500/30 bg-indigo-500/10 flex items-center gap-3',
@@ -987,7 +1150,9 @@ class _JobDetails extends StatelessComponent {
                     div([
                       p(classes: 'font-bold text-indigo-400 text-sm', [Component.text('Task Completed')]),
                       p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                        Component.text('Waiting for Employer to generate payment code. Click below to enter or scan it.'),
+                        Component.text(
+                          'Waiting for Employer to generate payment code. Click below to enter or scan it.',
+                        ),
                       ]),
                     ]),
                   ]),
@@ -1085,14 +1250,14 @@ class _JobDetails extends StatelessComponent {
                 Builder(
                   builder: (context) {
                     final statusLower = status.toLowerCase();
-                    final reachedFirstPoint = hasTracker && (
-                      statusLower == 'arrived_pickup' ||
-                      statusLower == 'paid_cashier' ||
-                      statusLower == 'in_transit' ||
-                      statusLower == 'arrived_dropoff' ||
-                      statusLower == 'done' ||
-                      statusLower == 'completed'
-                    );
+                    final reachedFirstPoint =
+                        hasTracker &&
+                        (statusLower == 'arrived_pickup' ||
+                            statusLower == 'paid_cashier' ||
+                            statusLower == 'in_transit' ||
+                            statusLower == 'arrived_dropoff' ||
+                            statusLower == 'done' ||
+                            statusLower == 'completed');
 
                     final msg = reachedFirstPoint
                         ? 'The Nyxian has reached/passed the first point. If you cancel, the Nyxian will be compensated 20 tyxbits from the escrow, and the remaining escrow will be refunded to you. Are you sure you want to cancel?'
@@ -1107,7 +1272,7 @@ class _JobDetails extends StatelessComponent {
                           if (confirmed) {
                             s.handleCancelJob();
                           }
-                        }
+                        },
                       },
                       [
                         if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
@@ -1122,7 +1287,9 @@ class _JobDetails extends StatelessComponent {
                     p(classes: 'text-xs font-bold text-indigo-400 mb-2', [Component.text('Receipt / Item Photo')]),
                     img(src: s.selectedJobData!['receiptUrl'] as String, classes: 'w-full h-auto rounded-lg'),
                   ]),
-                if (hasTracker && (s.selectedJobData?['pickupLat'] != null) && (s.selectedJobData?['destinationLat'] != null))
+                if (hasTracker &&
+                    (s.selectedJobData?['pickupLat'] != null) &&
+                    (s.selectedJobData?['destinationLat'] != null))
                   NavigationMapComponent(state: s, isNyxian: false),
               ]);
             }
@@ -1134,7 +1301,9 @@ class _JobDetails extends StatelessComponent {
                   div([
                     p(classes: 'font-bold text-green-400 text-sm', [Component.text('Task Ready for Payment')]),
                     p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                      Component.text('The Nyxian has completed the task. Generate a payment code to release the escrow.'),
+                      Component.text(
+                        'The Nyxian has completed the task. Generate a payment code to release the escrow.',
+                      ),
                     ]),
                   ]),
                 ]),
@@ -1153,7 +1322,9 @@ class _JobDetails extends StatelessComponent {
                     Component.text(s.isGeneratingCode ? 'Generating...' : 'Generate Payment QR / Code'),
                   ],
                 ),
-                if (hasTracker && (s.selectedJobData?['pickupLat'] != null) && (s.selectedJobData?['destinationLat'] != null))
+                if (hasTracker &&
+                    (s.selectedJobData?['pickupLat'] != null) &&
+                    (s.selectedJobData?['destinationLat'] != null))
                   NavigationMapComponent(state: s, isNyxian: false),
               ]);
             }
@@ -1338,12 +1509,19 @@ class _JobDetails extends StatelessComponent {
               ]),
 
               // QR Code
-              div(classes: 'p-4 bg-white rounded-3xl shadow-inner', [
-                img(
-                  src: 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${s.generatedCompletionCode}',
-                  classes: 'w-48 h-48',
-                ),
-              ]),
+              Builder(
+                builder: (context) {
+                  final qrUrl =
+                      '${getUrlOrigin()}/?action=verify_qr&jobId=${s.selectedJobData?['id']}&code=${s.generatedCompletionCode}';
+                  final encodedQrUrl = Uri.encodeComponent(qrUrl);
+                  return div(classes: 'p-4 bg-white rounded-3xl shadow-inner', [
+                    img(
+                      src: 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=$encodedQrUrl',
+                      classes: 'w-48 h-48',
+                    ),
+                  ]);
+                },
+              ),
 
               div(classes: 'text-center', [
                 p(classes: 'text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1', [
@@ -1659,7 +1837,8 @@ class _JobDetails extends StatelessComponent {
 
   Component _qaSection(TranyxAppState s, bool isDark) {
     final status = (s.selectedJobData?['status'] as String? ?? '').toLowerCase();
-    final isOngoing = status == 'in progress' ||
+    final isOngoing =
+        status == 'in progress' ||
         status == 'in_progress' ||
         status == 'ongoing' ||
         status == 'heading_to_pickup' ||
@@ -2050,9 +2229,7 @@ class _CreateJob extends StatelessComponent {
 
     return div(classes: 'space-y-4', [
       segmentedControl(
-        options: isOnSiteOnly
-            ? const [('On-site', 'onsite')]
-            : const [('On-site', 'onsite'), ('Remote', 'remote')],
+        options: isOnSiteOnly ? const [('On-site', 'onsite')] : const [('On-site', 'onsite'), ('Remote', 'remote')],
         selected: s.locType.name,
         isDark: isDark,
         onChange: (v) => s.setState(() => s.locType = v == 'onsite' ? LocType.onsite : LocType.remote),
@@ -2127,6 +2304,35 @@ class _CreateJob extends StatelessComponent {
         isDark: isDark,
         value: s.priceRate,
         onChange: (v) => s.setState(() => s.priceRate = v),
+      ),
+
+      // 48-Hour Inspection Holdback Checkbox
+      div(
+        classes:
+            'flex items-start gap-3 p-4 rounded-2xl border ${isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-150"}',
+        [
+          input(
+            type: InputType.checkbox,
+            classes: 'w-5 h-5 rounded-lg border-zinc-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer mt-0.5',
+            attributes: s.hasInspectionHoldback ? {'checked': 'true'} : {},
+            events: {
+              'change': (e) {
+                final val = (e.target as dynamic).checked as bool? ?? false;
+                s.setState(() => s.hasInspectionHoldback = val);
+              },
+            },
+          ),
+          div(classes: 'flex-1', [
+            p(classes: 'text-xs font-bold ${isDark ? "text-white" : "text-zinc-900"}', [
+              Component.text('Enable 48-Hour Inspection Holdback'),
+            ]),
+            p(classes: 'text-[10px] text-zinc-500 mt-0.5 leading-relaxed', [
+              Component.text(
+                'Holds 10% of the funds in escrow for 48 hours post-completion to verify services/appliances work before final release to protect your investment.',
+              ),
+            ]),
+          ]),
+        ],
       ),
     ]);
   }
@@ -2280,6 +2486,27 @@ class _ReviewApplicants extends StatelessComponent {
                           p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-650"}', [
                             Component.text('Standard Rate'),
                           ]),
+                        // Badges container
+                        div(classes: 'flex flex-wrap gap-1.5 mt-1.5', [
+                          if (app['isBonded'] == true)
+                            span(
+                              classes:
+                                  'px-2 py-0.5 rounded-lg text-[9px] font-bold bg-green-500/15 text-green-400 border border-green-500/25 flex items-center gap-0.5',
+                              [
+                                lIcon('shield-check', cls: 'w-2.5 h-2.5'),
+                                Component.text('Bonded & Protected'),
+                              ],
+                            ),
+                          if (app['certificationUrls'] != null && (app['certificationUrls'] as List).isNotEmpty)
+                            span(
+                              classes:
+                                  'px-2 py-0.5 rounded-lg text-[9px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 flex items-center gap-0.5',
+                              [
+                                lIcon('award', cls: 'w-2.5 h-2.5'),
+                                Component.text('Credentials Verified (${(app['certificationUrls'] as List).length})'),
+                              ],
+                            ),
+                        ]),
                       ]),
                     ],
                   ),
@@ -2298,7 +2525,14 @@ class _ReviewApplicants extends StatelessComponent {
                 ],
               ),
           ]),
-      ] else if (status == 'In Progress' || status == 'onGoing' || status == 'ongoing' || status == 'in_progress' || status == 'heading_to_pickup' || status == 'arrived_pickup' || status == 'paid_cashier' || status == 'in_transit') ...[
+      ] else if (status == 'In Progress' ||
+          status == 'onGoing' ||
+          status == 'ongoing' ||
+          status == 'in_progress' ||
+          status == 'heading_to_pickup' ||
+          status == 'arrived_pickup' ||
+          status == 'paid_cashier' ||
+          status == 'in_transit') ...[
         div(classes: 'p-8 rounded-3xl border border-blue-500/30 bg-blue-500/10 text-center space-y-4', [
           lIcon('briefcase', cls: 'w-12 h-12 text-blue-400 mx-auto'),
           h2(classes: 'text-2xl font-bold text-blue-400', [Component.text('Job is In Progress')]),

@@ -21,7 +21,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
   String _licenseNumber = '';
   int _activeImageIndex = 0;
   String? _lastPropertyId;
-  
+
   bool _isBooking = false;
   String? _error;
 
@@ -98,6 +98,26 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
       final now = DateTime.now();
       final end = _computedEndDate;
 
+      final totalRequired = _totalPrice + _bookingFee;
+      if (user.tyxBalance < totalRequired) {
+        component.appState.setState(() {
+          component.appState.depositAmount = totalRequired - user.tyxBalance;
+          component.appState.showDepositModal = true;
+          component.appState.pendingPropertyBookingData = {
+            'propertyId': p['id'],
+            'durationType': _selectedDurationType,
+            'multiplier': _multiplier,
+            'totalCost': _totalPrice,
+            'contractType': p['contractType'] ?? 'Tranyx Standard',
+            'contractTerms': p['contractTerms'] ?? 'Standard lease terms',
+            'startDate': now.millisecondsSinceEpoch,
+            'endDate': end.millisecondsSinceEpoch,
+          };
+          component.appState.showBookPropertyModal = false;
+        });
+        return;
+      }
+
       // Submit booking request
       await component.appState.firestore.createPropertyBookingRequest(
         propertyId: p['id'],
@@ -162,31 +182,36 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
 
     final photos = (pData['photoUrls'] as List?)?.map((e) => e.toString()).toList() ?? [];
 
-    final modalCls = isDark
-        ? 'bg-zinc-900 border border-zinc-800 text-white'
-        : 'bg-white text-zinc-900 shadow-xl';
+    final modalCls = isDark ? 'bg-zinc-900 border border-zinc-800 text-white' : 'bg-white text-zinc-900 shadow-xl';
 
     return div(
       classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
       [
         div(
-          classes: 'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col $modalCls',
+          classes:
+              'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col $modalCls',
           [
             // Header
-            div(classes: 'sticky top-0 z-10 flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md', [
-              div([
-                h2(classes: 'text-2xl font-bold', [Component.text('Rent Property')]),
-                p(classes: 'text-xs text-zinc-500', [Component.text('$title • $categoryStr $pTypeStr')]),
-              ]),
-              button(
-                classes: 'p-2 rounded-full hover:bg-zinc-105 dark:hover:bg-zinc-800 transition-colors',
-                events: {'click': (_) => component.appState.setState(() {
-                  component.appState.showBookPropertyModal = false;
-                  component.appState.selectedPropertyData = null;
-                })},
-                [lIcon('x', cls: 'w-6 h-6')],
-              ),
-            ]),
+            div(
+              classes:
+                  'sticky top-0 z-10 flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
+              [
+                div([
+                  h2(classes: 'text-2xl font-bold', [Component.text('Rent Property')]),
+                  p(classes: 'text-xs text-zinc-500', [Component.text('$title • $categoryStr $pTypeStr')]),
+                ]),
+                button(
+                  classes: 'p-2 rounded-full hover:bg-zinc-105 dark:hover:bg-zinc-800 transition-colors',
+                  events: {
+                    'click': (_) => component.appState.setState(() {
+                      component.appState.showBookPropertyModal = false;
+                      component.appState.selectedPropertyData = null;
+                    }),
+                  },
+                  [lIcon('x', cls: 'w-6 h-6')],
+                ),
+              ],
+            ),
 
             // Body
             div(classes: 'p-6 flex-1 space-y-6', [
@@ -197,59 +222,100 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
 
               if (_step == 1) ...[
                 // Image slider
-                div(classes: 'aspect-video w-full rounded-2xl overflow-hidden bg-zinc-800 flex items-center justify-center mb-6 relative group select-none', [
-                  if (photos.isNotEmpty) ...[
-                    img(
-                      src: photos[_activeImageIndex % photos.length],
-                      classes: 'w-full h-full object-cover transition-all duration-300',
-                      attributes: {'alt': 'Property interior/exterior'},
-                    ),
-                    div(classes: 'absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none', []),
-                    if (photos.length > 1)
-                      button(
-                        classes: 'absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors backdrop-blur-[2px] cursor-pointer border-0 outline-none',
-                        events: {'click': (_) => setState(() => _activeImageIndex = (_activeImageIndex - 1 + photos.length) % photos.length)},
-                        [lIcon('chevron-left', cls: 'w-6 h-6')],
+                div(
+                  classes:
+                      'aspect-video w-full rounded-2xl overflow-hidden bg-zinc-800 flex items-center justify-center mb-6 relative group select-none',
+                  [
+                    if (photos.isNotEmpty) ...[
+                      img(
+                        src: photos[_activeImageIndex % photos.length],
+                        classes: 'w-full h-full object-cover transition-all duration-300',
+                        attributes: {'alt': 'Property interior/exterior'},
                       ),
-                    if (photos.length > 1)
-                      button(
-                        classes: 'absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors backdrop-blur-[2px] cursor-pointer border-0 outline-none',
-                        events: {'click': (_) => setState(() => _activeImageIndex = (_activeImageIndex + 1) % photos.length)},
-                        [lIcon('chevron-right', cls: 'w-6 h-6')],
+                      div(
+                        classes: 'absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none',
+                        [],
                       ),
-                    div(classes: 'absolute bottom-4 left-0 right-0 flex flex-col items-center gap-2 pointer-events-none', [
                       if (photos.length > 1)
-                        div(classes: 'flex gap-1.5', [
-                          for (int i = 0; i < photos.length; i++)
-                            div(
-                              classes: 'h-1.5 rounded-full transition-all duration-300 ${i == (_activeImageIndex % photos.length) ? "w-6 bg-purple-500" : "w-1.5 bg-white/55"}',
-                              [],
+                        button(
+                          classes:
+                              'absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors backdrop-blur-[2px] cursor-pointer border-0 outline-none',
+                          events: {
+                            'click': (_) => setState(
+                              () => _activeImageIndex = (_activeImageIndex - 1 + photos.length) % photos.length,
                             ),
-                        ]),
-                      p(classes: 'text-white text-xs font-semibold drop-shadow-sm', [
-                        Component.text('${(_activeImageIndex % photos.length) + 1} of ${photos.length}')
-                      ]),
-                    ]),
-                  ] else ...[
-                    lIcon('image', cls: 'w-12 h-12 text-zinc-650'),
-                  ]
-                ]),
+                          },
+                          [lIcon('chevron-left', cls: 'w-6 h-6')],
+                        ),
+                      if (photos.length > 1)
+                        button(
+                          classes:
+                              'absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors backdrop-blur-[2px] cursor-pointer border-0 outline-none',
+                          events: {
+                            'click': (_) => setState(() => _activeImageIndex = (_activeImageIndex + 1) % photos.length),
+                          },
+                          [lIcon('chevron-right', cls: 'w-6 h-6')],
+                        ),
+                      div(
+                        classes:
+                            'absolute bottom-4 left-0 right-0 flex flex-col items-center gap-2 pointer-events-none',
+                        [
+                          if (photos.length > 1)
+                            div(classes: 'flex gap-1.5', [
+                              for (int i = 0; i < photos.length; i++)
+                                div(
+                                  classes:
+                                      'h-1.5 rounded-full transition-all duration-300 ${i == (_activeImageIndex % photos.length) ? "w-6 bg-purple-500" : "w-1.5 bg-white/55"}',
+                                  [],
+                                ),
+                            ]),
+                          p(classes: 'text-white text-xs font-semibold drop-shadow-sm', [
+                            Component.text('${(_activeImageIndex % photos.length) + 1} of ${photos.length}'),
+                          ]),
+                        ],
+                      ),
+                    ] else ...[
+                      lIcon('image', cls: 'w-12 h-12 text-zinc-650'),
+                    ],
+                  ],
+                ),
 
                 // Specifications details
                 div([
                   h3(classes: 'text-lg font-bold mb-2', [Component.text('About this Space')]),
-                  p(classes: 'text-sm ${isDark ? "text-zinc-300" : "text-zinc-600"} leading-relaxed', [Component.text(desc)]),
+                  p(classes: 'text-sm ${isDark ? "text-zinc-300" : "text-zinc-600"} leading-relaxed', [
+                    Component.text(desc),
+                  ]),
                 ]),
 
                 if (amenities.isNotEmpty)
                   div([
-                    h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-3', [Component.text('Amenities')]),
+                    h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-3', [
+                      Component.text('Amenities'),
+                    ]),
                     div(classes: 'grid grid-cols-2 md:grid-cols-3 gap-2.5', [
                       for (final a in amenities)
-                        div(classes: 'flex items-center gap-2 text-xs p-2.5 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-900/40 text-zinc-300" : "border-zinc-200 bg-zinc-50 text-zinc-700"}', [
-                          lIcon(a == 'WiFi' ? 'wifi' : a == 'Aircon' ? 'wind' : a == 'Parking' ? 'car' : a == 'Furnished' ? 'armchair' : a == 'Gym' ? 'dumbbell' : 'waves', cls: 'w-4 h-4 text-purple-400'),
-                          span([Component.text(a)]),
-                        ]),
+                        div(
+                          classes:
+                              'flex items-center gap-2 text-xs p-2.5 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-900/40 text-zinc-300" : "border-zinc-200 bg-zinc-50 text-zinc-700"}',
+                          [
+                            lIcon(
+                              a == 'WiFi'
+                                  ? 'wifi'
+                                  : a == 'Aircon'
+                                  ? 'wind'
+                                  : a == 'Parking'
+                                  ? 'car'
+                                  : a == 'Furnished'
+                                  ? 'armchair'
+                                  : a == 'Gym'
+                                  ? 'dumbbell'
+                                  : 'waves',
+                              cls: 'w-4 h-4 text-purple-400',
+                            ),
+                            span([Component.text(a)]),
+                          ],
+                        ),
                     ]),
                   ]),
 
@@ -265,49 +331,82 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                   _packageOption('Daily', 'Daily Rate', ((pData['priceDaily'] ?? 0) as num).toDouble(), isDark),
                 ]),
 
-                div(classes: 'flex items-center justify-between p-4 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-950" : "border-zinc-200 bg-zinc-50"}', [
-                  div([
-                    p(classes: 'font-bold text-sm', [Component.text('Duration of Stay')]),
-                    p(classes: 'text-xs text-zinc-500', [Component.text('Enter multiplier for the selected rate')]),
-                  ]),
-                  div(classes: 'flex items-center gap-3', [
-                    button(
-                      classes: 'w-8 h-8 rounded-full border flex items-center justify-center font-bold text-lg hover:bg-zinc-800/20 cursor-pointer',
-                      events: {'click': (_) => setState(() { if (_multiplier > 1) _multiplier--; })},
-                      [Component.text('-')],
-                    ),
-                    span(classes: 'font-bold text-lg w-6 text-center', [Component.text('$_multiplier')]),
-                    button(
-                      classes: 'w-8 h-8 rounded-full border flex items-center justify-center font-bold text-lg hover:bg-zinc-800/20 cursor-pointer',
-                      events: {'click': (_) => setState(() => _multiplier++)},
-                      [Component.text('+')],
-                    ),
-                  ]),
-                ]),
+                div(
+                  classes:
+                      'flex items-center justify-between p-4 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-950" : "border-zinc-200 bg-zinc-50"}',
+                  [
+                    div([
+                      p(classes: 'font-bold text-sm', [Component.text('Duration of Stay')]),
+                      p(classes: 'text-xs text-zinc-500', [Component.text('Enter multiplier for the selected rate')]),
+                    ]),
+                    div(classes: 'flex items-center gap-3', [
+                      button(
+                        classes:
+                            'w-8 h-8 rounded-full border flex items-center justify-center font-bold text-lg hover:bg-zinc-800/20 cursor-pointer',
+                        events: {
+                          'click': (_) => setState(() {
+                            if (_multiplier > 1) _multiplier--;
+                          }),
+                        },
+                        [Component.text('-')],
+                      ),
+                      span(classes: 'font-bold text-lg w-6 text-center', [Component.text('$_multiplier')]),
+                      button(
+                        classes:
+                            'w-8 h-8 rounded-full border flex items-center justify-center font-bold text-lg hover:bg-zinc-800/20 cursor-pointer',
+                        events: {'click': (_) => setState(() => _multiplier++)},
+                        [Component.text('+')],
+                      ),
+                    ]),
+                  ],
+                ),
 
-                div(classes: 'mt-4 p-4 rounded-xl ${isDark ? "bg-purple-950/20 text-purple-300" : "bg-purple-50 text-purple-800"} text-xs flex justify-between', [
-                  span([Component.text('Lease Timeline:')]),
-                  span(classes: 'font-bold', [
-                    Component.text('${DateTime.now().toString().substring(0, 10)} to ${_computedEndDate.toString().substring(0, 10)}')
-                  ]),
-                ]),
+                div(
+                  classes:
+                      'mt-4 p-4 rounded-xl ${isDark ? "bg-purple-950/20 text-purple-300" : "bg-purple-50 text-purple-800"} text-xs flex justify-between',
+                  [
+                    span([Component.text('Lease Timeline:')]),
+                    span(classes: 'font-bold', [
+                      Component.text(
+                        '${DateTime.now().toString().substring(0, 10)} to ${_computedEndDate.toString().substring(0, 10)}',
+                      ),
+                    ]),
+                  ],
+                ),
               ] else if (_step == 2) ...[
                 // Step 2: Contract & Payment Review
-                h3(classes: 'text-lg font-bold mb-2', [Component.text(pData['contractType'] == 'Custom Contract' ? 'Owner\'s Custom Lease Terms' : 'Tranyx Standard Lease Agreement')]),
-                div(classes: 'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 h-56 overflow-y-auto mb-4', [
-                  p(classes: 'whitespace-pre-wrap text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"} leading-relaxed', [
-                    Component.text(pData['contractType'] == 'Custom Contract'
-                        ? pData['contractTerms'] ?? 'No terms provided.'
-                        : buildDefaultPropertyContract(PropertyRental.fromMap(pData, pData['id']))),
-                  ]),
+                h3(classes: 'text-lg font-bold mb-2', [
+                  Component.text(
+                    pData['contractType'] == 'Custom Contract'
+                        ? 'Owner\'s Custom Lease Terms'
+                        : 'Tranyx Standard Lease Agreement',
+                  ),
                 ]),
+                div(
+                  classes:
+                      'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 h-56 overflow-y-auto mb-4',
+                  [
+                    p(
+                      classes:
+                          'whitespace-pre-wrap text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"} leading-relaxed',
+                      [
+                        Component.text(
+                          pData['contractType'] == 'Custom Contract'
+                              ? pData['contractTerms'] ?? 'No terms provided.'
+                              : buildDefaultPropertyContract(PropertyRental.fromMap(pData, pData['id'])),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
 
                 div(classes: 'mb-6', [
                   label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
-                    Component.text('Government ID / Driver\'s License Number')
+                    Component.text('Government ID / Driver\'s License Number'),
                   ]),
                   input(
-                    classes: 'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors mb-4',
+                    classes:
+                        'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors mb-4',
                     attributes: {'value': _licenseNumber, 'placeholder': 'e.g. Passport, License, or UMID number'},
                     events: {'input': (e) => setState(() => _licenseNumber = (e.target as dynamic).value)},
                   ),
@@ -315,26 +414,38 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
 
                 div(classes: 'p-5 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-3', [
                   div(classes: 'flex justify-between text-sm', [
-                    span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [Component.text('$_multiplier x $_selectedDurationType Rental Cost')]),
+                    span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
+                      Component.text('$_multiplier x $_selectedDurationType Rental Cost'),
+                    ]),
                     span(classes: 'font-bold', [Component.text('₱ ${_totalRent.toStringAsFixed(2)}')]),
                   ]),
                   if (_depositMonths > 0)
                     div(classes: 'flex justify-between text-sm', [
-                      span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [Component.text('Security Deposit ($_depositMonths Month(s) Rent)')]),
-                      span(classes: 'font-bold text-purple-400', [Component.text('₱ ${_depositAmount.toStringAsFixed(2)}')]),
+                      span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
+                        Component.text('Security Deposit ($_depositMonths Month(s) Rent)'),
+                      ]),
+                      span(classes: 'font-bold text-purple-400', [
+                        Component.text('₱ ${_depositAmount.toStringAsFixed(2)}'),
+                      ]),
                     ]),
                   div(classes: 'flex justify-between text-sm', [
-                    span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [Component.text('Platform Service Fee (3%)')]),
+                    span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
+                      Component.text('Platform Service Fee (3%)'),
+                    ]),
                     span(classes: 'font-bold text-purple-400', [Component.text('₱ ${_bookingFee.toStringAsFixed(2)}')]),
                   ]),
                   div(classes: 'h-px w-full bg-purple-500/20 my-2', []),
                   div(classes: 'flex justify-between', [
                     span(classes: 'font-bold', [Component.text('Total Escrow Hold')]),
-                    span(classes: 'font-black text-xl text-purple-400', [Component.text('₱ ${(_totalPrice + _bookingFee).toStringAsFixed(2)}')]),
+                    span(classes: 'font-black text-xl text-purple-400', [
+                      Component.text('₱ ${(_totalPrice + _bookingFee).toStringAsFixed(2)}'),
+                    ]),
                   ]),
                 ]),
                 p(classes: 'text-[10px] text-zinc-500 mt-2', [
-                  Component.text('Funds will be locked securely in the escrow account and only released when the lease ends or both parties confirm completion.')
+                  Component.text(
+                    'Funds will be locked securely in the escrow account and only released when the lease ends or both parties confirm completion.',
+                  ),
                 ]),
               ],
             ]),
@@ -343,35 +454,41 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
             div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between', [
               if (_step > 1)
                 button(
-                  classes: 'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
+                  classes:
+                      'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
                   events: {'click': (_) => setState(() => _step--)},
-                  [Component.text('Back')]
+                  [Component.text('Back')],
                 )
-              else div([]),
+              else
+                div([]),
 
               if (_step < 2)
                 button(
-                  classes: 'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
-                  events: {'click': (_) {
-                    if (_basePrice <= 0) {
-                      setState(() => _error = 'Rate option is not configured for this property.');
-                      return;
-                    }
-                    setState(() {
-                      _error = null;
-                      _step++;
-                    });
-                  }},
-                  [Component.text('Review Terms')]
+                  classes:
+                      'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
+                  events: {
+                    'click': (_) {
+                      if (_basePrice <= 0) {
+                        setState(() => _error = 'Rate option is not configured for this property.');
+                        return;
+                      }
+                      setState(() {
+                        _error = null;
+                        _step++;
+                      });
+                    },
+                  },
+                  [Component.text('Review Terms')],
                 )
               else
                 button(
-                  classes: 'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
+                  classes:
+                      'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
                   events: {'click': (_) => _book()},
                   [
                     if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                    Component.text(_isBooking ? 'Locking Escrow...' : 'Submit Request')
-                  ]
+                    Component.text(_isBooking ? 'Locking Escrow...' : 'Submit Request'),
+                  ],
                 ),
             ]),
           ],
@@ -385,15 +502,14 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
     final isSelected = _selectedDurationType == duration;
 
     return div(
-      classes: 'p-4 rounded-2xl border cursor-pointer text-center transition-all ${
-        isSelected
-            ? "border-purple-500 bg-purple-500/10 text-purple-400 font-extrabold"
-            : (isDark ? "border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:bg-zinc-800/40" : "border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100")
-      }',
-      events: {'click': (_) => setState(() {
-        _selectedDurationType = duration;
-        _multiplier = 1;
-      })},
+      classes:
+          'p-4 rounded-2xl border cursor-pointer text-center transition-all ${isSelected ? "border-purple-500 bg-purple-500/10 text-purple-400 font-extrabold" : (isDark ? "border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:bg-zinc-800/40" : "border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100")}',
+      events: {
+        'click': (_) => setState(() {
+          _selectedDurationType = duration;
+          _multiplier = 1;
+        }),
+      },
       [
         p(classes: 'text-xs uppercase font-bold opacity-60 mb-1', [Component.text(title)]),
         p(classes: 'text-sm font-extrabold', [Component.text('₱ ${rate.toStringAsFixed(0)}')]),

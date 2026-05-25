@@ -5,6 +5,8 @@ import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
+import '../../services/web_interop.dart';
+import '../utils/geo_helper.dart';
 
 class TransitViewComponent extends StatefulComponent {
   final TranyxAppState state;
@@ -17,7 +19,6 @@ class TransitViewComponent extends StatefulComponent {
 class _TransitViewComponentState extends State<TransitViewComponent> {
   // Common filters
   String _searchQuery = '';
-  bool _nearMeOnly = false;
   double? _maxPrice;
   String _selectedDurationFilter = 'any'; // 'any', 'daily', 'weekly', 'monthly', 'yearly'
 
@@ -36,12 +37,14 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       div(classes: 'flex items-center justify-between', [
         div([
           h1(classes: 'text-3xl font-extrabold tracking-tight', [
-            Component.text(isVehicles ? 'Vehicles Rentals' : 'Real Estate Rentals')
+            Component.text(isVehicles ? 'Vehicles Rentals' : 'Real Estate Rentals'),
           ]),
           p(classes: 'text-sm mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-            Component.text(isVehicles 
-                ? 'Rent local cars, bikes, & trucks or host your own garage'
-                : 'Browse residential/commercial spaces or host your listings'),
+            Component.text(
+              isVehicles
+                  ? 'Rent local cars, bikes, & trucks or host your own garage'
+                  : 'Browse residential/commercial spaces or host your listings',
+            ),
           ]),
         ]),
         lIcon(isVehicles ? 'car' : 'home', cls: 'w-8 h-8 text-indigo-400'),
@@ -60,7 +63,6 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             s.activeRentalCategory = v == 'vehicles' ? RentalCategory.vehicles : RentalCategory.properties;
             // Clear filters when switching
             _searchQuery = '';
-            _nearMeOnly = false;
             _maxPrice = null;
             _selectedCategory = null;
             _selectedType = null;
@@ -79,10 +81,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         onChange: (v) => s.setState(() => s.transitMode = v == 'rent' ? TransitMode.rent : TransitMode.host),
       ),
 
-      if (s.transitMode == TransitMode.rent) 
-        _rentView(isVehicles, isDark) 
-      else 
-        _hostView(isVehicles, isDark),
+      if (s.transitMode == TransitMode.rent) _rentView(isVehicles, isDark) else _hostView(isVehicles, isDark),
     ]);
   }
 
@@ -92,17 +91,20 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
     if (isVehicles) {
       // 🚗 VEHICLES RENT MODE
-      final activeRentals = s.realtimeRentals.where((r) => 
-        r['renteeId'] == currentUid && 
-        r['status'] != 'Available' && 
-        r['status'] != 'Completed' && 
-        r['status'] != 'Complete'
-      ).toList();
+      final activeRentals = s.realtimeRentals
+          .where(
+            (r) =>
+                r['renteeId'] == currentUid &&
+                r['status'] != 'Available' &&
+                r['status'] != 'Completed' &&
+                r['status'] != 'Complete',
+          )
+          .toList();
 
       final availableRentals = s.realtimeRentals.where((r) {
         if (r['status'] != 'Available') return false;
         if (r['hostId'] == currentUid) return false;
-        
+
         if (_searchQuery.isNotEmpty) {
           final query = _searchQuery.toLowerCase();
           final brand = (r['brand'] ?? '').toString().toLowerCase();
@@ -112,10 +114,12 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             return false;
           }
         }
-        
-        final double distKm = ((r['id']?.toString().hashCode ?? 0).abs() % 80) / 10.0 + 0.5;
-        if (_nearMeOnly && distKm > 4.0) return false;
-        
+
+        final double pickupLat = (r['pickupLat'] as num?)?.toDouble() ?? 14.5995;
+        final double pickupLng = (r['pickupLng'] as num?)?.toDouble() ?? 120.9842;
+        final double distKm = calculateDistance(s.userLatitude, s.userLongitude, pickupLat, pickupLng);
+        if (s.geofenceRadius < 999.0 && distKm > s.geofenceRadius) return false;
+
         if (_maxPrice != null) {
           final priceVal = r['priceDaily'] ?? r['dailyRate'];
           final priceNum = double.tryParse(priceVal?.toString() ?? '') ?? 0.0;
@@ -124,42 +128,56 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         return true;
       }).toList();
 
+      // Sort by distance (closest first)
+      availableRentals.sort((a, b) {
+        final aLat = (a['pickupLat'] as num?)?.toDouble() ?? 14.5995;
+        final aLng = (a['pickupLng'] as num?)?.toDouble() ?? 120.9842;
+        final aDist = calculateDistance(s.userLatitude, s.userLongitude, aLat, aLng);
+
+        final bLat = (b['pickupLat'] as num?)?.toDouble() ?? 14.5995;
+        final bLng = (b['pickupLng'] as num?)?.toDouble() ?? 120.9842;
+        final bDist = calculateDistance(s.userLatitude, s.userLongitude, bLat, bLng);
+
+        return aDist.compareTo(bDist);
+      });
+
       return div(classes: 'space-y-6', [
         // Active vehicle rentals list
         if (activeRentals.isNotEmpty) ...[
-          h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2', [Component.text('Active Rentals & Schedules')]),
-          for (final active in activeRentals)
-            _activeVehicleCard(active, isDark),
+          h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2', [
+            Component.text('Active Rentals & Schedules'),
+          ]),
+          for (final active in activeRentals) _activeVehicleCard(active, isDark),
         ],
 
         // Renter pending requests
         if (s.renterPendingRequests.isNotEmpty) ...[
-          h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2', [Component.text('Pending Requests (${s.renterPendingRequests.length})')]),
-          for (final req in s.renterPendingRequests)
-            _pendingRequestCard(req, false, isDark),
+          h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2', [
+            Component.text('Pending Requests (${s.renterPendingRequests.length})'),
+          ]),
+          for (final req in s.renterPendingRequests) _pendingRequestCard(req, false, isDark),
         ],
 
         // Search & Filter header
-        _buildVehicleFilters(isDark),
+        _buildVehicleFilters(isDark, s),
 
         // Available listings grid
         if (availableRentals.isEmpty)
-          div(classes: 'p-10 rounded-2xl border border-dashed ${isDark ? "border-zinc-800 text-zinc-500 bg-zinc-900/10" : "border-zinc-200 text-zinc-400 bg-zinc-50/50"} text-center font-medium', [
-            Component.text('No matching vehicles available for rent.')
-          ])
+          div(
+            classes:
+                'p-10 rounded-2xl border border-dashed ${isDark ? "border-zinc-800 text-zinc-500 bg-zinc-900/10" : "border-zinc-200 text-zinc-400 bg-zinc-50/50"} text-center font-medium',
+            [Component.text('No matching vehicles available for rent.')],
+          )
         else
           div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4', [
-            for (final v in availableRentals)
-              _vehicleCard(v, isDark, isHostView: false),
+            for (final v in availableRentals) _vehicleCard(v, isDark, isHostView: false),
           ]),
       ]);
     } else {
       // 🏢 PROPERTIES RENT MODE
-      final activeLeases = s.realtimeProperties.where((p) => 
-        p.renteeId == currentUid && 
-        p.status != 'Available' && 
-        p.status != 'Completed'
-      ).toList();
+      final activeLeases = s.realtimeProperties
+          .where((p) => p.renteeId == currentUid && p.status != 'Available' && p.status != 'Completed')
+          .toList();
 
       final availableProperties = s.realtimeProperties.where((p) {
         if (p.status != 'Available') return false;
@@ -167,8 +185,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
         if (_searchQuery.isNotEmpty) {
           final query = _searchQuery.toLowerCase();
-          if (!p.title.toLowerCase().contains(query) && 
-              !p.description.toLowerCase().contains(query) && 
+          if (!p.title.toLowerCase().contains(query) &&
+              !p.description.toLowerCase().contains(query) &&
               !p.address.toLowerCase().contains(query)) {
             return false;
           }
@@ -177,8 +195,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         if (_selectedCategory != null && p.category != _selectedCategory) return false;
         if (_selectedType != null && p.type != _selectedType) return false;
 
-        final double distKm = ((p.id.hashCode).abs() % 80) / 10.0 + 0.5;
-        if (_nearMeOnly && distKm > 4.0) return false;
+        final double distKm = calculateDistance(s.userLatitude, s.userLongitude, p.latitude, p.longitude);
+        if (s.geofenceRadius < 999.0 && distKm > s.geofenceRadius) return false;
 
         // Apply Rent Option / Duration filter
         if (_selectedDurationFilter == 'daily' && p.priceDaily <= 0 && p.priceMonthly <= 0) return false;
@@ -212,33 +230,43 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         return true;
       }).toList();
 
+      // Sort by distance (closest first)
+      availableProperties.sort((a, b) {
+        final aDist = calculateDistance(s.userLatitude, s.userLongitude, a.latitude, a.longitude);
+        final bDist = calculateDistance(s.userLatitude, s.userLongitude, b.latitude, b.longitude);
+        return aDist.compareTo(bDist);
+      });
+
       return div(classes: 'space-y-6', [
         // Active Leases list
         if (activeLeases.isNotEmpty) ...[
-          h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2', [Component.text('Active Leases')]),
-          for (final active in activeLeases)
-            _activePropertyCard(active, isDark),
+          h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2', [
+            Component.text('Active Leases'),
+          ]),
+          for (final active in activeLeases) _activePropertyCard(active, isDark),
         ],
 
         // Renter pending property requests
         if (s.propertyRenterPendingRequests.isNotEmpty) ...[
-          h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2', [Component.text('Pending Requests (${s.propertyRenterPendingRequests.length})')]),
-          for (final req in s.propertyRenterPendingRequests)
-            _pendingRequestCard(req, true, isDark),
+          h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2', [
+            Component.text('Pending Requests (${s.propertyRenterPendingRequests.length})'),
+          ]),
+          for (final req in s.propertyRenterPendingRequests) _pendingRequestCard(req, true, isDark),
         ],
 
         // Filters bar
-        _buildPropertyFilters(isDark),
+        _buildPropertyFilters(isDark, s),
 
         // Available property listings grid
         if (availableProperties.isEmpty)
-          div(classes: 'p-10 rounded-2xl border border-dashed ${isDark ? "border-zinc-800 text-zinc-500 bg-zinc-900/10" : "border-zinc-200 text-zinc-400 bg-zinc-50/50"} text-center font-medium', [
-            Component.text('No matching real estate listings found.')
-          ])
+          div(
+            classes:
+                'p-10 rounded-2xl border border-dashed ${isDark ? "border-zinc-800 text-zinc-500 bg-zinc-900/10" : "border-zinc-200 text-zinc-400 bg-zinc-50/50"} text-center font-medium',
+            [Component.text('No matching real estate listings found.')],
+          )
         else
           div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4', [
-            for (final prop in availableProperties)
-              _propertyCard(prop, isDark, isHostView: false),
+            for (final prop in availableProperties) _propertyCard(prop, isDark, isHostView: false),
           ]),
       ]);
     }
@@ -266,7 +294,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               Component.text('List your car, motorcycle, or truck and earn while it\'s idle.'),
             ]),
             button(
-              classes: 'px-6 py-3 rounded-xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity inline-flex items-center gap-2 border-0 cursor-pointer',
+              classes:
+                  'px-6 py-3 rounded-xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity inline-flex items-center gap-2 border-0 cursor-pointer',
               events: {'click': (_) => s.setState(() => s.showListVehicleModal = true)},
               [lIcon('plus', cls: 'w-4 h-4'), Component.text(' List a Vehicle')],
             ),
@@ -275,14 +304,14 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           div(classes: 'flex items-center justify-between', [
             h2(classes: 'text-xl font-bold', [Component.text('My Garage')]),
             button(
-              classes: 'px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
+              classes:
+                  'px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
               events: {'click': (_) => s.setState(() => s.showListVehicleModal = true)},
               [Component.text('+ List Another')],
-            )
+            ),
           ]),
           div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4', [
-            for (final v in myRentals)
-              _vehicleCard(v, isDark, isHostView: true),
+            for (final v in myRentals) _vehicleCard(v, isDark, isHostView: true),
           ]),
         ],
       ]);
@@ -303,7 +332,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               Component.text('Rent out your apartment, room, bedspace, or commercial lot securely.'),
             ]),
             button(
-              classes: 'px-6 py-3 rounded-xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity inline-flex items-center gap-2 border-0 cursor-pointer',
+              classes:
+                  'px-6 py-3 rounded-xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity inline-flex items-center gap-2 border-0 cursor-pointer',
               events: {'click': (_) => s.setState(() => s.showListPropertyModal = true)},
               [lIcon('plus', cls: 'w-4 h-4'), Component.text(' List a Property')],
             ),
@@ -312,14 +342,14 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           div(classes: 'flex items-center justify-between', [
             h2(classes: 'text-xl font-bold', [Component.text('My Properties')]),
             button(
-              classes: 'px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
+              classes:
+                  'px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
               events: {'click': (_) => s.setState(() => s.showListPropertyModal = true)},
               [Component.text('+ List Another')],
-            )
+            ),
           ]),
           div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4', [
-            for (final p in myProperties)
-              _propertyCard(p, isDark, isHostView: true),
+            for (final p in myProperties) _propertyCard(p, isDark, isHostView: true),
           ]),
         ],
       ]);
@@ -328,10 +358,11 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
   // ── Filter Builder Helpers ──────────────────────────────────────────────────
 
-  Component _buildVehicleFilters(bool isDark) {
+  Component _buildVehicleFilters(bool isDark, TranyxAppState s) {
     return div(classes: 'space-y-3', [
       div(
-        classes: 'flex items-center gap-3 p-4 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
+        classes:
+            'flex items-center gap-3 p-4 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
         [
           lIcon('search', cls: 'w-5 h-5 ${isDark ? "text-zinc-600" : "text-zinc-400"}'),
           input(
@@ -348,29 +379,42 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         ],
       ),
       div(classes: 'flex flex-wrap items-center gap-3', [
-        button(
-          classes: 'px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer bg-transparent ${
-            _nearMeOnly 
-              ? "bg-purple-500/20 border-purple-500 text-purple-400 font-bold" 
-              : (isDark ? "border-zinc-800 hover:border-zinc-700 text-zinc-400" : "border-zinc-200 hover:border-zinc-300 text-zinc-600")
-          }',
-          events: {'click': (_) => setState(() => _nearMeOnly = !_nearMeOnly)},
-          [
-            span(classes: 'flex items-center gap-1 pointer-events-none', [
-              lIcon('map-pin', cls: 'w-3.5 h-3.5'),
-              Component.text('Near Me (< 4km)')
-            ])
-          ]
-        ),
-        div(classes: 'flex items-center gap-2 ml-auto', [
-          span(classes: 'text-xs font-semibold ${isDark ? "text-zinc-400" : "text-zinc-550"}', [Component.text('Max Price:')]),
+        div(classes: 'flex items-center gap-2 text-xs', [
+          span(classes: 'font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"} flex items-center gap-1', [
+            lIcon('map-pin', cls: 'w-3.5 h-3.5 text-purple-400'),
+            Component.text('Distance:'),
+          ]),
           select(
-            classes: 'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
+            classes:
+                'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
+            events: {
+              'change': (e) {
+                final val = (e.target as web.HTMLSelectElement).value;
+                s.setState(() => s.geofenceRadius = double.parse(val));
+              },
+            },
+            [
+              option(value: '5.0', selected: s.geofenceRadius == 5.0, [Component.text('Within 5 km')]),
+              option(value: '15.0', selected: s.geofenceRadius == 15.0, [Component.text('Within 15 km')]),
+              option(value: '30.0', selected: s.geofenceRadius == 30.0, [Component.text('Within 30 km')]),
+              option(value: '50.0', selected: s.geofenceRadius == 50.0, [Component.text('Within 50 km')]),
+              option(value: '100.0', selected: s.geofenceRadius == 100.0, [Component.text('Within 100 km')]),
+              option(value: '9999.0', selected: s.geofenceRadius >= 999.0, [Component.text('Any Distance')]),
+            ],
+          ),
+        ]),
+        div(classes: 'flex items-center gap-2 ml-auto', [
+          span(classes: 'text-xs font-semibold ${isDark ? "text-zinc-400" : "text-zinc-550"}', [
+            Component.text('Max Price:'),
+          ]),
+          select(
+            classes:
+                'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
             events: {
               'change': (e) {
                 final val = (e.target as web.HTMLSelectElement).value;
                 setState(() => _maxPrice = val == 'any' ? null : double.tryParse(val));
-              }
+              },
             },
             [
               option(value: 'any', [Component.text('Any Price')]),
@@ -378,17 +422,18 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               option(value: '3000', [Component.text('Under ₱3,000/day')]),
               option(value: '5000', [Component.text('Under ₱5,000/day')]),
               option(value: '10000', [Component.text('Under ₱10,000/day')]),
-            ]
+            ],
           ),
         ]),
       ]),
     ]);
   }
 
-  Component _buildPropertyFilters(bool isDark) {
+  Component _buildPropertyFilters(bool isDark, TranyxAppState s) {
     return div(classes: 'space-y-3', [
       div(
-        classes: 'flex items-center gap-3 p-4 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
+        classes:
+            'flex items-center gap-3 p-4 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
         [
           lIcon('search', cls: 'w-5 h-5 ${isDark ? "text-zinc-600" : "text-zinc-400"}'),
           input(
@@ -405,89 +450,107 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         ],
       ),
       div(classes: 'flex flex-wrap items-center gap-3', [
-        button(
-          classes: 'px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer bg-transparent ${
-            _nearMeOnly 
-              ? "bg-purple-500/20 border-purple-500 text-purple-400 font-bold" 
-              : (isDark ? "border-zinc-800 hover:border-zinc-700 text-zinc-400" : "border-zinc-200 hover:border-zinc-300 text-zinc-600")
-          }',
-          events: {'click': (_) => setState(() => _nearMeOnly = !_nearMeOnly)},
-          [
-            span(classes: 'flex items-center gap-1 pointer-events-none', [
-              lIcon('map-pin', cls: 'w-3.5 h-3.5'),
-              Component.text('Near Me (< 4km)')
-            ])
-          ]
-        ),
+        div(classes: 'flex items-center gap-2 text-xs', [
+          span(classes: 'font-semibold ${isDark ? "text-zinc-555" : "text-zinc-500"} flex items-center gap-1', [
+            lIcon('map-pin', cls: 'w-3.5 h-3.5 text-purple-400'),
+            Component.text('Distance:'),
+          ]),
+          select(
+            classes:
+                'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
+            events: {
+              'change': (e) {
+                final val = (e.target as web.HTMLSelectElement).value;
+                s.setState(() => s.geofenceRadius = double.parse(val));
+              },
+            },
+            [
+              option(value: '5.0', selected: s.geofenceRadius == 5.0, [Component.text('Within 5 km')]),
+              option(value: '15.0', selected: s.geofenceRadius == 15.0, [Component.text('Within 15 km')]),
+              option(value: '30.0', selected: s.geofenceRadius == 30.0, [Component.text('Within 30 km')]),
+              option(value: '50.0', selected: s.geofenceRadius == 50.0, [Component.text('Within 50 km')]),
+              option(value: '100.0', selected: s.geofenceRadius == 100.0, [Component.text('Within 100 km')]),
+              option(value: '9999.0', selected: s.geofenceRadius >= 999.0, [Component.text('Any Distance')]),
+            ],
+          ),
+        ]),
 
         // Category filter
         select(
-          classes: 'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
+          classes:
+              'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
           events: {
             'change': (e) {
               final val = (e.target as web.HTMLSelectElement).value;
               setState(() {
-                _selectedCategory = val == 'any' 
-                    ? null 
-                    : PropertyCategory.values.firstWhere((c) => c.name == val);
+                _selectedCategory = val == 'any' ? null : PropertyCategory.values.firstWhere((c) => c.name == val);
                 // Clear type filter if not compatible with new category
-                if (_selectedCategory != null && _selectedType != null && _selectedType!.category != _selectedCategory) {
+                if (_selectedCategory != null &&
+                    _selectedType != null &&
+                    _selectedType!.category != _selectedCategory) {
                   _selectedType = null;
                 }
               });
-            }
+            },
           },
           [
             option(value: 'any', [Component.text('All Categories')]),
             for (final c in PropertyCategory.values)
               option(value: c.name, selected: _selectedCategory == c, [Component.text(c.label)]),
-          ]
+          ],
         ),
 
         // Type filter
         select(
-          classes: 'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
+          classes:
+              'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
           events: {
             'change': (e) {
               final val = (e.target as web.HTMLSelectElement).value;
               setState(() {
-                _selectedType = val == 'any' 
-                    ? null 
-                    : PropertyType.values.firstWhere((t) => t.name == val);
+                _selectedType = val == 'any' ? null : PropertyType.values.firstWhere((t) => t.name == val);
               });
-            }
+            },
           },
           [
             option(value: 'any', [Component.text('All Types')]),
-            for (final t in PropertyType.values.where((t) => _selectedCategory == null || t.category == _selectedCategory))
+            for (final t in PropertyType.values.where(
+              (t) => _selectedCategory == null || t.category == _selectedCategory,
+            ))
               option(value: t.name, selected: _selectedType == t, [Component.text(t.label)]),
-          ]
+          ],
         ),
 
         // Rate option filter (monthly, weekly, daily, yearly)
         select(
-          classes: 'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
+          classes:
+              'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
           events: {
             'change': (e) {
               final val = (e.target as web.HTMLSelectElement).value;
               setState(() {
                 _selectedDurationFilter = val;
               });
-            }
+            },
           },
           [
             option(value: 'any', selected: _selectedDurationFilter == 'any', [Component.text('Any Rent Option')]),
             option(value: 'daily', selected: _selectedDurationFilter == 'daily', [Component.text('Offers Daily')]),
             option(value: 'weekly', selected: _selectedDurationFilter == 'weekly', [Component.text('Offers Weekly')]),
-            option(value: 'monthly', selected: _selectedDurationFilter == 'monthly', [Component.text('Offers Monthly')]),
+            option(value: 'monthly', selected: _selectedDurationFilter == 'monthly', [
+              Component.text('Offers Monthly'),
+            ]),
             option(value: 'yearly', selected: _selectedDurationFilter == 'yearly', [Component.text('Offers Yearly')]),
-          ]
+          ],
         ),
 
         div(classes: 'flex items-center gap-2 ml-auto', [
-          span(classes: 'text-xs font-semibold ${isDark ? "text-zinc-400" : "text-zinc-550"}', [Component.text('Max Price:')]),
+          span(classes: 'text-xs font-semibold ${isDark ? "text-zinc-400" : "text-zinc-550"}', [
+            Component.text('Max Price:'),
+          ]),
           input(
-            classes: 'text-xs p-1.5 w-24 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white placeholder-zinc-550" : "bg-white border-zinc-300 text-zinc-800 placeholder-zinc-400"} outline-none focus:border-purple-500 transition-colors',
+            classes:
+                'text-xs p-1.5 w-24 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white placeholder-zinc-550" : "bg-white border-zinc-300 text-zinc-800 placeholder-zinc-400"} outline-none focus:border-purple-500 transition-colors',
             type: InputType.number,
             attributes: {
               'placeholder': 'Any Price',
@@ -499,8 +562,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 setState(() {
                   _maxPrice = val.trim().isEmpty ? null : double.tryParse(val);
                 });
-              }
-            }
+              },
+            },
           ),
         ]),
       ]),
@@ -514,12 +577,13 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final status = active['status'] as String? ?? 'Booked';
 
     return div(
-      classes: 'p-5 rounded-2xl border border-purple-500/30 bg-purple-500/10 cursor-pointer hover:bg-purple-500/20 transition-colors mb-4',
+      classes:
+          'p-5 rounded-2xl border border-purple-500/30 bg-purple-500/10 cursor-pointer hover:bg-purple-500/20 transition-colors mb-4',
       events: {
         'click': (_) => s.setState(() {
           s.selectedRentalData = active;
           s.showRentalTrackerMap = true;
-        })
+        }),
       },
       [
         div(classes: 'flex items-center justify-between mb-3', [
@@ -529,12 +593,15 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               p(classes: 'text-xs font-semibold text-purple-400 uppercase tracking-wider', [
                 Component.text('Active Vehicle Rental • $status'),
               ]),
-              p(classes: 'font-bold', [Component.text('${active['brand']} ${active['model']} • ${active['plateNumber']}')]),
+              p(classes: 'font-bold', [
+                Component.text('${active['brand']} ${active['model']} • ${active['plateNumber']}'),
+              ]),
             ]),
           ]),
           if (status == 'Awaiting Signature')
             button(
-              classes: 'px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer',
+              classes:
+                  'px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer',
               events: {
                 'click': (e) {
                   e.stopPropagation();
@@ -545,16 +612,17 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                     s.signingContractIsProperty = false;
                     s.showSignContractModal = true;
                   });
-                }
+                },
               },
-              [Component.text('Sign Contract')]
-            )
+              [Component.text('Sign Contract')],
+            ),
         ]),
         div(classes: 'flex items-center justify-between text-xs text-purple-300', [
           p([Component.text('Click card to view tracker and live trip map')]),
           if (status == 'Booked' || status == 'Active' || status == 'Ongoing')
             button(
-              classes: 'px-4 py-2 rounded-xl text-xs font-bold bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors border-0 cursor-pointer',
+              classes:
+                  'px-4 py-2 rounded-xl text-xs font-bold bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors border-0 cursor-pointer',
               events: {
                 'click': (e) {
                   e.stopPropagation();
@@ -562,11 +630,20 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                     s.selectedRentalData = active;
                     s.showExtendRentalModal = true;
                   });
-                }
+                },
               },
               [Component.text('Extend')],
             ),
         ]),
+        if (active['signatureHash'] != null)
+          div(classes: 'mt-3 p-2.5 rounded-xl bg-green-500/10 border border-green-500/25 space-y-1', [
+            p(classes: 'text-[10px] font-bold text-green-400 uppercase tracking-wider', [
+              Component.text('✓ Signed Lease Details (Cryptographic SHA-256)'),
+            ]),
+            p(classes: 'text-[9px] font-mono text-green-300/80 break-all leading-normal', [
+              Component.text(active['signatureHash'] as String),
+            ]),
+          ]),
       ],
     );
   }
@@ -590,7 +667,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           ]),
           if (status == 'Awaiting Signature')
             button(
-              classes: 'px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer',
+              classes:
+                  'px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer',
               events: {
                 'click': (_) {
                   s.setState(() {
@@ -600,34 +678,50 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                     s.signingContractIsProperty = true;
                     s.showSignContractModal = true;
                   });
-                }
+                },
               },
-              [Component.text('Sign Contract')]
-            )
+              [Component.text('Sign Contract')],
+            ),
         ]),
         div(classes: 'flex items-center justify-between text-xs text-purple-300', [
-          p([Component.text('Rent: ₱ ${active.priceMonthly.toStringAsFixed(0)}/mo • Deposit: ${active.depositMonths} mo')]),
+          p([
+            Component.text(
+              'Rent: ₱ ${active.priceMonthly.toStringAsFixed(0)}/mo • Deposit: ${active.depositMonths} mo',
+            ),
+          ]),
           if (active.allowChat)
             button(
-              classes: 'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent',
+              classes:
+                  'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent',
               events: {
                 'click': (_) {
                   final chatId = 'property_${active.id}_${s.userProfile?.uid}';
                   s.openChat(chatId);
-                }
+                },
               },
-              [lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'), Component.text('Chat Owner')]
+              [lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'), Component.text('Chat Owner')],
             )
           else
             span(classes: 'text-zinc-550 italic', [Component.text('Chat disabled by host')]),
         ]),
+        if (active.signatureHash != null)
+          div(classes: 'mt-3 p-2.5 rounded-xl bg-green-500/10 border border-green-500/25 space-y-1', [
+            p(classes: 'text-[10px] font-bold text-green-400 uppercase tracking-wider', [
+              Component.text('✓ Signed Lease Details (Cryptographic SHA-256)'),
+            ]),
+            p(classes: 'text-[9px] font-mono text-green-300/80 break-all leading-normal', [
+              Component.text(active.signatureHash!),
+            ]),
+          ]),
       ],
     );
   }
 
   Component _pendingRequestCard(Map<String, dynamic> req, bool isProperty, bool isDark) {
+    final s = component.state;
     return div(
-      classes: 'p-5 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-800/15" : "border-zinc-200 bg-zinc-50"} mb-4 flex items-center justify-between',
+      classes:
+          'p-5 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-800/15" : "border-zinc-200 bg-zinc-50"} mb-4 flex items-center justify-between',
       [
         div(classes: 'flex items-center gap-3', [
           div(classes: 'p-2 rounded-xl bg-purple-500/20', [lIcon('clock', cls: 'w-5 h-5 text-purple-400')]),
@@ -637,13 +731,40 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             ]),
             p(classes: 'font-bold', [Component.text(req['title'] ?? (isProperty ? 'Lease' : 'Rental'))]),
             p(classes: 'text-xs text-zinc-550 capitalize', [
-              Component.text('${req['multiplier']} ${req['durationType']}')
+              Component.text('${req['multiplier']} ${req['durationType']}'),
             ]),
           ]),
         ]),
-        div(classes: 'text-right', [
+        div(classes: 'text-right flex flex-col items-end gap-1.5', [
           p(classes: 'font-black text-purple-400', [Component.text('₱${req["totalCost"]}')]),
-          span(classes: 'px-2 py-0.5 rounded text-[10px] bg-yellow-500/20 text-yellow-400 font-bold', [Component.text('PENDING')]),
+          div(classes: 'flex items-center gap-2', [
+            span(classes: 'px-2 py-0.5 rounded text-[10px] bg-yellow-500/20 text-yellow-400 font-bold', [
+              Component.text('PENDING'),
+            ]),
+            if (!isProperty)
+              button(
+                classes:
+                    'px-2.5 py-1 text-[10px] font-bold text-red-400 hover:text-red-300 border border-red-500/20 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer bg-transparent',
+                events: {
+                  'click': (_) async {
+                    final confirmed = confirmDialog(
+                      'Are you sure you want to cancel this booking request? Your locked funds will be refunded.',
+                    );
+                    if (confirmed) {
+                      try {
+                        await s.firestore.cancelBookingRequest(req['id']?.toString() ?? '');
+                        await s.loadRenterPendingRequests();
+                        await s.loadUserProfile();
+                        s.showAppToast('Request Cancelled', 'Your request has been cancelled and funds refunded.');
+                      } catch (e) {
+                        s.showAppToast('Error', 'Failed to cancel request: $e');
+                      }
+                    }
+                  },
+                },
+                [Component.text('Cancel Request')],
+              ),
+          ]),
         ]),
       ],
     );
@@ -656,18 +777,24 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final typeVal = r['type'] ?? r['vehicleType'];
     String type = typeVal?.toString().split('.').last ?? 'Unknown';
     if (type.toLowerCase() == 'null') type = 'Unknown';
-    
+
     final priceVal = r['priceDaily'] ?? r['dailyRate'];
     final priceStr = (priceVal != null && priceVal.toString().toLowerCase() != 'null') ? priceVal.toString() : '0';
-    
-    final double distKm = ((id.toString().hashCode).abs() % 80) / 10.0 + 0.5;
-    
+
+    final double pickupLat = (r['pickupLat'] as num?)?.toDouble() ?? 14.5995;
+    final double pickupLng = (r['pickupLng'] as num?)?.toDouble() ?? 120.9842;
+    final double distKm = calculateDistance(s.userLatitude, s.userLongitude, pickupLat, pickupLng);
+
     final cardCls = isDark
         ? 'bg-zinc-900 border-zinc-800 hover:border-purple-500/40'
         : 'bg-white border-zinc-200 shadow-sm hover:shadow-md';
 
-    final photoUrl = r['frontPhotoUrl'] ?? r['frontPhoto'] ?? r['photoUrl'] ?? r['interiorPhotoUrl'] ?? r['backPhotoUrl'];
+    final photoUrl =
+        r['frontPhotoUrl'] ?? r['frontPhoto'] ?? r['photoUrl'] ?? r['interiorPhotoUrl'] ?? r['backPhotoUrl'];
     final hasPhoto = photoUrl != null && photoUrl.toString().isNotEmpty && photoUrl.toString() != 'null';
+
+    final gpsTrackerId = r['gpsTrackerId'] as String?;
+    final hasGps = gpsTrackerId != null && gpsTrackerId.isNotEmpty;
 
     return div(classes: 'p-5 rounded-2xl border transition-all card-hover $cardCls', [
       div(classes: 'flex items-start justify-between mb-4', [
@@ -675,13 +802,47 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           p(classes: 'font-bold text-lg', [Component.text(model)]),
           p(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-500"} capitalize', [Component.text(type)]),
         ]),
-        span(classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-400', [
-          Component.text(r['status'] ?? 'AVAILABLE'),
+        div(classes: 'flex items-center gap-1.5', [
+          if (isHostView) ...[
+            if (hasGps)
+              span(
+                classes:
+                    'px-2 py-1 rounded-lg text-[10px] font-bold bg-green-500/15 text-green-400 flex items-center gap-1',
+                attributes: {'title': 'GPS Tracker ID: $gpsTrackerId'},
+                [
+                  lIcon('activity', cls: 'w-3 h-3 text-green-400 animate-pulse'),
+                  Component.text('GPS Active (Online)'),
+                ],
+              )
+            else
+              span(
+                classes:
+                    'px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-500/15 text-amber-400 flex items-center gap-1',
+                [
+                  lIcon('alert-triangle', cls: 'w-3 h-3 text-amber-400'),
+                  Component.text('No GPS Registered'),
+                ],
+              ),
+          ] else if (hasGps) ...[
+            span(
+              classes:
+                  'px-2 py-1 rounded-lg text-[10px] font-bold bg-green-500/15 text-green-400 flex items-center gap-0.5',
+              attributes: {'title': 'GPS Tracker ID: $gpsTrackerId'},
+              [
+                lIcon('map-pin', cls: 'w-2.5 h-2.5'),
+                Component.text('GPS Tracked'),
+              ],
+            ),
+          ],
+          span(classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-400', [
+            Component.text(r['status'] ?? 'AVAILABLE'),
+          ]),
         ]),
       ]),
 
       div(
-        classes: 'w-full h-32 rounded-xl mb-4 ${isDark ? "bg-zinc-800" : "bg-zinc-100"} flex items-center justify-center overflow-hidden relative',
+        classes:
+            'w-full h-32 rounded-xl mb-4 ${isDark ? "bg-zinc-800" : "bg-zinc-100"} flex items-center justify-center overflow-hidden relative',
         [
           if (hasPhoto)
             img(src: photoUrl.toString(), classes: 'w-full h-full object-cover', attributes: {'alt': model})
@@ -702,35 +863,53 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         if (isHostView)
           div(classes: 'flex gap-2', [
             button(
-              classes: 'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-              events: {'click': (_) => s.setState(() { s.selectedRentalData = r; s.showVehicleQaModal = true; })},
-              [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')]
+              classes:
+                  'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
+              events: {
+                'click': (_) => s.setState(() {
+                  s.selectedRentalData = r;
+                  s.showVehicleQaModal = true;
+                }),
+              },
+              [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
             ),
             button(
-              classes: 'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-              events: {'click': (_) {
-                s.setState(() {
-                  s.selectedRentalData = r;
-                  s.showManageVehicleModal = true;
-                });
-              }},
-              [Component.text('Manage')]
+              classes:
+                  'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
+              events: {
+                'click': (_) {
+                  s.setState(() {
+                    s.selectedRentalData = r;
+                    s.showManageVehicleModal = true;
+                  });
+                },
+              },
+              [Component.text('Manage')],
             ),
           ])
         else
           div(classes: 'flex items-center gap-2', [
             button(
-              classes: 'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-purple-400" : "border-zinc-300 hover:bg-zinc-50 text-purple-650"} transition-colors bg-transparent cursor-pointer',
-              events: {'click': (_) => s.setState(() { s.selectedRentalData = r; s.showVehicleQaModal = true; })},
-              [lIcon('message-circle-question', cls: 'w-4 h-4')]
+              classes:
+                  'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-purple-400" : "border-zinc-300 hover:bg-zinc-50 text-purple-650"} transition-colors bg-transparent cursor-pointer',
+              events: {
+                'click': (_) => s.setState(() {
+                  s.selectedRentalData = r;
+                  s.showVehicleQaModal = true;
+                }),
+              },
+              [lIcon('message-circle-question', cls: 'w-4 h-4')],
             ),
             button(
-              classes: 'px-4 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
-              events: {'click': (_) => s.setState(() {
-                s.selectedRentalData = r;
-                s.showBookVehicleModal = true;
-              })},
-              [Component.text('Book Now')]
+              classes:
+                  'px-4 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
+              events: {
+                'click': (_) => s.setState(() {
+                  s.selectedRentalData = r;
+                  s.showBookVehicleModal = true;
+                }),
+              },
+              [Component.text('Book Now')],
             ),
           ]),
       ]),
@@ -740,7 +919,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
   Component _propertyCard(PropertyRental prop, bool isDark, {bool isHostView = false}) {
     final s = component.state;
     final monthly = prop.priceMonthly;
-    final double distKm = ((prop.id.hashCode).abs() % 80) / 10.0 + 0.5;
+    final double distKm = calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude);
 
     final cardCls = isDark
         ? 'bg-zinc-900 border-zinc-800 hover:border-purple-500/40'
@@ -753,7 +932,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         div([
           p(classes: 'font-bold text-lg leading-tight line-clamp-1', [Component.text(prop.title)]),
           p(classes: 'text-sm ${isDark ? "text-zinc-550" : "text-zinc-500"} capitalize', [
-            Component.text('${prop.category.label} • ${prop.type.label}')
+            Component.text('${prop.category.label} • ${prop.type.label}'),
           ]),
         ]),
         span(classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-400', [
@@ -762,7 +941,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       ]),
 
       div(
-        classes: 'w-full h-32 rounded-xl mb-4 ${isDark ? "bg-zinc-850" : "bg-zinc-100"} flex items-center justify-center overflow-hidden relative',
+        classes:
+            'w-full h-32 rounded-xl mb-4 ${isDark ? "bg-zinc-850" : "bg-zinc-100"} flex items-center justify-center overflow-hidden relative',
         [
           if (hasPhoto)
             img(src: prop.photoUrls.first, classes: 'w-full h-full object-cover', attributes: {'alt': prop.title})
@@ -783,35 +963,53 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         if (isHostView)
           div(classes: 'flex gap-2', [
             button(
-              classes: 'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-              events: {'click': (_) => s.setState(() { s.selectedPropertyData = prop.toMap(); s.showPropertyQaModal = true; })},
-              [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')]
+              classes:
+                  'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
+              events: {
+                'click': (_) => s.setState(() {
+                  s.selectedPropertyData = prop.toMap();
+                  s.showPropertyQaModal = true;
+                }),
+              },
+              [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
             ),
             button(
-              classes: 'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-              events: {'click': (_) {
-                s.setState(() {
-                  s.selectedPropertyData = prop.toMap();
-                  s.showManagePropertyModal = true;
-                });
-              }},
-              [Component.text('Manage')]
+              classes:
+                  'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
+              events: {
+                'click': (_) {
+                  s.setState(() {
+                    s.selectedPropertyData = prop.toMap();
+                    s.showManagePropertyModal = true;
+                  });
+                },
+              },
+              [Component.text('Manage')],
             ),
           ])
         else
           div(classes: 'flex items-center gap-2', [
             button(
-              classes: 'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-purple-400" : "border-zinc-300 hover:bg-zinc-50 text-purple-600"} transition-colors bg-transparent cursor-pointer',
-              events: {'click': (_) => s.setState(() { s.selectedPropertyData = prop.toMap(); s.showPropertyQaModal = true; })},
-              [lIcon('message-circle-question', cls: 'w-4 h-4')]
+              classes:
+                  'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-purple-400" : "border-zinc-300 hover:bg-zinc-50 text-purple-600"} transition-colors bg-transparent cursor-pointer',
+              events: {
+                'click': (_) => s.setState(() {
+                  s.selectedPropertyData = prop.toMap();
+                  s.showPropertyQaModal = true;
+                }),
+              },
+              [lIcon('message-circle-question', cls: 'w-4 h-4')],
             ),
             button(
-              classes: 'px-4 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
-              events: {'click': (_) => s.setState(() {
-                s.selectedPropertyData = prop.toMap();
-                s.showBookPropertyModal = true;
-              })},
-              [Component.text('Rent Now')]
+              classes:
+                  'px-4 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
+              events: {
+                'click': (_) => s.setState(() {
+                  s.selectedPropertyData = prop.toMap();
+                  s.showBookPropertyModal = true;
+                }),
+              },
+              [Component.text('Rent Now')],
             ),
           ]),
       ]),

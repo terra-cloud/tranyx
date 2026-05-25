@@ -122,26 +122,36 @@ class _NavigationMapState extends State<NavigationMapComponent> {
   @override
   void didUpdateComponent(NavigationMapComponent oldWidget) {
     super.didUpdateComponent(oldWidget);
-    
+
     final oldJob = oldWidget.state.selectedJobData;
     final newJob = component.state.selectedJobData;
-    
+
     if (oldJob != null && newJob != null) {
       final oldId = oldJob['id'];
       final newId = newJob['id'];
-      
+
       final oldRawStatus = oldJob['status'] as String? ?? 'Open';
-      final oldSubStatus = oldJob['nyxianSubStatus'] as String? ??
-          ((oldRawStatus == 'In Progress' || oldRawStatus == 'in_progress' || oldRawStatus == 'onGoing' || oldRawStatus == 'ongoing' || oldRawStatus == 'Open')
+      final oldSubStatus =
+          oldJob['nyxianSubStatus'] as String? ??
+          ((oldRawStatus == 'In Progress' ||
+                  oldRawStatus == 'in_progress' ||
+                  oldRawStatus == 'onGoing' ||
+                  oldRawStatus == 'ongoing' ||
+                  oldRawStatus == 'Open')
               ? null
               : oldRawStatus);
-              
+
       final newRawStatus = newJob['status'] as String? ?? 'Open';
-      final newSubStatus = newJob['nyxianSubStatus'] as String? ??
-          ((newRawStatus == 'In Progress' || newRawStatus == 'in_progress' || newRawStatus == 'onGoing' || newRawStatus == 'ongoing' || newRawStatus == 'Open')
+      final newSubStatus =
+          newJob['nyxianSubStatus'] as String? ??
+          ((newRawStatus == 'In Progress' ||
+                  newRawStatus == 'in_progress' ||
+                  newRawStatus == 'onGoing' ||
+                  newRawStatus == 'ongoing' ||
+                  newRawStatus == 'Open')
               ? null
               : newRawStatus);
-              
+
       if (oldId != newId || oldSubStatus != newSubStatus) {
         _handleSubStatusChange(newSubStatus);
       }
@@ -150,26 +160,25 @@ class _NavigationMapState extends State<NavigationMapComponent> {
 
   Future<void> _handleSubStatusChange(String? subStatus) async {
     if (!_ready) return;
-    
+
     final job = component.state.selectedJobData!;
     final pickupLat = (job['pickupLat'] as num?)?.toDouble();
     final pickupLng = (job['pickupLng'] as num?)?.toDouble();
     final destLat = (job['destinationLat'] as num?)?.toDouble();
     final destLng = (job['destinationLng'] as num?)?.toDouble();
-    
+
     final bool isNavigating = (subStatus == 'heading_to_pickup' || subStatus == 'in_transit');
     final pitch = isNavigating ? 45.0 : 0.0;
     final zoom = isNavigating ? 16.5 : 14.0;
-    
-    final bool pastPickup =
-        subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
-        
+
+    final bool pastPickup = subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
+
     double startLat;
     double startLng;
     double endLat;
     double endLng;
     String color;
-    
+
     if (component.isNyxian) {
       if (_myLat == null) {
         await _initializeNyxianLocation();
@@ -187,7 +196,7 @@ class _NavigationMapState extends State<NavigationMapComponent> {
         startLng = pickupLng ?? 120.9842;
       }
     }
-    
+
     if (!pastPickup && pickupLat != null) {
       endLat = pickupLat;
       endLng = pickupLng!;
@@ -199,14 +208,19 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     } else {
       return;
     }
-    
+
     if (component.isNyxian) {
       _updateRouteAndSteps(startLat, startLng, endLat, endLng, color).then((_) {
         double? bearing;
         if (isNavigating && _routeSteps.isNotEmpty) {
           if (_currentStepIndex < _routeSteps.length) {
             final step = _routeSteps[_currentStepIndex];
-            bearing = _calculateBearing(startLat, startLng, (step['lat'] as num).toDouble(), (step['lng'] as num).toDouble());
+            bearing = _calculateBearing(
+              startLat,
+              startLng,
+              (step['lat'] as num).toDouble(),
+              (step['lng'] as num).toDouble(),
+            );
           }
         }
         panTo(_mapId, startLat, startLng, bearing: bearing ?? 0.0, pitch: pitch, zoom: zoom);
@@ -216,7 +230,12 @@ class _NavigationMapState extends State<NavigationMapComponent> {
         double? bearing;
         if (isNavigating && _routeSteps.isNotEmpty) {
           final step = _routeSteps[0];
-          bearing = _calculateBearing(startLat, startLng, (step['lat'] as num).toDouble(), (step['lng'] as num).toDouble());
+          bearing = _calculateBearing(
+            startLat,
+            startLng,
+            (step['lat'] as num).toDouble(),
+            (step['lng'] as num).toDouble(),
+          );
         }
         panTo(_mapId, startLat, startLng, bearing: bearing ?? 0.0, pitch: pitch, zoom: zoom);
       });
@@ -236,8 +255,13 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     final cLng = pickupLng ?? 120.9842;
 
     final rawStatus = job['status'] as String? ?? 'Open';
-    final subStatus = job['nyxianSubStatus'] as String? ??
-        ((rawStatus == 'In Progress' || rawStatus == 'in_progress' || rawStatus == 'onGoing' || rawStatus == 'ongoing' || rawStatus == 'Open')
+    final subStatus =
+        job['nyxianSubStatus'] as String? ??
+        ((rawStatus == 'In Progress' ||
+                rawStatus == 'in_progress' ||
+                rawStatus == 'onGoing' ||
+                rawStatus == 'ongoing' ||
+                rawStatus == 'Open')
             ? null
             : rawStatus);
     final bool isNavigating = (subStatus == 'heading_to_pickup' || subStatus == 'in_transit');
@@ -345,7 +369,8 @@ class _NavigationMapState extends State<NavigationMapComponent> {
 
         setState(() {
           _routeSteps = stepsList?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
-          _routeCoordinates = coordsList?.map((e) => (e as List<dynamic>).map((x) => (x as num).toDouble()).toList()).toList() ?? [];
+          _routeCoordinates =
+              coordsList?.map((e) => (e as List<dynamic>).map((x) => (x as num).toDouble()).toList()).toList() ?? [];
           _currentStepIndex = 0;
         });
 
@@ -382,8 +407,13 @@ class _NavigationMapState extends State<NavigationMapComponent> {
         final lat = (job['nyxianLat'] as num?)?.toDouble();
         final lng = (job['nyxianLng'] as num?)?.toDouble();
         final rawStatus = job['status'] as String? ?? 'Open';
-        final subStatus = job['nyxianSubStatus'] as String? ??
-            ((rawStatus == 'In Progress' || rawStatus == 'in_progress' || rawStatus == 'onGoing' || rawStatus == 'ongoing' || rawStatus == 'Open')
+        final subStatus =
+            job['nyxianSubStatus'] as String? ??
+            ((rawStatus == 'In Progress' ||
+                    rawStatus == 'in_progress' ||
+                    rawStatus == 'onGoing' ||
+                    rawStatus == 'ongoing' ||
+                    rawStatus == 'Open')
                 ? null
                 : rawStatus);
 
@@ -472,8 +502,7 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     final lat2Rad = lat2 * math.pi / 180.0;
 
     final y = math.sin(dLon) * math.cos(lat2Rad);
-    final x = math.cos(lat1Rad) * math.sin(lat2Rad) -
-        math.sin(lat1Rad) * math.cos(lat2Rad) * math.cos(dLon);
+    final x = math.cos(lat1Rad) * math.sin(lat2Rad) - math.sin(lat1Rad) * math.cos(lat2Rad) * math.cos(dLon);
 
     final brng = math.atan2(y, x) * 180.0 / math.pi;
     return (brng + 360.0) % 360.0;
@@ -491,17 +520,30 @@ class _NavigationMapState extends State<NavigationMapComponent> {
         });
       }
       final rawStatus = component.state.selectedJobData!['status'] as String? ?? 'Open';
-      final subStatus = component.state.selectedJobData!['nyxianSubStatus'] as String? ??
-          ((rawStatus == 'In Progress' || rawStatus == 'in_progress' || rawStatus == 'onGoing' || rawStatus == 'ongoing' || rawStatus == 'Open')
+      final subStatus =
+          component.state.selectedJobData!['nyxianSubStatus'] as String? ??
+          ((rawStatus == 'In Progress' ||
+                  rawStatus == 'in_progress' ||
+                  rawStatus == 'onGoing' ||
+                  rawStatus == 'ongoing' ||
+                  rawStatus == 'Open')
               ? null
               : rawStatus);
-      setMarker(_mapId, 'nyxian', lat, lng, component.isNyxian ? '🛵 You — ${_subStatusLabel(subStatus)}' : '🛵 Courier (Simulated) — ${_subStatusLabel(subStatus)}');
-      
+      setMarker(
+        _mapId,
+        'nyxian',
+        lat,
+        lng,
+        component.isNyxian
+            ? '🛵 You — ${_subStatusLabel(subStatus)}'
+            : '🛵 Courier (Simulated) — ${_subStatusLabel(subStatus)}',
+      );
+
       double? bearing;
       double? pitch;
       double? zoom;
       final bool isNavigating = (subStatus == 'heading_to_pickup' || subStatus == 'in_transit' || _isSimulating);
-      
+
       if (isNavigating) {
         pitch = 45.0;
         zoom = 16.5;
@@ -527,8 +569,13 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     if (_isSimulating) return;
     final job = component.state.selectedJobData!;
     final rawStatus2 = job['status'] as String? ?? 'Open';
-    final subStatus = job['nyxianSubStatus'] as String? ??
-        ((rawStatus2 == 'In Progress' || rawStatus2 == 'in_progress' || rawStatus2 == 'onGoing' || rawStatus2 == 'ongoing' || rawStatus2 == 'Open')
+    final subStatus =
+        job['nyxianSubStatus'] as String? ??
+        ((rawStatus2 == 'In Progress' ||
+                rawStatus2 == 'in_progress' ||
+                rawStatus2 == 'onGoing' ||
+                rawStatus2 == 'ongoing' ||
+                rawStatus2 == 'Open')
             ? null
             : rawStatus2);
     // Navigate to pickup first, then to destination
@@ -537,8 +584,7 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     final destLat = (job['destinationLat'] as num?)?.toDouble();
     final destLng = (job['destinationLng'] as num?)?.toDouble();
 
-    final bool pastPickup =
-        subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
+    final bool pastPickup = subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
 
     if (!pastPickup && pickupLat != null) {
       _updateRouteAndSteps(fromLat, fromLng, pickupLat, pickupLng!, '#3b82f6');
@@ -556,7 +602,8 @@ class _NavigationMapState extends State<NavigationMapComponent> {
 
         setState(() {
           _routeSteps = stepsList?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
-          _routeCoordinates = coordsList?.map((e) => (e as List<dynamic>).map((x) => (x as num).toDouble()).toList()).toList() ?? [];
+          _routeCoordinates =
+              coordsList?.map((e) => (e as List<dynamic>).map((x) => (x as num).toDouble()).toList()).toList() ?? [];
           _currentStepIndex = 0;
           _lastSpokenStepIndex = -1;
           _lastSpokenWarningIndex = -1;
@@ -595,7 +642,9 @@ class _NavigationMapState extends State<NavigationMapComponent> {
         if (component.isNyxian) {
           speakText(instruction);
         }
-      } else if (_distanceToNextStep <= 50.0 && _distanceToNextStep > 20.0 && _currentStepIndex != _lastSpokenWarningIndex) {
+      } else if (_distanceToNextStep <= 50.0 &&
+          _distanceToNextStep > 20.0 &&
+          _currentStepIndex != _lastSpokenWarningIndex) {
         _lastSpokenWarningIndex = _currentStepIndex;
         if (component.isNyxian) {
           speakText("In 50 meters, $instruction");
@@ -627,9 +676,9 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     final deltaPhi = (lat2 - lat1) * math.pi / 180.0;
     final deltaLambda = (lon2 - lon1) * math.pi / 180.0;
 
-    final a = math.sin(deltaPhi / 2.0) * math.sin(deltaPhi / 2.0) +
-        math.cos(phi1) * math.cos(phi2) *
-        math.sin(deltaLambda / 2.0) * math.sin(deltaLambda / 2.0);
+    final a =
+        math.sin(deltaPhi / 2.0) * math.sin(deltaPhi / 2.0) +
+        math.cos(phi1) * math.cos(phi2) * math.sin(deltaLambda / 2.0) * math.sin(deltaLambda / 2.0);
     final c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a));
 
     return r * c;
@@ -698,8 +747,13 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     final isDark = s.isDark;
     final job = s.selectedJobData!;
     final rawStatus = job['status'] as String? ?? 'Open';
-    final subStatus = job['nyxianSubStatus'] as String? ??
-        ((rawStatus == 'In Progress' || rawStatus == 'in_progress' || rawStatus == 'onGoing' || rawStatus == 'ongoing' || rawStatus == 'Open')
+    final subStatus =
+        job['nyxianSubStatus'] as String? ??
+        ((rawStatus == 'In Progress' ||
+                rawStatus == 'in_progress' ||
+                rawStatus == 'onGoing' ||
+                rawStatus == 'ongoing' ||
+                rawStatus == 'Open')
             ? null
             : rawStatus);
     final nextStatus = _nextSubStatus(subStatus);
@@ -722,7 +776,8 @@ class _NavigationMapState extends State<NavigationMapComponent> {
       remainingMetricStr = '• $distStr ($durStr)';
     }
 
-    final showNavigationOverlay = _ready &&
+    final showNavigationOverlay =
+        _ready &&
         component.isNyxian &&
         (subStatus == 'heading_to_pickup' || subStatus == 'in_transit' || _isSimulating) &&
         _routeSteps.isNotEmpty &&
@@ -743,16 +798,18 @@ class _NavigationMapState extends State<NavigationMapComponent> {
               key: const ValueKey('map-navigator'),
               id: _mapId,
               classes: 'w-full h-full ${isDark ? "theme-dark" : "theme-light"}',
-              styles: Styles(raw: {
-                'z-index': '1',
-                'position': 'absolute !important',
-                'top': '0',
-                'left': '0',
-                'right': '0',
-                'bottom': '0',
-                'height': '100%',
-                'width': '100%',
-              }),
+              styles: Styles(
+                raw: {
+                  'z-index': '1',
+                  'position': 'absolute !important',
+                  'top': '0',
+                  'left': '0',
+                  'right': '0',
+                  'bottom': '0',
+                  'height': '100%',
+                  'width': '100%',
+                },
+              ),
             ),
 
             // Loading overlay (shown until map is ready)
@@ -770,8 +827,7 @@ class _NavigationMapState extends State<NavigationMapComponent> {
             ),
 
             // Turn-by-Turn Navigation Overlay
-            if (showNavigationOverlay)
-              _navigationOverlay(isDark),
+            if (showNavigationOverlay) _navigationOverlay(isDark),
 
             // ── Floating top bar (status) ─────────────────────────────────
             if (_ready && !showNavigationOverlay)
@@ -819,7 +875,12 @@ class _NavigationMapState extends State<NavigationMapComponent> {
                               bearing = _calculateBearing(_myLat!, _myLng!, nextCoord[0], nextCoord[1]);
                             } else if (_routeCoordinates.isNotEmpty && _currentStepIndex < _routeSteps.length) {
                               final step = _routeSteps[_currentStepIndex];
-                              bearing = _calculateBearing(_myLat!, _myLng!, (step['lat'] as num).toDouble(), (step['lng'] as num).toDouble());
+                              bearing = _calculateBearing(
+                                _myLat!,
+                                _myLng!,
+                                (step['lat'] as num).toDouble(),
+                                (step['lng'] as num).toDouble(),
+                              );
                             }
                           }
                           panTo(_mapId, _myLat!, _myLng!, bearing: bearing, pitch: pitch);
@@ -956,14 +1017,19 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     }
 
     return div(
-      classes: 'absolute top-4 left-4 right-4 z-[400] p-4 rounded-2xl backdrop-blur-md border shadow-xl flex flex-col gap-3 pointer-events-auto '
-               '${isDark ? "bg-zinc-900/90 border-zinc-700/60 text-white" : "bg-white/90 border-zinc-200 text-zinc-900"}',
+      classes:
+          'absolute top-4 left-4 right-4 z-[400] p-4 rounded-2xl backdrop-blur-md border shadow-xl flex flex-col gap-3 pointer-events-auto '
+          '${isDark ? "bg-zinc-900/90 border-zinc-700/60 text-white" : "bg-white/90 border-zinc-200 text-zinc-900"}',
       [
         // Upper row: maneuver and next turn distance
         div(classes: 'flex items-center gap-3.5', [
-          div(classes: 'w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center flex-shrink-0 text-white shadow-lg shadow-indigo-500/20', [
-            lIcon(iconName, cls: 'w-5 h-5'),
-          ]),
+          div(
+            classes:
+                'w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center flex-shrink-0 text-white shadow-lg shadow-indigo-500/20',
+            [
+              lIcon(iconName, cls: 'w-5 h-5'),
+            ],
+          ),
           div(classes: 'flex-1 min-w-0', [
             p(classes: 'text-[10px] font-black uppercase tracking-wider text-indigo-400 mb-0.5', [
               Component.text('Next Step ($distStr)'),
@@ -973,21 +1039,25 @@ class _NavigationMapState extends State<NavigationMapComponent> {
             ]),
           ]),
         ]),
-        
+
         // Divider
         div(classes: 'h-px w-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', []),
 
         // Bottom row: overall remaining distance and time
-        div(classes: 'flex items-center justify-between text-xs font-semibold ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-          div(classes: 'flex items-center gap-1.5', [
-            lIcon('clock', cls: 'w-3.5 h-3.5 text-emerald-400'),
-            span([Component.text(durationStr)]),
-          ]),
-          div(classes: 'flex items-center gap-1.5', [
-            lIcon('map-pin', cls: 'w-3.5 h-3.5 text-rose-400'),
-            span([Component.text('$totalDistStr remaining')]),
-          ]),
-        ]),
+        div(
+          classes:
+              'flex items-center justify-between text-xs font-semibold ${isDark ? "text-zinc-400" : "text-zinc-500"}',
+          [
+            div(classes: 'flex items-center gap-1.5', [
+              lIcon('clock', cls: 'w-3.5 h-3.5 text-emerald-400'),
+              span([Component.text(durationStr)]),
+            ]),
+            div(classes: 'flex items-center gap-1.5', [
+              lIcon('map-pin', cls: 'w-3.5 h-3.5 text-rose-400'),
+              span([Component.text('$totalDistStr remaining')]),
+            ]),
+          ],
+        ),
       ],
     );
   }

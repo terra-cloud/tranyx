@@ -47,7 +47,7 @@ class _MapPickerState extends State<MapPickerComponent> {
     await initMap(_mapId, 14.5995, 120.9842, 12, isDark: isDark);
     print('DEBUG: initMap called with isDark=$isDark');
 
-    setState(() => _ready = true);  
+    setState(() => _ready = true);
     print('DEBUG: _ready set to true');
 
     // Ensure map renders correctly after state update paints the div
@@ -217,16 +217,18 @@ class _MapPickerState extends State<MapPickerComponent> {
             key: const ValueKey('map-picker'),
             id: _mapId,
             classes: 'w-full h-full ${isDark ? "theme-dark" : "theme-light"}',
-            styles: Styles(raw: {
-              'z-index': '1',
-              'position': 'absolute !important',
-              'top': '0',
-              'left': '0',
-              'right': '0',
-              'bottom': '0',
-              'height': '100%',
-              'width': '100%',
-            }),
+            styles: Styles(
+              raw: {
+                'z-index': '1',
+                'position': 'absolute !important',
+                'top': '0',
+                'left': '0',
+                'right': '0',
+                'bottom': '0',
+                'height': '100%',
+                'width': '100%',
+              },
+            ),
           ),
           // Address search overlay
           if (_ready)
@@ -234,12 +236,14 @@ class _MapPickerState extends State<MapPickerComponent> {
               classes: 'absolute top-3 left-3 right-3 z-[1010] flex flex-col gap-1.5',
               [
                 div(
-                  classes: 'flex gap-2 p-1.5 rounded-xl border shadow-lg backdrop-blur-md '
+                  classes:
+                      'flex gap-2 p-1.5 rounded-xl border shadow-lg backdrop-blur-md '
                       '${isDark ? "bg-zinc-900/95 border-zinc-700/80" : "bg-white/95 border-zinc-200/80"}',
                   [
                     lIcon('search', cls: 'w-4 h-4 my-auto ml-2 ${isDark ? "text-zinc-400" : "text-zinc-500"}'),
                     input(
-                      classes: 'flex-1 bg-transparent border-0 outline-none text-sm px-1 '
+                      classes:
+                          'flex-1 bg-transparent border-0 outline-none text-sm px-1 '
                           '${isDark ? "text-white placeholder-zinc-500" : "text-zinc-900 placeholder-zinc-400"}',
                       attributes: {
                         'type': 'text',
@@ -262,7 +266,7 @@ class _MapPickerState extends State<MapPickerComponent> {
                             ke.preventDefault();
                             _performSearch();
                           }
-                        }
+                        },
                       },
                     ),
                     if (_searchQuery.isNotEmpty)
@@ -274,36 +278,36 @@ class _MapPickerState extends State<MapPickerComponent> {
                               _searchQuery = '';
                               _searchResults = [];
                             });
-                          }
+                          },
                         },
                         [
                           lIcon('x', cls: 'w-3.5 h-3.5 ${isDark ? "text-zinc-400" : "text-zinc-500"}'),
                         ],
                       ),
                     button(
-                      classes: 'px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors flex items-center gap-1',
+                      classes:
+                          'px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors flex items-center gap-1',
                       events: {
                         'click': (_) => _performSearch(),
                       },
                       [
-                        if (_isSearching)
-                          lIcon('loader-2', cls: 'w-3 h-3 animate-spin')
-                        else
-                          Component.text('Search'),
+                        if (_isSearching) lIcon('loader-2', cls: 'w-3 h-3 animate-spin') else Component.text('Search'),
                       ],
                     ),
                   ],
                 ),
-                
+
                 // Search Results dropdown
                 if (_searchResults.isNotEmpty)
                   div(
-                    classes: 'max-h-36 overflow-y-auto rounded-xl border shadow-xl flex flex-col divide-y '
+                    classes:
+                        'max-h-36 overflow-y-auto rounded-xl border shadow-xl flex flex-col divide-y '
                         '${isDark ? "bg-zinc-900 border-zinc-700 divide-zinc-800" : "bg-white border-zinc-200 divide-zinc-100"}',
                     _searchResults.map((res) {
                       final displayName = res['display_name'] as String? ?? '';
                       return button(
-                        classes: 'px-4 py-2.5 text-left text-xs transition-colors hover:bg-indigo-600/10 '
+                        classes:
+                            'px-4 py-2.5 text-left text-xs transition-colors hover:bg-indigo-600/10 '
                             '${isDark ? "text-zinc-300 hover:text-white" : "text-zinc-700 hover:text-indigo-900"}',
                         events: {
                           'click': (_) => _selectSearchResult(res),
