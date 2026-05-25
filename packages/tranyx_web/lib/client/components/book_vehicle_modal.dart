@@ -203,6 +203,30 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         return;
       }
 
+      final totalRequired = _totalPrice + _bookingFee;
+      if (user.tyxBalance < totalRequired) {
+        component.appState.setState(() {
+          component.appState.depositAmount = totalRequired - user.tyxBalance;
+          component.appState.showDepositModal = true;
+          component.appState.pendingVehicleBookingData = {
+            'rentalId': r['id'],
+            'durationType': _selectedPackage,
+            'multiplier': _quantity,
+            'licenseNumber': _licenseNumber,
+            'totalCost': _totalPrice,
+            'hireWithDriver': _hireWithDriver,
+            'rentalType': _rentalType,
+            'deliveryAddress': _rentalType == 'deliver' ? _deliveryAddress.trim() : null,
+            'deliveryLat': _rentalType == 'deliver' ? _deliveryLat : null,
+            'deliveryLng': _rentalType == 'deliver' ? _deliveryLng : null,
+            'startDate': _startDate!.millisecondsSinceEpoch,
+            'endDate': _computedEndDate.millisecondsSinceEpoch,
+          };
+          component.appState.showBookVehicleModal = false;
+        });
+        return;
+      }
+
       // Submit booking request
       await component.appState.firestore.createBookingRequest(
         rentalId: r['id'],

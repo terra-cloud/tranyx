@@ -63,6 +63,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
 
   bool _isSubmitting = false;
   String? _error;
+  String _gpsTrackerId = ''; // GPS Hardware Registry ID
 
   // Derived calculations
   double get _listingFee {
@@ -163,8 +164,12 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
         driverLicenseNumber: _driverLicenseNumber,
       );
 
-      // Create vehicle listing
-      await component.appState.firestore.createRental(rental);
+      // Create vehicle listing with GPS tracker info
+      final rentalData = rental.toMap();
+      if (_gpsTrackerId.trim().isNotEmpty) {
+        rentalData['gpsTrackerId'] = _gpsTrackerId.trim();
+      }
+      await component.appState.firestore.createRentalFromMap(rentalData);
 
       // Close modal
       component.appState.setState(() {
@@ -344,6 +349,43 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                   placeholder: 'ABC-1234',
                 ),
               ]),
+
+              // GPS Tracker Registry
+              div(
+                classes:
+                    'mt-4 p-4 rounded-xl border ${isDark ? "bg-zinc-800/30 border-zinc-700" : "bg-blue-50 border-blue-200"}',
+                [
+                  div(classes: 'flex items-center gap-2 mb-2', [
+                    lIcon('map-pin', cls: 'w-4 h-4 ${isDark ? "text-blue-400" : "text-blue-500"}'),
+                    label(classes: 'text-sm font-semibold ${isDark ? "text-blue-300" : "text-blue-700"}', [
+                      Component.text('GPS Tracker ID (Optional)'),
+                    ]),
+                    span(classes: 'text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-bold', [
+                      Component.text('NEW'),
+                    ]),
+                  ]),
+                  p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"} mb-3', [
+                    Component.text(
+                      'Enter your GPS device serial number (e.g. Traffilink, GovLink, Carlock). Listings with a verified GPS ID display a "GPS Tracked" badge — increases renter confidence and earns priority placement.',
+                    ),
+                  ]),
+                  _inputField(
+                    'GPS Device Serial / Tracker ID',
+                    _gpsTrackerId,
+                    (v) => setState(() => _gpsTrackerId = v.trim()),
+                    isDark,
+                    placeholder: 'e.g. TFL-2024-XXXXX',
+                  ),
+                  p(
+                    classes: 'text-[11px] text-zinc-500 italic mt-2 pt-2 border-t ${isDark ? "border-zinc-800/60" : "border-zinc-200"}',
+                    [
+                      Component.text(
+                        'Note: Real-time vehicle tracking functions only when the active renter is logged into the app on their device with location permissions enabled.',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ] else if (_step == 2) ...[
               // Step 2: Pricing & Location
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Location')]),

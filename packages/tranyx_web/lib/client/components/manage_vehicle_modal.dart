@@ -24,10 +24,16 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   bool _isLoadingProfile = false;
   bool _allowChat = false;
 
+  bool _isEditingGps = false;
+  String _gpsInput = '';
+  bool _isSavingGps = false;
+
   @override
   void initState() {
     super.initState();
     _loadRequests();
+    final r = component.appState.selectedRentalData;
+    _gpsInput = r?['gpsTrackerId']?.toString() ?? '';
   }
 
   void _loadRequests() async {
@@ -203,6 +209,39 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     }
   }
 
+  void _saveGps() async {
+    final r = component.appState.selectedRentalData;
+    if (r == null) return;
+
+    setState(() {
+      _isSavingGps = true;
+      _error = null;
+    });
+
+    try {
+      await component.appState.firestore.updateVehicleGpsTracker(r['id'], _gpsInput.trim());
+
+      component.appState.setState(() {
+        final updated = Map<String, dynamic>.from(r);
+        updated['gpsTrackerId'] = _gpsInput.trim();
+        component.appState.selectedRentalData = updated;
+      });
+
+      setState(() {
+        _isEditingGps = false;
+      });
+
+      component.appState.showAppToast(
+        'GPS Tracker Updated',
+        'The GPS Tracker Device ID has been successfully registered.',
+      );
+    } catch (e) {
+      setState(() => _error = 'Failed to update GPS tracker: $e');
+    } finally {
+      setState(() => _isSavingGps = false);
+    }
+  }
+
   @override
   Component build(BuildContext context) {
     final isDark = component.appState.isDark;
@@ -265,17 +304,108 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                     'p-5 rounded-2xl mb-6 flex items-center justify-between ${isDark ? "bg-zinc-800/40 border border-zinc-800" : "bg-zinc-50 border border-zinc-200"}',
                 [
                   div([
-                    p(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider mb-1', [
+                    p(classes: 'text-xs text-zinc-550 font-bold uppercase tracking-wider mb-1', [
                       Component.text('Current Status'),
                     ]),
                     h3(classes: 'text-lg font-bold capitalize text-purple-400', [Component.text(status)]),
                   ]),
                   div(classes: 'text-right', [
-                    p(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider mb-1', [
+                    p(classes: 'text-xs text-zinc-550 font-bold uppercase tracking-wider mb-1', [
                       Component.text('Daily Rate'),
                     ]),
                     h3(classes: 'text-lg font-extrabold', [Component.text('₱$dailyRate/day')]),
                   ]),
+                ],
+              ),
+
+              // GPS Hardware Tracker Card
+              div(
+                classes:
+                    'p-5 rounded-2xl mb-6 border ${isDark ? "bg-zinc-800/25 border-zinc-800" : "bg-zinc-50/50 border-zinc-200"} flex flex-col gap-3',
+                [
+                  div(classes: 'flex items-center justify-between', [
+                    div(classes: 'flex items-center gap-2', [
+                      lIcon('activity', cls: 'w-4.5 h-4.5 text-indigo-400 ${_gpsInput.isNotEmpty ? "animate-pulse" : ""}'),
+                      span(classes: 'text-xs font-bold text-zinc-500 uppercase tracking-wider', [
+                        Component.text('GPS Hardware Tracker'),
+                      ]),
+                    ]),
+                    if (!_isEditingGps)
+                      button(
+                        classes:
+                            'text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 bg-transparent border-0 cursor-pointer',
+                        events: {
+                          'click': (_) {
+                            setState(() {
+                              _gpsInput = r['gpsTrackerId']?.toString() ?? '';
+                              _isEditingGps = true;
+                            });
+                          }
+                        },
+                        [
+                          lIcon('edit-2', cls: 'w-3.5 h-3.5'),
+                          Component.text(r['gpsTrackerId'] != null && r['gpsTrackerId'].toString().isNotEmpty ? 'Edit' : 'Register'),
+                        ],
+                      ),
+                  ]),
+                  if (_isEditingGps)
+                    div(classes: 'flex flex-col gap-3', [
+                      div(classes: 'flex items-center gap-2', [
+                        input(
+                          classes:
+                              'flex-1 px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 '
+                              '${isDark ? "bg-zinc-950 border-zinc-850 text-white focus:border-purple-500" : "bg-white border-zinc-250 text-zinc-800 focus:border-purple-500"}',
+                          attributes: {
+                            'type': 'text',
+                            'value': _gpsInput,
+                            'placeholder': 'Enter GPS Tracker Device ID (e.g. GPS-99081)',
+                          },
+                          events: {
+                            'input': (e) {
+                              final val = (e.target as dynamic).value as String;
+                              setState(() => _gpsInput = val);
+                            },
+                          },
+                        ),
+                      ]),
+                      div(classes: 'flex items-center gap-2 justify-end', [
+                        button(
+                          classes:
+                              'px-3 py-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer '
+                              '${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-400" : "border-zinc-200 hover:bg-zinc-50 text-zinc-500"}',
+                          events: {'click': (_) => setState(() => _isEditingGps = false)},
+                          disabled: _isSavingGps,
+                          [Component.text('Cancel')],
+                        ),
+                        button(
+                          classes:
+                              'px-3 py-1.5 rounded-lg text-xs font-bold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer',
+                          events: {'click': (_) => _saveGps()},
+                          disabled: _isSavingGps,
+                          [Component.text(_isSavingGps ? 'Saving...' : 'Save Tracker')],
+                        ),
+                      ]),
+                    ])
+                  else
+                    div([
+                      if (r['gpsTrackerId'] != null && r['gpsTrackerId'].toString().isNotEmpty)
+                        p(classes: 'text-sm font-bold text-green-400', [
+                          Component.text('Registered ID: ${r['gpsTrackerId']} (Status: Online)'),
+                        ])
+                      else
+                        p(classes: 'text-sm font-bold text-amber-500 flex items-center gap-1', [
+                          lIcon('alert-triangle', cls: 'w-4 h-4 text-amber-500'),
+                          Component.text('No active GPS hardware registered. Host is exposed to theft risk.'),
+                        ]),
+                    ]),
+                  p(
+                    classes: 'text-[11px] text-zinc-500 italic mt-1 pt-2 border-t ${isDark ? "border-zinc-800/60" : "border-zinc-200"}',
+                    [
+                      Component.text(
+                        'Note: Real-time vehicle tracking functions only when the active renter is logged into the app on their device with location permissions enabled.',
+                      ),
+                    ],
+                  ),
                 ],
               ),
 

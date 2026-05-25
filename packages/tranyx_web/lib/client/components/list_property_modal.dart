@@ -51,8 +51,10 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
   bool _showPreview = false;
 
   // Images
-  List<String> _imageUrls = ['', '', '']; // Requires Interior, Front/Exterior, Details
-  List<bool> _isUploadingImage = [false, false, false];
+  List<String> _imageUrls = ['', '']; // Requires Interior, Front/Exterior
+  List<bool> _isUploadingImage = [false, false];
+  List<String> _extraImageUrls = [];
+  List<bool> _isUploadingExtraImage = [];
 
   bool _isSubmitting = false;
   String? _error;
@@ -95,14 +97,19 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
     }
 
     if (_imageUrls[0].isEmpty) {
-      _imageUrls[0] = 'https://images.unsplash.com/photo-1513694203232-719a280e022f?w=600&auto=format&fit=crop';
+      setState(() => _error = 'Please upload the Interior photo (Required).');
+      return;
     }
     if (_imageUrls[1].isEmpty) {
-      _imageUrls[1] = 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=600&auto=format&fit=crop';
+      setState(() => _error = 'Please upload the Front/Exterior photo (Required).');
+      return;
     }
-    if (_imageUrls[2].isEmpty) {
-      _imageUrls[2] = 'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=600&auto=format&fit=crop';
-    }
+
+    final finalPhotos = [
+      _imageUrls[0],
+      _imageUrls[1],
+      ..._extraImageUrls,
+    ];
 
     setState(() {
       _isSubmitting = true;
@@ -132,7 +139,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
         address: _address,
         latitude: _latitude ?? 14.5995,
         longitude: _longitude ?? 120.9842,
-        photoUrls: _imageUrls,
+        photoUrls: finalPhotos,
         amenities: _amenities,
         status: 'Available',
         contractType: _contractType,
@@ -422,12 +429,44 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
               // Step 3: Photos & Contracts
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Photos & Legal')]),
               p(classes: 'text-sm mb-4 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                Component.text('Upload 3 photos representing: Interior, Exterior, and details.'),
+                Component.text('Upload required photos representing: Interior and Front/Exterior.'),
               ]),
-              div(classes: 'grid grid-cols-3 gap-3 mb-6', [
-                _photoUploadPlaceholder('Interior', _imageUrls[0], 0, isDark),
-                _photoUploadPlaceholder('Front/Exterior', _imageUrls[1], 1, isDark),
-                _photoUploadPlaceholder('Details', _imageUrls[2], 2, isDark),
+              div(classes: 'grid grid-cols-2 gap-4 mb-6', [
+                _photoUploadPlaceholder('Interior (Required)', _imageUrls[0], 0, isDark),
+                _photoUploadPlaceholder('Front/Exterior (Required)', _imageUrls[1], 1, isDark),
+              ]),
+
+              // Extra Photos Section
+              div(classes: 'mb-6', [
+                label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                  Component.text('Additional Photos (Optional)'),
+                ]),
+                div(classes: 'grid grid-cols-3 gap-3', [
+                  for (int i = 0; i < _extraImageUrls.length; i++)
+                    div(
+                      classes:
+                          'relative aspect-video rounded-2xl overflow-hidden border ${isDark ? "border-zinc-800" : "border-zinc-200"}',
+                      [
+                        img(
+                          src: _extraImageUrls[i],
+                          classes: 'w-full h-full object-cover',
+                        ),
+                        button(
+                          classes:
+                              'absolute top-1 right-1 p-1 bg-red-500/80 hover:bg-red-600 text-white rounded-full transition-colors flex items-center justify-center cursor-pointer border-0 outline-none',
+                          events: {
+                            'click': (_) => setState(() {
+                              _extraImageUrls.removeAt(i);
+                            }),
+                          },
+                          [lIcon('trash-2', cls: 'w-3.5 h-3.5')],
+                        ),
+                      ],
+                    ),
+
+                  // Add Photo Button / Placeholder
+                  _extraPhotoUploadPlaceholder(isDark),
+                ]),
               ]),
 
               div(classes: 'mb-4', [
@@ -662,6 +701,84 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
             [
               lIcon('loader', cls: 'w-6 h-6 animate-spin mb-2 text-purple-400'),
               p(classes: 'text-xs font-semibold', [Component.text('Uploading...')]),
+            ],
+          ),
+      ],
+    );
+  }
+
+  void _handleExtraFileSelected(web.Event event) async {
+    try {
+      final files = await readFilesFromEvent(event);
+      if (files.isEmpty) return;
+
+      setState(() {
+        _isUploadingExtraImage.add(true);
+        _error = null;
+      });
+
+      final file = files.first;
+      final token = SessionStorage.idToken;
+      final url = await ImgBBService(currentFirebaseConfig, idToken: token).uploadImageBytes(file.bytes, file.name);
+
+      if (url != null) {
+        setState(() {
+          _extraImageUrls.add(url);
+        });
+      } else {
+        setState(() {
+          _error = 'Failed to upload image to ImgBB. Please try again.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = 'Error uploading image: $e';
+      });
+    } finally {
+      setState(() {
+        if (_isUploadingExtraImage.isNotEmpty) {
+          _isUploadingExtraImage.removeLast();
+        }
+      });
+    }
+  }
+
+  Component _extraPhotoUploadPlaceholder(bool isDark) {
+    final isUploading = _isUploadingExtraImage.isNotEmpty && _isUploadingExtraImage.any((val) => val);
+    return label(
+      classes:
+          'relative aspect-video rounded-2xl border border-dashed flex flex-col items-center justify-center cursor-pointer overflow-hidden transition-colors ${isDark ? "border-zinc-800 hover:bg-zinc-800/50 bg-zinc-900/30" : "border-zinc-200 hover:bg-zinc-50 bg-zinc-50/50"}',
+      attributes: {
+        'for': 'file-input-prop-extra',
+      },
+      [
+        input(
+          type: InputType.file,
+          classes: 'hidden',
+          attributes: {
+            'id': 'file-input-prop-extra',
+            'accept': 'image/*',
+            'style': 'display: none;',
+          },
+          events: {
+            'change': (e) {
+              _handleExtraFileSelected(e);
+            },
+          },
+        ),
+
+        lIcon('plus', cls: 'w-6 h-6 mb-1 ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
+        p(classes: 'text-[10px] font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+          Component.text('Add Photo'),
+        ]),
+
+        if (isUploading)
+          div(
+            classes:
+                'absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white backdrop-blur-[2px] animate-fade-in',
+            [
+              lIcon('loader', cls: 'w-5 h-5 animate-spin mb-1 text-purple-400'),
+              p(classes: 'text-[9px] font-semibold', [Component.text('Uploading...')]),
             ],
           ),
       ],

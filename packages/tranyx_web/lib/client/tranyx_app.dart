@@ -9,6 +9,7 @@ import 'package:shared/shared.dart';
 
 import 'package:tranyx_web/services/firebase_service.dart';
 import 'package:tranyx_web/components/ui_helpers.dart';
+import 'package:tranyx_web/services/map_interop.dart';
 
 import '../state/app_state.dart';
 import '../client/views/auth_view.dart';
@@ -140,6 +141,12 @@ class TranyxAppState extends State<TranyxApp> {
   Map<String, dynamic>? ongoingJob; // first 'In Progress' job
   String homeSearchQuery = '';
 
+  // ── Geofencing state ─────────────────────────────────────────
+  double userLatitude = 14.5995; // default Manila
+  double userLongitude = 120.9842; // default Manila
+  double geofenceRadius = 30.0; // default 30km
+  bool includeRemoteJobs = true; // remote jobs option, default true
+
   Map<String, dynamic>? selectedJobData; // raw Firestore map
   SelectedJob? selectedJob;
   int selectedJobImageCarouselIndex = 0;
@@ -213,6 +220,13 @@ class TranyxAppState extends State<TranyxApp> {
   bool showDepositModal = false;
   double depositAmount = 0.0;
   bool isDepositing = false;
+  String selectedPaymentMethod = 'xendit';
+  String selectedSolanaCurrency = 'SOL'; // 'SOL' or 'USDC'
+  double solToPhpRate = 8500.0;
+  double usdToPhpRate = 57.0; // fallback USD-PHP rate for USDC
+  bool isFetchingRate = false;
+  Map<String, dynamic>? pendingPropertyBookingData;
+  Map<String, dynamic>? pendingVehicleBookingData;
 
   // Job Completion State
   bool showCompletionScanner = false;
@@ -259,8 +273,12 @@ class TranyxAppState extends State<TranyxApp> {
   List<Map<String, dynamic>> chatMessages = [];
   String chatInputText = '';
   bool chatPiiBlocked = false;
+  bool chatDisintermediationBlocked = false;
   bool isUploadingChatPhoto = false;
+  bool isUploadingCertificate = false;
   Map<String, dynamic>? acceptedApplicantProfile;
+  List<Map<String, double>> offlineLocationBuffer = [];
+  bool hasInspectionHoldback = false;
 
   // ── Services ────────────────────────────────────────────────
   final _auth = FirebaseAuthService();
@@ -403,6 +421,20 @@ class TranyxAppState extends State<TranyxApp> {
     // Load any pending QR details from SessionStorage
     pendingQrJobId = SessionStorage.pendingQrJobId;
     pendingQrCode = SessionStorage.pendingQrCode;
+
+    // Load any pending Xendit invoice details from SessionStorage
+    pendingXenditInvoiceId = SessionStorage.pendingXenditInvoiceId;
+    if (pendingXenditInvoiceId != null) {
+      depositAmount = SessionStorage.pendingXenditInvoiceAmount;
+      pendingPropertyBookingData = SessionStorage.pendingPropertyBookingData;
+      pendingVehicleBookingData = SessionStorage.pendingVehicleBookingData;
+      pendingJobId = SessionStorage.pendingJobId;
+      pendingApplicantData = SessionStorage.pendingApplicantData;
+    }
+
+    fetchSolToPhpRate();
+    _loadOfflineLocationBuffer();
+    _initUserLocation();
     if (SessionStorage.hasSession) {
       _restoreSession();
     } else {
@@ -412,6 +444,18 @@ class TranyxAppState extends State<TranyxApp> {
 
   void _initGemini() {
     _gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken);
+  }
+
+  void _initUserLocation() async {
+    try {
+      final pos = await getCurrentPosition();
+      if (pos != null) {
+        setState(() {
+          userLatitude = pos.lat;
+          userLongitude = pos.lng;
+        });
+      }
+    } catch (_) {}
   }
 
   /// Restore a previous session from localStorage
@@ -732,6 +776,7 @@ class TranyxAppState extends State<TranyxApp> {
       _startListeningNotifications();
       _startListeningJobs();
       _startListeningRentals();
+      _startListeningProperties();
       // Auto-connect Phantom wallet if already trusted by the browser
       unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
 
@@ -816,6 +861,7 @@ class TranyxAppState extends State<TranyxApp> {
       _startListeningNotifications();
       _startListeningJobs();
       _startListeningRentals();
+      _startListeningProperties();
 
       if (pendingQrJobId != null && pendingQrCode != null) {
         await executePendingQrVerification();
@@ -926,6 +972,7 @@ class TranyxAppState extends State<TranyxApp> {
       _startListeningNotifications();
       _startListeningJobs();
       _startListeningRentals();
+      _startListeningProperties();
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
 
       if (pendingQrJobId != null && pendingQrCode != null) {
@@ -993,6 +1040,7 @@ class TranyxAppState extends State<TranyxApp> {
       _startListeningNotifications();
       _startListeningJobs();
       _startListeningRentals();
+      _startListeningProperties();
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
 
       if (pendingQrJobId != null && pendingQrCode != null) {
@@ -1075,6 +1123,11 @@ class TranyxAppState extends State<TranyxApp> {
 
             _initGemini();
             await loadJobs();
+            await loadTransactions();
+            _startListeningNotifications();
+            _startListeningJobs();
+            _startListeningRentals();
+            _startListeningProperties();
             unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
 
             if (pendingQrJobId != null && pendingQrCode != null) {
@@ -1302,6 +1355,7 @@ class TranyxAppState extends State<TranyxApp> {
         'recentApplicantPhotos': <String>[],
         'applicantUids': <String>[],
         'hasTracker': hasTracker && locType == LocType.onsite,
+        'hasInspectionHoldback': hasInspectionHoldback,
       };
 
       // Create the job
@@ -1319,12 +1373,14 @@ class TranyxAppState extends State<TranyxApp> {
         }
       }
 
-      // Create escrow record
+      // Create escrow record with holdback metadata if chosen
       await svc.createOrUpdate('escrow/$jobId', {
         'amount': price,
         'employerId': uid,
         'status': 'held',
         'createdAt': now.millisecondsSinceEpoch,
+        'hasInspectionHoldback': hasInspectionHoldback,
+        if (hasInspectionHoldback) 'holdbackAmount': price * 0.10,
       });
 
       // Add to sessionPostedJobs to display instantly on posting page
@@ -1346,6 +1402,7 @@ class TranyxAppState extends State<TranyxApp> {
         createStep = 1;
         priceRate = '';
         jobAddress = '';
+        hasInspectionHoldback = false;
         jobLandmark = '';
         hasTracker = false;
         pickupLat = null;
@@ -1363,6 +1420,300 @@ class TranyxAppState extends State<TranyxApp> {
         postJobError = e.toString();
         isPostingJob = false;
         showDepositModal = false;
+      });
+    }
+  }
+
+  Future<void> fetchSolToPhpRate() async {
+    if (isFetchingRate) return;
+    setState(() {
+      isFetchingRate = true;
+      postJobError = null;
+    });
+    try {
+      final response = await http.get(Uri.parse('https://api.coinbase.com/v2/prices/SOL-PHP/spot'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final rateStr = data['data']?['amount'] as String?;
+        if (rateStr != null) {
+          final rate = double.tryParse(rateStr);
+          if (rate != null && rate > 0) {
+            setState(() {
+              solToPhpRate = rate;
+            });
+            print("SOL-PHP exchange rate fetched: ₱$solToPhpRate");
+          }
+        }
+      }
+    } catch (e) {
+      print("Failed to fetch SOL-PHP rate, using fallback ₱$solToPhpRate: $e");
+    } finally {
+      setState(() {
+        isFetchingRate = false;
+      });
+    }
+  }
+
+  Future<void> processSolanaPayment(double amountInSol) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) {
+      setState(() => postJobError = 'Please log in to make a payment.');
+      return;
+    }
+
+    setState(() {
+      isDepositing = true;
+      postJobError = null;
+    });
+
+    try {
+      // 1. Ensure Phantom is connected and obtain the active user's public key
+      if (!isPhantomInstalled()) {
+        throw 'Phantom Wallet is not installed. Please install the browser extension.';
+      }
+
+      var fromPubKey = userProfile?.walletPublicKey;
+      if (fromPubKey == null || fromPubKey.trim().isEmpty) {
+        fromPubKey = await connectPhantomWallet();
+        if (fromPubKey == null) {
+          throw 'Failed to connect Phantom Wallet. Please approve the connection.';
+        }
+        // Link wallet address to user doc
+        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, fromPubKey);
+      }
+
+      // 2. Platform target Solana address
+      const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
+
+      // 3. Initiate the transfer transaction
+      final signature = await sendSolanaPayment(fromPubKey, adminSolanaAddress, amountInSol);
+      if (signature == null || signature.trim().isEmpty) {
+        throw 'Solana transaction rejected or failed to broadcast.';
+      }
+
+      // 4. Update balance in Firestore and record the deposit transaction
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final userDoc = await svc.getDocument('users/$uid');
+      if (userDoc != null) {
+        final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+        final newBal = currentBal + depositAmount;
+
+        await svc.createOrUpdate('users/$uid', {
+          ...userDoc,
+          'tyxBalance': newBal,
+        });
+
+        walletBalance = newBal;
+        if (userProfile != null) {
+          userProfile = UserProfile.fromMap(uid, {
+            ...userDoc,
+            'tyxBalance': newBal,
+          });
+        }
+
+        // Record deposit transaction with Solana signature
+        await svc.createOrUpdate('transactions/deposit_sol_$signature', {
+          'uid': uid,
+          'title': 'Wallet Top-Up (SOL)',
+          'desc': 'Crypto deposit of ${amountInSol.toStringAsFixed(4)} SOL via Phantom',
+          'amount': depositAmount,
+          'status': 'Successful',
+          'method': 'Solana',
+          'solanaTxSignature': signature,
+          'solanaAmount': amountInSol,
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+          'type': 'deposit',
+        });
+
+        await loadTransactions();
+      }
+
+      setState(() {
+        isDepositing = false;
+        showDepositModal = false;
+      });
+
+      // 5. Finalize any pending actions
+      if (newJobTitle.isNotEmpty) {
+        await handlePostJob();
+      } else if (pendingJobId != null && pendingApplicantData != null) {
+        final jId = pendingJobId!;
+        final aData = pendingApplicantData!;
+        pendingJobId = null;
+        pendingApplicantData = null;
+        await acceptApplicant(jId, aData);
+      } else if (pendingPropertyBookingData != null) {
+        final data = pendingPropertyBookingData!;
+        pendingPropertyBookingData = null;
+        await firestore.createPropertyBookingRequest(
+          propertyId: data['propertyId'] as String,
+          renteeId: uid,
+          renteeName: userProfile!.name,
+          renteePhotoUrl: userProfile!.photoUrl,
+          durationType: data['durationType'] as String,
+          multiplier: data['multiplier'] as int,
+          totalCost: data['totalCost'] as double,
+          contractType: data['contractType'] as String,
+          contractTerms: data['contractTerms'] as String,
+          startDate: data['startDate'] as int,
+          endDate: data['endDate'] as int,
+        );
+      } else if (pendingVehicleBookingData != null) {
+        final data = pendingVehicleBookingData!;
+        pendingVehicleBookingData = null;
+        await firestore.createBookingRequest(
+          rentalId: data['rentalId'] as String,
+          renteeId: uid,
+          renteeName: userProfile!.name,
+          renteePhotoUrl: userProfile!.photoUrl,
+          durationType: data['durationType'] as String,
+          multiplier: data['multiplier'] as int,
+          licenseNumber: data['licenseNumber'] as String,
+          totalCost: data['totalCost'] as double,
+          hireWithDriver: data['hireWithDriver'] as bool,
+          rentalType: data['rentalType'] as String,
+          deliveryAddress: data['deliveryAddress'] as String?,
+          deliveryLat: data['deliveryLat'] as double?,
+          deliveryLng: data['deliveryLng'] as double?,
+          startDate: data['startDate'] as int,
+          endDate: data['endDate'] as int,
+        );
+        loadRenterPendingRequests();
+      }
+    } catch (e) {
+      setState(() {
+        isDepositing = false;
+        postJobError = e.toString();
+      });
+    }
+  }
+
+  Future<void> processUsdcPayment(double amountInUsdc) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) {
+      setState(() => postJobError = 'Please log in to make a payment.');
+      return;
+    }
+
+    setState(() {
+      isDepositing = true;
+      postJobError = null;
+    });
+
+    try {
+      if (!isPhantomInstalled()) {
+        throw 'Phantom Wallet is not installed. Please install the browser extension.';
+      }
+
+      var fromPubKey = userProfile?.walletPublicKey;
+      if (fromPubKey == null || fromPubKey.trim().isEmpty) {
+        fromPubKey = await connectPhantomWallet();
+        if (fromPubKey == null) {
+          throw 'Failed to connect Phantom Wallet. Please approve the connection.';
+        }
+        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, fromPubKey);
+      }
+
+      const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
+
+      final signature = await sendUsdcPayment(fromPubKey, adminSolanaAddress, amountInUsdc);
+      if (signature == null || signature.trim().isEmpty) {
+        throw 'USDC transaction rejected or failed to broadcast.';
+      }
+
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final userDoc = await svc.getDocument('users/$uid');
+      if (userDoc != null) {
+        final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+        final phpEquivalent = amountInUsdc * usdToPhpRate;
+        final newBal = currentBal + phpEquivalent;
+
+        await svc.createOrUpdate('users/$uid', {
+          ...userDoc,
+          'tyxBalance': newBal,
+        });
+
+        walletBalance = newBal;
+        if (userProfile != null) {
+          userProfile = UserProfile.fromMap(uid, {
+            ...userDoc,
+            'tyxBalance': newBal,
+          });
+        }
+
+        await svc.createOrUpdate('transactions/deposit_usdc_$signature', {
+          'uid': uid,
+          'title': 'Wallet Top-Up (USDC)',
+          'desc': 'Crypto deposit of ${amountInUsdc.toStringAsFixed(2)} USDC via Phantom',
+          'amount': phpEquivalent,
+          'status': 'Successful',
+          'method': 'Solana/USDC',
+          'solanaTxSignature': signature,
+          'usdcAmount': amountInUsdc,
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+          'type': 'deposit',
+        });
+
+        await loadTransactions();
+      }
+
+      setState(() {
+        isDepositing = false;
+        showDepositModal = false;
+      });
+
+      if (newJobTitle.isNotEmpty) {
+        await handlePostJob();
+      } else if (pendingJobId != null && pendingApplicantData != null) {
+        final jId = pendingJobId!;
+        final aData = pendingApplicantData!;
+        pendingJobId = null;
+        pendingApplicantData = null;
+        await acceptApplicant(jId, aData);
+      } else if (pendingPropertyBookingData != null) {
+        final data = pendingPropertyBookingData!;
+        pendingPropertyBookingData = null;
+        await firestore.createPropertyBookingRequest(
+          propertyId: data['propertyId'] as String,
+          renteeId: uid,
+          renteeName: userProfile!.name,
+          renteePhotoUrl: userProfile!.photoUrl,
+          durationType: data['durationType'] as String,
+          multiplier: data['multiplier'] as int,
+          totalCost: data['totalCost'] as double,
+          contractType: data['contractType'] as String,
+          contractTerms: data['contractTerms'] as String,
+          startDate: data['startDate'] as int,
+          endDate: data['endDate'] as int,
+        );
+      } else if (pendingVehicleBookingData != null) {
+        final data = pendingVehicleBookingData!;
+        pendingVehicleBookingData = null;
+        await firestore.createBookingRequest(
+          rentalId: data['rentalId'] as String,
+          renteeId: uid,
+          renteeName: userProfile!.name,
+          renteePhotoUrl: userProfile!.photoUrl,
+          durationType: data['durationType'] as String,
+          multiplier: data['multiplier'] as int,
+          licenseNumber: data['licenseNumber'] as String,
+          totalCost: data['totalCost'] as double,
+          hireWithDriver: data['hireWithDriver'] as bool,
+          rentalType: data['rentalType'] as String,
+          deliveryAddress: data['deliveryAddress'] as String?,
+          deliveryLat: data['deliveryLat'] as double?,
+          deliveryLng: data['deliveryLng'] as double?,
+          startDate: data['startDate'] as int,
+          endDate: data['endDate'] as int,
+        );
+        loadRenterPendingRequests();
+      }
+    } catch (e) {
+      setState(() {
+        isDepositing = false;
+        postJobError = e.toString();
       });
     }
   }
@@ -1415,6 +1766,13 @@ class TranyxAppState extends State<TranyxApp> {
         final invoiceId = data['id'] as String?;
 
         if (invoiceUrl != null && invoiceId != null) {
+          SessionStorage.pendingXenditInvoiceId = invoiceId;
+          SessionStorage.pendingXenditInvoiceAmount = depositAmount;
+          SessionStorage.pendingPropertyBookingData = pendingPropertyBookingData;
+          SessionStorage.pendingVehicleBookingData = pendingVehicleBookingData;
+          SessionStorage.pendingJobId = pendingJobId;
+          SessionStorage.pendingApplicantData = pendingApplicantData;
+
           openUrl(invoiceUrl);
           setState(() {
             isDepositing = false;
@@ -1496,13 +1854,20 @@ class TranyxAppState extends State<TranyxApp> {
             await loadTransactions();
           }
 
+          SessionStorage.pendingXenditInvoiceId = null;
+          SessionStorage.pendingXenditInvoiceAmount = 0.0;
+          SessionStorage.pendingPropertyBookingData = null;
+          SessionStorage.pendingVehicleBookingData = null;
+          SessionStorage.pendingJobId = null;
+          SessionStorage.pendingApplicantData = null;
+
           setState(() {
             isVerifyingPayment = false;
             pendingXenditInvoiceId = null;
             showDepositModal = false;
           });
 
-          // Finalize job posting ONLY if we were in the middle of posting a job
+          // Finalize job posting or bookings
           if (newJobTitle.isNotEmpty) {
             await handlePostJob();
           } else if (pendingJobId != null && pendingApplicantData != null) {
@@ -1511,8 +1876,52 @@ class TranyxAppState extends State<TranyxApp> {
             pendingJobId = null;
             pendingApplicantData = null;
             await acceptApplicant(jId, aData);
+          } else if (pendingPropertyBookingData != null) {
+            final data = pendingPropertyBookingData!;
+            pendingPropertyBookingData = null;
+            await firestore.createPropertyBookingRequest(
+              propertyId: data['propertyId'] as String,
+              renteeId: uid,
+              renteeName: userProfile!.name,
+              renteePhotoUrl: userProfile!.photoUrl,
+              durationType: data['durationType'] as String,
+              multiplier: data['multiplier'] as int,
+              totalCost: data['totalCost'] as double,
+              contractType: data['contractType'] as String,
+              contractTerms: data['contractTerms'] as String,
+              startDate: data['startDate'] as int,
+              endDate: data['endDate'] as int,
+            );
+          } else if (pendingVehicleBookingData != null) {
+            final data = pendingVehicleBookingData!;
+            pendingVehicleBookingData = null;
+            await firestore.createBookingRequest(
+              rentalId: data['rentalId'] as String,
+              renteeId: uid,
+              renteeName: userProfile!.name,
+              renteePhotoUrl: userProfile!.photoUrl,
+              durationType: data['durationType'] as String,
+              multiplier: data['multiplier'] as int,
+              licenseNumber: data['licenseNumber'] as String,
+              totalCost: data['totalCost'] as double,
+              hireWithDriver: data['hireWithDriver'] as bool,
+              rentalType: data['rentalType'] as String,
+              deliveryAddress: data['deliveryAddress'] as String?,
+              deliveryLat: data['deliveryLat'] as double?,
+              deliveryLng: data['deliveryLng'] as double?,
+              startDate: data['startDate'] as int,
+              endDate: data['endDate'] as int,
+            );
+            loadRenterPendingRequests();
           }
         } else if (status == 'EXPIRED') {
+          SessionStorage.pendingXenditInvoiceId = null;
+          SessionStorage.pendingXenditInvoiceAmount = 0.0;
+          SessionStorage.pendingPropertyBookingData = null;
+          SessionStorage.pendingVehicleBookingData = null;
+          SessionStorage.pendingJobId = null;
+          SessionStorage.pendingApplicantData = null;
+
           setState(() {
             isVerifyingPayment = false;
             pendingXenditInvoiceId = null;
@@ -1826,6 +2235,7 @@ class TranyxAppState extends State<TranyxApp> {
       chatMessages = [];
       chatInputText = '';
       chatPiiBlocked = false;
+      chatDisintermediationBlocked = false;
     });
     listenToChatJs(chatId, (String jsonStr) {
       try {
@@ -1864,14 +2274,22 @@ class TranyxAppState extends State<TranyxApp> {
     final result = sendChatMessageJs(currentChatId, uid, name, text);
     if (result == 'pii_blocked') {
       setState(() => chatPiiBlocked = true);
-      Timer(const Duration(seconds: 3), () {
+      Timer(const Duration(seconds: 4), () {
         setState(() => chatPiiBlocked = false);
+      });
+      return;
+    }
+    if (result == 'disintermediation_blocked') {
+      setState(() => chatDisintermediationBlocked = true);
+      Timer(const Duration(seconds: 6), () {
+        setState(() => chatDisintermediationBlocked = false);
       });
       return;
     }
     setState(() {
       chatInputText = '';
       chatPiiBlocked = false;
+      chatDisintermediationBlocked = false;
     });
   }
 
@@ -1967,9 +2385,23 @@ class TranyxAppState extends State<TranyxApp> {
     if (token == null) return;
     setState(() => isLoadingApplicants = true);
     try {
-      final apps = await FirestoreService(token, _handleTokenRefresh).getApplications(jobId);
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final apps = await svc.getApplications(jobId);
+      final List<Map<String, dynamic>> enrichedApps = [];
+      for (final app in apps) {
+        final copy = Map<String, dynamic>.from(app);
+        final applicantUid = copy['applicantUid'] as String?;
+        if (applicantUid != null) {
+          final userDoc = await svc.getDocument('users/$applicantUid');
+          if (userDoc != null) {
+            copy['isBonded'] = userDoc['isBonded'] as bool? ?? false;
+            copy['certificationUrls'] = userDoc['certificationUrls'];
+          }
+        }
+        enrichedApps.add(copy);
+      }
       setState(() {
-        jobApplicants = apps;
+        jobApplicants = enrichedApps;
         isLoadingApplicants = false;
       });
     } catch (e) {
@@ -2151,19 +2583,80 @@ class TranyxAppState extends State<TranyxApp> {
         final platformFee = price * 0.03;
         final nyxianPayout = price - platformFee;
 
-        // Add to Nyxian Wallet
+        final hasHoldback = jobDoc['hasInspectionHoldback'] as bool? ?? false;
+        final holdbackAmount = hasHoldback ? price * 0.10 : 0.0;
+        final immediatePayout = nyxianPayout - holdbackAmount;
+
+        // Add to Nyxian Wallet (Payout + 2% Rebate)
         if (nyxianId != null) {
           final nyxDoc = await svc.getDocument('users/$nyxianId');
           if (nyxDoc != null) {
             final currentNyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
             final currentJobsDone = nyxDoc['jobsDone'] as int? ?? 0;
             final currentEarned = (nyxDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
+            final gigsCount = (nyxDoc['completedGigsCount'] as int?) ?? 0;
+            final newGigsCount = gigsCount + 1;
+            final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
+            final rebateAmount = price * 0.02;
 
             await svc.createOrUpdate('users/$nyxianId', {
               ...nyxDoc,
-              'tyxBalance': currentNyxBal + nyxianPayout,
+              'tyxBalance': currentNyxBal + immediatePayout + rebateAmount,
               'jobsDone': currentJobsDone + 1,
-              'totalEarned': currentEarned + nyxianPayout,
+              'totalEarned': currentEarned + immediatePayout,
+              'completedGigsCount': newGigsCount,
+              'repeatHireRate': repeatHireRate,
+            });
+
+            // Log rebate transaction for Nyxian
+            await svc.createOrUpdate('transactions/rebate_nyx_${job['id']}', {
+              'uid': nyxianId,
+              'title': 'TYXBIT Loyalty Rebate (2%)',
+              'desc': 'Rebate for completing job ${job['id']}',
+              'amount': rebateAmount,
+              'status': 'Successful',
+              'method': 'Tranyx Reward',
+              'createdAt': DateTime.now().millisecondsSinceEpoch,
+              'type': 'rebate',
+            });
+          }
+        }
+
+        // Create escrow holdback record if enabled
+        if (hasHoldback && nyxianId != null) {
+          await svc.createOrUpdate('escrow_holdbacks/${job['id']}', {
+            'jobId': job['id'],
+            'amount': holdbackAmount,
+            'nyxianId': nyxianId,
+            'employerId': jobDoc['creatorId'],
+            'status': 'held',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+            'releaseAt': DateTime.now().add(const Duration(hours: 48)).millisecondsSinceEpoch,
+          });
+        }
+
+        // Credit Employer Wallet (2% Rebate)
+        final employerId = jobDoc['creatorId'] as String?;
+        if (employerId != null) {
+          final empDoc = await svc.getDocument('users/$employerId');
+          if (empDoc != null) {
+            final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            final rebateAmount = price * 0.02;
+            await svc.createOrUpdate('users/$employerId', {
+              ...empDoc,
+              'tyxBalance': currentBal + rebateAmount,
+            });
+
+            // Log rebate transaction for Employer
+            await svc.createOrUpdate('transactions/rebate_emp_${job['id']}', {
+              'uid': employerId,
+              'title': 'TYXBIT Loyalty Rebate (2%)',
+              'desc': 'Rebate for completing job ${job['id']}',
+              'amount': rebateAmount,
+              'status': 'Successful',
+              'method': 'Tranyx Reward',
+              'createdAt': DateTime.now().millisecondsSinceEpoch,
+              'type': 'rebate',
             });
           }
         }
@@ -2204,10 +2697,18 @@ class TranyxAppState extends State<TranyxApp> {
           isCompletingJob = false;
           showCompletionScanner = false;
           completionScanInput = '';
+          final rebateAmount = price * 0.02;
+          final hasHoldback = jobDoc['hasInspectionHoldback'] as bool? ?? false;
+          final holdbackAmount = hasHoldback ? price * 0.10 : 0.0;
+          final immediatePayout = nyxianPayout - holdbackAmount;
           if (nyxianId == uid && userProfile != null) {
             userProfile = userProfile!.copyWith(
-              tyxBalance: userProfile!.tyxBalance + nyxianPayout,
-              totalEarned: userProfile!.totalEarned + nyxianPayout,
+              tyxBalance: userProfile!.tyxBalance + immediatePayout + rebateAmount,
+              totalEarned: userProfile!.totalEarned + immediatePayout,
+            );
+          } else if (jobDoc['creatorId'] == uid && userProfile != null) {
+            userProfile = userProfile!.copyWith(
+              tyxBalance: userProfile!.tyxBalance + rebateAmount,
             );
           }
           if (targetId != null) {
@@ -2327,23 +2828,83 @@ class TranyxAppState extends State<TranyxApp> {
       final price = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
       final platformFee = price * 0.03;
       final nyxianPayout = price - platformFee;
+      final hasHoldback = jobDoc['hasInspectionHoldback'] as bool? ?? false;
+      final holdbackAmount = hasHoldback ? price * 0.10 : 0.0;
+      final immediatePayout = nyxianPayout - holdbackAmount;
 
       // 1. Release escrow
       await svc.deleteDocument('escrow/$jobId');
 
-      // 2. Add to Nyxian Wallet
+      // 1.1 Create escrow holdback record if enabled
+      if (hasHoldback) {
+        await svc.createOrUpdate('escrow_holdbacks/$jobId', {
+          'jobId': jobId,
+          'amount': holdbackAmount,
+          'nyxianId': uid,
+          'employerId': jobDoc['creatorId'],
+          'status': 'held',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+          'releaseAt': DateTime.now().add(const Duration(hours: 48)).millisecondsSinceEpoch,
+        });
+      }
+
+      // 2. Add to Nyxian Wallet (Payout + 2% Rebate)
       final nyxDoc = await svc.getDocument('users/$uid');
       if (nyxDoc != null) {
         final currentNyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
         final currentJobsDone = nyxDoc['jobsDone'] as int? ?? 0;
         final currentEarned = (nyxDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
+        final gigsCount = (nyxDoc['completedGigsCount'] as int?) ?? 0;
+        final newGigsCount = gigsCount + 1;
+        final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
+        final rebateAmount = price * 0.02;
 
         await svc.createOrUpdate('users/$uid', {
           ...nyxDoc,
-          'tyxBalance': currentNyxBal + nyxianPayout,
+          'tyxBalance': currentNyxBal + immediatePayout + rebateAmount,
           'jobsDone': currentJobsDone + 1,
-          'totalEarned': currentEarned + nyxianPayout,
+          'totalEarned': currentEarned + immediatePayout,
+          'completedGigsCount': newGigsCount,
+          'repeatHireRate': repeatHireRate,
         });
+
+        // Log rebate transaction for Nyxian
+        await svc.createOrUpdate('transactions/rebate_nyx_$jobId', {
+          'uid': uid,
+          'title': 'TYXBIT Loyalty Rebate (2%)',
+          'desc': 'Rebate for completing job $jobId',
+          'amount': rebateAmount,
+          'status': 'Successful',
+          'method': 'Tranyx Reward',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+          'type': 'rebate',
+        });
+      }
+
+      // 2.1 Credit Employer Wallet (2% Rebate)
+      final employerId = jobDoc['creatorId'] as String?;
+      if (employerId != null) {
+        final empDoc = await svc.getDocument('users/$employerId');
+        if (empDoc != null) {
+          final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+          final rebateAmount = price * 0.02;
+          await svc.createOrUpdate('users/$employerId', {
+            ...empDoc,
+            'tyxBalance': currentBal + rebateAmount,
+          });
+
+          // Log rebate transaction for Employer
+          await svc.createOrUpdate('transactions/rebate_emp_$jobId', {
+            'uid': employerId,
+            'title': 'TYXBIT Loyalty Rebate (2%)',
+            'desc': 'Rebate for completing job $jobId',
+            'amount': rebateAmount,
+            'status': 'Successful',
+            'method': 'Tranyx Reward',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+            'type': 'rebate',
+          });
+        }
       }
 
       // 3. Record platform fee
@@ -2364,9 +2925,10 @@ class TranyxAppState extends State<TranyxApp> {
         pendingQrJobId = null;
         pendingQrCode = null;
         if (userProfile != null) {
+          final rebateAmount = price * 0.02;
           userProfile = userProfile!.copyWith(
-            tyxBalance: userProfile!.tyxBalance + nyxianPayout,
-            totalEarned: userProfile!.totalEarned + nyxianPayout,
+            tyxBalance: userProfile!.tyxBalance + immediatePayout + rebateAmount,
+            totalEarned: userProfile!.totalEarned + immediatePayout,
           );
         }
       });
@@ -2376,7 +2938,6 @@ class TranyxAppState extends State<TranyxApp> {
       showAppToast('Payment Released! 🎉', '₱ ${nyxianPayout.toStringAsFixed(2)} has been credited to your wallet.');
 
       // Send a notification to the Employer (creatorId) about job completion to trigger rating popup
-      final employerId = jobDoc['creatorId'] as String?;
       if (employerId != null) {
         final prefix = employerId.length > 5 ? employerId.substring(0, 5) : employerId;
         final docId = 'notif_${DateTime.now().millisecondsSinceEpoch}_$prefix';
@@ -2754,22 +3315,136 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  /// Upload skill certificate and append to user's certification list
+  Future<void> uploadCertification(dynamic eventTarget) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) return;
+
+    setState(() => isUploadingCertificate = true);
+
+    try {
+      final files = await readFilesFromEvent(eventTarget);
+      if (files.isNotEmpty) {
+        final file = files.first;
+        final url = await ImgBBService(currentFirebaseConfig, idToken: token).uploadImageBytes(file.bytes, file.name);
+        if (url != null) {
+          final svc = FirestoreService(token, _handleTokenRefresh);
+          final userDoc = await svc.getDocument('users/$uid');
+          if (userDoc != null) {
+            final List<String> currentCerts = List<String>.from(userDoc['certificationUrls'] ?? []);
+            if (currentCerts.length < 3) {
+              currentCerts.add(url);
+              await svc.createOrUpdate('users/$uid', {
+                ...userDoc,
+                'certificationUrls': currentCerts,
+              });
+              await loadUserProfile();
+              showAppToast('Upload Successful! 🎓', 'Your credential has been uploaded and verified.');
+            } else {
+              showAppToast('Limit Reached', 'You can upload up to 3 certification credentials.');
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('uploadCertification error: $e');
+    } finally {
+      setState(() => isUploadingCertificate = false);
+    }
+  }
+
+  void _loadOfflineLocationBuffer() {
+    final s = SessionStorage.offlineLocationBuffer;
+    if (s != null && s.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(s) as List;
+        offlineLocationBuffer = decoded.map((e) => Map<String, double>.from(e as Map)).toList();
+      } catch (_) {}
+    }
+  }
+
+  void _saveOfflineLocationBuffer() {
+    SessionStorage.offlineLocationBuffer = jsonEncode(offlineLocationBuffer);
+  }
+
   /// Nyxian's browser calls this to broadcast their GPS position.
   Future<void> broadcastNyxianLocation(double lat, double lng) async {
     final token = SessionStorage.idToken;
     final job = selectedJobData;
     if (token == null || job == null) return;
+
+    _loadOfflineLocationBuffer();
+
     try {
       final svc = FirestoreService(token, _handleTokenRefresh);
-      final jobDoc = await svc.getDocument('jobs/${job['id']}');
-      if (jobDoc != null) {
-        await svc.createOrUpdate('jobs/${job['id']}', {
-          ...jobDoc,
-          'nyxianLat': lat,
-          'nyxianLng': lng,
-        });
+
+      if (offlineLocationBuffer.isNotEmpty) {
+        print('Connection recovered! Syncing ${offlineLocationBuffer.length} offline coordinates...');
+        final List<Map<String, dynamic>> routeHistory = [];
+        final jobDoc = await svc.getDocument('jobs/${job['id']}');
+        if (jobDoc != null) {
+          final existingHistory = jobDoc['routeHistory'] as List?;
+          if (existingHistory != null) {
+            routeHistory.addAll(existingHistory.map((e) => Map<String, dynamic>.from(e as Map)));
+          }
+
+          for (final coord in offlineLocationBuffer) {
+            routeHistory.add({
+              'lat': coord['lat'],
+              'lng': coord['lng'],
+              'timestamp': coord['timestamp']?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
+            });
+          }
+
+          routeHistory.add({
+            'lat': lat,
+            'lng': lng,
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+          });
+
+          await svc.createOrUpdate('jobs/${job['id']}', {
+            ...jobDoc,
+            'nyxianLat': lat,
+            'nyxianLng': lng,
+            'routeHistory': routeHistory,
+          });
+
+          offlineLocationBuffer.clear();
+          _saveOfflineLocationBuffer();
+          print('Offline coordinates synced successfully.');
+        }
+      } else {
+        final jobDoc = await svc.getDocument('jobs/${job['id']}');
+        if (jobDoc != null) {
+          final List<Map<String, dynamic>> routeHistory = [];
+          final existingHistory = jobDoc['routeHistory'] as List?;
+          if (existingHistory != null) {
+            routeHistory.addAll(existingHistory.map((e) => Map<String, dynamic>.from(e as Map)));
+          }
+          routeHistory.add({
+            'lat': lat,
+            'lng': lng,
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+          });
+
+          await svc.createOrUpdate('jobs/${job['id']}', {
+            ...jobDoc,
+            'nyxianLat': lat,
+            'nyxianLng': lng,
+            'routeHistory': routeHistory,
+          });
+        }
       }
-    } catch (_) {} // Silently ignore broadcast failures
+    } catch (e) {
+      print('Network drop detected. Buffering location locally: ($lat, $lng)');
+      offlineLocationBuffer.add({
+        'lat': lat,
+        'lng': lng,
+        'timestamp': DateTime.now().millisecondsSinceEpoch.toDouble(),
+      });
+      _saveOfflineLocationBuffer();
+    }
   }
 
   Future<void> handleApplyJob() async {
@@ -3476,6 +4151,56 @@ class TranyxAppState extends State<TranyxApp> {
       // Main area
       div(classes: 'flex-1 flex flex-col h-full relative overflow-hidden', [
         TopHeaderComponent(state: this),
+
+        // Pending Payment Verification Banner
+        if (pendingXenditInvoiceId != null)
+          div(
+            classes:
+                'w-full py-3 px-6 ${isDark ? "bg-amber-500/10 border-zinc-800 text-amber-200" : "bg-amber-50 border-zinc-200 text-amber-800"} border-b text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 z-45 shrink-0 animate-fade-in',
+            [
+              span(classes: 'font-medium flex items-center gap-2', [
+                lIcon('alert-triangle', cls: 'w-4 h-4 text-amber-450 shrink-0'),
+                Component.text(
+                  'Pending Tyxbit top-up of ₱${depositAmount.toStringAsFixed(2)} via Xendit. Please verify to credit and complete your request.',
+                ),
+              ]),
+              div(classes: 'flex items-center gap-2', [
+                button(
+                  classes:
+                      'px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer flex items-center gap-1.5',
+                  events: {
+                    'click': (_) => setState(() {
+                      showDepositModal = true;
+                      selectedPaymentMethod = 'xendit';
+                    }),
+                  },
+                  [lIcon('check-circle', cls: 'w-3.5 h-3.5'), Component.text('I Already Paid')],
+                ),
+                button(
+                  classes:
+                      'px-2 py-1.5 text-xs text-zinc-400 hover:text-zinc-300 cursor-pointer bg-transparent border-0 font-medium transition-colors',
+                  events: {
+                    'click': (_) {
+                      if (confirmDialog(
+                        'Dismiss this pending check? If you have paid, dismissing may delay your balance update.',
+                      )) {
+                        setState(() {
+                          pendingXenditInvoiceId = null;
+                          SessionStorage.pendingXenditInvoiceId = null;
+                          SessionStorage.pendingXenditInvoiceAmount = 0.0;
+                          SessionStorage.pendingPropertyBookingData = null;
+                          SessionStorage.pendingVehicleBookingData = null;
+                          SessionStorage.pendingJobId = null;
+                          SessionStorage.pendingApplicantData = null;
+                        });
+                      }
+                    },
+                  },
+                  [Component.text('Dismiss')],
+                ),
+              ]),
+            ],
+          ),
 
         // Scrollable content
         div(classes: 'flex-1 overflow-y-auto no-scrollbar pb-24 md:pb-8', [

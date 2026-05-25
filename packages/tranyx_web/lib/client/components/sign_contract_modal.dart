@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import '../tranyx_app.dart';
@@ -29,6 +31,7 @@ class SignContractModalComponent extends StatefulComponent {
 class _SignContractModalState extends State<SignContractModalComponent> {
   bool _isSigning = false;
   String? _error;
+  String? _signatureHash;
 
   void _submitSignature() async {
     final canvasId = 'sign-contract-pad-${component.rentalId}';
@@ -42,16 +45,32 @@ class _SignContractModalState extends State<SignContractModalComponent> {
       return;
     }
 
+    // Compute SHA-256 signature hash for legal verification
+    final uid = component.appState.userProfile?.uid ?? 'unknown';
+    final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
+    final hashInput = '$uid|${component.rentalId}|${component.contractTerms}|${component.title}|$timestamp';
+    final hashBytes = sha256.convert(utf8.encode(hashInput));
+    final hashHex = hashBytes.toString();
+
     setState(() {
       _isSigning = true;
       _error = null;
+      _signatureHash = hashHex;
     });
 
     try {
       if (component.isProperty) {
-        await component.appState.firestore.signPropertyContract(component.rentalId, signatureDataUrl);
+        await component.appState.firestore.signPropertyContract(
+          component.rentalId,
+          signatureDataUrl,
+          signatureHash: hashHex,
+        );
       } else {
-        await component.appState.firestore.signVehicleContract(component.rentalId, signatureDataUrl);
+        await component.appState.firestore.signVehicleContract(
+          component.rentalId,
+          signatureDataUrl,
+          signatureHash: hashHex,
+        );
       }
       component.onSigned();
     } catch (e) {
@@ -146,6 +165,26 @@ class _SignContractModalState extends State<SignContractModalComponent> {
                   Component.text('Sign using your mouse, trackpad, or touch screen'),
                 ]),
               ]),
+
+              // Signature hash display (shown after signing)
+              if (_signatureHash != null)
+                div(
+                  classes: 'p-3 rounded-xl bg-green-500/10 border border-green-500/20 space-y-1',
+                  [
+                    p(classes: 'text-[10px] font-bold text-green-400 uppercase tracking-wider', [
+                      Component.text('✓ Cryptographic Signature Hash (SHA-256)'),
+                    ]),
+                    p(
+                      classes: 'text-[9px] font-mono text-green-300/80 break-all leading-relaxed',
+                      [Component.text(_signatureHash!)],
+                    ),
+                    p(classes: 'text-[9px] text-zinc-500 mt-1', [
+                      Component.text(
+                        'This hash uniquely identifies this contract signing event and is stored on Firestore for legal verification.',
+                      ),
+                    ]),
+                  ],
+                ),
             ]),
 
             // Footer

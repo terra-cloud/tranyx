@@ -35,7 +35,8 @@ class DefaultFirebaseConfig {
     messagingSenderId: '709467070093',
     projectId: 'tranyx-dev',
     storageBucket: 'tranyx-dev.firebasestorage.app',
-    iosClientId: '709467070093-shkl2mhs0em1oh92e73pvp0d7o2uu7b4.apps.googleusercontent.com',
+    iosClientId:
+        '709467070093-shkl2mhs0em1oh92e73pvp0d7o2uu7b4.apps.googleusercontent.com',
     iosBundleId: 'com.terraph.tranyx.dev',
   );
 
@@ -53,7 +54,8 @@ class DefaultFirebaseConfig {
     messagingSenderId: '108125328804',
     projectId: 'tranyx-uat',
     storageBucket: 'tranyx-uat.firebasestorage.app',
-    iosClientId: '108125328804-n9uafcp1mba2cgn8q3cljnsgk3bifibk.apps.googleusercontent.com',
+    iosClientId:
+        '108125328804-n9uafcp1mba2cgn8q3cljnsgk3bifibk.apps.googleusercontent.com',
     iosBundleId: 'com.terraph.tranyx.uat',
   );
 
@@ -71,7 +73,8 @@ class DefaultFirebaseConfig {
     messagingSenderId: '174332525079',
     projectId: 'tranyx-app',
     storageBucket: 'tranyx-app.firebasestorage.app',
-    iosClientId: '174332525079-t08i7bqf10ng9ugnrjhgte8h9i8orisn.apps.googleusercontent.com',
+    iosClientId:
+        '174332525079-t08i7bqf10ng9ugnrjhgte8h9i8orisn.apps.googleusercontent.com',
     iosBundleId: 'com.terraph.tranyx',
   );
 }

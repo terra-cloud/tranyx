@@ -33,6 +33,19 @@ class _ChatWidgetState extends State<ChatWidget> {
     final uid = SessionStorage.uid ?? '';
     final msgs = s.chatMessages;
 
+    // Real-time disintermediation keywords scanning
+    final inputTextLower = s.chatInputText.toLowerCase();
+    final hasDisintermediationKeywords =
+        inputTextLower.contains('gcash') ||
+        inputTextLower.contains('viber') ||
+        inputTextLower.contains('whatsapp') ||
+        inputTextLower.contains('direct payment') ||
+        inputTextLower.contains('pay directly') ||
+        inputTextLower.contains('outside');
+    final phoneRegex = RegExp(r'(09|\+639)\d{9}|\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b');
+    final hasPhoneNumber = phoneRegex.hasMatch(inputTextLower);
+    final showRealtimeWarning = hasDisintermediationKeywords || hasPhoneNumber;
+
     final bg = isDark ? 'bg-zinc-950' : 'bg-white';
     final border = isDark ? 'border-zinc-800' : 'border-zinc-200';
     final inputBg = isDark ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900';
@@ -111,6 +124,47 @@ class _ChatWidgetState extends State<ChatWidget> {
                   lIcon('shield-alert', cls: 'w-4 h-4 text-red-400 flex-shrink-0'),
                   p(classes: 'text-xs font-semibold text-red-400', [
                     Component.text('Message blocked: sharing phone numbers or emails is not allowed.'),
+                  ]),
+                ],
+              ),
+
+            // ── Disintermediation warning banner ────────────────────────
+            if (s.chatDisintermediationBlocked)
+              div(
+                classes: 'mx-4 mb-1 px-4 py-3 rounded-xl bg-orange-500/10 border border-orange-500/30 animate-fade-up',
+                [
+                  div(classes: 'flex items-start gap-2', [
+                    lIcon('alert-triangle', cls: 'w-4 h-4 text-orange-400 flex-shrink-0 mt-0.5'),
+                    div([
+                      p(classes: 'text-xs font-bold text-orange-400', [
+                        Component.text('Off-Platform Payment Attempt Blocked'),
+                      ]),
+                      p(classes: 'text-[10px] text-orange-300/80 mt-0.5', [
+                        Component.text(
+                          'Requesting payments outside Tranyx (GCash, Maya, bank transfer, etc.) violates our Terms of Service. Repeated violations may result in account suspension. All transactions are protected inside the platform.',
+                        ),
+                      ]),
+                    ]),
+                  ]),
+                ],
+              ),
+
+            // ── Real-time warning banner ────────────────────────────────
+            if (showRealtimeWarning)
+              div(
+                classes:
+                    'mx-4 mb-2 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2 animate-fade-up',
+                [
+                  lIcon('shield-alert', cls: 'w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5'),
+                  div([
+                    p(classes: 'text-xs font-bold text-amber-400', [
+                      Component.text('Security Reminder'),
+                    ]),
+                    p(classes: 'text-[10px] text-amber-300/90 mt-0.5 font-medium leading-relaxed', [
+                      Component.text(
+                        'To protect your payment via Escrow, keep communications on-platform. Off-platform transactions lose platform coverage.',
+                      ),
+                    ]),
                   ]),
                 ],
               ),

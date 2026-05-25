@@ -32,6 +32,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.95.3/lib/index.iife.min.js"></script>
 
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -165,6 +166,135 @@
     window._createLngLatBounds = function () {
       if (!window.maplibregl) return null;
       return new maplibregl.LngLatBounds();
+    };
+
+    window.sendSolPayment = async function (fromAddress, toAddress, amountInSol) {
+      console.log("sendSolPayment started", fromAddress, toAddress, amountInSol);
+      try {
+        if (!window.solanaWeb3) {
+          throw new Error("Solana Web3 library is not loaded.");
+        }
+        const solana = window.phantom && window.phantom.solana;
+        if (!solana) {
+          throw new Error("Phantom Wallet is not installed.");
+        }
+        if (!solana.publicKey) {
+          throw new Error("Phantom Wallet is not connected.");
+        }
+
+        // Establish connection to mainnet-beta (matching getSolanaBalance)
+        const connection = new solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
+        
+        const fromPubkey = new solanaWeb3.PublicKey(fromAddress);
+        const toPubkey = new solanaWeb3.PublicKey(toAddress);
+        const lamports = Math.round(amountInSol * 1000000000);
+
+        const transaction = new solanaWeb3.Transaction().add(
+          solanaWeb3.SystemProgram.transfer({
+            fromPubkey: fromPubkey,
+            toPubkey: toPubkey,
+            lamports: lamports,
+          })
+        );
+
+        // Fetch recent blockhash
+        const { blockhash } = await connection.getLatestBlockhash("confirmed");
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = fromPubkey;
+
+        // Sign and send transaction via Phantom provider
+        const { signature } = await solana.signAndSendTransaction(transaction);
+        console.log("Transaction sent. Signature:", signature);
+
+        // Wait for confirmation
+        const latestBlockHash = await connection.getLatestBlockhash("confirmed");
+        await connection.confirmTransaction({
+          blockhash: latestBlockHash.blockhash,
+          lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
+          signature: signature
+        }, "confirmed");
+
+        console.log("Transaction confirmed successfully:", signature);
+        return signature;
+      } catch (error) {
+        console.error("sendSolPayment failed:", error);
+        throw error;
+      }
+    };
+
+    // ── USDC SPL Token Transfer ────────────────────────────────────────────────
+    // USDC Mint on Mainnet: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+    window.sendUsdcPayment = async function (fromAddress, toAddress, amountInUsdc) {
+      console.log("sendUsdcPayment started", fromAddress, toAddress, amountInUsdc);
+      try {
+        if (!window.solanaWeb3) {
+          throw new Error("Solana Web3 library is not loaded.");
+        }
+        const solana = window.phantom && window.phantom.solana;
+        if (!solana) throw new Error("Phantom Wallet is not installed.");
+        if (!solana.publicKey) throw new Error("Phantom Wallet is not connected.");
+
+        const connection = new solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
+        const USDC_MINT = new solanaWeb3.PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+        const USDC_DECIMALS = 6;
+        const amountInMicroUsdc = Math.round(amountInUsdc * Math.pow(10, USDC_DECIMALS));
+
+        const fromPubkey = new solanaWeb3.PublicKey(fromAddress);
+        const toPubkey = new solanaWeb3.PublicKey(toAddress);
+
+        // Derive Associated Token Accounts
+        const TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+        const ASSOCIATED_TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bS");
+
+        function findATA(walletKey, mintKey) {
+          return solanaWeb3.PublicKey.findProgramAddressSync(
+            [walletKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintKey.toBuffer()],
+            ASSOCIATED_TOKEN_PROGRAM_ID
+          )[0];
+        }
+
+        const fromATA = findATA(fromPubkey, USDC_MINT);
+        const toATA = findATA(toPubkey, USDC_MINT);
+
+        // Build transfer instruction manually (compatible with all web3.js versions)
+        const keys = [
+          { pubkey: fromATA, isSigner: false, isWritable: true },
+          { pubkey: toATA, isSigner: false, isWritable: true },
+          { pubkey: fromPubkey, isSigner: true, isWritable: false },
+        ];
+        // SPL Token transfer instruction data: [3, amount_le_uint64]
+        const data = new Uint8Array(9);
+        const view = new DataView(data.buffer);
+        view.setUint8(0, 3); // Transfer instruction
+        view.setBigUint64(1, BigInt(amountInMicroUsdc), true); // amount in little endian
+
+        const transferInstruction = new solanaWeb3.TransactionInstruction({
+          keys: keys,
+          programId: TOKEN_PROGRAM_ID,
+          data: data,
+        });
+
+        const transaction = new solanaWeb3.Transaction().add(transferInstruction);
+        const { blockhash } = await connection.getLatestBlockhash("confirmed");
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = fromPubkey;
+
+        const { signature } = await solana.signAndSendTransaction(transaction);
+        console.log("USDC Transaction sent. Signature:", signature);
+
+        const latestBlockHash = await connection.getLatestBlockhash("confirmed");
+        await connection.confirmTransaction({
+          blockhash: latestBlockHash.blockhash,
+          lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
+          signature: signature
+        }, "confirmed");
+
+        console.log("USDC Transaction confirmed:", signature);
+        return signature;
+      } catch (error) {
+        console.error("sendUsdcPayment failed:", error);
+        throw error;
+      }
     };
 
     window.initFirebase = function (config) {
@@ -443,6 +573,30 @@
       return emailRegex.test(text) || phoneRegex.test(text);
     }
 
+    // Returns 'ok', 'pii_blocked', or 'disintermediation_blocked'
+    function checkMessagePolicy(text) {
+      const lower = text.toLowerCase();
+
+      // PII check: emails and phone numbers
+      const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
+      const phoneRegex = /(\+?[\d\s\-().]{10,})/; // 10+ digit combos = likely phone
+      if (emailRegex.test(text) || phoneRegex.test(text)) return 'pii_blocked';
+
+      // Disintermediation check: references to external payment apps/services
+      const offPlatformPatterns = [
+        /\bgcash\b/, /\bmaya\b/, /\bpaymaya\b/, /\bvenmo\b/, /\bpaypal\b/,
+        /\bbank transfer\b/, /\bbdo\b/, /\bmetrobank\b/, /\blandbank\b/,
+        /\bremit\b/, /\bpay me\b/, /\bsend me\b.*money/, /\btransfer.*outside\b/,
+        /outside.*platform/, /\bno need.*(tranyx|platform|app)\b/,
+        /\bdeal outside\b/, /\bpay directly\b/, /\bdirect payment\b/,
+      ];
+      for (const pattern of offPlatformPatterns) {
+        if (pattern.test(lower)) return 'disintermediation_blocked';
+      }
+
+      return 'ok';
+    }
+
     const _chatUnsubs = {};
 
     window.listenToChat = function (chatId, callback) {
@@ -475,7 +629,10 @@
       const senderName = msgObj.senderName;
       const text = msgObj.text;
       const photoUrl = msgObj.photoUrl;
-      if (!photoUrl && containsPII(text)) return 'pii_blocked';
+      if (!photoUrl) {
+        const policyResult = checkMessagePolicy(text);
+        if (policyResult !== 'ok') return policyResult;
+      }
       const db = firebase.firestore();
       const msg = {
         senderId: senderId,

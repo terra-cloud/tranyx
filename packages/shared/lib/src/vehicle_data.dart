@@ -1,7 +1,8 @@
 import 'enums.dart';
 
 class VehicleSpecDatabase {
-  static const Map<VehicleType, Map<String, List<String>>> modelsByTypeAndBrand = {
+  static const Map<VehicleType, Map<String, List<String>>>
+  modelsByTypeAndBrand = {
     VehicleType.car: {
       'Toyota': ['Vios', 'Wigo', 'Corolla Altis', 'Camry', 'Yaris', 'Prius'],
       'Honda': ['Civic', 'City', 'Brio', 'Accord'],
@@ -13,7 +14,15 @@ class VehicleSpecDatabase {
       'Kia': ['Soluto', 'Rio'],
     },
     VehicleType.suv: {
-      'Toyota': ['Fortuner', 'Land Cruiser', 'RAV4', 'Rush', 'Corolla Cross', 'Raize', 'Prado'],
+      'Toyota': [
+        'Fortuner',
+        'Land Cruiser',
+        'RAV4',
+        'Rush',
+        'Corolla Cross',
+        'Raize',
+        'Prado',
+      ],
       'Honda': ['CR-V', 'HR-V', 'BR-V'],
       'Mitsubishi': ['Montero Sport', 'Outlander', 'Pajero'],
       'Ford': ['Everest', 'Territory', 'Explorer'],
@@ -41,8 +50,24 @@ class VehicleSpecDatabase {
       'Mazda': ['BT-50'],
     },
     VehicleType.motorcycle: {
-      'Honda': ['Click 125i', 'Beat', 'ADV 160', 'PCX 160', 'CBR150R', 'Wave 110', 'TMX 125'],
-      'Yamaha': ['NMAX', 'Aerox', 'Mio Sporty', 'Sniper 155', 'XMAX', 'Fazzio', 'Gravis'],
+      'Honda': [
+        'Click 125i',
+        'Beat',
+        'ADV 160',
+        'PCX 160',
+        'CBR150R',
+        'Wave 110',
+        'TMX 125',
+      ],
+      'Yamaha': [
+        'NMAX',
+        'Aerox',
+        'Mio Sporty',
+        'Sniper 155',
+        'XMAX',
+        'Fazzio',
+        'Gravis',
+      ],
       'Suzuki': ['Raider R150', 'Burgman Street', 'Smash', 'Gixxer', 'Address'],
       'Kawasaki': ['Ninja 400', 'Barako II', 'W175', 'Rouser NS200'],
       'Vespa': ['Primavera', 'GTS 300', 'Sprint 150', 'S 125'],

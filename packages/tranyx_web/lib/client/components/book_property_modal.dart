@@ -98,6 +98,26 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
       final now = DateTime.now();
       final end = _computedEndDate;
 
+      final totalRequired = _totalPrice + _bookingFee;
+      if (user.tyxBalance < totalRequired) {
+        component.appState.setState(() {
+          component.appState.depositAmount = totalRequired - user.tyxBalance;
+          component.appState.showDepositModal = true;
+          component.appState.pendingPropertyBookingData = {
+            'propertyId': p['id'],
+            'durationType': _selectedDurationType,
+            'multiplier': _multiplier,
+            'totalCost': _totalPrice,
+            'contractType': p['contractType'] ?? 'Tranyx Standard',
+            'contractTerms': p['contractTerms'] ?? 'Standard lease terms',
+            'startDate': now.millisecondsSinceEpoch,
+            'endDate': end.millisecondsSinceEpoch,
+          };
+          component.appState.showBookPropertyModal = false;
+        });
+        return;
+      }
+
       // Submit booking request
       await component.appState.firestore.createPropertyBookingRequest(
         propertyId: p['id'],

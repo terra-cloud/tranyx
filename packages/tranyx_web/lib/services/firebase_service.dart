@@ -710,6 +710,11 @@ class FirestoreService {
     }
   }
 
+  /// Update vehicle GPS Tracker ID
+  Future<void> updateVehicleGpsTracker(String rentalId, String gpsTrackerId) async {
+    await setDocument('rentals/$rentalId', {'gpsTrackerId': gpsTrackerId});
+  }
+
   Future<List<Map<String, dynamic>>> getApplications(String jobId) async {
     final url = '$_firestoreBase/jobs/$jobId/applications';
     final headers = <String, String>{};
@@ -937,6 +942,58 @@ class FirestoreService {
       Uri.parse(url),
       headers: headers,
       body: jsonEncode(_toFirestoreFields(rental.toMap())),
+    );
+
+    if (req.statusCode >= 400) {
+      final data = jsonDecode(req.body) as Map<String, dynamic>;
+      final err = data['error'] as Map? ?? {};
+      throw FirebaseException(err['message'] as String? ?? 'Create rental failed', req.statusCode);
+    }
+
+    final result = jsonDecode(req.body) as Map<String, dynamic>;
+    return _docId(result);
+  }
+
+  /// Creates a vehicle rental from a pre-built map (allows extra fields like gpsTrackerId).
+  Future<String> createRentalFromMap(Map<String, dynamic> rentalMap) async {
+    final hostId = rentalMap['hostId'] as String;
+    final priceDaily = (rentalMap['priceDaily'] as num?)?.toDouble() ?? 0.0;
+    final brand = rentalMap['brand'] as String? ?? '';
+    final model = rentalMap['model'] as String? ?? '';
+    final year = rentalMap['year']?.toString() ?? '';
+
+    final host = await getUser(hostId);
+    if (host == null) throw Exception('Host profile not found.');
+
+    final listingFee = 0.015 * priceDaily;
+    if (host.tyxBalance < listingFee) {
+      throw Exception(
+        'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+      );
+    }
+
+    final newBalance = host.tyxBalance - listingFee;
+    await updateTyxBalance(hostId, newBalance);
+
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    await setDocument('transactions/$txId', {
+      'uid': hostId,
+      'type': 'listing_fee',
+      'amount': listingFee,
+      'title': 'Vehicle Listing Fee',
+      'desc': '1.5% posting fee for $brand $model ($year)',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    final url = '$_firestoreBase/rentals';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final req = await _client.post(
+      Uri.parse(url),
+      headers: headers,
+      body: jsonEncode(_toFirestoreFields(rentalMap)),
     );
 
     if (req.statusCode >= 400) {
@@ -1429,7 +1486,7 @@ class FirestoreService {
   }
 
   /// Sign vehicle contract to activate booking
-  Future<void> signVehicleContract(String rentalId, String signatureDataUrl) async {
+  Future<void> signVehicleContract(String rentalId, String signatureDataUrl, {String? signatureHash}) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
 
@@ -1438,6 +1495,7 @@ class FirestoreService {
       'status': 'Booked',
       'renteeSignatureName': signatureDataUrl,
       'signedAt': now.millisecondsSinceEpoch,
+      if (signatureHash != null) 'signatureHash': signatureHash,
     });
 
     final hostId = rentalDoc['hostId'] as String;
@@ -1494,6 +1552,52 @@ class FirestoreService {
       uid: renteeId,
       title: 'Booking Request Rejected',
       message: 'Your request to book ${reqDoc['brand']} ${reqDoc['model']} was rejected. Funds have been refunded.',
+    );
+  }
+
+  /// Cancel a pending booking request by the rentee and refund their wallet
+  Future<void> cancelBookingRequest(String requestId) async {
+    final reqDoc = await getDocument('rental_requests/$requestId');
+    if (reqDoc == null) return;
+    if (reqDoc['status'] != 'Pending') return;
+
+    final renteeId = reqDoc['renteeId'] as String;
+    final hostId = reqDoc['hostId'] as String;
+    final totalCost = (reqDoc['totalCost'] as num).toDouble();
+    final bookingFee = (reqDoc['bookingFee'] as num).toDouble();
+    final refundAmount = totalCost + bookingFee;
+
+    // Set request status to Cancelled
+    await setDocument('rental_requests/$requestId', {'status': 'Cancelled'});
+
+    // Refund rentee
+    final rentee = await getUser(renteeId);
+    if (rentee != null) {
+      await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
+
+      // Save transaction record for refund
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'uid': renteeId,
+        'type': 'refund',
+        'amount': refundAmount,
+        'title': 'Booking Request Cancelled',
+        'desc': 'Refund for cancelled request of ${reqDoc['brand']} ${reqDoc['model']}',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      await setDocument('transactions/$txId', txData);
+    }
+
+    // Release/delete the held escrow
+    await deleteDocument('rental_escrows/$requestId');
+
+    // Notify host
+    await createNotification(
+      uid: hostId,
+      title: 'Booking Request Cancelled',
+      message:
+          '${reqDoc['renteeName'] ?? "Renter"} has cancelled their booking request for your ${reqDoc['brand']} ${reqDoc['model']}.',
     );
   }
 
@@ -2377,7 +2481,7 @@ class FirestoreService {
   }
 
   /// Sign property contract to activate lease
-  Future<void> signPropertyContract(String propertyId, String signatureDataUrl) async {
+  Future<void> signPropertyContract(String propertyId, String signatureDataUrl, {String? signatureHash}) async {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
 
@@ -2386,6 +2490,7 @@ class FirestoreService {
       'status': 'Booked',
       'renteeSignatureName': signatureDataUrl,
       'signedAt': now.millisecondsSinceEpoch,
+      if (signatureHash != null) 'signatureHash': signatureHash,
     });
 
     final hostId = propDoc['hostId'] as String;

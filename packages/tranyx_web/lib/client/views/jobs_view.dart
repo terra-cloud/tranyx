@@ -1,11 +1,13 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:web/web.dart' as web;
 import 'package:tranyx_web/components/map_picker.dart';
 import 'package:tranyx_web/components/navigation_map.dart';
 import 'package:tranyx_web/services/web_interop.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
+import '../utils/geo_helper.dart';
 import 'package:shared/shared.dart';
 
 class JobsViewComponent extends StatelessComponent {
@@ -120,14 +122,76 @@ class JobsViewComponent extends StatelessComponent {
               ],
             ),
 
-          // Filters for both
-          if (isNyxian && s.activeJobPane != 'my_gigs')
+          // Filters for Nyxian browse pane
+          if (isNyxian &&
+              s.activeJobPane != 'my_gigs' &&
+              s.activeJobPane != 'active' &&
+              s.activeJobPane != 'history') ...[
             div(classes: 'flex gap-2 flex-wrap mb-2', [
               _filterChip('Recommended', s.activeJobFilter == 'Recommended', isDark, s),
               _filterChip('High Paying', s.activeJobFilter == 'High Paying', isDark, s),
-              _filterChip('Near Me', s.activeJobFilter == 'Near Me', isDark, s),
               _filterChip('All', s.activeJobFilter == 'All', isDark, s),
             ]),
+            // Geofence distance row
+            div(classes: 'flex flex-wrap items-center gap-3 mb-2', [
+              div(classes: 'flex items-center gap-2 text-xs', [
+                span(
+                  classes: 'font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"} flex items-center gap-1',
+                  [
+                    lIcon('map-pin', cls: 'w-3.5 h-3.5 text-purple-400'),
+                    Component.text('Distance:'),
+                  ],
+                ),
+                select(
+                  classes:
+                      'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
+                  events: {
+                    'change': (e) {
+                      final val = (e.target as web.HTMLSelectElement).value;
+                      s.setState(() => s.geofenceRadius = double.parse(val));
+                    },
+                  },
+                  [
+                    option(value: '5.0', selected: s.geofenceRadius == 5.0, [Component.text('Within 5 km')]),
+                    option(value: '15.0', selected: s.geofenceRadius == 15.0, [Component.text('Within 15 km')]),
+                    option(
+                      value: '30.0',
+                      selected: s.geofenceRadius == 30.0,
+                      [Component.text('Within 30 km')],
+                    ),
+                    option(
+                      value: '50.0',
+                      selected: s.geofenceRadius == 50.0,
+                      [Component.text('Within 50 km')],
+                    ),
+                    option(
+                      value: '100.0',
+                      selected: s.geofenceRadius == 100.0,
+                      [Component.text('Within 100 km')],
+                    ),
+                    option(
+                      value: '9999.0',
+                      selected: s.geofenceRadius >= 999.0,
+                      [Component.text('Any Distance')],
+                    ),
+                  ],
+                ),
+              ]),
+              // Remote toggle
+              button(
+                classes:
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer '
+                    '${s.includeRemoteJobs ? "bg-indigo-600 border-indigo-500 text-white" : (isDark ? "bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 border-zinc-200 text-zinc-500 hover:bg-zinc-200")}',
+                events: {
+                  'click': (_) => s.setState(() => s.includeRemoteJobs = !s.includeRemoteJobs),
+                },
+                [
+                  lIcon('wifi', cls: 'w-3 h-3'),
+                  Component.text('Remote Gigs'),
+                ],
+              ),
+            ]),
+          ],
 
           div(classes: 'space-y-3', [
             if (s.isLoadingJobs)
@@ -183,6 +247,7 @@ class JobsViewComponent extends StatelessComponent {
 
   List<Map<String, dynamic>> _getFilteredJobs(List<Map<String, dynamic>> jobs, TranyxAppState s) {
     final isNyxian = s.currentViewMode == AccountType.nyxian;
+    final isBrowsePane = isNyxian && s.activeJobPane != 'active' && s.activeJobPane != 'history';
 
     // Apply the active tab/pane filter
     if (isNyxian) {
@@ -227,6 +292,53 @@ class JobsViewComponent extends StatelessComponent {
 
     if (!isNyxian) {
       return jobs;
+    }
+
+    // ── Geofence + Remote filter (browse pane only) ──────────────
+    if (isBrowsePane) {
+      jobs = jobs.where((j) {
+        final locationType = (j['locationType'] as String?)?.toLowerCase() ?? 'on-site';
+        final isRemote = locationType == 'remote';
+
+        if (isRemote) {
+          // Remote gigs: show only when includeRemoteJobs is enabled
+          return s.includeRemoteJobs;
+        } else {
+          // On-site gigs: apply geofence distance filter
+          final jobLat = (j['latitude'] as num?)?.toDouble();
+          final jobLng = (j['longitude'] as num?)?.toDouble();
+          if (jobLat == null || jobLng == null) {
+            // No coordinates stored — include if radius is broad enough
+            return s.geofenceRadius >= 999.0;
+          }
+          if (s.geofenceRadius < 999.0) {
+            final dist = calculateDistance(s.userLatitude, s.userLongitude, jobLat, jobLng);
+            return dist <= s.geofenceRadius;
+          }
+          return true;
+        }
+      }).toList();
+
+      // Sort: remote gigs last, on-site gigs sorted by distance (closest first)
+      jobs.sort((a, b) {
+        final aType = (a['locationType'] as String?)?.toLowerCase() ?? 'on-site';
+        final bType = (b['locationType'] as String?)?.toLowerCase() ?? 'on-site';
+        final aIsRemote = aType == 'remote';
+        final bIsRemote = bType == 'remote';
+
+        if (aIsRemote && !bIsRemote) return 1;
+        if (!aIsRemote && bIsRemote) return -1;
+        if (aIsRemote && bIsRemote) return 0;
+
+        // Both on-site: sort by distance
+        final aLat = (a['latitude'] as num?)?.toDouble() ?? s.userLatitude;
+        final aLng = (a['longitude'] as num?)?.toDouble() ?? s.userLongitude;
+        final bLat = (b['latitude'] as num?)?.toDouble() ?? s.userLatitude;
+        final bLng = (b['longitude'] as num?)?.toDouble() ?? s.userLongitude;
+        final aDist = calculateDistance(s.userLatitude, s.userLongitude, aLat, aLng);
+        final bDist = calculateDistance(s.userLatitude, s.userLongitude, bLat, bLng);
+        return aDist.compareTo(bDist);
+      });
     }
 
     if (s.activeJobFilter == 'All') return jobs;
@@ -364,6 +476,18 @@ class JobsViewComponent extends StatelessComponent {
     final locationType = j['locationType'] as String? ?? 'Remote';
     final dateReq = j['dateRequirement'] as String? ?? 'Flexible';
     final isUrgent = dateReq == 'On Date';
+    final isRemote = locationType.toLowerCase() == 'remote';
+
+    // Compute distance for on-site gigs
+    String? distanceLabel;
+    if (!isRemote) {
+      final jobLat = (j['latitude'] as num?)?.toDouble();
+      final jobLng = (j['longitude'] as num?)?.toDouble();
+      if (jobLat != null && jobLng != null) {
+        final dist = calculateDistance(s.userLatitude, s.userLongitude, jobLat, jobLng);
+        distanceLabel = dist < 1.0 ? '${(dist * 1000).round()} m away' : '${dist.toStringAsFixed(1)} km away';
+      }
+    }
 
     final badgeText = status == 'Open' ? dateReq.toUpperCase() : status.toUpperCase();
     final badgeCls = status == 'In Progress'
@@ -383,7 +507,24 @@ class JobsViewComponent extends StatelessComponent {
       div(classes: 'flex items-center justify-between', [
         div(classes: 'flex items-center gap-3 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
           span(classes: 'font-bold text-indigo-400 text-sm', [Component.text(rate)]),
-          div(classes: 'flex items-center gap-1', [lIcon('map-pin', cls: 'w-3 h-3'), Component.text(locationType)]),
+          if (isRemote)
+            span(
+              classes:
+                  'flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-indigo-500/15 text-indigo-400',
+              [lIcon('wifi', cls: 'w-3 h-3'), Component.text('Remote')],
+            )
+          else ...[
+            div(
+              classes: 'flex items-center gap-1',
+              [lIcon('map-pin', cls: 'w-3 h-3'), Component.text(locationType)],
+            ),
+            if (distanceLabel != null)
+              span(
+                classes:
+                    'flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-purple-500/15 text-purple-400',
+                [lIcon('navigation', cls: 'w-3 h-3'), Component.text(distanceLabel)],
+              ),
+          ],
         ]),
         button(
           classes: 'px-3 py-1.5 rounded-lg text-xs font-semibold logo-gradient text-white',
@@ -2164,6 +2305,35 @@ class _CreateJob extends StatelessComponent {
         value: s.priceRate,
         onChange: (v) => s.setState(() => s.priceRate = v),
       ),
+
+      // 48-Hour Inspection Holdback Checkbox
+      div(
+        classes:
+            'flex items-start gap-3 p-4 rounded-2xl border ${isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-150"}',
+        [
+          input(
+            type: InputType.checkbox,
+            classes: 'w-5 h-5 rounded-lg border-zinc-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer mt-0.5',
+            attributes: s.hasInspectionHoldback ? {'checked': 'true'} : {},
+            events: {
+              'change': (e) {
+                final val = (e.target as dynamic).checked as bool? ?? false;
+                s.setState(() => s.hasInspectionHoldback = val);
+              },
+            },
+          ),
+          div(classes: 'flex-1', [
+            p(classes: 'text-xs font-bold ${isDark ? "text-white" : "text-zinc-900"}', [
+              Component.text('Enable 48-Hour Inspection Holdback'),
+            ]),
+            p(classes: 'text-[10px] text-zinc-500 mt-0.5 leading-relaxed', [
+              Component.text(
+                'Holds 10% of the funds in escrow for 48 hours post-completion to verify services/appliances work before final release to protect your investment.',
+              ),
+            ]),
+          ]),
+        ],
+      ),
     ]);
   }
 }
@@ -2316,6 +2486,27 @@ class _ReviewApplicants extends StatelessComponent {
                           p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-650"}', [
                             Component.text('Standard Rate'),
                           ]),
+                        // Badges container
+                        div(classes: 'flex flex-wrap gap-1.5 mt-1.5', [
+                          if (app['isBonded'] == true)
+                            span(
+                              classes:
+                                  'px-2 py-0.5 rounded-lg text-[9px] font-bold bg-green-500/15 text-green-400 border border-green-500/25 flex items-center gap-0.5',
+                              [
+                                lIcon('shield-check', cls: 'w-2.5 h-2.5'),
+                                Component.text('Bonded & Protected'),
+                              ],
+                            ),
+                          if (app['certificationUrls'] != null && (app['certificationUrls'] as List).isNotEmpty)
+                            span(
+                              classes:
+                                  'px-2 py-0.5 rounded-lg text-[9px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 flex items-center gap-0.5',
+                              [
+                                lIcon('award', cls: 'w-2.5 h-2.5'),
+                                Component.text('Credentials Verified (${(app['certificationUrls'] as List).length})'),
+                              ],
+                            ),
+                        ]),
                       ]),
                     ],
                   ),
