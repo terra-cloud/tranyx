@@ -4,7 +4,54 @@ import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
 import 'package:shared/shared.dart';
-import '../../constants/category_data.dart';
+
+
+// ── Top-services computation helper ──────────────────────────────────────────
+/// Returns the top [limit] JobCategoryGroups ranked by how many jobs exist
+/// for each group in [allJobs]. Falls back to the first static groups when
+/// the list is empty.
+List<({JobCategoryGroup group, int count})> _computeTopGroups(
+  List<Map<String, dynamic>> allJobs, {
+  int limit = 4,
+}) {
+  // Tally jobs per category group
+  final tally = <String, int>{};
+  for (final job in allJobs) {
+    final raw = job['categoryGroup'] as String?;
+    if (raw != null && raw.isNotEmpty) {
+      tally[raw] = (tally[raw] ?? 0) + 1;
+    }
+  }
+
+  if (tally.isEmpty) {
+    // Fall back to first [limit] static groups with zero count
+    return JobCategoryGroup.values.take(limit).map((g) => (group: g, count: 0)).toList();
+  }
+
+  // Resolve to enum values and sort descending by count
+  final entries = tally.entries
+      .map((e) {
+        final grp = JobCategoryGroup.values.where((g) => g.name == e.key).firstOrNull;
+        if (grp == null) return null;
+        return (group: grp, count: e.value);
+      })
+      .whereType<({JobCategoryGroup group, int count})>()
+      .toList()
+    ..sort((grpA, grpB) => grpB.count.compareTo(grpA.count));
+
+  // Pad with unseen groups when fewer than [limit] distinct groups appear
+  if (entries.length < limit) {
+    final seen = entries.map((e) => e.group).toSet();
+    for (final g in JobCategoryGroup.values) {
+      if (!seen.contains(g)) {
+        entries.add((group: g, count: 0));
+      }
+      if (entries.length >= limit) break;
+    }
+  }
+
+  return entries.take(limit).toList();
+}
 
 class HomeViewComponent extends StatelessComponent {
   final TranyxAppState state;
@@ -83,32 +130,8 @@ class HomeViewComponent extends StatelessComponent {
       _ongoingWidget(isDark: isDark, isNyxian: isNyxian, s: s),
 
       if (isNyxian) ...[
-        // ── Top Services Grid ─────────────────────────────────
-        div([
-          div(classes: 'flex items-center justify-between mb-5', [
-            h2(classes: 'text-lg font-bold', [Component.text('Top Services')]),
-            button(
-              classes:
-                  'text-sm font-semibold ${isDark ? "text-indigo-400" : "text-indigo-600"} hover:underline flex items-center gap-1',
-              events: {'click': (_) => s.setState(() => s.showCategoryModal = true)},
-              [Component.text('See All'), lIcon('chevron-right', cls: 'w-4 h-4')],
-            ),
-          ]),
-          div(classes: 'grid grid-cols-2 md:grid-cols-4 gap-4', [
-            for (int i = 0; i < 4 && i < categoryMap.values.first.length; i++)
-              _categoryCard(
-                CategoryItem(
-                  id: categoryMap.values.first[i].id,
-                  label: categoryMap.values.first[i].label,
-                  icon: categoryMap.values.first[i].icon,
-                ),
-                isDark,
-                s,
-                i,
-                isNyxian,
-              ),
-          ]),
-        ]),
+        // ── Top Services Grid (Firebase-synced) ───────────────
+        _topServicesSection(isDark: isDark, s: s),
 
         // ── Transit Teaser ────────────────────────────────────
         _transitTeaser(isDark: isDark, onTap: () => s.switchTab(AppTab.transit)),
@@ -131,7 +154,7 @@ class HomeViewComponent extends StatelessComponent {
         _nearMeRentalsSection(
           title: '🏢 Real Estate Near Me',
           items: s.realtimeProperties
-              .where((p) => p.status == 'Available' && p.hostId != s.userProfile?.uid)
+              .where((prop) => prop.status == 'Available' && prop.hostId != s.userProfile?.uid)
               .take(4)
               .toList(),
           isProperty: true,
@@ -372,37 +395,99 @@ class HomeViewComponent extends StatelessComponent {
     }
   }
 
-  Component _categoryCard(CategoryItem cat, bool isDark, TranyxAppState s, int index, bool isNyxian) {
+  /// Renders the Firebase-synced Top Services grid for Nyxian home view.
+  Component _topServicesSection({required bool isDark, required TranyxAppState s}) {
+    final allJobs = [...s.availableJobs, ...s.myJobs];
+    final isLoading = s.isLoadingJobs && allJobs.isEmpty;
+    final topGroups = _computeTopGroups(allJobs);
+
+    final cardBase = isDark
+        ? 'bg-zinc-900 border-zinc-800'
+        : 'bg-white border-zinc-200 shadow-sm';
+
+    return div([
+      div(classes: 'flex items-center justify-between mb-5', [
+        div(classes: 'flex items-center gap-2', [
+          h2(classes: 'text-lg font-bold', [Component.text('Top Services')]),
+          if (!isLoading && allJobs.isNotEmpty)
+            span(
+              classes: 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/20',
+              [Component.text('LIVE')],
+            ),
+        ]),
+        button(
+          classes:
+              'text-sm font-semibold ${isDark ? "text-indigo-400" : "text-indigo-600"} hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer',
+          events: {'click': (_) => s.setState(() => s.showCategoryModal = true)},
+          [Component.text('See All'), lIcon('chevron-right', cls: 'w-4 h-4')],
+        ),
+      ]),
+
+      if (isLoading)
+        // Shimmer skeleton while jobs load
+        div(classes: 'grid grid-cols-2 md:grid-cols-4 gap-4', [
+          for (int i = 0; i < 4; i++)
+            div(
+              classes: 'animate-pulse rounded-2xl border $cardBase p-5 flex flex-col items-center gap-3',
+              [
+                div(classes: 'w-12 h-12 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', []),
+                div(classes: 'w-20 h-3 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-200"}', []),
+                div(classes: 'w-12 h-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-200"}', []),
+              ],
+            ),
+        ])
+      else
+        div(classes: 'grid grid-cols-2 md:grid-cols-4 gap-4', [
+          for (int i = 0; i < topGroups.length; i++)
+            _categoryGroupCard(topGroups[i].group, topGroups[i].count, isDark, s, i),
+        ]),
+    ]);
+  }
+
+  /// Renders a single category group card with a live job count badge.
+  Component _categoryGroupCard(
+    JobCategoryGroup group,
+    int jobCount,
+    bool isDark,
+    TranyxAppState s,
+    int index,
+  ) {
     final cardCls = isDark
         ? 'bg-zinc-900 border-zinc-800 hover:border-indigo-500/50'
         : 'bg-white border-zinc-200 shadow-sm hover:shadow-md';
+
     return button(
       classes:
-          'flex flex-col items-center justify-center gap-3 p-5 rounded-2xl border transition-all card-hover text-center stagger-${index + 1} animate-fade-up cursor-pointer bg-transparent $cardCls',
+          'relative flex flex-col items-center justify-center gap-3 p-5 rounded-2xl border transition-all card-hover text-center stagger-${index + 1} animate-fade-up cursor-pointer bg-transparent $cardCls',
       events: {
-        'click': (_) {
-          if (isNyxian) {
-            s.handleHomeSearch(cat.label);
-          } else {
-            s.selectedCategory = SelectedCategory(
-              id: cat.id,
-              label: cat.label,
-              iconName: cat.icon,
-              hasTracker: cat.hasTracker,
-              color: 'text-indigo-400',
-            );
-            s.showCategoryModal = true;
-          }
-        },
+        'click': (_) => s.handleHomeSearch(group.label),
       },
       [
+        // Live job count badge (only if > 0)
+        if (jobCount > 0)
+          div(
+            classes: 'absolute top-3 right-3 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500 text-white leading-tight',
+            [Component.text('$jobCount')],
+          ),
         div(classes: 'p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', [
-          lIcon(cat.icon, cls: 'w-6 h-6 text-indigo-400'),
+          lIcon(group.icon, cls: 'w-6 h-6 text-indigo-400'),
         ]),
-        span(classes: 'text-sm font-semibold', [Component.text(cat.label)]),
+        span(classes: 'text-sm font-semibold leading-tight', [Component.text(group.label)]),
+        if (jobCount > 0)
+          span(
+            classes: 'text-[10px] ${isDark ? "text-zinc-500" : "text-zinc-400"}',
+            [Component.text('$jobCount job${jobCount == 1 ? "" : "s"} open')],
+          )
+        else
+          span(
+            classes: 'text-[10px] ${isDark ? "text-zinc-600" : "text-zinc-400"}',
+            [Component.text('Browse')],
+          ),
       ],
     );
   }
+
+
 
   Component _transitTeaser({required bool isDark, required void Function() onTap}) {
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';

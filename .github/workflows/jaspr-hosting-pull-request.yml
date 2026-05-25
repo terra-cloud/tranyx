@@ -70,7 +70,7 @@ jobs:
           channelId: live
 
       - name: Deploy PR Preview (dev)
-        if: github.ref_name == 'develop'
+        if: github.base_ref != 'main' || github.base_ref != 'uat'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
