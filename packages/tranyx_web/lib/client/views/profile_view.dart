@@ -98,10 +98,21 @@ class _ProfileMenu extends StatelessComponent {
           ),
         ]),
         p(classes: 'font-bold text-lg', [Component.text(s.userName.isNotEmpty ? s.userName : 'User')]),
-        span(
-          classes: 'inline-block px-3 py-1 rounded-md text-xs font-bold mt-1 ${s.accountType.badgeClasses}',
-          [Component.text(s.accountType.label)],
-        ),
+        div(classes: 'flex justify-center gap-2 mt-1.5', [
+          span(
+            classes: 'inline-block px-3 py-1 rounded-md text-xs font-bold ${s.accountType.badgeClasses}',
+            [Component.text(s.accountType.label)],
+          ),
+          if (s.userProfile?.isBonded == true)
+            span(
+              classes:
+                  'inline-block px-3 py-1 rounded-md text-xs font-bold bg-green-500/15 text-green-400 border border-green-500/25 flex items-center gap-1',
+              [
+                lIcon('shield-check', cls: 'w-3.5 h-3.5'),
+                Component.text('Bonded & Protected'),
+              ],
+            ),
+        ]),
       ]),
 
       // Menu items
@@ -160,8 +171,7 @@ class _ProfileMain extends StatelessComponent {
 
       // Stats row
       div(
-        classes:
-            'grid grid-cols-2 md:grid-cols-${s.accountType == AccountType.employer ? "2" : "3"} gap-4',
+        classes: 'grid grid-cols-2 md:grid-cols-${s.accountType == AccountType.employer ? "2" : "3"} gap-4',
         [
           // Rating - Always shown
           _stat(
@@ -509,6 +519,71 @@ class _ProfessionalInfo extends StatelessComponent {
                   },
                 ),
               ]),
+            ]),
+          ]),
+
+          // ── Credential Upload Center ──
+          div(classes: 'border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} pt-4 space-y-3', [
+            span(classes: 'text-xs font-bold ${isDark ? "text-zinc-300" : "text-zinc-700"} flex items-center gap-1', [
+              lIcon('award', cls: 'w-4 h-4 text-indigo-400'),
+              Component.text('Professional Certifications & Licenses'),
+            ]),
+            p(classes: 'text-[10px] text-zinc-500 leading-relaxed', [
+              Component.text(
+                'Upload verified TESDA National Certificates, PRC Board IDs, or other professional credentials to display verified status badges on applicant cards.',
+              ),
+            ]),
+
+            // Render currently uploaded certificate links
+            if (s.userProfile?.certificationUrls != null && s.userProfile!.certificationUrls!.isNotEmpty)
+              div(classes: 'space-y-1.5', [
+                for (final url in s.userProfile!.certificationUrls!)
+                  div(
+                    classes:
+                        'flex items-center justify-between p-2 rounded-xl border ${isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-200"} text-xs',
+                    [
+                      a(href: url, target: Target.blank, classes: 'text-indigo-400 hover:underline truncate max-w-[70%]', [
+                        Component.text('Certificate Document ${s.userProfile!.certificationUrls!.indexOf(url) + 1}'),
+                      ]),
+                      span(
+                        classes:
+                            'text-[10px] font-bold text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded-lg border border-green-500/25',
+                        [
+                          Component.text('Verified'),
+                        ],
+                      ),
+                    ],
+                  ),
+              ]),
+
+            // Upload button
+            div(classes: 'relative mt-2', [
+              button(
+                classes:
+                    'w-full py-3 rounded-xl border border-dashed text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer '
+                    '${isDark ? "border-zinc-700 hover:border-zinc-500 text-zinc-400" : "border-zinc-300 hover:border-zinc-400 text-zinc-500"} transition-all',
+                [
+                  if (s.isUploadingCertificate)
+                    lIcon('loader-2', cls: 'w-4 h-4 animate-spin')
+                  else
+                    lIcon('upload-cloud', cls: 'w-4 h-4 text-indigo-400'),
+                  Component.text(
+                    s.isUploadingCertificate ? 'Uploading Document...' : 'Upload Certificate / ID (PDF/Image)',
+                  ),
+                ],
+              ),
+              input(
+                type: InputType.file,
+                classes: 'absolute inset-0 opacity-0 cursor-pointer',
+                attributes: {
+                  'accept': 'image/*,application/pdf',
+                  'id': 'certificate-upload-input',
+                  'name': 'certificate',
+                },
+                events: {
+                  'change': (e) => s.uploadCertification(e),
+                },
+              ),
             ]),
           ]),
         ]),
@@ -960,6 +1035,92 @@ class _TrustVerification extends StatelessComponent {
           onVerify: () => s.updateVerificationField(bg: true),
         ),
       ]),
+
+      // ── Skill Certifications ───────────────────────────────────────
+      if (s.accountType == AccountType.nyxian || s.accountType == AccountType.hybrid)
+        div(
+          classes:
+              'p-5 rounded-2xl border space-y-4 ${isDark ? "bg-zinc-900/40 border-zinc-800/80" : "bg-white border-zinc-200/60 shadow-sm"}',
+          [
+            div(classes: 'flex items-center justify-between', [
+              div(classes: 'flex items-center gap-2', [
+                div(
+                  classes: 'p-2 rounded-xl bg-yellow-500/10',
+                  [lIcon('award', cls: 'w-5 h-5 text-yellow-400')],
+                ),
+                div([
+                  p(classes: 'font-bold text-sm ${isDark ? "text-white" : "text-zinc-800"}', [
+                    Component.text('Skill Certifications'),
+                  ]),
+                  p(classes: 'text-[11px] ${isDark ? "text-zinc-500" : "text-zinc-550"}', [
+                    Component.text('Upload TESDA, PRC, or trade certificates to earn a Skill Certified badge'),
+                  ]),
+                ]),
+              ]),
+              if ((s.userProfile?.certificationUrls ?? []).isNotEmpty)
+                span(
+                  classes:
+                      'px-3 py-1 rounded-full text-xs font-bold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20',
+                  [Component.text('Skill Certified')],
+                ),
+            ]),
+
+            // Uploaded certificates
+            if ((s.userProfile?.certificationUrls ?? []).isNotEmpty)
+              div(classes: 'flex flex-wrap gap-2', [
+                for (final url in s.userProfile!.certificationUrls!)
+                  div(
+                    classes:
+                        'flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium '
+                        '${isDark ? "bg-zinc-800 border border-zinc-700 text-zinc-300" : "bg-zinc-50 border border-zinc-200 text-zinc-700"}',
+                    [
+                      lIcon('file-check', cls: 'w-3.5 h-3.5 text-green-400'),
+                      Component.text(
+                        url.split('/').last.split('?').first.length > 30
+                            ? '${url.split('/').last.split('?').first.substring(0, 28)}...'
+                            : url.split('/').last.split('?').first,
+                      ),
+                    ],
+                  ),
+              ]),
+
+            // Upload button
+            if ((s.userProfile?.certificationUrls ?? []).length < 3)
+              div(classes: 'relative', [
+                button(
+                  classes:
+                      'w-full py-3 rounded-xl border border-dashed text-sm font-semibold transition-colors flex items-center justify-center gap-2 '
+                      '${isDark ? "border-zinc-700 text-zinc-400 hover:border-yellow-500/50 hover:text-yellow-400" : "border-zinc-300 text-zinc-500 hover:border-yellow-500 hover:text-yellow-600"}',
+                  events: {},
+                  [
+                    if (s.isUploadingCertificate)
+                      lIcon('loader-2', cls: 'w-4 h-4 animate-spin')
+                    else
+                      lIcon('upload', cls: 'w-4 h-4'),
+                    Component.text(s.isUploadingCertificate ? 'Uploading...' : 'Upload Certificate (PDF or Image)'),
+                  ],
+                ),
+                input(
+                  type: InputType.file,
+                  classes: 'absolute inset-0 opacity-0 cursor-pointer',
+                  attributes: {
+                    'accept': 'image/*,application/pdf',
+                    'id': 'cert-upload-input',
+                    'name': 'certification_file',
+                  },
+                  events: {
+                    'change': (e) => s.uploadCertification(e),
+                  },
+                ),
+              ]),
+
+            p(classes: 'text-[10px] ${isDark ? "text-zinc-600" : "text-zinc-400"}', [
+              Component.text(
+                'Max 3 files • Supported: JPG, PNG, PDF • Admin review may be required for some certifications',
+              ),
+            ]),
+          ],
+        ),
     ]);
   }
 }
@@ -1674,7 +1835,7 @@ class _HistoryViewState extends State<_HistoryView> {
         final title = '${rental.year} ${rental.brand} ${rental.model}';
         final price = rental.totalCost ?? 0.0;
         final createdAtMs = rental.createdAt.millisecondsSinceEpoch;
-        
+
         // If the user was the host -> earnings
         if (creatorId == uid) {
           final payout = price * 0.95; // 5% host commission fee deducted
@@ -1736,13 +1897,13 @@ class _HistoryViewState extends State<_HistoryView> {
       final title = '${rental.year} ${rental.brand} ${rental.model}';
       final price = rental.totalCost ?? 0.0;
       final createdAtMs = rental.createdAt.millisecondsSinceEpoch;
-      
+
       // If the user was the host -> earnings
       if (creatorId == uid) {
         final payout = price * 0.95; // 5% host commission fee deducted
         earningsSum += payout;
         gigsCount++;
-        
+
         final alreadyAdded = eTrans.any((e) => e['timestamp'] == createdAtMs && e['title'] == title);
         if (!alreadyAdded) {
           eTrans.add({
@@ -1949,8 +2110,14 @@ class _HistoryViewState extends State<_HistoryView> {
 
     final hasPurchaseHistory = purchaseTransactions.isNotEmpty;
     final showEarnings = (type == AccountType.nyxian || type == AccountType.hybrid);
-    final showPurchases = (type == AccountType.employer || type == AccountType.hybrid || (type == AccountType.nyxian && hasPurchaseHistory));
-    final showDeposits = (type == AccountType.employer || type == AccountType.hybrid || (type == AccountType.nyxian && hasPurchaseHistory));
+    final showPurchases =
+        (type == AccountType.employer ||
+        type == AccountType.hybrid ||
+        (type == AccountType.nyxian && hasPurchaseHistory));
+    final showDeposits =
+        (type == AccountType.employer ||
+        type == AccountType.hybrid ||
+        (type == AccountType.nyxian && hasPurchaseHistory));
 
     final activeData = earningsData[activeFilter] ?? [];
     double totalEarnedInFilter = 0.0;
@@ -2169,12 +2336,14 @@ class _HistoryViewState extends State<_HistoryView> {
                         ]),
                         p(classes: 'text-xs text-amber-500/80 mt-0.5', [
                           lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
-                          Component.text('Platform fee (3%): − ${formatCurrency((tx['bookingFee'] as num).toDouble())}'),
+                          Component.text(
+                            'Platform fee (3%): − ${formatCurrency((tx['bookingFee'] as num).toDouble())}',
+                          ),
                         ]),
                       ],
                     ]),
                   ]),
-                   div(classes: 'text-right', [
+                  div(classes: 'text-right', [
                     p(classes: 'font-black text-sm ${isDark ? "text-zinc-100" : "text-zinc-900"}', [
                       Component.text('− ${formatCurrency((tx['amount'] as num).toDouble())}'),
                     ]),
@@ -2217,7 +2386,7 @@ class _HistoryViewState extends State<_HistoryView> {
                       ]),
                     ]),
                   ]),
-                   div(classes: 'text-right', [
+                  div(classes: 'text-right', [
                     p(classes: 'font-black text-sm text-indigo-400', [
                       Component.text('+ ${formatCurrency((tx['amount'] as num).toDouble())}'),
                     ]),

@@ -81,9 +81,9 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
     if (!_mapInitialized) return;
     final lat = (r['trackingLat'] as num?)?.toDouble() ?? (r['pickupLat'] as num?)?.toDouble() ?? 14.5995;
     final lng = (r['trackingLng'] as num?)?.toDouble() ?? (r['pickupLng'] as num?)?.toDouble() ?? 120.9842;
-    
+
     setMarker(_mapId, 'vehicle', lat, lng, '🚗 ${r['brand']} ${r['model']} (${r['status']})');
-    
+
     if (forceRecenter || lat != _lastLat || lng != _lastLng) {
       _lastLat = lat;
       _lastLng = lng;
@@ -143,7 +143,7 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
     final currentUid = component.appState.userProfile?.uid;
     final isHost = r['hostId'] == currentUid;
     final isRentee = r['renteeId'] == currentUid;
-    
+
     final status = r['status'] as String? ?? 'Unknown';
     final model = r['model'] ?? 'Unknown';
     final brand = r['brand'] ?? 'Unknown';
@@ -157,18 +157,19 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
       _updateMarkersAndRecenter(r);
     }
 
-    final showCancelButton = (isRentee && status == 'Booked') ||
-                             (isHost && (status == 'Booked' || status == 'On the way to Rentee'));
+    final showCancelButton =
+        (isRentee && status == 'Booked') || (isHost && (status == 'Booked' || status == 'On the way to Rentee'));
 
-    return div(
-      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
-      [
-        div(
-          classes:
-              'w-full max-w-3xl h-[85vh] rounded-3xl shadow-2xl relative flex flex-col overflow-hidden ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
-          [
-            // Header
-            div(classes: 'absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent', [
+    return div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in', [
+      div(
+        classes:
+            'w-full max-w-3xl h-[85vh] rounded-3xl shadow-2xl relative flex flex-col overflow-hidden ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
+        [
+          // Header
+          div(
+            classes:
+                'absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent',
+            [
               div([
                 h2(classes: 'text-xl font-bold text-white', [Component.text('Live Tracking')]),
                 p(classes: 'text-sm text-zinc-300', [Component.text('$brand $model • $status')]),
@@ -176,24 +177,30 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
               ]),
               button(
                 classes: 'p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors',
-                events: {'click': (e) => component.appState.setState(() {
-                  component.appState.showRentalTrackerMap = false;
-                  component.appState.selectedRentalData = null;
-                })},
+                events: {
+                  'click': (e) => component.appState.setState(() {
+                    component.appState.showRentalTrackerMap = false;
+                    component.appState.selectedRentalData = null;
+                  }),
+                },
                 [lIcon('x', cls: 'w-6 h-6')],
               ),
-            ]),
+            ],
+          ),
 
-            // Real Map Area using MapContainer
-            div(classes: 'flex-1 relative w-full h-full min-h-[300px]', [
-              MapContainer(
-                id: _mapId,
-                classes: 'w-full h-full',
-              ),
-            ]),
+          // Real Map Area using MapContainer
+          div(classes: 'flex-1 relative w-full h-full min-h-[300px]', [
+            MapContainer(
+              id: _mapId,
+              classes: 'w-full h-full',
+            ),
+          ]),
 
-            // Action Card (Bottom)
-            div(classes: 'relative z-20 p-6 rounded-t-3xl ${isDark ? "bg-zinc-900" : "bg-white"} shadow-[0_-10px_40px_rgba(0,0,0,0.1)]', [
+          // Action Card (Bottom)
+          div(
+            classes:
+                'relative z-20 p-6 rounded-t-3xl ${isDark ? "bg-zinc-900" : "bg-white"} shadow-[0_-10px_40px_rgba(0,0,0,0.1)]',
+            [
               if (_showConfirmCancel) ...[
                 div(classes: 'mb-4 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-sm flex flex-col gap-3', [
                   div(classes: 'flex items-center gap-2 text-red-400 font-bold', [
@@ -201,115 +208,142 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
                     span([Component.text('Confirm Cancellation')]),
                   ]),
                   p(classes: 'text-zinc-400 text-xs', [
-                    Component.text(isRentee
-                        ? 'Are you sure you want to cancel this booking? Note that the 3% platform booking fee (₱${((r["totalCost"] as num? ?? 0.0) * 0.03).toStringAsFixed(2)}) is non-refundable.'
-                        : 'Are you sure you want to cancel this booking? The renter will be refunded their rental payment.')
+                    Component.text(
+                      isRentee
+                          ? 'Are you sure you want to cancel this booking? Note that the 3% platform booking fee (₱${((r["totalCost"] as num? ?? 0.0) * 0.03).toStringAsFixed(2)}) is non-refundable.'
+                          : 'Are you sure you want to cancel this booking? The renter will be refunded their rental payment.',
+                    ),
                   ]),
                   div(classes: 'flex items-center gap-2 mt-1', [
                     button(
-                      classes: 'px-4 py-2 rounded-xl bg-red-500 text-white font-bold text-xs hover:bg-red-600 transition-colors',
+                      classes:
+                          'px-4 py-2 rounded-xl bg-red-500 text-white font-bold text-xs hover:bg-red-600 transition-colors',
                       events: {'click': (_) => _handleCancelRental(r['id'])},
                       disabled: _isUpdating,
                       [Component.text('Yes, Cancel Booking')],
                     ),
                     button(
-                      classes: 'px-4 py-2 rounded-xl border border-zinc-700 text-zinc-400 hover:text-white font-bold text-xs transition-colors',
+                      classes:
+                          'px-4 py-2 rounded-xl border border-zinc-700 text-zinc-400 hover:text-white font-bold text-xs transition-colors',
                       events: {'click': (_) => setState(() => _showConfirmCancel = false)},
                       disabled: _isUpdating,
                       [Component.text('No, Keep Booking')],
                     ),
                   ]),
-                ])
+                ]),
               ] else ...[
                 div(classes: 'flex items-center justify-between mb-6', [
                   div([
-                    p(classes: 'text-xs font-bold tracking-wider uppercase text-purple-500 mb-1', [Component.text('Status')]),
+                    p(classes: 'text-xs font-bold tracking-wider uppercase text-purple-500 mb-1', [
+                      Component.text('Status'),
+                    ]),
                     h3(classes: 'text-2xl font-black', [Component.text(status)]),
                   ]),
-                  if (_isUpdating)
-                    lIcon('loader', cls: 'w-6 h-6 animate-spin text-purple-500'),
+                  if (_isUpdating) lIcon('loader', cls: 'w-6 h-6 animate-spin text-purple-500'),
                 ]),
-                
+
                 // Address details card
                 div(classes: 'mb-6 p-4 rounded-2xl bg-zinc-800/30 border border-zinc-800 text-xs flex flex-col gap-1', [
-                  span(classes: 'font-bold text-purple-400 uppercase tracking-wider text-[10px]', [Component.text(addressLabel)]),
+                  span(classes: 'font-bold text-purple-400 uppercase tracking-wider text-[10px]', [
+                    Component.text(addressLabel),
+                  ]),
                   span(classes: 'text-sm font-semibold', [Component.text(addressValue)]),
                 ]),
-                
+
                 // Progress Bar
                 div(classes: 'w-full h-2 bg-zinc-800 rounded-full mb-6 overflow-hidden', [
-                  div(classes: 'h-full bg-purple-500 transition-all duration-1000', attributes: {
-                    'style': 'width: ${_getProgressWidth(status)}%'
-                  }, [])
+                  div(
+                    classes: 'h-full bg-purple-500 transition-all duration-1000',
+                    attributes: {'style': 'width: ${_getProgressWidth(status)}%'},
+                    [],
+                  ),
                 ]),
 
                 // Action Buttons based on Status
                 div(classes: 'flex items-center gap-3', [
                   if (isHost && status == 'Booked')
                     button(
-                      classes: 'flex-1 py-3 rounded-xl font-bold text-white bg-purple-600 hover:bg-purple-700 transition-colors',
+                      classes:
+                          'flex-1 py-3 rounded-xl font-bold text-white bg-purple-600 hover:bg-purple-700 transition-colors',
                       events: {'click': (_) => _updateStatus('On the way to Rentee')},
-                      [Component.text(rentalType == 'deliver' ? 'Start Delivery (On the way)' : 'Start Rental')]
+                      [Component.text(rentalType == 'deliver' ? 'Start Delivery (On the way)' : 'Start Rental')],
                     ),
-                    
+
                   if (isHost && status == 'On the way to Rentee')
                     button(
-                      classes: 'flex-1 py-3 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700 transition-colors',
+                      classes:
+                          'flex-1 py-3 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700 transition-colors',
                       events: {'click': (_) => _updateStatus('Ongoing')},
-                      [Component.text('Handed Over (Ongoing)')]
+                      [Component.text('Handed Over (Ongoing)')],
                     ),
-                    
+
                   if (isRentee && status == 'Ongoing') ...[
                     button(
-                      classes: 'flex-1 py-3 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors',
+                      classes:
+                          'flex-1 py-3 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors',
                       events: {'click': (_) => _updateStatus('Returning')},
-                      [Component.text('Start Return Trip')]
+                      [Component.text('Start Return Trip')],
                     ),
                     button(
-                      classes: 'py-3 px-4 rounded-xl font-bold text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 transition-colors',
-                      events: {'click': (_) => component.appState.setState(() => component.appState.showExtendRentalModal = true)},
-                      [Component.text('Extend')]
+                      classes:
+                          'py-3 px-4 rounded-xl font-bold text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 transition-colors',
+                      events: {
+                        'click': (_) =>
+                            component.appState.setState(() => component.appState.showExtendRentalModal = true),
+                      },
+                      [Component.text('Extend')],
                     ),
                   ],
-                  
+
                   if (isHost && status == 'Returning')
                     button(
-                      classes: 'flex-1 py-3 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700 transition-colors',
+                      classes:
+                          'flex-1 py-3 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700 transition-colors',
                       events: {'click': (_) => _updateStatus('Complete')},
-                      [Component.text('Confirm Vehicle Returned')]
+                      [Component.text('Confirm Vehicle Returned')],
                     ),
-                    
+
                   if (status == 'Complete')
-                    div(classes: 'flex-1 p-3 rounded-xl text-center bg-green-500/10 border border-green-500/20 text-green-500 font-bold', [
-                      Component.text('Rental Completed')
-                    ]),
+                    div(
+                      classes:
+                          'flex-1 p-3 rounded-xl text-center bg-green-500/10 border border-green-500/20 text-green-500 font-bold',
+                      [Component.text('Rental Completed')],
+                    ),
 
                   if (showCancelButton)
                     button(
-                      classes: 'px-4 py-3 rounded-xl font-bold text-red-500 border border-red-500/20 hover:bg-red-500/10 transition-all flex-shrink-0',
+                      classes:
+                          'px-4 py-3 rounded-xl font-bold text-red-500 border border-red-500/20 hover:bg-red-500/10 transition-all flex-shrink-0',
                       events: {'click': (_) => setState(() => _showConfirmCancel = true)},
                       [
                         lIcon('trash-2', cls: 'w-5 h-5'),
                       ],
                     ),
                 ]),
-              ]
-            ]),
-          ]
-        )
-      ]
-    );
+              ],
+            ],
+          ),
+        ],
+      ),
+    ]);
   }
 
   int _getProgressWidth(String status) {
     switch (status) {
-      case 'Available': return 0;
-      case 'Booked': return 25;
-      case 'On the way to Rentee': return 50;
-      case 'Ongoing': return 75;
-      case 'Returning': return 90;
-      case 'Complete': return 100;
-      default: return 0;
+      case 'Available':
+        return 0;
+      case 'Booked':
+        return 25;
+      case 'On the way to Rentee':
+        return 50;
+      case 'Ongoing':
+        return 75;
+      case 'Returning':
+        return 90;
+      case 'Complete':
+        return 100;
+      default:
+        return 0;
     }
   }
 }

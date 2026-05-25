@@ -10,6 +10,26 @@ class SessionStorage {
   static bool get hasSession => false;
   static void clear() {}
   static void updateIdToken(String token) {}
+
+  static String? get pendingQrJobId => null;
+  static set pendingQrJobId(String? val) {}
+  static String? get pendingQrCode => null;
+  static set pendingQrCode(String? val) {}
+
+  static String? get pendingXenditInvoiceId => null;
+  static set pendingXenditInvoiceId(String? val) {}
+  static double get pendingXenditInvoiceAmount => 0.0;
+  static set pendingXenditInvoiceAmount(double val) {}
+  static Map<String, dynamic>? get pendingPropertyBookingData => null;
+  static set pendingPropertyBookingData(Map<String, dynamic>? val) {}
+  static Map<String, dynamic>? get pendingVehicleBookingData => null;
+  static set pendingVehicleBookingData(Map<String, dynamic>? val) {}
+  static String? get pendingJobId => null;
+  static set pendingJobId(String? val) {}
+  static Map<String, dynamic>? get pendingApplicantData => null;
+  static set pendingApplicantData(Map<String, dynamic>? val) {}
+  static String? get offlineLocationBuffer => null;
+  static set offlineLocationBuffer(String? val) {}
 }
 
 String getHostname() => 'localhost';
@@ -29,6 +49,10 @@ bool isPhantomInstalled() => false;
 Future<String?> getPhantomPublicKeyIfConnected() async => null;
 
 Future<double?> getSolanaBalance(String publicKey) async => null;
+
+Future<String?> sendSolanaPayment(String fromAddress, String toAddress, double amountInSol) async => null;
+
+Future<String?> sendUsdcPayment(String fromAddress, String toAddress, double amountInUsdc) async => null;
 
 Future<String?> signInWithGoogleJs(Map<String, String> config) async => null;
 
@@ -83,3 +107,7 @@ void listenToPropertiesJs(void Function(String) callback) {}
 void stopListeningToPropertiesJs() {}
 void listenToPropertyDetailsJs(String propertyId, void Function(String) callback) {}
 void stopListeningToPropertyDetailsJs() {}
+
+String getUrlOrigin() => 'http://localhost:8080';
+Map<String, String> getUrlQueryParams() => const {};
+void clearUrlParams() {}

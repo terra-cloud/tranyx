@@ -1,4 +1,5 @@
 import 'dart:js_interop_unsafe';
+import 'dart:convert';
 
 import 'package:web/web.dart' as web;
 import 'dart:typed_data';
@@ -113,6 +114,38 @@ Future<double?> getSolanaBalance(String publicKey) async {
   }
 }
 
+Future<String?> sendSolanaPayment(String fromAddress, String toAddress, double amountInSol) async {
+  try {
+    final res = await web.window
+        .callMethod<JSPromise>(
+          'sendSolPayment'.toJS,
+          fromAddress.toJS,
+          toAddress.toJS,
+          amountInSol.toJS,
+        )
+        .toDart;
+    return (res as JSString).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<String?> sendUsdcPayment(String fromAddress, String toAddress, double amountInUsdc) async {
+  try {
+    final res = await web.window
+        .callMethod<JSPromise>(
+          'sendUsdcPayment'.toJS,
+          fromAddress.toJS,
+          toAddress.toJS,
+          amountInUsdc.toJS,
+        )
+        .toDart;
+    return (res as JSString).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
 // ── Session Storage ───────────────────────────────────────────────────────────
 
 class SessionStorage {
@@ -122,6 +155,16 @@ class SessionStorage {
   static const _nam = 'tranyx_name';
   static const _eml = 'tranyx_email';
   static const _act = 'tranyx_account_type';
+  static const _qrJobId = 'tranyx_pending_qr_job_id';
+  static const _qrCode = 'tranyx_pending_qr_code';
+
+  static const _xenditInvoiceId = 'tranyx_pending_xendit_invoice_id';
+  static const _xenditInvoiceAmount = 'tranyx_pending_xendit_invoice_amount';
+  static const _pendingPropertyBooking = 'tranyx_pending_property_booking';
+  static const _pendingVehicleBooking = 'tranyx_pending_vehicle_booking';
+  static const _pendingJobId = 'tranyx_pending_job_id';
+  static const _pendingApplicantData = 'tranyx_pending_applicant_data';
+  static const _locationBuffer = 'tranyx_offline_location_buffer';
 
   static void save(dynamic auth) {
     web.window.localStorage.setItem(_uid, auth.uid as String);
@@ -145,14 +188,135 @@ class SessionStorage {
   static String? get accountType => web.window.localStorage.getItem(_act);
   static bool get hasSession => uid != null && idToken != null;
 
+  static String? get pendingQrJobId => web.window.localStorage.getItem(_qrJobId);
+  static set pendingQrJobId(String? val) {
+    if (val != null) {
+      web.window.localStorage.setItem(_qrJobId, val);
+    } else {
+      web.window.localStorage.removeItem(_qrJobId);
+    }
+  }
+
+  static String? get pendingQrCode => web.window.localStorage.getItem(_qrCode);
+  static set pendingQrCode(String? val) {
+    if (val != null) {
+      web.window.localStorage.setItem(_qrCode, val);
+    } else {
+      web.window.localStorage.removeItem(_qrCode);
+    }
+  }
+
+  static String? get pendingXenditInvoiceId => web.window.localStorage.getItem(_xenditInvoiceId);
+  static set pendingXenditInvoiceId(String? val) {
+    if (val != null) {
+      web.window.localStorage.setItem(_xenditInvoiceId, val);
+    } else {
+      web.window.localStorage.removeItem(_xenditInvoiceId);
+    }
+  }
+
+  static double get pendingXenditInvoiceAmount {
+    final s = web.window.localStorage.getItem(_xenditInvoiceAmount);
+    return s != null ? (double.tryParse(s) ?? 0.0) : 0.0;
+  }
+
+  static set pendingXenditInvoiceAmount(double val) {
+    web.window.localStorage.setItem(_xenditInvoiceAmount, val.toString());
+  }
+
+  static Map<String, dynamic>? get pendingPropertyBookingData {
+    final s = web.window.localStorage.getItem(_pendingPropertyBooking);
+    if (s == null) return null;
+    try {
+      return jsonDecode(s) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static set pendingPropertyBookingData(Map<String, dynamic>? val) {
+    if (val != null) {
+      web.window.localStorage.setItem(_pendingPropertyBooking, jsonEncode(val));
+    } else {
+      web.window.localStorage.removeItem(_pendingPropertyBooking);
+    }
+  }
+
+  static Map<String, dynamic>? get pendingVehicleBookingData {
+    final s = web.window.localStorage.getItem(_pendingVehicleBooking);
+    if (s == null) return null;
+    try {
+      return jsonDecode(s) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static set pendingVehicleBookingData(Map<String, dynamic>? val) {
+    if (val != null) {
+      web.window.localStorage.setItem(_pendingVehicleBooking, jsonEncode(val));
+    } else {
+      web.window.localStorage.removeItem(_pendingVehicleBooking);
+    }
+  }
+
+  static String? get pendingJobId => web.window.localStorage.getItem(_pendingJobId);
+  static set pendingJobId(String? val) {
+    if (val != null) {
+      web.window.localStorage.setItem(_pendingJobId, val);
+    } else {
+      web.window.localStorage.removeItem(_pendingJobId);
+    }
+  }
+
+  static Map<String, dynamic>? get pendingApplicantData {
+    final s = web.window.localStorage.getItem(_pendingApplicantData);
+    if (s == null) return null;
+    try {
+      return jsonDecode(s) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static set pendingApplicantData(Map<String, dynamic>? val) {
+    if (val != null) {
+      web.window.localStorage.setItem(_pendingApplicantData, jsonEncode(val));
+    } else {
+      web.window.localStorage.removeItem(_pendingApplicantData);
+    }
+  }
+
   static void clear() {
-    for (final k in [_uid, _tok, _ref, _nam, _eml, _act]) {
+    for (final k in [
+      _uid,
+      _tok,
+      _ref,
+      _nam,
+      _eml,
+      _act,
+      _xenditInvoiceId,
+      _xenditInvoiceAmount,
+      _pendingPropertyBooking,
+      _pendingVehicleBooking,
+      _pendingJobId,
+      _pendingApplicantData,
+    ]) {
       web.window.localStorage.removeItem(k);
     }
   }
 
   static void updateIdToken(String token) {
     web.window.localStorage.setItem(_tok, token);
+  }
+
+  static String? get offlineLocationBuffer => web.window.localStorage.getItem(_locationBuffer);
+  static set offlineLocationBuffer(String? val) {
+    if (val != null) {
+      web.window.localStorage.setItem(_locationBuffer, val);
+    } else {
+      web.window.localStorage.removeItem(_locationBuffer);
+    }
   }
 }
 
@@ -255,12 +419,14 @@ String sendChatMessageJs(String chatId, String senderId, String senderName, Stri
 
 Future<String?> uploadChatPhotoJs(String chatId, String base64Data, String mimeType) async {
   try {
-    final result = await web.window.callMethod<JSPromise>(
-      'uploadChatPhoto'.toJS,
-      chatId.toJS,
-      base64Data.toJS,
-      mimeType.toJS,
-    ).toDart;
+    final result = await web.window
+        .callMethod<JSPromise>(
+          'uploadChatPhoto'.toJS,
+          chatId.toJS,
+          base64Data.toJS,
+          mimeType.toJS,
+        )
+        .toDart;
     if (result == null) return null;
     return (result as JSString).toDart;
   } catch (_) {
@@ -382,7 +548,9 @@ void answerRentalQuestionJs(String rentalId, String questionId, String answerTex
   try {
     web.window.callMethod(
       'answerRentalQuestion'.toJS,
-      rentalId.toJS, questionId.toJS, answerText.toJS,
+      rentalId.toJS,
+      questionId.toJS,
+      answerText.toJS,
     );
   } catch (_) {}
 }
@@ -415,7 +583,9 @@ void answerPropertyQuestionJs(String propertyId, String questionId, String answe
   try {
     web.window.callMethod(
       'answerPropertyQuestion'.toJS,
-      propertyId.toJS, questionId.toJS, answerText.toJS,
+      propertyId.toJS,
+      questionId.toJS,
+      answerText.toJS,
     );
   } catch (_) {}
 }
@@ -455,5 +625,33 @@ void stopListeningToPropertyDetailsJs() {
   try {
     _propertyDetailsUnsub?.callAsFunction();
     _propertyDetailsUnsub = null;
+  } catch (_) {}
+}
+
+String getUrlOrigin() => web.window.location.origin;
+
+Map<String, String> getUrlQueryParams() {
+  try {
+    final href = web.window.location.href;
+    final queryStart = href.indexOf('?');
+    if (queryStart != -1) {
+      final queryString = href.substring(queryStart + 1);
+      final cleanQuery = queryString.contains('#') ? queryString.substring(0, queryString.indexOf('#')) : queryString;
+      return Uri.splitQueryString(cleanQuery);
+    }
+    return const {};
+  } catch (_) {
+    return const {};
+  }
+}
+
+void clearUrlParams() {
+  try {
+    final href = web.window.location.href;
+    final queryStart = href.indexOf('?');
+    if (queryStart != -1) {
+      final newUrl = href.substring(0, queryStart);
+      web.window.history.replaceState(null, '', newUrl);
+    }
   } catch (_) {}
 }

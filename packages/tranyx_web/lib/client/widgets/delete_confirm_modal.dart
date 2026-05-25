@@ -56,7 +56,9 @@ class DeleteConfirmModalComponent extends StatelessComponent {
                   ]),
                 ]),
                 p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"} mt-1 leading-normal', [
-                  Component.text('The escrow funds will be immediately refunded back to your wallet balance upon deletion.'),
+                  Component.text(
+                    'The escrow funds will be immediately refunded back to your wallet balance upon deletion.',
+                  ),
                 ]),
               ],
             ),
@@ -67,9 +69,7 @@ class DeleteConfirmModalComponent extends StatelessComponent {
                 classes: s.isUpdatingJobStatus
                     ? 'w-full py-4 rounded-2xl font-bold text-white bg-red-500/50 cursor-not-allowed text-center'
                     : 'w-full py-4 rounded-2xl font-bold text-white bg-red-600 hover:bg-red-500 transition-colors flex items-center justify-center gap-2',
-                events: s.isUpdatingJobStatus
-                    ? {}
-                    : {'click': (_) => s.handleDeletePosting(jobId)},
+                events: s.isUpdatingJobStatus ? {} : {'click': (_) => s.handleDeletePosting(jobId)},
                 [
                   if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
                   Component.text(s.isUpdatingJobStatus ? 'Deleting...' : 'Delete & Refund Escrow'),

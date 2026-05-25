@@ -119,7 +119,10 @@ class HomeViewComponent extends StatelessComponent {
         // Employer view: Proximity-sorted rentals carousels
         _nearMeRentalsSection(
           title: '🚗 Vehicles Near Me',
-          items: s.realtimeRentals.where((r) => r['status'] == 'Available' && r['hostId'] != s.userProfile?.uid).take(4).toList(),
+          items: s.realtimeRentals
+              .where((r) => r['status'] == 'Available' && r['hostId'] != s.userProfile?.uid)
+              .take(4)
+              .toList(),
           isProperty: false,
           isDark: isDark,
           s: s,
@@ -127,12 +130,15 @@ class HomeViewComponent extends StatelessComponent {
 
         _nearMeRentalsSection(
           title: '🏢 Real Estate Near Me',
-          items: s.realtimeProperties.where((p) => p.status == 'Available' && p.hostId != s.userProfile?.uid).take(4).toList(),
+          items: s.realtimeProperties
+              .where((p) => p.status == 'Available' && p.hostId != s.userProfile?.uid)
+              .take(4)
+              .toList(),
           isProperty: true,
           isDark: isDark,
           s: s,
         ),
-      ]
+      ],
     ]);
   }
 
@@ -246,34 +252,35 @@ class HomeViewComponent extends StatelessComponent {
       div(classes: 'flex items-center justify-between mb-4', [
         h2(classes: 'text-lg font-bold $headerCls', [Component.text(title)]),
         button(
-          classes: 'text-sm font-semibold text-indigo-400 hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer',
+          classes:
+              'text-sm font-semibold text-indigo-400 hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer',
           events: {
             'click': (_) {
               s.setState(() {
                 s.activeTab = AppTab.transit;
                 s.activeRentalCategory = isProperty ? RentalCategory.properties : RentalCategory.vehicles;
               });
-            }
+            },
           },
           [Component.text('View All'), lIcon('chevron-right', cls: 'w-4 h-4')],
         ),
       ]),
       if (items.isEmpty)
         div(
-          classes: 'p-8 rounded-2xl border border-dashed border-zinc-800 text-zinc-500 bg-zinc-900/10 text-center font-medium text-sm',
-          [Component.text('No listings available near you.')]
+          classes:
+              'p-8 rounded-2xl border border-dashed border-zinc-800 text-zinc-500 bg-zinc-900/10 text-center font-medium text-sm',
+          [Component.text('No listings available near you.')],
         )
       else
         div(classes: 'grid grid-cols-2 lg:grid-cols-4 gap-4', [
-          for (final item in items)
-            _nearMeCard(item, isProperty, isDark, s)
+          for (final item in items) _nearMeCard(item, isProperty, isDark, s),
         ]),
     ]);
   }
 
   Component _nearMeCard(dynamic item, bool isProperty, bool isDark, TranyxAppState s) {
-    final cardCls = isDark 
-        ? "bg-zinc-900 border-zinc-800 hover:border-purple-500/40" 
+    final cardCls = isDark
+        ? "bg-zinc-900 border-zinc-800 hover:border-purple-500/40"
         : "bg-white border-zinc-200 shadow-sm hover:shadow-md";
 
     if (isProperty) {
@@ -283,10 +290,12 @@ class HomeViewComponent extends StatelessComponent {
 
       return div(
         classes: 'p-4 rounded-2xl border transition-all cursor-pointer $cardCls',
-        events: {'click': (_) => s.setState(() {
-          s.selectedPropertyData = prop.toMap();
-          s.showBookPropertyModal = true;
-        })},
+        events: {
+          'click': (_) => s.setState(() {
+            s.selectedPropertyData = prop.toMap();
+            s.showBookPropertyModal = true;
+          }),
+        },
         [
           div(
             classes: 'aspect-video w-full rounded-xl mb-3 overflow-hidden bg-zinc-800 relative',
@@ -294,13 +303,19 @@ class HomeViewComponent extends StatelessComponent {
               if (hasPhoto)
                 img(src: prop.photoUrls.first, classes: 'w-full h-full object-cover', attributes: {'alt': prop.title})
               else
-                div(classes: 'w-full h-full flex items-center justify-center bg-zinc-850', [lIcon('home', cls: 'w-8 h-8 text-zinc-650')]),
+                div(classes: 'w-full h-full flex items-center justify-center bg-zinc-850', [
+                  lIcon('home', cls: 'w-8 h-8 text-zinc-650'),
+                ]),
             ],
           ),
           h4(classes: 'font-bold text-sm line-clamp-1 text-zinc-200', [Component.text(prop.title)]),
-          p(classes: 'text-[10px] text-zinc-500 mt-1 capitalize', [Component.text('${prop.category.name} • ${prop.type.name}')]),
+          p(classes: 'text-[10px] text-zinc-500 mt-1 capitalize', [
+            Component.text('${prop.category.name} • ${prop.type.name}'),
+          ]),
           div(classes: 'flex items-center justify-between mt-3', [
-            span(classes: 'font-extrabold text-purple-400 text-sm', [Component.text('₱ ${prop.priceMonthly.toStringAsFixed(0)}/mo')]),
+            span(classes: 'font-extrabold text-purple-400 text-sm', [
+              Component.text('₱ ${prop.priceMonthly.toStringAsFixed(0)}/mo'),
+            ]),
             span(classes: 'text-[10px] text-zinc-500 flex items-center gap-0.5', [
               lIcon('map-pin', cls: 'w-3 h-3 text-purple-400'),
               Component.text('${dist.toStringAsFixed(1)} km'),
@@ -319,22 +334,32 @@ class HomeViewComponent extends StatelessComponent {
 
       return div(
         classes: 'p-4 rounded-2xl border transition-all cursor-pointer $cardCls',
-        events: {'click': (_) => s.setState(() {
-          s.selectedRentalData = r;
-          s.showBookVehicleModal = true;
-        })},
+        events: {
+          'click': (_) => s.setState(() {
+            s.selectedRentalData = r;
+            s.showBookVehicleModal = true;
+          }),
+        },
         [
           div(
             classes: 'aspect-video w-full rounded-xl mb-3 overflow-hidden bg-zinc-850 relative',
             [
               if (hasPhoto)
-                img(src: photoUrl.toString(), classes: 'w-full h-full object-cover', attributes: {'alt': '$brand $model'})
+                img(
+                  src: photoUrl.toString(),
+                  classes: 'w-full h-full object-cover',
+                  attributes: {'alt': '$brand $model'},
+                )
               else
-                div(classes: 'w-full h-full flex items-center justify-center bg-zinc-800', [lIcon('car', cls: 'w-8 h-8 text-zinc-650')]),
+                div(classes: 'w-full h-full flex items-center justify-center bg-zinc-800', [
+                  lIcon('car', cls: 'w-8 h-8 text-zinc-650'),
+                ]),
             ],
           ),
           h4(classes: 'font-bold text-sm line-clamp-1 text-zinc-200', [Component.text('$brand $model')]),
-          p(classes: 'text-[10px] text-zinc-500 mt-1 capitalize', [Component.text(r['type'] ?? r['vehicleType'] ?? 'car')]),
+          p(classes: 'text-[10px] text-zinc-500 mt-1 capitalize', [
+            Component.text(r['type'] ?? r['vehicleType'] ?? 'car'),
+          ]),
           div(classes: 'flex items-center justify-between mt-3', [
             span(classes: 'font-extrabold text-purple-400 text-sm', [Component.text('₱ $priceVal/day')]),
             span(classes: 'text-[10px] text-zinc-500 flex items-center gap-0.5', [
@@ -382,7 +407,8 @@ class HomeViewComponent extends StatelessComponent {
   Component _transitTeaser({required bool isDark, required void Function() onTap}) {
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
     return button(
-      classes: 'w-full p-6 rounded-2xl border card-hover transition-all text-left cursor-pointer bg-transparent $cardCls',
+      classes:
+          'w-full p-6 rounded-2xl border card-hover transition-all text-left cursor-pointer bg-transparent $cardCls',
       events: {'click': (_) => onTap()},
       [
         div(classes: 'flex items-center justify-between', [
@@ -409,13 +435,16 @@ class HomeViewComponent extends StatelessComponent {
   Component _realEstateTeaser({required bool isDark, required TranyxAppState s}) {
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
     return button(
-      classes: 'w-full p-6 rounded-2xl border card-hover transition-all text-left cursor-pointer bg-transparent $cardCls',
-      events: {'click': (_) {
-        s.setState(() {
-          s.activeTab = AppTab.transit;
-          s.activeRentalCategory = RentalCategory.properties;
-        });
-      }},
+      classes:
+          'w-full p-6 rounded-2xl border card-hover transition-all text-left cursor-pointer bg-transparent $cardCls',
+      events: {
+        'click': (_) {
+          s.setState(() {
+            s.activeTab = AppTab.transit;
+            s.activeRentalCategory = RentalCategory.properties;
+          });
+        },
+      },
       [
         div(classes: 'flex items-center justify-between', [
           div(classes: 'flex items-center gap-4', [
