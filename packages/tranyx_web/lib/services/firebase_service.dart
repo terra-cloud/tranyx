@@ -81,7 +81,7 @@ Future<Map<String, dynamic>> _post(
   });
 }
 
-Future<Map<String, dynamic>> _requestWithRetry(
+Future<http.Response> _rawRequestWithRetry(
   String url,
   String? initialToken,
   Future<String?> Function()? onTokenRefresh,
@@ -101,6 +101,16 @@ Future<Map<String, dynamic>> _requestWithRetry(
       // Ignore refresh errors and let the original 401 propagate
     }
   }
+  return req;
+}
+
+Future<Map<String, dynamic>> _requestWithRetry(
+  String url,
+  String? initialToken,
+  Future<String?> Function()? onTokenRefresh,
+  Future<http.Response> Function(String? token) requestBuilder,
+) async {
+  final req = await _rawRequestWithRetry(url, initialToken, onTokenRefresh, requestBuilder);
 
   final bodyText = req.body.trim();
   final data = bodyText.isNotEmpty ? jsonDecode(bodyText) : <String, dynamic>{};
@@ -111,6 +121,7 @@ Future<Map<String, dynamic>> _requestWithRetry(
   }
   return data as Map<String, dynamic>;
 }
+
 
 Future<Map<String, dynamic>> _get(String url, {String? idToken, Future<String?> Function()? onTokenRefresh}) async {
   return _requestWithRetry(url, idToken, onTokenRefresh, (token) {
@@ -353,6 +364,17 @@ class FirestoreService {
     this.onTokenRefresh,
   ]);
 
+  Future<String?> _refreshToken() async {
+    if (onTokenRefresh != null) {
+      final newToken = await onTokenRefresh!();
+      if (newToken != null) {
+        idToken = newToken;
+        return newToken;
+      }
+    }
+    return null;
+  }
+
   // ── Utility ────────────────────────────────────────────────
   Future<void> setDocument(String path, Map<String, dynamic> data) async {
     if (data.isEmpty) return;
@@ -363,27 +385,29 @@ class FirestoreService {
       '$url?$queryString',
       body,
       idToken,
-      onTokenRefresh,
+      _refreshToken,
     );
   }
 
   Future<void> createOrUpdate(String path, Map<String, dynamic> data) async {
     final url = '$_firestoreBase/$path';
     final body = _toFirestoreFields(data);
-    await _patch(url, body, idToken, onTokenRefresh);
+    await _patch(url, body, idToken, _refreshToken);
   }
 
   Future<void> deleteDocument(String path) async {
     final url = '$_firestoreBase/$path';
-    final headers = <String, String>{};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-    await _client.delete(Uri.parse(url), headers: headers);
+    await _requestWithRetry(url, idToken, _refreshToken, (token) {
+      final headers = <String, String>{};
+      if (token != null) headers['Authorization'] = 'Bearer $token';
+      return _client.delete(Uri.parse(url), headers: headers);
+    });
   }
 
   Future<Map<String, dynamic>?> getDocument(String path) async {
     try {
       final url = '$_firestoreBase/$path';
-      final res = await _get(url, idToken: idToken, onTokenRefresh: onTokenRefresh);
+      final res = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       if (res.isEmpty || !res.containsKey('fields')) return null;
       return _fromFirestoreDoc(res);
     } on FirebaseException {
@@ -404,21 +428,19 @@ class FirestoreService {
 
   Future<List<Map<String, dynamic>>> getReviews(String uid) async {
     final url = '$_firestoreBase/users/$uid/reviews';
-    final headers = <String, String>{};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final req = await _client.get(Uri.parse(url), headers: headers);
-    if (req.statusCode >= 400) return [];
-
-    final data = jsonDecode(req.body) as Map<String, dynamic>;
-    final docs = data['documents'] as List? ?? [];
-    final result = docs.map((d) {
-      final doc = d as Map<String, dynamic>;
-      final id = _docId(doc);
-      return {'id': id, ..._fromFirestoreDoc(doc)};
-    }).toList();
-    result.sort((a, b) => (b['timestamp'] as int? ?? 0).compareTo(a['timestamp'] as int? ?? 0));
-    return result;
+    try {
+      final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
+      final docs = data['documents'] as List? ?? [];
+      final result = docs.map((d) {
+        final doc = d as Map<String, dynamic>;
+        final id = _docId(doc);
+        return {'id': id, ..._fromFirestoreDoc(doc)};
+      }).toList();
+      result.sort((a, b) => (b['timestamp'] as int? ?? 0).compareTo(a['timestamp'] as int? ?? 0));
+      return result;
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<void> saveUser(UserProfile profile) async {
@@ -456,24 +478,13 @@ class FirestoreService {
 
   /// Create a new job; returns the Firestore document ID.
   Future<String> createJob(Map<String, dynamic> jobData) async {
-    // Use a POST to create with auto-generated ID
     final url = '$_firestoreBase/jobs';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final req = await _client.post(
-      Uri.parse(url),
-      headers: headers,
-      body: jsonEncode(_toFirestoreFields(jobData)),
+    final result = await _post(
+      url,
+      _toFirestoreFields(jobData),
+      idToken: idToken,
+      onTokenRefresh: _refreshToken,
     );
-
-    if (req.statusCode >= 400) {
-      final data = jsonDecode(req.body) as Map<String, dynamic>;
-      final err = data['error'] as Map? ?? {};
-      throw FirebaseException(err['message'] as String? ?? 'Create job failed', req.statusCode);
-    }
-
-    final result = jsonDecode(req.body) as Map<String, dynamic>;
     return _docId(result);
   }
 
@@ -494,9 +505,6 @@ class FirestoreService {
   Future<List<Map<String, dynamic>>> getMyTransactions(String uid) async {
     final url =
         'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
     final body = jsonEncode({
       'structuredQuery': {
         'from': [
@@ -512,30 +520,36 @@ class FirestoreService {
       },
     });
 
-    final req = await http.post(Uri.parse(url), headers: headers, body: body);
-    if (req.statusCode >= 400) {
-      return []; // Return empty if error or not found
-    }
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
 
-    final List<dynamic> results = jsonDecode(req.body);
-    final transactions = <Map<String, dynamic>>[];
-    for (final res in results) {
-      if (res is Map<String, dynamic> && res.containsKey('document')) {
-        final doc = res['document'] as Map<String, dynamic>;
-        final id = _docId(doc);
-        transactions.add({'id': id, ..._fromFirestoreDoc(doc)});
+      if (req.statusCode >= 400) {
+        return [];
       }
+
+      final List<dynamic> results = jsonDecode(req.body);
+      final transactions = <Map<String, dynamic>>[];
+      for (final res in results) {
+        if (res is Map<String, dynamic> && res.containsKey('document')) {
+          final doc = res['document'] as Map<String, dynamic>;
+          final id = _docId(doc);
+          transactions.add({'id': id, ..._fromFirestoreDoc(doc)});
+        }
+      }
+      return transactions;
+    } catch (_) {
+      return [];
     }
-    return transactions;
   }
 
   /// Fetch notifications for [uid].
   Future<List<Map<String, dynamic>>> getNotifications(String uid) async {
     final url =
         'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
     final body = jsonEncode({
       'structuredQuery': {
         'from': [
@@ -551,21 +565,30 @@ class FirestoreService {
       },
     });
 
-    final req = await http.post(Uri.parse(url), headers: headers, body: body);
-    if (req.statusCode >= 400) {
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode >= 400) {
+        return [];
+      }
+
+      final List<dynamic> results = jsonDecode(req.body);
+      final notifications = <Map<String, dynamic>>[];
+      for (final res in results) {
+        if (res is Map<String, dynamic> && res.containsKey('document')) {
+          final doc = res['document'] as Map<String, dynamic>;
+          final id = _docId(doc);
+          notifications.add({'id': id, ..._fromFirestoreDoc(doc)});
+        }
+      }
+      return notifications;
+    } catch (_) {
       return [];
     }
-
-    final List<dynamic> results = jsonDecode(req.body);
-    final notifications = <Map<String, dynamic>>[];
-    for (final res in results) {
-      if (res is Map<String, dynamic> && res.containsKey('document')) {
-        final doc = res['document'] as Map<String, dynamic>;
-        final id = _docId(doc);
-        notifications.add({'id': id, ..._fromFirestoreDoc(doc)});
-      }
-    }
-    return notifications;
   }
 
   Future<void> createNotification({
@@ -630,9 +653,6 @@ class FirestoreService {
   Future<List<Map<String, dynamic>>> _queryJobs(List<Map<String, dynamic>> filters) async {
     final url =
         'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
     final body = jsonEncode({
       'structuredQuery': {
         'from': [
@@ -656,18 +676,28 @@ class FirestoreService {
       },
     });
 
-    final req = await _client.post(Uri.parse(url), headers: headers, body: body);
-    if (req.statusCode >= 400) {
-      print('FIRESTORE QUERY ERROR: ${req.statusCode} - ${req.body}');
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode >= 400) {
+        print('FIRESTORE QUERY ERROR: ${req.statusCode} - ${req.body}');
+        return [];
+      }
+
+      final results = jsonDecode(req.body) as List;
+      return results.where((r) => (r as Map).containsKey('document')).map((r) {
+        final doc = (r as Map<String, dynamic>)['document'] as Map<String, dynamic>;
+        final id = _docId(doc);
+        return {'id': id, ..._fromFirestoreDoc(doc)};
+      }).toList();
+    } catch (e) {
+      print('FIRESTORE QUERY ERROR: $e');
       return [];
     }
-
-    final results = jsonDecode(req.body) as List;
-    return results.where((r) => (r as Map).containsKey('document')).map((r) {
-      final doc = (r as Map<String, dynamic>)['document'] as Map<String, dynamic>;
-      final id = _docId(doc);
-      return {'id': id, ..._fromFirestoreDoc(doc)};
-    }).toList();
   }
 
   // ── Applications ───────────────────────────────────────────
@@ -717,42 +747,38 @@ class FirestoreService {
 
   Future<List<Map<String, dynamic>>> getApplications(String jobId) async {
     final url = '$_firestoreBase/jobs/$jobId/applications';
-    final headers = <String, String>{};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final req = await _client.get(Uri.parse(url), headers: headers);
-    if (req.statusCode >= 400) return [];
-
-    final data = jsonDecode(req.body) as Map<String, dynamic>;
-    final docs = data['documents'] as List? ?? [];
-    return docs.map((d) {
-      final doc = d as Map<String, dynamic>;
-      final id = _docId(doc);
-      return {'id': id, ..._fromFirestoreDoc(doc)};
-    }).toList();
+    try {
+      final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
+      final docs = data['documents'] as List? ?? [];
+      return docs.map((d) {
+        final doc = d as Map<String, dynamic>;
+        final id = _docId(doc);
+        return {'id': id, ..._fromFirestoreDoc(doc)};
+      }).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   // ── Chat Messages ──────────────────────────────────────────
 
   Future<List<Map<String, dynamic>>> getChatMessages(String jobId) async {
     final url = '$_firestoreBase/jobs/$jobId/messages';
-    final headers = <String, String>{};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+    try {
+      final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
+      final docs = data['documents'] as List? ?? [];
+      final messages = docs.map((d) {
+        final doc = d as Map<String, dynamic>;
+        final id = _docId(doc);
+        return {'id': id, ..._fromFirestoreDoc(doc)};
+      }).toList();
 
-    final req = await _client.get(Uri.parse(url), headers: headers);
-    if (req.statusCode >= 400) return [];
-
-    final data = jsonDecode(req.body) as Map<String, dynamic>;
-    final docs = data['documents'] as List? ?? [];
-    final messages = docs.map((d) {
-      final doc = d as Map<String, dynamic>;
-      final id = _docId(doc);
-      return {'id': id, ..._fromFirestoreDoc(doc)};
-    }).toList();
-
-    // Sort by timestamp ascending
-    messages.sort((a, b) => (a['timestamp'] as int? ?? 0).compareTo(b['timestamp'] as int? ?? 0));
-    return messages;
+      // Sort by timestamp ascending
+      messages.sort((a, b) => (a['timestamp'] as int? ?? 0).compareTo(b['timestamp'] as int? ?? 0));
+      return messages;
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<void> sendChatMessage({
@@ -776,7 +802,7 @@ class FirestoreService {
 
     final url = '$_firestoreBase/jobs/$jobId/messages/$messageId';
     final body = _toFirestoreFields(messageData);
-    await _patch(url, body, idToken, onTokenRefresh);
+    await _patch(url, body, idToken, _refreshToken);
   }
 
   // ── Questions ──────────────────────────────────────────────
@@ -798,19 +824,13 @@ class FirestoreService {
       'answerText': null,
       'createdAt': now,
     };
-    // POST to auto-generate ID
     final url = '$_firestoreBase/jobs/$jobId/questions';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final req = await _client.post(
-      Uri.parse(url),
-      headers: headers,
-      body: jsonEncode(_toFirestoreFields(questionData)),
+    final result = await _post(
+      url,
+      _toFirestoreFields(questionData),
+      idToken: idToken,
+      onTokenRefresh: _refreshToken,
     );
-
-    if (req.statusCode >= 400) throw FirebaseException('Add question failed: ${req.statusCode}');
-    final result = jsonDecode(req.body) as Map<String, dynamic>;
     return _docId(result);
   }
 
@@ -832,9 +852,11 @@ class FirestoreService {
 
   Future<void> deleteQuestion(String jobId, String questionId) async {
     final url = '$_firestoreBase/jobs/$jobId/questions/$questionId';
-    final headers = <String, String>{};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-    await _client.delete(Uri.parse(url), headers: headers);
+    await _requestWithRetry(url, idToken, _refreshToken, (token) {
+      final headers = <String, String>{};
+      if (token != null) headers['Authorization'] = 'Bearer $token';
+      return _client.delete(Uri.parse(url), headers: headers);
+    });
   }
 
   Future<void> toggleQuestionLike(String jobId, String questionId, String uid, bool isLiked) async {
@@ -884,21 +906,19 @@ class FirestoreService {
 
   Future<List<Map<String, dynamic>>> getQuestions(String jobId) async {
     final url = '$_firestoreBase/jobs/$jobId/questions';
-    final headers = <String, String>{};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final req = await _client.get(Uri.parse(url), headers: headers);
-    if (req.statusCode >= 400) return [];
-
-    final data = jsonDecode(req.body) as Map<String, dynamic>;
-    final docs = data['documents'] as List? ?? [];
-    final result = docs.map((d) {
-      final doc = d as Map<String, dynamic>;
-      final id = _docId(doc);
-      return {'id': id, ..._fromFirestoreDoc(doc)};
-    }).toList();
-    result.sort((a, b) => (a['createdAt'] as int? ?? 0).compareTo(b['createdAt'] as int? ?? 0));
-    return result;
+    try {
+      final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
+      final docs = data['documents'] as List? ?? [];
+      final result = docs.map((d) {
+        final doc = d as Map<String, dynamic>;
+        final id = _docId(doc);
+        return {'id': id, ..._fromFirestoreDoc(doc)};
+      }).toList();
+      result.sort((a, b) => (a['createdAt'] as int? ?? 0).compareTo(b['createdAt'] as int? ?? 0));
+      return result;
+    } catch (_) {
+      return [];
+    }
   }
 
   // ── Vehicle Rentals ──────────────────────────────────────────
@@ -2809,17 +2829,29 @@ class FirestoreService {
 // ── Gemini AI service ─────────────────────────────────────────────────────────
 class GeminiService {
   final FirebaseConfig _config;
-  final String? _idToken;
+  String? _idToken;
+  final Future<String?> Function()? onTokenRefresh;
   String? _geminiKeyCache;
 
-  GeminiService(this._config, {String? idToken}) : _idToken = idToken;
+  GeminiService(this._config, {String? idToken, this.onTokenRefresh}) : _idToken = idToken;
+
+  Future<String?> _refreshToken() async {
+    if (onTokenRefresh != null) {
+      final newToken = await onTokenRefresh!();
+      if (newToken != null) {
+        _idToken = newToken;
+        return newToken;
+      }
+    }
+    return null;
+  }
 
   Future<String> _getApiKey() async {
     if (_geminiKeyCache != null) return _geminiKeyCache!;
     try {
       final url =
           'https://firestore.googleapis.com/v1/projects/${_config.projectId}/databases/(default)/documents/config/app_config';
-      final res = await _get(url, idToken: _idToken);
+      final res = await _get(url, idToken: _idToken, onTokenRefresh: _refreshToken);
       final fields = res['fields'] as Map<String, dynamic>?;
       final geminiVal = fields?['gemini']?['stringValue'] as String?;
       if (geminiVal != null && geminiVal.isNotEmpty) {
@@ -2963,17 +2995,29 @@ class GeminiService {
 // ── ImgBB service ─────────────────────────────────────────────────────────────
 class ImgBBService {
   final FirebaseConfig _config;
-  final String? _idToken;
+  String? _idToken;
+  final Future<String?> Function()? onTokenRefresh;
   String? _imgbbKeyCache;
 
-  ImgBBService(this._config, {String? idToken}) : _idToken = idToken;
+  ImgBBService(this._config, {String? idToken, this.onTokenRefresh}) : _idToken = idToken;
+
+  Future<String?> _refreshToken() async {
+    if (onTokenRefresh != null) {
+      final newToken = await onTokenRefresh!();
+      if (newToken != null) {
+        _idToken = newToken;
+        return newToken;
+      }
+    }
+    return null;
+  }
 
   Future<String> _getApiKey() async {
     if (_imgbbKeyCache != null) return _imgbbKeyCache!;
     try {
       final url =
           'https://firestore.googleapis.com/v1/projects/${_config.projectId}/databases/(default)/documents/config/app_config';
-      final res = await _get(url, idToken: _idToken);
+      final res = await _get(url, idToken: _idToken, onTokenRefresh: _refreshToken);
       final fields = res['fields'] as Map<String, dynamic>?;
       final keyVal = fields?['imgbb']?['stringValue'] as String?;
       if (keyVal != null && keyVal.isNotEmpty) {

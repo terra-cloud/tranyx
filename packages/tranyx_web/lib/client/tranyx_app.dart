@@ -443,7 +443,7 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   void _initGemini() {
-    _gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken);
+    _gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken, onTokenRefresh: _handleTokenRefresh);
   }
 
   void _initUserLocation() async {
@@ -1999,7 +1999,7 @@ class TranyxAppState extends State<TranyxApp> {
       final files = await readFilesFromEvent(eventTarget);
       for (final file in files) {
         if (jobImageUrls.length >= 5) break;
-        final url = await ImgBBService(currentFirebaseConfig, idToken: token).uploadImageBytes(file.bytes, file.name);
+        final url = await ImgBBService(currentFirebaseConfig, idToken: token, onTokenRefresh: _handleTokenRefresh).uploadImageBytes(file.bytes, file.name);
         if (url != null) {
           setState(() => jobImageUrls.add(url));
         }
@@ -3304,7 +3304,7 @@ class TranyxAppState extends State<TranyxApp> {
       final files = await readFilesFromEvent(eventTarget);
       if (files.isNotEmpty) {
         final file = files.first;
-        final url = await ImgBBService(currentFirebaseConfig, idToken: token).uploadImageBytes(file.bytes, file.name);
+        final url = await ImgBBService(currentFirebaseConfig, idToken: token, onTokenRefresh: _handleTokenRefresh).uploadImageBytes(file.bytes, file.name);
         if (url != null) {
           setState(() => receiptPhotoUrl = url);
         }
