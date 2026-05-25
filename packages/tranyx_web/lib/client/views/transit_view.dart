@@ -36,18 +36,20 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       // Top Header
       div(classes: 'flex items-center justify-between', [
         div([
-          h1(classes: 'text-3xl font-extrabold tracking-tight', [
-            Component.text(isVehicles ? 'Vehicles Rentals' : 'Real Estate Rentals'),
+          h1(classes: 'text-3xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent', [
+            Component.text(isVehicles ? 'Vehicles & Transit Marketplace' : 'Properties & Spaces Marketplace'),
           ]),
-          p(classes: 'text-sm mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+          p(classes: 'text-sm mt-2 max-w-xl leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-650"}', [
             Component.text(
               isVehicles
-                  ? 'Rent local cars, bikes, & trucks or host your own garage'
-                  : 'Browse residential/commercial spaces or host your listings',
+                  ? 'Discover verified local rides or capitalize on your idle garage. Seamless, secure, and peer-to-peer.'
+                  : 'Discover verified residential and commercial spaces or lease your properties in secure escrow.',
             ),
           ]),
         ]),
-        lIcon(isVehicles ? 'car' : 'home', cls: 'w-8 h-8 text-indigo-400'),
+        div(classes: 'p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20', [
+          lIcon(isVehicles ? 'car' : 'home', cls: 'w-7 h-7 text-indigo-400'),
+        ]),
       ]),
 
       // Segmented Switcher for Category: Vehicles vs Properties

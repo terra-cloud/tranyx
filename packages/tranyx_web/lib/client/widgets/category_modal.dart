@@ -80,7 +80,7 @@ class CategoryModalComponentState extends State<CategoryModalComponent> {
                   input(
                     classes:
                         'bg-transparent border-none outline-none flex-1 text-sm ${isDark ? "text-white" : "text-zinc-900"}',
-                    type: InputType.search,
+                    type: InputType.text,
                     attributes: {
                       'placeholder': 'Search categories...',
                       'value': _searchQuery,

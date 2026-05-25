@@ -336,6 +336,11 @@ class _RegisterDetailsScreenState extends State<_RegisterDetailsScreen> {
   String _confirmPassword = '';
   String? _localError;
 
+  bool get _hasMinLength => _password.length >= 8;
+  bool get _hasUppercase => _password.contains(RegExp(r'[A-Z]'));
+  bool get _hasNumber => _password.contains(RegExp(r'[0-9]'));
+  bool get _isPasswordValid => _hasMinLength && _hasUppercase && _hasNumber;
+
   @override
   // ignore: invalid_use_of_protected_member
   void setState(void Function() fn) => super.setState(fn);
@@ -411,6 +416,28 @@ class _RegisterDetailsScreenState extends State<_RegisterDetailsScreen> {
             value: _password,
             onChange: (v) => setState(() => _password = v),
           ),
+          if (_password.isNotEmpty)
+            div(
+              key: Key('pwd-checklist'),
+              classes: 'p-3.5 rounded-2xl border text-xs space-y-2 ${isDark ? "bg-zinc-950/40 border-zinc-800 text-zinc-400" : "bg-zinc-50 border-zinc-200 text-zinc-600"}',
+              [
+                div(classes: 'font-semibold mb-1 text-[10px] uppercase tracking-wider ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                  Component.text('Password Requirements'),
+                ]),
+                div(classes: 'flex items-center gap-2', [
+                  lIcon(_hasMinLength ? 'check' : 'circle', cls: 'w-3.5 h-3.5 ${_hasMinLength ? "text-emerald-500" : "text-zinc-500"}'),
+                  span(classes: _hasMinLength ? 'text-emerald-500' : '', [Component.text('At least 8 characters')]),
+                ]),
+                div(classes: 'flex items-center gap-2', [
+                  lIcon(_hasUppercase ? 'check' : 'circle', cls: 'w-3.5 h-3.5 ${_hasUppercase ? "text-emerald-500" : "text-zinc-500"}'),
+                  span(classes: _hasUppercase ? 'text-emerald-500' : '', [Component.text('At least one uppercase letter (A-Z)')]),
+                ]),
+                div(classes: 'flex items-center gap-2', [
+                  lIcon(_hasNumber ? 'check' : 'circle', cls: 'w-3.5 h-3.5 ${_hasNumber ? "text-emerald-500" : "text-zinc-500"}'),
+                  span(classes: _hasNumber ? 'text-emerald-500' : '', [Component.text('At least one number (0-9)')]),
+                ]),
+              ],
+            ),
           inputField(
             label: 'Confirm Password',
             placeholder: '••••••••',
@@ -432,12 +459,12 @@ class _RegisterDetailsScreenState extends State<_RegisterDetailsScreen> {
                 setState(() => _localError = 'Please fill in all fields.');
                 return;
               }
-              if (_password != _confirmPassword) {
-                setState(() => _localError = 'Passwords do not match.');
+              if (!_isPasswordValid) {
+                setState(() => _localError = 'Password does not meet the requirements.');
                 return;
               }
-              if (_password.length < 6) {
-                setState(() => _localError = 'Password must be at least 6 characters.');
+              if (_password != _confirmPassword) {
+                setState(() => _localError = 'Passwords do not match.');
                 return;
               }
               setState(() => _localError = null);

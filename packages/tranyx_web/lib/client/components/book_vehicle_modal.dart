@@ -39,6 +39,50 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
   bool _deliveryMapConfirming = false;
   bool _deliveryMapGeolocating = false;
 
+  String _deliverySearchQuery = '';
+  bool _deliveryIsSearching = false;
+  List<Map<String, dynamic>> _deliverySearchResults = [];
+
+  Future<void> _performDeliverySearch() async {
+    final query = _deliverySearchQuery.trim();
+    if (query.isEmpty) return;
+    setState(() {
+      _deliveryIsSearching = true;
+      _deliverySearchResults = [];
+    });
+    try {
+      final results = await searchAddress(query);
+      setState(() {
+        _deliverySearchResults = results;
+      });
+    } catch (e) {
+      print('ERROR: delivery search failed: $e');
+    } finally {
+      setState(() {
+        _deliveryIsSearching = false;
+      });
+    }
+  }
+
+  void _selectDeliverySearchResult(Map<String, dynamic> res) {
+    final latStr = res['lat'] as String?;
+    final lonStr = res['lon'] as String?;
+    final displayName = res['display_name'] as String?;
+    if (latStr != null && lonStr != null) {
+      final lat = double.tryParse(latStr);
+      final lng = double.tryParse(lonStr);
+      if (lat != null && lng != null) {
+        panTo(_deliveryMapId, lat, lng);
+        setState(() {
+          _deliverySearchResults = [];
+          if (displayName != null) {
+            _deliverySearchQuery = displayName;
+          }
+        });
+      }
+    }
+  }
+
   DateTime? _startDate;
   List<Map<String, dynamic>> _approvedRequests = [];
   DateTime _calendarMonth = DateTime.now();
@@ -291,7 +335,11 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
       _deliveryMapReady = false;
       _deliveryMapConfirming = false;
       _deliveryMapGeolocating = false;
-      _startDate = DateTime.now();
+      _deliverySearchQuery = '';
+      _deliveryIsSearching = false;
+      _deliverySearchResults = [];
+      final now = DateTime.now();
+      _startDate = DateTime(now.year, now.month, now.day, now.hour + 1, 0);
       _approvedRequests = [];
       _calendarMonth = DateTime.now();
       if (rentalId != null) {
@@ -507,7 +555,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                       'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
                   type: InputType.number,
                   attributes: {'value': _quantity.toString(), 'min': '1'},
-                  events: {'input': (e) => setState(() => _quantity = int.tryParse((e.target as dynamic).value) ?? 1)},
+                  events: {'input': (e) => setState(() => _quantity = int.tryParse((e.target as dynamic).value?.toString() ?? '') ?? 1)},
                 ),
               ]),
 
@@ -814,6 +862,94 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
               ),
             );
           }(),
+          // Address search overlay
+          if (_deliveryMapReady)
+            div(
+              classes: 'absolute top-3 left-3 right-3 z-[1010] flex flex-col gap-1.5',
+              [
+                div(
+                  classes:
+                      'flex gap-2 p-1.5 rounded-xl border shadow-lg backdrop-blur-md '
+                      '${isDark ? "bg-zinc-900/95 border-zinc-700/80" : "bg-white/95 border-zinc-200/80"}',
+                  [
+                    lIcon('search', cls: 'w-4 h-4 my-auto ml-2 ${isDark ? "text-zinc-400" : "text-zinc-500"}'),
+                    input(
+                      classes:
+                          'flex-1 bg-transparent border-0 outline-none text-sm px-1 '
+                          '${isDark ? "text-white placeholder-zinc-500" : "text-zinc-900 placeholder-zinc-400"}',
+                      attributes: {
+                        'type': 'text',
+                        'placeholder': 'Search address...',
+                        'value': _deliverySearchQuery,
+                      },
+                      events: {
+                        'input': (e) {
+                          final val = (e as dynamic).target.value as String? ?? '';
+                          setState(() {
+                            _deliverySearchQuery = val;
+                            if (val.isEmpty) {
+                              _deliverySearchResults = [];
+                            }
+                          });
+                        },
+                        'keydown': (e) {
+                          final key = (e as dynamic).key as String?;
+                          if (key == 'Enter') {
+                            (e as dynamic).preventDefault();
+                            _performDeliverySearch();
+                          }
+                        },
+                      },
+                    ),
+                    if (_deliverySearchQuery.isNotEmpty)
+                      button(
+                        classes: 'p-1 rounded-md hover:bg-zinc-500/20 my-auto border-0 outline-none cursor-pointer',
+                        events: {
+                          'click': (_) {
+                            setState(() {
+                              _deliverySearchQuery = '';
+                              _deliverySearchResults = [];
+                            });
+                          },
+                        },
+                        [
+                          lIcon('x', cls: 'w-3.5 h-3.5 ${isDark ? "text-zinc-400" : "text-zinc-500"}'),
+                        ],
+                      ),
+                    button(
+                      classes:
+                          'px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors flex items-center gap-1 border-0 outline-none cursor-pointer',
+                      events: {
+                        'click': (_) => _performDeliverySearch(),
+                      },
+                      [
+                        if (_deliveryIsSearching) lIcon('loader-2', cls: 'w-3 h-3 animate-spin') else Component.text('Search'),
+                      ],
+                    ),
+                  ],
+                ),
+
+                // Search Results dropdown
+                if (_deliverySearchResults.isNotEmpty)
+                  div(
+                    classes:
+                        'max-h-36 overflow-y-auto rounded-xl border shadow-xl flex flex-col divide-y '
+                        '${isDark ? "bg-zinc-900 border-zinc-700 divide-zinc-800" : "bg-white border-zinc-200 divide-zinc-100"}',
+                    _deliverySearchResults.map((res) {
+                      final displayName = res['display_name'] as String? ?? '';
+                      return button(
+                        classes:
+                            'px-4 py-2.5 text-left text-xs transition-colors hover:bg-indigo-600/10 '
+                            '${isDark ? "text-zinc-300 hover:text-white" : "text-zinc-750 hover:text-zinc-900"} border-0 outline-none cursor-pointer',
+                        events: {
+                          'click': (_) => _selectDeliverySearchResult(res),
+                        },
+                        [Component.text(displayName)],
+                      );
+                    }).toList(),
+                  ),
+              ],
+            ),
           // Loading overlay
           if (!_deliveryMapReady)
             div(

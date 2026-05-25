@@ -2059,10 +2059,6 @@ class _CreateJob extends StatelessComponent {
                   s.setState(() => s.postJobError = 'Please pin the $label on the map.');
                   return;
                 }
-                if (s.jobLandmark.trim().isEmpty) {
-                  s.setState(() => s.postJobError = 'Please enter a landmark or additional notes.');
-                  return;
-                }
                 if ((s.selectedCategory?.hasTracker ?? false) &&
                     (s.destinationAddress.trim().isEmpty || s.destinationLat == null || s.destinationLng == null)) {
                   s.setState(() => s.postJobError = 'Please pin the Delivery Point on the map.');
@@ -2239,7 +2235,7 @@ class _CreateJob extends StatelessComponent {
         MapPickerComponent(state: s, key: ValueKey('map-${s.hasTracker}-${s.selectedCategory?.id}')),
 
         inputField(
-          label: 'Landmark / Additional Notes',
+          label: 'Landmark / Additional Notes (Optional)',
           placeholder: 'e.g. Near SM Mall, gate 2',
           iconName: 'map-pin',
           value: s.jobLandmark,

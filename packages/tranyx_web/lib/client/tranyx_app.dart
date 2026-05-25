@@ -4259,38 +4259,38 @@ class TranyxAppState extends State<TranyxApp> {
         ),
 
       // Category modal overlay
-      if (showCategoryModal) CategoryModalComponent(state: this),
+      if (showCategoryModal) CategoryModalComponent(state: this, key: const ValueKey('category-modal')),
 
       // List Vehicle modal overlay
-      if (showListVehicleModal) ListVehicleModalComponent(appState: this),
+      if (showListVehicleModal) ListVehicleModalComponent(appState: this, key: const ValueKey('list-vehicle-modal')),
 
       // Book Vehicle modal overlay
-      if (showBookVehicleModal) BookVehicleModalComponent(appState: this),
+      if (showBookVehicleModal) BookVehicleModalComponent(appState: this, key: const ValueKey('book-vehicle-modal')),
 
       // Extend Rental modal overlay
-      if (showExtendRentalModal) ExtendRentalModalComponent(appState: this),
+      if (showExtendRentalModal) ExtendRentalModalComponent(appState: this, key: const ValueKey('extend-rental-modal')),
 
       // Rental Tracker Map overlay
-      if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this),
+      if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this, key: const ValueKey('rental-tracker-map')),
 
       // Manage Vehicle modal overlay
-      if (showManageVehicleModal) ManageVehicleModalComponent(appState: this),
+      if (showManageVehicleModal) ManageVehicleModalComponent(appState: this, key: const ValueKey('manage-vehicle-modal')),
 
       // Public Vehicle Q&A modal overlay
       if (showVehicleQaModal && selectedRentalData != null)
-        VehicleQaModalComponent(appState: this, rentalId: selectedRentalData!['id']),
+        VehicleQaModalComponent(appState: this, rentalId: selectedRentalData!['id'], key: const ValueKey('vehicle-qa-modal')),
 
       // List Property modal overlay
-      if (showListPropertyModal) ListPropertyModalComponent(appState: this),
+      if (showListPropertyModal) ListPropertyModalComponent(appState: this, key: const ValueKey('list-property-modal')),
 
       // Book Property modal overlay
-      if (showBookPropertyModal) BookPropertyModalComponent(appState: this),
+      if (showBookPropertyModal) BookPropertyModalComponent(appState: this, key: const ValueKey('book-property-modal')),
 
       // Manage Property modal overlay
-      if (showManagePropertyModal) ManagePropertyModalComponent(appState: this),
+      if (showManagePropertyModal) ManagePropertyModalComponent(appState: this, key: const ValueKey('manage-property-modal')),
 
       // Public Property Q&A modal overlay
-      if (showPropertyQaModal) PropertyQaModalComponent(appState: this),
+      if (showPropertyQaModal) PropertyQaModalComponent(appState: this, key: const ValueKey('property-qa-modal')),
 
       // Unified Sign Contract modal overlay
       if (showSignContractModal && signingContractId != null)
@@ -4300,6 +4300,7 @@ class TranyxAppState extends State<TranyxApp> {
           contractTerms: signingContractTerms ?? '',
           rentalId: signingContractId!,
           isProperty: signingContractIsProperty,
+          key: const ValueKey('sign-contract-modal'),
           onSigned: () {
             setState(() {
               showSignContractModal = false;
