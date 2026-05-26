@@ -3,8 +3,8 @@ import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
-import '../../constants/contract_drafts.dart';
 import '../../state/app_state.dart';
+import 'contract_viewer.dart';
 
 class BookPropertyModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -382,23 +382,46 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                         : 'Tranyx Standard Lease Agreement',
                   ),
                 ]),
-                div(
-                  classes:
-                      'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 h-56 overflow-y-auto mb-4',
-                  [
-                    p(
-                      classes:
-                          'whitespace-pre-wrap text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"} leading-relaxed',
-                      [
-                        Component.text(
-                          pData['contractType'] == 'Custom Contract'
-                              ? pData['contractTerms'] ?? 'No terms provided.'
-                              : buildDefaultPropertyContract(PropertyRental.fromMap(pData, pData['id'])),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                () {
+                  final baseProperty = PropertyRental.fromMap(pData, pData['id'] ?? '');
+                  final previewProperty = PropertyRental(
+                    id: baseProperty.id,
+                    hostId: baseProperty.hostId,
+                    hostName: baseProperty.hostName,
+                    hostPhotoUrl: baseProperty.hostPhotoUrl,
+                    title: baseProperty.title,
+                    description: baseProperty.description,
+                    type: baseProperty.type,
+                    category: baseProperty.category,
+                    priceMonthly: baseProperty.priceMonthly,
+                    priceWeekly: baseProperty.priceWeekly,
+                    priceDaily: baseProperty.priceDaily,
+                    depositMonths: baseProperty.depositMonths,
+                    address: baseProperty.address,
+                    latitude: baseProperty.latitude,
+                    longitude: baseProperty.longitude,
+                    photoUrls: baseProperty.photoUrls,
+                    amenities: baseProperty.amenities,
+                    status: baseProperty.status,
+                    contractType: baseProperty.contractType,
+                    contractTerms: baseProperty.contractTerms,
+                    createdAt: baseProperty.createdAt,
+                    allowChat: baseProperty.allowChat,
+                    renteeName: component.appState.userProfile?.name,
+                    renteePhotoUrl: component.appState.userProfile?.photoUrl,
+                    renteeLicenseNumber: _licenseNumber.isNotEmpty ? _licenseNumber : null,
+                    rentalDurationType: _selectedDurationType,
+                    rentalMultiplier: _multiplier,
+                    totalCost: _totalPrice,
+                    renteeSignatureName: null,
+                    signedAt: null,
+                  );
+                  return ContractViewerComponent(
+                    propertyRental: pData['contractType'] == 'Custom Contract' ? null : previewProperty,
+                    customTerms: pData['contractType'] == 'Custom Contract' ? pData['contractTerms'] : null,
+                    contractType: pData['contractType'] as String?,
+                  );
+                }(),
 
                 div(classes: 'mb-6', [
                   label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [

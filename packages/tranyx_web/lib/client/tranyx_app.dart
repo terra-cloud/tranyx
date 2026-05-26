@@ -1953,6 +1953,27 @@ class TranyxAppState extends State<TranyxApp> {
     final token = SessionStorage.idToken;
     if (uid == null || token == null) return;
 
+    // Prevent withdrawals if user has active/ongoing rentals as a rentee (to protect hosts/owners from unpaid extension/late return fees)
+    final hasActiveVehicleRentals = realtimeRentals.any((rMap) {
+      final rental = VehicleRental.fromMap(rMap, rMap['id'] ?? '');
+      final isRenter = (rental.renteeId == uid);
+      final statusLower = rental.status.toLowerCase();
+      final isActive = (statusLower != 'completed' && statusLower != 'cancelled');
+      return isRenter && isActive;
+    });
+
+    final hasActivePropertyRentals = realtimeProperties.any((prop) {
+      final isRenter = (prop.renteeId == uid);
+      final statusLower = prop.status.toLowerCase();
+      final isActive = (statusLower != 'completed' && statusLower != 'cancelled' && statusLower != 'available');
+      return isRenter && isActive;
+    });
+
+    if (hasActiveVehicleRentals || hasActivePropertyRentals) {
+      setState(() => profileSaveError = 'Withdrawals are disabled while you have active/ongoing rentals to ensure potential extensions, late returns, or security fees are covered.');
+      return;
+    }
+
     final tyxBal = userProfile?.tyxBalance ?? 0.0;
     if (tyxBal < 100) {
       setState(() => profileSaveError = 'Minimum withdrawal is 100 Tyx (₱100).');

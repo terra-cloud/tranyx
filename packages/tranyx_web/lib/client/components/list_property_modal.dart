@@ -5,9 +5,9 @@ import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../components/map_picker.dart';
-import '../../constants/contract_drafts.dart';
 import '../../services/web_interop.dart';
 import '../../services/firebase_service.dart';
+import 'contract_viewer.dart';
 
 class ListPropertyModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -188,6 +188,9 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
         setState(() => _error = 'Please select and confirm property location on the map.');
         return;
       }
+      _address = component.appState.pickupAddress;
+      _latitude = component.appState.pickupLat;
+      _longitude = component.appState.pickupLng;
     }
 
     setState(() => _step++);
@@ -507,43 +510,29 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                     ),
                   ]),
                   if (_showPreview)
-                    div(
-                      classes:
-                          'mt-3 p-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg max-h-40 overflow-y-auto',
-                      [
-                        p(
-                          classes:
-                              'whitespace-pre-wrap text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"} leading-relaxed',
-                          [
-                            Component.text(
-                              buildDefaultPropertyContract(
-                                PropertyRental(
-                                  id: '',
-                                  hostId: '',
-                                  hostName: component.appState.userProfile?.name ?? 'Owner',
-                                  title: _title,
-                                  description: _description,
-                                  type: _selectedType,
-                                  category: _selectedCategory,
-                                  priceMonthly: double.tryParse(_priceMonthly) ?? 0,
-                                  priceWeekly: double.tryParse(_priceWeekly) ?? 0,
-                                  priceDaily: double.tryParse(_priceDaily) ?? 0,
-                                  depositMonths: _depositMonths,
-                                  address: component.appState.pickupAddress,
-                                  latitude: 0,
-                                  longitude: 0,
-                                  photoUrls: [],
-                                  amenities: _amenities,
-                                  status: 'Available',
-                                  contractType: 'Tranyx Standard',
-                                  contractTerms: '',
-                                  createdAt: DateTime.now(),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                    ContractViewerComponent(
+                      propertyRental: PropertyRental(
+                        id: '',
+                        hostId: '',
+                        hostName: component.appState.userProfile?.name ?? 'Owner',
+                        title: _title,
+                        description: _description,
+                        type: _selectedType,
+                        category: _selectedCategory,
+                        priceMonthly: double.tryParse(_priceMonthly) ?? 0,
+                        priceWeekly: double.tryParse(_priceWeekly) ?? 0,
+                        priceDaily: double.tryParse(_priceDaily) ?? 0,
+                        depositMonths: _depositMonths,
+                        address: _address.isNotEmpty ? _address : component.appState.pickupAddress,
+                        latitude: _latitude ?? component.appState.pickupLat ?? 0.0,
+                        longitude: _longitude ?? component.appState.pickupLng ?? 0.0,
+                        photoUrls: [],
+                        amenities: _amenities,
+                        status: 'Available',
+                        contractType: 'Tranyx Standard',
+                        contractTerms: '',
+                        createdAt: DateTime.now(),
+                      ),
                     ),
                 ]),
               ] else ...[

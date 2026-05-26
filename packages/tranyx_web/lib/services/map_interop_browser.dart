@@ -317,8 +317,10 @@ Future<Map<String, dynamic>?> drawOSRMRoute(
   double fromLng,
   double toLat,
   double toLng,
-  String color,
-) async {
+  String color, [
+  double? midLat,
+  double? midLng,
+]) async {
   final fn = window.getProperty<JSFunction?>('_osrmRoute'.toJS);
   if (fn == null) return null;
   final args = [
@@ -328,6 +330,8 @@ Future<Map<String, dynamic>?> drawOSRMRoute(
     toLat.toJS,
     toLng.toJS,
     color.toJS,
+    midLat?.toJS,
+    midLng?.toJS,
   ].toJS;
   final promise = fn.callAsFunction(null, args) as JSPromise;
   final res = await promise.toDart;
@@ -403,6 +407,27 @@ void destroyMap(String elementId) {
 
   m.callMethod<JSAny>('remove'.toJS);
   window.setProperty('__lmap_$elementId'.toJS, null);
+}
+
+void clearRoute(String elementId) {
+  final m = _map(elementId);
+  if (m == null) return;
+
+  final routeKey = '__lroute_$elementId'.toJS;
+  final route = window.getProperty<JSObject?>(routeKey);
+  if (route != null) {
+    try {
+      final sourceId = route.getProperty<JSString>('sourceId'.toJS);
+      final layerId = route.getProperty<JSString>('layerId'.toJS);
+      if (m.callMethod<JSBoolean>('getLayer'.toJS, layerId).toDart) {
+        m.callMethod<JSAny>('removeLayer'.toJS, layerId);
+      }
+      if (m.callMethod<JSBoolean>('getSource'.toJS, sourceId).toDart) {
+        m.callMethod<JSAny>('removeSource'.toJS, sourceId);
+      }
+    } catch (_) {}
+    window.setProperty(routeKey, null);
+  }
 }
 
 // ── Reverse Geocoding (Nominatim) ─────────────────────────────────────────────

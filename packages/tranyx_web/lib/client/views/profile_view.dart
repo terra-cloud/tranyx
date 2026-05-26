@@ -192,17 +192,37 @@ class _ProfileMain extends StatelessComponent {
               isDark,
             ),
 
-          // Balance - Always shown for everyone
-          _stat(
-            '₱ ${(s.userProfile?.tyxBalance ?? 0.0).toStringAsFixed(2)}',
-            'Balance',
-            'wallet',
-            'text-blue-400',
-            isDark,
-            actionLabel: s.accountType == AccountType.nyxian ? 'Withdraw' : 'Top Up',
-            onAction: s.accountType == AccountType.nyxian
-                ? (_) => s.handleWithdrawTyx()
-                : (_) => s.setState(() => s.showDepositModal = true),
+          // Balance - Always shown for everyone with Top Up & Withdraw actions
+          div(
+            classes: 'p-4 rounded-2xl border text-center transition-all duration-300 group '
+                '${isDark ? "bg-zinc-900/50 border-zinc-800/50 hover:border-indigo-500/30" : "bg-white border-zinc-200 shadow-sm hover:border-indigo-500/30"}',
+            [
+              div(
+                classes:
+                    'w-10 h-10 rounded-xl bg-zinc-500/5 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform duration-300',
+                [lIcon('wallet', cls: 'w-5 h-5 text-blue-400')],
+              ),
+              p(classes: 'font-black text-xl md:text-2xl tracking-tight ${isDark ? "text-white" : "text-zinc-900"}', [
+                Component.text('₱ ${(s.userProfile?.tyxBalance ?? 0.0).toStringAsFixed(2)}'),
+              ]),
+              p(
+                classes:
+                    'text-[10px] uppercase font-black tracking-widest mt-1 ${isDark ? "text-zinc-500" : "text-zinc-400"}',
+                [Component.text('Balance')],
+              ),
+              div(classes: 'mt-3 flex justify-center gap-2', [
+                button(
+                  classes: 'px-2 py-1 text-[10px] uppercase font-bold text-indigo-400 hover:text-indigo-300 border border-indigo-500/20 rounded-lg bg-indigo-500/5 transition-colors cursor-pointer',
+                  events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
+                  [Component.text('Top Up')],
+                ),
+                button(
+                  classes: 'px-2 py-1 text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 rounded-lg bg-emerald-500/5 transition-colors cursor-pointer',
+                  events: {'click': (_) => s.handleWithdrawTyx()},
+                  [Component.text('Withdraw')],
+                ),
+              ]),
+            ],
           ),
         ],
       ),
@@ -1744,6 +1764,26 @@ class _HistoryViewState extends State<_HistoryView> {
     double earningsSum = 0.0;
     int gigsCount = 0;
 
+    final now = DateTime.now();
+    // Monday of the current week at 00:00:00 local time
+    final today = DateTime(now.year, now.month, now.day);
+    final currentWeekMonday = today.subtract(Duration(days: today.weekday - 1));
+    final currentWeekMondayMs = currentWeekMonday.millisecondsSinceEpoch;
+    final currentWeekSundayEnd = currentWeekMonday.add(const Duration(days: 7));
+    final currentWeekSundayEndMs = currentWeekSundayEnd.millisecondsSinceEpoch;
+
+    // Start & end of current month
+    final currentMonthStart = DateTime(now.year, now.month, 1);
+    final currentMonthStartMs = currentMonthStart.millisecondsSinceEpoch;
+    final currentMonthEnd = DateTime(now.year, now.month + 1, 1);
+    final currentMonthEndMs = currentMonthEnd.millisecondsSinceEpoch;
+
+    // Start & end of current year
+    final currentYearStart = DateTime(now.year, 1, 1);
+    final currentYearStartMs = currentYearStart.millisecondsSinceEpoch;
+    final currentYearEnd = DateTime(now.year + 1, 1, 1);
+    final currentYearEndMs = currentYearEnd.millisecondsSinceEpoch;
+
     // Initialize daily/weekly/monthly/yearly aggregates
     final dailyAgg = {'Mon': 0.0, 'Tue': 0.0, 'Wed': 0.0, 'Thu': 0.0, 'Fri': 0.0, 'Sat': 0.0, 'Sun': 0.0};
     final weeklyAgg = {'Week 1': 0.0, 'Week 2': 0.0, 'Week 3': 0.0, 'Week 4': 0.0};
@@ -1761,7 +1801,12 @@ class _HistoryViewState extends State<_HistoryView> {
       'Nov': 0.0,
       'Dec': 0.0,
     };
-    final yearlyAgg = {'2024': 0.0, '2025': 0.0, '2026': 0.0};
+    final currentYear = now.year;
+    final yearlyAgg = <String, double>{
+      '${currentYear - 2}': 0.0,
+      '${currentYear - 1}': 0.0,
+      '$currentYear': 0.0,
+    };
 
     for (final job in myJobs) {
       final status = job['status'] as String? ?? '';
@@ -1790,22 +1835,28 @@ class _HistoryViewState extends State<_HistoryView> {
           // Aggregate for graphs
           if (createdAt != null) {
             final dt = DateTime.fromMillisecondsSinceEpoch(createdAt);
-            // Daily
-            final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-            final dayName = days[dt.weekday - 1];
-            dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+            // Daily (only for current calendar week)
+            if (createdAt >= currentWeekMondayMs && createdAt < currentWeekSundayEndMs) {
+              final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+              final dayName = days[dt.weekday - 1];
+              dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+            }
 
-            // Weekly (approximate based on day of month)
-            final wNum = ((dt.day - 1) ~/ 7) + 1;
-            final wName = 'Week ${wNum > 4 ? 4 : wNum}';
-            weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+            // Weekly (only for current calendar month)
+            if (createdAt >= currentMonthStartMs && createdAt < currentMonthEndMs) {
+              final wNum = ((dt.day - 1) ~/ 7) + 1;
+              final wName = 'Week ${wNum > 4 ? 4 : wNum}';
+              weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+            }
 
-            // Monthly
-            final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            final mName = months[dt.month - 1];
-            monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+            // Monthly (only for current calendar year)
+            if (createdAt >= currentYearStartMs && createdAt < currentYearEndMs) {
+              final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+              final mName = months[dt.month - 1];
+              monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+            }
 
-            // Yearly
+            // Yearly (all-time)
             final yName = dt.year.toString();
             yearlyAgg[yName] = (yearlyAgg[yName] ?? 0.0) + payout;
           }
@@ -1852,22 +1903,28 @@ class _HistoryViewState extends State<_HistoryView> {
 
           // Aggregate for graphs
           final dt = rental.createdAt;
-          // Daily
-          final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-          final dayName = days[dt.weekday - 1];
-          dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+          // Daily (only for current calendar week)
+          if (createdAtMs >= currentWeekMondayMs && createdAtMs < currentWeekSundayEndMs) {
+            final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            final dayName = days[dt.weekday - 1];
+            dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+          }
 
-          // Weekly
-          final wNum = ((dt.day - 1) ~/ 7) + 1;
-          final wName = 'Week ${wNum > 4 ? 4 : wNum}';
-          weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+          // Weekly (only for current calendar month)
+          if (createdAtMs >= currentMonthStartMs && createdAtMs < currentMonthEndMs) {
+            final wNum = ((dt.day - 1) ~/ 7) + 1;
+            final wName = 'Week ${wNum > 4 ? 4 : wNum}';
+            weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+          }
 
-          // Monthly
-          final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-          final mName = months[dt.month - 1];
-          monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+          // Monthly (only for current calendar year)
+          if (createdAtMs >= currentYearStartMs && createdAtMs < currentYearEndMs) {
+            final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            final mName = months[dt.month - 1];
+            monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+          }
 
-          // Yearly
+          // Yearly (all-time)
           final yName = dt.year.toString();
           yearlyAgg[yName] = (yearlyAgg[yName] ?? 0.0) + payout;
         }
@@ -1917,18 +1974,28 @@ class _HistoryViewState extends State<_HistoryView> {
 
           // Aggregate for graphs
           final dt = rental.createdAt;
-          final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-          final dayName = days[dt.weekday - 1];
-          dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+          // Daily (only for current calendar week)
+          if (createdAtMs >= currentWeekMondayMs && createdAtMs < currentWeekSundayEndMs) {
+            final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            final dayName = days[dt.weekday - 1];
+            dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+          }
 
-          final wNum = ((dt.day - 1) ~/ 7) + 1;
-          final wName = 'Week ${wNum > 4 ? 4 : wNum}';
-          weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+          // Weekly (only for current calendar month)
+          if (createdAtMs >= currentMonthStartMs && createdAtMs < currentMonthEndMs) {
+            final wNum = ((dt.day - 1) ~/ 7) + 1;
+            final wName = 'Week ${wNum > 4 ? 4 : wNum}';
+            weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+          }
 
-          final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-          final mName = months[dt.month - 1];
-          monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+          // Monthly (only for current calendar year)
+          if (createdAtMs >= currentYearStartMs && createdAtMs < currentYearEndMs) {
+            final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            final mName = months[dt.month - 1];
+            monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+          }
 
+          // Yearly (all-time)
           final yName = dt.year.toString();
           yearlyAgg[yName] = (yearlyAgg[yName] ?? 0.0) + payout;
         }
@@ -2109,7 +2176,7 @@ class _HistoryViewState extends State<_HistoryView> {
     final type = s.accountType;
 
     final hasPurchaseHistory = purchaseTransactions.isNotEmpty;
-    final showEarnings = (type == AccountType.nyxian || type == AccountType.hybrid);
+    final showEarnings = true;
     final showPurchases =
         (type == AccountType.employer ||
         type == AccountType.hybrid ||
@@ -2177,10 +2244,16 @@ class _HistoryViewState extends State<_HistoryView> {
             ]),
             div([
               span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
-                Component.text('Total Earnings'),
+                Component.text(activeFilter == 'daily'
+                    ? 'This Week\'s Earnings'
+                    : activeFilter == 'weekly'
+                        ? 'This Month\'s Earnings'
+                        : activeFilter == 'monthly'
+                            ? 'This Year\'s Earnings'
+                            : 'Total Earnings'),
               ]),
               p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text(formatCurrency(totalEarningsSum)),
+                Component.text(formatCurrency(totalEarnedInFilter)),
               ]),
             ]),
           ]),

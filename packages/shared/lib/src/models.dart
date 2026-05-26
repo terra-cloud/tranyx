@@ -606,6 +606,8 @@ class VehicleRental {
   final double latePenaltyRatePerHour;
   final String
   status; // 'Available', 'Booked', 'On the Way', 'Active', 'Returning', 'Completed', 'Cancelled'
+  final String? fuelType; // 'Gasoline', 'Diesel', 'Electric', 'Hybrid'
+  final String? transmission; // 'Automatic', 'Manual'
 
   // Driver services info
   final bool offersDriver;
@@ -683,6 +685,8 @@ class VehicleRental {
     this.hireWithDriver,
     this.trackingLat,
     this.trackingLng,
+    this.fuelType,
+    this.transmission,
     required this.pickupAddress,
     required this.pickupLat,
     required this.pickupLng,
@@ -717,6 +721,8 @@ class VehicleRental {
       'extensionRatePerHour': extensionRatePerHour,
       'latePenaltyRatePerHour': latePenaltyRatePerHour,
       'status': status,
+      'fuelType': fuelType,
+      'transmission': transmission,
       'offersDriver': offersDriver,
       'driverDailyPrice': driverDailyPrice,
       'driverNote': driverNote,
@@ -779,6 +785,8 @@ class VehicleRental {
       latePenaltyRatePerHour:
           (map['latePenaltyRatePerHour'] as num?)?.toDouble() ?? 0.0,
       status: map['status'] ?? 'Available',
+      fuelType: map['fuelType'] as String?,
+      transmission: map['transmission'] as String?,
       offersDriver: map['offersDriver'] as bool? ?? false,
       driverDailyPrice: (map['driverDailyPrice'] as num?)?.toDouble() ?? 0.0,
       driverNote: map['driverNote'] ?? '',
@@ -849,6 +857,7 @@ class PropertyRental {
   final int? rentalMultiplier;
   final String? rentalDurationType;
   final String? signatureHash;
+  final String? renteeLicenseNumber;
 
   const PropertyRental({
     required this.id,
@@ -885,6 +894,7 @@ class PropertyRental {
     this.rentalMultiplier,
     this.rentalDurationType,
     this.signatureHash,
+    this.renteeLicenseNumber,
   });
 
   Map<String, dynamic> toMap() {
@@ -922,6 +932,7 @@ class PropertyRental {
       'rentalMultiplier': rentalMultiplier,
       'rentalDurationType': rentalDurationType,
       'signatureHash': signatureHash,
+      'renteeLicenseNumber': renteeLicenseNumber,
     };
   }
 
@@ -975,6 +986,7 @@ class PropertyRental {
       rentalMultiplier: (map['rentalMultiplier'] as num?)?.toInt(),
       rentalDurationType: map['rentalDurationType'],
       signatureHash: map['signatureHash'] as String?,
+      renteeLicenseNumber: map['renteeLicenseNumber'],
     );
   }
 }

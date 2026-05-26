@@ -988,7 +988,6 @@ class _JobDetails extends StatelessComponent {
                       ],
                     ),
                   ]),
-                  NavigationMapComponent(state: s, isNyxian: true),
                 ]);
               } else if (status == 'heading_to_pickup') {
                 // DELIVERY JOB: Step 2 (Heading to Pickup -> Arrived Pickup)
@@ -1033,7 +1032,6 @@ class _JobDetails extends StatelessComponent {
                       ],
                     ),
                   ]),
-                  NavigationMapComponent(state: s, isNyxian: true),
                 ]);
               } else if (status == 'arrived_pickup') {
                 // DELIVERY JOB: Step 3 (Arrived Pickup -> Paid Cashier)
@@ -1114,7 +1112,6 @@ class _JobDetails extends StatelessComponent {
                       Component.text(s.isUpdatingSubStatus ? 'Updating...' : 'Going to $destName'),
                     ],
                   ),
-                  NavigationMapComponent(state: s, isNyxian: true),
                 ]);
               } else if (status == 'in_transit') {
                 // DELIVERY JOB: Step 5 (In Transit -> Arrived Destination)
@@ -1140,7 +1137,6 @@ class _JobDetails extends StatelessComponent {
                       Component.text(s.isUpdatingSubStatus ? 'Updating...' : 'Arrived at Destination'),
                     ],
                   ),
-                  NavigationMapComponent(state: s, isNyxian: true),
                 ]);
               } else if (status == 'Done' || status == 'arrived_dropoff') {
                 // FINAL STEP (Standard & Delivery): Waiting for Payment Verification
@@ -1287,10 +1283,6 @@ class _JobDetails extends StatelessComponent {
                     p(classes: 'text-xs font-bold text-indigo-400 mb-2', [Component.text('Receipt / Item Photo')]),
                     img(src: s.selectedJobData!['receiptUrl'] as String, classes: 'w-full h-auto rounded-lg'),
                   ]),
-                if (hasTracker &&
-                    (s.selectedJobData?['pickupLat'] != null) &&
-                    (s.selectedJobData?['destinationLat'] != null))
-                  NavigationMapComponent(state: s, isNyxian: false),
               ]);
             }
 
@@ -1322,10 +1314,6 @@ class _JobDetails extends StatelessComponent {
                     Component.text(s.isGeneratingCode ? 'Generating...' : 'Generate Payment QR / Code'),
                   ],
                 ),
-                if (hasTracker &&
-                    (s.selectedJobData?['pickupLat'] != null) &&
-                    (s.selectedJobData?['destinationLat'] != null))
-                  NavigationMapComponent(state: s, isNyxian: false),
               ]);
             }
 
@@ -1832,6 +1820,8 @@ class _JobDetails extends StatelessComponent {
             ],
           ),
         ]),
+      if ((s.selectedJobData?['pickupLat'] != null) && (s.selectedJobData?['destinationLat'] != null))
+        NavigationMapComponent(state: s, isNyxian: isNyxian),
     ]);
   }
 
@@ -2424,12 +2414,6 @@ class _ReviewApplicants extends StatelessComponent {
     final isDark = s.isDark;
     final job = s.selectedJobData;
     final status = job?['status'] as String? ?? 'Open';
-    final catName = (job?['category'] as String? ?? '').toLowerCase();
-    final cat = JobCategory.values.firstWhere(
-      (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
-      orElse: () => JobCategory.others,
-    );
-    final hasTracker = job?['hasTracker'] == true || job?['hasTracker'] == 'true' || cat.hasTracker;
 
     return div(classes: 'space-y-6 animate-fade-up max-w-3xl', [
       subViewHeader(
@@ -2546,8 +2530,6 @@ class _ReviewApplicants extends StatelessComponent {
               img(src: job!['receiptUrl'] as String, classes: 'w-full h-auto max-h-96 object-cover'),
             ]),
           ]),
-        if (hasTracker && (job?['pickupLat'] != null) && (job?['destinationLat'] != null))
-          NavigationMapComponent(state: s, isNyxian: false),
       ] else if (status == 'Done' || status == 'arrived_dropoff') ...[
         div(classes: 'p-8 rounded-3xl border border-green-500/30 bg-green-500/10 text-center space-y-4', [
           lIcon('check-circle', cls: 'w-12 h-12 text-green-400 mx-auto'),
@@ -2579,8 +2561,6 @@ class _ReviewApplicants extends StatelessComponent {
               img(src: job!['receiptUrl'] as String, classes: 'w-full h-auto max-h-96 object-cover'),
             ]),
           ]),
-        if (hasTracker && (job?['pickupLat'] != null) && (job?['destinationLat'] != null))
-          NavigationMapComponent(state: s, isNyxian: false),
       ] else if (status == 'Completed' || status == 'completed') ...[
         div(classes: 'p-8 rounded-3xl border border-green-500/30 bg-green-500/10 text-center space-y-4', [
           lIcon('check-circle', cls: 'w-12 h-12 text-green-400 mx-auto'),
@@ -2600,6 +2580,8 @@ class _ReviewApplicants extends StatelessComponent {
             ]),
           ]),
       ],
+      if ((job?['pickupLat'] != null) && (job?['destinationLat'] != null))
+        NavigationMapComponent(state: s, isNyxian: false),
     ]);
   }
 }

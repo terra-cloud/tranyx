@@ -5,8 +5,8 @@ import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../components/map_container.dart';
-import '../../constants/contract_drafts.dart';
 import '../../services/map_interop.dart';
+import 'contract_viewer.dart';
 
 class BookVehicleModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -351,6 +351,8 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     final brand = r['brand'] ?? 'Unknown';
     final model = r['model'] ?? 'Unknown';
     final typeVal = r['type'] ?? r['vehicleType'];
+    final fuelType = r['fuelType'] as String? ?? 'Gasoline';
+    final transmission = r['transmission'] as String? ?? 'Automatic';
     String type = typeVal?.toString().split('.').last ?? '';
     if (type.toLowerCase() == 'null') type = '';
 
@@ -366,7 +368,17 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
             [
               div([
                 h2(classes: 'text-2xl font-bold', [Component.text('Book $brand $model')]),
-                p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-500"} capitalize', [Component.text(type)]),
+                p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-500"} capitalize flex items-center gap-1.5', [
+                  Component.text(type),
+                  span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
+                  span(classes: 'px-2 py-0.5 rounded-lg text-xs font-bold bg-indigo-500/10 text-indigo-400 uppercase tracking-wide', [
+                    Component.text(fuelType),
+                  ]),
+                  span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
+                  span(classes: 'px-2 py-0.5 rounded-lg text-xs font-bold bg-purple-500/10 text-purple-400 uppercase tracking-wide', [
+                    Component.text(transmission),
+                  ]),
+                ]),
               ]),
               button(
                 classes: 'p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors',
@@ -402,6 +414,15 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                   images.add(interior.toString());
                 if (back != null && back.toString().isNotEmpty && back.toString() != 'null')
                   images.add(back.toString());
+
+                // Append extra photos uploaded by the host
+                final extra = r['extraPhotos'];
+                if (extra is List) {
+                  for (final ep in extra) {
+                    final s = ep?.toString() ?? '';
+                    if (s.isNotEmpty && s != 'null') images.add(s);
+                  }
+                }
 
                 return div(
                   classes:
@@ -480,6 +501,17 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                   ],
                 );
               }(),
+
+              div(
+                classes:
+                    'grid grid-cols-3 gap-3 p-4 rounded-2xl border mb-6 '
+                    '${isDark ? "border-zinc-800 bg-zinc-950/40" : "border-zinc-150 bg-zinc-50/50"}',
+                [
+                  _specItem('Engine Type', fuelType, 'zap', isDark),
+                  _specItem('Year Model', '${r['year'] ?? 'N/A'}', 'calendar', isDark),
+                  _specItem('Plate Number', _obscurePlateNumber(r['plateNumber']?.toString()), 'credit-card', isDark),
+                ],
+              ),
 
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Select Rental Package')]),
               div(classes: 'grid grid-cols-2 gap-3', [
@@ -592,7 +624,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                       lIcon('map-pin', cls: 'w-4 h-4 text-purple-400'),
                       Component.text('Vehicle Address'),
                     ]),
-                    p(classes: 'font-medium', [Component.text('${r['pickupLocation'] ?? 'Address not specified'}')]),
+                    p(classes: 'font-medium', [Component.text('${r['pickupAddress'] ?? r['pickupLocation'] ?? 'Address not specified'}')]),
                   ],
                 )
               else
@@ -605,73 +637,77 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                   Component.text('Start Time:'),
                 ]),
                 div(classes: 'flex gap-2 flex-1', [
-                  select(
-                    classes:
-                        'p-2 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors flex-1',
-                    events: {
-                      'change': (e) {
-                        if (_startDate != null) {
-                          final hour = int.tryParse((e.target as dynamic).value) ?? 9;
-                          setState(() {
-                            _startDate = DateTime(
-                              _startDate!.year,
-                              _startDate!.month,
-                              _startDate!.day,
-                              hour,
-                              _startDate!.minute,
-                            );
-                          });
-                        }
-                      },
-                    },
-                    [
-                      () {
-                        final now = DateTime.now();
-                        final isToday =
-                            _startDate != null &&
-                            _startDate!.year == now.year &&
-                            _startDate!.month == now.month &&
-                            _startDate!.day == now.day;
-                        final minHour = isToday ? now.hour + 1 : 0;
-                        // If current selection is in the past for today, bump to minHour
-                        if (isToday && (_startDate?.hour ?? 0) < minHour) {
-                          Future.microtask(
-                            () => setState(() {
+                  () {
+                    final now = DateTime.now();
+                    final isToday =
+                        _startDate != null &&
+                        _startDate!.year == now.year &&
+                        _startDate!.month == now.month &&
+                        _startDate!.day == now.day;
+                    final minHour = isToday ? now.hour + 1 : 0;
+
+                    return select(
+                      classes:
+                          'p-2 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors flex-1',
+                      events: {
+                        'change': (e) {
+                          if (_startDate != null) {
+                            final hour = int.tryParse((e.target as dynamic).value?.toString() ?? '') ?? 9;
+                            setState(() {
                               _startDate = DateTime(
                                 _startDate!.year,
                                 _startDate!.month,
                                 _startDate!.day,
-                                minHour.clamp(0, 23),
+                                hour,
                                 0,
                               );
-                            }),
-                          );
-                        }
-                        return div(classes: 'flex-1', [
-                          for (int h = minHour; h < 24; h++)
-                            option(
-                              value: h.toString(),
-                              attributes: (_startDate?.hour == h) ? {'selected': 'selected'} : {},
-                              [Component.text('${h.toString().padLeft(2, '0')}:00')],
-                            ),
-                        ]);
-                      }(),
-                    ],
-                  ),
+                            });
+                          }
+                        },
+                      },
+                      [
+                        for (int h = minHour; h < 24; h++)
+                          option(
+                            value: h.toString(),
+                            attributes: (_startDate?.hour == h) ? {'selected': 'selected'} : {},
+                            [Component.text('${h.toString().padLeft(2, '0')}:00')],
+                          ),
+                      ],
+                    );
+                  }(),
                 ]),
               ]),
 
               div(
                 classes:
-                    'mt-4 p-4 rounded-xl ${isDark ? "bg-purple-950/20 text-purple-300" : "bg-purple-50 text-purple-800"} text-xs space-y-1',
+                    'mt-4 p-4 rounded-xl ${isDark ? "bg-purple-950/20 text-purple-300" : "bg-purple-50 text-purple-800"} text-xs space-y-2',
                 [
                   div(classes: 'flex justify-between', [
                     span([Component.text('Starts:')]),
                     span(classes: 'font-semibold', [Component.text(_formatDateTime(_startDate))]),
                   ]),
                   div(classes: 'flex justify-between', [
-                    span([Component.text('Ends:')]),
+                    span([Component.text('Ends (Return):')]),
                     span(classes: 'font-semibold', [Component.text(_formatDateTime(_computedEndDate))]),
+                  ]),
+                  div([], classes: 'h-px bg-purple-500/20 my-1'),
+                  p(classes: 'text-[10px] opacity-80 leading-relaxed italic', [
+                    () {
+                      if (_startDate == null) return Component.text('');
+                      final lastUsageDay = _computedEndDate.subtract(const Duration(hours: 1));
+                      final startFmt = '${_startDate!.day} ${_monthName(_startDate!.month).substring(0, 3)}';
+                      final lastFmt = '${lastUsageDay.day} ${_monthName(lastUsageDay.month).substring(0, 3)}';
+                      final endFmt = '${_computedEndDate.day} ${_monthName(_computedEndDate.month).substring(0, 3)}';
+                      final timeStr = '${_computedEndDate.hour.toString().padLeft(2, '0')}:00';
+                      
+                      if (_selectedPackage == 'Daily') {
+                        return Component.text(
+                          '💡 Your $_quantity-day rental covers $startFmt, ${startFmt == lastFmt ? "" : "through to "}$lastFmt. '
+                          'The vehicle is returned on $endFmt at $timeStr.'
+                        );
+                      }
+                      return Component.text('💡 Highlighting the complete rental schedule on the calendar.');
+                    }()
                   ]),
                 ],
               ),
@@ -684,23 +720,69 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                       : 'Tranyx P2P Rental Agreement',
                 ),
               ]),
-              div(
-                classes:
-                    'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 h-64 overflow-y-auto mb-4',
-                [
-                  p(
-                    classes:
-                        'whitespace-pre-wrap text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"} leading-relaxed',
-                    [
-                      Component.text(
-                        r['contractType'] == 'Custom Contract'
-                            ? r['contractTerms'] ?? 'No terms provided.'
-                            : buildDefaultTranyxContract(VehicleRental.fromMap(r, r['id'])),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+              () {
+                final previewVehicle = VehicleRental(
+                  id: r['id'] ?? '',
+                  hostId: r['hostId'] ?? '',
+                  hostName: r['hostName'] ?? '',
+                  hostPhotoUrl: r['hostPhotoUrl'],
+                  brand: r['brand'] ?? '',
+                  model: r['model'] ?? '',
+                  year: r['year'] is int
+                      ? r['year']
+                      : int.tryParse(r['year']?.toString() ?? '') ?? 0,
+                  type: () {
+                    return VehicleType.values.firstWhere(
+                      (e) => e.name == r['type'],
+                      orElse: () => VehicleType.car,
+                    );
+                  }(),
+                  plateNumber: r['plateNumber'] ?? '',
+                  vehicleValue: (r['vehicleValue'] as num?)?.toDouble() ?? 0.0,
+                  ltoCrNumber: r['ltoCrNumber'] ?? '',
+                  ltoOrNumber: r['ltoOrNumber'] ?? '',
+                  insuranceProvider: r['insuranceProvider'] ?? '',
+                  insurancePolicyNumber: r['insurancePolicyNumber'] ?? '',
+                  franchisePermit: r['franchisePermit'],
+                  interiorPhotoUrl: r['interiorPhotoUrl'] ?? '',
+                  frontPhotoUrl: r['frontPhotoUrl'] ?? '',
+                  backPhotoUrl: r['backPhotoUrl'] ?? '',
+                  contractType: r['contractType'] ?? 'tranyx',
+                  contractTerms: r['contractTerms'] ?? '',
+                  price12h: (r['price12h'] as num?)?.toDouble() ?? 0.0,
+                  priceDaily: (r['priceDaily'] as num?)?.toDouble() ?? 0.0,
+                  priceWeekly: (r['priceWeekly'] as num?)?.toDouble() ?? 0.0,
+                  priceMonthly: (r['priceMonthly'] as num?)?.toDouble() ?? 0.0,
+                  extensionRatePerHour: (r['extensionRatePerHour'] as num?)?.toDouble() ?? 0.0,
+                  latePenaltyRatePerHour: (r['latePenaltyRatePerHour'] as num?)?.toDouble() ?? 0.0,
+                  status: 'Pending',
+                  fuelType: r['fuelType'] as String?,
+                  transmission: r['transmission'] as String?,
+                  offersDriver: r['offersDriver'] as bool? ?? false,
+                  driverDailyPrice: (r['driverDailyPrice'] as num?)?.toDouble() ?? 0.0,
+                  driverNote: r['driverNote'] ?? '',
+                  driverLicenseNumber: r['driverLicenseNumber'] ?? '',
+                  renteeId: component.appState.userProfile?.uid,
+                  renteeName: component.appState.userProfile?.name,
+                  renteePhotoUrl: component.appState.userProfile?.photoUrl,
+                  renteeLicenseNumber: _licenseNumber.isNotEmpty ? _licenseNumber : null,
+                  rentalDurationType: _selectedPackage.toLowerCase(),
+                  rentalMultiplier: _quantity,
+                  startDate: _startDate,
+                  endDate: _computedEndDate,
+                  totalCost: _totalPrice,
+                  hireWithDriver: _hireWithDriver,
+                  pickupAddress: r['pickupAddress'] ?? '',
+                  pickupLat: (r['pickupLat'] as num?)?.toDouble() ?? 0.0,
+                  pickupLng: (r['pickupLng'] as num?)?.toDouble() ?? 0.0,
+                  createdAt: DateTime.now(),
+                );
+                return ContractViewerComponent(
+                  vehicleRental: r['contractType'] == 'Custom Contract' ? null : previewVehicle,
+                  customTerms: r['contractType'] == 'Custom Contract' ? r['contractTerms'] : null,
+                  contractType: r['contractType'] as String?,
+                );
+              }(),
 
               div(classes: 'mb-6', [
                 label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
@@ -1172,8 +1254,38 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                   events: clickable
                       ? {
                           'click': (_) => setState(() {
-                            final hour = _startDate?.hour ?? 9;
-                            _startDate = DateTime(day.year, day.month, day.day, hour, 0);
+                            final now = DateTime.now();
+                            if (_startDate == null || day.isBefore(_startDate!)) {
+                              int hour = _startDate?.hour ?? (now.hour + 1);
+                              final isToday = day.year == now.year && day.month == now.month && day.day == now.day;
+                              if (isToday && hour <= now.hour) {
+                                hour = now.hour + 1;
+                              }
+                              if (hour > 23) {
+                                final tomorrow = day.add(const Duration(days: 1));
+                                _startDate = DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0);
+                              } else {
+                                _startDate = DateTime(day.year, day.month, day.day, hour, 0);
+                              }
+                            } else {
+                              final diff = day.difference(DateTime(_startDate!.year, _startDate!.month, _startDate!.day));
+                              int newQty = 1;
+                              switch (_selectedPackage) {
+                                case '12h':
+                                  newQty = (diff.inHours / 12).round();
+                                  break;
+                                case 'Weekly':
+                                  newQty = (diff.inDays / 7).round();
+                                  break;
+                                case 'Monthly':
+                                  newQty = (diff.inDays / 30).round();
+                                  break;
+                                default: // 'Daily'
+                                  newQty = diff.inDays;
+                                  break;
+                              }
+                              _quantity = newQty.clamp(1, 999);
+                            }
                           }),
                         }
                       : {},
@@ -1253,5 +1365,22 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
       return '${obscuredPrefix.substring(0, 3)}-${obscuredPrefix.substring(3)}-$visiblePart';
     }
     return '$obscuredPrefix-$visiblePart';
+  }
+
+  Component _specItem(String labelText, String val, String icon, bool isDark) {
+    return div(classes: 'flex flex-col items-center text-center p-2 rounded-xl ${isDark ? "bg-zinc-900/50" : "bg-white"} border ${isDark ? "border-zinc-800/80" : "border-zinc-200/50"}', [
+      lIcon(icon, cls: 'w-4 h-4 text-purple-400 mb-1'),
+      span(classes: 'text-[9px] font-medium ${isDark ? "text-zinc-500" : "text-zinc-450"} uppercase tracking-wider', [Component.text(labelText)]),
+      span(classes: 'text-xs font-bold ${isDark ? "text-zinc-250" : "text-zinc-800"} mt-0.5 capitalize', [Component.text(val)]),
+    ]);
+  }
+
+  String _obscurePlateNumber(String? plate) {
+    if (plate == null || plate.isEmpty) return 'N/A';
+    final clean = plate.replaceAll(RegExp(r'[\s-]'), '').toUpperCase();
+    if (clean.length <= 4) return '***';
+    final visibleStart = clean.substring(0, 2);
+    final visibleEnd = clean.substring(clean.length - 2);
+    return '$visibleStart***$visibleEnd';
   }
 }

@@ -431,7 +431,7 @@
     };
 
     // ── OSRM route helper (CSP-safe — real script, not eval) ──────────
-    window._osrmRoute = async function (elementId, fromLat, fromLng, toLat, toLng, color) {
+    window._osrmRoute = async function (elementId, fromLat, fromLng, toLat, toLng, color, midLat, midLng) {
       const map = window['__lmap_' + elementId];
       if (!map || !window.maplibregl) return JSON.stringify({ error: 'No map or MapLibre' });
 
@@ -457,9 +457,13 @@
       let steps = [];
 
       try {
-        const url = 'https://router.project-osrm.org/route/v1/driving/'
-          + fromLng + ',' + fromLat + ';' + toLng + ',' + toLat
-          + '?overview=full&geometries=geojson&steps=true';
+        let url = 'https://router.project-osrm.org/route/v1/driving/'
+          + fromLng + ',' + fromLat + ';';
+        if (midLat !== undefined && midLat !== null && midLng !== undefined && midLng !== null) {
+          url += midLng + ',' + midLat + ';';
+        }
+        url += toLng + ',' + toLat + '?overview=full&geometries=geojson&steps=true';
+
         const resp = await fetch(url);
         const data = await resp.json();
         if (data.routes && data.routes.length > 0) {
@@ -467,39 +471,45 @@
           coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
           distance = route.distance;
           duration = route.duration;
-          if (route.legs && route.legs[0] && route.legs[0].steps) {
-            steps = route.legs[0].steps.map(step => {
-              const type = step.maneuver.type;
-              const modifier = step.maneuver.modifier;
-              const name = step.name || "";
-              let instruction = "Continue";
-              if (type === 'depart') {
-                instruction = "Depart" + (name ? " on " + name : "");
-              } else if (type === 'arrive') {
-                instruction = "Arrive at destination";
-              } else if (['turn', 'new name', 'ramp', 'fork', 'merge'].includes(type)) {
-                let action = "Continue";
-                if (modifier === 'left') action = "Turn left";
-                else if (modifier === 'right') action = "Turn right";
-                else if (modifier === 'sharp left') action = "Turn sharp left";
-                else if (modifier === 'sharp right') action = "Turn sharp right";
-                else if (modifier === 'slight left') action = "Turn slight left";
-                else if (modifier === 'slight right') action = "Turn slight right";
-                else if (modifier === 'straight') action = "Go straight";
-                else if (modifier === 'uturn') action = "Make a U-turn";
-                instruction = action + (name ? " on " + name : "");
-              } else {
-                instruction = "Continue" + (name ? " on " + name : "");
+          if (route.legs) {
+            steps = [];
+            route.legs.forEach(leg => {
+              if (leg.steps) {
+                const legSteps = leg.steps.map(step => {
+                  const type = step.maneuver.type;
+                  const modifier = step.maneuver.modifier;
+                  const name = step.name || "";
+                  let instruction = "Continue";
+                  if (type === 'depart') {
+                    instruction = "Depart" + (name ? " on " + name : "");
+                  } else if (type === 'arrive') {
+                    instruction = "Arrive at destination";
+                  } else if (['turn', 'new name', 'ramp', 'fork', 'merge'].includes(type)) {
+                    let action = "Continue";
+                    if (modifier === 'left') action = "Turn left";
+                    else if (modifier === 'right') action = "Turn right";
+                    else if (modifier === 'sharp left') action = "Turn sharp left";
+                    else if (modifier === 'sharp right') action = "Turn sharp right";
+                    else if (modifier === 'slight left') action = "Turn slight left";
+                    else if (modifier === 'slight right') action = "Turn slight right";
+                    else if (modifier === 'straight') action = "Go straight";
+                    else if (modifier === 'uturn') action = "Make a U-turn";
+                    instruction = action + (name ? " on " + name : "");
+                  } else {
+                    instruction = "Continue" + (name ? " on " + name : "");
+                  }
+                  return {
+                    instruction: instruction,
+                    distance: step.distance,
+                    duration: step.duration,
+                    lat: step.maneuver.location[1],
+                    lng: step.maneuver.location[0],
+                    type: type,
+                    modifier: modifier
+                  };
+                });
+                steps = steps.concat(legSteps);
               }
-              return {
-                instruction: instruction,
-                distance: step.distance,
-                duration: step.duration,
-                lat: step.maneuver.location[1],
-                lng: step.maneuver.location[0],
-                type: type,
-                modifier: modifier
-              };
             });
           }
         }

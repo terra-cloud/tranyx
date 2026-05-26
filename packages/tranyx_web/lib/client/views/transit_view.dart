@@ -797,12 +797,24 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
     final gpsTrackerId = r['gpsTrackerId'] as String?;
     final hasGps = gpsTrackerId != null && gpsTrackerId.isNotEmpty;
+    final fuelType = r['fuelType'] as String? ?? 'Gasoline';
+    final transmission = r['transmission'] as String? ?? 'Automatic';
 
     return div(classes: 'p-5 rounded-2xl border transition-all card-hover $cardCls', [
       div(classes: 'flex items-start justify-between mb-4', [
         div([
           p(classes: 'font-bold text-lg', [Component.text(model)]),
-          p(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-500"} capitalize', [Component.text(type)]),
+          p(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-500"} capitalize flex items-center gap-1.5', [
+            Component.text(type),
+            span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
+            span(classes: 'text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider', [
+              Component.text(fuelType),
+            ]),
+            span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
+            span(classes: 'text-[10px] font-bold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider', [
+              Component.text(transmission),
+            ]),
+          ]),
         ]),
         div(classes: 'flex items-center gap-1.5', [
           if (isHostView) ...[
