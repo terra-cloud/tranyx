@@ -1752,7 +1752,7 @@ class TranyxAppState extends State<TranyxApp> {
         },
         body: jsonEncode({
           'external_id': 'topup_${uid}_$timestamp',
-          'amount': depositAmount,
+          'amount': depositAmount.round(), // Xendit requires integer amounts (PHP)
           'payer_email': userName.isNotEmpty
               ? '$userName@example.com'.replaceAll(' ', '').toLowerCase()
               : 'user@example.com',

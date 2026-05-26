@@ -51,18 +51,24 @@ class PaymentModalComponent extends StatelessComponent {
                     type: InputType.number,
                     classes:
                         'w-full text-center text-3xl font-black text-indigo-400 bg-transparent border-none focus:outline-none placeholder:text-indigo-400/30',
-                    value: amount > 0 ? amount.toString() : '',
+                    // Do NOT use value: here — Jaspr would overwrite the DOM value on every
+                    // re-render (controlled input), causing the user's typed amount to be reset
+                    // to '' whenever any unrelated state update triggers a rebuild.
+                    // Instead, set defaultValue via attributes so it only seeds the initial value.
                     attributes: {
                       'placeholder': '0.00',
                       'min': '1',
                       'step': '1',
                       'id': 'topup-amount-input',
                       'name': 'amount',
+                      if (amount > 0) 'defaultValue': amount.toInt().toString(),
                     },
                     events: {
                       'input': (e) {
                         final val = (e.target as dynamic).value?.toString() ?? '';
-                        s.setState(() => s.depositAmount = double.tryParse(val) ?? 0.0);
+                        // Use num.tryParse so both '500' and '500.0' parse correctly
+                        final parsed = num.tryParse(val);
+                        s.setState(() => s.depositAmount = parsed != null ? parsed.toDouble() : 0.0);
                       },
                     },
                   ),
