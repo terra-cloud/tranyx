@@ -5,6 +5,8 @@ import 'package:jaspr/jaspr.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../services/web_interop.dart';
+import 'package:shared/shared.dart';
+import 'contract_viewer.dart';
 
 class SignContractModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -32,6 +34,29 @@ class _SignContractModalState extends State<SignContractModalComponent> {
   bool _isSigning = false;
   String? _error;
   String? _signatureHash;
+  VehicleRental? _vehicleRental;
+  PropertyRental? _propertyRental;
+  bool _isLoadingRental = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRentalDetails();
+  }
+
+  void _loadRentalDetails() async {
+    setState(() => _isLoadingRental = true);
+    try {
+      if (component.isProperty) {
+        final prop = await component.appState.firestore.getPropertyRental(component.rentalId);
+        setState(() => _propertyRental = prop);
+      } else {
+        final vehicle = await component.appState.firestore.getRental(component.rentalId);
+        setState(() => _vehicleRental = vehicle);
+      }
+    } catch (_) {}
+    setState(() => _isLoadingRental = false);
+  }
 
   void _submitSignature() async {
     final canvasId = 'sign-contract-pad-${component.rentalId}';
@@ -127,13 +152,18 @@ class _SignContractModalState extends State<SignContractModalComponent> {
               ]),
 
               // Scrollable Terms
-              div(
-                classes:
-                    'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 h-44 overflow-y-auto text-xs leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-600"}',
-                [
-                  p(classes: 'whitespace-pre-wrap', [Component.text(component.contractTerms)]),
-                ],
-              ),
+              if (_isLoadingRental)
+                div(classes: 'py-8 flex flex-col items-center justify-center gap-3', [
+                  lIcon('loader', cls: 'w-6 h-6 animate-spin text-purple-500'),
+                  p(classes: 'text-xs text-zinc-500', [Component.text('Loading agreement details...')]),
+                ])
+              else
+                ContractViewerComponent(
+                  vehicleRental: _vehicleRental,
+                  propertyRental: _propertyRental,
+                  customTerms: component.contractTerms,
+                  contractType: (_vehicleRental?.contractType ?? _propertyRental?.contractType) ?? 'Custom Contract',
+                ),
 
               // Signature Canvas Box
               div([

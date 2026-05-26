@@ -27,6 +27,8 @@ The Owner agrees to rent to the Renter the following vehicle:
 - Production Year: $yearStr
 - Plate Number: $plateStr
 - Insured Market Value: $valueStr
+- Fuel Type: ${rental.fuelType ?? 'Gasoline'}
+- Transmission: ${rental.transmission ?? 'Automatic'}
 
 3. LTO REGISTRATION & COMPLIANCE
 The Owner represents and warrants that:

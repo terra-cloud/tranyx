@@ -1,5 +1,6 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
@@ -51,24 +52,59 @@ class PaymentModalComponent extends StatelessComponent {
                     type: InputType.number,
                     classes:
                         'w-full text-center text-3xl font-black text-indigo-400 bg-transparent border-none focus:outline-none placeholder:text-indigo-400/30',
-                    value: amount > 0 ? amount.toString() : '',
+                    // Do NOT use value: here — Jaspr would overwrite the DOM value on every
+                    // re-render (controlled input), causing the user's typed amount to be reset
+                    // to '' whenever any unrelated state update triggers a rebuild.
+                    // Instead, set defaultValue via attributes so it only seeds the initial value.
                     attributes: {
                       'placeholder': '0.00',
                       'min': '1',
                       'step': '1',
                       'id': 'topup-amount-input',
                       'name': 'amount',
+                      if (amount > 0) 'defaultValue': amount.toInt().toString(),
                     },
                     events: {
                       'input': (e) {
-                        final val = (e.target as dynamic).value?.toString() ?? '';
-                        s.setState(() => s.depositAmount = double.tryParse(val) ?? 0.0);
+                        final val = (e.target as web.HTMLInputElement).value;
+                        final parsed = num.tryParse(val);
+                        s.setState(() => s.depositAmount = parsed != null ? parsed.toDouble() : 0.0);
                       },
                     },
                   ),
                 ]),
-                span(classes: 'text-[10px] text-indigo-400/60 mt-2 block', [
-                  Component.text('1 Tyxbit = 1 Peso (₱)'),
+                div(classes: 'flex flex-col gap-1 mt-2 text-center', [
+                  span(classes: 'text-[10px] text-indigo-400/60 block font-medium', [
+                    Component.text('1 Tyxbit = 1 Peso (₱)'),
+                  ]),
+                  span(classes: 'text-[10px] text-zinc-500 block font-bold', [
+                    Component.text('Min ₱100 · Max ₱50,000 per transaction'),
+                  ]),
+                ]),
+
+                // Quick Select Chips
+                div(classes: 'flex flex-wrap justify-center gap-2 mt-4', [
+                  for (final val in const [
+                    (500, '₱500'),
+                    (1000, '₱1,000'),
+                    (2000, '₱2,000'),
+                    (5000, '₱5,000'),
+                    (10000, '₱10,000')
+                  ])
+                    button(
+                      classes: 'px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer '
+                          '${amount == val.$1 ? "bg-indigo-500 text-white border-indigo-500 shadow-md shadow-indigo-500/20" : (isDark ? "bg-zinc-800/40 border-zinc-850 text-zinc-300 hover:bg-zinc-800" : "bg-white border-zinc-200 text-zinc-650 hover:bg-zinc-50")}',
+                      events: {
+                        'click': (_) {
+                          s.setState(() => s.depositAmount = val.$1.toDouble());
+                          final el = web.document.getElementById('topup-amount-input') as web.HTMLInputElement?;
+                          if (el != null) {
+                            el.value = val.$1.toString();
+                          }
+                        }
+                      },
+                      [Component.text(val.$2)],
+                    )
                 ]),
               ]),
 

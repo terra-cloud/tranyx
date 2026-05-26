@@ -171,46 +171,62 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     final pitch = isNavigating ? 45.0 : 0.0;
     final zoom = isNavigating ? 16.5 : 14.0;
 
-    final bool pastPickup = subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
+    final bool pastPickup = subStatus == 'arrived_pickup' || subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
 
     double startLat;
     double startLng;
+    double? midLat;
+    double? midLng;
     double endLat;
     double endLng;
     String color;
 
-    if (component.isNyxian) {
-      if (_myLat == null) {
-        await _initializeNyxianLocation();
-      }
-      startLat = _myLat!;
-      startLng = _myLng!;
-    } else {
-      final nyxianLat = (job['nyxianLat'] as num?)?.toDouble();
-      final nyxianLng = (job['nyxianLng'] as num?)?.toDouble();
-      if (nyxianLat != null && nyxianLng != null) {
-        startLat = nyxianLat;
-        startLng = nyxianLng;
-      } else {
-        startLat = pickupLat ?? 14.5995;
-        startLng = pickupLng ?? 120.9842;
-      }
-    }
-
-    if (!pastPickup && pickupLat != null) {
-      endLat = pickupLat;
-      endLng = pickupLng!;
-      color = '#3b82f6';
-    } else if (destLat != null) {
-      endLat = destLat;
-      endLng = destLng!;
+    if (subStatus == null) {
+      startLat = pickupLat ?? 14.5995;
+      startLng = pickupLng ?? 120.9842;
+      endLat = destLat ?? startLat;
+      endLng = destLng ?? startLng;
       color = '#6366f1';
     } else {
-      return;
+      if (component.isNyxian) {
+        if (_myLat == null) {
+          await _initializeNyxianLocation();
+        }
+        startLat = _myLat!;
+        startLng = _myLng!;
+      } else {
+        final nyxianLat = (job['nyxianLat'] as num?)?.toDouble();
+        final nyxianLng = (job['nyxianLng'] as num?)?.toDouble();
+        if (nyxianLat != null && nyxianLng != null) {
+          startLat = nyxianLat;
+          startLng = nyxianLng;
+        } else {
+          startLat = pickupLat ?? 14.5995;
+          startLng = pickupLng ?? 120.9842;
+        }
+      }
+
+      if (subStatus == 'heading_to_pickup') {
+        midLat = pickupLat;
+        midLng = pickupLng;
+        endLat = destLat ?? (pickupLat ?? startLat);
+        endLng = destLng ?? (pickupLng ?? startLng);
+        color = '#3b82f6';
+      } else if (!pastPickup && pickupLat != null) {
+        endLat = pickupLat;
+        endLng = pickupLng!;
+        color = '#3b82f6';
+      } else if (destLat != null) {
+        endLat = destLat;
+        endLng = destLng!;
+        color = '#6366f1';
+      } else {
+        return;
+      }
     }
 
     if (component.isNyxian) {
-      _updateRouteAndSteps(startLat, startLng, endLat, endLng, color).then((_) {
+      _updateRouteAndSteps(startLat, startLng, endLat, endLng, color, midLat, midLng).then((_) {
         double? bearing;
         if (isNavigating && _routeSteps.isNotEmpty) {
           if (_currentStepIndex < _routeSteps.length) {
@@ -226,7 +242,7 @@ class _NavigationMapState extends State<NavigationMapComponent> {
         panTo(_mapId, startLat, startLng, bearing: bearing ?? 0.0, pitch: pitch, zoom: zoom);
       });
     } else {
-      _updateEmployerRoute(startLat, startLng, endLat, endLng, color).then((_) {
+      _updateEmployerRoute(startLat, startLng, endLat, endLng, color, midLat, midLng).then((_) {
         double? bearing;
         if (isNavigating && _routeSteps.isNotEmpty) {
           final step = _routeSteps[0];
@@ -284,48 +300,64 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     if (pickupLat != null && destLat != null && !_routeDrawn) {
       _routeDrawn = true;
       final bool pastPickup =
-          subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
+          subStatus == 'arrived_pickup' || subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
       final nyxianLat = (job['nyxianLat'] as num?)?.toDouble();
       final nyxianLng = (job['nyxianLng'] as num?)?.toDouble();
 
       double startLat;
       double startLng;
+      double? midLat;
+      double? midLng;
       double endLat;
       double endLng;
       String color;
 
-      if (component.isNyxian) {
-        await _initializeNyxianLocation();
-        if (_myLat != null) {
-          setMarker(_mapId, 'nyxian', _myLat!, _myLng!, '🛵 You — ${_subStatusLabel(subStatus)}');
-        }
-        startLat = _myLat!;
-        startLng = _myLng!;
-      } else {
-        if (nyxianLat != null && nyxianLng != null) {
-          setMarker(_mapId, 'nyxian', nyxianLat, nyxianLng, _nyxianMarkerLabel(subStatus));
-          startLat = nyxianLat;
-          startLng = nyxianLng;
-        } else {
-          startLat = pickupLat;
-          startLng = pickupLng!;
-        }
-      }
-
-      if (!pastPickup) {
-        endLat = pickupLat;
-        endLng = pickupLng!;
-        color = '#3b82f6';
-      } else {
+      if (subStatus == null) {
+        startLat = pickupLat;
+        startLng = pickupLng!;
         endLat = destLat;
         endLng = destLng!;
         color = '#6366f1';
+      } else {
+        if (component.isNyxian) {
+          await _initializeNyxianLocation();
+          if (_myLat != null) {
+            setMarker(_mapId, 'nyxian', _myLat!, _myLng!, '🛵 You — ${_subStatusLabel(subStatus)}');
+          }
+          startLat = _myLat!;
+          startLng = _myLng!;
+        } else {
+          if (nyxianLat != null && nyxianLng != null) {
+            setMarker(_mapId, 'nyxian', nyxianLat, nyxianLng, _nyxianMarkerLabel(subStatus));
+            startLat = nyxianLat;
+            startLng = nyxianLng;
+          } else {
+            startLat = pickupLat;
+            startLng = pickupLng!;
+          }
+        }
+
+        if (subStatus == 'heading_to_pickup') {
+          midLat = pickupLat;
+          midLng = pickupLng;
+          endLat = destLat;
+          endLng = destLng!;
+          color = '#3b82f6';
+        } else if (!pastPickup) {
+          endLat = pickupLat;
+          endLng = pickupLng!;
+          color = '#3b82f6';
+        } else {
+          endLat = destLat;
+          endLng = destLng!;
+          color = '#6366f1';
+        }
       }
 
       if (component.isNyxian) {
-        await _updateRouteAndSteps(startLat, startLng, endLat, endLng, color);
+        await _updateRouteAndSteps(startLat, startLng, endLat, endLng, color, midLat, midLng);
       } else {
-        await _updateEmployerRoute(startLat, startLng, endLat, endLng, color);
+        await _updateEmployerRoute(startLat, startLng, endLat, endLng, color, midLat, midLng);
       }
     }
 
@@ -360,9 +392,9 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     return '🛵 Nyxian — $label';
   }
 
-  Future<void> _updateEmployerRoute(double fromLat, double fromLng, double toLat, double toLng, String color) async {
+  Future<void> _updateEmployerRoute(double fromLat, double fromLng, double toLat, double toLng, String color, [double? midLat, double? midLng]) async {
     try {
-      final routeData = await drawOSRMRoute(_mapId, fromLat, fromLng, toLat, toLng, color);
+      final routeData = await drawOSRMRoute(_mapId, fromLat, fromLng, toLat, toLng, color, midLat, midLng);
       if (routeData != null) {
         final stepsList = routeData['steps'] as List<dynamic>?;
         final coordsList = routeData['coordinates'] as List<dynamic>?;
@@ -447,9 +479,15 @@ class _NavigationMapState extends State<NavigationMapComponent> {
           final destLng = (job['destinationLng'] as num?)?.toDouble();
 
           final bool pastPickup =
-              subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
+              subStatus == 'arrived_pickup' || subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
 
-          if (!pastPickup && pickupLat != null) {
+          if (subStatus == null) {
+            if (pickupLat != null && destLat != null) {
+              await _updateEmployerRoute(pickupLat, pickupLng!, destLat, destLng!, '#6366f1');
+            }
+          } else if (subStatus == 'heading_to_pickup') {
+            await _updateEmployerRoute(lat, lng, destLat ?? pickupLat!, destLng ?? pickupLng!, '#3b82f6', pickupLat, pickupLng);
+          } else if (!pastPickup && pickupLat != null) {
             await _updateEmployerRoute(lat, lng, pickupLat, pickupLng!, '#3b82f6');
           } else if (pastPickup && destLat != null) {
             await _updateEmployerRoute(lat, lng, destLat, destLng!, '#6366f1');
@@ -584,18 +622,20 @@ class _NavigationMapState extends State<NavigationMapComponent> {
     final destLat = (job['destinationLat'] as num?)?.toDouble();
     final destLng = (job['destinationLng'] as num?)?.toDouble();
 
-    final bool pastPickup = subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
+    final bool pastPickup = subStatus == 'arrived_pickup' || subStatus == 'paid_cashier' || subStatus == 'in_transit' || subStatus == 'arrived_dropoff';
 
-    if (!pastPickup && pickupLat != null) {
+    if (subStatus == 'heading_to_pickup') {
+      _updateRouteAndSteps(fromLat, fromLng, destLat ?? pickupLat!, destLng ?? pickupLng!, '#3b82f6', pickupLat, pickupLng);
+    } else if (!pastPickup && pickupLat != null) {
       _updateRouteAndSteps(fromLat, fromLng, pickupLat, pickupLng!, '#3b82f6');
     } else if (pastPickup && destLat != null) {
       _updateRouteAndSteps(fromLat, fromLng, destLat, destLng!, '#6366f1');
     }
   }
 
-  Future<void> _updateRouteAndSteps(double fromLat, double fromLng, double toLat, double toLng, String color) async {
+  Future<void> _updateRouteAndSteps(double fromLat, double fromLng, double toLat, double toLng, String color, [double? midLat, double? midLng]) async {
     try {
-      final routeData = await drawOSRMRoute(_mapId, fromLat, fromLng, toLat, toLng, color);
+      final routeData = await drawOSRMRoute(_mapId, fromLat, fromLng, toLat, toLng, color, midLat, midLng);
       if (routeData != null) {
         final stepsList = routeData['steps'] as List<dynamic>?;
         final coordsList = routeData['coordinates'] as List<dynamic>?;

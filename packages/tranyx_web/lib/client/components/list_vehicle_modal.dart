@@ -5,9 +5,9 @@ import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../components/map_picker.dart';
-import '../../constants/contract_drafts.dart';
 import '../../services/web_interop.dart';
 import '../../services/firebase_service.dart';
+import 'contract_viewer.dart';
 
 class ListVehicleModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -34,6 +34,8 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
   String _model = '';
   String _year = '';
   String _plateNumber = '';
+  String _fuelType = 'Gasoline'; // 'Gasoline', 'Diesel', 'Electric', 'Hybrid'
+  String _transmission = 'Automatic'; // 'Automatic', 'Manual'
 
   // Pricing
   String _price12h = '';
@@ -89,6 +91,15 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
       setState(() => _error = 'Please fill out all vehicle details.');
       return;
     }
+
+    if (component.appState.checkProfanity(_brand) ||
+        component.appState.checkProfanity(_model) ||
+        component.appState.checkProfanity(_pickupAddress) ||
+        (_contractType == 'Custom Contract' && component.appState.checkProfanity(_customTerms))) {
+      setState(() => _error = 'Your listing details contain inappropriate language. Please review and try again.');
+      return;
+    }
+
     if (!_isValidPhilippinePlate(_plateNumber)) {
       setState(
         () => _error = 'Please enter a valid Philippine Plate Number (e.g. ABC-1234, MC-12345) or MV File Number.',
@@ -105,14 +116,14 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
       return;
     }
 
-    if (_imageUrls[0].isEmpty) {
-      _imageUrls[0] = 'https://via.placeholder.com/400x300?text=Interior';
+    if (_imageUrls.length < 3 || _imageUrls[0].isEmpty || _imageUrls[1].isEmpty || _imageUrls[2].isEmpty) {
+      setState(() => _error = 'Please upload all required photos (Interior, Front, and Back) before listing.');
+      return;
     }
-    if (_imageUrls[1].isEmpty) {
-      _imageUrls[1] = 'https://via.placeholder.com/400x300?text=Front';
-    }
-    if (_imageUrls[2].isEmpty) {
-      _imageUrls[2] = 'https://via.placeholder.com/400x300?text=Back';
+
+    if (_isUploadingImage.any((uploading) => uploading)) {
+      setState(() => _error = 'Please wait for all image uploads to finish.');
+      return;
     }
 
     setState(() {
@@ -136,6 +147,8 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
         model: _model,
         year: int.tryParse(_year) ?? DateTime.now().year,
         plateNumber: _plateNumber,
+        fuelType: _fuelType,
+        transmission: _transmission,
         interiorPhotoUrl: _imageUrls.isNotEmpty ? _imageUrls[0] : '',
         frontPhotoUrl: _imageUrls.length > 1 ? _imageUrls[1] : '',
         backPhotoUrl: _imageUrls.length > 2 ? _imageUrls[2] : '',
@@ -168,6 +181,9 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
       final rentalData = rental.toMap();
       if (_gpsTrackerId.trim().isNotEmpty) {
         rentalData['gpsTrackerId'] = _gpsTrackerId.trim();
+      }
+      if (_imageUrls.length > 3) {
+        rentalData['extraPhotos'] = _imageUrls.sublist(3).where((url) => url.isNotEmpty).toList();
       }
       await component.appState.firestore.createRentalFromMap(rentalData);
 
@@ -231,6 +247,9 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
         setState(() => _error = 'Please select and confirm a vehicle location on the map picker.');
         return;
       }
+      _pickupAddress = component.appState.pickupAddress;
+      _pickupLat = component.appState.pickupLat;
+      _pickupLng = component.appState.pickupLng;
     }
 
     setState(() => _step++);
@@ -287,7 +306,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                       'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
                   events: {
                     'change': (e) {
-                      final selected = VehicleType.values.firstWhere((v) => v.name == (e.target as dynamic).value);
+                      final selected = VehicleType.values.firstWhere((v) => v.name == (e.target as web.HTMLSelectElement).value);
                       setState(() {
                         _selectedType = selected;
                         _brand = '';
@@ -301,6 +320,51 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                       option(value: t.name, selected: _selectedType == t, [Component.text(t.name.toUpperCase())]),
                   ],
                 ),
+              ]),
+
+              div(classes: 'grid grid-cols-2 gap-4 mb-4', [
+                div(classes: '', [
+                  label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                    Component.text('Engine / Fuel Type'),
+                  ]),
+                  select(
+                    classes:
+                        'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
+                    events: {
+                      'change': (e) {
+                        setState(() {
+                          _fuelType = (e.target as web.HTMLSelectElement).value;
+                        });
+                      },
+                    },
+                    [
+                      option(value: 'Gasoline', selected: _fuelType == 'Gasoline', [Component.text('Gasoline')]),
+                      option(value: 'Diesel', selected: _fuelType == 'Diesel', [Component.text('Diesel')]),
+                      option(value: 'Electric', selected: _fuelType == 'Electric', [Component.text('Electric')]),
+                      option(value: 'Hybrid', selected: _fuelType == 'Hybrid', [Component.text('Hybrid')]),
+                    ],
+                  ),
+                ]),
+                div(classes: '', [
+                  label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                    Component.text('Transmission'),
+                  ]),
+                  select(
+                    classes:
+                        'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
+                    events: {
+                      'change': (e) {
+                        setState(() {
+                          _transmission = (e.target as web.HTMLSelectElement).value;
+                        });
+                      },
+                    },
+                    [
+                      option(value: 'Automatic', selected: _transmission == 'Automatic', [Component.text('Automatic')]),
+                      option(value: 'Manual', selected: _transmission == 'Manual', [Component.text('Manual')]),
+                    ],
+                  ),
+                ]),
               ]),
 
               div(classes: 'grid grid-cols-2 gap-4', [
@@ -477,9 +541,10 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                         attributes: {'value': _driverLicenseNumber, 'placeholder': 'e.g. N01-23-456789'},
                         events: {
                           'input': (e) {
-                            final val = (e.target as dynamic).value as String;
+                            final inputEl = e.target as web.HTMLInputElement;
+                            final val = inputEl.value;
                             final formatted = _formatLicenseNumber(val);
-                            (e.target as dynamic).value = formatted;
+                            inputEl.value = formatted;
                             setState(() => _driverLicenseNumber = formatted);
                           },
                         },
@@ -498,7 +563,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                         'placeholder':
                             'e.g. Professional driver with 5+ years clean record, familiar with Metro Manila routes.',
                       },
-                      events: {'input': (e) => setState(() => _driverNote = (e.target as dynamic).value)},
+                      events: {'input': (e) => setState(() => _driverNote = (e.target as web.HTMLTextAreaElement).value)},
                       [Component.text(_driverNote)],
                     ),
                   ]),
@@ -520,12 +585,41 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
               // Step 3: Photos & Contracts
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Photos & Legal')]),
               p(classes: 'text-sm mb-4 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                Component.text('Tranyx requires 3 photos: Interior, Front, and Back.'),
+                Component.text('Tranyx requires 3 photos: Interior, Front, and Back. You can also upload additional photos.'),
               ]),
-              div(classes: 'grid grid-cols-3 gap-3 mb-6', [
-                _photoUploadPlaceholder('Interior', _imageUrls[0], 0, isDark),
-                _photoUploadPlaceholder('Front', _imageUrls[1], 1, isDark),
-                _photoUploadPlaceholder('Back', _imageUrls[2], 2, isDark),
+              div(classes: 'space-y-4 mb-6', [
+                div(classes: 'grid grid-cols-3 gap-3', [
+                  for (int i = 0; i < _imageUrls.length; i++)
+                    _photoUploadPlaceholder(
+                      i == 0
+                          ? 'Interior'
+                          : i == 1
+                              ? 'Front'
+                              : i == 2
+                                  ? 'Back'
+                                  : 'Extra Photo ${i - 2}',
+                      _imageUrls[i],
+                      i,
+                      isDark,
+                    ),
+                ]),
+                button(
+                  classes:
+                      'px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border '
+                      '${isDark ? "border-zinc-700 hover:bg-zinc-800 bg-zinc-800/30 text-purple-400 hover:text-purple-300" : "border-zinc-300 hover:bg-zinc-50 bg-zinc-50/20 text-purple-600 hover:text-purple-700"} transition-all cursor-pointer',
+                  events: {
+                    'click': (_) {
+                      setState(() {
+                        _imageUrls.add('');
+                        _isUploadingImage.add(false);
+                      });
+                    },
+                  },
+                  [
+                    lIcon('plus', cls: 'w-4 h-4'),
+                    Component.text('Add More Photos'),
+                  ],
+                ),
               ]),
 
               div(classes: 'mb-4', [
@@ -535,7 +629,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                 select(
                   classes:
                       'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
-                  events: {'change': (e) => setState(() => _contractType = (e.target as dynamic).value)},
+                  events: {'change': (e) => setState(() => _contractType = (e.target as web.HTMLSelectElement).value)},
                   [
                     option(value: 'Tranyx Standard', selected: _contractType == 'Tranyx Standard', [
                       Component.text('Tranyx Standard'),
@@ -566,52 +660,40 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                     ),
                   ]),
                   if (_showPreview)
-                    div(
-                      classes:
-                          'mt-3 p-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg max-h-40 overflow-y-auto',
-                      [
-                        p(
-                          classes:
-                              'whitespace-pre-wrap text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"} leading-relaxed',
-                          [
-                            Component.text(
-                              buildDefaultTranyxContract(
-                                VehicleRental(
-                                  id: '',
-                                  hostId: '',
-                                  hostName: component.appState.userProfile?.name ?? 'Owner',
-                                  brand: _brand,
-                                  model: _model,
-                                  year: int.tryParse(_year) ?? 2022,
-                                  plateNumber: _plateNumber,
-                                  type: _selectedType,
-                                  vehicleValue: 0,
-                                  ltoCrNumber: 'PENDING',
-                                  ltoOrNumber: 'PENDING',
-                                  insuranceProvider: 'N/A',
-                                  insurancePolicyNumber: 'N/A',
-                                  contractType: 'Tranyx Standard',
-                                  contractTerms: '',
-                                  price12h: double.tryParse(_price12h) ?? 0,
-                                  priceDaily: double.tryParse(_priceDaily) ?? 0,
-                                  priceWeekly: double.tryParse(_priceWeekly) ?? 0,
-                                  priceMonthly: double.tryParse(_priceMonthly) ?? 0,
-                                  extensionRatePerHour: double.tryParse(_extensionPenaltyPerHour) ?? 0,
-                                  latePenaltyRatePerHour: double.tryParse(_extensionPenaltyPerHour) ?? 0,
-                                  status: 'Available',
-                                  pickupAddress: '',
-                                  pickupLat: 0,
-                                  pickupLng: 0,
-                                  createdAt: DateTime.now(),
-                                  interiorPhotoUrl: '',
-                                  frontPhotoUrl: '',
-                                  backPhotoUrl: '',
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                    ContractViewerComponent(
+                      vehicleRental: VehicleRental(
+                        id: '',
+                        hostId: '',
+                        hostName: component.appState.userProfile?.name ?? 'Owner',
+                        brand: _brand,
+                        model: _model,
+                        year: int.tryParse(_year) ?? 2022,
+                        plateNumber: _plateNumber,
+                        type: _selectedType,
+                        vehicleValue: 0,
+                        ltoCrNumber: 'PENDING',
+                        ltoOrNumber: 'PENDING',
+                        insuranceProvider: 'N/A',
+                        insurancePolicyNumber: 'N/A',
+                        contractType: 'Tranyx Standard',
+                        contractTerms: '',
+                        price12h: double.tryParse(_price12h) ?? 0,
+                        priceDaily: double.tryParse(_priceDaily) ?? 0,
+                        priceWeekly: double.tryParse(_priceWeekly) ?? 0,
+                        priceMonthly: double.tryParse(_priceMonthly) ?? 0,
+                        extensionRatePerHour: double.tryParse(_extensionPenaltyPerHour) ?? 0,
+                        latePenaltyRatePerHour: double.tryParse(_extensionPenaltyPerHour) ?? 0,
+                        status: 'Available',
+                        fuelType: _fuelType,
+                        transmission: _transmission,
+                        pickupAddress: _pickupAddress.isNotEmpty ? _pickupAddress : component.appState.pickupAddress,
+                        pickupLat: _pickupLat ?? component.appState.pickupLat ?? 0.0,
+                        pickupLng: _pickupLng ?? component.appState.pickupLng ?? 0.0,
+                        createdAt: DateTime.now(),
+                        interiorPhotoUrl: '',
+                        frontPhotoUrl: '',
+                        backPhotoUrl: '',
+                      ),
                     ),
                 ]),
               ] else ...[
@@ -623,7 +705,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                     classes:
                         'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors h-32 resize-none',
                     attributes: {'placeholder': 'Enter your custom terms and conditions for this rental...'},
-                    events: {'input': (e) => setState(() => _customTerms = (e.target as dynamic).value)},
+                    events: {'input': (e) => setState(() => _customTerms = (e.target as web.HTMLTextAreaElement).value)},
                     [Component.text(_customTerms)],
                   ),
                   div(classes: 'mt-3 flex items-center gap-3', [
@@ -731,7 +813,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
             'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
         type: type,
         attributes: {'value': value, if (placeholder != null) 'placeholder': placeholder},
-        events: {'input': (e) => onChange((e.target as dynamic).value)},
+        events: {'input': (e) => onChange((e.target as web.HTMLInputElement).value)},
       ),
     ]);
   }
@@ -753,7 +835,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
         classes:
             'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} outline-none focus:border-purple-500 transition-colors',
         attributes: isDisabled ? {'disabled': 'disabled'} : {},
-        events: {'change': (e) => onChange((e.target as dynamic).value)},
+        events: {'change': (e) => onChange((e.target as web.HTMLSelectElement).value)},
         [
           option(value: '', selected: selectedValue.isEmpty, [Component.text(placeholder)]),
           for (final opt in optionsList) option(value: opt, selected: selectedValue == opt, [Component.text(opt)]),
@@ -846,49 +928,70 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
 
   Component _photoUploadPlaceholder(String labelText, String currentUrl, int index, bool isDark) {
     final isUploading = _isUploadingImage[index];
-    return label(
-      classes:
-          'relative aspect-video rounded-2xl border border-dashed flex flex-col items-center justify-center cursor-pointer overflow-hidden transition-colors ${isDark ? "border-zinc-800 hover:bg-zinc-800/50 bg-zinc-900/30" : "border-zinc-200 hover:bg-zinc-50 bg-zinc-50/50"}',
-      attributes: {
-        'for': 'file-input-$index',
-      },
+    final showRemove = index >= 3;
+
+    return div(
+      classes: 'relative aspect-video rounded-2xl overflow-hidden border border-dashed ${isDark ? "border-zinc-800 bg-zinc-900/30" : "border-zinc-200 bg-zinc-50/50"}',
       [
-        input(
-          type: InputType.file,
-          classes: 'hidden',
+        label(
+          classes:
+              'w-full h-full flex flex-col items-center justify-center cursor-pointer transition-colors hover:opacity-90',
           attributes: {
-            'id': 'file-input-$index',
-            'accept': 'image/*',
-            'style': 'display: none;',
+            'for': 'file-input-$index',
           },
-          events: {
-            'change': (e) {
-              _handleFileSelected(e, index);
-            },
-          },
-        ),
+          [
+            input(
+              type: InputType.file,
+              classes: 'hidden',
+              attributes: {
+                'id': 'file-input-$index',
+                'accept': 'image/*',
+                'style': 'display: none;',
+              },
+              events: {
+                'change': (e) {
+                  _handleFileSelected(e, index);
+                },
+              },
+            ),
 
-        if (currentUrl.isNotEmpty)
-          img(
-            src: currentUrl,
-            classes: 'w-full h-full object-cover',
-            attributes: {'alt': labelText},
-          )
-        else ...[
-          lIcon('camera', cls: 'w-6 h-6 mb-2 ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
-          p(classes: 'text-xs font-semibold ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-            Component.text(labelText),
-          ]),
-        ],
-
-        if (isUploading)
-          div(
-            classes:
-                'absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white backdrop-blur-[2px] animate-fade-in',
-            [
-              lIcon('loader', cls: 'w-6 h-6 animate-spin mb-2 text-purple-400'),
-              p(classes: 'text-xs font-semibold', [Component.text('Uploading...')]),
+            if (currentUrl.isNotEmpty)
+              img(
+                src: currentUrl,
+                classes: 'w-full h-full object-cover',
+                attributes: {'alt': labelText},
+              )
+            else ...[
+              lIcon('camera', cls: 'w-6 h-6 mb-2 ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
+              p(classes: 'text-xs font-semibold ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                Component.text(labelText),
+              ]),
             ],
+
+            if (isUploading)
+              div(
+                classes:
+                    'absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white backdrop-blur-[2px] z-10 animate-fade-in',
+                [
+                  lIcon('loader', cls: 'w-6 h-6 animate-spin mb-2 text-purple-400'),
+                  p(classes: 'text-xs font-semibold', [Component.text('Uploading...')]),
+                ],
+              ),
+          ],
+        ),
+        if (showRemove)
+          button(
+            classes:
+                'absolute top-2 right-2 p-1.5 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-md transition-colors z-20 border-none outline-none cursor-pointer',
+            events: {
+              'click': (e) {
+                setState(() {
+                  _imageUrls.removeAt(index);
+                  _isUploadingImage.removeAt(index);
+                });
+              },
+            },
+            [lIcon('trash-2', cls: 'w-3.5 h-3.5')],
           ),
       ],
     );

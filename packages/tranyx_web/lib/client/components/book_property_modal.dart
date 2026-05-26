@@ -1,10 +1,11 @@
+import 'package:web/web.dart' as web;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
-import '../../constants/contract_drafts.dart';
 import '../../state/app_state.dart';
+import 'contract_viewer.dart';
 
 class BookPropertyModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -52,12 +53,23 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
   double get _depositAmount {
     final p = component.appState.selectedPropertyData;
     if (p == null) return 0;
+    final customAmt = p['securityDepositAmount'] as num?;
+    if (customAmt != null) {
+      return customAmt.toDouble();
+    }
     final monthlyRent = ((p['priceMonthly'] ?? 0) as num).toDouble();
     return monthlyRent * _depositMonths;
   }
 
+  double get _advanceAmount {
+    final p = component.appState.selectedPropertyData;
+    if (p == null) return 0;
+    final customAmt = p['advanceAmount'] as num?;
+    return customAmt?.toDouble() ?? 0.0;
+  }
+
   double get _totalPrice {
-    return _totalRent + _depositAmount;
+    return _totalRent + _depositAmount + _advanceAmount;
   }
 
   double get _bookingFee {
@@ -373,6 +385,56 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     ]),
                   ],
                 ),
+
+                // Move-in cost summary banner (shows when advance or deposit > 0)
+                Builder(
+                  builder: (context) {
+                    final hasAdvance = _advanceAmount > 0;
+                    final hasDeposit = _depositAmount > 0;
+                    if (!hasAdvance && !hasDeposit) return div([]);
+                    return div(
+                      classes:
+                          'mt-3 p-4 rounded-xl border ${isDark ? "border-amber-500/20 bg-amber-500/5" : "border-amber-400/30 bg-amber-50"} space-y-2',
+                      [
+                        div(classes: 'flex items-center gap-2 mb-2', [
+                          lIcon('info', cls: 'w-3.5 h-3.5 text-amber-500'),
+                          p(classes: 'text-xs font-bold text-amber-500', [
+                            Component.text('Move-in Requirements by Owner'),
+                          ]),
+                        ]),
+                        if (hasAdvance)
+                          div(classes: 'flex items-center justify-between text-xs', [
+                            div(classes: 'flex items-center gap-1.5 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                              lIcon('calendar-check', cls: 'w-3 h-3 text-indigo-400'),
+                              Component.text('Advance Payment'),
+                            ]),
+                            span(classes: 'font-bold text-indigo-400', [
+                              Component.text('₱ ${_advanceAmount.toStringAsFixed(2)}'),
+                            ]),
+                          ]),
+                        if (hasDeposit)
+                          div(classes: 'flex items-center justify-between text-xs', [
+                            div(classes: 'flex items-center gap-1.5 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                              lIcon('shield-check', cls: 'w-3 h-3 text-purple-400'),
+                              Component.text('Security Deposit (refundable)'),
+                            ]),
+                            span(classes: 'font-bold text-purple-400', [
+                              Component.text('₱ ${_depositAmount.toStringAsFixed(2)}'),
+                            ]),
+                          ]),
+                        div(classes: 'h-px ${isDark ? "bg-amber-500/10" : "bg-amber-200"} my-1', []),
+                        div(classes: 'flex items-center justify-between text-xs font-bold', [
+                          span(classes: '${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                            Component.text('Move-in Total (excl. rent)'),
+                          ]),
+                          span(classes: 'text-amber-500', [
+                            Component.text('₱ ${(_advanceAmount + _depositAmount).toStringAsFixed(2)}'),
+                          ]),
+                        ]),
+                      ],
+                    );
+                  },
+                ),
               ] else if (_step == 2) ...[
                 // Step 2: Contract & Payment Review
                 h3(classes: 'text-lg font-bold mb-2', [
@@ -382,23 +444,46 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                         : 'Tranyx Standard Lease Agreement',
                   ),
                 ]),
-                div(
-                  classes:
-                      'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 h-56 overflow-y-auto mb-4',
-                  [
-                    p(
-                      classes:
-                          'whitespace-pre-wrap text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"} leading-relaxed',
-                      [
-                        Component.text(
-                          pData['contractType'] == 'Custom Contract'
-                              ? pData['contractTerms'] ?? 'No terms provided.'
-                              : buildDefaultPropertyContract(PropertyRental.fromMap(pData, pData['id'])),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                () {
+                  final baseProperty = PropertyRental.fromMap(pData, pData['id'] ?? '');
+                  final previewProperty = PropertyRental(
+                    id: baseProperty.id,
+                    hostId: baseProperty.hostId,
+                    hostName: baseProperty.hostName,
+                    hostPhotoUrl: baseProperty.hostPhotoUrl,
+                    title: baseProperty.title,
+                    description: baseProperty.description,
+                    type: baseProperty.type,
+                    category: baseProperty.category,
+                    priceMonthly: baseProperty.priceMonthly,
+                    priceWeekly: baseProperty.priceWeekly,
+                    priceDaily: baseProperty.priceDaily,
+                    depositMonths: baseProperty.depositMonths,
+                    address: baseProperty.address,
+                    latitude: baseProperty.latitude,
+                    longitude: baseProperty.longitude,
+                    photoUrls: baseProperty.photoUrls,
+                    amenities: baseProperty.amenities,
+                    status: baseProperty.status,
+                    contractType: baseProperty.contractType,
+                    contractTerms: baseProperty.contractTerms,
+                    createdAt: baseProperty.createdAt,
+                    allowChat: baseProperty.allowChat,
+                    renteeName: component.appState.userProfile?.name,
+                    renteePhotoUrl: component.appState.userProfile?.photoUrl,
+                    renteeLicenseNumber: _licenseNumber.isNotEmpty ? _licenseNumber : null,
+                    rentalDurationType: _selectedDurationType,
+                    rentalMultiplier: _multiplier,
+                    totalCost: _totalPrice,
+                    renteeSignatureName: null,
+                    signedAt: null,
+                  );
+                  return ContractViewerComponent(
+                    propertyRental: pData['contractType'] == 'Custom Contract' ? null : previewProperty,
+                    customTerms: pData['contractType'] == 'Custom Contract' ? pData['contractTerms'] : null,
+                    contractType: pData['contractType'] as String?,
+                  );
+                }(),
 
                 div(classes: 'mb-6', [
                   label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
@@ -408,35 +493,76 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     classes:
                         'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors mb-4',
                     attributes: {'value': _licenseNumber, 'placeholder': 'e.g. Passport, License, or UMID number'},
-                    events: {'input': (e) => setState(() => _licenseNumber = (e.target as dynamic).value)},
+                    events: {'input': (e) => setState(() => _licenseNumber = (e.target as web.HTMLInputElement).value)},
                   ),
                 ]),
 
                 div(classes: 'p-5 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-3', [
+                  // Header
+                  p(classes: 'text-xs font-bold uppercase tracking-wider text-purple-400 mb-1', [
+                    Component.text('Move-in Cost Breakdown'),
+                  ]),
+                  // Rental cost
                   div(classes: 'flex justify-between text-sm', [
-                    span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
-                      Component.text('$_multiplier x $_selectedDurationType Rental Cost'),
+                    span(classes: isDark ? 'text-zinc-400' : 'text-zinc-650', [
+                      Component.text('$_multiplier × $_selectedDurationType Rental'),
                     ]),
                     span(classes: 'font-bold', [Component.text('₱ ${_totalRent.toStringAsFixed(2)}')]),
                   ]),
-                  if (_depositMonths > 0)
+                  // Advance payment
+                  if (_advanceAmount > 0) ...[
                     div(classes: 'flex justify-between text-sm', [
-                      span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
-                        Component.text('Security Deposit ($_depositMonths Month(s) Rent)'),
+                      div(classes: 'flex items-center gap-1.5', [
+                        lIcon('calendar-check', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                        span(classes: isDark ? 'text-zinc-400' : 'text-zinc-650', [
+                          Component.text('Advance Payment'),
+                        ]),
+                      ]),
+                      span(classes: 'font-bold text-indigo-400', [
+                        Component.text('₱ ${_advanceAmount.toStringAsFixed(2)}'),
+                      ]),
+                    ]),
+                    p(classes: 'text-[10px] ${isDark ? "text-zinc-600" : "text-zinc-400"} -mt-1 ml-5', [
+                      Component.text("Applied to first month's rent upon move-in"),
+                    ]),
+                  ],
+                  // Security deposit
+                  if (_depositAmount > 0) ...[
+                    div(classes: 'flex justify-between text-sm', [
+                      div(classes: 'flex items-center gap-1.5', [
+                        lIcon('shield-check', cls: 'w-3.5 h-3.5 text-purple-400'),
+                        span(classes: isDark ? 'text-zinc-400' : 'text-zinc-650', [
+                          Component.text('Security Deposit'),
+                        ]),
                       ]),
                       span(classes: 'font-bold text-purple-400', [
                         Component.text('₱ ${_depositAmount.toStringAsFixed(2)}'),
                       ]),
                     ]),
-                  div(classes: 'flex justify-between text-sm', [
-                    span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
-                      Component.text('Platform Service Fee (3%)'),
+                    p(classes: 'text-[10px] ${isDark ? "text-zinc-600" : "text-zinc-400"} -mt-1 ml-5', [
+                      Component.text('Fully refundable at end of lease'),
                     ]),
-                    span(classes: 'font-bold text-purple-400', [Component.text('₱ ${_bookingFee.toStringAsFixed(2)}')]),
+                  ],
+                  // Platform fee
+                  div(classes: 'flex justify-between text-sm', [
+                    div(classes: 'flex items-center gap-1.5', [
+                      lIcon('percent', cls: 'w-3.5 h-3.5 text-zinc-400'),
+                      span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
+                        Component.text('Platform Service Fee (3%)'),
+                      ]),
+                    ]),
+                    span(classes: 'font-bold text-zinc-400', [Component.text('₱ ${_bookingFee.toStringAsFixed(2)}')]),
                   ]),
-                  div(classes: 'h-px w-full bg-purple-500/20 my-2', []),
-                  div(classes: 'flex justify-between', [
-                    span(classes: 'font-bold', [Component.text('Total Escrow Hold')]),
+                  // Divider
+                  div(classes: 'h-px w-full bg-purple-500/20 my-1', []),
+                  // Total escrow
+                  div(classes: 'flex justify-between items-center', [
+                    div([
+                      span(classes: 'font-bold text-sm', [Component.text('Total Escrow Hold')]),
+                      p(classes: 'text-[10px] ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                        Component.text('Locked until lease completion'),
+                      ]),
+                    ]),
                     span(classes: 'font-black text-xl text-purple-400', [
                       Component.text('₱ ${(_totalPrice + _bookingFee).toStringAsFixed(2)}'),
                     ]),
@@ -444,7 +570,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                 ]),
                 p(classes: 'text-[10px] text-zinc-500 mt-2', [
                   Component.text(
-                    'Funds will be locked securely in the escrow account and only released when the lease ends or both parties confirm completion.',
+                    'Funds are locked securely in escrow and released only when both parties confirm lease completion. Advance and deposit are governed by contract terms.',
                   ),
                 ]),
               ],

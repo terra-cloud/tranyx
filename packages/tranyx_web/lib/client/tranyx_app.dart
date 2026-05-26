@@ -1,4 +1,5 @@
 // ignore: avoid_web_libraries_in_flutter
+import 'package:web/web.dart' as web;
 import 'package:http/http.dart' as http;
 import 'package:jaspr/dom.dart';
 import 'dart:async';
@@ -36,6 +37,8 @@ import '../client/components/book_property_modal.dart';
 import '../client/components/manage_property_modal.dart';
 import '../client/components/property_qa_modal.dart';
 import '../client/components/sign_contract_modal.dart';
+import '../client/components/kyc_id_modal.dart';
+import '../client/components/kyc_bg_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -62,6 +65,7 @@ class TranyxAppState extends State<TranyxApp> {
   String userEmail = '';
   String? userPhotoUrl;
   UserProfile? userProfile;
+  List<Map<String, dynamic>> pendingHoldbacks = [];
 
   // ── Profile edit fields ──────────────────────────────────────
   String editName = '';
@@ -443,7 +447,7 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   void _initGemini() {
-    _gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken);
+    _gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken, onTokenRefresh: _handleTokenRefresh);
   }
 
   void _initUserLocation() async {
@@ -726,6 +730,8 @@ class TranyxAppState extends State<TranyxApp> {
           hybridToggle = accountType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
         });
       }
+      await loadKycSubmission();
+      await loadHoldbacks();
     } catch (_) {}
   }
 
@@ -1272,10 +1278,32 @@ class TranyxAppState extends State<TranyxApp> {
     });
   }
 
+  bool checkProfanity(String text) {
+    if (text.isEmpty) return false;
+    final cleanText = text.toLowerCase();
+    final bannedWords = const [
+      'putang ina', 'tangina', 'gago', 'tarantado', 'kupal', 'puki', 'kiki', 'puta', 'pota', 'bobo', 'pakyu', 'ulol', 'salsal',
+      'fuck', 'shit', 'asshole', 'bitch', 'bastard', 'cunt', 'pussy', 'dick', 'cock'
+    ];
+    for (final word in bannedWords) {
+      if (cleanText.contains(word)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<void> handlePostJob() async {
     final uid = SessionStorage.uid;
     final token = SessionStorage.idToken;
     if (uid == null || token == null) return;
+
+    if (checkProfanity(newJobTitle) || checkProfanity(newJobDesc)) {
+      setState(() {
+        postJobError = 'Your job title or description contains inappropriate language. Please review and try again.';
+      });
+      return;
+    }
 
     if (!canPostJob) {
       setState(() {
@@ -1752,7 +1780,7 @@ class TranyxAppState extends State<TranyxApp> {
         },
         body: jsonEncode({
           'external_id': 'topup_${uid}_$timestamp',
-          'amount': depositAmount,
+          'amount': depositAmount.round(), // Xendit requires integer amounts (PHP)
           'payer_email': userName.isNotEmpty
               ? '$userName@example.com'.replaceAll(' ', '').toLowerCase()
               : 'user@example.com',
@@ -1953,6 +1981,27 @@ class TranyxAppState extends State<TranyxApp> {
     final token = SessionStorage.idToken;
     if (uid == null || token == null) return;
 
+    // Prevent withdrawals if user has active/ongoing rentals as a rentee (to protect hosts/owners from unpaid extension/late return fees)
+    final hasActiveVehicleRentals = realtimeRentals.any((rMap) {
+      final rental = VehicleRental.fromMap(rMap, rMap['id'] ?? '');
+      final isRenter = (rental.renteeId == uid);
+      final statusLower = rental.status.toLowerCase();
+      final isActive = (statusLower != 'completed' && statusLower != 'cancelled');
+      return isRenter && isActive;
+    });
+
+    final hasActivePropertyRentals = realtimeProperties.any((prop) {
+      final isRenter = (prop.renteeId == uid);
+      final statusLower = prop.status.toLowerCase();
+      final isActive = (statusLower != 'completed' && statusLower != 'cancelled' && statusLower != 'available');
+      return isRenter && isActive;
+    });
+
+    if (hasActiveVehicleRentals || hasActivePropertyRentals) {
+      setState(() => profileSaveError = 'Withdrawals are disabled while you have active/ongoing rentals to ensure potential extensions, late returns, or security fees are covered.');
+      return;
+    }
+
     final tyxBal = userProfile?.tyxBalance ?? 0.0;
     if (tyxBal < 100) {
       setState(() => profileSaveError = 'Minimum withdrawal is 100 Tyx (₱100).');
@@ -1999,7 +2048,7 @@ class TranyxAppState extends State<TranyxApp> {
       final files = await readFilesFromEvent(eventTarget);
       for (final file in files) {
         if (jobImageUrls.length >= 5) break;
-        final url = await ImgBBService(currentFirebaseConfig, idToken: token).uploadImageBytes(file.bytes, file.name);
+        final url = await ImgBBService(currentFirebaseConfig, idToken: token, onTokenRefresh: _handleTokenRefresh).uploadImageBytes(file.bytes, file.name);
         if (url != null) {
           setState(() => jobImageUrls.add(url));
         }
@@ -2549,6 +2598,18 @@ class TranyxAppState extends State<TranyxApp> {
     } catch (_) {
       setState(() => isGeneratingCode = false);
     }
+  }
+
+  Future<void> sendCompletionCodeToWorker() async {
+    if (selectedJobData == null || generatedCompletionCode == null) return;
+    final jobId = selectedJobData!['id'] as String;
+    final code = generatedCompletionCode!;
+    final uid = SessionStorage.uid;
+    if (uid == null) return;
+    final name = userProfile?.name ?? userName;
+    final text = 'Verification Code: $code. Please use this code to mark the gig as complete.';
+    sendChatMessageJs(jobId, uid, name, text);
+    showAppToast('Code Sent', 'Verification code sent to the worker via chat.');
   }
 
   Future<void> handleCompleteJob() async {
@@ -3304,7 +3365,7 @@ class TranyxAppState extends State<TranyxApp> {
       final files = await readFilesFromEvent(eventTarget);
       if (files.isNotEmpty) {
         final file = files.first;
-        final url = await ImgBBService(currentFirebaseConfig, idToken: token).uploadImageBytes(file.bytes, file.name);
+        final url = await ImgBBService(currentFirebaseConfig, idToken: token, onTokenRefresh: _handleTokenRefresh).uploadImageBytes(file.bytes, file.name);
         if (url != null) {
           setState(() => receiptPhotoUrl = url);
         }
@@ -3497,6 +3558,10 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Profile actions ─────────────────────────────────────────
 
   bool isUpdatingVerification = false;
+  Map<String, dynamic>? activeKycSubmission;
+  bool isLoadingKyc = false;
+  bool showKycIdModal = false;
+  bool showKycBgModal = false;
 
   void initializeProfileEditing() {
     final profile = userProfile;
@@ -4132,6 +4197,165 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  Future<void> loadKycSubmission() async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+    setState(() => isLoadingKyc = true);
+    try {
+      final doc = await FirestoreService(token, _handleTokenRefresh).getKycSubmission(uid);
+      setState(() {
+        activeKycSubmission = doc;
+      });
+    } catch (e) {
+      print('loadKycSubmission error: $e');
+    } finally {
+      setState(() => isLoadingKyc = false);
+    }
+  }
+
+  Future<void> loadHoldbacks() async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+    try {
+      final isNyxian = currentViewMode == AccountType.nyxian;
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final list = await svc.getEscrowHoldbacks(uid, isNyxian: isNyxian);
+
+      // Check if any holdbacks are ready to release client-side
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final toRelease = list.where((item) => (item['releaseAt'] as int? ?? 0) <= nowMs && item['status'] == 'held').toList();
+
+      if (toRelease.isNotEmpty && isNyxian) {
+        final userDoc = await svc.getDocument('users/$uid');
+        if (userDoc != null) {
+          double totalToRelease = 0.0;
+          for (final holdback in toRelease) {
+            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
+            totalToRelease += amt;
+
+            await svc.createOrUpdate('escrow_holdbacks/${holdback['id']}', {
+              ...holdback,
+              'status': 'released',
+              'releasedAt': nowMs,
+            });
+          }
+
+          if (totalToRelease > 0) {
+            final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            final currentEarned = (userDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
+
+            await svc.createOrUpdate('users/$uid', {
+              ...userDoc,
+              'tyxBalance': currentBal + totalToRelease,
+              'totalEarned': currentEarned + totalToRelease,
+            });
+          }
+        }
+      }
+
+      final remaining = await svc.getEscrowHoldbacks(uid, isNyxian: isNyxian);
+      setState(() {
+        pendingHoldbacks = remaining;
+      });
+    } catch (e) {
+      print('loadHoldbacks error: $e');
+    }
+  }
+
+  Future<void> submitIdVerification({
+    required String idType,
+    required String idNumber,
+    required String frontUrl,
+    required String backUrl,
+    required String selfieUrl,
+  }) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+
+    setState(() => isLoadingKyc = true);
+    try {
+      final dbSvc = FirestoreService(token, _handleTokenRefresh);
+      
+      // Get existing doc if any to merge
+      final existingDoc = await dbSvc.getKycSubmission(uid) ?? {};
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+      final updatedDoc = {
+        ...existingDoc,
+        'uid': uid,
+        'fullName': userProfile?.name ?? userName,
+        'submittedAt': nowMs,
+        'updatedAt': nowMs,
+        'idVerification': {
+          'status': 'pending',
+          'idType': idType,
+          'idNumber': idNumber,
+          'frontUrl': frontUrl,
+          'backUrl': backUrl,
+          'selfieUrl': selfieUrl,
+          'submittedAt': nowMs,
+        }
+      };
+
+      await dbSvc.saveKycSubmission(uid, updatedDoc);
+      await loadKycSubmission();
+      showAppToast('ID Verification Submitted! 🆔', 'Our team will review your government ID.');
+      setState(() => showKycIdModal = false);
+    } catch (e) {
+      showAppToast('Submission Failed ❌', e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      setState(() => isLoadingKyc = false);
+    }
+  }
+
+  Future<void> submitBackgroundCheck({
+    required String clearanceType,
+    required String clearanceNumber,
+    required String expiryDate,
+    required String documentUrl,
+  }) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+
+    setState(() => isLoadingKyc = true);
+    try {
+      final dbSvc = FirestoreService(token, _handleTokenRefresh);
+      
+      // Get existing doc if any to merge
+      final existingDoc = await dbSvc.getKycSubmission(uid) ?? {};
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+      final updatedDoc = {
+        ...existingDoc,
+        'uid': uid,
+        'fullName': userProfile?.name ?? userName,
+        'submittedAt': nowMs,
+        'updatedAt': nowMs,
+        'backgroundCheck': {
+          'status': 'pending',
+          'clearanceType': clearanceType,
+          'clearanceNumber': clearanceNumber,
+          'expiryDate': expiryDate,
+          'documentUrl': documentUrl,
+          'submittedAt': nowMs,
+        }
+      };
+
+      await dbSvc.saveKycSubmission(uid, updatedDoc);
+      await loadKycSubmission();
+      showAppToast('Background Check Submitted! 📄', 'Our team will review your clearance document.');
+      setState(() => showKycBgModal = false);
+    } catch (e) {
+      showAppToast('Submission Failed ❌', e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      setState(() => isLoadingKyc = false);
+    }
+  }
+
   @override
   Component build(BuildContext context) {
     final darkBg = isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900';
@@ -4259,38 +4483,38 @@ class TranyxAppState extends State<TranyxApp> {
         ),
 
       // Category modal overlay
-      if (showCategoryModal) CategoryModalComponent(state: this),
+      if (showCategoryModal) CategoryModalComponent(state: this, key: const ValueKey('category-modal')),
 
       // List Vehicle modal overlay
-      if (showListVehicleModal) ListVehicleModalComponent(appState: this),
+      if (showListVehicleModal) ListVehicleModalComponent(appState: this, key: const ValueKey('list-vehicle-modal')),
 
       // Book Vehicle modal overlay
-      if (showBookVehicleModal) BookVehicleModalComponent(appState: this),
+      if (showBookVehicleModal) BookVehicleModalComponent(appState: this, key: const ValueKey('book-vehicle-modal')),
 
       // Extend Rental modal overlay
-      if (showExtendRentalModal) ExtendRentalModalComponent(appState: this),
+      if (showExtendRentalModal) ExtendRentalModalComponent(appState: this, key: const ValueKey('extend-rental-modal')),
 
       // Rental Tracker Map overlay
-      if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this),
+      if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this, key: const ValueKey('rental-tracker-map')),
 
       // Manage Vehicle modal overlay
-      if (showManageVehicleModal) ManageVehicleModalComponent(appState: this),
+      if (showManageVehicleModal) ManageVehicleModalComponent(appState: this, key: const ValueKey('manage-vehicle-modal')),
 
       // Public Vehicle Q&A modal overlay
       if (showVehicleQaModal && selectedRentalData != null)
-        VehicleQaModalComponent(appState: this, rentalId: selectedRentalData!['id']),
+        VehicleQaModalComponent(appState: this, rentalId: selectedRentalData!['id'], key: const ValueKey('vehicle-qa-modal')),
 
       // List Property modal overlay
-      if (showListPropertyModal) ListPropertyModalComponent(appState: this),
+      if (showListPropertyModal) ListPropertyModalComponent(appState: this, key: const ValueKey('list-property-modal')),
 
       // Book Property modal overlay
-      if (showBookPropertyModal) BookPropertyModalComponent(appState: this),
+      if (showBookPropertyModal) BookPropertyModalComponent(appState: this, key: const ValueKey('book-property-modal')),
 
       // Manage Property modal overlay
-      if (showManagePropertyModal) ManagePropertyModalComponent(appState: this),
+      if (showManagePropertyModal) ManagePropertyModalComponent(appState: this, key: const ValueKey('manage-property-modal')),
 
       // Public Property Q&A modal overlay
-      if (showPropertyQaModal) PropertyQaModalComponent(appState: this),
+      if (showPropertyQaModal) PropertyQaModalComponent(appState: this, key: const ValueKey('property-qa-modal')),
 
       // Unified Sign Contract modal overlay
       if (showSignContractModal && signingContractId != null)
@@ -4300,6 +4524,7 @@ class TranyxAppState extends State<TranyxApp> {
           contractTerms: signingContractTerms ?? '',
           rentalId: signingContractId!,
           isProperty: signingContractIsProperty,
+          key: const ValueKey('sign-contract-modal'),
           onSigned: () {
             setState(() {
               showSignContractModal = false;
@@ -4326,6 +4551,10 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Rating modal overlay
       if (showRatingPopup) RatingModalComponent(state: this),
+
+      // KYC modals
+      if (showKycIdModal) KycIdModalComponent(state: this),
+      if (showKycBgModal) KycBgModalComponent(state: this),
 
       // Delete confirmation modal overlay
       if (showDeleteConfirm) DeleteConfirmModalComponent(state: this),
@@ -4444,7 +4673,7 @@ class SmsVerificationModalComponent extends StatelessComponent {
                       value: s.smsVerificationPhoneNumber,
                       events: {
                         'input': (e) {
-                          final val = (e.target as dynamic).value as String;
+                          final val = (e.target as web.HTMLInputElement).value;
                           var digits = val.replaceAll(RegExp(r'\D'), '');
                           if (digits.length > 10) digits = digits.substring(0, 10);
                           s.setState(() => s.smsVerificationPhoneNumber = digits);
@@ -4501,7 +4730,7 @@ class SmsVerificationModalComponent extends StatelessComponent {
                     value: s.smsVerificationCode,
                     events: {
                       'input': (e) {
-                        final val = (e.target as dynamic).value as String;
+                        final val = (e.target as web.HTMLInputElement).value;
                         s.setState(() => s.smsVerificationCode = val.replaceAll(RegExp(r'\D'), ''));
                       },
                     },

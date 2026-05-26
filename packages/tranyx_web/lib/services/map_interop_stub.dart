@@ -22,11 +22,14 @@ Future<Map<String, dynamic>?> drawOSRMRoute(
   double fromLng,
   double toLat,
   double toLng,
-  String color,
-) async => null;
+  String color, [
+  double? midLat,
+  double? midLng,
+]) async => null;
 void speakText(String text) {}
 void panTo(String elementId, double lat, double lng, {double? bearing, double? pitch, double? zoom}) {}
 void destroyMap(String elementId) {}
+void clearRoute(String elementId) {}
 Future<String> reverseGeocode(double lat, double lng) async => '$lat, $lng';
 Future<List<Map<String, dynamic>>> searchAddress(String query) async => [];
 ({double lat, double lng})? getMapCenter(String elementId) => null;

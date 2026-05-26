@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop_unsafe';
-import 'dart:typed_data';
 import 'dart:js_interop';
 import 'package:web/web.dart';
 
@@ -303,9 +302,9 @@ void drawRoute(String elementId, List<List<double>> points, String color) {
 
   // Fit bounds
   final bounds = window.callMethod<JSObject>('_createLngLatBounds'.toJS);
-  points.forEach((p) {
+  for (final p in points) {
     bounds.callMethod<JSAny>('extend'.toJS, [p[1].toJS, p[0].toJS].toJS);
-  });
+  }
   final fitOpts = JSObject();
   fitOpts.setProperty('padding'.toJS, 40.toJS);
   m.callMethod<JSAny>('fitBounds'.toJS, bounds, fitOpts);
@@ -317,8 +316,10 @@ Future<Map<String, dynamic>?> drawOSRMRoute(
   double fromLng,
   double toLat,
   double toLng,
-  String color,
-) async {
+  String color, [
+  double? midLat,
+  double? midLng,
+]) async {
   final fn = window.getProperty<JSFunction?>('_osrmRoute'.toJS);
   if (fn == null) return null;
   final args = [
@@ -328,6 +329,8 @@ Future<Map<String, dynamic>?> drawOSRMRoute(
     toLat.toJS,
     toLng.toJS,
     color.toJS,
+    midLat?.toJS,
+    midLng?.toJS,
   ].toJS;
   final promise = fn.callAsFunction(null, args) as JSPromise;
   final res = await promise.toDart;
@@ -403,6 +406,27 @@ void destroyMap(String elementId) {
 
   m.callMethod<JSAny>('remove'.toJS);
   window.setProperty('__lmap_$elementId'.toJS, null);
+}
+
+void clearRoute(String elementId) {
+  final m = _map(elementId);
+  if (m == null) return;
+
+  final routeKey = '__lroute_$elementId'.toJS;
+  final route = window.getProperty<JSObject?>(routeKey);
+  if (route != null) {
+    try {
+      final sourceId = route.getProperty<JSString>('sourceId'.toJS);
+      final layerId = route.getProperty<JSString>('layerId'.toJS);
+      if (m.callMethod<JSBoolean>('getLayer'.toJS, layerId).toDart) {
+        m.callMethod<JSAny>('removeLayer'.toJS, layerId);
+      }
+      if (m.callMethod<JSBoolean>('getSource'.toJS, sourceId).toDart) {
+        m.callMethod<JSAny>('removeSource'.toJS, sourceId);
+      }
+    } catch (_) {}
+    window.setProperty(routeKey, null);
+  }
 }
 
 // ── Reverse Geocoding (Nominatim) ─────────────────────────────────────────────

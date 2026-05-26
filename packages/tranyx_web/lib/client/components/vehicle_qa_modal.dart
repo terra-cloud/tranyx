@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:web/web.dart' as web;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import '../tranyx_app.dart';
@@ -152,7 +153,7 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
                             classes:
                                 'w-full p-3 rounded-xl text-sm border focus:border-purple-500 outline-none transition-colors ${isDark ? "bg-zinc-950 border-zinc-700 text-white" : "bg-white border-zinc-300 text-zinc-900"}',
                             attributes: {'placeholder': 'Type your response...', 'rows': '2', 'value': _answerText},
-                            events: {'input': (e) => setState(() => _answerText = (e.target as dynamic).value)},
+                            events: {'input': (e) => setState(() => _answerText = (e.target as web.HTMLTextAreaElement).value)},
                             [],
                           ),
                           div(classes: 'flex justify-end gap-2', [
@@ -180,8 +181,8 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
                           classes: 'text-xs font-bold text-purple-400 hover:text-purple-300 flex items-center gap-1',
                           events: {
                             'click': (_) => setState(() {
-                              _answeringQuestionId = q['id'];
-                              _answerText = '';
+                                _answeringQuestionId = q['id'];
+                                _answerText = '';
                             }),
                           },
                           [lIcon('corner-down-right', cls: 'w-3 h-3'), Component.text('Reply to question')],
@@ -203,9 +204,9 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
                       'flex-1 p-3 rounded-xl border focus:border-purple-500 outline-none transition-colors ${isDark ? "bg-zinc-950 border-zinc-700 text-white" : "bg-white border-zinc-300 text-zinc-900"}',
                   attributes: {'placeholder': 'Ask a public question about this vehicle...', 'value': _newQuestionText},
                   events: {
-                    'input': (e) => setState(() => _newQuestionText = (e.target as dynamic).value),
+                    'input': (e) => setState(() => _newQuestionText = (e.target as web.HTMLInputElement).value),
                     'keydown': (e) {
-                      if ((e as dynamic).key == 'Enter') _postQuestion();
+                      if ((e as web.KeyboardEvent).key == 'Enter') _postQuestion();
                     },
                   },
                 ),

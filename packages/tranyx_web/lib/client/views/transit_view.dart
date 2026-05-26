@@ -36,18 +36,20 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       // Top Header
       div(classes: 'flex items-center justify-between', [
         div([
-          h1(classes: 'text-3xl font-extrabold tracking-tight', [
-            Component.text(isVehicles ? 'Vehicles Rentals' : 'Real Estate Rentals'),
+          h1(classes: 'text-3xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent', [
+            Component.text(isVehicles ? 'Vehicles & Transit Marketplace' : 'Properties & Spaces Marketplace'),
           ]),
-          p(classes: 'text-sm mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+          p(classes: 'text-sm mt-2 max-w-xl leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-650"}', [
             Component.text(
               isVehicles
-                  ? 'Rent local cars, bikes, & trucks or host your own garage'
-                  : 'Browse residential/commercial spaces or host your listings',
+                  ? 'Discover verified local rides or capitalize on your idle garage. Seamless, secure, and peer-to-peer.'
+                  : 'Discover verified residential and commercial spaces or lease your properties in secure escrow.',
             ),
           ]),
         ]),
-        lIcon(isVehicles ? 'car' : 'home', cls: 'w-8 h-8 text-indigo-400'),
+        div(classes: 'p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20', [
+          lIcon(isVehicles ? 'car' : 'home', cls: 'w-7 h-7 text-indigo-400'),
+        ]),
       ]),
 
       // Segmented Switcher for Category: Vehicles vs Properties
@@ -772,7 +774,6 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
   Component _vehicleCard(Map<String, dynamic> r, bool isDark, {bool isHostView = false}) {
     final s = component.state;
-    final id = r['id'] ?? 'unknown';
     final model = r['model'] ?? 'Unknown';
     final typeVal = r['type'] ?? r['vehicleType'];
     String type = typeVal?.toString().split('.').last ?? 'Unknown';
@@ -795,12 +796,24 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
     final gpsTrackerId = r['gpsTrackerId'] as String?;
     final hasGps = gpsTrackerId != null && gpsTrackerId.isNotEmpty;
+    final fuelType = r['fuelType'] as String? ?? 'Gasoline';
+    final transmission = r['transmission'] as String? ?? 'Automatic';
 
     return div(classes: 'p-5 rounded-2xl border transition-all card-hover $cardCls', [
       div(classes: 'flex items-start justify-between mb-4', [
         div([
           p(classes: 'font-bold text-lg', [Component.text(model)]),
-          p(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-500"} capitalize', [Component.text(type)]),
+          p(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-500"} capitalize flex items-center gap-1.5', [
+            Component.text(type),
+            span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
+            span(classes: 'text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider', [
+              Component.text(fuelType),
+            ]),
+            span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
+            span(classes: 'text-[10px] font-bold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider', [
+              Component.text(transmission),
+            ]),
+          ]),
         ]),
         div(classes: 'flex items-center gap-1.5', [
           if (isHostView) ...[
