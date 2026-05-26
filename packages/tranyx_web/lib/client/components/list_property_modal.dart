@@ -671,7 +671,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
   Component _inputField(
     String labelText,
     String value,
-    Function(String) onChange,
+    void Function(String) onChange,
     bool isDark, {
     String? placeholder,
     InputType type = InputType.text,
@@ -685,7 +685,14 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
             'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors mb-4',
         type: type,
         attributes: {'value': value, if (placeholder != null) 'placeholder': placeholder},
-        events: {'input': (e) => onChange((e.target as web.HTMLInputElement).value)},
+        events: {
+          'input': (e) {
+            final target = e.target;
+            if (target is web.HTMLInputElement) {
+              onChange(target.value);
+            }
+          }
+        },
       ),
     ]);
   }

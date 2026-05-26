@@ -241,8 +241,11 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     if (photos.isNotEmpty) ...[
                       img(
                         src: photos[_activeImageIndex % photos.length],
-                        classes: 'w-full h-full object-cover transition-all duration-300',
+                        classes: 'w-full h-full object-cover transition-all duration-300 cursor-zoom-in hover:opacity-95',
                         attributes: {'alt': 'Property interior/exterior'},
+                        events: {
+                          'click': (_) => component.appState.showFullScreenPhoto(photos[_activeImageIndex % photos.length])
+                        },
                       ),
                       div(
                         classes: 'absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none',

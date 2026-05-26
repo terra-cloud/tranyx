@@ -377,28 +377,42 @@
     window.listenToJobDetails = function (jobId, callback) {
       if (!firebase.apps.length) return () => { };
       const db = firebase.firestore();
+      let unsubApps = null;
 
       const unsubJob = db.collection('jobs').doc(jobId)
         .onSnapshot((doc) => {
           if (doc.exists) {
-            callback(JSON.stringify({ type: 'job', data: { id: doc.id, ...doc.data() } }));
+            const jobData = doc.data();
+            callback(JSON.stringify({ type: 'job', data: { id: doc.id, ...jobData } }));
+
+            const currentUser = firebase.auth().currentUser;
+            if (currentUser && currentUser.uid === jobData.creatorId) {
+              if (!unsubApps) {
+                unsubApps = db.collection('jobs').doc(jobId).collection('applications')
+                  .onSnapshot((snapshot) => {
+                    const list = [];
+                    snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+                    callback(JSON.stringify({ type: 'applications', data: list }));
+                  }, (error) => {
+                    console.error("Job applications listener error:", error);
+                  });
+              }
+            } else {
+              if (unsubApps) {
+                unsubApps();
+                unsubApps = null;
+              }
+            }
           }
         }, (error) => {
           console.error("Job details listener error:", error);
         });
 
-      const unsubApps = db.collection('jobs').doc(jobId).collection('applications')
-        .onSnapshot((snapshot) => {
-          const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
-          callback(JSON.stringify({ type: 'applications', data: list }));
-        }, (error) => {
-          console.error("Job applications listener error:", error);
-        });
-
       return () => {
         unsubJob();
-        unsubApps();
+        if (unsubApps) {
+          unsubApps();
+        }
       };
     };
 
