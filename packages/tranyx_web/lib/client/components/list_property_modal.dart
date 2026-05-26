@@ -40,6 +40,8 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
   String _priceWeekly = '';
   String _priceDaily = '';
   int _depositMonths = 1; // standard: 1 month deposit
+  String _securityDepositAmount = '0';
+  String _advanceAmount = '0';
 
   // Location
   String _address = '';
@@ -123,6 +125,10 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
       final user = component.appState.userProfile;
       if (user == null) throw Exception('User profile not loaded.');
 
+      final depositAmt = double.tryParse(_securityDepositAmount) ?? 0.0;
+      final advanceAmt = double.tryParse(_advanceAmount) ?? 0.0;
+      _depositMonths = monthly > 0 ? (depositAmt / monthly).round() : 0;
+
       final property = PropertyRental(
         id: '',
         hostId: hostId,
@@ -136,6 +142,8 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
         priceWeekly: double.tryParse(_priceWeekly) ?? (monthly / 4),
         priceDaily: double.tryParse(_priceDaily) ?? (monthly / 30),
         depositMonths: _depositMonths,
+        securityDepositAmount: depositAmt,
+        advanceAmount: advanceAmt,
         address: _address,
         latitude: _latitude ?? 14.5995,
         longitude: _longitude ?? 120.9842,
@@ -250,7 +258,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                       'change': (e) {
                         setState(() {
                           _selectedCategory = PropertyCategory.values.firstWhere(
-                            (c) => c.name == (e.target as dynamic).value,
+                            (c) => c.name == (e.target as web.HTMLSelectElement).value,
                           );
                           // Auto-select first type that belongs to the new category
                           _selectedType = PropertyType.values.firstWhere((t) => t.category == _selectedCategory);
@@ -274,7 +282,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                     events: {
                       'change': (e) {
                         setState(() {
-                          _selectedType = PropertyType.values.firstWhere((t) => t.name == (e.target as dynamic).value);
+                          _selectedType = PropertyType.values.firstWhere((t) => t.name == (e.target as web.HTMLSelectElement).value);
                         });
                       },
                     },
@@ -304,7 +312,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                   attributes: {
                     'placeholder': 'Provide details about the space, proximity to key locations, house rules...',
                   },
-                  events: {'input': (e) => setState(() => _description = (e.target as dynamic).value)},
+                  events: {'input': (e) => setState(() => _description = (e.target as web.HTMLTextAreaElement).value)},
                   [Component.text(_description)],
                 ),
               ]),
@@ -365,26 +373,87 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                   placeholder: '25000',
                   type: InputType.number,
                 ),
+                div([]),
+                // Security Deposit
                 div([
-                  label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
-                    Component.text('Security Deposit (Months)'),
-                  ]),
-                  select(
-                    classes:
-                        'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
-                    events: {
-                      'change': (e) {
-                        setState(() {
-                          _depositMonths = int.tryParse((e.target as dynamic).value) ?? 1;
-                        });
-                      },
+                  _inputField(
+                    'Security Deposit (₱)',
+                    _securityDepositAmount,
+                    (v) => setState(() => _securityDepositAmount = v),
+                    isDark,
+                    placeholder: 'e.g. 50000',
+                    type: InputType.number,
+                  ),
+                  Builder(
+                    builder: (context) {
+                      final monthly = double.tryParse(_priceMonthly) ?? 0.0;
+                      if (monthly <= 0) return div([]);
+                      return div(classes: 'flex flex-wrap gap-1.5 mb-4', [
+                        span(classes: 'text-[10px] text-zinc-500 font-semibold my-auto mr-1', [Component.text('Quick:')]),
+                        button(
+                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                              '${_securityDepositAmount == "0" ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
+                          events: {'click': (_) => setState(() => _securityDepositAmount = '0')},
+                          [Component.text('None')],
+                        ),
+                        button(
+                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                              '${_securityDepositAmount == monthly.toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
+                          events: {'click': (_) => setState(() => _securityDepositAmount = monthly.toInt().toString())},
+                          [Component.text('1 mo')],
+                        ),
+                        button(
+                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                              '${_securityDepositAmount == (monthly * 2).toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
+                          events: {'click': (_) => setState(() => _securityDepositAmount = (monthly * 2).toInt().toString())},
+                          [Component.text('2 mo')],
+                        ),
+                        button(
+                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                              '${_securityDepositAmount == (monthly * 3).toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
+                          events: {'click': (_) => setState(() => _securityDepositAmount = (monthly * 3).toInt().toString())},
+                          [Component.text('3 mo')],
+                        ),
+                      ]);
                     },
-                    [
-                      option(value: '0', selected: _depositMonths == 0, [Component.text('No Deposit')]),
-                      option(value: '1', selected: _depositMonths == 1, [Component.text('1 Month')]),
-                      option(value: '2', selected: _depositMonths == 2, [Component.text('2 Months')]),
-                      option(value: '3', selected: _depositMonths == 3, [Component.text('3 Months')]),
-                    ],
+                  ),
+                ]),
+                // Advance Payment
+                div([
+                  _inputField(
+                    'Advance Payment (₱)',
+                    _advanceAmount,
+                    (v) => setState(() => _advanceAmount = v),
+                    isDark,
+                    placeholder: 'e.g. 25000',
+                    type: InputType.number,
+                  ),
+                  Builder(
+                    builder: (context) {
+                      final monthly = double.tryParse(_priceMonthly) ?? 0.0;
+                      if (monthly <= 0) return div([]);
+                      return div(classes: 'flex flex-wrap gap-1.5 mb-4', [
+                        span(classes: 'text-[10px] text-zinc-500 font-semibold my-auto mr-1', [Component.text('Quick:')]),
+                        button(
+                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                              '${_advanceAmount == "0" ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
+                          events: {'click': (_) => setState(() => _advanceAmount = '0')},
+                          [Component.text('None')],
+                        ),
+                        button(
+                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                              '${_advanceAmount == monthly.toInt().toString() ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
+                          events: {'click': (_) => setState(() => _advanceAmount = monthly.toInt().toString())},
+                          [Component.text('1 mo')],
+                        ),
+                        button(
+                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                              '${_advanceAmount == (monthly * 2).toInt().toString() ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
+                          events: {'click': (_) => setState(() => _advanceAmount = (monthly * 2).toInt().toString())},
+                          [Component.text('2 mo')],
+                        ),
+                      ]);
+                    },
                   ),
                 ]),
                 _inputField(
@@ -479,7 +548,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                 select(
                   classes:
                       'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
-                  events: {'change': (e) => setState(() => _contractType = (e.target as dynamic).value)},
+                  events: {'change': (e) => setState(() => _contractType = (e.target as web.HTMLSelectElement).value)},
                   [
                     option(value: 'Tranyx Standard', selected: _contractType == 'Tranyx Standard', [
                       Component.text('Tranyx Standard Lease'),
@@ -523,6 +592,8 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                         priceWeekly: double.tryParse(_priceWeekly) ?? 0,
                         priceDaily: double.tryParse(_priceDaily) ?? 0,
                         depositMonths: _depositMonths,
+                        securityDepositAmount: double.tryParse(_securityDepositAmount) ?? 0.0,
+                        advanceAmount: double.tryParse(_advanceAmount) ?? 0.0,
                         address: _address.isNotEmpty ? _address : component.appState.pickupAddress,
                         latitude: _latitude ?? component.appState.pickupLat ?? 0.0,
                         longitude: _longitude ?? component.appState.pickupLng ?? 0.0,
@@ -547,7 +618,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                       'placeholder':
                           'Enter your custom property lease terms, house rules, water/electricity billing agreements...',
                     },
-                    events: {'input': (e) => setState(() => _customTerms = (e.target as dynamic).value)},
+                    events: {'input': (e) => setState(() => _customTerms = (e.target as web.HTMLTextAreaElement).value)},
                     [Component.text(_customTerms)],
                   ),
                 ]),
@@ -607,7 +678,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
             'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors mb-4',
         type: type,
         attributes: {'value': value, if (placeholder != null) 'placeholder': placeholder},
-        events: {'input': (e) => onChange((e.target as dynamic).value)},
+        events: {'input': (e) => onChange((e.target as web.HTMLInputElement).value)},
       ),
     ]);
   }

@@ -198,7 +198,29 @@ class JobsViewComponent extends StatelessComponent {
               div(classes: 'flex justify-center p-4', [lIcon('loader-2', cls: 'w-6 h-6 animate-spin text-indigo-500')])
             else if (s.jobsError != null)
               div(classes: 'p-4 text-sm text-red-500 bg-red-500/10 rounded-xl', [Component.text(s.jobsError!)])
-            else if (isNyxian)
+            else if (isNyxian) ...[
+              if (s.activeJobPane == 'browse')
+                Builder(
+                  builder: (context) {
+                    final ongoingJobs = s.myJobs.where((j) {
+                      final stat = (j['status'] as String?)?.toLowerCase() ?? '';
+                      return stat != 'completed' && stat != 'closed' && stat != 'cancelled';
+                    }).toList();
+                    if (ongoingJobs.isEmpty) return div([]);
+                    return div(classes: 'mb-4 space-y-3 border-b pb-4 ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+                      div(classes: 'flex items-center gap-2 px-1', [
+                        lIcon('pin', cls: 'w-3.5 h-3.5 text-purple-400 rotate-45'),
+                        span(classes: 'text-[10px] font-bold uppercase tracking-wider text-purple-400', [
+                          Component.text('Ongoing Gigs (Pinned)')
+                        ]),
+                      ]),
+                      div(classes: 'grid grid-cols-1 gap-2.5', [
+                        for (final j in ongoingJobs)
+                          _pinnedOngoingCard(j, isDark, s)
+                      ]),
+                    ]);
+                  }
+                ),
               if (displayJobs.isEmpty)
                 div(classes: 'p-4 text-center text-zinc-500 text-sm', [
                   Component.text(
@@ -209,6 +231,7 @@ class JobsViewComponent extends StatelessComponent {
                 ])
               else
                 for (final j in displayJobs) _nyxianCard(j, isDark, s)
+            ]
             else ...[
               _draftCard(isDark, s),
               if (displayJobs.isEmpty)
@@ -436,6 +459,7 @@ class JobsViewComponent extends StatelessComponent {
     final rate = pricingValue > 0
         ? '₱ ${pricingValue.toStringAsFixed(0)}${pricingType.isNotEmpty ? " / $pricingType" : ""}'
         : 'Negotiable';
+    final categoryLabel = j['categoryLabel'] as String? ?? '';
     final isActive = status == 'Active' || status == 'Open';
     final statusCls = status == 'Completed'
         ? 'bg-zinc-700/50 text-zinc-400'
@@ -448,8 +472,15 @@ class JobsViewComponent extends StatelessComponent {
         p(classes: 'font-semibold text-sm flex-1 pr-2', [Component.text(title)]),
         span(classes: 'px-2 py-0.5 rounded text-[10px] font-bold $statusCls', [Component.text(status.toUpperCase())]),
       ]),
-      p(classes: 'text-xs ${isDark ? "text-indigo-400" : "text-indigo-600"} font-semibold mb-2', [
-        Component.text(rate),
+      div(classes: 'flex items-center gap-2 mb-2', [
+        span(classes: 'text-xs ${isDark ? "text-indigo-400" : "text-indigo-600"} font-semibold', [
+          Component.text(rate),
+        ]),
+        if (categoryLabel.isNotEmpty)
+          span(
+            classes: 'px-2 py-0.5 rounded text-[9px] font-bold ${isDark ? "bg-zinc-800 text-zinc-550" : "bg-zinc-100 text-zinc-500"}',
+            [Component.text(categoryLabel)],
+          ),
       ]),
       div(classes: 'flex items-center justify-between', [
         div(classes: 'flex items-center gap-1 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
@@ -477,6 +508,7 @@ class JobsViewComponent extends StatelessComponent {
     final dateReq = j['dateRequirement'] as String? ?? 'Flexible';
     final isUrgent = dateReq == 'On Date';
     final isRemote = locationType.toLowerCase() == 'remote';
+    final categoryLabel = j['categoryLabel'] as String? ?? '';
 
     // Compute distance for on-site gigs
     String? distanceLabel;
@@ -507,6 +539,11 @@ class JobsViewComponent extends StatelessComponent {
       div(classes: 'flex items-center justify-between', [
         div(classes: 'flex items-center gap-3 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
           span(classes: 'font-bold text-indigo-400 text-sm', [Component.text(rate)]),
+          if (categoryLabel.isNotEmpty)
+            span(
+              classes: 'px-2 py-0.5 rounded text-[9px] font-bold ${isDark ? "bg-zinc-800 text-zinc-555" : "bg-zinc-100 text-zinc-500"}',
+              [Component.text(categoryLabel)],
+            ),
           if (isRemote)
             span(
               classes:
@@ -521,7 +558,7 @@ class JobsViewComponent extends StatelessComponent {
             if (distanceLabel != null)
               span(
                 classes:
-                    'flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-purple-500/15 text-purple-400',
+                  'flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-purple-500/15 text-purple-400',
                 [lIcon('navigation', cls: 'w-3 h-3'), Component.text(distanceLabel)],
               ),
           ],
@@ -534,12 +571,114 @@ class JobsViewComponent extends StatelessComponent {
       ]),
     ]);
   }
+
+  Component _pinnedOngoingCard(Map<String, dynamic> j, bool isDark, TranyxAppState s) {
+    final title = j['title'] as String? ?? 'Untitled';
+    final status = j['status'] as String? ?? 'In Progress';
+    final pricingValue = (j['pricingValue'] as num?)?.toDouble() ?? 0.0;
+    final pricingType = j['pricingType'] as String? ?? '';
+    final rate = pricingValue > 0
+        ? '₱ ${pricingValue.toStringAsFixed(0)}${pricingType.isNotEmpty ? " / $pricingType" : ""}'
+        : 'Negotiable';
+    final categoryLabel = j['categoryLabel'] as String? ?? '';
+
+    final cardCls = isDark
+        ? 'bg-purple-950/20 border-purple-500/30 hover:border-purple-500/50 text-white'
+        : 'bg-purple-50/50 border-purple-200 hover:border-purple-300 text-purple-950 shadow-sm';
+
+    return div(
+      classes: 'p-3.5 rounded-2xl border transition-all flex items-center justify-between $cardCls',
+      [
+        div(classes: 'flex-1 min-w-0 pr-3', [
+          div(classes: 'flex items-center gap-2 flex-wrap mb-1', [
+            span(
+              classes: 'px-2 py-0.5 rounded text-[9px] font-extrabold uppercase bg-purple-500/10 text-purple-400 border border-purple-500/20 animate-pulse',
+              [Component.text(status.toUpperCase())],
+            ),
+            if (categoryLabel.isNotEmpty)
+              span(
+                classes: 'px-1.5 py-0.5 rounded text-[9px] font-semibold bg-zinc-500/10 ${isDark ? "text-zinc-400" : "text-zinc-650"}',
+                [Component.text(categoryLabel)],
+              ),
+          ]),
+          p(classes: 'font-semibold text-xs truncate', [Component.text(title)]),
+        ]),
+        div(classes: 'flex items-center gap-3', [
+          span(classes: 'text-xs font-bold text-purple-400', [Component.text(rate)]),
+          button(
+            classes: 'px-2.5 py-1.5 rounded-xl text-xs font-bold bg-purple-500 text-white hover:bg-purple-600 transition-colors',
+            events: {'click': (_) => s.selectJobAndLoadDetails(j)},
+            [Component.text('Go')],
+          ),
+        ]),
+      ],
+    );
+  }
 }
 
 // ── Job Details ───────────────────────────────────────────────
 class _JobDetails extends StatelessComponent {
   final TranyxAppState state;
   const _JobDetails({required this.state});
+
+  int _getStepperStep(String status, String? acceptedId) {
+    final lStatus = status.toLowerCase();
+    if (lStatus == 'completed' || lStatus == 'done' || lStatus == 'arrived_dropoff') {
+      return 4;
+    }
+    if (lStatus == 'in progress' ||
+        lStatus == 'in_progress' ||
+        lStatus == 'ongoing' ||
+        lStatus == 'heading_to_pickup' ||
+        lStatus == 'arrived_pickup' ||
+        lStatus == 'paid_cashier' ||
+        lStatus == 'in_transit') {
+      return 3;
+    }
+    if (acceptedId != null && acceptedId.isNotEmpty) {
+      return 2;
+    }
+    return 1; // Default/Applied
+  }
+
+  Component _jobStepper(int currentStep, bool isDark) {
+    final steps = ['Applied', 'Hired', 'In Progress', 'Complete'];
+    return div(classes: 'w-full py-4 px-6 rounded-3xl border ${isDark ? "bg-zinc-900/50 border-zinc-800" : "bg-zinc-50 border-zinc-200"} flex items-center justify-between gap-2 overflow-x-auto', [
+      for (int i = 0; i < steps.length; i++) ...[
+        // Step node
+        div(classes: 'flex items-center gap-2.5', [
+          div(
+            classes: 'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 '
+                '${(i + 1) <= currentStep 
+                    ? "bg-indigo-500 text-white shadow-md shadow-indigo-500/20" 
+                    : (isDark ? "bg-zinc-800 text-zinc-500 border border-zinc-700" : "bg-zinc-200 text-zinc-400 border border-zinc-300")}',
+            [
+              if ((i + 1) < currentStep)
+                lIcon('check', cls: 'w-4 h-4 text-white')
+              else
+                Component.text('${i + 1}')
+            ],
+          ),
+          span(
+            classes: 'text-xs font-semibold whitespace-nowrap transition-colors duration-300 '
+                '${(i + 1) <= currentStep 
+                    ? (isDark ? "text-zinc-100" : "text-zinc-900") 
+                    : (isDark ? "text-zinc-650" : "text-zinc-400")}',
+            [Component.text(steps[i])],
+          ),
+        ]),
+        // Connector line (except after the last step)
+        if (i < steps.length - 1)
+          div(
+            classes: 'flex-1 h-0.5 min-w-[20px] transition-all duration-500 '
+                '${(i + 1) < currentStep 
+                    ? "bg-indigo-500" 
+                    : (isDark ? "bg-zinc-800" : "bg-zinc-200")}',
+            [],
+          ),
+      ]
+    ]);
+  }
 
   @override
   Component build(BuildContext context) {
@@ -557,6 +696,8 @@ class _JobDetails extends StatelessComponent {
     final hasReported = reportedBy.contains(s.userProfile?.uid);
 
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+    final acceptedId = s.selectedJobData?['acceptedApplicantId'] as String?;
+    final currentStep = _getStepperStep(status, acceptedId);
 
     return div(classes: 'space-y-6 animate-fade-up', [
       subViewHeader(
@@ -564,6 +705,8 @@ class _JobDetails extends StatelessComponent {
         isDark: isDark,
         onBack: () => s.exitJobDetails(),
       ),
+
+      _jobStepper(currentStep, isDark),
 
       // Image Carousel above content
       if (s.selectedJobData?['imageUrls'] != null && (s.selectedJobData!['imageUrls'] as List).isNotEmpty)
@@ -2332,7 +2475,7 @@ class _CreateJob extends StatelessComponent {
             attributes: s.hasInspectionHoldback ? {'checked': 'true'} : {},
             events: {
               'change': (e) {
-                final val = (e.target as dynamic).checked as bool? ?? false;
+                final val = (e.target as web.HTMLInputElement).checked;
                 s.setState(() => s.hasInspectionHoldback = val);
               },
             },

@@ -71,9 +71,12 @@ class _RatingModalComponentState extends State<RatingModalComponent> {
                 classes:
                     'w-full px-4 py-3 text-sm rounded-2xl border outline-none transition-colors resize-none h-24 '
                     '${isDark ? "bg-zinc-800 border-zinc-700 text-white focus:border-indigo-500" : "bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-indigo-500"}',
-                attributes: {'placeholder': 'How did the task go? Excellent communication? Professional work?'},
+                attributes: {
+                  'placeholder': 'How did the task go? Excellent communication? Professional work?',
+                  'defaultValue': _comment,
+                },
                 onInput: (v) => _comment = v,
-                [Component.text(_comment)],
+                [],
               ),
             ]),
 

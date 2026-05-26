@@ -297,7 +297,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                       'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
                   events: {
                     'change': (e) {
-                      final selected = VehicleType.values.firstWhere((v) => v.name == (e.target as dynamic).value);
+                      final selected = VehicleType.values.firstWhere((v) => v.name == (e.target as web.HTMLSelectElement).value);
                       setState(() {
                         _selectedType = selected;
                         _brand = '';
@@ -324,7 +324,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                     events: {
                       'change': (e) {
                         setState(() {
-                          _fuelType = (e.target as dynamic).value as String;
+                          _fuelType = (e.target as web.HTMLSelectElement).value;
                         });
                       },
                     },
@@ -346,7 +346,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                     events: {
                       'change': (e) {
                         setState(() {
-                          _transmission = (e.target as dynamic).value as String;
+                          _transmission = (e.target as web.HTMLSelectElement).value;
                         });
                       },
                     },
@@ -532,9 +532,10 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                         attributes: {'value': _driverLicenseNumber, 'placeholder': 'e.g. N01-23-456789'},
                         events: {
                           'input': (e) {
-                            final val = (e.target as dynamic).value as String;
+                            final inputEl = e.target as web.HTMLInputElement;
+                            final val = inputEl.value;
                             final formatted = _formatLicenseNumber(val);
-                            (e.target as dynamic).value = formatted;
+                            inputEl.value = formatted;
                             setState(() => _driverLicenseNumber = formatted);
                           },
                         },
@@ -553,7 +554,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                         'placeholder':
                             'e.g. Professional driver with 5+ years clean record, familiar with Metro Manila routes.',
                       },
-                      events: {'input': (e) => setState(() => _driverNote = (e.target as dynamic).value)},
+                      events: {'input': (e) => setState(() => _driverNote = (e.target as web.HTMLTextAreaElement).value)},
                       [Component.text(_driverNote)],
                     ),
                   ]),
@@ -619,7 +620,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                 select(
                   classes:
                       'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
-                  events: {'change': (e) => setState(() => _contractType = (e.target as dynamic).value)},
+                  events: {'change': (e) => setState(() => _contractType = (e.target as web.HTMLSelectElement).value)},
                   [
                     option(value: 'Tranyx Standard', selected: _contractType == 'Tranyx Standard', [
                       Component.text('Tranyx Standard'),
@@ -695,7 +696,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                     classes:
                         'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors h-32 resize-none',
                     attributes: {'placeholder': 'Enter your custom terms and conditions for this rental...'},
-                    events: {'input': (e) => setState(() => _customTerms = (e.target as dynamic).value)},
+                    events: {'input': (e) => setState(() => _customTerms = (e.target as web.HTMLTextAreaElement).value)},
                     [Component.text(_customTerms)],
                   ),
                   div(classes: 'mt-3 flex items-center gap-3', [
@@ -803,7 +804,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
             'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
         type: type,
         attributes: {'value': value, if (placeholder != null) 'placeholder': placeholder},
-        events: {'input': (e) => onChange((e.target as dynamic).value)},
+        events: {'input': (e) => onChange((e.target as web.HTMLInputElement).value)},
       ),
     ]);
   }
@@ -825,7 +826,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
         classes:
             'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} outline-none focus:border-purple-500 transition-colors',
         attributes: isDisabled ? {'disabled': 'disabled'} : {},
-        events: {'change': (e) => onChange((e.target as dynamic).value)},
+        events: {'change': (e) => onChange((e.target as web.HTMLSelectElement).value)},
         [
           option(value: '', selected: selectedValue.isEmpty, [Component.text(placeholder)]),
           for (final opt in optionsList) option(value: opt, selected: selectedValue == opt, [Component.text(opt)]),

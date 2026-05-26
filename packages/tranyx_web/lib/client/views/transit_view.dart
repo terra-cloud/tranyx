@@ -774,7 +774,6 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
   Component _vehicleCard(Map<String, dynamic> r, bool isDark, {bool isHostView = false}) {
     final s = component.state;
-    final id = r['id'] ?? 'unknown';
     final model = r['model'] ?? 'Unknown';
     final typeVal = r['type'] ?? r['vehicleType'];
     String type = typeVal?.toString().split('.').last ?? 'Unknown';

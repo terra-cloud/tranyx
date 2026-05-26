@@ -35,6 +35,7 @@ class _LoginScreenState extends State<_LoginScreen> {
   String _password = '';
   String? _localError;
   bool _showForgotSent = false;
+  bool _showPassword = false;
 
   @override
   // ignore: invalid_use_of_protected_member
@@ -96,6 +97,9 @@ class _LoginScreenState extends State<_LoginScreen> {
             isDark: isDark,
             value: _password,
             onChange: (v) => setState(() => _password = v),
+            isPassword: true,
+            isPasswordVisible: _showPassword,
+            onTogglePassword: () => setState(() => _showPassword = !_showPassword),
           ),
         ]),
 
@@ -335,6 +339,8 @@ class _RegisterDetailsScreenState extends State<_RegisterDetailsScreen> {
   String _password = '';
   String _confirmPassword = '';
   String? _localError;
+  bool _showPassword = false;
+  bool _showConfirmPassword = false;
 
   bool get _hasMinLength => _password.length >= 8;
   bool get _hasUppercase => _password.contains(RegExp(r'[A-Z]'));
@@ -415,6 +421,9 @@ class _RegisterDetailsScreenState extends State<_RegisterDetailsScreen> {
             isDark: isDark,
             value: _password,
             onChange: (v) => setState(() => _password = v),
+            isPassword: true,
+            isPasswordVisible: _showPassword,
+            onTogglePassword: () => setState(() => _showPassword = !_showPassword),
           ),
           if (_password.isNotEmpty)
             div(
@@ -446,6 +455,9 @@ class _RegisterDetailsScreenState extends State<_RegisterDetailsScreen> {
             isDark: isDark,
             value: _confirmPassword,
             onChange: (v) => setState(() => _confirmPassword = v),
+            isPassword: true,
+            isPasswordVisible: _showConfirmPassword,
+            onTogglePassword: () => setState(() => _showConfirmPassword = !_showConfirmPassword),
           ),
         ]),
 

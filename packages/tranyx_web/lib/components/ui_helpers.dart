@@ -109,6 +109,9 @@ Component inputField({
   String value = '',
   bool isDark = true,
   void Function(String)? onChange,
+  bool isPassword = false,
+  bool isPasswordVisible = false,
+  void Function()? onTogglePassword,
 }) {
   final borderCls = isDark
       ? 'bg-zinc-900 border-zinc-800 focus-within:border-indigo-500'
@@ -124,21 +127,36 @@ Component inputField({
         classes: 'block text-xs font-medium mb-1 ${isDark ? 'text-zinc-500' : 'text-zinc-400'}',
         [Component.text(label)],
       ),
-    div(classes: 'flex items-center', [
-      if (iconName.isNotEmpty) lIcon(iconName, cls: 'w-5 h-5 mr-3 ${isDark ? 'text-zinc-600' : 'text-zinc-400'}'),
-      input<String>(
-        classes:
-            'bg-transparent border-none outline-none w-full text-sm md:text-base font-medium ${isDark ? 'text-zinc-200' : 'text-zinc-900'}',
-        type: type == 'password' ? InputType.password : (type == 'email' ? InputType.email : InputType.text),
-        value: value,
-        attributes: {
-          'placeholder': placeholder,
-          if (type == 'date') 'type': 'date',
-          'id': inputId,
-          'name': inputId,
-        },
-        onInput: onChange,
-      ),
+    div(classes: 'flex items-center justify-between', [
+      div(classes: 'flex items-center flex-1', [
+        if (iconName.isNotEmpty) lIcon(iconName, cls: 'w-5 h-5 mr-3 ${isDark ? 'text-zinc-600' : 'text-zinc-400'}'),
+        input<String>(
+          classes:
+              'bg-transparent border-none outline-none w-full text-sm md:text-base font-medium ${isDark ? 'text-zinc-200' : 'text-zinc-900'}',
+          type: (isPassword && isPasswordVisible)
+              ? InputType.text
+              : (type == 'password' ? InputType.password : (type == 'email' ? InputType.email : InputType.text)),
+          value: value,
+          attributes: {
+            'placeholder': placeholder,
+            if (type == 'date') 'type': 'date',
+            'id': inputId,
+            'name': inputId,
+          },
+          onInput: onChange,
+        ),
+      ]),
+      if (isPassword && onTogglePassword != null)
+        button(
+          classes: 'p-1 rounded-lg hover:bg-zinc-500/10 focus:outline-none ml-2 transition-colors cursor-pointer border-0',
+          events: {'click': (_) => onTogglePassword()},
+          [
+            lIcon(
+              isPasswordVisible ? 'eye-off' : 'eye',
+              cls: 'w-4 h-4 ${isDark ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}',
+            ),
+          ],
+        ),
     ]),
   ]);
 }

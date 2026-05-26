@@ -843,6 +843,8 @@ class PropertyRental {
   final String contractTerms;
   final DateTime createdAt;
   final bool allowChat;
+  final double? securityDepositAmount;
+  final double? advanceAmount;
 
   // Renter details
   final String? renteeId;
@@ -882,6 +884,8 @@ class PropertyRental {
     required this.contractTerms,
     required this.createdAt,
     this.allowChat = false,
+    this.securityDepositAmount,
+    this.advanceAmount,
     this.renteeId,
     this.renteeName,
     this.renteePhotoUrl,
@@ -910,6 +914,8 @@ class PropertyRental {
       'priceWeekly': priceWeekly,
       'priceDaily': priceDaily,
       'depositMonths': depositMonths,
+      'securityDepositAmount': securityDepositAmount,
+      'advanceAmount': advanceAmount,
       'address': address,
       'latitude': latitude,
       'longitude': longitude,
@@ -958,6 +964,8 @@ class PropertyRental {
       priceWeekly: (map['priceWeekly'] as num?)?.toDouble() ?? 0.0,
       priceDaily: (map['priceDaily'] as num?)?.toDouble() ?? 0.0,
       depositMonths: (map['depositMonths'] as num?)?.toInt() ?? 0,
+      securityDepositAmount: (map['securityDepositAmount'] as num?)?.toDouble(),
+      advanceAmount: (map['advanceAmount'] as num?)?.toDouble(),
       address: map['address'] ?? '',
       latitude: (map['latitude'] as num?)?.toDouble() ?? 0.0,
       longitude: (map['longitude'] as num?)?.toDouble() ?? 0.0,

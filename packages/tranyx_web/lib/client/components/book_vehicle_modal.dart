@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:web/web.dart' as web;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -408,12 +409,15 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                 final back = r['backPhotoUrl'] ?? r['backPhoto'];
 
                 final List<String> images = [];
-                if (front != null && front.toString().isNotEmpty && front.toString() != 'null')
+                if (front != null && front.toString().isNotEmpty && front.toString() != 'null') {
                   images.add(front.toString());
-                if (interior != null && interior.toString().isNotEmpty && interior.toString() != 'null')
+                }
+                if (interior != null && interior.toString().isNotEmpty && interior.toString() != 'null') {
                   images.add(interior.toString());
-                if (back != null && back.toString().isNotEmpty && back.toString() != 'null')
+                }
+                if (back != null && back.toString().isNotEmpty && back.toString() != 'null') {
                   images.add(back.toString());
+                }
 
                 // Append extra photos uploaded by the host
                 final extra = r['extraPhotos'];
@@ -587,7 +591,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                       'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
                   type: InputType.number,
                   attributes: {'value': _quantity.toString(), 'min': '1'},
-                  events: {'input': (e) => setState(() => _quantity = int.tryParse((e.target as dynamic).value?.toString() ?? '') ?? 1)},
+                  events: {'input': (e) => setState(() => _quantity = int.tryParse((e.target as web.HTMLInputElement).value) ?? 1)},
                 ),
               ]),
 
@@ -652,7 +656,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                       events: {
                         'change': (e) {
                           if (_startDate != null) {
-                            final hour = int.tryParse((e.target as dynamic).value?.toString() ?? '') ?? 9;
+                            final hour = int.tryParse((e.target as web.HTMLSelectElement).value) ?? 9;
                             setState(() {
                               _startDate = DateTime(
                                 _startDate!.year,
@@ -794,9 +798,10 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                   attributes: {'value': _licenseNumber, 'placeholder': 'e.g., N01-23-456789'},
                   events: {
                     'input': (e) {
-                      final val = (e.target as dynamic).value as String;
+                      final inputEl = e.target as web.HTMLInputElement;
+                      final val = inputEl.value;
                       final formatted = _formatLicenseNumber(val);
-                      (e.target as dynamic).value = formatted;
+                      inputEl.value = formatted;
                       setState(() => _licenseNumber = formatted);
                     },
                   },
@@ -966,7 +971,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                       },
                       events: {
                         'input': (e) {
-                          final val = (e as dynamic).target.value as String? ?? '';
+                          final val = (e.target as web.HTMLInputElement).value;
                           setState(() {
                             _deliverySearchQuery = val;
                             if (val.isEmpty) {
@@ -975,9 +980,10 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                           });
                         },
                         'keydown': (e) {
-                          final key = (e as dynamic).key as String?;
+                          final keyEvent = e as web.KeyboardEvent;
+                          final key = keyEvent.key;
                           if (key == 'Enter') {
-                            (e as dynamic).preventDefault();
+                            keyEvent.preventDefault();
                             _performDeliverySearch();
                           }
                         },

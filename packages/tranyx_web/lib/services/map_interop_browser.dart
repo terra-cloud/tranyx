@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop_unsafe';
-import 'dart:typed_data';
 import 'dart:js_interop';
 import 'package:web/web.dart';
 
@@ -303,9 +302,9 @@ void drawRoute(String elementId, List<List<double>> points, String color) {
 
   // Fit bounds
   final bounds = window.callMethod<JSObject>('_createLngLatBounds'.toJS);
-  points.forEach((p) {
+  for (final p in points) {
     bounds.callMethod<JSAny>('extend'.toJS, [p[1].toJS, p[0].toJS].toJS);
-  });
+  }
   final fitOpts = JSObject();
   fitOpts.setProperty('padding'.toJS, 40.toJS);
   m.callMethod<JSAny>('fitBounds'.toJS, bounds, fitOpts);

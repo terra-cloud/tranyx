@@ -646,7 +646,7 @@ class _ProfessionalInfo extends StatelessComponent {
             ]),
           ]),
           inputField(
-            label: 'Company / Business Name',
+            label: 'Business/Company Name (Optional)',
             placeholder: 'Juan Constructions',
             iconName: 'building',
             isDark: isDark,
