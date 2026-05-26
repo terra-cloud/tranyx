@@ -87,6 +87,13 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
       return;
     }
 
+    if (component.appState.checkProfanity(_title) ||
+        component.appState.checkProfanity(_description) ||
+        (_contractType == 'Custom Contract' && component.appState.checkProfanity(_customTerms))) {
+      setState(() => _error = 'Your title, description, or custom terms contain inappropriate language. Please review and try again.');
+      return;
+    }
+
     final monthly = double.tryParse(_priceMonthly) ?? 0;
     if (monthly <= 0) {
       setState(() => _error = 'Please provide a valid monthly rate.');

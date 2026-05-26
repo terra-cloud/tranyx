@@ -523,7 +523,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                       ]),
                     ]),
                     p(classes: 'text-[10px] ${isDark ? "text-zinc-600" : "text-zinc-400"} -mt-1 ml-5', [
-                      Component.text('Applied to first month's rent upon move-in'),
+                      Component.text("Applied to first month's rent upon move-in"),
                     ]),
                   ],
                   // Security deposit

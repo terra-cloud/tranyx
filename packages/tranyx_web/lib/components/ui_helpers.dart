@@ -271,3 +271,33 @@ Component segmentedControl({
     ],
   );
 }
+
+/// Normalizes any category string (camelCase, snake_case, spaces, etc.) 
+/// to a title-cased string with spaces (e.g. "curtainInstaller" -> "Curtain Installer").
+String normalizeCategoryName(String cat) {
+  if (cat.isEmpty) return '';
+  
+  // Replace underscores, hyphens, and slashes with spaces
+  String temp = cat.replaceAll(RegExp(r'[_/\-]'), ' ');
+  
+  // Insert spaces before capital letters (for CamelCase)
+  final buffer = StringBuffer();
+  for (var i = 0; i < temp.length; i++) {
+    final char = temp[i];
+    if (i > 0 && 
+        char.codeUnitAt(0) >= 65 && char.codeUnitAt(0) <= 90 && // Capital letter
+        temp[i-1] != ' ' && 
+        !(temp[i-1].codeUnitAt(0) >= 65 && temp[i-1].codeUnitAt(0) <= 90)) {
+      buffer.write(' ');
+    }
+    buffer.write(char);
+  }
+  temp = buffer.toString();
+  
+  // Split by spaces, capitalize each word, and join
+  final words = temp.split(' ').where((w) => w.isNotEmpty);
+  return words.map((w) {
+    if (w.isEmpty) return '';
+    return w[0].toUpperCase() + w.substring(1).toLowerCase();
+  }).join(' ');
+}

@@ -328,8 +328,8 @@ class JobsViewComponent extends StatelessComponent {
           return s.includeRemoteJobs;
         } else {
           // On-site gigs: apply geofence distance filter
-          final jobLat = (j['latitude'] as num?)?.toDouble();
-          final jobLng = (j['longitude'] as num?)?.toDouble();
+          final jobLat = (j['latitude'] as num?)?.toDouble() ?? (j['pickupLat'] as num?)?.toDouble();
+          final jobLng = (j['longitude'] as num?)?.toDouble() ?? (j['pickupLng'] as num?)?.toDouble();
           if (jobLat == null || jobLng == null) {
             // No coordinates stored — include if radius is broad enough
             return s.geofenceRadius >= 999.0;
@@ -342,36 +342,23 @@ class JobsViewComponent extends StatelessComponent {
         }
       }).toList();
 
-      // Sort: remote gigs last, on-site gigs sorted by distance (closest first)
+      // Sort: latest to oldest
       jobs.sort((a, b) {
-        final aType = (a['locationType'] as String?)?.toLowerCase() ?? 'on-site';
-        final bType = (b['locationType'] as String?)?.toLowerCase() ?? 'on-site';
-        final aIsRemote = aType == 'remote';
-        final bIsRemote = bType == 'remote';
-
-        if (aIsRemote && !bIsRemote) return 1;
-        if (!aIsRemote && bIsRemote) return -1;
-        if (aIsRemote && bIsRemote) return 0;
-
-        // Both on-site: sort by distance
-        final aLat = (a['latitude'] as num?)?.toDouble() ?? s.userLatitude;
-        final aLng = (a['longitude'] as num?)?.toDouble() ?? s.userLongitude;
-        final bLat = (b['latitude'] as num?)?.toDouble() ?? s.userLatitude;
-        final bLng = (b['longitude'] as num?)?.toDouble() ?? s.userLongitude;
-        final aDist = calculateDistance(s.userLatitude, s.userLongitude, aLat, aLng);
-        final bDist = calculateDistance(s.userLatitude, s.userLongitude, bLat, bLng);
-        return aDist.compareTo(bDist);
+        final aTime = a['createdAt'] as int? ?? 0;
+        final bTime = b['createdAt'] as int? ?? 0;
+        return bTime.compareTo(aTime);
       });
     }
 
-    if (s.activeJobFilter == 'All') return jobs;
-
-    if (s.activeJobFilter == 'Recommended') {
+    final result = <Map<String, dynamic>>[];
+    if (s.activeJobFilter == 'All') {
+      result.addAll(jobs);
+    } else if (s.activeJobFilter == 'Recommended') {
       var skills = s.userProfile?.skills ?? [];
       if (skills.isEmpty) {
         skills = ['Electrical', 'Plumbing', 'Painting', 'Carpentry', 'Cleaning', 'IT'];
       }
-      return jobs.where((j) {
+      result.addAll(jobs.where((j) {
         final cat = (j['category'] as String?)?.toLowerCase() ?? '';
         final catLabel = (j['categoryLabel'] as String?)?.toLowerCase() ?? '';
         final desc = (j['description'] as String?)?.toLowerCase() ?? '';
@@ -380,17 +367,24 @@ class JobsViewComponent extends StatelessComponent {
           final sLower = skill.toLowerCase();
           return cat.contains(sLower) || catLabel.contains(sLower) || desc.contains(sLower) || title.contains(sLower);
         });
-      }).toList();
-    }
-
-    if (s.activeJobFilter == 'High Paying') {
-      return jobs.where((j) {
+      }));
+    } else if (s.activeJobFilter == 'High Paying') {
+      result.addAll(jobs.where((j) {
         final val = (j['pricingValue'] as num?)?.toDouble() ?? 0.0;
         return val >= 1000;
-      }).toList();
+      }));
+    } else {
+      result.addAll(jobs);
     }
 
-    return jobs;
+    // Sort all final listings from latest to oldest
+    result.sort((a, b) {
+      final aTime = a['createdAt'] as int? ?? 0;
+      final bTime = b['createdAt'] as int? ?? 0;
+      return bTime.compareTo(aTime);
+    });
+
+    return result;
   }
 
   Component _filterChip(String label, bool active, bool isDark, TranyxAppState s) {
@@ -459,7 +453,9 @@ class JobsViewComponent extends StatelessComponent {
     final rate = pricingValue > 0
         ? '₱ ${pricingValue.toStringAsFixed(0)}${pricingType.isNotEmpty ? " / $pricingType" : ""}'
         : 'Negotiable';
+    final category = j['category'] as String? ?? '';
     final categoryLabel = j['categoryLabel'] as String? ?? '';
+    final categoryNameNormalized = normalizeCategoryName(category.isNotEmpty ? category : categoryLabel);
     final isActive = status == 'Active' || status == 'Open';
     final statusCls = status == 'Completed'
         ? 'bg-zinc-700/50 text-zinc-400'
@@ -469,7 +465,13 @@ class JobsViewComponent extends StatelessComponent {
         : 'bg-white border-zinc-200 shadow-sm hover:shadow-md';
     return div(classes: 'p-4 rounded-2xl border transition-all $cardCls', [
       div(classes: 'flex items-start justify-between mb-3', [
-        p(classes: 'font-semibold text-sm flex-1 pr-2', [Component.text(title)]),
+        div(classes: 'flex-1 pr-2', [
+          p(classes: 'font-semibold text-sm', [Component.text(title)]),
+          if (categoryNameNormalized.isNotEmpty)
+            p(classes: 'text-xs text-zinc-550 dark:text-zinc-400 font-medium mt-0.5', [
+              Component.text(categoryNameNormalized),
+            ]),
+        ]),
         span(classes: 'px-2 py-0.5 rounded text-[10px] font-bold $statusCls', [Component.text(status.toUpperCase())]),
       ]),
       div(classes: 'flex items-center gap-2 mb-2', [
@@ -508,13 +510,15 @@ class JobsViewComponent extends StatelessComponent {
     final dateReq = j['dateRequirement'] as String? ?? 'Flexible';
     final isUrgent = dateReq == 'On Date';
     final isRemote = locationType.toLowerCase() == 'remote';
+    final category = j['category'] as String? ?? '';
     final categoryLabel = j['categoryLabel'] as String? ?? '';
+    final categoryNameNormalized = normalizeCategoryName(category.isNotEmpty ? category : categoryLabel);
 
     // Compute distance for on-site gigs
     String? distanceLabel;
     if (!isRemote) {
-      final jobLat = (j['latitude'] as num?)?.toDouble();
-      final jobLng = (j['longitude'] as num?)?.toDouble();
+      final jobLat = (j['latitude'] as num?)?.toDouble() ?? (j['pickupLat'] as num?)?.toDouble();
+      final jobLng = (j['longitude'] as num?)?.toDouble() ?? (j['pickupLng'] as num?)?.toDouble();
       if (jobLat != null && jobLng != null) {
         final dist = calculateDistance(s.userLatitude, s.userLongitude, jobLat, jobLng);
         distanceLabel = dist < 1.0 ? '${(dist * 1000).round()} m away' : '${dist.toStringAsFixed(1)} km away';
@@ -533,7 +537,13 @@ class JobsViewComponent extends StatelessComponent {
         : 'bg-white border-zinc-200 shadow-sm hover:shadow-md';
     return div(classes: 'p-4 rounded-2xl border transition-all $cardCls', [
       div(classes: 'flex items-start justify-between mb-3', [
-        p(classes: 'font-semibold text-sm flex-1 pr-2', [Component.text(title)]),
+        div(classes: 'flex-1 pr-2', [
+          p(classes: 'font-semibold text-sm', [Component.text(title)]),
+          if (categoryNameNormalized.isNotEmpty)
+            p(classes: 'text-xs text-zinc-550 dark:text-zinc-400 font-medium mt-0.5', [
+              Component.text(categoryNameNormalized),
+            ]),
+        ]),
         span(classes: 'px-2 py-0.5 rounded text-[10px] font-bold $badgeCls', [Component.text(badgeText)]),
       ]),
       div(classes: 'flex items-center justify-between', [
@@ -580,7 +590,9 @@ class JobsViewComponent extends StatelessComponent {
     final rate = pricingValue > 0
         ? '₱ ${pricingValue.toStringAsFixed(0)}${pricingType.isNotEmpty ? " / $pricingType" : ""}'
         : 'Negotiable';
+    final category = j['category'] as String? ?? '';
     final categoryLabel = j['categoryLabel'] as String? ?? '';
+    final categoryNameNormalized = normalizeCategoryName(category.isNotEmpty ? category : categoryLabel);
 
     final cardCls = isDark
         ? 'bg-purple-950/20 border-purple-500/30 hover:border-purple-500/50 text-white'
@@ -595,13 +607,17 @@ class JobsViewComponent extends StatelessComponent {
               classes: 'px-2 py-0.5 rounded text-[9px] font-extrabold uppercase bg-purple-500/10 text-purple-400 border border-purple-500/20 animate-pulse',
               [Component.text(status.toUpperCase())],
             ),
-            if (categoryLabel.isNotEmpty)
+            if (categoryNameNormalized.isNotEmpty)
               span(
                 classes: 'px-1.5 py-0.5 rounded text-[9px] font-semibold bg-zinc-500/10 ${isDark ? "text-zinc-400" : "text-zinc-650"}',
-                [Component.text(categoryLabel)],
+                [Component.text(categoryNameNormalized)],
               ),
           ]),
           p(classes: 'font-semibold text-xs truncate', [Component.text(title)]),
+          if (categoryNameNormalized.isNotEmpty)
+            p(classes: 'text-[10px] text-zinc-500 mt-0.5 truncate', [
+              Component.text(categoryNameNormalized),
+            ]),
         ]),
         div(classes: 'flex items-center gap-3', [
           span(classes: 'text-xs font-bold text-purple-400', [Component.text(rate)]),
@@ -1676,20 +1692,32 @@ class _JobDetails extends StatelessComponent {
                     Component.text(s.generatedCompletionCode!),
                   ]),
                 ]),
-                button(
-                  classes: 'px-4 py-2 rounded-xl text-xs font-bold border border-indigo-500/30 text-indigo-400 bg-indigo-500/5 hover:bg-indigo-500/10 transition-all flex items-center gap-1.5 cursor-pointer',
-                  events: {
-                    'click': (_) {
-                      final code = s.generatedCompletionCode!;
-                      web.window.navigator.clipboard.writeText(code);
-                      s.showAppToast('Code Copied', 'Verification code $code copied.');
+                div(classes: 'flex gap-3 mt-1', [
+                  button(
+                    classes: 'px-4 py-2.5 rounded-xl text-xs font-bold border border-indigo-500/30 text-indigo-400 bg-indigo-500/5 hover:bg-indigo-500/10 transition-all flex items-center gap-1.5 cursor-pointer',
+                    events: {
+                      'click': (_) {
+                        final code = s.generatedCompletionCode!;
+                        web.window.navigator.clipboard.writeText(code);
+                        s.showAppToast('Code Copied', 'Verification code $code copied.');
+                      },
                     },
-                  },
-                  [
-                    lIcon('copy', cls: 'w-3.5 h-3.5'),
-                    Component.text('Copy Code'),
-                  ],
-                ),
+                    [
+                      lIcon('copy', cls: 'w-3.5 h-3.5'),
+                      Component.text('Copy Code'),
+                    ],
+                  ),
+                  button(
+                    classes: 'px-4 py-2.5 rounded-xl text-xs font-bold border border-green-500/30 text-green-400 bg-green-500/5 hover:bg-green-500/10 transition-all flex items-center gap-1.5 cursor-pointer',
+                    events: {
+                      'click': (_) => s.sendCompletionCodeToWorker(),
+                    },
+                    [
+                      lIcon('send', cls: 'w-3.5 h-3.5'),
+                      Component.text('Send to Worker'),
+                    ],
+                  ),
+                ]),
               ]),
 
               button(

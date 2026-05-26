@@ -1278,7 +1278,7 @@ class TranyxAppState extends State<TranyxApp> {
     });
   }
 
-  bool _checkProfanity(String text) {
+  bool checkProfanity(String text) {
     if (text.isEmpty) return false;
     final cleanText = text.toLowerCase();
     final bannedWords = const [
@@ -1298,7 +1298,7 @@ class TranyxAppState extends State<TranyxApp> {
     final token = SessionStorage.idToken;
     if (uid == null || token == null) return;
 
-    if (_checkProfanity(newJobTitle) || _checkProfanity(newJobDesc)) {
+    if (checkProfanity(newJobTitle) || checkProfanity(newJobDesc)) {
       setState(() {
         postJobError = 'Your job title or description contains inappropriate language. Please review and try again.';
       });
@@ -2598,6 +2598,18 @@ class TranyxAppState extends State<TranyxApp> {
     } catch (_) {
       setState(() => isGeneratingCode = false);
     }
+  }
+
+  Future<void> sendCompletionCodeToWorker() async {
+    if (selectedJobData == null || generatedCompletionCode == null) return;
+    final jobId = selectedJobData!['id'] as String;
+    final code = generatedCompletionCode!;
+    final uid = SessionStorage.uid;
+    if (uid == null) return;
+    final name = userProfile?.name ?? userName;
+    final text = 'Verification Code: $code. Please use this code to mark the gig as complete.';
+    sendChatMessageJs(jobId, uid, name, text);
+    showAppToast('Code Sent', 'Verification code sent to the worker via chat.');
   }
 
   Future<void> handleCompleteJob() async {

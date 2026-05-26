@@ -91,6 +91,15 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
       setState(() => _error = 'Please fill out all vehicle details.');
       return;
     }
+
+    if (component.appState.checkProfanity(_brand) ||
+        component.appState.checkProfanity(_model) ||
+        component.appState.checkProfanity(_pickupAddress) ||
+        (_contractType == 'Custom Contract' && component.appState.checkProfanity(_customTerms))) {
+      setState(() => _error = 'Your listing details contain inappropriate language. Please review and try again.');
+      return;
+    }
+
     if (!_isValidPhilippinePlate(_plateNumber)) {
       setState(
         () => _error = 'Please enter a valid Philippine Plate Number (e.g. ABC-1234, MC-12345) or MV File Number.',
