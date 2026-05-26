@@ -1,5 +1,6 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
@@ -65,8 +66,7 @@ class PaymentModalComponent extends StatelessComponent {
                     },
                     events: {
                       'input': (e) {
-                        final val = (e.target as dynamic).value?.toString() ?? '';
-                        // Use num.tryParse so both '500' and '500.0' parse correctly
+                        final val = (e.target as web.HTMLInputElement).value;
                         final parsed = num.tryParse(val);
                         s.setState(() => s.depositAmount = parsed != null ? parsed.toDouble() : 0.0);
                       },

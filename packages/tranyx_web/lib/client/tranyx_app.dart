@@ -36,6 +36,8 @@ import '../client/components/book_property_modal.dart';
 import '../client/components/manage_property_modal.dart';
 import '../client/components/property_qa_modal.dart';
 import '../client/components/sign_contract_modal.dart';
+import '../client/components/kyc_id_modal.dart';
+import '../client/components/kyc_bg_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -726,6 +728,7 @@ class TranyxAppState extends State<TranyxApp> {
           hybridToggle = accountType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
         });
       }
+      await loadKycSubmission();
     } catch (_) {}
   }
 
@@ -3518,6 +3521,10 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Profile actions ─────────────────────────────────────────
 
   bool isUpdatingVerification = false;
+  Map<String, dynamic>? activeKycSubmission;
+  bool isLoadingKyc = false;
+  bool showKycIdModal = false;
+  bool showKycBgModal = false;
 
   void initializeProfileEditing() {
     final profile = userProfile;
@@ -4153,6 +4160,115 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  Future<void> loadKycSubmission() async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+    setState(() => isLoadingKyc = true);
+    try {
+      final doc = await FirestoreService(token, _handleTokenRefresh).getKycSubmission(uid);
+      setState(() {
+        activeKycSubmission = doc;
+      });
+    } catch (e) {
+      print('loadKycSubmission error: $e');
+    } finally {
+      setState(() => isLoadingKyc = false);
+    }
+  }
+
+  Future<void> submitIdVerification({
+    required String idType,
+    required String idNumber,
+    required String frontUrl,
+    required String backUrl,
+    required String selfieUrl,
+  }) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+
+    setState(() => isLoadingKyc = true);
+    try {
+      final dbSvc = FirestoreService(token, _handleTokenRefresh);
+      
+      // Get existing doc if any to merge
+      final existingDoc = await dbSvc.getKycSubmission(uid) ?? {};
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+      final updatedDoc = {
+        ...existingDoc,
+        'uid': uid,
+        'fullName': userProfile?.name ?? userName,
+        'submittedAt': nowMs,
+        'updatedAt': nowMs,
+        'idVerification': {
+          'status': 'pending',
+          'idType': idType,
+          'idNumber': idNumber,
+          'frontUrl': frontUrl,
+          'backUrl': backUrl,
+          'selfieUrl': selfieUrl,
+          'submittedAt': nowMs,
+        }
+      };
+
+      await dbSvc.saveKycSubmission(uid, updatedDoc);
+      await loadKycSubmission();
+      showAppToast('ID Verification Submitted! 🆔', 'Our team will review your government ID.');
+      setState(() => showKycIdModal = false);
+    } catch (e) {
+      showAppToast('Submission Failed ❌', e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      setState(() => isLoadingKyc = false);
+    }
+  }
+
+  Future<void> submitBackgroundCheck({
+    required String clearanceType,
+    required String clearanceNumber,
+    required String expiryDate,
+    required String documentUrl,
+  }) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+
+    setState(() => isLoadingKyc = true);
+    try {
+      final dbSvc = FirestoreService(token, _handleTokenRefresh);
+      
+      // Get existing doc if any to merge
+      final existingDoc = await dbSvc.getKycSubmission(uid) ?? {};
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+      final updatedDoc = {
+        ...existingDoc,
+        'uid': uid,
+        'fullName': userProfile?.name ?? userName,
+        'submittedAt': nowMs,
+        'updatedAt': nowMs,
+        'backgroundCheck': {
+          'status': 'pending',
+          'clearanceType': clearanceType,
+          'clearanceNumber': clearanceNumber,
+          'expiryDate': expiryDate,
+          'documentUrl': documentUrl,
+          'submittedAt': nowMs,
+        }
+      };
+
+      await dbSvc.saveKycSubmission(uid, updatedDoc);
+      await loadKycSubmission();
+      showAppToast('Background Check Submitted! 📄', 'Our team will review your clearance document.');
+      setState(() => showKycBgModal = false);
+    } catch (e) {
+      showAppToast('Submission Failed ❌', e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      setState(() => isLoadingKyc = false);
+    }
+  }
+
   @override
   Component build(BuildContext context) {
     final darkBg = isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900';
@@ -4348,6 +4464,10 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Rating modal overlay
       if (showRatingPopup) RatingModalComponent(state: this),
+
+      // KYC modals
+      if (showKycIdModal) KycIdModalComponent(state: this),
+      if (showKycBgModal) KycBgModalComponent(state: this),
 
       // Delete confirmation modal overlay
       if (showDeleteConfirm) DeleteConfirmModalComponent(state: this),

@@ -447,6 +447,15 @@ class FirestoreService {
     await createOrUpdate('users/${profile.uid}', profile.toMap());
   }
 
+  // ── KYC Submissions ────────────────────────────────────────
+  Future<Map<String, dynamic>?> getKycSubmission(String uid) async {
+    return await getDocument('kyc_submissions/$uid');
+  }
+
+  Future<void> saveKycSubmission(String uid, Map<String, dynamic> data) async {
+    await createOrUpdate('kyc_submissions/$uid', data);
+  }
+
   // ── Wallet Links ───────────────────────────────────────────
   /// Stores a mapping from walletPublicKey -> uid in walletLinks collection.
   Future<void> linkWalletToUser(String uid, String walletPublicKey, {String? refreshToken}) async {

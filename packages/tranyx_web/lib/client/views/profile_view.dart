@@ -952,6 +952,77 @@ class _TrustVerification extends StatelessComponent {
     );
   }
 
+  Component kycVerificationCard({
+    required String title,
+    required String desc,
+    required bool isVerified,
+    required String status,
+    required String? rejectionReason,
+    required bool isDark,
+    required void Function() onVerify,
+    required bool isSaving,
+  }) {
+    final displayStatus = isVerified ? 'approved' : status;
+
+    return div(
+      classes:
+          'p-5 rounded-2xl border ${isDark ? "bg-zinc-900/40 border-zinc-800/80" : "bg-white border-zinc-200/60 shadow-sm"} flex flex-col gap-3',
+      [
+        div(classes: 'flex items-center justify-between gap-4 w-full', [
+          div(classes: 'flex items-center gap-3', [
+            div(
+              classes:
+                  'w-10 h-10 rounded-xl flex items-center justify-center '
+                  '${displayStatus == "approved" ? "bg-green-500/10 text-green-400" : displayStatus == "pending" ? "bg-amber-500/10 text-amber-400" : displayStatus == "rejected" ? "bg-red-500/10 text-red-400" : "bg-zinc-500/10 text-zinc-400"}',
+              [lIcon(displayStatus == "approved" ? 'check-circle' : displayStatus == "pending" ? 'clock' : displayStatus == "rejected" ? 'alert-circle' : 'circle', cls: 'w-5 h-5')],
+            ),
+            div([
+              p(classes: 'font-bold text-sm ${isDark ? "text-white" : "text-zinc-800"}', [Component.text(title)]),
+              p(classes: 'text-[11px] ${isDark ? "text-zinc-500" : "text-zinc-550"}', [Component.text(desc)]),
+            ]),
+          ]),
+          if (displayStatus == 'approved')
+            span(
+              classes:
+                  'px-3 py-1 rounded-full text-xs font-bold bg-green-500/10 text-green-400 border border-green-500/20',
+              [Component.text('Verified')],
+            )
+          else if (displayStatus == 'pending')
+            span(
+              classes:
+                  'px-3 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse',
+              [Component.text('Pending Review')],
+            )
+          else if (displayStatus == 'rejected')
+            button(
+              classes:
+                  'px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-650 hover:bg-red-700 transition-colors flex items-center gap-1.5 min-w-[100px] justify-center border-0 cursor-pointer',
+              events: isSaving ? {} : {'click': (_) => onVerify()},
+              [Component.text('Try Again')],
+            )
+          else
+            button(
+              classes:
+                  'px-4 py-2 rounded-xl text-xs font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-1.5 min-w-[100px] justify-center border-0 cursor-pointer',
+              events: isSaving ? {} : {'click': (_) => onVerify()},
+              [Component.text('Verify Now')],
+            ),
+        ]),
+        if (displayStatus == 'rejected' && rejectionReason != null && rejectionReason.isNotEmpty)
+          div(
+            classes: 'mt-1 p-3 rounded-xl bg-red-500/5 border border-red-500/10 text-[10.5px] text-red-400 font-medium flex items-start gap-1.5',
+            [
+              lIcon('alert-triangle', cls: 'w-3.5 h-3.5 mt-0.5 shrink-0'),
+              div([
+                p(classes: 'font-bold text-[11px]', [Component.text('Rejection Reason:')]),
+                p(classes: 'mt-0.5 opacity-90', [Component.text(rejectionReason)]),
+              ]),
+            ],
+          ),
+      ],
+    );
+  }
+
   @override
   Component build(BuildContext context) {
     final s = state;
@@ -1038,21 +1109,25 @@ class _TrustVerification extends StatelessComponent {
           isSaving: s.isUpdatingVerification && !isPhone,
           onVerify: () => s.updateVerificationField(phone: true),
         ),
-        verificationCard(
+        kycVerificationCard(
           title: 'Government ID',
           desc: 'Submit your Driver License, Passport or National ID',
           isVerified: isId,
+          status: s.activeKycSubmission?['idVerification']?['status']?.toString() ?? 'not_submitted',
+          rejectionReason: s.activeKycSubmission?['idVerification']?['rejectionReason']?.toString(),
           isDark: isDark,
-          isSaving: s.isUpdatingVerification && !isId,
-          onVerify: () => s.updateVerificationField(id: true),
+          isSaving: s.isLoadingKyc,
+          onVerify: () => s.setState(() => s.showKycIdModal = true),
         ),
-        verificationCard(
+        kycVerificationCard(
           title: 'Background Check',
           desc: 'Undergo criminal history background clearance',
           isVerified: isBg,
+          status: s.activeKycSubmission?['backgroundCheck']?['status']?.toString() ?? 'not_submitted',
+          rejectionReason: s.activeKycSubmission?['backgroundCheck']?['rejectionReason']?.toString(),
           isDark: isDark,
-          isSaving: s.isUpdatingVerification && !isBg,
-          onVerify: () => s.updateVerificationField(bg: true),
+          isSaving: s.isLoadingKyc,
+          onVerify: () => s.setState(() => s.showKycBgModal = true),
         ),
       ]),
 
