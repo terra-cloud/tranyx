@@ -1198,23 +1198,36 @@ class _JobDetails extends StatelessComponent {
                 events: hasReported ? {} : {'click': (_) => s.handleReportJob()},
                 [lIcon('flag', cls: 'w-5 h-5')],
               ),
-              button(
-                classes: (hasApplied || hasReported)
-                    ? 'flex-1 py-4 rounded-2xl font-semibold text-white bg-zinc-400 opacity-50 cursor-not-allowed'
-                    : 'flex-1 py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity',
-                attributes: (hasApplied || hasReported) ? {'disabled': 'true'} : {},
-                events: (hasApplied || hasReported)
-                    ? {}
-                    : {'click': (_) => s.setState(() => s.jobsView = JobsView.apply)},
-                [
-                  Component.text(
-                    hasApplied
-                        ? 'Already Applied'
-                        : hasReported
-                        ? 'Cannot Apply'
-                        : 'Proceed to Apply',
-                  ),
-                ],
+              Builder(
+                builder: (context) {
+                  final isFilled = s.selectedJobData?['acceptedApplicantId'] != null;
+                  if (isFilled) {
+                    return button(
+                      classes: 'flex-1 py-4 rounded-2xl font-semibold text-white bg-zinc-400 opacity-50 cursor-not-allowed',
+                      attributes: {'disabled': 'true'},
+                      events: {},
+                      [Component.text('Position Filled')],
+                    );
+                  }
+                  return button(
+                    classes: (hasApplied || hasReported)
+                        ? 'flex-1 py-4 rounded-2xl font-semibold text-white bg-zinc-400 opacity-50 cursor-not-allowed'
+                        : 'flex-1 py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity',
+                    attributes: (hasApplied || hasReported) ? {'disabled': 'true'} : {},
+                    events: (hasApplied || hasReported)
+                        ? {}
+                        : {'click': (_) => s.setState(() => s.jobsView = JobsView.apply)},
+                    [
+                      Component.text(
+                        hasApplied
+                            ? 'Already Applied'
+                            : hasReported
+                            ? 'Cannot Apply'
+                            : 'Proceed to Apply',
+                      ),
+                    ],
+                  );
+                },
               ),
             ]);
           } else {
@@ -1511,13 +1524,29 @@ class _JobDetails extends StatelessComponent {
                 },
               ),
 
-              div(classes: 'text-center', [
-                p(classes: 'text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1', [
-                  Component.text('Manual Code'),
+              div(classes: 'text-center flex flex-col items-center gap-3', [
+                div([
+                  p(classes: 'text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1', [
+                    Component.text('Manual Code'),
+                  ]),
+                  p(classes: 'text-4xl font-black tracking-[0.5em] text-indigo-500 pl-4', [
+                    Component.text(s.generatedCompletionCode!),
+                  ]),
                 ]),
-                p(classes: 'text-4xl font-black tracking-[0.5em] text-indigo-500', [
-                  Component.text(s.generatedCompletionCode!),
-                ]),
+                button(
+                  classes: 'px-4 py-2 rounded-xl text-xs font-bold border border-indigo-500/30 text-indigo-400 bg-indigo-500/5 hover:bg-indigo-500/10 transition-all flex items-center gap-1.5 cursor-pointer',
+                  events: {
+                    'click': (_) {
+                      final code = s.generatedCompletionCode!;
+                      web.window.navigator.clipboard.writeText(code);
+                      s.showAppToast('Code Copied', 'Verification code $code copied.');
+                    },
+                  },
+                  [
+                    lIcon('copy', cls: 'w-3.5 h-3.5'),
+                    Component.text('Copy Code'),
+                  ],
+                ),
               ]),
 
               button(
@@ -2422,90 +2451,176 @@ class _ReviewApplicants extends StatelessComponent {
         onBack: () => s.setState(() => s.jobsView = JobsView.details),
       ),
 
-      if (status == 'Open') ...[
-        h2(classes: 'text-xl font-bold mb-4', [Component.text('Applicants')]),
-        if (s.isLoadingApplicants)
-          div(classes: 'flex justify-center p-8', [lIcon('loader-2', cls: 'w-8 h-8 animate-spin text-indigo-500')])
-        else if (s.jobApplicants.isEmpty)
-          div(
-            classes:
-                'p-8 text-center text-zinc-500 rounded-2xl border border-dashed ${isDark ? "border-zinc-800" : "border-zinc-200"}',
-            [Component.text('No applicants yet.')],
-          )
-        else
-          div(classes: 'space-y-4', [
-            for (final app in s.jobApplicants)
-              div(
-                classes:
-                    'p-5 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"} flex flex-col md:flex-row md:items-center justify-between gap-4',
-                [
-                  button(
-                    classes:
-                        'flex items-center gap-3 text-left hover:opacity-85 transition-opacity cursor-pointer border-none bg-transparent p-0',
-                    events: {'click': (_) => s.viewEmployerProfile(app['applicantUid'] as String)},
+      if (s.isLoadingApplicants)
+        div(classes: 'flex justify-center p-8', [lIcon('loader-2', cls: 'w-8 h-8 animate-spin text-indigo-500')])
+      else Builder(
+        builder: (context) {
+          final acceptedId = job?['acceptedApplicantId'] as String?;
+          final acceptedApp = s.jobApplicants.where((app) => app['applicantUid'] == acceptedId).firstOrNull;
+          final otherApplicants = s.jobApplicants.where((app) => app['applicantUid'] != acceptedId).toList();
+
+          return div(classes: 'space-y-6', [
+            if (acceptedId != null) ...[
+              h2(classes: 'text-sm font-bold text-green-400 uppercase tracking-wider mb-2 flex items-center gap-1.5', [
+                lIcon('check-circle', cls: 'w-4 h-4'),
+                Component.text('Hired Worker'),
+              ]),
+              Builder(
+                builder: (context) {
+                  final workerName = acceptedApp?['applicantName'] as String? ??
+                      s.acceptedApplicantProfile?['name'] as String? ??
+                      job?['acceptedApplicantName'] as String? ??
+                      'Hired Nyxian';
+                  final workerPhotoUrl = acceptedApp?['applicantPhotoUrl'] as String? ??
+                      s.acceptedApplicantProfile?['photoUrl'] as String? ??
+                      job?['acceptedApplicantPhotoUrl'] as String? ??
+                      '';
+                  final propRate = acceptedApp?['proposalRate'] ?? job?['pricingValue'] ?? 0.0;
+                  final isCounter = acceptedApp?['isCounterOffer'] == true;
+                  final isBonded = acceptedApp?['isBonded'] == true || s.acceptedApplicantProfile?['isBonded'] == true;
+                  final coverNote = acceptedApp?['coverNote'] as String? ?? 'Currently working on this job.';
+
+                  return div(
+                    classes: 'p-5 rounded-2xl border border-green-500/30 bg-green-500/10 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg shadow-green-500/5',
                     [
-                      div(classes: 'w-12 h-12 rounded-full overflow-hidden bg-zinc-800 flex-shrink-0', [
-                        if ((app['applicantPhotoUrl'] as String?)?.isNotEmpty ?? false)
-                          img(src: app['applicantPhotoUrl'] as String, classes: 'w-full h-full object-cover')
-                        else
-                          div(
-                            classes:
-                                'w-full h-full flex items-center justify-center logo-gradient text-white font-bold',
-                            [Component.text((app['applicantName'] as String?)?.substring(0, 1).toUpperCase() ?? '?')],
-                          ),
-                      ]),
-                      div([
-                        p(classes: 'font-bold hover:underline', [
-                          Component.text(app['applicantName'] as String? ?? 'Anonymous'),
-                        ]),
-                        if (app['isCounterOffer'] == true)
-                          p(classes: 'text-sm font-semibold text-orange-400', [
-                            Component.text('Counter Offer: ₱ ${app['proposalRate']}'),
-                          ])
-                        else
-                          p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-650"}', [
-                            Component.text('Standard Rate'),
+                      button(
+                        classes: 'flex items-center gap-3 text-left hover:opacity-85 transition-opacity cursor-pointer border-none bg-transparent p-0',
+                        events: {'click': (_) => s.viewEmployerProfile(acceptedId)},
+                        [
+                          div(classes: 'w-12 h-12 rounded-full overflow-hidden bg-zinc-800 flex-shrink-0', [
+                            if (workerPhotoUrl.isNotEmpty)
+                              img(src: workerPhotoUrl, classes: 'w-full h-full object-cover')
+                            else
+                              div(
+                                classes: 'w-full h-full flex items-center justify-center logo-gradient text-white font-bold',
+                                [Component.text(workerName.substring(0, 1).toUpperCase())],
+                              ),
                           ]),
-                        // Badges container
-                        div(classes: 'flex flex-wrap gap-1.5 mt-1.5', [
-                          if (app['isBonded'] == true)
-                            span(
-                              classes:
-                                  'px-2 py-0.5 rounded-lg text-[9px] font-bold bg-green-500/15 text-green-400 border border-green-500/25 flex items-center gap-0.5',
-                              [
-                                lIcon('shield-check', cls: 'w-2.5 h-2.5'),
-                                Component.text('Bonded & Protected'),
-                              ],
-                            ),
-                          if (app['certificationUrls'] != null && (app['certificationUrls'] as List).isNotEmpty)
-                            span(
-                              classes:
-                                  'px-2 py-0.5 rounded-lg text-[9px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 flex items-center gap-0.5',
-                              [
-                                lIcon('award', cls: 'w-2.5 h-2.5'),
-                                Component.text('Credentials Verified (${(app['certificationUrls'] as List).length})'),
-                              ],
-                            ),
-                        ]),
+                          div([
+                            p(classes: 'font-bold hover:underline text-zinc-150', [
+                              Component.text(workerName),
+                            ]),
+                            p(classes: 'text-sm font-semibold text-green-400', [
+                              Component.text(isCounter ? 'Counter Rate: ₱ $propRate' : 'Standard Rate: ₱ $propRate'),
+                            ]),
+                            div(classes: 'flex flex-wrap gap-1.5 mt-1.5', [
+                              if (isBonded)
+                                span(
+                                  classes: 'px-2 py-0.5 rounded-lg text-[9px] font-bold bg-green-500/15 text-green-400 border border-green-500/25 flex items-center gap-0.5',
+                                  [
+                                    lIcon('shield-check', cls: 'w-2.5 h-2.5'),
+                                    Component.text('Bonded & Protected'),
+                                  ],
+                                ),
+                            ]),
+                          ]),
+                        ],
+                      ),
+                      div(classes: 'flex-1 text-sm ${isDark ? "text-zinc-400" : "text-zinc-650"} md:px-4', [
+                        Component.text(coverNote),
                       ]),
+                      button(
+                        classes: 'px-5 py-2.5 rounded-xl font-bold text-white bg-green-500 hover:bg-green-400 transition-colors flex items-center gap-2 text-sm whitespace-nowrap',
+                        events: {'click': (_) => s.openChat(job!['id'] as String)},
+                        [lIcon('message-square', cls: 'w-4 h-4'), Component.text('Chat with Worker')],
+                      ),
                     ],
-                  ),
-                  div(classes: 'flex-1 text-sm ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                    Component.text(app['coverNote'] as String? ?? 'No cover note provided.'),
+                  );
+                },
+              ),
+            ],
+
+            if (otherApplicants.isNotEmpty) ...[
+              details(
+                classes: 'group border ${isDark ? "border-zinc-800 bg-zinc-900/10" : "border-zinc-200 bg-zinc-50/50"} rounded-2xl p-4',
+                attributes: acceptedId == null ? {'open': 'true'} : {},
+                [
+                  summary(classes: 'font-bold text-sm cursor-pointer select-none flex items-center justify-between outline-none text-zinc-400 hover:text-zinc-300 transition-colors', [
+                    Component.text(acceptedId != null ? 'Other Applicants (${otherApplicants.length})' : 'Applicants (${otherApplicants.length})'),
+                    lIcon('chevron-down', cls: 'w-4 h-4 group-open:rotate-180 transition-transform text-zinc-500'),
                   ]),
-                  button(
-                    classes:
-                        'px-6 py-2 rounded-xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity whitespace-nowrap flex items-center gap-2',
-                    events: {'click': (_) => s.acceptApplicant(job!['id'], app)},
-                    [
-                      if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
-                      Component.text('Accept'),
-                    ],
-                  ),
+                  div(classes: 'mt-4 space-y-4', [
+                    for (final app in otherApplicants)
+                      div(
+                        classes: 'p-5 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800/80" : "bg-white border-zinc-200 shadow-sm"} flex flex-col md:flex-row md:items-center justify-between gap-4',
+                        [
+                          button(
+                            classes: 'flex items-center gap-3 text-left hover:opacity-85 transition-opacity cursor-pointer border-none bg-transparent p-0',
+                            events: {'click': (_) => s.viewEmployerProfile(app['applicantUid'] as String)},
+                            [
+                              div(classes: 'w-12 h-12 rounded-full overflow-hidden bg-zinc-800 flex-shrink-0', [
+                                if ((app['applicantPhotoUrl'] as String?)?.isNotEmpty ?? false)
+                                  img(src: app['applicantPhotoUrl'] as String, classes: 'w-full h-full object-cover')
+                                else
+                                  div(
+                                    classes: 'w-full h-full flex items-center justify-center logo-gradient text-white font-bold',
+                                    [Component.text((app['applicantName'] as String?)?.substring(0, 1).toUpperCase() ?? '?')],
+                                  ),
+                              ]),
+                              div([
+                                p(classes: 'font-bold hover:underline', [
+                                  Component.text(app['applicantName'] as String? ?? 'Anonymous'),
+                                ]),
+                                if (app['isCounterOffer'] == true)
+                                  p(classes: 'text-sm font-semibold text-orange-400', [
+                                    Component.text('Counter Offer: ₱ ${app['proposalRate']}'),
+                                  ])
+                                else
+                                  p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-650"}', [
+                                    Component.text('Standard Rate'),
+                                  ]),
+                                div(classes: 'flex flex-wrap gap-1.5 mt-1.5', [
+                                  if (app['isBonded'] == true)
+                                    span(
+                                      classes: 'px-2 py-0.5 rounded-lg text-[9px] font-bold bg-green-500/15 text-green-400 border border-green-500/25 flex items-center gap-0.5',
+                                      [
+                                        lIcon('shield-check', cls: 'w-2.5 h-2.5'),
+                                        Component.text('Bonded & Protected'),
+                                      ],
+                                    ),
+                                  if (app['certificationUrls'] != null && (app['certificationUrls'] as List).isNotEmpty)
+                                    span(
+                                      classes: 'px-2 py-0.5 rounded-lg text-[9px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 flex items-center gap-0.5',
+                                      [
+                                        lIcon('award', cls: 'w-2.5 h-2.5'),
+                                        Component.text('Credentials Verified (${(app['certificationUrls'] as List).length})'),
+                                      ],
+                                    ),
+                                ]),
+                              ]),
+                            ],
+                          ),
+                          div(classes: 'flex-1 text-sm ${isDark ? "text-zinc-400" : "text-zinc-650"} md:px-4', [
+                            Component.text(app['coverNote'] as String? ?? 'No cover note provided.'),
+                          ]),
+                          if (status == 'Open' && acceptedId == null)
+                            button(
+                              classes: 'px-6 py-2 rounded-xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity whitespace-nowrap flex items-center gap-2',
+                              events: {'click': (_) => s.acceptApplicant(job!['id'], app)},
+                              [
+                                if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
+                                Component.text('Accept'),
+                              ],
+                            )
+                          else
+                            span(classes: 'text-xs text-zinc-550 font-bold uppercase tracking-wider', [
+                              Component.text('Not Selected'),
+                            ]),
+                        ],
+                      ),
+                  ]),
                 ],
               ),
-          ]),
-      ] else if (status == 'In Progress' ||
+            ] else if (acceptedId == null) ...[
+              div(
+                classes: 'p-8 text-center text-zinc-500 rounded-2xl border border-dashed ${isDark ? "border-zinc-800" : "border-zinc-200"}',
+                [Component.text('No applicants yet.')],
+              ),
+            ],
+          ]);
+        },
+      ),
+      if (status == 'In Progress' ||
           status == 'onGoing' ||
           status == 'ongoing' ||
           status == 'in_progress' ||

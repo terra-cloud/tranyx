@@ -456,6 +456,64 @@ class FirestoreService {
     await createOrUpdate('kyc_submissions/$uid', data);
   }
 
+  Future<List<Map<String, dynamic>>> getEscrowHoldbacks(String uid, {required bool isNyxian}) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'escrow_holdbacks'},
+        ],
+        'where': {
+          'compositeFilter': {
+            'op': 'AND',
+            'filters': [
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': isNyxian ? 'nyxianId' : 'employerId'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': uid},
+                },
+              },
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'status'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': 'held'},
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode >= 400) {
+        return [];
+      }
+
+      final List<dynamic> results = jsonDecode(req.body);
+      final holdbacks = <Map<String, dynamic>>[];
+      for (final res in results) {
+        if (res is Map<String, dynamic> && res.containsKey('document')) {
+          final doc = res['document'] as Map<String, dynamic>;
+          final id = _docId(doc);
+          holdbacks.add({'id': id, ..._fromFirestoreDoc(doc)});
+        }
+      }
+      return holdbacks;
+    } catch (_) {
+      return [];
+    }
+  }
+
   // ── Wallet Links ───────────────────────────────────────────
   /// Stores a mapping from walletPublicKey -> uid in walletLinks collection.
   Future<void> linkWalletToUser(String uid, String walletPublicKey, {String? refreshToken}) async {

@@ -64,6 +64,7 @@ class TranyxAppState extends State<TranyxApp> {
   String userEmail = '';
   String? userPhotoUrl;
   UserProfile? userProfile;
+  List<Map<String, dynamic>> pendingHoldbacks = [];
 
   // ── Profile edit fields ──────────────────────────────────────
   String editName = '';
@@ -729,6 +730,7 @@ class TranyxAppState extends State<TranyxApp> {
         });
       }
       await loadKycSubmission();
+      await loadHoldbacks();
     } catch (_) {}
   }
 
@@ -1275,10 +1277,32 @@ class TranyxAppState extends State<TranyxApp> {
     });
   }
 
+  bool _checkProfanity(String text) {
+    if (text.isEmpty) return false;
+    final cleanText = text.toLowerCase();
+    final bannedWords = const [
+      'putang ina', 'tangina', 'gago', 'tarantado', 'kupal', 'puki', 'kiki', 'puta', 'pota', 'bobo', 'pakyu', 'ulol', 'salsal',
+      'fuck', 'shit', 'asshole', 'bitch', 'bastard', 'cunt', 'pussy', 'dick', 'cock'
+    ];
+    for (final word in bannedWords) {
+      if (cleanText.contains(word)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<void> handlePostJob() async {
     final uid = SessionStorage.uid;
     final token = SessionStorage.idToken;
     if (uid == null || token == null) return;
+
+    if (_checkProfanity(newJobTitle) || _checkProfanity(newJobDesc)) {
+      setState(() {
+        postJobError = 'Your job title or description contains inappropriate language. Please review and try again.';
+      });
+      return;
+    }
 
     if (!canPostJob) {
       setState(() {
@@ -4174,6 +4198,56 @@ class TranyxAppState extends State<TranyxApp> {
       print('loadKycSubmission error: $e');
     } finally {
       setState(() => isLoadingKyc = false);
+    }
+  }
+
+  Future<void> loadHoldbacks() async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+    try {
+      final isNyxian = currentViewMode == AccountType.nyxian;
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final list = await svc.getEscrowHoldbacks(uid, isNyxian: isNyxian);
+
+      // Check if any holdbacks are ready to release client-side
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final toRelease = list.where((item) => (item['releaseAt'] as int? ?? 0) <= nowMs && item['status'] == 'held').toList();
+
+      if (toRelease.isNotEmpty && isNyxian) {
+        final userDoc = await svc.getDocument('users/$uid');
+        if (userDoc != null) {
+          double totalToRelease = 0.0;
+          for (final holdback in toRelease) {
+            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
+            totalToRelease += amt;
+
+            await svc.createOrUpdate('escrow_holdbacks/${holdback['id']}', {
+              ...holdback,
+              'status': 'released',
+              'releasedAt': nowMs,
+            });
+          }
+
+          if (totalToRelease > 0) {
+            final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            final currentEarned = (userDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
+
+            await svc.createOrUpdate('users/$uid', {
+              ...userDoc,
+              'tyxBalance': currentBal + totalToRelease,
+              'totalEarned': currentEarned + totalToRelease,
+            });
+          }
+        }
+      }
+
+      final remaining = await svc.getEscrowHoldbacks(uid, isNyxian: isNyxian);
+      setState(() {
+        pendingHoldbacks = remaining;
+      });
+    } catch (e) {
+      print('loadHoldbacks error: $e');
     }
   }
 

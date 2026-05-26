@@ -71,19 +71,22 @@ class HomeViewComponent extends StatelessComponent {
           options: const [('Find Services', 'employer'), ('Work as Nyxian', 'nyxian')],
           selected: s.hybridToggle == AccountType.nyxian ? 'nyxian' : 'employer',
           isDark: isDark,
-          onChange: (v) => s.setState(() => s.hybridToggle = v == 'nyxian' ? AccountType.nyxian : AccountType.employer),
+          onChange: (v) {
+            s.setState(() => s.hybridToggle = v == 'nyxian' ? AccountType.nyxian : AccountType.employer);
+            s.loadHoldbacks();
+          },
         ),
 
       // ── Hero header ──────────────────────────────────────
       div(classes: 'space-y-3', [
-        h1(classes: 'text-3xl md:text-4xl font-extrabold tracking-tight leading-tight', [
-          Component.text(isNyxian ? 'Find your next gig.' : 'What do you need done?'),
+        h1(classes: 'text-3xl md:text-4xl font-extrabold tracking-tight leading-tight logo-gradient bg-clip-text text-transparent', [
+          Component.text('Hire Services. Find Jobs. Rent Anything.'),
         ]),
         p(classes: 'text-base md:text-lg ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
           Component.text(
             isNyxian
-                ? 'Browse available jobs in your area and apply instantly.'
-                : 'Post a job and connect with skilled Nyxians near you.',
+                ? 'Browse available jobs in your area, track transit routes, and start earning.'
+                : 'Connect with verified Nyxians, rent assets, and get tasks done safely.',
           ),
         ]),
       ]),
@@ -126,8 +129,14 @@ class HomeViewComponent extends StatelessComponent {
         ],
       ),
 
+      // ── Quick Stats Bar ───────────────────────────────────
+      _quickStatsBar(isDark: isDark, isNyxian: isNyxian, s: s),
+
       // ── Ongoing / Current Gig Widget ──────────────────────
       _ongoingWidget(isDark: isDark, isNyxian: isNyxian, s: s),
+
+      // ── Active Trackers & Trips ───────────────────────────
+      _activeTrackersSection(isDark: isDark, s: s),
 
       if (isNyxian) ...[
         // ── Top Services Grid (Firebase-synced) ───────────────
@@ -538,7 +547,7 @@ class HomeViewComponent extends StatelessComponent {
             ]),
             div([
               h3(classes: 'font-bold text-lg text-zinc-200', [Component.text('Real Estate Rentals')]),
-              p(classes: 'text-sm ${isDark ? "text-zinc-550" : "text-zinc-500"}', [
+              p(classes: 'text-sm ${isDark ? "text-zinc-555" : "text-zinc-500"}', [
                 Component.text('Rent apartments, bedspaces, private rooms, and commercial offices directly'),
               ]),
             ]),
@@ -550,5 +559,293 @@ class HomeViewComponent extends StatelessComponent {
         ]),
       ],
     );
+  }
+
+  Component _quickStatsBar({required bool isDark, required bool isNyxian, required TranyxAppState s}) {
+    final cardBg = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+    final labelColor = isDark ? 'text-zinc-500' : 'text-zinc-400';
+    final titleColor = isDark ? 'text-zinc-150' : 'text-zinc-800';
+
+    final pendingTotal = s.pendingHoldbacks.fold<double>(0.0, (sum, item) {
+      final amt = (item['amount'] as num?)?.toDouble() ?? 0.0;
+      return sum + amt;
+    });
+
+    Component buildPendingReleaseBreakdown() {
+      if (pendingTotal <= 0) return div([]);
+      return div(classes: 'mt-2 space-y-1 border-t border-zinc-500/10 pt-2', [
+        for (final holdback in s.pendingHoldbacks)
+          Builder(builder: (context) {
+            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
+            final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+            final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
+            final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
+            return p(classes: 'text-[9px] text-amber-500/80 font-bold text-left', [
+              Component.text('• Php ${amt.toStringAsFixed(2)} $hrsStr'),
+            ]);
+          }),
+      ]);
+    }
+
+    if (isNyxian) {
+      final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
+      final jobsDone = s.userProfile?.jobsDone ?? 0;
+      final totalEarned = s.userProfile?.totalEarned ?? 0.0;
+      final rating = s.userProfile?.rating ?? 5.0;
+
+      return div(classes: 'grid grid-cols-2 lg:grid-cols-4 gap-4', [
+        // Wallet Balance
+        div(
+          classes: 'p-5 rounded-2xl border transition-all hover:border-indigo-500/40 cursor-pointer $cardBg',
+          events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
+          [
+            div(classes: 'flex justify-between items-start mb-2', [
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Balance')]),
+              lIcon('wallet', cls: 'w-4 h-4 text-indigo-400'),
+            ]),
+            p(classes: 'text-lg font-black $titleColor', [
+              Component.text('₱ ${tyxBal.toStringAsFixed(2)}'),
+            ]),
+            if (pendingTotal > 0) ...[
+              p(classes: 'text-[9px] text-amber-500 font-bold mt-1.5 flex items-center gap-0.5 animate-pulse', [
+                lIcon('clock', cls: 'w-2.5 h-2.5'),
+                Component.text('+ ₱${pendingTotal.toStringAsFixed(2)} Pending'),
+              ]),
+              buildPendingReleaseBreakdown(),
+            ] else
+              p(classes: 'text-[9px] text-zinc-500 mt-1 font-semibold hover:text-indigo-400 transition-colors', [Component.text('Deposit Tyx')],),
+          ],
+        ),
+        // Completed Gigs
+        div(
+          classes: 'p-5 rounded-2xl border transition-all hover:border-purple-500/40 cursor-pointer $cardBg',
+          events: {'click': (_) => s.setState(() {
+            s.activeTab = AppTab.profile;
+            s.profileView = ProfileView.main;
+          })},
+          [
+            div(classes: 'flex justify-between items-start mb-2', [
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Gigs Done')]),
+              lIcon('check-circle', cls: 'w-4 h-4 text-purple-400'),
+            ]),
+            p(classes: 'text-lg font-black $titleColor', [
+              Component.text('$jobsDone'),
+            ]),
+            p(classes: 'text-[9px] text-purple-450 font-semibold mt-1', [Component.text('View Profile')]),
+          ],
+        ),
+        // Total Earnings
+        div(
+          classes: 'p-5 rounded-2xl border transition-all hover:border-emerald-500/40 cursor-pointer $cardBg',
+          events: {'click': (_) => s.setState(() {
+            s.activeTab = AppTab.profile;
+            s.profileView = ProfileView.history;
+          })},
+          [
+            div(classes: 'flex justify-between items-start mb-2', [
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Total Earned')]),
+              lIcon('trending-up', cls: 'w-4 h-4 text-emerald-400'),
+            ]),
+            p(classes: 'text-lg font-black $titleColor', [
+              Component.text('₱ ${totalEarned.toStringAsFixed(0)}'),
+            ]),
+            p(classes: 'text-[9px] text-emerald-450 font-semibold mt-1', [Component.text('View Earnings')]),
+          ],
+        ),
+        // Rating
+        div(
+          classes: 'p-5 rounded-2xl border transition-all hover:border-amber-500/40 cursor-pointer $cardBg',
+          events: {'click': (_) => s.setState(() {
+            s.activeTab = AppTab.profile;
+            s.profileView = ProfileView.reviews;
+          })},
+          [
+            div(classes: 'flex justify-between items-start mb-2', [
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Trust Rating')]),
+              lIcon('star', cls: 'w-4 h-4 text-amber-400'),
+            ]),
+            p(classes: 'text-lg font-black $titleColor flex items-center gap-1', [
+              Component.text(rating.toStringAsFixed(1)),
+              span(classes: 'text-xs text-amber-400', [Component.text('★')]),
+            ]),
+            p(classes: 'text-[9px] text-amber-500 font-semibold mt-1', [Component.text('View Reviews')]),
+          ],
+        ),
+      ]);
+    } else {
+      // Employer Mode
+      final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
+      final postedCount = s.myJobs.length;
+      final activeHires = s.myJobs.where((j) => j['status'] == 'In Progress').length;
+      final rating = s.userProfile?.rating ?? 5.0;
+
+      return div(classes: 'grid grid-cols-2 lg:grid-cols-4 gap-4', [
+        // Wallet Balance
+        div(
+          classes: 'p-5 rounded-2xl border transition-all hover:border-indigo-500/40 cursor-pointer $cardBg',
+          events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
+          [
+            div(classes: 'flex justify-between items-start mb-2', [
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Balance')]),
+              lIcon('wallet', cls: 'w-4 h-4 text-indigo-400'),
+            ]),
+            p(classes: 'text-lg font-black $titleColor', [
+              Component.text('₱ ${tyxBal.toStringAsFixed(2)}'),
+            ]),
+            if (pendingTotal > 0) ...[
+              p(classes: 'text-[9px] text-amber-500 font-bold mt-1.5 flex items-center gap-0.5 animate-pulse', [
+                lIcon('clock', cls: 'w-2.5 h-2.5'),
+                Component.text('+ ₱${pendingTotal.toStringAsFixed(2)} Pending'),
+              ]),
+              buildPendingReleaseBreakdown(),
+            ] else
+              p(classes: 'text-[9px] text-zinc-500 mt-1 font-semibold hover:text-indigo-400 transition-colors', [Component.text('Deposit Tyx')]),
+          ],
+        ),
+        // Posted Gigs
+        div(
+          classes: 'p-5 rounded-2xl border transition-all hover:border-purple-500/40 cursor-pointer $cardBg',
+          events: {'click': (_) => s.setState(() {
+            s.activeTab = AppTab.jobs;
+            s.activeJobPane = 'active';
+          })},
+          [
+            div(classes: 'flex justify-between items-start mb-2', [
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Gigs Posted')]),
+              lIcon('briefcase', cls: 'w-4 h-4 text-purple-400'),
+            ]),
+            p(classes: 'text-lg font-black $titleColor', [
+              Component.text('$postedCount'),
+            ]),
+            p(classes: 'text-[9px] text-purple-450 font-semibold mt-1', [Component.text('Manage Gigs')]),
+          ],
+        ),
+        // Active Hires
+        div(
+          classes: 'p-5 rounded-2xl border transition-all hover:border-emerald-500/40 cursor-pointer $cardBg',
+          events: {'click': (_) => s.setState(() {
+            s.activeTab = AppTab.jobs;
+            s.activeJobPane = 'active';
+          })},
+          [
+            div(classes: 'flex justify-between items-start mb-2', [
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Active Gigs')]),
+              lIcon('users', cls: 'w-4 h-4 text-emerald-400'),
+            ]),
+            p(classes: 'text-lg font-black $titleColor', [
+              Component.text('$activeHires'),
+            ]),
+            p(classes: 'text-[9px] text-emerald-450 font-semibold mt-1', [Component.text('View Active Workers')]),
+          ],
+        ),
+        // Rating
+        div(
+          classes: 'p-5 rounded-2xl border transition-all hover:border-amber-500/40 cursor-pointer $cardBg',
+          events: {'click': (_) => s.setState(() {
+            s.activeTab = AppTab.profile;
+            s.profileView = ProfileView.reviews;
+          })},
+          [
+            div(classes: 'flex justify-between items-start mb-2', [
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Employer Score')]),
+              lIcon('star', cls: 'w-4 h-4 text-amber-400'),
+            ]),
+            p(classes: 'text-lg font-black $titleColor flex items-center gap-1', [
+              Component.text(rating.toStringAsFixed(1)),
+              span(classes: 'text-xs text-amber-400', [Component.text('★')]),
+            ]),
+            p(classes: 'text-[9px] text-amber-500 font-semibold mt-1', [Component.text('View Reviews')]),
+          ],
+        ),
+      ]);
+    }
+  }
+
+  Component _activeTrackersSection({required bool isDark, required TranyxAppState s}) {
+    final currentUid = s.userProfile?.uid;
+    if (currentUid == null) return div([]);
+
+    final activeRentals = s.realtimeRentals
+        .where((r) =>
+            r['renteeId'] == currentUid &&
+            r['status'] != 'Available' &&
+            r['status'] != 'Completed' &&
+            r['status'] != 'Complete')
+        .toList();
+
+    final activeLeases = s.realtimeProperties
+        .where((leaseItem) => leaseItem.renteeId == currentUid && leaseItem.status != 'Available' && leaseItem.status != 'Completed')
+        .toList();
+
+    final hasActiveRentals = activeRentals.isNotEmpty || activeLeases.isNotEmpty;
+
+    if (!hasActiveRentals) return div([]);
+
+    return div(classes: 'space-y-4', [
+      h2(classes: 'text-lg font-bold flex items-center gap-2', [
+        lIcon('compass', cls: 'w-5 h-5 text-purple-400'),
+        Component.text('Active Rentals & Trips'),
+      ]),
+      div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4', [
+        for (final r in activeRentals)
+          div(
+            classes: 'p-4 rounded-2xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 cursor-pointer transition-all flex items-center justify-between',
+            events: {
+              'click': (_) => s.setState(() {
+                s.selectedRentalData = r;
+                s.showRentalTrackerMap = true;
+              }),
+            },
+            [
+              div(classes: 'flex items-center gap-3', [
+                div(classes: 'p-2 rounded-xl bg-purple-500/20', [
+                  lIcon('car', cls: 'w-5 h-5 text-purple-400'),
+                ]),
+                div([
+                  p(classes: 'text-xs font-semibold text-purple-400 uppercase tracking-wider', [
+                    Component.text('Transit Rental • ${r['status']}'),
+                  ]),
+                  p(classes: 'font-bold text-sm text-zinc-200', [
+                    Component.text('${r['brand']} ${r['model']}'),
+                  ]),
+                  p(classes: 'text-[10px] text-zinc-500 mt-0.5', [
+                    Component.text('Click to view GPS route & tracking map'),
+                  ]),
+                ]),
+              ]),
+              lIcon('chevron-right', cls: 'w-5 h-5 text-purple-400'),
+            ],
+          ),
+        for (final lease in activeLeases)
+          div(
+            classes: 'p-4 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 hover:bg-indigo-500/10 cursor-pointer transition-all flex items-center justify-between',
+            events: {
+              'click': (_) => s.setState(() {
+                s.activeTab = AppTab.transit;
+                s.activeRentalCategory = RentalCategory.properties;
+              }),
+            },
+            [
+              div(classes: 'flex items-center gap-3', [
+                div(classes: 'p-2 rounded-xl bg-indigo-500/20', [
+                  lIcon('home', cls: 'w-5 h-5 text-indigo-400'),
+                ]),
+                div([
+                  p(classes: 'text-xs font-semibold text-indigo-400 uppercase tracking-wider', [
+                    Component.text('Real Estate Lease • ${lease.status}'),
+                  ]),
+                  p(classes: 'font-bold text-sm text-zinc-200', [
+                    Component.text(lease.title),
+                  ]),
+                  p(classes: 'text-[10px] text-zinc-500 mt-0.5', [
+                    Component.text('Click to manage lease agreement & chat'),
+                  ]),
+                ]),
+              ]),
+              lIcon('chevron-right', cls: 'w-5 h-5 text-indigo-400'),
+            ],
+          ),
+      ]),
+    ]);
   }
 }

@@ -73,8 +73,38 @@ class PaymentModalComponent extends StatelessComponent {
                     },
                   ),
                 ]),
-                span(classes: 'text-[10px] text-indigo-400/60 mt-2 block', [
-                  Component.text('1 Tyxbit = 1 Peso (₱)'),
+                div(classes: 'flex flex-col gap-1 mt-2 text-center', [
+                  span(classes: 'text-[10px] text-indigo-400/60 block font-medium', [
+                    Component.text('1 Tyxbit = 1 Peso (₱)'),
+                  ]),
+                  span(classes: 'text-[10px] text-zinc-500 block font-bold', [
+                    Component.text('Min ₱100 · Max ₱50,000 per transaction'),
+                  ]),
+                ]),
+
+                // Quick Select Chips
+                div(classes: 'flex flex-wrap justify-center gap-2 mt-4', [
+                  for (final val in const [
+                    (500, '₱500'),
+                    (1000, '₱1,000'),
+                    (2000, '₱2,000'),
+                    (5000, '₱5,000'),
+                    (10000, '₱10,000')
+                  ])
+                    button(
+                      classes: 'px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer '
+                          '${amount == val.$1 ? "bg-indigo-500 text-white border-indigo-500 shadow-md shadow-indigo-500/20" : (isDark ? "bg-zinc-800/40 border-zinc-850 text-zinc-300 hover:bg-zinc-800" : "bg-white border-zinc-200 text-zinc-650 hover:bg-zinc-50")}',
+                      events: {
+                        'click': (_) {
+                          s.setState(() => s.depositAmount = val.$1.toDouble());
+                          final el = web.document.getElementById('topup-amount-input') as web.HTMLInputElement?;
+                          if (el != null) {
+                            el.value = val.$1.toString();
+                          }
+                        }
+                      },
+                      [Component.text(val.$2)],
+                    )
                 ]),
               ]),
 

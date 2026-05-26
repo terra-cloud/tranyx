@@ -210,6 +210,35 @@ class _ProfileMain extends StatelessComponent {
                     'text-[10px] uppercase font-black tracking-widest mt-1 ${isDark ? "text-zinc-500" : "text-zinc-400"}',
                 [Component.text('Balance')],
               ),
+              Builder(
+                builder: (context) {
+                  final pendingTotal = s.pendingHoldbacks.fold<double>(0.0, (sum, item) {
+                    final amt = (item['amount'] as num?)?.toDouble() ?? 0.0;
+                    return sum + amt;
+                  });
+                  if (pendingTotal > 0) {
+                    return div(classes: 'mt-1.5 space-y-1', [
+                      p(classes: 'text-[9px] text-amber-500 font-extrabold flex items-center justify-center gap-0.5 animate-pulse', [
+                        lIcon('clock', cls: 'w-3 h-3'),
+                        Component.text('+ ₱${pendingTotal.toStringAsFixed(2)} Pending'),
+                      ]),
+                      for (final holdback in s.pendingHoldbacks)
+                        Builder(
+                          builder: (context) {
+                            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
+                            final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+                            final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
+                            final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
+                            return p(classes: 'text-[8.5px] text-amber-500/80 font-bold', [
+                              Component.text('• Php ${amt.toStringAsFixed(2)} $hrsStr'),
+                            ]);
+                          },
+                        ),
+                    ]);
+                  }
+                  return div([]);
+                },
+              ),
               div(classes: 'mt-3 flex justify-center gap-2', [
                 button(
                   classes: 'px-2 py-1 text-[10px] uppercase font-bold text-indigo-400 hover:text-indigo-300 border border-indigo-500/20 rounded-lg bg-indigo-500/5 transition-colors cursor-pointer',
@@ -726,6 +755,44 @@ class _Payment extends StatelessComponent {
                 Component.text('tranyx-tyxbit-v1 :: ${s.userProfile?.uid.substring(0, 8) ?? "tx-9921"}'),
               ]),
             ]),
+
+            Builder(
+              builder: (context) {
+                final pendingTotal = s.pendingHoldbacks.fold<double>(0.0, (sum, item) {
+                  final amt = (item['amount'] as num?)?.toDouble() ?? 0.0;
+                  return sum + amt;
+                });
+                if (pendingTotal > 0) {
+                  return div(classes: 'p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-left space-y-2', [
+                    p(classes: 'text-xs font-bold text-amber-400 flex items-center gap-1.5', [
+                      lIcon('clock', cls: 'w-4 h-4'),
+                      Component.text('Pending Release (48-Hr Holdback): ₱ ${pendingTotal.toStringAsFixed(2)}'),
+                    ]),
+                    p(classes: 'text-[10px] text-zinc-400 font-medium leading-relaxed', [
+                      Component.text('In-app payments are held temporarily to protect users from incomplete jobs. Payouts release automatically after their inspection periods.'),
+                    ]),
+                    div(classes: 'space-y-1.5 pt-1.5 border-t border-amber-500/20', [
+                      for (final holdback in s.pendingHoldbacks)
+                        Builder(
+                          builder: (context) {
+                            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
+                            final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+                            final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
+                            final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
+                            return p(classes: 'text-[10px] text-amber-300 font-medium flex justify-between items-center', [
+                              Component.text('• Php ${amt.toStringAsFixed(2)}'),
+                              span(classes: 'text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold', [
+                                Component.text(hrsStr),
+                              ]),
+                            ]);
+                          },
+                        ),
+                    ]),
+                  ]);
+                }
+                return div([]);
+              },
+            ),
 
             div(classes: 'flex gap-3', [
               if (s.accountType == AccountType.employer || s.accountType == AccountType.hybrid)
@@ -2343,6 +2410,35 @@ class _HistoryViewState extends State<_HistoryView> {
               p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
                 Component.text(formatCurrency(s.userProfile?.tyxBalance ?? 0.0)),
               ]),
+              Builder(
+                builder: (context) {
+                  final pendingTotal = s.pendingHoldbacks.fold<double>(0.0, (sum, item) {
+                    final amt = (item['amount'] as num?)?.toDouble() ?? 0.0;
+                    return sum + amt;
+                  });
+                  if (pendingTotal > 0) {
+                    return div(classes: 'mt-1.5 space-y-1', [
+                      span(classes: 'text-xs text-amber-500 font-bold flex items-center gap-1', [
+                        lIcon('clock', cls: 'w-3.5 h-3.5'),
+                        Component.text('+ ${formatCurrency(pendingTotal)} Pending Release'),
+                      ]),
+                      for (final holdback in s.pendingHoldbacks)
+                        Builder(
+                          builder: (context) {
+                            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
+                            final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+                            final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
+                            final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
+                            return p(classes: 'text-[10px] text-amber-500/80 font-bold pl-4', [
+                              Component.text('• Php ${amt.toStringAsFixed(2)} $hrsStr'),
+                            ]);
+                          },
+                        ),
+                    ]);
+                  }
+                  return div([]);
+                },
+              ),
             ]),
           ]),
           div(classes: 'p-6 rounded-[2rem] border $cardCls flex items-center gap-4', [
