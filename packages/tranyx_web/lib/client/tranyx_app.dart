@@ -751,6 +751,18 @@ class TranyxAppState extends State<TranyxApp> {
       final result = await _auth.signIn(email, password);
       SessionStorage.save(result);
 
+      try {
+        final configMap = {
+          'apiKey': currentFirebaseConfig.apiKey,
+          'authDomain': currentFirebaseConfig.authDomain,
+          'projectId': currentFirebaseConfig.projectId,
+          'storageBucket': currentFirebaseConfig.storageBucket,
+          'messagingSenderId': currentFirebaseConfig.messagingSenderId,
+          'appId': currentFirebaseConfig.appId,
+        };
+        await signInWithEmailAndPasswordJs(configMap, email, password);
+      } catch (_) {}
+
       // Load user profile from Firestore to get account type
       final profile = await FirestoreService(result.idToken, _handleTokenRefresh).getUser(result.uid);
 
@@ -831,6 +843,18 @@ class TranyxAppState extends State<TranyxApp> {
       final result = await _auth.register(email, password);
       await _auth.updateDisplayName(result.idToken, name);
       SessionStorage.save(result);
+
+      try {
+        final configMap = {
+          'apiKey': currentFirebaseConfig.apiKey,
+          'authDomain': currentFirebaseConfig.authDomain,
+          'projectId': currentFirebaseConfig.projectId,
+          'storageBucket': currentFirebaseConfig.storageBucket,
+          'messagingSenderId': currentFirebaseConfig.messagingSenderId,
+          'appId': currentFirebaseConfig.appId,
+        };
+        await signInWithEmailAndPasswordJs(configMap, email, password);
+      } catch (_) {}
 
       final profile = UserProfile(
         uid: result.uid,
@@ -1185,6 +1209,7 @@ class TranyxAppState extends State<TranyxApp> {
     stopListeningToJobsJs();
     stopListeningToRentalsJs();
     stopListeningToPropertiesJs();
+    unawaited(signOutJs());
     setState(() {
       isAuthenticated = false;
       authView = AuthView.login;

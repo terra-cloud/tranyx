@@ -28,7 +28,7 @@
 
   <!-- External Scripts & Styles from main.server.dart -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://unpkg.com/lucide@0.525.0/dist/umd/lucide.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-firestore-compat.js"></script>
@@ -325,18 +325,64 @@
       }
     };
 
+    window.signInWithEmailAndPasswordJs = async function (config, email, password) {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(config);
+      }
+      try {
+        await firebase.auth().signInWithEmailAndPassword(email, password);
+      } catch (error) {
+        console.error("signInWithEmailAndPasswordJs error:", error);
+        throw error;
+      }
+    };
+
+    window.signOutJs = async function () {
+      if (!firebase.apps.length) return;
+      try {
+        await firebase.auth().signOut();
+      } catch (error) {
+        console.error("signOutJs error:", error);
+        throw error;
+      }
+    };
+
     window.listenToNotifications = function (uid, callback) {
       if (!firebase.apps.length) return () => { };
       const db = firebase.firestore();
-      return db.collection('notifications')
-        .where('uid', '==', uid)
-        .onSnapshot((snapshot) => {
-          const notifs = [];
-          snapshot.forEach(doc => notifs.push({ id: doc.id, ...doc.data() }));
-          callback(JSON.stringify(notifs));
-        }, (error) => {
-          console.error("Notifications listener error:", error);
-        });
+      
+      let unsubSnapshot = null;
+      let isUnsubscribed = false;
+
+      const setup = (user) => {
+        if (unsubSnapshot) {
+          unsubSnapshot();
+          unsubSnapshot = null;
+        }
+        if (isUnsubscribed) return;
+
+        if (user && user.uid === uid) {
+          unsubSnapshot = db.collection('notifications')
+            .where('uid', '==', uid)
+            .onSnapshot((snapshot) => {
+              const notifs = [];
+              snapshot.forEach(doc => notifs.push({ id: doc.id, ...doc.data() }));
+              callback(JSON.stringify(notifs));
+            }, (error) => {
+              console.error("Notifications listener error:", error);
+            });
+        }
+      };
+
+      const unsubAuth = firebase.auth().onAuthStateChanged((user) => {
+        setup(user);
+      });
+
+      return () => {
+        isUnsubscribed = true;
+        unsubAuth();
+        if (unsubSnapshot) unsubSnapshot();
+      };
     };
 
     window.markNotificationRead = function (notifId) {
@@ -378,38 +424,47 @@
       if (!firebase.apps.length) return () => { };
       const db = firebase.firestore();
       let unsubApps = null;
+      let isUnsubscribed = false;
+      let currentJobData = null;
+
+      const setupAppsListener = (user) => {
+        if (unsubApps) {
+          unsubApps();
+          unsubApps = null;
+        }
+        if (isUnsubscribed) return;
+
+        if (currentJobData && user && user.uid === currentJobData.creatorId) {
+          unsubApps = db.collection('jobs').doc(jobId).collection('applications')
+            .onSnapshot((snapshot) => {
+              const list = [];
+              snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+              callback(JSON.stringify({ type: 'applications', data: list }));
+            }, (error) => {
+              console.error("Job applications listener error:", error);
+            });
+        }
+      };
 
       const unsubJob = db.collection('jobs').doc(jobId)
         .onSnapshot((doc) => {
           if (doc.exists) {
-            const jobData = doc.data();
-            callback(JSON.stringify({ type: 'job', data: { id: doc.id, ...jobData } }));
-
-            const currentUser = firebase.auth().currentUser;
-            if (currentUser && currentUser.uid === jobData.creatorId) {
-              if (!unsubApps) {
-                unsubApps = db.collection('jobs').doc(jobId).collection('applications')
-                  .onSnapshot((snapshot) => {
-                    const list = [];
-                    snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
-                    callback(JSON.stringify({ type: 'applications', data: list }));
-                  }, (error) => {
-                    console.error("Job applications listener error:", error);
-                  });
-              }
-            } else {
-              if (unsubApps) {
-                unsubApps();
-                unsubApps = null;
-              }
-            }
+            currentJobData = doc.data();
+            callback(JSON.stringify({ type: 'job', data: { id: doc.id, ...currentJobData } }));
+            setupAppsListener(firebase.auth().currentUser);
           }
         }, (error) => {
           console.error("Job details listener error:", error);
         });
 
+      const unsubAuth = firebase.auth().onAuthStateChanged((user) => {
+        setupAppsListener(user);
+      });
+
       return () => {
+        isUnsubscribed = true;
         unsubJob();
+        unsubAuth();
         if (unsubApps) {
           unsubApps();
         }

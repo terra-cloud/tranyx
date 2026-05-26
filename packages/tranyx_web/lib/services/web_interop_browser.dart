@@ -60,6 +60,27 @@ Future<String?> signInWithGoogleJs(Map<String, String> config) async {
   }
 }
 
+Future<void> signInWithEmailAndPasswordJs(Map<String, String> config, String email, String password) async {
+  try {
+    final jsConfig = JSObject();
+    for (final e in config.entries) {
+      jsConfig.setProperty(e.key.toJS, e.value.toJS);
+    }
+    await web.window.callMethod<JSPromise>(
+      'signInWithEmailAndPasswordJs'.toJS,
+      jsConfig,
+      email.toJS,
+      password.toJS,
+    ).toDart;
+  } catch (_) {}
+}
+
+Future<void> signOutJs() async {
+  try {
+    await web.window.callMethod<JSPromise>('signOutJs'.toJS).toDart;
+  } catch (_) {}
+}
+
 void initFirebaseJs(Map<String, dynamic> config) {
   try {
     final jsConfig = JSObject();

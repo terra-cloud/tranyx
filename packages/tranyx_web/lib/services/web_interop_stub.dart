@@ -56,6 +56,10 @@ Future<String?> sendUsdcPayment(String fromAddress, String toAddress, double amo
 
 Future<String?> signInWithGoogleJs(Map<String, String> config) async => null;
 
+Future<void> signInWithEmailAndPasswordJs(Map<String, String> config, String email, String password) async {}
+
+Future<void> signOutJs() async {}
+
 void initFirebaseJs(Map<String, dynamic> config) {}
 
 void listenToNotificationsJs(String uid, void Function(String) callback) {}

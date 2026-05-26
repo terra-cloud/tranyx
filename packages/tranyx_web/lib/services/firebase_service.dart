@@ -449,7 +449,44 @@ class FirestoreService {
 
   // ── KYC Submissions ────────────────────────────────────────
   Future<Map<String, dynamic>?> getKycSubmission(String uid) async {
-    return await getDocument('kyc_submissions/$uid');
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'kyc_submissions'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'uid'},
+            'op': 'EQUAL',
+            'value': {'stringValue': uid},
+          },
+        },
+        'limit': 1,
+      },
+    });
+
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode >= 400) return null;
+
+      final List<dynamic> results = jsonDecode(req.body);
+      for (final res in results) {
+        if (res is Map<String, dynamic> && res.containsKey('document')) {
+          final doc = res['document'] as Map<String, dynamic>;
+          return _fromFirestoreDoc(doc);
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> saveKycSubmission(String uid, Map<String, dynamic> data) async {
