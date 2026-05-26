@@ -90,7 +90,7 @@ Future<http.Response> _rawRequestWithRetry(
   var token = initialToken;
   var req = await requestBuilder(token);
 
-  if (req.statusCode == 401 && onTokenRefresh != null) {
+  if ((req.statusCode == 401 || req.statusCode == 403) && onTokenRefresh != null) {
     try {
       final newToken = await onTokenRefresh();
       if (newToken != null) {
@@ -98,7 +98,7 @@ Future<http.Response> _rawRequestWithRetry(
         req = await requestBuilder(token);
       }
     } catch (_) {
-      // Ignore refresh errors and let the original 401 propagate
+      // Ignore refresh errors and let the original status code propagate
     }
   }
   return req;

@@ -435,8 +435,11 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                     if (images.isNotEmpty) ...[
                       img(
                         src: images[_activeImageIndex % images.length],
-                        classes: 'w-full h-full object-cover transition-all duration-300',
+                        classes: 'w-full h-full object-cover transition-all duration-300 cursor-zoom-in hover:opacity-95',
                         attributes: {'alt': '$brand $model image'},
+                        events: {
+                          'click': (_) => component.appState.showFullScreenPhoto(images[_activeImageIndex % images.length])
+                        },
                       ),
                       // Gradient overlay
                       div(

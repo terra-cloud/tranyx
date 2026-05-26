@@ -489,7 +489,13 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                                   if (req['renteePhotoUrl'] != null &&
                                       req['renteePhotoUrl'].toString().isNotEmpty &&
                                       req['renteePhotoUrl'].toString() != 'null')
-                                    img(src: req['renteePhotoUrl'].toString(), classes: 'w-full h-full object-cover')
+                                    img(
+                                      src: req['renteePhotoUrl'].toString(),
+                                      classes: 'w-full h-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
+                                      events: {
+                                        'click': (_) => component.appState.showFullScreenPhoto(req['renteePhotoUrl'].toString()),
+                                      },
+                                    )
                                   else
                                     lIcon('user', cls: 'w-5 h-5 text-purple-400'),
                                 ],
@@ -529,7 +535,10 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                                   img(
                                     src: req['signatureName'].toString(),
                                     classes:
-                                        'max-h-16 h-auto object-contain bg-white rounded-lg p-1 max-w-[200px] mt-1',
+                                        'max-h-16 h-auto object-contain bg-white rounded-lg p-1 max-w-[200px] mt-1 cursor-zoom-in hover:opacity-90 transition-opacity',
+                                    events: {
+                                      'click': (_) => component.appState.showFullScreenPhoto(req['signatureName'].toString()),
+                                    },
                                   )
                                 else
                                   span(classes: 'font-bold italic text-purple-400', [
@@ -617,7 +626,13 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                           if (r['renteePhotoUrl'] != null &&
                               r['renteePhotoUrl'].toString().isNotEmpty &&
                               r['renteePhotoUrl'].toString() != 'null')
-                            img(src: r['renteePhotoUrl'].toString(), classes: 'w-full h-full object-cover')
+                            img(
+                              src: r['renteePhotoUrl'].toString(),
+                              classes: 'w-full h-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
+                              events: {
+                                'click': (_) => component.appState.showFullScreenPhoto(r['renteePhotoUrl'].toString()),
+                              },
+                            )
                           else
                             lIcon('user', cls: 'w-6 h-6 text-purple-400'),
                         ],
@@ -679,7 +694,10 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                               if (r['renteeSignatureName'].toString().startsWith('data:image/'))
                                 img(
                                   src: r['renteeSignatureName'].toString(),
-                                  classes: 'max-h-16 h-auto object-contain bg-white rounded-lg p-1 max-w-[200px] mt-1',
+                                  classes: 'max-h-16 h-auto object-contain bg-white rounded-lg p-1 max-w-[200px] mt-1 cursor-zoom-in hover:opacity-90 transition-opacity',
+                                  events: {
+                                    'click': (_) => component.appState.showFullScreenPhoto(r['renteeSignatureName'].toString()),
+                                  },
                                 )
                               else
                                 span(classes: 'font-bold italic text-purple-400', [
@@ -848,7 +866,13 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                     'w-20 h-20 rounded-full bg-purple-500/20 flex items-center justify-center overflow-hidden border-2 border-purple-500/40',
                 [
                   if (profile.photoUrl != null && profile.photoUrl!.isNotEmpty)
-                    img(src: profile.photoUrl!, classes: 'w-full h-full object-cover')
+                    img(
+                      src: profile.photoUrl!,
+                      classes: 'w-full h-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
+                      events: {
+                        'click': (_) => component.appState.showFullScreenPhoto(profile.photoUrl!),
+                      },
+                    )
                   else
                     lIcon('user', cls: 'w-10 h-10 text-purple-400'),
                 ],

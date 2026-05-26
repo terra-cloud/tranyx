@@ -465,7 +465,10 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                         p(classes: 'text-xs text-zinc-500 mb-2', [Component.text('Signed Lease Agreement:')]),
                         img(
                           src: prop['renteeSignatureName'].toString(),
-                          classes: 'max-h-20 h-auto object-contain bg-white rounded-lg p-2 max-w-[240px]',
+                          classes: 'max-h-20 h-auto object-contain bg-white rounded-lg p-2 max-w-[240px] cursor-zoom-in hover:opacity-95 transition-opacity',
+                          events: {
+                            'click': (_) => component.appState.showFullScreenPhoto(prop['renteeSignatureName'].toString())
+                          },
                         ),
                       ]),
                   ],

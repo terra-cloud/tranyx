@@ -1453,7 +1453,13 @@ class _JobDetails extends StatelessComponent {
                 if ((s.selectedJobData?['receiptUrl'] as String?) != null)
                   div(classes: 'mt-2 p-3 rounded-xl border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
                     p(classes: 'text-xs font-bold text-indigo-400 mb-2', [Component.text('Receipt / Item Photo')]),
-                    img(src: s.selectedJobData!['receiptUrl'] as String, classes: 'w-full h-auto rounded-lg'),
+                    img(
+                      src: s.selectedJobData!['receiptUrl'] as String,
+                      classes: 'w-full h-auto rounded-lg cursor-zoom-in hover:opacity-90 transition-opacity',
+                      events: {
+                        'click': (_) => s.showFullScreenPhoto(s.selectedJobData!['receiptUrl'] as String),
+                      },
+                    ),
                   ]),
               ]);
             }
@@ -1474,7 +1480,13 @@ class _JobDetails extends StatelessComponent {
                 if ((s.selectedJobData?['receiptUrl'] as String?) != null)
                   div(classes: 'mt-2 p-3 rounded-xl border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
                     p(classes: 'text-xs font-bold text-indigo-400 mb-2', [Component.text('Receipt / Item Photo')]),
-                    img(src: s.selectedJobData!['receiptUrl'] as String, classes: 'w-full h-auto rounded-lg'),
+                    img(
+                      src: s.selectedJobData!['receiptUrl'] as String,
+                      classes: 'w-full h-auto rounded-lg cursor-zoom-in hover:opacity-90 transition-opacity',
+                      events: {
+                        'click': (_) => s.showFullScreenPhoto(s.selectedJobData!['receiptUrl'] as String),
+                      },
+                    ),
                   ]),
                 button(
                   classes:
@@ -2813,7 +2825,13 @@ class _ReviewApplicants extends StatelessComponent {
               Component.text('Receipt / Item Photo'),
             ]),
             div(classes: 'rounded-2xl overflow-hidden border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
-              img(src: job!['receiptUrl'] as String, classes: 'w-full h-auto max-h-96 object-cover'),
+              img(
+                src: job!['receiptUrl'] as String,
+                classes: 'w-full h-auto max-h-96 object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
+                events: {
+                  'click': (_) => s.showFullScreenPhoto(job!['receiptUrl'] as String),
+                },
+              ),
             ]),
           ]),
       ] else if (status == 'Done' || status == 'arrived_dropoff') ...[
@@ -2844,7 +2862,13 @@ class _ReviewApplicants extends StatelessComponent {
               Component.text('Receipt / Item Photo'),
             ]),
             div(classes: 'rounded-2xl overflow-hidden border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
-              img(src: job!['receiptUrl'] as String, classes: 'w-full h-auto max-h-96 object-cover'),
+              img(
+                src: job!['receiptUrl'] as String,
+                classes: 'w-full h-auto max-h-96 object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
+                events: {
+                  'click': (_) => s.showFullScreenPhoto(job!['receiptUrl'] as String),
+                },
+              ),
             ]),
           ]),
       ] else if (status == 'Completed' || status == 'completed') ...[
@@ -2862,7 +2886,13 @@ class _ReviewApplicants extends StatelessComponent {
               Component.text('Receipt / Item Photo'),
             ]),
             div(classes: 'rounded-2xl overflow-hidden border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
-              img(src: job!['receiptUrl'] as String, classes: 'w-full h-auto max-h-96 object-cover'),
+              img(
+                src: job!['receiptUrl'] as String,
+                classes: 'w-full h-auto max-h-96 object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
+                events: {
+                  'click': (_) => s.showFullScreenPhoto(job!['receiptUrl'] as String),
+                },
+              ),
             ]),
           ]),
       ],

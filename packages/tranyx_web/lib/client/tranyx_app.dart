@@ -53,6 +53,11 @@ class TranyxAppState extends State<TranyxApp> {
   bool isAuthenticated = false;
   bool isAuthLoading = false;
   String? authError;
+  String? fullScreenPhotoUrl;
+
+  void showFullScreenPhoto(String url) {
+    setState(() => fullScreenPhotoUrl = url);
+  }
 
   AccountType accountType = AccountType.employer;
   AuthView authView = AuthView.login;
@@ -4561,6 +4566,25 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Chat overlay
       if (showChat) ChatWidget(state: this),
+
+      // Fullscreen Photo Modal Overlay
+      if (fullScreenPhotoUrl != null)
+        div(
+          classes: 'fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in cursor-zoom-out',
+          events: {'click': (_) => setState(() => fullScreenPhotoUrl = null)},
+          [
+            button(
+              classes: 'absolute top-6 right-6 p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer border-0',
+              events: {'click': (_) => setState(() => fullScreenPhotoUrl = null)},
+              [lIcon('x', cls: 'w-6 h-6')],
+            ),
+            img(
+              src: fullScreenPhotoUrl!,
+              classes: 'max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl transition-all scale-100 cursor-default',
+              events: {'click': (e) => e.stopPropagation()},
+            ),
+          ],
+        ),
     ]);
   }
 }

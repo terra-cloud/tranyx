@@ -289,7 +289,10 @@ class _ChatWidgetState extends State<ChatWidget> {
               if (photoUrl != null && photoUrl.isNotEmpty)
                 img(
                   src: photoUrl,
-                  classes: 'max-w-full rounded-xl max-h-48 object-cover',
+                  classes: 'max-w-full rounded-xl max-h-48 object-cover cursor-zoom-in hover:opacity-95 transition-opacity',
+                  events: {
+                    'click': (_) => component.state.showFullScreenPhoto(photoUrl)
+                  },
                 )
               else
                 p(classes: 'text-sm leading-relaxed', [Component.text(text)]),
