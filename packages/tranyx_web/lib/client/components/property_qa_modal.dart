@@ -178,7 +178,13 @@ class _PropertyQaModalState extends State<PropertyQaModalComponent> {
                             classes:
                                 'w-full p-3 rounded-xl text-sm border focus:border-purple-500 outline-none transition-colors ${isDark ? "bg-zinc-950 border-zinc-700 text-white" : "bg-white border-zinc-300 text-zinc-900"}',
                             attributes: {'placeholder': 'Type your response...', 'rows': '2', 'value': _answerText},
-                            events: {'input': (e) => setState(() => _answerText = (e.target as web.HTMLTextAreaElement).value)},
+                            events: {
+                              'input': (e) {
+                                // ignore: avoid_dynamic_calls
+                                final val = (e as dynamic).target?.value as String? ?? '';
+                                setState(() => _answerText = val);
+                              }
+                            },
                             [],
                           ),
                           div(classes: 'flex justify-end gap-2', [
@@ -233,7 +239,11 @@ class _PropertyQaModalState extends State<PropertyQaModalComponent> {
                     'value': _newQuestionText,
                   },
                   events: {
-                    'input': (e) => setState(() => _newQuestionText = (e.target as web.HTMLInputElement).value),
+                    'input': (e) {
+                      // ignore: avoid_dynamic_calls
+                      final val = (e as dynamic).target?.value as String? ?? '';
+                      setState(() => _newQuestionText = val);
+                    },
                     'keydown': (e) {
                       if ((e as web.KeyboardEvent).key == 'Enter') _postQuestion();
                     },
