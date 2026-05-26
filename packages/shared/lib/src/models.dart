@@ -695,6 +695,7 @@ class VehicleRental {
 
   Map<String, dynamic> toMap() {
     return {
+      'id': id,
       'hostId': hostId,
       'hostName': hostName,
       'hostPhotoUrl': hostPhotoUrl,
@@ -903,6 +904,7 @@ class PropertyRental {
 
   Map<String, dynamic> toMap() {
     return {
+      'id': id,
       'hostId': hostId,
       'hostName': hostName,
       'hostPhotoUrl': hostPhotoUrl,
