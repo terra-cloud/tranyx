@@ -2085,9 +2085,7 @@ class _JobDetails extends StatelessComponent {
               },
               events: {
                 'input': (e) {
-                  // ignore: avoid_dynamic_calls
-                  final v = (e as dynamic).target?.value as String? ?? '';
-                  s.setState(() => s.newQuestionText = v);
+                  s.setState(() => s.newQuestionText = getInputValue(e.target));
                 },
               },
             ),
@@ -2141,9 +2139,7 @@ class _JobDetails extends StatelessComponent {
                 },
                 events: {
                   'input': (e) {
-                    // ignore: avoid_dynamic_calls
-                    final v = (e as dynamic).target?.value as String? ?? '';
-                    s.setState(() => s.answerDrafts[qid] = v);
+                    s.setState(() => s.answerDrafts[qid] = getInputValue(e.target));
                   },
                 },
               ),

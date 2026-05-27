@@ -1,5 +1,6 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
@@ -418,8 +419,7 @@ class _PersonalInfo extends StatelessComponent {
                     'w-full px-5 py-4 pl-12 rounded-2xl border bg-transparent font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all ${s.isDark ? "border-zinc-800 focus:border-indigo-500/50 text-white" : "border-zinc-200 focus:border-indigo-500 text-zinc-800"}',
                 events: {
                   'input': (e) {
-                    // ignore: avoid_dynamic_calls
-                    final val = (e as dynamic).target?.value as String? ?? '';
+                    final val = getInputValue(e.target);
                     final digits = val.replaceAll(RegExp(r'\D'), '');
                     var phoneNum = digits;
                     if (phoneNum.startsWith('63')) phoneNum = phoneNum.substring(2);
@@ -550,13 +550,11 @@ class _ProfessionalInfo extends StatelessComponent {
                   },
                   events: {
                     'input': (e) {
-                      // ignore: avoid_dynamic_calls
-                      final v = (e as dynamic).target?.value as String? ?? '';
+                      final v = getInputValue(e.target);
                       s.setState(() => s.newSkillInput = v);
                     },
                     'keydown': (e) {
-                      // ignore: avoid_dynamic_calls
-                      final key = (e as dynamic).key as String? ?? '';
+                      final key = (e as web.KeyboardEvent).key;
                       if (key == 'Enter' && s.newSkillInput.trim().isNotEmpty) {
                         final updated = List<String>.from(skills)..add(s.newSkillInput.trim());
                         s.setState(() {
@@ -1617,8 +1615,7 @@ class _HelpSupportState extends State<_HelpSupport> {
                   onInput: (v) => setState(() => currentChatInput = v),
                   events: {
                     'keydown': (event) {
-                      final kEvent = event as dynamic;
-                      if (kEvent.key == 'Enter') {
+                      if ((event as web.KeyboardEvent).key == 'Enter') {
                         sendChatMessage();
                       }
                     },
@@ -1711,7 +1708,7 @@ class _HelpSupportState extends State<_HelpSupport> {
                     attributes: {'placeholder': 'Please specify details or reference contract IDs...'},
                     events: {
                       'input': (e) {
-                        setState(() => ticketDescription = (e as dynamic).target?.value as String? ?? '');
+                        setState(() => ticketDescription = getInputValue(e.target));
                       },
                     },
                     [Component.text(ticketDescription)],

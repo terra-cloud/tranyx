@@ -408,25 +408,42 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                   classes:
                       'p-5 rounded-2xl border mb-6 ${isDark ? "bg-zinc-950 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
                   [
-                    div(classes: 'flex items-center gap-3 mb-4', [
-                      div(
-                        classes:
-                            'w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center overflow-hidden',
-                        [
-                          if (prop['renteePhotoUrl'] != null &&
-                              prop['renteePhotoUrl'].toString().isNotEmpty &&
-                              prop['renteePhotoUrl'].toString() != 'null')
-                            img(src: prop['renteePhotoUrl'].toString(), classes: 'w-full h-full object-cover')
-                          else
-                            lIcon('user', cls: 'w-6 h-6 text-purple-400'),
-                        ],
-                      ),
-                      div([
-                        p(classes: 'font-extrabold text-base', [
-                          Component.text(prop['renteeName'] ?? 'Tenant'),
+                    div(classes: 'flex items-center justify-between gap-3 mb-4', [
+                      div(classes: 'flex items-center gap-3', [
+                        div(
+                          classes:
+                              'w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center overflow-hidden',
+                          [
+                            if (prop['renteePhotoUrl'] != null &&
+                                prop['renteePhotoUrl'].toString().isNotEmpty &&
+                                prop['renteePhotoUrl'].toString() != 'null')
+                              img(src: prop['renteePhotoUrl'].toString(), classes: 'w-full h-full object-cover')
+                            else
+                              lIcon('user', cls: 'w-6 h-6 text-purple-400'),
+                          ],
+                        ),
+                        div([
+                          p(classes: 'font-extrabold text-base', [
+                            Component.text(prop['renteeName'] ?? 'Tenant'),
+                          ]),
+                          p(classes: 'text-xs text-zinc-500', [Component.text('Lease Status: $status')]),
                         ]),
-                        p(classes: 'text-xs text-zinc-500', [Component.text('Lease Status: $status')]),
                       ]),
+                      if (prop['allowChat'] == true)
+                        button(
+                          classes:
+                              'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent',
+                          events: {
+                            'click': (_) {
+                              component.appState.setState(() {
+                                component.appState.showManagePropertyModal = false;
+                              });
+                              final chatId = 'property_${prop['id']}_${prop['renteeId']}';
+                              component.appState.openChat(chatId);
+                            },
+                          },
+                          [lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'), Component.text('Chat Tenant')],
+                        ),
                     ]),
 
                     // Duration / Timeline

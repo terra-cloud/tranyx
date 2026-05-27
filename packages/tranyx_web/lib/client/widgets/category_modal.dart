@@ -5,6 +5,7 @@ import 'package:tranyx_web/constants/category_data.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
+import '../../services/web_interop.dart';
 
 class CategoryModalComponent extends StatefulComponent {
   final TranyxAppState state;
@@ -90,7 +91,7 @@ class CategoryModalComponentState extends State<CategoryModalComponent> {
                     events: {
                       'input': (e) {
                         setState(() {
-                          _searchQuery = (e as dynamic).target.value as String? ?? '';
+                          _searchQuery = getInputValue(e.target);
                         });
                       },
                     },

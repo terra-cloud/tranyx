@@ -620,21 +620,38 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         ]),
         div(classes: 'flex items-center justify-between text-xs text-purple-300', [
           p([Component.text('Click card to view tracker and live trip map')]),
-          if (status == 'Booked' || status == 'Active' || status == 'Ongoing')
-            button(
-              classes:
-                  'px-4 py-2 rounded-xl text-xs font-bold bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors border-0 cursor-pointer',
-              events: {
-                'click': (e) {
-                  e.stopPropagation();
-                  s.setState(() {
-                    s.selectedRentalData = active;
-                    s.showExtendRentalModal = true;
-                  });
+          div(classes: 'flex items-center gap-2', [
+            if (active['allowChat'] == true)
+              button(
+                classes:
+                    'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    final chatId = 'rental_${active['id']}_${s.userProfile?.uid}';
+                    s.openChat(chatId);
+                  },
                 },
-              },
-              [Component.text('Extend')],
-            ),
+                [lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'), Component.text('Chat Host')],
+              )
+            else
+              span(classes: 'text-zinc-550 italic mr-1', [Component.text('Chat disabled')]),
+            if (status == 'Booked' || status == 'Active' || status == 'Ongoing')
+              button(
+                classes:
+                    'px-4 py-2 rounded-xl text-xs font-bold bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors border-0 cursor-pointer',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    s.setState(() {
+                      s.selectedRentalData = active;
+                      s.showExtendRentalModal = true;
+                    });
+                  },
+                },
+                [Component.text('Extend')],
+              ),
+          ]),
         ]),
         if (active['signatureHash'] != null)
           div(classes: 'mt-3 p-2.5 rounded-xl bg-green-500/10 border border-green-500/25 space-y-1', [

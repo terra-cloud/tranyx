@@ -1,3 +1,4 @@
+import 'package:web/web.dart' as web;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import '../tranyx_app.dart';
@@ -56,10 +57,8 @@ class _ChatWidgetState extends State<ChatWidget> {
           'fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm',
       events: {
         'click': (e) {
-          // ignore: avoid_dynamic_calls
-          final target = (e as dynamic).target;
-          // ignore: avoid_dynamic_calls
-          final self = (e as dynamic).currentTarget;
+          final target = (e as web.Event).target;
+          final self = e.currentTarget;
           if (target == self) s.closeChat();
         },
       },
@@ -217,18 +216,12 @@ class _ChatWidgetState extends State<ChatWidget> {
                     },
                     events: {
                       'input': (e) {
-                        // ignore: avoid_dynamic_calls
-                        final v = (e as dynamic).target?.value as String? ?? '';
-                        s.setState(() => s.chatInputText = v);
+                        s.setState(() => s.chatInputText = getInputValue(e.target));
                       },
                       'keydown': (e) {
-                        // ignore: avoid_dynamic_calls
-                        final key = (e as dynamic).key as String? ?? '';
-                        // ignore: avoid_dynamic_calls
-                        final shift = (e as dynamic).shiftKey as bool? ?? false;
-                        if (key == 'Enter' && !shift) {
-                          // ignore: avoid_dynamic_calls
-                          (e as dynamic).preventDefault?.call();
+                        final ke = e as web.KeyboardEvent;
+                        if (ke.key == 'Enter' && !ke.shiftKey) {
+                          ke.preventDefault();
                           s.sendChatMessage();
                         }
                       },
