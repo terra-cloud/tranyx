@@ -1,10 +1,10 @@
-import 'package:web/web.dart' as web;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
+import '../../services/web_interop.dart';
 import 'contract_viewer.dart';
 
 class BookPropertyModalComponent extends StatefulComponent {
@@ -496,7 +496,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     classes:
                         'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors mb-4',
                     attributes: {'value': _licenseNumber, 'placeholder': 'e.g. Passport, License, or UMID number'},
-                    events: {'input': (e) => setState(() => _licenseNumber = (e.target as web.HTMLInputElement).value)},
+                    events: {'input': (e) => setState(() => _licenseNumber = getInputValue(e.target))},
                   ),
                 ]),
 

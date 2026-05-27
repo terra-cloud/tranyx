@@ -1,5 +1,4 @@
 // ignore: avoid_web_libraries_in_flutter
-import 'package:web/web.dart' as web;
 import 'package:http/http.dart' as http;
 import 'package:jaspr/dom.dart';
 import 'dart:async';
@@ -4722,7 +4721,7 @@ class SmsVerificationModalComponent extends StatelessComponent {
                       value: s.smsVerificationPhoneNumber,
                       events: {
                         'input': (e) {
-                          final val = (e.target as web.HTMLInputElement).value;
+                          final val = getInputValue(e.target);
                           var digits = val.replaceAll(RegExp(r'\D'), '');
                           if (digits.length > 10) digits = digits.substring(0, 10);
                           s.setState(() => s.smsVerificationPhoneNumber = digits);
@@ -4779,7 +4778,7 @@ class SmsVerificationModalComponent extends StatelessComponent {
                     value: s.smsVerificationCode,
                     events: {
                       'input': (e) {
-                        final val = (e.target as web.HTMLInputElement).value;
+                        final val = getInputValue(e.target);
                         s.setState(() => s.smsVerificationCode = val.replaceAll(RegExp(r'\D'), ''));
                       },
                     },

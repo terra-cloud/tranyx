@@ -53,6 +53,12 @@ service cloud.firestore {
       allow read: if true; // Publicly browse vehicle rentals
       allow create, update: if isAuthenticated();
       allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
+
+      // Subcollection: Questions
+      match /questions/{questionId} {
+        allow read: if true;
+        allow write: if isAuthenticated();
+      }
     }
 
     // Properties Collection
@@ -60,6 +66,12 @@ service cloud.firestore {
       allow read: if true; // Publicly browse property rentals
       allow create, update: if isAuthenticated();
       allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
+
+      // Subcollection: Questions
+      match /questions/{questionId} {
+        allow read: if true;
+        allow write: if isAuthenticated();
+      }
     }
 
     // Transactions Collection
@@ -109,6 +121,14 @@ service cloud.firestore {
     match /kyc_submissions/{submissionId} {
       allow read: if isAuthenticated() && (request.auth.uid == submissionId || resource.data.uid == request.auth.uid);
       allow write: if isAuthenticated() && request.auth.uid == submissionId;
+    }
+
+    // Chats Collection
+    match /chats/{chatId} {
+      allow read, write: if isAuthenticated();
+      match /messages/{messageId} {
+        allow read, write: if isAuthenticated();
+      }
     }
   }
 }

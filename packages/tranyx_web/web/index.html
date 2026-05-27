@@ -183,7 +183,7 @@
         }
 
         // Establish connection to mainnet-beta (matching getSolanaBalance)
-        const connection = new solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
+        const connection = new solanaWeb3.Connection("https://rpc.ankr.com/solana");
         
         const fromPubkey = new solanaWeb3.PublicKey(fromAddress);
         const toPubkey = new solanaWeb3.PublicKey(toAddress);
@@ -234,7 +234,7 @@
         if (!solana) throw new Error("Phantom Wallet is not installed.");
         if (!solana.publicKey) throw new Error("Phantom Wallet is not connected.");
 
-        const connection = new solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
+        const connection = new solanaWeb3.Connection("https://rpc.ankr.com/solana");
         const USDC_MINT = new solanaWeb3.PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
         const USDC_DECIMALS = 6;
         const amountInMicroUsdc = Math.round(amountInUsdc * Math.pow(10, USDC_DECIMALS));

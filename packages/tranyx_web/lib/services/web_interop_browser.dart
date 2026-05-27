@@ -121,7 +121,7 @@ void markNotificationReadJs(String notifId) {
 
 Future<double?> getSolanaBalance(String publicKey) async {
   try {
-    const rpc = 'https://api.mainnet-beta.solana.com';
+    const rpc = 'https://rpc.ankr.com/solana';
     final body = '{"jsonrpc":"2.0","id":1,"method":"getBalance","params":["$publicKey"]}';
     final headers = web.Headers();
     headers.set('Content-Type', 'application/json');
@@ -354,25 +354,32 @@ class WebFile {
 Future<List<WebFile>> readFilesFromEvent(dynamic event) async {
   try {
     final e = event as web.Event;
-    final target = e.target as web.HTMLInputElement?;
-    if (target == null) return [];
-    final files = target.files;
-    if (files == null || files.length == 0) return [];
+    final targetObj = e.target as JSObject?;
+    if (targetObj == null) return [];
+    if (!targetObj.hasProperty('files'.toJS).toDart) return [];
+    final filesObj = targetObj.getProperty<JSObject?>('files'.toJS);
+    if (filesObj == null) return [];
+    if (!filesObj.hasProperty('length'.toJS).toDart) return [];
+    final length = (filesObj.getProperty('length'.toJS) as JSNumber).toDartInt;
+    if (length == 0) return [];
     final result = <WebFile>[];
-    for (var i = 0; i < files.length; i++) {
-      final file = files.item(i);
-      if (file == null) continue;
+    for (var i = 0; i < length; i++) {
+      final fileObj = filesObj.callMethod<JSObject?>('item'.toJS, i.toJS);
+      if (fileObj == null) continue;
+      final name = (fileObj.getProperty('name'.toJS) as JSString).toDart;
       final completer = Completer<Uint8List>();
       final reader = web.FileReader();
-      reader.readAsArrayBuffer(file);
+      reader.readAsArrayBuffer(fileObj as web.Blob);
       reader.onLoadEnd.listen((_) {
         try {
-          completer.complete((reader.result as JSArrayBuffer).toDart.asUint8List());
+          final jsBuffer = reader.result as JSArrayBuffer;
+          final jsUint8Array = JSUint8Array(jsBuffer);
+          completer.complete(jsUint8Array.toDart);
         } catch (err) {
           completer.completeError(err);
         }
       });
-      result.add(WebFile(file.name, await completer.future));
+      result.add(WebFile(name, await completer.future));
     }
     return result;
   } catch (_) {
@@ -673,6 +680,61 @@ void clearUrlParams() {
     if (queryStart != -1) {
       final newUrl = href.substring(0, queryStart);
       web.window.history.replaceState(null, '', newUrl);
+    }
+  } catch (_) {}
+}
+
+String getInputValue(dynamic target) {
+  if (target == null) return '';
+  try {
+    final jsObj = target as JSAny?;
+    if (jsObj != null && jsObj.isA<JSObject>()) {
+      final obj = jsObj as JSObject;
+      if (obj.hasProperty('value'.toJS).toDart) {
+        final val = obj.getProperty('value'.toJS);
+        if (val.isA<JSString>()) {
+          return (val as JSString).toDart;
+        }
+        return val.toString();
+      }
+    }
+  } catch (_) {}
+  return '';
+}
+
+void setInputValue(dynamic target, String value) {
+  if (target == null) return;
+  try {
+    final jsObj = target as JSAny?;
+    if (jsObj != null && jsObj.isA<JSObject>()) {
+      (jsObj as JSObject).setProperty('value'.toJS, value.toJS);
+    }
+  } catch (_) {}
+}
+
+bool getInputChecked(dynamic target) {
+  if (target == null) return false;
+  try {
+    final jsObj = target as JSAny?;
+    if (jsObj != null && jsObj.isA<JSObject>()) {
+      final obj = jsObj as JSObject;
+      if (obj.hasProperty('checked'.toJS).toDart) {
+        final val = obj.getProperty('checked'.toJS);
+        if (val.isA<JSBoolean>()) {
+          return (val as JSBoolean).toDart;
+        }
+      }
+    }
+  } catch (_) {}
+  return false;
+}
+
+void setInputChecked(dynamic target, bool checked) {
+  if (target == null) return;
+  try {
+    final jsObj = target as JSAny?;
+    if (jsObj != null && jsObj.isA<JSObject>()) {
+      (jsObj as JSObject).setProperty('checked'.toJS, checked.toJS);
     }
   } catch (_) {}
 }

@@ -115,3 +115,8 @@ void stopListeningToPropertyDetailsJs() {}
 String getUrlOrigin() => 'http://localhost:8080';
 Map<String, String> getUrlQueryParams() => const {};
 void clearUrlParams() {}
+
+String getInputValue(dynamic target) => '';
+void setInputValue(dynamic target, String value) {}
+bool getInputChecked(dynamic target) => false;
+void setInputChecked(dynamic target, bool checked) {}

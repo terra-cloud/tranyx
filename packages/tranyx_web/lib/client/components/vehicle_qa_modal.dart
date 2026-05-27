@@ -155,9 +155,7 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
                             attributes: {'placeholder': 'Type your response...', 'rows': '2', 'value': _answerText},
                             events: {
                               'input': (e) {
-                                // ignore: avoid_dynamic_calls
-                                final val = (e as dynamic).target?.value as String? ?? '';
-                                setState(() => _answerText = val);
+                                setState(() => _answerText = getInputValue(e.target));
                               }
                             },
                             [],
@@ -211,9 +209,7 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
                   attributes: {'placeholder': 'Ask a public question about this vehicle...', 'value': _newQuestionText},
                   events: {
                     'input': (e) {
-                      // ignore: avoid_dynamic_calls
-                      final val = (e as dynamic).target?.value as String? ?? '';
-                      setState(() => _newQuestionText = val);
+                      setState(() => _newQuestionText = getInputValue(e.target));
                     },
                     'keydown': (e) {
                       if ((e as web.KeyboardEvent).key == 'Enter') _postQuestion();

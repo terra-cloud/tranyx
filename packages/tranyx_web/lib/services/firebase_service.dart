@@ -234,11 +234,24 @@ class FirebaseAuthService {
   }
 
   Future<String> refreshIdToken(String refreshToken) async {
-    final res = await _post(
-      'https://securetoken.googleapis.com/v1/token?key=${currentFirebaseConfig.apiKey}',
-      {'grant_type': 'refresh_token', 'refresh_token': refreshToken},
+    final url = 'https://securetoken.googleapis.com/v1/token?key=${currentFirebaseConfig.apiKey}';
+    final response = await http.post(
+      Uri.parse(url),
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: {
+        'grant_type': 'refresh_token',
+        'refresh_token': refreshToken,
+      },
     );
-    return res['id_token'] as String;
+
+    final bodyText = response.body.trim();
+    final data = bodyText.isNotEmpty ? jsonDecode(bodyText) : <String, dynamic>{};
+
+    if (response.statusCode >= 400) {
+      final err = (data is Map) ? (data['error'] as Map? ?? {}) : {};
+      throw FirebaseException(err['message'] as String? ?? 'Token refresh failed', response.statusCode);
+    }
+    return data['id_token'] as String;
   }
 
   /// Lookup a user by idToken to get uid/email/displayName

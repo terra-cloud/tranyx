@@ -4,6 +4,7 @@ import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
+import '../../services/web_interop.dart';
 
 class PaymentModalComponent extends StatelessComponent {
   final TranyxAppState state;
@@ -66,7 +67,7 @@ class PaymentModalComponent extends StatelessComponent {
                     },
                     events: {
                       'input': (e) {
-                        final val = (e.target as web.HTMLInputElement).value;
+                        final val = getInputValue(e.target);
                         final parsed = num.tryParse(val);
                         s.setState(() => s.depositAmount = parsed != null ? parsed.toDouble() : 0.0);
                       },
@@ -97,9 +98,9 @@ class PaymentModalComponent extends StatelessComponent {
                       events: {
                         'click': (_) {
                           s.setState(() => s.depositAmount = val.$1.toDouble());
-                          final el = web.document.getElementById('topup-amount-input') as web.HTMLInputElement?;
+                          final el = web.document.getElementById('topup-amount-input');
                           if (el != null) {
-                            el.value = val.$1.toString();
+                            setInputValue(el, val.$1.toString());
                           }
                         }
                       },

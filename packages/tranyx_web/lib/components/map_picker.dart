@@ -3,6 +3,7 @@ import 'package:jaspr/jaspr.dart';
 import 'package:jaspr/dom.dart';
 import 'package:web/web.dart' as web;
 import '../services/map_interop.dart';
+import '../services/web_interop.dart';
 import 'map_container.dart';
 import '../client/tranyx_app.dart';
 import 'ui_helpers.dart';
@@ -252,7 +253,7 @@ class _MapPickerState extends State<MapPickerComponent> {
                       },
                       events: {
                         'input': (e) {
-                          final val = (e.target as web.HTMLInputElement).value;
+                          final val = getInputValue(e.target);
                           setState(() {
                             _searchQuery = val;
                             if (val.isEmpty) {

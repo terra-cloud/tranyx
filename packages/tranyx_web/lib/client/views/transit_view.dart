@@ -1,6 +1,5 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
-import 'package:web/web.dart' as web;
 import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
@@ -375,7 +374,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               'value': _searchQuery,
             },
             events: {
-              'input': (e) => setState(() => _searchQuery = (e.target as web.HTMLInputElement).value),
+              'input': (e) => setState(() => _searchQuery = getInputValue(e.target)),
             },
           ),
         ],
@@ -391,7 +390,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
             events: {
               'change': (e) {
-                final val = (e.target as web.HTMLSelectElement).value;
+                final val = getInputValue(e.target);
                 s.setState(() => s.geofenceRadius = double.parse(val));
               },
             },
@@ -414,7 +413,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
             events: {
               'change': (e) {
-                final val = (e.target as web.HTMLSelectElement).value;
+                final val = getInputValue(e.target);
                 setState(() => _maxPrice = val == 'any' ? null : double.tryParse(val));
               },
             },
@@ -446,7 +445,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               'value': _searchQuery,
             },
             events: {
-              'input': (e) => setState(() => _searchQuery = (e.target as web.HTMLInputElement).value),
+              'input': (e) => setState(() => _searchQuery = getInputValue(e.target)),
             },
           ),
         ],
@@ -462,7 +461,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
             events: {
               'change': (e) {
-                final val = (e.target as web.HTMLSelectElement).value;
+                final val = getInputValue(e.target);
                 s.setState(() => s.geofenceRadius = double.parse(val));
               },
             },
@@ -483,7 +482,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
           events: {
             'change': (e) {
-              final val = (e.target as web.HTMLSelectElement).value;
+              final val = getInputValue(e.target);
               setState(() {
                 _selectedCategory = val == 'any' ? null : PropertyCategory.values.firstWhere((c) => c.name == val);
                 // Clear type filter if not compatible with new category
@@ -508,7 +507,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
           events: {
             'change': (e) {
-              final val = (e.target as web.HTMLSelectElement).value;
+              final val = getInputValue(e.target);
               setState(() {
                 _selectedType = val == 'any' ? null : PropertyType.values.firstWhere((t) => t.name == val);
               });
@@ -529,7 +528,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
           events: {
             'change': (e) {
-              final val = (e.target as web.HTMLSelectElement).value;
+              final val = getInputValue(e.target);
               setState(() {
                 _selectedDurationFilter = val;
               });
@@ -560,7 +559,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             },
             events: {
               'input': (e) {
-                final val = (e.target as web.HTMLInputElement).value;
+                final val = getInputValue(e.target);
                 setState(() {
                   _maxPrice = val.trim().isEmpty ? null : double.tryParse(val);
                 });

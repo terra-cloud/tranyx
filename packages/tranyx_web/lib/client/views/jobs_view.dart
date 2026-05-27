@@ -147,7 +147,7 @@ class JobsViewComponent extends StatelessComponent {
                       'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
                   events: {
                     'change': (e) {
-                      final val = (e.target as web.HTMLSelectElement).value;
+                      final val = getInputValue(e.target);
                       s.setState(() => s.geofenceRadius = double.parse(val));
                     },
                   },
@@ -2515,7 +2515,7 @@ class _CreateJob extends StatelessComponent {
             attributes: s.hasInspectionHoldback ? {'checked': 'true'} : {},
             events: {
               'change': (e) {
-                final val = (e.target as web.HTMLInputElement).checked;
+                final val = getInputChecked(e.target);
                 s.setState(() => s.hasInspectionHoldback = val);
               },
             },
