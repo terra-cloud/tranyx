@@ -1,3 +1,5 @@
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -306,7 +308,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                       'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
                   events: {
                     'change': (e) {
-                      final selected = VehicleType.values.firstWhere((v) => v.name == (e.target as web.HTMLSelectElement).value);
+                      final selected = VehicleType.values.firstWhere((v) => v.name == getInputValue(e.target));
                       setState(() {
                         _selectedType = selected;
                         _brand = '';
@@ -333,7 +335,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                     events: {
                       'change': (e) {
                         setState(() {
-                          _fuelType = (e.target as web.HTMLSelectElement).value;
+                          _fuelType = getInputValue(e.target);
                         });
                       },
                     },
@@ -355,7 +357,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                     events: {
                       'change': (e) {
                         setState(() {
-                          _transmission = (e.target as web.HTMLSelectElement).value;
+                          _transmission = getInputValue(e.target);
                         });
                       },
                     },
@@ -541,10 +543,9 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                         attributes: {'value': _driverLicenseNumber, 'placeholder': 'e.g. N01-23-456789'},
                         events: {
                           'input': (e) {
-                            final inputEl = e.target as web.HTMLInputElement;
-                            final val = inputEl.value;
+                            final val = getInputValue(e.target);
                             final formatted = _formatLicenseNumber(val);
-                            inputEl.value = formatted;
+                            setInputValue(e.target, formatted);
                             setState(() => _driverLicenseNumber = formatted);
                           },
                         },
@@ -563,7 +564,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                         'placeholder':
                             'e.g. Professional driver with 5+ years clean record, familiar with Metro Manila routes.',
                       },
-                      events: {'input': (e) => setState(() => _driverNote = (e.target as web.HTMLTextAreaElement).value)},
+                      events: {'input': (e) => setState(() => _driverNote = getInputValue(e.target))},
                       [Component.text(_driverNote)],
                     ),
                   ]),
@@ -629,7 +630,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                 select(
                   classes:
                       'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
-                  events: {'change': (e) => setState(() => _contractType = (e.target as web.HTMLSelectElement).value)},
+                  events: {'change': (e) => setState(() => _contractType = getInputValue(e.target))},
                   [
                     option(value: 'Tranyx Standard', selected: _contractType == 'Tranyx Standard', [
                       Component.text('Tranyx Standard'),
@@ -705,7 +706,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                     classes:
                         'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors h-32 resize-none',
                     attributes: {'placeholder': 'Enter your custom terms and conditions for this rental...'},
-                    events: {'input': (e) => setState(() => _customTerms = (e.target as web.HTMLTextAreaElement).value)},
+                    events: {'input': (e) => setState(() => _customTerms = getInputValue(e.target))},
                     [Component.text(_customTerms)],
                   ),
                   div(classes: 'mt-3 flex items-center gap-3', [
@@ -728,26 +729,33 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                           },
                           events: {
                             'change': (e) {
-                              final inputEl = e.target as web.HTMLInputElement?;
-                              if (inputEl != null && inputEl.files != null && inputEl.files!.length > 0) {
-                                final file = inputEl.files!.item(0);
-                                if (file != null) {
-                                  final reader = web.FileReader();
-                                  final lowerName = file.name.toLowerCase();
-                                  if (lowerName.endsWith('.txt') || lowerName.endsWith('.md')) {
-                                    reader.readAsText(file);
-                                    reader.onLoadEnd.listen((_) {
-                                      setState(() {
-                                        _customTerms = reader.result.toString();
-                                      });
-                                    });
-                                  } else {
-                                    reader.readAsDataURL(file);
-                                    reader.onLoadEnd.listen((_) {
-                                      setState(() {
-                                        _customTerms = '[Uploaded File: ${file.name}]\n${reader.result.toString()}';
-                                      });
-                                    });
+                              final targetObj = e.target as JSObject?;
+                              if (targetObj != null && targetObj.hasProperty('files'.toJS).toDart) {
+                                final filesObj = targetObj.getProperty<JSObject>('files'.toJS);
+                                if (filesObj != null && filesObj.hasProperty('length'.toJS).toDart) {
+                                  final len = (filesObj.getProperty('length'.toJS) as JSNumber).toDartInt;
+                                  if (len > 0) {
+                                    final file = filesObj.callMethod<JSObject?>('item'.toJS, 0.toJS);
+                                    if (file != null) {
+                                      final reader = web.FileReader();
+                                      final name = (file.getProperty('name'.toJS) as JSString).toDart;
+                                      final lowerName = name.toLowerCase();
+                                      if (lowerName.endsWith('.txt') || lowerName.endsWith('.md')) {
+                                        reader.readAsText(file as web.Blob);
+                                        reader.onLoadEnd.listen((_) {
+                                          setState(() {
+                                            _customTerms = reader.result.toString();
+                                          });
+                                        });
+                                      } else {
+                                        reader.readAsDataURL(file as web.Blob);
+                                        reader.onLoadEnd.listen((_) {
+                                          setState(() {
+                                            _customTerms = '[Uploaded File: $name]\n${reader.result.toString()}';
+                                          });
+                                        });
+                                      }
+                                    }
                                   }
                                 }
                               }
@@ -815,10 +823,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
         attributes: {'value': value, if (placeholder != null) 'placeholder': placeholder},
         events: {
           'input': (e) {
-            final target = e.target;
-            if (target is web.HTMLInputElement) {
-              onChange(target.value);
-            }
+            onChange(getInputValue(e.target));
           }
         },
       ),
@@ -844,10 +849,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
         attributes: isDisabled ? {'disabled': 'disabled'} : {},
         events: {
           'change': (e) {
-            final target = e.target;
-            if (target is web.HTMLSelectElement) {
-              onChange(target.value);
-            }
+            onChange(getInputValue(e.target));
           }
         },
         [

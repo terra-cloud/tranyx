@@ -4,6 +4,7 @@ import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
+import '../../services/web_interop.dart';
 
 class PaymentModalComponent extends StatelessComponent {
   final TranyxAppState state;
@@ -41,7 +42,7 @@ class PaymentModalComponent extends StatelessComponent {
             ]),
 
             // Body
-            div(classes: 'p-6 space-y-6', [
+            div(classes: 'p-6 space-y-6 max-h-[60vh] overflow-y-auto custom-scrollbar', [
               // Amount section
               div(classes: 'text-center', [
                 span(classes: 'text-xs font-medium ${isDark ? "text-zinc-500" : "text-zinc-400"} block mb-1', [
@@ -66,7 +67,7 @@ class PaymentModalComponent extends StatelessComponent {
                     },
                     events: {
                       'input': (e) {
-                        final val = (e.target as web.HTMLInputElement).value;
+                        final val = getInputValue(e.target);
                         final parsed = num.tryParse(val);
                         s.setState(() => s.depositAmount = parsed != null ? parsed.toDouble() : 0.0);
                       },
@@ -97,9 +98,9 @@ class PaymentModalComponent extends StatelessComponent {
                       events: {
                         'click': (_) {
                           s.setState(() => s.depositAmount = val.$1.toDouble());
-                          final el = web.document.getElementById('topup-amount-input') as web.HTMLInputElement?;
+                          final el = web.document.getElementById('topup-amount-input');
                           if (el != null) {
-                            el.value = val.$1.toString();
+                            setInputValue(el, val.$1.toString());
                           }
                         }
                       },
@@ -202,7 +203,7 @@ class PaymentModalComponent extends StatelessComponent {
                   ],
                 ]),
               ] else ...[
-                // Solana currency sub-toggle (SOL vs USDC)
+                // Solana currency sub-toggle (SOL vs USDT)
                 div(classes: 'grid grid-cols-2 gap-2', [
                   button(
                     classes:
@@ -214,9 +215,9 @@ class PaymentModalComponent extends StatelessComponent {
                   button(
                     classes:
                         'py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer border-0 outline-none '
-                        '${s.selectedSolanaCurrency == 'USDC' ? "bg-blue-600 text-white" : (isDark ? "bg-zinc-800/40 border-zinc-800 text-zinc-400 hover:bg-zinc-800/60" : "bg-zinc-50 border-zinc-200 text-zinc-600")}',
-                    events: {'click': (_) => s.setState(() => s.selectedSolanaCurrency = 'USDC')},
-                    [Component.text('\$ USDC')],
+                        '${s.selectedSolanaCurrency == 'USDT' ? "bg-emerald-600 text-white" : (isDark ? "bg-zinc-800/40 border-zinc-800 text-zinc-400 hover:bg-zinc-800/60" : "bg-zinc-50 border-zinc-200 text-zinc-600")}',
+                    events: {'click': (_) => s.setState(() => s.selectedSolanaCurrency = 'USDT')},
+                    [Component.text('\$ USDT')],
                   ),
                 ]),
 
@@ -242,24 +243,24 @@ class PaymentModalComponent extends StatelessComponent {
                     ),
                   ] else ...[
                     div(classes: 'flex justify-between items-center text-xs', [
-                      span(classes: 'text-zinc-500', [Component.text('USDC Rate (Stablecoin)')]),
+                      span(classes: 'text-zinc-500', [Component.text('USDT Rate (Stablecoin)')]),
                       span(classes: 'font-semibold', [
-                        Component.text('\$1 USDC ≈ ₱${s.usdToPhpRate.toStringAsFixed(2)}'),
+                        Component.text('\$1 USDT ≈ ₱${s.usdToPhpRate.toStringAsFixed(2)}'),
                       ]),
                     ]),
                     div(
                       classes:
                           'flex justify-between items-center text-xs border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} pt-3',
                       [
-                        span(classes: 'text-zinc-500', [Component.text('Required USDC')]),
-                        span(classes: 'font-bold text-blue-400 text-sm', [
-                          Component.text('\$${(amount / s.usdToPhpRate).toStringAsFixed(2)} USDC'),
+                        span(classes: 'text-zinc-500', [Component.text('Required USDT')]),
+                        span(classes: 'font-bold text-emerald-400 text-sm', [
+                          Component.text('\$${(amount / s.usdToPhpRate).toStringAsFixed(2)} USDT'),
                         ]),
                       ],
                     ),
-                    div(classes: 'mt-1 p-2 rounded-lg bg-blue-500/10 border border-blue-500/20', [
-                      p(classes: 'text-[10px] text-blue-400 font-semibold text-center', [
-                        Component.text('USDC is a stablecoin — zero volatility risk!'),
+                    div(classes: 'mt-1 p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20', [
+                      p(classes: 'text-[10px] text-emerald-400 font-semibold text-center', [
+                        Component.text('USDT is a stablecoin — zero volatility risk!'),
                       ]),
                     ]),
                   ],
@@ -323,11 +324,11 @@ class PaymentModalComponent extends StatelessComponent {
                     ] else ...[
                       button(
                         classes:
-                            'w-full py-4 rounded-2xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 border-0 cursor-pointer',
-                        events: {'click': (_) => s.processUsdcPayment(amount / s.usdToPhpRate)},
+                            'w-full py-4 rounded-2xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 border-0 cursor-pointer',
+                        events: {'click': (_) => s.processUsdtPayment(amount / s.usdToPhpRate)},
                         [
                           if (s.isDepositing) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                          Component.text(s.isDepositing ? 'Confirming USDC...' : 'Pay with USDC (Stablecoin)'),
+                          Component.text(s.isDepositing ? 'Confirming USDT...' : 'Pay with USDT (Stablecoin)'),
                         ],
                       ),
                     ],

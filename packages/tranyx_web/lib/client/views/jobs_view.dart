@@ -62,14 +62,21 @@ class JobsViewComponent extends StatelessComponent {
                 button(
                   classes:
                       'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
-                      '${s.activeJobPane != 'active' && s.activeJobPane != 'history' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
+                      '${s.activeJobPane == 'browse' || (s.activeJobPane != 'active' && s.activeJobPane != 'history' && s.activeJobPane != 'applied') ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
                   events: {'click': (_) => s.setState(() => s.activeJobPane = 'browse')},
                   [Component.text('Browse Gigs')],
                 ),
                 button(
                   classes:
                       'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
-                      '${s.activeJobPane == 'active' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
+                      '${s.activeJobPane == 'applied' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
+                  events: {'click': (_) => s.setState(() => s.activeJobPane = 'applied')},
+                  [Component.text('Applied')],
+                ),
+                button(
+                  classes:
+                      'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
+                      '${s.activeJobPane == 'active' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-555 hover:text-zinc-700 dark:hover:text-zinc-300"}',
                   events: {'click': (_) => s.setState(() => s.activeJobPane = 'active')},
                   [Component.text('Active')],
                 ),
@@ -126,7 +133,8 @@ class JobsViewComponent extends StatelessComponent {
           if (isNyxian &&
               s.activeJobPane != 'my_gigs' &&
               s.activeJobPane != 'active' &&
-              s.activeJobPane != 'history') ...[
+              s.activeJobPane != 'history' &&
+              s.activeJobPane != 'applied') ...[
             div(classes: 'flex gap-2 flex-wrap mb-2', [
               _filterChip('Recommended', s.activeJobFilter == 'Recommended', isDark, s),
               _filterChip('High Paying', s.activeJobFilter == 'High Paying', isDark, s),
@@ -147,7 +155,7 @@ class JobsViewComponent extends StatelessComponent {
                       'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
                   events: {
                     'change': (e) {
-                      final val = (e.target as web.HTMLSelectElement).value;
+                      final val = getInputValue(e.target);
                       s.setState(() => s.geofenceRadius = double.parse(val));
                     },
                   },
@@ -224,9 +232,11 @@ class JobsViewComponent extends StatelessComponent {
               if (displayJobs.isEmpty)
                 div(classes: 'p-4 text-center text-zinc-500 text-sm', [
                   Component.text(
-                    s.activeJobPane == 'my_gigs'
-                        ? 'You have no active or completed gigs yet.'
-                        : 'No available gigs match your filters.',
+                    s.activeJobPane == 'applied'
+                        ? 'You have not applied to any gigs yet.'
+                        : (s.activeJobPane == 'active' || s.activeJobPane == 'history'
+                            ? 'You have no active or completed gigs yet.'
+                            : 'No available gigs match your filters.'),
                   ),
                 ])
               else
@@ -270,7 +280,7 @@ class JobsViewComponent extends StatelessComponent {
 
   List<Map<String, dynamic>> _getFilteredJobs(List<Map<String, dynamic>> jobs, TranyxAppState s) {
     final isNyxian = s.currentViewMode == AccountType.nyxian;
-    final isBrowsePane = isNyxian && s.activeJobPane != 'active' && s.activeJobPane != 'history';
+    final isBrowsePane = isNyxian && s.activeJobPane == 'browse';
 
     // Apply the active tab/pane filter
     if (isNyxian) {
@@ -284,6 +294,8 @@ class JobsViewComponent extends StatelessComponent {
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
           return stat != 'completed' && stat != 'closed' && stat != 'cancelled';
         }).toList();
+      } else if (s.activeJobPane == 'applied') {
+        jobs = s.appliedJobs;
       } else {
         jobs = s.availableJobs;
       }
@@ -485,9 +497,19 @@ class JobsViewComponent extends StatelessComponent {
           ),
       ]),
       div(classes: 'flex items-center justify-between', [
-        div(classes: 'flex items-center gap-1 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-          lIcon('users', cls: 'w-3 h-3'),
-          Component.text(' $applicants applicants'),
+        div(classes: 'flex items-center gap-2 text-xs', [
+          div(classes: 'flex items-center gap-1 text-zinc-500', [
+            lIcon('users', cls: 'w-3 h-3'),
+            Component.text(' $applicants applicants'),
+          ]),
+          if (applicants > 0 && (status == 'Open' || status == 'Active'))
+            span(
+              classes: 'flex h-2 w-2 relative',
+              [
+                span(classes: 'animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75', []),
+                span(classes: 'relative inline-flex rounded-full h-2 w-2 bg-indigo-500', []),
+              ],
+            ),
         ]),
         button(
           classes: 'px-3 py-1.5 rounded-lg text-xs font-semibold logo-gradient text-white',
@@ -532,6 +554,28 @@ class JobsViewComponent extends StatelessComponent {
         ? 'bg-zinc-700/50 text-zinc-400'
         : (isUrgent ? 'bg-red-500/20 text-red-400' : 'bg-zinc-700 text-zinc-300');
 
+    String? appliedStatusText;
+    String? appliedStatusCls;
+    if (s.activeJobPane == 'applied') {
+      final acceptedId = j['acceptedApplicantId'] as String?;
+      final jobStatus = (j['status'] as String? ?? 'Open').toLowerCase();
+      final myUid = s.userProfile?.uid ?? '';
+      
+      if (acceptedId == myUid) {
+        appliedStatusText = jobStatus == 'completed' ? 'ACCEPTED (COMPLETED)' : 'ACCEPTED';
+        appliedStatusCls = 'bg-green-500/20 text-green-400';
+      } else if (acceptedId != null) {
+        appliedStatusText = 'NOT CHOSEN';
+        appliedStatusCls = 'bg-red-500/20 text-red-400';
+      } else if (jobStatus == 'closed' || jobStatus == 'cancelled') {
+        appliedStatusText = 'NOT CHOSEN';
+        appliedStatusCls = 'bg-red-500/20 text-red-400';
+      } else {
+        appliedStatusText = 'PENDING';
+        appliedStatusCls = 'bg-indigo-500/20 text-indigo-400';
+      }
+    }
+
     final cardCls = isDark
         ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
         : 'bg-white border-zinc-200 shadow-sm hover:shadow-md';
@@ -544,7 +588,14 @@ class JobsViewComponent extends StatelessComponent {
               Component.text(categoryNameNormalized),
             ]),
         ]),
-        span(classes: 'px-2 py-0.5 rounded text-[10px] font-bold $badgeCls', [Component.text(badgeText)]),
+        div(classes: 'flex flex-col items-end gap-1.5', [
+          span(classes: 'px-2 py-0.5 rounded text-[10px] font-bold $badgeCls', [Component.text(badgeText)]),
+          if (appliedStatusText != null)
+            span(
+              classes: 'px-2 py-0.5 rounded text-[9px] font-bold $appliedStatusCls',
+              [Component.text(appliedStatusText)],
+            ),
+        ]),
       ]),
       div(classes: 'flex items-center justify-between', [
         div(classes: 'flex items-center gap-3 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
@@ -2085,9 +2136,7 @@ class _JobDetails extends StatelessComponent {
               },
               events: {
                 'input': (e) {
-                  // ignore: avoid_dynamic_calls
-                  final v = (e as dynamic).target?.value as String? ?? '';
-                  s.setState(() => s.newQuestionText = v);
+                  s.setState(() => s.newQuestionText = getInputValue(e.target));
                 },
               },
             ),
@@ -2141,9 +2190,7 @@ class _JobDetails extends StatelessComponent {
                 },
                 events: {
                   'input': (e) {
-                    // ignore: avoid_dynamic_calls
-                    final v = (e as dynamic).target?.value as String? ?? '';
-                    s.setState(() => s.answerDrafts[qid] = v);
+                    s.setState(() => s.answerDrafts[qid] = getInputValue(e.target));
                   },
                 },
               ),
@@ -2515,7 +2562,7 @@ class _CreateJob extends StatelessComponent {
             attributes: s.hasInspectionHoldback ? {'checked': 'true'} : {},
             events: {
               'change': (e) {
-                final val = (e.target as web.HTMLInputElement).checked;
+                final val = getInputChecked(e.target);
                 s.setState(() => s.hasInspectionHoldback = val);
               },
             },

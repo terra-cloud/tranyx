@@ -1,6 +1,5 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
-import 'package:web/web.dart' as web;
 import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
@@ -375,7 +374,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               'value': _searchQuery,
             },
             events: {
-              'input': (e) => setState(() => _searchQuery = (e.target as web.HTMLInputElement).value),
+              'input': (e) => setState(() => _searchQuery = getInputValue(e.target)),
             },
           ),
         ],
@@ -391,7 +390,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
             events: {
               'change': (e) {
-                final val = (e.target as web.HTMLSelectElement).value;
+                final val = getInputValue(e.target);
                 s.setState(() => s.geofenceRadius = double.parse(val));
               },
             },
@@ -414,7 +413,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
             events: {
               'change': (e) {
-                final val = (e.target as web.HTMLSelectElement).value;
+                final val = getInputValue(e.target);
                 setState(() => _maxPrice = val == 'any' ? null : double.tryParse(val));
               },
             },
@@ -446,7 +445,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               'value': _searchQuery,
             },
             events: {
-              'input': (e) => setState(() => _searchQuery = (e.target as web.HTMLInputElement).value),
+              'input': (e) => setState(() => _searchQuery = getInputValue(e.target)),
             },
           ),
         ],
@@ -462,7 +461,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
             events: {
               'change': (e) {
-                final val = (e.target as web.HTMLSelectElement).value;
+                final val = getInputValue(e.target);
                 s.setState(() => s.geofenceRadius = double.parse(val));
               },
             },
@@ -483,7 +482,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
           events: {
             'change': (e) {
-              final val = (e.target as web.HTMLSelectElement).value;
+              final val = getInputValue(e.target);
               setState(() {
                 _selectedCategory = val == 'any' ? null : PropertyCategory.values.firstWhere((c) => c.name == val);
                 // Clear type filter if not compatible with new category
@@ -508,7 +507,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
           events: {
             'change': (e) {
-              final val = (e.target as web.HTMLSelectElement).value;
+              final val = getInputValue(e.target);
               setState(() {
                 _selectedType = val == 'any' ? null : PropertyType.values.firstWhere((t) => t.name == val);
               });
@@ -529,7 +528,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
           events: {
             'change': (e) {
-              final val = (e.target as web.HTMLSelectElement).value;
+              final val = getInputValue(e.target);
               setState(() {
                 _selectedDurationFilter = val;
               });
@@ -560,7 +559,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             },
             events: {
               'input': (e) {
-                final val = (e.target as web.HTMLInputElement).value;
+                final val = getInputValue(e.target);
                 setState(() {
                   _maxPrice = val.trim().isEmpty ? null : double.tryParse(val);
                 });
@@ -621,21 +620,38 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         ]),
         div(classes: 'flex items-center justify-between text-xs text-purple-300', [
           p([Component.text('Click card to view tracker and live trip map')]),
-          if (status == 'Booked' || status == 'Active' || status == 'Ongoing')
-            button(
-              classes:
-                  'px-4 py-2 rounded-xl text-xs font-bold bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors border-0 cursor-pointer',
-              events: {
-                'click': (e) {
-                  e.stopPropagation();
-                  s.setState(() {
-                    s.selectedRentalData = active;
-                    s.showExtendRentalModal = true;
-                  });
+          div(classes: 'flex items-center gap-2', [
+            if (active['allowChat'] == true)
+              button(
+                classes:
+                    'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    final chatId = 'rental_${active['id']}_${s.userProfile?.uid}';
+                    s.openChat(chatId);
+                  },
                 },
-              },
-              [Component.text('Extend')],
-            ),
+                [lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'), Component.text('Chat Host')],
+              )
+            else
+              span(classes: 'text-zinc-550 italic mr-1', [Component.text('Chat disabled')]),
+            if (status == 'Booked' || status == 'Active' || status == 'Ongoing')
+              button(
+                classes:
+                    'px-4 py-2 rounded-xl text-xs font-bold bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors border-0 cursor-pointer',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    s.setState(() {
+                      s.selectedRentalData = active;
+                      s.showExtendRentalModal = true;
+                    });
+                  },
+                },
+                [Component.text('Extend')],
+              ),
+          ]),
         ]),
         if (active['signatureHash'] != null)
           div(classes: 'mt-3 p-2.5 rounded-xl bg-green-500/10 border border-green-500/25 space-y-1', [
@@ -874,32 +890,45 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         ]),
 
         if (isHostView)
-          div(classes: 'flex gap-2', [
-            button(
-              classes:
-                  'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-              events: {
-                'click': (_) => s.setState(() {
-                  s.selectedRentalData = r;
-                  s.showVehicleQaModal = true;
-                }),
-              },
-              [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
-            ),
-            button(
-              classes:
-                  'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-              events: {
-                'click': (_) {
-                  s.setState(() {
+          Builder(builder: (context) {
+            final hasRequests = s.hostPendingRequests.any((req) => req['rentalId'] == r['id']);
+            return div(classes: 'flex gap-2', [
+              button(
+                classes:
+                    'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
+                events: {
+                  'click': (_) => s.setState(() {
                     s.selectedRentalData = r;
-                    s.showManageVehicleModal = true;
-                  });
+                    s.showVehicleQaModal = true;
+                  }),
                 },
-              },
-              [Component.text('Manage')],
-            ),
-          ])
+                [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
+              ),
+              button(
+                classes:
+                    'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
+                events: {
+                  'click': (_) {
+                    s.setState(() {
+                      s.selectedRentalData = r;
+                      s.showManageVehicleModal = true;
+                    });
+                  },
+                },
+                [
+                  Component.text('Manage'),
+                  if (hasRequests)
+                    span(
+                      classes: 'absolute -top-1 -right-1 flex h-2.5 w-2.5',
+                      [
+                        span(classes: 'animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75', []),
+                        span(classes: 'relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500', []),
+                      ],
+                    ),
+                ],
+              ),
+            ]);
+          })
         else
           div(classes: 'flex items-center gap-2', [
             button(
@@ -974,32 +1003,45 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         ]),
 
         if (isHostView)
-          div(classes: 'flex gap-2', [
-            button(
-              classes:
-                  'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-              events: {
-                'click': (_) => s.setState(() {
-                  s.selectedPropertyData = prop.toMap();
-                  s.showPropertyQaModal = true;
-                }),
-              },
-              [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
-            ),
-            button(
-              classes:
-                  'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-              events: {
-                'click': (_) {
-                  s.setState(() {
+          Builder(builder: (context) {
+            final hasRequests = s.propertyHostPendingRequests.any((req) => req['propertyId'] == prop.id);
+            return div(classes: 'flex gap-2', [
+              button(
+                classes:
+                    'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
+                events: {
+                  'click': (_) => s.setState(() {
                     s.selectedPropertyData = prop.toMap();
-                    s.showManagePropertyModal = true;
-                  });
+                    s.showPropertyQaModal = true;
+                  }),
                 },
-              },
-              [Component.text('Manage')],
-            ),
-          ])
+                [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
+              ),
+              button(
+                classes:
+                    'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
+                events: {
+                  'click': (_) {
+                    s.setState(() {
+                      s.selectedPropertyData = prop.toMap();
+                      s.showManagePropertyModal = true;
+                    });
+                  },
+                },
+                [
+                  Component.text('Manage'),
+                  if (hasRequests)
+                    span(
+                      classes: 'absolute -top-1 -right-1 flex h-2.5 w-2.5',
+                      [
+                        span(classes: 'animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75', []),
+                        span(classes: 'relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500', []),
+                      ],
+                    ),
+                ],
+              ),
+            ]);
+          })
         else
           div(classes: 'flex items-center gap-2', [
             button(

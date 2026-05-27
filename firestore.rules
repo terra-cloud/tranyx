@@ -14,7 +14,9 @@ service cloud.firestore {
     // Users Collection
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
-      allow write: if isOwner(userId); // Users can only update their own profile
+      allow create: if isOwner(userId);
+      allow update: if isAuthenticated(); // Allowed for transaction/balance updates between users
+      allow delete: if isOwner(userId);
       
       // User Reviews subcollection
       match /reviews/{reviewId} {
@@ -53,6 +55,12 @@ service cloud.firestore {
       allow read: if true; // Publicly browse vehicle rentals
       allow create, update: if isAuthenticated();
       allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
+
+      // Subcollection: Questions
+      match /questions/{questionId} {
+        allow read: if true;
+        allow write: if isAuthenticated();
+      }
     }
 
     // Properties Collection
@@ -60,6 +68,12 @@ service cloud.firestore {
       allow read: if true; // Publicly browse property rentals
       allow create, update: if isAuthenticated();
       allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
+
+      // Subcollection: Questions
+      match /questions/{questionId} {
+        allow read: if true;
+        allow write: if isAuthenticated();
+      }
     }
 
     // Transactions Collection
@@ -109,6 +123,37 @@ service cloud.firestore {
     match /kyc_submissions/{submissionId} {
       allow read: if isAuthenticated() && (request.auth.uid == submissionId || resource.data.uid == request.auth.uid);
       allow write: if isAuthenticated() && request.auth.uid == submissionId;
+    }
+
+    // Escrow Collections
+    match /escrow/{jobId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /rental_escrows/{rentalId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /rental_extension_escrows/{extensionId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /property_escrows/{requestId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Wallet Links Collection
+    match /walletLinks/{walletPublicKey} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // Chats Collection
+    match /chats/{chatId} {
+      allow read, write: if isAuthenticated();
+      match /messages/{messageId} {
+        allow read, write: if isAuthenticated();
+      }
     }
   }
 }

@@ -28,6 +28,7 @@ jobs:
       - name: Build Jaspr Web
         working-directory: packages/tranyx_web
         run: |
+          jaspr clean
           if [[ "${{ github.base_ref }}" == "main" ]]; then
             jaspr build --dart-define=ENV=prod
           elif [[ "${{ github.base_ref }}" == "uat" ]]; then

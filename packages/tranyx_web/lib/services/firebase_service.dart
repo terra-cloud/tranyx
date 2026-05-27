@@ -234,11 +234,24 @@ class FirebaseAuthService {
   }
 
   Future<String> refreshIdToken(String refreshToken) async {
-    final res = await _post(
-      'https://securetoken.googleapis.com/v1/token?key=${currentFirebaseConfig.apiKey}',
-      {'grant_type': 'refresh_token', 'refresh_token': refreshToken},
+    final url = 'https://securetoken.googleapis.com/v1/token?key=${currentFirebaseConfig.apiKey}';
+    final response = await http.post(
+      Uri.parse(url),
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: {
+        'grant_type': 'refresh_token',
+        'refresh_token': refreshToken,
+      },
     );
-    return res['id_token'] as String;
+
+    final bodyText = response.body.trim();
+    final data = bodyText.isNotEmpty ? jsonDecode(bodyText) : <String, dynamic>{};
+
+    if (response.statusCode >= 400) {
+      final err = (data is Map) ? (data['error'] as Map? ?? {}) : {};
+      throw FirebaseException(err['message'] as String? ?? 'Token refresh failed', response.statusCode);
+    }
+    return data['id_token'] as String;
   }
 
   /// Lookup a user by idToken to get uid/email/displayName
@@ -449,7 +462,44 @@ class FirestoreService {
 
   // ── KYC Submissions ────────────────────────────────────────
   Future<Map<String, dynamic>?> getKycSubmission(String uid) async {
-    return await getDocument('kyc_submissions/$uid');
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'kyc_submissions'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'uid'},
+            'op': 'EQUAL',
+            'value': {'stringValue': uid},
+          },
+        },
+        'limit': 1,
+      },
+    });
+
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode >= 400) return null;
+
+      final List<dynamic> results = jsonDecode(req.body);
+      for (final res in results) {
+        if (res is Map<String, dynamic> && res.containsKey('document')) {
+          final doc = res['document'] as Map<String, dynamic>;
+          return _fromFirestoreDoc(doc);
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> saveKycSubmission(String uid, Map<String, dynamic> data) async {
@@ -686,6 +736,19 @@ class FirestoreService {
     ]);
   }
 
+  /// Fetch all jobs where the user has applied.
+  Future<List<Map<String, dynamic>>> getAppliedJobs(String uid) async {
+    return _queryJobs([
+      {
+        'fieldFilter': {
+          'field': {'fieldPath': 'applicantUids'},
+          'op': 'ARRAY_CONTAINS',
+          'value': {'stringValue': uid},
+        },
+      },
+    ], orderByCreatedAt: false);
+  }
+
   /// Fetch available jobs for the given viewer type.
   /// Nyxians see Employer postings; Employers see Nyxian postings.
   Future<List<Map<String, dynamic>>> getAvailableJobs(AccountType viewerType) async {
@@ -717,30 +780,36 @@ class FirestoreService {
     await setDocument('users/$uid', {'tyxBalance': balance});
   }
 
-  Future<List<Map<String, dynamic>>> _queryJobs(List<Map<String, dynamic>> filters) async {
+  Future<List<Map<String, dynamic>>> _queryJobs(List<Map<String, dynamic>> filters, {bool orderByCreatedAt = true}) async {
     final url =
         'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final body = jsonEncode({
-      'structuredQuery': {
-        'from': [
-          {'collectionId': 'jobs'},
-        ],
-        'where': filters.length == 1
-            ? filters.first
-            : {
-                'compositeFilter': {
-                  'op': 'AND',
-                  'filters': filters,
-                },
+    
+    final Map<String, dynamic> structuredQuery = {
+      'from': [
+        {'collectionId': 'jobs'},
+      ],
+      'where': filters.length == 1
+          ? filters.first
+          : {
+              'compositeFilter': {
+                'op': 'AND',
+                'filters': filters,
               },
-        'orderBy': [
-          {
-            'field': {'fieldPath': 'createdAt'},
-            'direction': 'DESCENDING',
-          },
-        ],
-        'limit': 50,
-      },
+            },
+      'limit': 50,
+    };
+
+    if (orderByCreatedAt) {
+      structuredQuery['orderBy'] = [
+        {
+          'field': {'fieldPath': 'createdAt'},
+          'direction': 'DESCENDING',
+        },
+      ];
+    }
+
+    final body = jsonEncode({
+      'structuredQuery': structuredQuery,
     });
 
     try {
@@ -756,11 +825,16 @@ class FirestoreService {
       }
 
       final results = jsonDecode(req.body) as List;
-      return results.where((r) => (r as Map).containsKey('document')).map((r) {
+      final list = results.where((r) => (r as Map).containsKey('document')).map((r) {
         final doc = (r as Map<String, dynamic>)['document'] as Map<String, dynamic>;
         final id = _docId(doc);
         return {'id': id, ..._fromFirestoreDoc(doc)};
       }).toList();
+
+      if (!orderByCreatedAt) {
+        list.sort((a, b) => (b['createdAt'] as int? ?? 0).compareTo(a['createdAt'] as int? ?? 0));
+      }
+      return list;
     } catch (e) {
       print('FIRESTORE QUERY ERROR: $e');
       return [];
@@ -803,6 +877,17 @@ class FirestoreService {
           'applicantUids': uids,
           'applicantCount': count,
         });
+      }
+
+      // Notify the employer/creator about the new job application
+      final creatorId = jobDoc['creatorId'] as String?;
+      final jobTitle = jobDoc['title'] as String? ?? 'Your Posting';
+      if (creatorId != null && creatorId != applicantUid) {
+        await createNotification(
+          uid: creatorId,
+          title: 'New Job Application',
+          message: '$applicantName has applied to your posting "$jobTitle".',
+        );
       }
     }
   }
@@ -1726,6 +1811,60 @@ class FirestoreService {
         if (data['status'] == 'Pending') {
           list.add(data);
         }
+      }
+    }
+    return list;
+  }
+
+  /// Fetch all pending requests for a specific host, filtered in-memory
+  Future<List<Map<String, dynamic>>> getPendingRequestsForHost(String hostId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'rental_requests'},
+        ],
+        'where': {
+          'compositeFilter': {
+            'op': 'AND',
+            'filters': [
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'hostId'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': hostId},
+                },
+              },
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'status'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': 'Pending'},
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map<String, dynamic>;
+        final name = doc['name'] as String;
+        final docId = name.split('/').last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        list.add(data);
       }
     }
     return list;

@@ -1,5 +1,4 @@
 // ignore: avoid_web_libraries_in_flutter
-import 'package:web/web.dart' as web;
 import 'package:http/http.dart' as http;
 import 'package:jaspr/dom.dart';
 import 'dart:async';
@@ -143,6 +142,9 @@ class TranyxAppState extends State<TranyxApp> {
   List<Map<String, dynamic>> availableJobs = [];
   List<Map<String, dynamic>> realtimeRentals = [];
   List<Map<String, dynamic>> renterPendingRequests = [];
+  List<Map<String, dynamic>> appliedJobs = [];
+  List<Map<String, dynamic>> hostPendingRequests = [];
+  List<Map<String, dynamic>> propertyHostPendingRequests = [];
   bool isLoadingJobs = false;
   String? jobsError;
   String activeJobFilter = 'Recommended';
@@ -230,9 +232,9 @@ class TranyxAppState extends State<TranyxApp> {
   double depositAmount = 0.0;
   bool isDepositing = false;
   String selectedPaymentMethod = 'xendit';
-  String selectedSolanaCurrency = 'SOL'; // 'SOL' or 'USDC'
+  String selectedSolanaCurrency = 'SOL'; // 'SOL' or 'USDT'
   double solToPhpRate = 8500.0;
-  double usdToPhpRate = 57.0; // fallback USD-PHP rate for USDC
+  double usdToPhpRate = 57.0; // fallback USD-PHP rate for USDT
   bool isFetchingRate = false;
   Map<String, dynamic>? pendingPropertyBookingData;
   Map<String, dynamic>? pendingVehicleBookingData;
@@ -268,6 +270,11 @@ class TranyxAppState extends State<TranyxApp> {
   WalletState walletState = WalletState.disconnected;
   String walletAddress = '';
   double walletBalance = 0.0;
+  List<Map<String, dynamic>> walletCollectibles = [];
+  String ethAddress = '';
+  String suiAddress = '';
+  double ethBalance = 0.0;
+  double suiBalance = 0.0;
   bool isRefreshingBalance = false;
   List<Map<String, dynamic>> userTransactions = [];
 
@@ -491,6 +498,8 @@ class TranyxAppState extends State<TranyxApp> {
     // Load jobs for current tab
     await loadJobs();
     await loadTransactions();
+    await loadRenterPendingRequests();
+    await loadHostPendingRequests();
     _startListeningNotifications();
     _startListeningJobs();
     _startListeningRentals();
@@ -720,6 +729,22 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  Future<void> loadHostPendingRequests() async {
+    final uid = SessionStorage.uid;
+    if (uid == null) return;
+    try {
+      final list = await _firestore.getPendingRequestsForHost(uid);
+      final propList = await _firestore.getPropertyPendingRequestsForHost(uid);
+      setState(() {
+        hostPendingRequests = list;
+        propertyHostPendingRequests = propList;
+      });
+    } catch (e) {
+      print('Error loading host pending requests: $e');
+    }
+  }
+
+
   Future<void> loadUserProfile() async {
     final uid = SessionStorage.uid;
     if (uid == null) return;
@@ -750,6 +775,18 @@ class TranyxAppState extends State<TranyxApp> {
     try {
       final result = await _auth.signIn(email, password);
       SessionStorage.save(result);
+
+      try {
+        final configMap = {
+          'apiKey': currentFirebaseConfig.apiKey,
+          'authDomain': currentFirebaseConfig.authDomain,
+          'projectId': currentFirebaseConfig.projectId,
+          'storageBucket': currentFirebaseConfig.storageBucket,
+          'messagingSenderId': currentFirebaseConfig.messagingSenderId,
+          'appId': currentFirebaseConfig.appId,
+        };
+        await signInWithEmailAndPasswordJs(configMap, email, password);
+      } catch (_) {}
 
       // Load user profile from Firestore to get account type
       final profile = await FirestoreService(result.idToken, _handleTokenRefresh).getUser(result.uid);
@@ -784,6 +821,8 @@ class TranyxAppState extends State<TranyxApp> {
       _initGemini();
       await loadJobs();
       await loadTransactions();
+      await loadRenterPendingRequests();
+      await loadHostPendingRequests();
       _startListeningNotifications();
       _startListeningJobs();
       _startListeningRentals();
@@ -831,6 +870,18 @@ class TranyxAppState extends State<TranyxApp> {
       final result = await _auth.register(email, password);
       await _auth.updateDisplayName(result.idToken, name);
       SessionStorage.save(result);
+
+      try {
+        final configMap = {
+          'apiKey': currentFirebaseConfig.apiKey,
+          'authDomain': currentFirebaseConfig.authDomain,
+          'projectId': currentFirebaseConfig.projectId,
+          'storageBucket': currentFirebaseConfig.storageBucket,
+          'messagingSenderId': currentFirebaseConfig.messagingSenderId,
+          'appId': currentFirebaseConfig.appId,
+        };
+        await signInWithEmailAndPasswordJs(configMap, email, password);
+      } catch (_) {}
 
       final profile = UserProfile(
         uid: result.uid,
@@ -1185,6 +1236,7 @@ class TranyxAppState extends State<TranyxApp> {
     stopListeningToJobsJs();
     stopListeningToRentalsJs();
     stopListeningToPropertiesJs();
+    unawaited(signOutJs());
     setState(() {
       isAuthenticated = false;
       authView = AuthView.login;
@@ -1230,6 +1282,7 @@ class TranyxAppState extends State<TranyxApp> {
       final allMyJobs = [...my, ...accepted];
 
       final avail = await _firestore.getAvailableJobs(currentViewMode);
+      final applied = await _firestore.getAppliedJobs(uid);
 
       // De-duplicate by id
       final seenIds = <String>{};
@@ -1262,6 +1315,7 @@ class TranyxAppState extends State<TranyxApp> {
       setState(() {
         myJobs = merged;
         availableJobs = avail;
+        appliedJobs = applied;
         ongoingJob = ongoing;
         isLoadingJobs = false;
       });
@@ -1567,6 +1621,9 @@ class TranyxAppState extends State<TranyxApp> {
         showDepositModal = false;
       });
 
+      // Re-fetch real Phantom SOL balance in the background after payment
+      unawaited(handleRefreshBalance());
+
       // 5. Finalize any pending actions
       if (newJobTitle.isNotEmpty) {
         await handlePostJob();
@@ -1622,7 +1679,7 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
-  Future<void> processUsdcPayment(double amountInUsdc) async {
+  Future<void> processUsdtPayment(double amountInUsdt) async {
     final uid = SessionStorage.uid;
     final token = SessionStorage.idToken;
     if (uid == null || token == null) {
@@ -1651,16 +1708,31 @@ class TranyxAppState extends State<TranyxApp> {
 
       const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
 
-      final signature = await sendUsdcPayment(fromPubKey, adminSolanaAddress, amountInUsdc);
+      // Auto-detect if user holds a USDT token, and use that mint if present
+      String? customMint;
+      final usdtToken = walletCollectibles.firstWhere(
+        (t) => t['symbol'].toString().toUpperCase() == 'USDT',
+        orElse: () => <String, dynamic>{},
+      );
+      if (usdtToken.isNotEmpty) {
+        customMint = usdtToken['mint'] as String?;
+      }
+
+      final signature = await sendUsdtPayment(
+        fromPubKey,
+        adminSolanaAddress,
+        amountInUsdt,
+        usdtMint: customMint,
+      );
       if (signature == null || signature.trim().isEmpty) {
-        throw 'USDC transaction rejected or failed to broadcast.';
+        throw 'USDT transaction rejected or failed to broadcast.';
       }
 
       final svc = FirestoreService(token, _handleTokenRefresh);
       final userDoc = await svc.getDocument('users/$uid');
       if (userDoc != null) {
         final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-        final phpEquivalent = amountInUsdc * usdToPhpRate;
+        final phpEquivalent = amountInUsdt * usdToPhpRate;
         final newBal = currentBal + phpEquivalent;
 
         await svc.createOrUpdate('users/$uid', {
@@ -1676,15 +1748,15 @@ class TranyxAppState extends State<TranyxApp> {
           });
         }
 
-        await svc.createOrUpdate('transactions/deposit_usdc_$signature', {
+        await svc.createOrUpdate('transactions/deposit_usdt_$signature', {
           'uid': uid,
-          'title': 'Wallet Top-Up (USDC)',
-          'desc': 'Crypto deposit of ${amountInUsdc.toStringAsFixed(2)} USDC via Phantom',
+          'title': 'Wallet Top-Up (USDT)',
+          'desc': 'Crypto deposit of ${amountInUsdt.toStringAsFixed(2)} USDT via Phantom',
           'amount': phpEquivalent,
           'status': 'Successful',
-          'method': 'Solana/USDC',
+          'method': 'Solana/USDT',
           'solanaTxSignature': signature,
-          'usdcAmount': amountInUsdc,
+          'usdtAmount': amountInUsdt,
           'createdAt': DateTime.now().millisecondsSinceEpoch,
           'type': 'deposit',
         });
@@ -4051,7 +4123,36 @@ class TranyxAppState extends State<TranyxApp> {
       }
     });
     if (tab == AppTab.jobs) loadJobs();
-    if (tab == AppTab.transit) loadRenterPendingRequests();
+    if (tab == AppTab.transit) {
+      loadRenterPendingRequests();
+      loadHostPendingRequests();
+    }
+  }
+
+  bool get jobsHasUpdates {
+    if (!isAuthenticated) return false;
+    final myUid = SessionStorage.uid;
+    if (myUid == null) return false;
+    if (currentViewMode == AccountType.employer) {
+      return myJobs.any((j) {
+        final status = (j['status'] as String? ?? 'Open').toLowerCase();
+        final count = j['applicantCount'] as int? ?? 0;
+        return status == 'open' && count > 0;
+      });
+    } else {
+      return appliedJobs.any((j) {
+        final status = (j['status'] as String? ?? 'Open').toLowerCase();
+        return status != 'open';
+      });
+    }
+  }
+
+  bool get transitHasUpdates {
+    if (!isAuthenticated) return false;
+    final renterHasUpdates = renterPendingRequests.any((r) => r['status'] != 'Pending') ||
+        propertyRenterPendingRequests.any((r) => r['status'] != 'Pending');
+    final hostHasUpdates = hostPendingRequests.isNotEmpty || propertyHostPendingRequests.isNotEmpty;
+    return renterHasUpdates || hostHasUpdates;
   }
 
   // ── Wallet ──────────────────────────────────────────────────
@@ -4068,8 +4169,23 @@ class TranyxAppState extends State<TranyxApp> {
         setState(() => walletState = WalletState.disconnected);
         return;
       }
+      
+      final ethAddrVal = await connectEthereumWallet();
+      final suiAddrVal = await connectSuiWallet();
+
       final balance = await getSolanaBalance(publicKey) ?? 0.0;
+      final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
       final short = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
+
+      double ethBalVal = 0.0;
+      if (ethAddrVal != null) {
+        ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+      }
+
+      double suiBalVal = 0.0;
+      if (suiAddrVal != null) {
+        suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
+      }
 
       // Persist wallet link to Firestore if user is logged in
       final token = SessionStorage.idToken;
@@ -4083,6 +4199,11 @@ class TranyxAppState extends State<TranyxApp> {
       setState(() {
         walletAddress = short;
         walletBalance = balance;
+        walletCollectibles = collectibles;
+        ethAddress = ethAddrVal ?? '';
+        suiAddress = suiAddrVal ?? '';
+        ethBalance = ethBalVal;
+        suiBalance = suiBalVal;
         walletState = WalletState.connected;
       });
     } catch (_) {
@@ -4099,10 +4220,32 @@ class TranyxAppState extends State<TranyxApp> {
         publicKey = await getPhantomPublicKeyIfConnected();
       }
 
+      final ethAddrVal = await getEthereumAddressIfConnected();
+      final suiAddrVal = await getSuiAddressIfConnected();
+
       if (publicKey != null) {
         final balance = await getSolanaBalance(publicKey);
+        final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
+
+        double ethBalVal = 0.0;
+        if (ethAddrVal != null) {
+          ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+        }
+
+        double suiBalVal = 0.0;
+        if (suiAddrVal != null) {
+          suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
+        }
+
         if (balance != null) {
-          setState(() => walletBalance = balance);
+          setState(() {
+            walletBalance = balance;
+            walletCollectibles = collectibles;
+            ethAddress = ethAddrVal ?? '';
+            suiAddress = suiAddrVal ?? '';
+            ethBalance = ethBalVal;
+            suiBalance = suiBalVal;
+          });
         }
       }
     } catch (_) {}
@@ -4116,11 +4259,31 @@ class TranyxAppState extends State<TranyxApp> {
         final activeKey = await getPhantomPublicKeyIfConnected();
         if (activeKey != null && activeKey == profileWalletKey) {
           final balance = await getSolanaBalance(profileWalletKey) ?? 0.0;
+          final collectibles = await getSolanaTokenCollectibles(profileWalletKey) ?? [];
           final short =
               '${profileWalletKey.substring(0, 4)}...${profileWalletKey.substring(profileWalletKey.length - 4)}';
+
+          final ethAddrVal = await getEthereumAddressIfConnected();
+          final suiAddrVal = await getSuiAddressIfConnected();
+
+          double ethBalVal = 0.0;
+          if (ethAddrVal != null) {
+            ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+          }
+
+          double suiBalVal = 0.0;
+          if (suiAddrVal != null) {
+            suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
+          }
+
           setState(() {
             walletAddress = short;
             walletBalance = balance;
+            walletCollectibles = collectibles;
+            ethAddress = ethAddrVal ?? '';
+            suiAddress = suiAddrVal ?? '';
+            ethBalance = ethBalVal;
+            suiBalance = suiBalVal;
             walletState = WalletState.connected;
           });
           return;
@@ -4139,10 +4302,30 @@ class TranyxAppState extends State<TranyxApp> {
         final publicKey = await getPhantomPublicKeyIfConnected();
         if (publicKey != null) {
           final balance = await getSolanaBalance(publicKey) ?? 0.0;
+          final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
           final short = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
+
+          final ethAddrVal = await getEthereumAddressIfConnected();
+          final suiAddrVal = await getSuiAddressIfConnected();
+
+          double ethBalVal = 0.0;
+          if (ethAddrVal != null) {
+            ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+          }
+
+          double suiBalVal = 0.0;
+          if (suiAddrVal != null) {
+            suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
+          }
+
           setState(() {
             walletAddress = short;
             walletBalance = balance;
+            walletCollectibles = collectibles;
+            ethAddress = ethAddrVal ?? '';
+            suiAddress = suiAddrVal ?? '';
+            ethBalance = ethBalVal;
+            suiBalance = suiBalVal;
             walletState = WalletState.connected;
           });
         }
@@ -4697,7 +4880,7 @@ class SmsVerificationModalComponent extends StatelessComponent {
                       value: s.smsVerificationPhoneNumber,
                       events: {
                         'input': (e) {
-                          final val = (e.target as web.HTMLInputElement).value;
+                          final val = getInputValue(e.target);
                           var digits = val.replaceAll(RegExp(r'\D'), '');
                           if (digits.length > 10) digits = digits.substring(0, 10);
                           s.setState(() => s.smsVerificationPhoneNumber = digits);
@@ -4754,7 +4937,7 @@ class SmsVerificationModalComponent extends StatelessComponent {
                     value: s.smsVerificationCode,
                     events: {
                       'input': (e) {
-                        final val = (e.target as web.HTMLInputElement).value;
+                        final val = getInputValue(e.target);
                         s.setState(() => s.smsVerificationCode = val.replaceAll(RegExp(r'\D'), ''));
                       },
                     },

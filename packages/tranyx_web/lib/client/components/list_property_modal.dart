@@ -265,7 +265,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                       'change': (e) {
                         setState(() {
                           _selectedCategory = PropertyCategory.values.firstWhere(
-                            (c) => c.name == (e.target as web.HTMLSelectElement).value,
+                            (c) => c.name == getInputValue(e.target),
                           );
                           // Auto-select first type that belongs to the new category
                           _selectedType = PropertyType.values.firstWhere((t) => t.category == _selectedCategory);
@@ -289,7 +289,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                     events: {
                       'change': (e) {
                         setState(() {
-                          _selectedType = PropertyType.values.firstWhere((t) => t.name == (e.target as web.HTMLSelectElement).value);
+                          _selectedType = PropertyType.values.firstWhere((t) => t.name == getInputValue(e.target));
                         });
                       },
                     },
@@ -319,7 +319,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                   attributes: {
                     'placeholder': 'Provide details about the space, proximity to key locations, house rules...',
                   },
-                  events: {'input': (e) => setState(() => _description = (e.target as web.HTMLTextAreaElement).value)},
+                  events: {'input': (e) => setState(() => _description = getInputValue(e.target))},
                   [Component.text(_description)],
                 ),
               ]),
@@ -555,7 +555,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                 select(
                   classes:
                       'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
-                  events: {'change': (e) => setState(() => _contractType = (e.target as web.HTMLSelectElement).value)},
+                  events: {'change': (e) => setState(() => _contractType = getInputValue(e.target))},
                   [
                     option(value: 'Tranyx Standard', selected: _contractType == 'Tranyx Standard', [
                       Component.text('Tranyx Standard Lease'),
@@ -625,7 +625,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                       'placeholder':
                           'Enter your custom property lease terms, house rules, water/electricity billing agreements...',
                     },
-                    events: {'input': (e) => setState(() => _customTerms = (e.target as web.HTMLTextAreaElement).value)},
+                    events: {'input': (e) => setState(() => _customTerms = getInputValue(e.target))},
                     [Component.text(_customTerms)],
                   ),
                 ]),
@@ -687,10 +687,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
         attributes: {'value': value, if (placeholder != null) 'placeholder': placeholder},
         events: {
           'input': (e) {
-            final target = e.target;
-            if (target is web.HTMLInputElement) {
-              onChange(target.value);
-            }
+            onChange(getInputValue(e.target));
           }
         },
       ),

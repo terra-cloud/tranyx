@@ -150,7 +150,7 @@ class _KycBgModalState extends State<KycBgModalComponent> {
                       events: {
                         'change': (e) {
                           setState(() {
-                            _clearanceType = (e.target as web.HTMLSelectElement).value;
+                            _clearanceType = getInputValue(e.target);
                           });
                         }
                       },
@@ -178,7 +178,7 @@ class _KycBgModalState extends State<KycBgModalComponent> {
                         'value': _clearanceNumber,
                       },
                       events: {
-                        'input': (e) => setState(() => _clearanceNumber = (e.target as web.HTMLInputElement).value),
+                        'input': (e) => setState(() => _clearanceNumber = getInputValue(e.target)),
                       },
                     ),
                   ],
@@ -196,7 +196,7 @@ class _KycBgModalState extends State<KycBgModalComponent> {
                         'value': _expiryDate,
                       },
                       events: {
-                        'input': (e) => setState(() => _expiryDate = (e.target as web.HTMLInputElement).value),
+                        'input': (e) => setState(() => _expiryDate = getInputValue(e.target)),
                       },
                     ),
                   ],

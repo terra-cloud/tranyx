@@ -7,6 +7,7 @@ import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../components/map_container.dart';
 import '../../services/map_interop.dart';
+import '../../services/web_interop.dart';
 import 'contract_viewer.dart';
 
 class BookVehicleModalComponent extends StatefulComponent {
@@ -594,7 +595,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                       'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
                   type: InputType.number,
                   attributes: {'value': _quantity.toString(), 'min': '1'},
-                  events: {'input': (e) => setState(() => _quantity = int.tryParse((e.target as web.HTMLInputElement).value) ?? 1)},
+                  events: {'input': (e) => setState(() => _quantity = int.tryParse(getInputValue(e.target)) ?? 1)},
                 ),
               ]),
 
@@ -659,7 +660,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                       events: {
                         'change': (e) {
                           if (_startDate != null) {
-                            final hour = int.tryParse((e.target as web.HTMLSelectElement).value) ?? 9;
+                            final hour = int.tryParse(getInputValue(e.target)) ?? 9;
                             setState(() {
                               _startDate = DateTime(
                                 _startDate!.year,
@@ -801,10 +802,9 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                   attributes: {'value': _licenseNumber, 'placeholder': 'e.g., N01-23-456789'},
                   events: {
                     'input': (e) {
-                      final inputEl = e.target as web.HTMLInputElement;
-                      final val = inputEl.value;
+                      final val = getInputValue(e.target);
                       final formatted = _formatLicenseNumber(val);
-                      inputEl.value = formatted;
+                      setInputValue(e.target, formatted);
                       setState(() => _licenseNumber = formatted);
                     },
                   },
@@ -974,7 +974,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                       },
                       events: {
                         'input': (e) {
-                          final val = (e.target as web.HTMLInputElement).value;
+                          final val = getInputValue(e.target);
                           setState(() {
                             _deliverySearchQuery = val;
                             if (val.isEmpty) {

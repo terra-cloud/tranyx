@@ -212,7 +212,7 @@ class _KycIdModalState extends State<KycIdModalComponent> {
                       events: {
                         'change': (e) {
                           setState(() {
-                            _idType = (e.target as web.HTMLSelectElement).value;
+                            _idType = getInputValue(e.target);
                           });
                         }
                       },
@@ -240,7 +240,7 @@ class _KycIdModalState extends State<KycIdModalComponent> {
                         'value': _idNumber,
                       },
                       events: {
-                        'input': (e) => setState(() => _idNumber = (e.target as web.HTMLInputElement).value),
+                        'input': (e) => setState(() => _idNumber = getInputValue(e.target)),
                       },
                     ),
                   ],

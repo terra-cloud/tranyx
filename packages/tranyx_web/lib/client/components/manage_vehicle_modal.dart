@@ -3,6 +3,7 @@ import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
+import '../../services/web_interop.dart';
 
 class ManageVehicleModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -362,7 +363,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                           },
                           events: {
                             'input': (e) {
-                              final val = (e.target as dynamic).value as String;
+                              final val = getInputValue(e.target);
                               setState(() => _gpsInput = val);
                             },
                           },
@@ -618,39 +619,56 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                   classes:
                       'p-5 rounded-2xl border mb-6 ${isDark ? "bg-zinc-950 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
                   [
-                    div(classes: 'flex items-center gap-3 mb-4', [
-                      div(
-                        classes:
-                            'w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center overflow-hidden',
-                        [
-                          if (r['renteePhotoUrl'] != null &&
-                              r['renteePhotoUrl'].toString().isNotEmpty &&
-                              r['renteePhotoUrl'].toString() != 'null')
-                            img(
-                              src: r['renteePhotoUrl'].toString(),
-                              classes: 'w-full h-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
-                              events: {
-                                'click': (_) => component.appState.showFullScreenPhoto(r['renteePhotoUrl'].toString()),
-                              },
-                            )
-                          else
-                            lIcon('user', cls: 'w-6 h-6 text-purple-400'),
-                        ],
-                      ),
-                      div([
-                        p(classes: 'font-extrabold text-base flex items-center gap-2', [
-                          Component.text(r['renteeName'] ?? 'Active Renter'),
-                          if (r['hireWithDriver'] == true)
-                            span(
-                              classes:
-                                  'text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30',
-                              [Component.text('With Driver')],
-                            ),
-                        ]),
-                        p(classes: 'text-xs text-zinc-500', [
-                          Component.text('License: ${_obscureLicenseNumber(r["renteeLicenseNumber"]?.toString())}'),
+                    div(classes: 'flex items-center justify-between gap-3 mb-4', [
+                      div(classes: 'flex items-center gap-3', [
+                        div(
+                          classes:
+                              'w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center overflow-hidden',
+                          [
+                            if (r['renteePhotoUrl'] != null &&
+                                r['renteePhotoUrl'].toString().isNotEmpty &&
+                                r['renteePhotoUrl'].toString() != 'null')
+                              img(
+                                src: r['renteePhotoUrl'].toString(),
+                                classes: 'w-full h-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
+                                events: {
+                                  'click': (_) => component.appState.showFullScreenPhoto(r['renteePhotoUrl'].toString()),
+                                },
+                              )
+                            else
+                              lIcon('user', cls: 'w-6 h-6 text-purple-400'),
+                          ],
+                        ),
+                        div([
+                          p(classes: 'font-extrabold text-base flex items-center gap-2', [
+                            Component.text(r['renteeName'] ?? 'Active Renter'),
+                            if (r['hireWithDriver'] == true)
+                              span(
+                                classes:
+                                    'text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30',
+                                [Component.text('With Driver')],
+                              ),
+                          ]),
+                          p(classes: 'text-xs text-zinc-500', [
+                            Component.text('License: ${_obscureLicenseNumber(r["renteeLicenseNumber"]?.toString())}'),
+                          ]),
                         ]),
                       ]),
+                      if (r['allowChat'] == true)
+                        button(
+                          classes:
+                              'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent',
+                          events: {
+                            'click': (_) {
+                              component.appState.setState(() {
+                                component.appState.showManageVehicleModal = false;
+                              });
+                              final chatId = 'rental_${r['id']}_${r['renteeId']}';
+                              component.appState.openChat(chatId);
+                            },
+                          },
+                          [lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'), Component.text('Chat Renter')],
+                        ),
                     ]),
 
                     // Contract Duration / Details

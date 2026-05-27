@@ -1,8 +1,10 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
+import '../../services/web_interop.dart';
 import 'package:shared/shared.dart';
 
 
@@ -109,13 +111,10 @@ class HomeViewComponent extends StatelessComponent {
             },
             events: {
               'input': (e) {
-                // ignore: avoid_dynamic_calls
-                final v = (e as dynamic).target?.value as String? ?? '';
-                s.setState(() => s.homeSearchQuery = v);
+                s.setState(() => s.homeSearchQuery = getInputValue(e.target));
               },
               'keydown': (e) {
-                // ignore: avoid_dynamic_calls
-                final key = (e as dynamic).key as String? ?? '';
+                final key = (e as web.KeyboardEvent).key;
                 if (key == 'Enter') s.handleHomeSearch(s.homeSearchQuery);
               },
             },
