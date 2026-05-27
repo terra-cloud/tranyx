@@ -746,7 +746,7 @@ class FirestoreService {
           'value': {'stringValue': uid},
         },
       },
-    ]);
+    ], orderByCreatedAt: false);
   }
 
   /// Fetch available jobs for the given viewer type.
@@ -780,30 +780,36 @@ class FirestoreService {
     await setDocument('users/$uid', {'tyxBalance': balance});
   }
 
-  Future<List<Map<String, dynamic>>> _queryJobs(List<Map<String, dynamic>> filters) async {
+  Future<List<Map<String, dynamic>>> _queryJobs(List<Map<String, dynamic>> filters, {bool orderByCreatedAt = true}) async {
     final url =
         'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final body = jsonEncode({
-      'structuredQuery': {
-        'from': [
-          {'collectionId': 'jobs'},
-        ],
-        'where': filters.length == 1
-            ? filters.first
-            : {
-                'compositeFilter': {
-                  'op': 'AND',
-                  'filters': filters,
-                },
+    
+    final Map<String, dynamic> structuredQuery = {
+      'from': [
+        {'collectionId': 'jobs'},
+      ],
+      'where': filters.length == 1
+          ? filters.first
+          : {
+              'compositeFilter': {
+                'op': 'AND',
+                'filters': filters,
               },
-        'orderBy': [
-          {
-            'field': {'fieldPath': 'createdAt'},
-            'direction': 'DESCENDING',
-          },
-        ],
-        'limit': 50,
-      },
+            },
+      'limit': 50,
+    };
+
+    if (orderByCreatedAt) {
+      structuredQuery['orderBy'] = [
+        {
+          'field': {'fieldPath': 'createdAt'},
+          'direction': 'DESCENDING',
+        },
+      ];
+    }
+
+    final body = jsonEncode({
+      'structuredQuery': structuredQuery,
     });
 
     try {
@@ -819,11 +825,16 @@ class FirestoreService {
       }
 
       final results = jsonDecode(req.body) as List;
-      return results.where((r) => (r as Map).containsKey('document')).map((r) {
+      final list = results.where((r) => (r as Map).containsKey('document')).map((r) {
         final doc = (r as Map<String, dynamic>)['document'] as Map<String, dynamic>;
         final id = _docId(doc);
         return {'id': id, ..._fromFirestoreDoc(doc)};
       }).toList();
+
+      if (!orderByCreatedAt) {
+        list.sort((a, b) => (b['createdAt'] as int? ?? 0).compareTo(a['createdAt'] as int? ?? 0));
+      }
+      return list;
     } catch (e) {
       print('FIRESTORE QUERY ERROR: $e');
       return [];
