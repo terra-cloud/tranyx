@@ -831,18 +831,29 @@ class _Payment extends StatelessComponent {
 
   Component _phantomWallet(TranyxAppState s, bool isDark) {
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+    final walletName = s.selectedWalletType != null
+        ? '${s.selectedWalletType!.substring(0, 1).toUpperCase()}${s.selectedWalletType!.substring(1)}'
+        : 'Solana';
+
+    Component getWalletIcon({String size = 'w-5 h-5'}) {
+      if (s.selectedWalletType == 'phantom') return img(src: '/images/PhantomWallet.png', classes: '$size object-contain rounded-md');
+      if (s.selectedWalletType == 'solflare') return img(src: '/images/Solflare.png', classes: '$size object-contain rounded-md');
+      if (s.selectedWalletType == 'trust') return img(src: '/images/TrustWallet.jpeg', classes: '$size object-contain rounded-md');
+      if (s.selectedWalletType == 'backpack') return img(src: '/images/BackPack.png', classes: '$size object-contain rounded-md');
+      return lIcon('wallet', cls: '$size text-white');
+    }
 
     if (s.walletState == WalletState.disconnected) {
       return div(classes: 'p-5 rounded-2xl border $cardCls', [
         div(classes: 'flex items-center justify-between', [
           div(classes: 'flex items-center gap-3', [
             div(classes: 'p-2.5 rounded-xl phantom-gradient', [
-              lIcon('wallet', cls: 'w-5 h-5 text-white'),
+              getWalletIcon(size: 'w-5 h-5'),
             ]),
             div([
-              p(classes: 'font-semibold', [Component.text('Phantom Wallet')]),
+              p(classes: 'font-semibold', [Component.text('Solana Wallet')]),
               p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-                Component.text('Connect your Solana wallet'),
+                Component.text('Connect Phantom, Trust, Solflare, or Backpack'),
               ]),
             ]),
           ]),
@@ -860,10 +871,10 @@ class _Payment extends StatelessComponent {
       return div(classes: 'p-5 rounded-2xl border $cardCls', [
         div(classes: 'flex items-center gap-3', [
           div(classes: 'p-2.5 rounded-xl phantom-gradient animate-pulse', [
-            lIcon('wallet', cls: 'w-5 h-5 text-white'),
+            getWalletIcon(size: 'w-5 h-5'),
           ]),
           div([
-            p(classes: 'font-semibold', [Component.text('Connecting Phantom...')]),
+            p(classes: 'font-semibold', [Component.text('Connecting $walletName...')]),
             p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
               Component.text('Please approve in your browser extension'),
             ]),
@@ -955,10 +966,10 @@ class _Payment extends StatelessComponent {
             div(
               classes:
                   'w-12 h-12 rounded-full bg-[#512da8] flex items-center justify-center text-white shadow-lg shadow-purple-500/20',
-              [lIcon('wallet', cls: 'w-6 h-6')],
+              [getWalletIcon(size: 'w-6 h-6')],
             ),
             div([
-              p(classes: 'font-extrabold text-indigo-400 tracking-tight text-base', [Component.text('Phantom Wallet')]),
+              p(classes: 'font-extrabold text-indigo-400 tracking-tight text-base', [Component.text('$walletName Wallet')]),
               p(classes: 'text-xs text-zinc-500 font-mono mt-0.5', [Component.text(displayAddr)]),
             ]),
           ]),

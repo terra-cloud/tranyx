@@ -166,9 +166,8 @@ class _LoginScreenState extends State<_LoginScreen> {
                 'w-full py-3.5 rounded-2xl font-semibold border flex items-center justify-center gap-3 transition-colors ${isDark ? "border-purple-500/30 hover:bg-purple-500/10 text-purple-400" : "border-purple-200 hover:bg-purple-50 text-purple-600"}',
             events: {'click': (_) => s.handlePhantomSignIn()},
             [
-              // Phantom SVG Icon
-              phantomSvgIcon(size: 'w-5 h-5'),
-              Component.text('Phantom Wallet'),
+              lIcon('wallet', cls: 'w-5 h-5'),
+              Component.text('Solana Wallet'),
             ],
           ),
         ]),

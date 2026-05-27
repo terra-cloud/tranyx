@@ -201,6 +201,61 @@
       }
     }
 
+    function getSolanaProvider(type) {
+      if (type === 'phantom') {
+        return window.phantom?.solana || (window.solana?.isPhantom ? window.solana : null);
+      }
+      if (type === 'trust') {
+        return window.trustWallet?.solana || (window.solana?.isTrust ? window.solana : null);
+      }
+      if (type === 'solflare') {
+        return window.solflare || (window.solana?.isSolflare ? window.solana : null);
+      }
+      if (type === 'backpack') {
+        return window.backpack || (window.solana?.isBackpack ? window.solana : null);
+      }
+      return null;
+    }
+
+    window.getDetectedSolanaWallets = function () {
+      const wallets = [];
+      if (window.phantom?.solana || window.solana?.isPhantom) wallets.push('phantom');
+      if (window.trustWallet?.solana || window.solana?.isTrust) wallets.push('trust');
+      if (window.solflare || window.solana?.isSolflare) wallets.push('solflare');
+      if (window.backpack || window.solana?.isBackpack) wallets.push('backpack');
+      return wallets;
+    };
+
+    window.isSolanaWalletInstalled = function (type) {
+      return !!getSolanaProvider(type);
+    };
+
+    window.connectSolanaWallet = async function (type) {
+      const provider = getSolanaProvider(type);
+      if (!provider) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
+      window.selectedSolanaWallet = type;
+      localStorage.setItem('selectedSolanaWallet', type);
+      const resp = await provider.connect();
+      const pubKey = resp?.publicKey || provider.publicKey;
+      if (!pubKey) throw new Error("Could not retrieve public key from " + type + " Wallet.");
+      return pubKey.toString();
+    };
+
+    window.getSolanaPublicKeyIfConnected = async function (type) {
+      const provider = getSolanaProvider(type);
+      if (!provider) return null;
+      try {
+        const resp = await provider.connect({ onlyIfTrusted: true });
+        const pubKey = resp?.publicKey || provider.publicKey;
+        if (!pubKey) return null;
+        window.selectedSolanaWallet = type;
+        localStorage.setItem('selectedSolanaWallet', type);
+        return pubKey.toString();
+      } catch (e) {
+        return null;
+      }
+    };
+
     window.sendSolPayment = async function (fromAddress, toAddress, amountInSol, rpcUrl) {
       console.log("sendSolPayment started", fromAddress, toAddress, amountInSol, rpcUrl);
       ensureBuffer();
@@ -208,12 +263,13 @@
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
         }
-        const solana = window.phantom && window.phantom.solana;
+        const type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        const solana = getSolanaProvider(type);
         if (!solana) {
-          throw new Error("Phantom Wallet is not installed.");
+          throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
         }
         if (!solana.publicKey) {
-          throw new Error("Phantom Wallet is not connected.");
+          throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected.");
         }
 
         // Establish connection to dynamic RPC URL
@@ -245,7 +301,7 @@
         transaction.recentBlockhash = latestBlockHash.blockhash;
         transaction.feePayer = fromPubkey;
 
-        // Sign and send transaction via Phantom provider
+        // Sign and send transaction via selected provider
         const { signature } = await solana.signAndSendTransaction(transaction);
         console.log("Transaction sent. Signature:", signature);
 
@@ -274,9 +330,10 @@
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
         }
-        const solana = window.phantom && window.phantom.solana;
-        if (!solana) throw new Error("Phantom Wallet is not installed.");
-        if (!solana.publicKey) throw new Error("Phantom Wallet is not connected.");
+        const type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        const solana = getSolanaProvider(type);
+        if (!solana) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
+        if (!solana.publicKey) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected.");
 
         let fallbackRpc = "https://api.testnet.solana.com";
         let fallbackUsdtMint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";

@@ -42,10 +42,13 @@ class WebFile {
 
 Future<List<WebFile>> readFilesFromEvent(dynamic event) async => [];
 
+Future<String?> connectSolanaWallet(String type) async => null;
+Future<String?> getSolanaPublicKeyIfConnected(String type) async => null;
+bool isSolanaWalletInstalled(String type) => false;
+List<String> getDetectedSolanaWallets() => [];
+
 Future<String?> connectPhantomWallet() async => null;
-
 bool isPhantomInstalled() => false;
-
 Future<String?> getPhantomPublicKeyIfConnected() async => null;
 
 Future<double?> getSolanaBalance(String publicKey) async => null;

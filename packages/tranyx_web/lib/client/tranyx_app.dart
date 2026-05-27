@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:jaspr/dom.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'package:web/web.dart' as web;
 import 'package:tranyx_web/services/web_interop.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -267,6 +268,8 @@ class TranyxAppState extends State<TranyxApp> {
   Map<String, dynamic>? employerProfileData;
 
   // ── Wallet ──────────────────────────────────────────────────
+  bool showWalletSelectionModal = false;
+  String? selectedWalletType;
   WalletState walletState = WalletState.disconnected;
   String walletAddress = '';
   double walletBalance = 0.0;
@@ -1117,119 +1120,11 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   Future<void> handlePhantomSignIn() async {
-    if (!isPhantomInstalled()) {
-      setState(() {
-        authError = 'Phantom Wallet is not installed. Please visit phantom.app to install it.';
-      });
-      return;
-    }
-
     setState(() {
-      isAuthLoading = true;
-      authError = null;
+      showWalletSelectionModal = true;
     });
-
-    try {
-      final publicKey = await connectPhantomWallet();
-      if (publicKey == null) {
-        setState(() {
-          authError = 'Wallet connection was rejected or failed.';
-          isAuthLoading = false;
-        });
-        return;
-      }
-
-      // Check if this wallet is linked to an existing account
-      final linkData = await FirestoreService().getWalletLink(publicKey);
-
-      if (linkData != null) {
-        final existingUid = linkData['uid'] as String?;
-        final refreshToken = linkData['refreshToken'] as String?;
-
-        if (refreshToken != null) {
-          try {
-            final authService = FirebaseAuthService();
-            final newIdToken = await authService.refreshIdToken(refreshToken);
-            final userData = await authService.getUserData(newIdToken);
-
-            final authResult = AuthResult(
-              uid: existingUid!,
-              idToken: newIdToken,
-              refreshToken: refreshToken,
-              email: userData['email'] as String?,
-              displayName: userData['displayName'] as String?,
-            );
-
-            SessionStorage.save(authResult);
-
-            // Load user profile from Firestore to get account type
-            final profile = await FirestoreService(authResult.idToken, _handleTokenRefresh).getUser(authResult.uid);
-            final type = profile?.accountType ?? AccountType.employer;
-
-            SessionStorage.saveProfile(
-              name: profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User'),
-              email: authResult.email ?? '',
-              accountType: type.name,
-            );
-
-            setState(() {
-              isAuthenticated = true;
-              accountType = type;
-              hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-              userName = profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User');
-              userEmail = authResult.email ?? '';
-              userProfile = profile;
-              isAuthLoading = false;
-              authView = AuthView.login;
-            });
-
-            _initGemini();
-            await loadJobs();
-            await loadTransactions();
-            _startListeningNotifications();
-            _startListeningJobs();
-            _startListeningRentals();
-            _startListeningProperties();
-            unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
-
-            if (pendingQrJobId != null && pendingQrCode != null) {
-              await executePendingQrVerification();
-            }
-            return;
-          } catch (e) {
-            // Token refresh failed, fallback to manual login
-            setState(() {
-              isAuthLoading = false;
-              authError = '🦊 Wallet recognized but session expired. Please sign in with email & password.';
-              pendingWalletPublicKey = publicKey;
-            });
-            return;
-          }
-        } else {
-          // Legacy or no refresh token stored — fallback to prompt
-          setState(() {
-            isAuthLoading = false;
-            authError = '🦊 Wallet recognized! Please sign in with your email & password to continue.';
-            pendingWalletPublicKey = publicKey;
-          });
-          return;
-        }
-      } else {
-        // New user — redirect to register with wallet pre-linked
-        setState(() {
-          isAuthLoading = false;
-          authError = null;
-          pendingWalletPublicKey = publicKey;
-          authView = AuthView.registerPath;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        authError = 'Phantom connection error: ${e.toString()}';
-        isAuthLoading = false;
-      });
-    }
   }
+
 
   void handleLogout() {
     SessionStorage.clear();
@@ -1555,16 +1450,17 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     try {
-      // 1. Ensure Phantom is connected and obtain the active user's public key
-      if (!isPhantomInstalled()) {
-        throw 'Phantom Wallet is not installed. Please install the browser extension.';
+      // 1. Ensure Solana wallet is connected and obtain the active user's public key
+      final activeWalletType = selectedWalletType ?? 'phantom';
+      if (!isSolanaWalletInstalled(activeWalletType)) {
+        throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
       var fromPubKey = userProfile?.walletPublicKey;
       if (fromPubKey == null || fromPubKey.trim().isEmpty) {
-        fromPubKey = await connectPhantomWallet();
+        fromPubKey = await connectSolanaWallet(activeWalletType);
         if (fromPubKey == null) {
-          throw 'Failed to connect Phantom Wallet. Please approve the connection.';
+          throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
         }
         // Link wallet address to user doc
         await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, fromPubKey);
@@ -1603,7 +1499,7 @@ class TranyxAppState extends State<TranyxApp> {
         await svc.createOrUpdate('transactions/deposit_sol_$signature', {
           'uid': uid,
           'title': 'Wallet Top-Up (SOL)',
-          'desc': 'Crypto deposit of ${amountInSol.toStringAsFixed(4)} SOL via Phantom',
+          'desc': 'Crypto deposit of ${amountInSol.toStringAsFixed(4)} SOL via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}',
           'amount': depositAmount,
           'status': 'Successful',
           'method': 'Solana',
@@ -1693,15 +1589,16 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     try {
-      if (!isPhantomInstalled()) {
-        throw 'Phantom Wallet is not installed. Please install the browser extension.';
+      final activeWalletType = selectedWalletType ?? 'phantom';
+      if (!isSolanaWalletInstalled(activeWalletType)) {
+        throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
       var fromPubKey = userProfile?.walletPublicKey;
       if (fromPubKey == null || fromPubKey.trim().isEmpty) {
-        fromPubKey = await connectPhantomWallet();
+        fromPubKey = await connectSolanaWallet(activeWalletType);
         if (fromPubKey == null) {
-          throw 'Failed to connect Phantom Wallet. Please approve the connection.';
+          throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
         }
         await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, fromPubKey);
       }
@@ -1751,7 +1648,7 @@ class TranyxAppState extends State<TranyxApp> {
         await svc.createOrUpdate('transactions/deposit_usdt_$signature', {
           'uid': uid,
           'title': 'Wallet Top-Up (USDT)',
-          'desc': 'Crypto deposit of ${amountInUsdt.toStringAsFixed(2)} USDT via Phantom',
+          'desc': 'Crypto deposit of ${amountInUsdt.toStringAsFixed(2)} USDT via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}',
           'amount': phpEquivalent,
           'status': 'Successful',
           'method': 'Solana/USDT',
@@ -4158,57 +4055,9 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Wallet ──────────────────────────────────────────────────
 
   Future<void> handleConnectWallet() async {
-    if (!isPhantomInstalled()) {
-      setState(() => walletState = WalletState.disconnected);
-      return;
-    }
-    setState(() => walletState = WalletState.connecting);
-    try {
-      final publicKey = await connectPhantomWallet();
-      if (publicKey == null) {
-        setState(() => walletState = WalletState.disconnected);
-        return;
-      }
-      
-      final ethAddrVal = await connectEthereumWallet();
-      final suiAddrVal = await connectSuiWallet();
-
-      final balance = await getSolanaBalance(publicKey) ?? 0.0;
-      final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
-      final short = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
-
-      double ethBalVal = 0.0;
-      if (ethAddrVal != null) {
-        ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
-      }
-
-      double suiBalVal = 0.0;
-      if (suiAddrVal != null) {
-        suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
-      }
-
-      // Persist wallet link to Firestore if user is logged in
-      final token = SessionStorage.idToken;
-      final uid = SessionStorage.uid;
-      if (token != null && uid != null) {
-        try {
-          await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, publicKey);
-        } catch (_) {}
-      }
-
-      setState(() {
-        walletAddress = short;
-        walletBalance = balance;
-        walletCollectibles = collectibles;
-        ethAddress = ethAddrVal ?? '';
-        suiAddress = suiAddrVal ?? '';
-        ethBalance = ethBalVal;
-        suiBalance = suiBalVal;
-        walletState = WalletState.connected;
-      });
-    } catch (_) {
-      setState(() => walletState = WalletState.disconnected);
-    }
+    setState(() {
+      showWalletSelectionModal = true;
+    });
   }
 
   Future<void> handleRefreshBalance() async {
@@ -4216,8 +4065,9 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() => isRefreshingBalance = true);
     try {
       String? publicKey = userProfile?.walletPublicKey;
-      if (publicKey == null && isPhantomInstalled()) {
-        publicKey = await getPhantomPublicKeyIfConnected();
+      final activeWalletType = selectedWalletType ?? 'phantom';
+      if (publicKey == null && isSolanaWalletInstalled(activeWalletType)) {
+        publicKey = await getSolanaPublicKeyIfConnected(activeWalletType);
       }
 
       final ethAddrVal = await getEthereumAddressIfConnected();
@@ -4252,44 +4102,50 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() => isRefreshingBalance = false);
   }
 
-  /// Called after login — auto-connects to the linked wallet to fetch balance.
   Future<void> autoConnectPhantomIfLinked(String? profileWalletKey) async {
     try {
-      if (profileWalletKey != null && isPhantomInstalled()) {
-        final activeKey = await getPhantomPublicKeyIfConnected();
-        if (activeKey != null && activeKey == profileWalletKey) {
-          final balance = await getSolanaBalance(profileWalletKey) ?? 0.0;
-          final collectibles = await getSolanaTokenCollectibles(profileWalletKey) ?? [];
-          final short =
-              '${profileWalletKey.substring(0, 4)}...${profileWalletKey.substring(profileWalletKey.length - 4)}';
+      if (profileWalletKey != null) {
+        final savedType = web.window.localStorage.getItem('selectedSolanaWallet');
+        final typesToCheck = savedType != null ? [savedType] : ['phantom', 'solflare', 'backpack', 'trust'];
 
-          final ethAddrVal = await getEthereumAddressIfConnected();
-          final suiAddrVal = await getSuiAddressIfConnected();
+        for (final type in typesToCheck) {
+          if (isSolanaWalletInstalled(type)) {
+            final activeKey = await getSolanaPublicKeyIfConnected(type);
+            if (activeKey != null && activeKey == profileWalletKey) {
+              final balance = await getSolanaBalance(profileWalletKey) ?? 0.0;
+              final collectibles = await getSolanaTokenCollectibles(profileWalletKey) ?? [];
+              final short =
+                  '${profileWalletKey.substring(0, 4)}...${profileWalletKey.substring(profileWalletKey.length - 4)}';
 
-          double ethBalVal = 0.0;
-          if (ethAddrVal != null) {
-            ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+              final ethAddrVal = await getEthereumAddressIfConnected();
+              final suiAddrVal = await getSuiAddressIfConnected();
+
+              double ethBalVal = 0.0;
+              if (ethAddrVal != null) {
+                ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+              }
+
+              double suiBalVal = 0.0;
+              if (suiAddrVal != null) {
+                suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
+              }
+
+              setState(() {
+                selectedWalletType = type;
+                walletAddress = short;
+                walletBalance = balance;
+                walletCollectibles = collectibles;
+                ethAddress = ethAddrVal ?? '';
+                suiAddress = suiAddrVal ?? '';
+                ethBalance = ethBalVal;
+                suiBalance = suiBalVal;
+                walletState = WalletState.connected;
+              });
+              return;
+            }
           }
-
-          double suiBalVal = 0.0;
-          if (suiAddrVal != null) {
-            suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
-          }
-
-          setState(() {
-            walletAddress = short;
-            walletBalance = balance;
-            walletCollectibles = collectibles;
-            ethAddress = ethAddrVal ?? '';
-            suiAddress = suiAddrVal ?? '';
-            ethBalance = ethBalVal;
-            suiBalance = suiBalVal;
-            walletState = WalletState.connected;
-          });
-          return;
         }
 
-        // If not silently connected, ask the user if they want to reconnect
         setState(() {
           showWalletReconnectPrompt = true;
           pendingReconnectWalletKey = profileWalletKey;
@@ -4297,40 +4153,235 @@ class TranyxAppState extends State<TranyxApp> {
         return;
       }
 
-      // If no linked wallet on profile, try to see if Phantom is already trusted in browser
-      if (isPhantomInstalled()) {
-        final publicKey = await getPhantomPublicKeyIfConnected();
-        if (publicKey != null) {
-          final balance = await getSolanaBalance(publicKey) ?? 0.0;
-          final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
-          final short = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
+      final types = ['phantom', 'solflare', 'backpack', 'trust'];
+      for (final type in types) {
+        if (isSolanaWalletInstalled(type)) {
+          final publicKey = await getSolanaPublicKeyIfConnected(type);
+          if (publicKey != null) {
+            final balance = await getSolanaBalance(publicKey) ?? 0.0;
+            final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
+            final short = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
 
-          final ethAddrVal = await getEthereumAddressIfConnected();
-          final suiAddrVal = await getSuiAddressIfConnected();
+            final ethAddrVal = await getEthereumAddressIfConnected();
+            final suiAddrVal = await getSuiAddressIfConnected();
 
-          double ethBalVal = 0.0;
-          if (ethAddrVal != null) {
-            ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+            double ethBalVal = 0.0;
+            if (ethAddrVal != null) {
+              ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+            }
+
+            double suiBalVal = 0.0;
+            if (suiAddrVal != null) {
+              suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
+            }
+
+            setState(() {
+              selectedWalletType = type;
+              walletAddress = short;
+              walletBalance = balance;
+              walletCollectibles = collectibles;
+              ethAddress = ethAddrVal ?? '';
+              suiAddress = suiAddrVal ?? '';
+              ethBalance = ethBalVal;
+              suiBalance = suiBalVal;
+              walletState = WalletState.connected;
+            });
+            return;
           }
-
-          double suiBalVal = 0.0;
-          if (suiAddrVal != null) {
-            suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
-          }
-
-          setState(() {
-            walletAddress = short;
-            walletBalance = balance;
-            walletCollectibles = collectibles;
-            ethAddress = ethAddrVal ?? '';
-            suiAddress = suiAddrVal ?? '';
-            ethBalance = ethBalVal;
-            suiBalance = suiBalVal;
-            walletState = WalletState.connected;
-          });
         }
       }
     } catch (_) {}
+  }
+
+  Future<void> handleSelectSolanaWallet(String type) async {
+    setState(() {
+      showWalletSelectionModal = false;
+      selectedWalletType = type;
+    });
+
+    if (!isSolanaWalletInstalled(type)) {
+      final friendlyName = type.substring(0, 1).toUpperCase() + type.substring(1);
+      if (!isAuthenticated) {
+        setState(() {
+          authError = '$friendlyName Wallet is not installed. Please install it to continue.';
+        });
+      } else {
+        setState(() => walletState = WalletState.disconnected);
+      }
+      return;
+    }
+
+    if (!isAuthenticated) {
+      setState(() {
+        isAuthLoading = true;
+        authError = null;
+      });
+
+      try {
+        final publicKey = await connectSolanaWallet(type);
+        if (publicKey == null) {
+          setState(() {
+            authError = 'Wallet connection was rejected or failed.';
+            isAuthLoading = false;
+          });
+          return;
+        }
+
+        final linkData = await FirestoreService().getWalletLink(publicKey);
+
+        if (linkData != null) {
+          final existingUid = linkData['uid'] as String?;
+          final refreshToken = linkData['refreshToken'] as String?;
+
+          if (refreshToken != null) {
+            try {
+              final authService = FirebaseAuthService();
+              final newIdToken = await authService.refreshIdToken(refreshToken);
+              final userData = await authService.getUserData(newIdToken);
+
+              final authResult = AuthResult(
+                uid: existingUid!,
+                idToken: newIdToken,
+                refreshToken: refreshToken,
+                email: userData['email'] as String?,
+                displayName: userData['displayName'] as String?,
+              );
+
+              SessionStorage.save(authResult);
+
+              final profile = await FirestoreService(authResult.idToken, _handleTokenRefresh).getUser(authResult.uid);
+              final profileType = profile?.accountType ?? AccountType.employer;
+
+              SessionStorage.saveProfile(
+                name: profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User'),
+                email: authResult.email ?? '',
+                accountType: profileType.name,
+              );
+
+              setState(() {
+                userEmail = authResult.email ?? '';
+                userProfile = profile;
+                isAuthenticated = true;
+                accountType = profileType;
+                hybridToggle = profileType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+                userName = profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User');
+                isAuthLoading = false;
+                walletAddress = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
+                walletState = WalletState.connected;
+              });
+
+              _initGemini();
+              await loadJobs();
+              await loadTransactions();
+              _startListeningNotifications();
+              _startListeningJobs();
+              _startListeningRentals();
+              _startListeningProperties();
+
+              final balance = await getSolanaBalance(publicKey) ?? 0.0;
+              final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
+              setState(() {
+                walletBalance = balance;
+                walletCollectibles = collectibles;
+              });
+
+              if (pendingQrJobId != null && pendingQrCode != null) {
+                await executePendingQrVerification();
+              }
+              return;
+            } catch (e) {
+              setState(() {
+                isAuthLoading = false;
+                authError = 'Wallet recognized but session expired. Please sign in with email & password.';
+                pendingWalletPublicKey = publicKey;
+              });
+              return;
+            }
+          } else {
+            setState(() {
+              isAuthLoading = false;
+              authError = 'Wallet recognized! Please sign in with your email & password to continue.';
+              pendingWalletPublicKey = publicKey;
+            });
+            return;
+          }
+        } else {
+          setState(() {
+            isAuthLoading = false;
+            authError = null;
+            pendingWalletPublicKey = publicKey;
+            authView = AuthView.registerPath;
+          });
+        }
+      } catch (e) {
+        setState(() {
+          authError = 'Wallet connection error: ${e.toString()}';
+          isAuthLoading = false;
+        });
+      }
+    } else {
+      setState(() => walletState = WalletState.connecting);
+      try {
+        final publicKey = await connectSolanaWallet(type);
+        if (publicKey == null) {
+          setState(() => walletState = WalletState.disconnected);
+          return;
+        }
+
+        final ethAddrVal = await connectEthereumWallet();
+        final suiAddrVal = await connectSuiWallet();
+
+        final balance = await getSolanaBalance(publicKey) ?? 0.0;
+        final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
+        final short = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
+
+        double ethBalVal = 0.0;
+        if (ethAddrVal != null) {
+          ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+        }
+
+        double suiBalVal = 0.0;
+        if (suiAddrVal != null) {
+          suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
+        }
+
+        final token = SessionStorage.idToken;
+        final currentUid = SessionStorage.uid;
+        if (token != null && currentUid != null) {
+          try {
+            await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(currentUid, publicKey);
+          } catch (_) {}
+        }
+
+        setState(() {
+          walletAddress = short;
+          walletBalance = balance;
+          walletCollectibles = collectibles;
+          ethAddress = ethAddrVal ?? '';
+          suiAddress = suiAddrVal ?? '';
+          ethBalance = ethBalVal;
+          suiBalance = suiBalVal;
+          walletState = WalletState.connected;
+        });
+      } catch (_) {
+        setState(() => walletState = WalletState.disconnected);
+      }
+    }
+  }
+
+  void handleDisconnectWallet() {
+    setState(() {
+      walletState = WalletState.disconnected;
+      walletAddress = '';
+      walletBalance = 0.0;
+      walletCollectibles = [];
+      ethAddress = '';
+      suiAddress = '';
+      ethBalance = 0.0;
+      suiBalance = 0.0;
+      selectedWalletType = null;
+      showWalletSelectionModal = false;
+    });
   }
 
   // ── Helpers ─────────────────────────────────────────────────
@@ -4549,10 +4600,11 @@ class TranyxAppState extends State<TranyxApp> {
     final darkBg = isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900';
 
     if (!isAuthenticated) {
-      return div(classes: 'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12', [
+      return div(classes: 'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12 relative', [
         div(classes: 'w-full max-w-md p-6', [
           AuthViewComponent(state: this),
         ]),
+        if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
       ]);
     }
 
@@ -4727,6 +4779,9 @@ class TranyxAppState extends State<TranyxApp> {
             }
           },
         ),
+
+      // Wallet Selection modal overlay
+      if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
 
       // Payment modal overlay
       if (showDepositModal) PaymentModalComponent(state: this),
@@ -4967,6 +5022,157 @@ class SmsVerificationModalComponent extends StatelessComponent {
                 ),
               ]),
             ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class WalletSelectionModalComponent extends StatelessComponent {
+  final TranyxAppState state;
+  const WalletSelectionModalComponent({required this.state, super.key});
+
+  @override
+  Component build(BuildContext context) {
+    final s = state;
+    final isDark = s.isDark;
+
+    final wallets = [
+      {'id': 'phantom', 'name': 'Phantom', 'url': 'https://phantom.app/download'},
+      {'id': 'solflare', 'name': 'Solflare', 'url': 'https://solflare.com/download'},
+      {'id': 'trust', 'name': 'Trust Wallet', 'url': 'https://trustwallet.com/download'},
+      {'id': 'backpack', 'name': 'Backpack', 'url': 'https://backpack.app/download'},
+    ];
+
+    Component getWalletIcon(String id, {String size = 'w-6 h-6'}) {
+      if (id == 'phantom') return img(src: '/images/PhantomWallet.png', classes: '$size object-contain rounded-md');
+      if (id == 'solflare') return img(src: '/images/Solflare.png', classes: '$size object-contain rounded-md');
+      if (id == 'trust') return img(src: '/images/TrustWallet.jpeg', classes: '$size object-contain rounded-md');
+      if (id == 'backpack') return img(src: '/images/BackPack.png', classes: '$size object-contain rounded-md');
+      return lIcon('wallet', cls: '$size text-white');
+    }
+
+    return div(
+      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
+      [
+        div(
+          classes:
+              'w-full max-w-md rounded-3xl border p-6 relative overflow-hidden transition-all duration-300 '
+              '${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-800 shadow-2xl"}',
+          [
+            // Top accent color flare
+            div(
+              [],
+              classes:
+                  'absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-purple-500 via-indigo-500 to-blue-500',
+            ),
+
+            // Close button
+            button(
+              classes:
+                  'absolute top-4 right-4 p-2 rounded-full transition-colors cursor-pointer '
+                  '${isDark ? "hover:bg-zinc-800 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-800"}',
+              events: {
+                'click': (_) => s.setState(() {
+                  s.showWalletSelectionModal = false;
+                }),
+              },
+              [lIcon('x', cls: 'w-4 h-4')],
+            ),
+
+            div(classes: 'flex flex-col space-y-4 pt-2', [
+              div(classes: 'text-center', [
+                h3(classes: 'text-xl font-black tracking-tight', [Component.text('Connect a Wallet')]),
+                p(
+                  classes: 'text-xs mt-2 leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-500"}',
+                  [
+                    Component.text(
+                      'Select a Solana wallet from the list below to access your SOL and SPL tokens.',
+                    ),
+                  ],
+                ),
+              ]),
+
+              div(classes: 'space-y-2.5 pt-2', [
+                for (final w in wallets) () {
+                  final id = w['id']!;
+                  final name = w['name']!;
+                  final url = w['url']!;
+                  final isInstalled = isSolanaWalletInstalled(id);
+                  final isCurrentlyConnected = s.walletState == WalletState.connected && s.selectedWalletType == id;
+
+                  final statusText = isCurrentlyConnected
+                      ? 'Connected'
+                      : (isInstalled ? 'Detected' : 'Not Installed');
+                  final badgeClasses = isCurrentlyConnected
+                      ? 'bg-emerald-500/10 text-emerald-400'
+                      : (isInstalled ? 'bg-indigo-500/10 text-indigo-400' : 'bg-zinc-500/10 text-zinc-400');
+                  final dotClasses = isCurrentlyConnected
+                      ? 'bg-emerald-400'
+                      : (isInstalled ? 'bg-indigo-400' : 'bg-zinc-400');
+
+                  return div(
+                    classes:
+                        'w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all '
+                        '${isDark ? "bg-zinc-950/40 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900/60" : "bg-zinc-50/50 border-zinc-200/80 hover:border-zinc-300 hover:bg-zinc-50"}',
+                    [
+                      div(classes: 'flex items-center gap-3.5', [
+                        div(
+                          classes: 'p-2.5 rounded-xl ${isDark ? "bg-zinc-900" : "bg-white border border-zinc-150"} flex items-center justify-center',
+                          [getWalletIcon(id, size: 'w-6 h-6')],
+                        ),
+                        div([
+                          p(classes: 'font-bold text-sm tracking-tight', [Component.text(name)]),
+                          span(
+                            classes: 'inline-flex items-center gap-1 text-[10px] font-bold mt-1 px-2 py-0.5 rounded-md '
+                                '$badgeClasses',
+                            [
+                              span(
+                                classes: 'w-1.5 h-1.5 rounded-full $dotClasses',
+                                [],
+                              ),
+                              Component.text(statusText),
+                            ],
+                          ),
+                        ]),
+                      ]),
+
+                      if (isInstalled)
+                        if (isCurrentlyConnected)
+                          button(
+                            classes:
+                                'px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-500 hover:bg-red-600 transition-colors border-0 cursor-pointer shadow-md shadow-red-500/10',
+                            events: {
+                              'click': (_) => s.handleDisconnectWallet(),
+                            },
+                            [Component.text('Disconnect')],
+                          )
+                        else
+                          button(
+                            classes:
+                                'px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-500 hover:bg-indigo-600 transition-colors border-0 cursor-pointer shadow-md shadow-indigo-500/10',
+                            events: {
+                              'click': (_) => s.handleSelectSolanaWallet(id),
+                            },
+                            [Component.text('Connect')],
+                          )
+                      else
+                        a(
+                          href: url,
+                          classes:
+                              'px-4 py-2 rounded-xl text-xs font-bold text-zinc-400 border border-zinc-700 hover:text-white hover:bg-zinc-800 transition-all text-center no-underline cursor-pointer',
+                          target: Target.blank,
+                          attributes: const {
+                            'rel': 'noopener noreferrer',
+                          },
+                          [Component.text('Install')],
+                        ),
+                    ],
+                  );
+                }(),
+              ]),
+            ]),
           ],
         ),
       ],

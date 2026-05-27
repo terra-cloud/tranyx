@@ -267,7 +267,7 @@ class PaymentModalComponent extends StatelessComponent {
                   // Phantom Connection status inside card
                   div(classes: 'border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} pt-3 text-xs', [
                     if (s.walletState == WalletState.disconnected)
-                      p(classes: 'text-zinc-400 italic text-center', [Component.text('Phantom Wallet not connected.')])
+                      p(classes: 'text-zinc-400 italic text-center', [Component.text('Solana Wallet not connected.')])
                     else if (s.walletState == WalletState.connecting)
                       p(classes: 'text-yellow-500 font-semibold flex items-center justify-center gap-1.5', [
                         lIcon('loader-2', cls: 'w-3.5 h-3.5 animate-spin'),
@@ -295,7 +295,7 @@ class PaymentModalComponent extends StatelessComponent {
                       events: {'click': (_) => s.handleConnectWallet()},
                       [
                         lIcon('wallet', cls: 'w-5 h-5'),
-                        Component.text('Connect Phantom Wallet'),
+                        Component.text('Connect Solana Wallet'),
                       ],
                     ),
                   ] else if (s.walletState == WalletState.connected) ...[
@@ -353,7 +353,7 @@ class PaymentModalComponent extends StatelessComponent {
                 classes:
                     'text-[10px] uppercase tracking-widest font-bold ${isDark ? "text-zinc-650" : "text-zinc-400"}',
                 [
-                  Component.text(isSolana ? 'Powered by Solana & Phantom Secure' : 'Powered by Xendit & Tranyx Secure'),
+                  Component.text(isSolana ? 'Powered by Solana Secure' : 'Powered by Xendit & Tranyx Secure'),
                 ],
               ),
             ]),
