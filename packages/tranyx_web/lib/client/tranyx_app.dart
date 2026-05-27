@@ -1621,6 +1621,9 @@ class TranyxAppState extends State<TranyxApp> {
         showDepositModal = false;
       });
 
+      // Re-fetch real Phantom SOL balance in the background after payment
+      unawaited(handleRefreshBalance());
+
       // 5. Finalize any pending actions
       if (newJobTitle.isNotEmpty) {
         await handlePostJob();
