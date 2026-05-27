@@ -6,26 +6,33 @@ import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../services/web_interop.dart';
 
-class VehicleQaModalComponent extends StatefulComponent {
+class PropertyQaModalComponent extends StatefulComponent {
   final TranyxAppState appState;
-  final String rentalId;
-  const VehicleQaModalComponent({required this.appState, required this.rentalId, super.key});
+  const PropertyQaModalComponent({required this.appState, super.key});
 
   @override
-  State<VehicleQaModalComponent> createState() => _VehicleQaModalState();
+  State<PropertyQaModalComponent> createState() => _PropertyQaModalState();
 }
 
-class _VehicleQaModalState extends State<VehicleQaModalComponent> {
+class _PropertyQaModalState extends State<PropertyQaModalComponent> {
   List<Map<String, dynamic>> _questions = [];
   String _newQuestionText = '';
   String? _answeringQuestionId;
   String _answerText = '';
   bool _isLoading = true;
+  String? _currentPropertyId;
 
   @override
   void initState() {
     super.initState();
-    listenToRentalQAJs(component.rentalId, (String jsonStr) {
+    _initListener();
+  }
+
+  void _initListener() {
+    final prop = component.appState.selectedPropertyData;
+    if (prop == null) return;
+    _currentPropertyId = prop['id'];
+    listenToPropertyQAJs(_currentPropertyId!, (String jsonStr) {
       try {
         final raw = jsonDecode(jsonStr) as List<dynamic>;
         setState(() {
@@ -33,7 +40,7 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
           _isLoading = false;
         });
       } catch (e) {
-        print('Error parsing Q&A: $e');
+        print('Error parsing property Q&A: $e');
         setState(() => _isLoading = false);
       }
     });
@@ -41,16 +48,19 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
 
   @override
   void dispose() {
-    unlistenRentalQAJs(component.rentalId);
+    if (_currentPropertyId != null) {
+      unlistenPropertyQAJs(_currentPropertyId!);
+    }
     super.dispose();
   }
 
   void _postQuestion() {
     final s = component.appState;
-    if (_newQuestionText.trim().isEmpty || s.userProfile?.uid == null) return;
+    final propertyId = _currentPropertyId;
+    if (_newQuestionText.trim().isEmpty || s.userProfile?.uid == null || propertyId == null) return;
 
-    postRentalQuestionJs(
-      component.rentalId,
+    postPropertyQuestionJs(
+      propertyId,
       s.userProfile!.uid,
       s.userProfile?.name ?? s.userName,
       s.userProfile?.photoUrl ?? '',
@@ -60,8 +70,9 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
   }
 
   void _postAnswer(String qId) {
-    if (_answerText.trim().isEmpty) return;
-    answerRentalQuestionJs(component.rentalId, qId, _answerText.trim());
+    final propertyId = _currentPropertyId;
+    if (_answerText.trim().isEmpty || propertyId == null) return;
+    answerPropertyQuestionJs(propertyId, qId, _answerText.trim());
     setState(() {
       _answeringQuestionId = null;
       _answerText = '';
@@ -72,10 +83,24 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
   Component build(BuildContext context) {
     final s = component.appState;
     final isDark = s.isDark;
-    final r = s.selectedRentalData;
-    if (r == null) return div([]);
+    final prop = s.selectedPropertyData;
+    if (prop == null) return div([]);
 
-    final isHost = r['hostId'] == s.userProfile?.uid;
+    // Re-initialize listener if selected property changed
+    if (_currentPropertyId != prop['id']) {
+      if (_currentPropertyId != null) {
+        unlistenPropertyQAJs(_currentPropertyId!);
+      }
+      setState(() {
+        _isLoading = true;
+        _questions = [];
+        _answeringQuestionId = null;
+        _answerText = '';
+      });
+      _initListener();
+    }
+
+    final isHost = prop['hostId'] == s.userProfile?.uid;
     final bgCls = isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200';
     final textCls = isDark ? 'text-white' : 'text-zinc-900';
     final subTextCls = isDark ? 'text-zinc-400' : 'text-zinc-500';
@@ -87,12 +112,12 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
           classes: 'p-6 border-b flex items-center justify-between ${isDark ? "border-zinc-800" : "border-zinc-100"}',
           [
             div([
-              h2(classes: 'text-2xl font-bold $textCls', [Component.text('Public Q&A')]),
-              p(classes: 'text-sm $subTextCls mt-1', [Component.text('${r["brand"]} ${r["model"]}')]),
+              h2(classes: 'text-2xl font-bold $textCls', [Component.text('Public Q&A Forum')]),
+              p(classes: 'text-sm $subTextCls mt-1', [Component.text(prop['title'] ?? '')]),
             ]),
             button(
               classes: 'p-2 rounded-full hover:bg-zinc-500/20 transition-colors',
-              events: {'click': (_) => s.setState(() => s.showVehicleQaModal = false)},
+              events: {'click': (_) => s.setState(() => s.showPropertyQaModal = false)},
               [lIcon('x', cls: 'w-6 h-6 $subTextCls')],
             ),
           ],
@@ -104,10 +129,10 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
             div(classes: 'flex justify-center p-10', [lIcon('loader', cls: 'w-8 h-8 animate-spin text-purple-500')])
           else if (_questions.isEmpty)
             div(classes: 'text-center p-10', [
-              lIcon('message-circle-question', cls: 'w-12 h-12 mx-auto mb-3 $subTextCls opacity-50'),
-              p(classes: 'text-lg font-bold text-zinc-500', [Component.text('No questions yet.')]),
+              lIcon('message-circle-question', cls: 'w-12 h-12 mx-auto mb-3 $subTextCls opacity-55'),
+              p(classes: 'text-lg font-bold text-zinc-550', [Component.text('No questions yet.')]),
               p(classes: 'text-sm $subTextCls mt-1', [
-                Component.text('Be the first to ask the host a question about this vehicle.'),
+                Component.text('Be the first to ask the host a question about this property.'),
               ]),
             ])
           else
@@ -163,7 +188,7 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
                           div(classes: 'flex justify-end gap-2', [
                             button(
                               classes:
-                                  'px-4 py-1.5 rounded-lg text-xs font-bold ${isDark ? "hover:bg-zinc-800" : "hover:bg-zinc-200"}',
+                                  'px-4 py-1.5 rounded-lg text-xs font-bold ${isDark ? "hover:bg-zinc-800" : "hover:bg-zinc-200"} cursor-pointer bg-transparent border-0',
                               events: {
                                 'click': (_) => setState(() {
                                   _answeringQuestionId = null;
@@ -174,7 +199,7 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
                             ),
                             button(
                               classes:
-                                  'px-4 py-1.5 rounded-lg text-xs font-bold text-white bg-purple-500 hover:bg-purple-600',
+                                  'px-4 py-1.5 rounded-lg text-xs font-bold text-white bg-purple-500 hover:bg-purple-600 cursor-pointer border-0',
                               events: {'click': (_) => _postAnswer(q['id'])},
                               [Component.text('Reply')],
                             ),
@@ -182,11 +207,12 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
                         ])
                       else
                         button(
-                          classes: 'text-xs font-bold text-purple-400 hover:text-purple-300 flex items-center gap-1',
+                          classes:
+                              'text-xs font-bold text-purple-400 hover:text-purple-300 flex items-center gap-1 bg-transparent border-0 cursor-pointer',
                           events: {
                             'click': (_) => setState(() {
-                                _answeringQuestionId = q['id'];
-                                _answerText = '';
+                              _answeringQuestionId = q['id'];
+                              _answerText = '';
                             }),
                           },
                           [lIcon('corner-down-right', cls: 'w-3 h-3'), Component.text('Reply to question')],
@@ -206,7 +232,10 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
                 input(
                   classes:
                       'flex-1 p-3 rounded-xl border focus:border-purple-500 outline-none transition-colors ${isDark ? "bg-zinc-950 border-zinc-700 text-white" : "bg-white border-zinc-300 text-zinc-900"}',
-                  attributes: {'placeholder': 'Ask a public question about this vehicle...', 'value': _newQuestionText},
+                  attributes: {
+                    'placeholder': 'Ask a public question about this property...',
+                    'value': _newQuestionText,
+                  },
                   events: {
                     'input': (e) {
                       setState(() => _newQuestionText = getInputValue(e.target));
@@ -218,7 +247,7 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
                 ),
                 button(
                   classes:
-                      'px-6 py-3 rounded-xl text-white font-bold logo-gradient hover:opacity-90 transition-opacity',
+                      'px-6 py-3 rounded-xl text-white font-bold logo-gradient hover:opacity-90 transition-opacity cursor-pointer border-0',
                   events: {'click': (_) => _postQuestion()},
                   [Component.text('Ask')],
                 ),

@@ -10,6 +10,26 @@ class SessionStorage {
   static bool get hasSession => false;
   static void clear() {}
   static void updateIdToken(String token) {}
+
+  static String? get pendingQrJobId => null;
+  static set pendingQrJobId(String? val) {}
+  static String? get pendingQrCode => null;
+  static set pendingQrCode(String? val) {}
+
+  static String? get pendingXenditInvoiceId => null;
+  static set pendingXenditInvoiceId(String? val) {}
+  static double get pendingXenditInvoiceAmount => 0.0;
+  static set pendingXenditInvoiceAmount(double val) {}
+  static Map<String, dynamic>? get pendingPropertyBookingData => null;
+  static set pendingPropertyBookingData(Map<String, dynamic>? val) {}
+  static Map<String, dynamic>? get pendingVehicleBookingData => null;
+  static set pendingVehicleBookingData(Map<String, dynamic>? val) {}
+  static String? get pendingJobId => null;
+  static set pendingJobId(String? val) {}
+  static Map<String, dynamic>? get pendingApplicantData => null;
+  static set pendingApplicantData(Map<String, dynamic>? val) {}
+  static String? get offlineLocationBuffer => null;
+  static set offlineLocationBuffer(String? val) {}
 }
 
 String getHostname() => 'localhost';
@@ -30,7 +50,24 @@ Future<String?> getPhantomPublicKeyIfConnected() async => null;
 
 Future<double?> getSolanaBalance(String publicKey) async => null;
 
+Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey) async => null;
+
+Future<String?> connectEthereumWallet() async => null;
+Future<String?> connectSuiWallet() async => null;
+Future<String?> getEthereumAddressIfConnected() async => null;
+Future<String?> getSuiAddressIfConnected() async => null;
+Future<double?> getEthereumBalance(String address) async => null;
+Future<double?> getSuiBalance(String address) async => null;
+
+Future<String?> sendSolanaPayment(String fromAddress, String toAddress, double amountInSol) async => null;
+
+Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amountInUsdt, {String? usdtMint}) async => null;
+
 Future<String?> signInWithGoogleJs(Map<String, String> config) async => null;
+
+Future<void> signInWithEmailAndPasswordJs(Map<String, String> config, String email, String password) async {}
+
+Future<void> signOutJs() async {}
 
 void initFirebaseJs(Map<String, dynamic> config) {}
 
@@ -71,3 +108,24 @@ void listenToRentalQAJs(String rentalId, void Function(String) callback) {}
 void unlistenRentalQAJs(String rentalId) {}
 void postRentalQuestionJs(String rentalId, String uid, String name, String photoUrl, String text) {}
 void answerRentalQuestionJs(String rentalId, String questionId, String answerText) {}
+
+// Property Q&A stubs
+void listenToPropertyQAJs(String propertyId, void Function(String) callback) {}
+void unlistenPropertyQAJs(String propertyId) {}
+void postPropertyQuestionJs(String propertyId, String uid, String name, String photoUrl, String text) {}
+void answerPropertyQuestionJs(String propertyId, String questionId, String answerText) {}
+
+// Properties List stubs
+void listenToPropertiesJs(void Function(String) callback) {}
+void stopListeningToPropertiesJs() {}
+void listenToPropertyDetailsJs(String propertyId, void Function(String) callback) {}
+void stopListeningToPropertyDetailsJs() {}
+
+String getUrlOrigin() => 'http://localhost:8080';
+Map<String, String> getUrlQueryParams() => const {};
+void clearUrlParams() {}
+
+String getInputValue(dynamic target) => '';
+void setInputValue(dynamic target, String value) {}
+bool getInputChecked(dynamic target) => false;
+void setInputChecked(dynamic target, bool checked) {}

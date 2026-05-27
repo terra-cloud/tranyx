@@ -1171,3 +1171,73 @@ enum VehicleType {
   };
 }
 
+enum PropertyCategory {
+  residential,
+  commercial;
+
+  String get label => name[0].toUpperCase() + name.substring(1);
+}
+
+enum PropertyType {
+  house,
+  bedSpace,
+  room,
+  condo,
+  apartment,
+  commercialSpace,
+  office,
+  coworking,
+  retail,
+  warehouse;
+
+  String get label {
+    switch (this) {
+      case house:
+        return 'Full House';
+      case bedSpace:
+        return 'Bed Space';
+      case room:
+        return 'Private Room';
+      case condo:
+        return 'Condominium';
+      case apartment:
+        return 'Apartment';
+      case commercialSpace:
+        return 'Other Commercial Space';
+      case office:
+        return 'Office Space';
+      case coworking:
+        return 'Coworking / Workspace';
+      case retail:
+        return 'Retail / Storefront';
+      case warehouse:
+        return 'Warehouse / Storage';
+    }
+  }
+
+  String get icon => switch (this) {
+    house => 'home',
+    bedSpace => 'bed',
+    room => 'door-closed',
+    condo => 'building-2',
+    apartment => 'building',
+    commercialSpace => 'briefcase',
+    office => 'briefcase',
+    coworking => 'users',
+    retail => 'shopping-bag',
+    warehouse => 'archive',
+  };
+
+  PropertyCategory get category {
+    switch (this) {
+      case commercialSpace:
+      case office:
+      case coworking:
+      case retail:
+      case warehouse:
+        return PropertyCategory.commercial;
+      default:
+        return PropertyCategory.residential;
+    }
+  }
+}

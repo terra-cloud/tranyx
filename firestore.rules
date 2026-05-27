@@ -1,0 +1,159 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper to check if the user is accessing their own document or matches the user ID
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow read: if true; // Publicly readable profiles (ratings/reviews)
+      allow create: if isOwner(userId);
+      allow update: if isAuthenticated(); // Allowed for transaction/balance updates between users
+      allow delete: if isOwner(userId);
+      
+      // User Reviews subcollection
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow write: if isAuthenticated();
+      }
+    }
+
+    // Jobs Collection
+    match /jobs/{jobId} {
+      allow read: if true; // Publicly browse jobs
+      allow create, update: if isAuthenticated(); // Must be logged in to create/update
+      allow delete: if isAuthenticated() && resource.data.creatorId == request.auth.uid; // Only owner can delete
+
+      // Subcollection: Applications
+      match /applications/{applicantId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+
+      // Subcollection: Messages (Chat room)
+      match /messages/{messageId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+
+      // Subcollection: Questions (Q&A)
+      match /questions/{questionId} {
+        allow read: if true; // Q&As are publicly readable
+        allow write: if isAuthenticated();
+      }
+    }
+
+    // Vehicle Rentals Collection
+    match /rentals/{rentalId} {
+      allow read: if true; // Publicly browse vehicle rentals
+      allow create, update: if isAuthenticated();
+      allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
+
+      // Subcollection: Questions
+      match /questions/{questionId} {
+        allow read: if true;
+        allow write: if isAuthenticated();
+      }
+    }
+
+    // Properties Collection
+    match /properties/{propertyId} {
+      allow read: if true; // Publicly browse property rentals
+      allow create, update: if isAuthenticated();
+      allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
+
+      // Subcollection: Questions
+      match /questions/{questionId} {
+        allow read: if true;
+        allow write: if isAuthenticated();
+      }
+    }
+
+    // Transactions Collection
+    match /transactions/{txId} {
+      allow read: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow create: if isAuthenticated(); // To record listing fees, escrow payments, etc.
+      allow update, delete: if false; // Transactions should be immutable
+    }
+
+    // Notifications Collection
+    match /notifications/{notifId} {
+      allow read, update, delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow create: if isAuthenticated();
+    }
+
+    // Escrow Holdbacks Collection
+    match /escrow_holdbacks/{holdbackId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Rental Requests Collection
+    match /rental_requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Rental Extensions Collection
+    match /rental_extensions/{extId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Rental History Collection
+    match /rental_history/{historyId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Property Requests Collection
+    match /property_requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // KYC Submissions Collection
+    match /kyc_submissions/{submissionId} {
+      allow read: if isAuthenticated() && (request.auth.uid == submissionId || resource.data.uid == request.auth.uid);
+      allow write: if isAuthenticated() && request.auth.uid == submissionId;
+    }
+
+    // Escrow Collections
+    match /escrow/{jobId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /rental_escrows/{rentalId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /rental_extension_escrows/{extensionId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /property_escrows/{requestId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Wallet Links Collection
+    match /walletLinks/{walletPublicKey} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // Chats Collection
+    match /chats/{chatId} {
+      allow read, write: if isAuthenticated();
+      match /messages/{messageId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+  }
+}

@@ -130,8 +130,7 @@ class PostJobPageState extends State<PostJobPage> {
             },
             events: {
               'input': (e) {
-                // ignore: avoid_dynamic_calls
-                setState(() => _description = (e as dynamic).target.value as String);
+                setState(() => _description = getInputValue(e.target));
               },
             },
             [Component.text(_description)],
@@ -187,8 +186,7 @@ class PostJobPageState extends State<PostJobPage> {
         },
         events: {
           'input': (e) {
-            // ignore: avoid_dynamic_calls
-            onChange((e as dynamic).target.value as String);
+            onChange(getInputValue(e.target));
           },
         },
       ),

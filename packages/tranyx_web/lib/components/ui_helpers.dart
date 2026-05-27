@@ -42,28 +42,32 @@ Component googleSvgIcon({String size = 'w-5 h-5'}) {
     [
       path(
         attributes: {
-          'd': 'M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z',
+          'd':
+              'M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z',
           'fill': '#4285F4',
         },
         [],
       ),
       path(
         attributes: {
-          'd': 'M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z',
+          'd':
+              'M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z',
           'fill': '#34A853',
         },
         [],
       ),
       path(
         attributes: {
-          'd': 'M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z',
+          'd':
+              'M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z',
           'fill': '#FBBC05',
         },
         [],
       ),
       path(
         attributes: {
-          'd': 'M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z',
+          'd':
+              'M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z',
           'fill': '#EA4335',
         },
         [],
@@ -86,7 +90,8 @@ Component phantomSvgIcon({String size = 'w-5 h-5'}) {
         attributes: {
           'fill-rule': 'evenodd',
           'clip-rule': 'evenodd',
-          'd': 'M21.2 12.3c-.6-.6-1.5-.9-2.5-1.1-2-.3-3.9.7-4.7 2.5l-.4 1c-.1.4-.6.6-1 .6-.9-.1-1.6.4-1.8 1.3-.1.7.3 1.4 1 1.6.4.1.6.4.6.8v3.8c0 .9.7 1.6 1.6 1.6.8 0 1.5-.6 1.6-1.4l.3-2.3c0-.4.4-.7.8-.7.4 0 .7.3.7.7l-.1 2.4c0 .9.6 1.7 1.6 1.7.9 0 1.7-.7 1.7-1.6l.2-4.8c0-.1 0-.3.1-.4.9-.9 2.1-1.4 3.4-1.4.8 0 1.5-.5 1.6-1.3.2-1.3-.5-2.6-1.8-2.9zM15.5 16.5c-.5 0-.9-.4-.9-.9s.4-.9.9-.9.9.4.9.9-.4.9-.9.9zm3.7 0c-.5 0-.9-.4-.9-.9s.4-.9.9-.9.9.4.9.9-.4.9-.9.9z',
+          'd':
+              'M21.2 12.3c-.6-.6-1.5-.9-2.5-1.1-2-.3-3.9.7-4.7 2.5l-.4 1c-.1.4-.6.6-1 .6-.9-.1-1.6.4-1.8 1.3-.1.7.3 1.4 1 1.6.4.1.6.4.6.8v3.8c0 .9.7 1.6 1.6 1.6.8 0 1.5-.6 1.6-1.4l.3-2.3c0-.4.4-.7.8-.7.4 0 .7.3.7.7l-.1 2.4c0 .9.6 1.7 1.6 1.7.9 0 1.7-.7 1.7-1.6l.2-4.8c0-.1 0-.3.1-.4.9-.9 2.1-1.4 3.4-1.4.8 0 1.5-.5 1.6-1.3.2-1.3-.5-2.6-1.8-2.9zM15.5 16.5c-.5 0-.9-.4-.9-.9s.4-.9.9-.9.9.4.9.9-.4.9-.9.9zm3.7 0c-.5 0-.9-.4-.9-.9s.4-.9.9-.9.9.4.9.9-.4.9-.9.9z',
           'fill': '#AB9FF2',
         },
         [],
@@ -104,6 +109,9 @@ Component inputField({
   String value = '',
   bool isDark = true,
   void Function(String)? onChange,
+  bool isPassword = false,
+  bool isPasswordVisible = false,
+  void Function()? onTogglePassword,
 }) {
   final borderCls = isDark
       ? 'bg-zinc-900 border-zinc-800 focus-within:border-indigo-500'
@@ -119,21 +127,36 @@ Component inputField({
         classes: 'block text-xs font-medium mb-1 ${isDark ? 'text-zinc-500' : 'text-zinc-400'}',
         [Component.text(label)],
       ),
-    div(classes: 'flex items-center', [
-      if (iconName.isNotEmpty) lIcon(iconName, cls: 'w-5 h-5 mr-3 ${isDark ? 'text-zinc-600' : 'text-zinc-400'}'),
-      input<String>(
-        classes:
-            'bg-transparent border-none outline-none w-full text-sm md:text-base font-medium ${isDark ? 'text-zinc-200' : 'text-zinc-900'}',
-        type: type == 'password' ? InputType.password : (type == 'email' ? InputType.email : InputType.text),
-        value: value,
-        attributes: {
-          'placeholder': placeholder,
-          if (type == 'date') 'type': 'date',
-          'id': inputId,
-          'name': inputId,
-        },
-        onInput: onChange,
-      ),
+    div(classes: 'flex items-center justify-between', [
+      div(classes: 'flex items-center flex-1', [
+        if (iconName.isNotEmpty) lIcon(iconName, cls: 'w-5 h-5 mr-3 ${isDark ? 'text-zinc-600' : 'text-zinc-400'}'),
+        input<String>(
+          classes:
+              'bg-transparent border-none outline-none w-full text-sm md:text-base font-medium ${isDark ? 'text-zinc-200' : 'text-zinc-900'}',
+          type: (isPassword && isPasswordVisible)
+              ? InputType.text
+              : (type == 'password' ? InputType.password : (type == 'email' ? InputType.email : InputType.text)),
+          value: value,
+          attributes: {
+            'placeholder': placeholder,
+            if (type == 'date') 'type': 'date',
+            'id': inputId,
+            'name': inputId,
+          },
+          onInput: onChange,
+        ),
+      ]),
+      if (isPassword && onTogglePassword != null)
+        button(
+          classes: 'p-1 rounded-lg hover:bg-zinc-500/10 focus:outline-none ml-2 transition-colors cursor-pointer border-0',
+          events: {'click': (_) => onTogglePassword()},
+          [
+            lIcon(
+              isPasswordVisible ? 'eye-off' : 'eye',
+              cls: 'w-4 h-4 ${isDark ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}',
+            ),
+          ],
+        ),
     ]),
   ]);
 }
@@ -247,4 +270,34 @@ Component segmentedControl({
         ),
     ],
   );
+}
+
+/// Normalizes any category string (camelCase, snake_case, spaces, etc.) 
+/// to a title-cased string with spaces (e.g. "curtainInstaller" -> "Curtain Installer").
+String normalizeCategoryName(String cat) {
+  if (cat.isEmpty) return '';
+  
+  // Replace underscores, hyphens, and slashes with spaces
+  String temp = cat.replaceAll(RegExp(r'[_/\-]'), ' ');
+  
+  // Insert spaces before capital letters (for CamelCase)
+  final buffer = StringBuffer();
+  for (var i = 0; i < temp.length; i++) {
+    final char = temp[i];
+    if (i > 0 && 
+        char.codeUnitAt(0) >= 65 && char.codeUnitAt(0) <= 90 && // Capital letter
+        temp[i-1] != ' ' && 
+        !(temp[i-1].codeUnitAt(0) >= 65 && temp[i-1].codeUnitAt(0) <= 90)) {
+      buffer.write(' ');
+    }
+    buffer.write(char);
+  }
+  temp = buffer.toString();
+  
+  // Split by spaces, capitalize each word, and join
+  final words = temp.split(' ').where((w) => w.isNotEmpty);
+  return words.map((w) {
+    if (w.isEmpty) return '';
+    return w[0].toUpperCase() + w.substring(1).toLowerCase();
+  }).join(' ');
 }

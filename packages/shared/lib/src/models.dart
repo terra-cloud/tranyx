@@ -60,6 +60,8 @@ class UserProfile {
   final bool idVerified;
   final bool bgChecked;
   final bool isPremium;
+  final bool isBonded;
+  final List<String>? certificationUrls;
 
   const UserProfile({
     required this.uid,
@@ -88,6 +90,8 @@ class UserProfile {
     this.idVerified = false,
     this.bgChecked = false,
     this.isPremium = false,
+    this.isBonded = false,
+    this.certificationUrls,
   });
 
   factory UserProfile.fromMap(String uid, Map<String, dynamic> map) {
@@ -129,6 +133,10 @@ class UserProfile {
       idVerified: map['idVerified'] as bool? ?? false,
       bgChecked: map['bgChecked'] as bool? ?? false,
       isPremium: map['isPremium'] as bool? ?? false,
+      isBonded: map['isBonded'] as bool? ?? false,
+      certificationUrls: (map['certificationUrls'] as List?)
+          ?.map((e) => e as String)
+          .toList(),
     );
   }
 
@@ -159,6 +167,8 @@ class UserProfile {
     'idVerified': idVerified,
     'bgChecked': bgChecked,
     'isPremium': isPremium,
+    'isBonded': isBonded,
+    'certificationUrls': certificationUrls,
   };
 
   UserProfile copyWith({
@@ -187,6 +197,8 @@ class UserProfile {
     bool? idVerified,
     bool? bgChecked,
     bool? isPremium,
+    bool? isBonded,
+    List<String>? certificationUrls,
   }) {
     return UserProfile(
       uid: uid,
@@ -215,6 +227,8 @@ class UserProfile {
       idVerified: idVerified ?? this.idVerified,
       bgChecked: bgChecked ?? this.bgChecked,
       isPremium: isPremium ?? this.isPremium,
+      isBonded: isBonded ?? this.isBonded,
+      certificationUrls: certificationUrls ?? this.certificationUrls,
     );
   }
 }
@@ -590,8 +604,11 @@ class VehicleRental {
   final double priceMonthly;
   final double extensionRatePerHour;
   final double latePenaltyRatePerHour;
-  final String status; // 'Available', 'Booked', 'On the Way', 'Active', 'Returning', 'Completed', 'Cancelled'
-  
+  final String
+  status; // 'Available', 'Booked', 'On the Way', 'Active', 'Returning', 'Completed', 'Cancelled'
+  final String? fuelType; // 'Gasoline', 'Diesel', 'Electric', 'Hybrid'
+  final String? transmission; // 'Automatic', 'Manual'
+
   // Driver services info
   final bool offersDriver;
   final double driverDailyPrice;
@@ -668,6 +685,8 @@ class VehicleRental {
     this.hireWithDriver,
     this.trackingLat,
     this.trackingLng,
+    this.fuelType,
+    this.transmission,
     required this.pickupAddress,
     required this.pickupLat,
     required this.pickupLng,
@@ -676,6 +695,7 @@ class VehicleRental {
 
   Map<String, dynamic> toMap() {
     return {
+      'id': id,
       'hostId': hostId,
       'hostName': hostName,
       'hostPhotoUrl': hostPhotoUrl,
@@ -702,6 +722,8 @@ class VehicleRental {
       'extensionRatePerHour': extensionRatePerHour,
       'latePenaltyRatePerHour': latePenaltyRatePerHour,
       'status': status,
+      'fuelType': fuelType,
+      'transmission': transmission,
       'offersDriver': offersDriver,
       'driverDailyPrice': driverDailyPrice,
       'driverNote': driverNote,
@@ -739,7 +761,9 @@ class VehicleRental {
       hostPhotoUrl: map['hostPhotoUrl'],
       brand: map['brand'] ?? '',
       model: map['model'] ?? '',
-      year: map['year'] is int ? map['year'] : int.tryParse(map['year']?.toString() ?? '') ?? 0,
+      year: map['year'] is int
+          ? map['year']
+          : int.tryParse(map['year']?.toString() ?? '') ?? 0,
       type: vType,
       plateNumber: map['plateNumber'] ?? '',
       vehicleValue: (map['vehicleValue'] as num?)?.toDouble() ?? 0.0,
@@ -757,9 +781,13 @@ class VehicleRental {
       priceDaily: (map['priceDaily'] as num?)?.toDouble() ?? 0.0,
       priceWeekly: (map['priceWeekly'] as num?)?.toDouble() ?? 0.0,
       priceMonthly: (map['priceMonthly'] as num?)?.toDouble() ?? 0.0,
-      extensionRatePerHour: (map['extensionRatePerHour'] as num?)?.toDouble() ?? 0.0,
-      latePenaltyRatePerHour: (map['latePenaltyRatePerHour'] as num?)?.toDouble() ?? 0.0,
+      extensionRatePerHour:
+          (map['extensionRatePerHour'] as num?)?.toDouble() ?? 0.0,
+      latePenaltyRatePerHour:
+          (map['latePenaltyRatePerHour'] as num?)?.toDouble() ?? 0.0,
       status: map['status'] ?? 'Available',
+      fuelType: map['fuelType'] as String?,
+      transmission: map['transmission'] as String?,
       offersDriver: map['offersDriver'] as bool? ?? false,
       driverDailyPrice: (map['driverDailyPrice'] as num?)?.toDouble() ?? 0.0,
       driverNote: map['driverNote'] ?? '',
@@ -769,12 +797,18 @@ class VehicleRental {
       renteePhotoUrl: map['renteePhotoUrl'],
       rentalDurationType: map['rentalDurationType'],
       rentalMultiplier: map['rentalMultiplier'],
-      startDate: map['startDate'] != null ? DateTime.fromMillisecondsSinceEpoch(map['startDate']) : null,
-      endDate: map['endDate'] != null ? DateTime.fromMillisecondsSinceEpoch(map['endDate']) : null,
+      startDate: map['startDate'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['startDate'])
+          : null,
+      endDate: map['endDate'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['endDate'])
+          : null,
       totalCost: (map['totalCost'] as num?)?.toDouble(),
       renteeSignatureName: map['renteeSignatureName'],
       renteeLicenseNumber: map['renteeLicenseNumber'],
-      signedAt: map['signedAt'] != null ? DateTime.fromMillisecondsSinceEpoch(map['signedAt']) : null,
+      signedAt: map['signedAt'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['signedAt'])
+          : null,
       hireWithDriver: map['hireWithDriver'] as bool?,
       trackingLat: (map['trackingLat'] as num?)?.toDouble(),
       trackingLng: (map['trackingLng'] as num?)?.toDouble(),
@@ -786,3 +820,183 @@ class VehicleRental {
   }
 }
 
+class PropertyRental {
+  final String id;
+  final String hostId;
+  final String hostName;
+  final String? hostPhotoUrl;
+  final String title;
+  final String description;
+  final PropertyType type;
+  final PropertyCategory category;
+  final double priceMonthly;
+  final double priceWeekly;
+  final double priceDaily;
+  final int depositMonths;
+  final String address;
+  final double latitude;
+  final double longitude;
+  final List<String> photoUrls;
+  final List<String> amenities;
+  final String
+  status; // 'Available', 'Awaiting Signature', 'Booked', 'Active', 'Completed', 'Cancelled'
+  final String contractType; // 'tranyx' | 'custom'
+  final String contractTerms;
+  final DateTime createdAt;
+  final bool allowChat;
+  final double? securityDepositAmount;
+  final double? advanceAmount;
+
+  // Renter details
+  final String? renteeId;
+  final String? renteeName;
+  final String? renteePhotoUrl;
+  final DateTime? startDate;
+  final DateTime? endDate;
+  final double? totalCost;
+  final String? renteeSignatureName;
+  final DateTime? signedAt;
+  final String? currentRequestId;
+  final int? rentalMultiplier;
+  final String? rentalDurationType;
+  final String? signatureHash;
+  final String? renteeLicenseNumber;
+
+  const PropertyRental({
+    required this.id,
+    required this.hostId,
+    required this.hostName,
+    this.hostPhotoUrl,
+    required this.title,
+    required this.description,
+    required this.type,
+    required this.category,
+    required this.priceMonthly,
+    required this.priceWeekly,
+    required this.priceDaily,
+    required this.depositMonths,
+    required this.address,
+    required this.latitude,
+    required this.longitude,
+    required this.photoUrls,
+    required this.amenities,
+    required this.status,
+    required this.contractType,
+    required this.contractTerms,
+    required this.createdAt,
+    this.allowChat = false,
+    this.securityDepositAmount,
+    this.advanceAmount,
+    this.renteeId,
+    this.renteeName,
+    this.renteePhotoUrl,
+    this.startDate,
+    this.endDate,
+    this.totalCost,
+    this.renteeSignatureName,
+    this.signedAt,
+    this.currentRequestId,
+    this.rentalMultiplier,
+    this.rentalDurationType,
+    this.signatureHash,
+    this.renteeLicenseNumber,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'hostId': hostId,
+      'hostName': hostName,
+      'hostPhotoUrl': hostPhotoUrl,
+      'title': title,
+      'description': description,
+      'type': type.name,
+      'category': category.name,
+      'priceMonthly': priceMonthly,
+      'priceWeekly': priceWeekly,
+      'priceDaily': priceDaily,
+      'depositMonths': depositMonths,
+      'securityDepositAmount': securityDepositAmount,
+      'advanceAmount': advanceAmount,
+      'address': address,
+      'latitude': latitude,
+      'longitude': longitude,
+      'photoUrls': photoUrls,
+      'amenities': amenities,
+      'status': status,
+      'contractType': contractType,
+      'contractTerms': contractTerms,
+      'createdAt': createdAt.millisecondsSinceEpoch,
+      'allowChat': allowChat,
+      'renteeId': renteeId,
+      'renteeName': renteeName,
+      'renteePhotoUrl': renteePhotoUrl,
+      'startDate': startDate?.millisecondsSinceEpoch,
+      'endDate': endDate?.millisecondsSinceEpoch,
+      'totalCost': totalCost,
+      'renteeSignatureName': renteeSignatureName,
+      'signedAt': signedAt?.millisecondsSinceEpoch,
+      'currentRequestId': currentRequestId,
+      'rentalMultiplier': rentalMultiplier,
+      'rentalDurationType': rentalDurationType,
+      'signatureHash': signatureHash,
+      'renteeLicenseNumber': renteeLicenseNumber,
+    };
+  }
+
+  factory PropertyRental.fromMap(Map<String, dynamic> map, String id) {
+    final pType = PropertyType.values.firstWhere(
+      (e) => e.name == map['type'],
+      orElse: () => PropertyType.house,
+    );
+    final pCat = PropertyCategory.values.firstWhere(
+      (e) => e.name == map['category'],
+      orElse: () => PropertyCategory.residential,
+    );
+    return PropertyRental(
+      id: id,
+      hostId: map['hostId'] ?? '',
+      hostName: map['hostName'] ?? '',
+      hostPhotoUrl: map['hostPhotoUrl'],
+      title: map['title'] ?? '',
+      description: map['description'] ?? '',
+      type: pType,
+      category: pCat,
+      priceMonthly: (map['priceMonthly'] as num?)?.toDouble() ?? 0.0,
+      priceWeekly: (map['priceWeekly'] as num?)?.toDouble() ?? 0.0,
+      priceDaily: (map['priceDaily'] as num?)?.toDouble() ?? 0.0,
+      depositMonths: (map['depositMonths'] as num?)?.toInt() ?? 0,
+      securityDepositAmount: (map['securityDepositAmount'] as num?)?.toDouble(),
+      advanceAmount: (map['advanceAmount'] as num?)?.toDouble(),
+      address: map['address'] ?? '',
+      latitude: (map['latitude'] as num?)?.toDouble() ?? 0.0,
+      longitude: (map['longitude'] as num?)?.toDouble() ?? 0.0,
+      photoUrls: List<String>.from(map['photoUrls'] ?? []),
+      amenities: List<String>.from(map['amenities'] ?? []),
+      status: map['status'] ?? 'Available',
+      contractType: map['contractType'] ?? 'tranyx',
+      contractTerms: map['contractTerms'] ?? '',
+      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
+      allowChat: map['allowChat'] as bool? ?? false,
+      renteeId: map['renteeId'],
+      renteeName: map['renteeName'],
+      renteePhotoUrl: map['renteePhotoUrl'],
+      startDate: map['startDate'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['startDate'])
+          : null,
+      endDate: map['endDate'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['endDate'])
+          : null,
+      totalCost: (map['totalCost'] as num?)?.toDouble(),
+      renteeSignatureName: map['renteeSignatureName'],
+      signedAt: map['signedAt'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['signedAt'])
+          : null,
+      currentRequestId: map['currentRequestId'],
+      rentalMultiplier: (map['rentalMultiplier'] as num?)?.toInt(),
+      rentalDurationType: map['rentalDurationType'],
+      signatureHash: map['signatureHash'] as String?,
+      renteeLicenseNumber: map['renteeLicenseNumber'],
+    );
+  }
+}

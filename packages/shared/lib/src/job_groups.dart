@@ -162,7 +162,11 @@ const kJobGroups = [
     color: 'text-amber-500',
     categories: [
       CategoryItem(id: 1301, label: 'Online Tutor', icon: 'book-open'),
-      CategoryItem(id: 1302, label: 'Corporate Trainer', icon: 'graduation-cap'),
+      CategoryItem(
+        id: 1302,
+        label: 'Corporate Trainer',
+        icon: 'graduation-cap',
+      ),
       CategoryItem(id: 1303, label: 'Music Teacher', icon: 'graduation-cap'),
       CategoryItem(id: 1304, label: 'Language Teacher', icon: 'globe'),
     ],

@@ -8,7 +8,7 @@ String buildDefaultTranyxContract(VehicleRental rental) {
   final yearStr = rental.year > 0 ? '${rental.year}' : '[Vehicle Year]';
   final plateStr = rental.plateNumber.isNotEmpty ? rental.plateNumber : '[Plate Number]';
   final valueStr = rental.vehicleValue > 0 ? '${rental.vehicleValue} TYXBIT' : '[Vehicle Value]';
-  
+
   return '''
 ==================================================================
 TRANYX PEER-TO-PEER VEHICLE RENTAL AGREEMENT
@@ -27,6 +27,8 @@ The Owner agrees to rent to the Renter the following vehicle:
 - Production Year: $yearStr
 - Plate Number: $plateStr
 - Insured Market Value: $valueStr
+- Fuel Type: ${rental.fuelType ?? 'Gasoline'}
+- Transmission: ${rental.transmission ?? 'Automatic'}
 
 3. LTO REGISTRATION & COMPLIANCE
 The Owner represents and warrants that:
@@ -67,5 +69,56 @@ By ticking the agreement checkbox and typing their full legal name below, the Re
 Renter Signature: ${rental.renteeSignatureName ?? '[Digital Signature Name]'}
 Renter Driver's License: ${rental.renteeLicenseNumber ?? '[License Number]'}
 Signed At (Epoch Timestamp): ${rental.signedAt != null ? rental.signedAt!.toIso8601String() : '[Timestamp]'}
+''';
+}
+
+String buildDefaultPropertyContract(PropertyRental rental) {
+  final typeStr = rental.type.label;
+  final catStr = rental.category.label;
+
+  return '''
+==================================================================
+TRANYX PEER-TO-PEER PROPERTY LEASE AGREEMENT
+==================================================================
+
+1. PARTIES
+This Peer-to-Peer Property Lease Agreement ("Agreement") is entered into by and between:
+- Lessor/Property Owner: ${rental.hostName} ("Owner")
+- Lessee/Tenant: ${rental.renteeName ?? '[Tenant Full Name]'} ("Tenant")
+- Platform/Bridge: Tranyx Technology Inc. ("Tranyx" or "Platform")
+
+2. PROPERTY SPECIFICATIONS
+The Owner agrees to lease to the Tenant the following property:
+- Property Title: ${rental.title}
+- Property Category: $catStr
+- Property Type: $typeStr
+- Complete Address: ${rental.address}
+- Amenities Included: ${rental.amenities.isEmpty ? 'None' : rental.amenities.join(', ')}
+
+3. PLATFORM ROLE AND LIMITATION OF LIABILITY
+Owner and Tenant explicitly acknowledge and agree that:
+- TRANYX IS NOT A REAL ESTATE AGENT, PROPERTY MANAGER, OR BROKER.
+- TRANYX ACTS SOLELY AS A PEER-TO-PEER BRIDGING PLATFORM AND CRYPTOGRAPHIC ESCROW MANAGER.
+- IN NO EVENT SHALL TRANYX, ITS PARENT COMPANY, OFFICERS, EMPLOYEES, OR AGENTS BE LIABLE FOR ANY CLAIMS, DAMAGES, PROPERTY ACCIDENTS, INJURIES, THEFT, VANDALISM, FIRE, OR LITIGATION ARISING FROM THE USE OF THE PROPERTY.
+- OWNER AND TENANT HEREBY COMPLETELY RELEASE AND HOLD TRANYX HARMLESS FROM ALL OPERATIONAL ACTIONS.
+
+4. LEASE RATES & PAYMENT ESCROW
+- Monthly Rental Rate: ${rental.priceMonthly} TYXBIT
+- Security Deposit: ${rental.depositMonths} Month(s) (${rental.priceMonthly * rental.depositMonths} TYXBIT)
+- Estimated Escrow Total: ${rental.totalCost ?? '[Total Cost]'} TYXBIT
+- Lease Term: ${rental.rentalMultiplier ?? '[Multiplier]'} ${rental.rentalDurationType ?? 'month(s)'}
+
+5. COVENANTS AND HOUSE RULES
+The Tenant agrees to:
+- Maintain the property in good, clean condition.
+- Use the property only for legal activities. Illegal substances or commercial activities in residential areas are strictly prohibited.
+- Pay all utility bills (electricity, water, internet) if not explicitly included in the rent.
+- Vacate the premises peacefully at the end of the lease unless renewed.
+
+6. DIGITAL SIGNATURES & EXECUTION
+By ticking the agreement checkbox and signing below, the Tenant executes this lease contract.
+
+Tenant Signature: ${rental.renteeSignatureName ?? '[Digital Signature Name]'}
+Signed At (Timestamp): ${rental.signedAt != null ? rental.signedAt!.toIso8601String() : '[Timestamp]'}
 ''';
 }

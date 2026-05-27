@@ -1,5 +1,6 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
@@ -98,10 +99,21 @@ class _ProfileMenu extends StatelessComponent {
           ),
         ]),
         p(classes: 'font-bold text-lg', [Component.text(s.userName.isNotEmpty ? s.userName : 'User')]),
-        span(
-          classes: 'inline-block px-3 py-1 rounded-md text-xs font-bold mt-1 ${s.accountType.badgeClasses}',
-          [Component.text(s.accountType.label)],
-        ),
+        div(classes: 'flex justify-center gap-2 mt-1.5', [
+          span(
+            classes: 'inline-block px-3 py-1 rounded-md text-xs font-bold ${s.accountType.badgeClasses}',
+            [Component.text(s.accountType.label)],
+          ),
+          if (s.userProfile?.isBonded == true)
+            span(
+              classes:
+                  'inline-block px-3 py-1 rounded-md text-xs font-bold bg-green-500/15 text-green-400 border border-green-500/25 flex items-center gap-1',
+              [
+                lIcon('shield-check', cls: 'w-3.5 h-3.5'),
+                Component.text('Bonded & Protected'),
+              ],
+            ),
+        ]),
       ]),
 
       // Menu items
@@ -160,8 +172,7 @@ class _ProfileMain extends StatelessComponent {
 
       // Stats row
       div(
-        classes:
-            'grid grid-cols-2 md:grid-cols-${s.accountType == AccountType.employer ? "2" : "3"} gap-4',
+        classes: 'grid grid-cols-2 md:grid-cols-${s.accountType == AccountType.employer ? "2" : "3"} gap-4',
         [
           // Rating - Always shown
           _stat(
@@ -182,17 +193,66 @@ class _ProfileMain extends StatelessComponent {
               isDark,
             ),
 
-          // Balance - Always shown for everyone
-          _stat(
-            '₱ ${(s.userProfile?.tyxBalance ?? 0.0).toStringAsFixed(2)}',
-            'Balance',
-            'wallet',
-            'text-blue-400',
-            isDark,
-            actionLabel: s.accountType == AccountType.nyxian ? 'Withdraw' : 'Top Up',
-            onAction: s.accountType == AccountType.nyxian
-                ? (_) => s.handleWithdrawTyx()
-                : (_) => s.setState(() => s.showDepositModal = true),
+          // Balance - Always shown for everyone with Top Up & Withdraw actions
+          div(
+            classes: 'p-4 rounded-2xl border text-center transition-all duration-300 group '
+                '${isDark ? "bg-zinc-900/50 border-zinc-800/50 hover:border-indigo-500/30" : "bg-white border-zinc-200 shadow-sm hover:border-indigo-500/30"}',
+            [
+              div(
+                classes:
+                    'w-10 h-10 rounded-xl bg-zinc-500/5 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform duration-300',
+                [lIcon('wallet', cls: 'w-5 h-5 text-blue-400')],
+              ),
+              p(classes: 'font-black text-xl md:text-2xl tracking-tight ${isDark ? "text-white" : "text-zinc-900"}', [
+                Component.text('₱ ${(s.userProfile?.tyxBalance ?? 0.0).toStringAsFixed(2)}'),
+              ]),
+              p(
+                classes:
+                    'text-[10px] uppercase font-black tracking-widest mt-1 ${isDark ? "text-zinc-500" : "text-zinc-400"}',
+                [Component.text('Balance')],
+              ),
+              Builder(
+                builder: (context) {
+                  final pendingTotal = s.pendingHoldbacks.fold<double>(0.0, (sum, item) {
+                    final amt = (item['amount'] as num?)?.toDouble() ?? 0.0;
+                    return sum + amt;
+                  });
+                  if (pendingTotal > 0) {
+                    return div(classes: 'mt-1.5 space-y-1', [
+                      p(classes: 'text-[9px] text-amber-500 font-extrabold flex items-center justify-center gap-0.5 animate-pulse', [
+                        lIcon('clock', cls: 'w-3 h-3'),
+                        Component.text('+ ₱${pendingTotal.toStringAsFixed(2)} Pending'),
+                      ]),
+                      for (final holdback in s.pendingHoldbacks)
+                        Builder(
+                          builder: (context) {
+                            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
+                            final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+                            final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
+                            final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
+                            return p(classes: 'text-[8.5px] text-amber-500/80 font-bold', [
+                              Component.text('• Php ${amt.toStringAsFixed(2)} $hrsStr'),
+                            ]);
+                          },
+                        ),
+                    ]);
+                  }
+                  return div([]);
+                },
+              ),
+              div(classes: 'mt-3 flex justify-center gap-2', [
+                button(
+                  classes: 'px-2 py-1 text-[10px] uppercase font-bold text-indigo-400 hover:text-indigo-300 border border-indigo-500/20 rounded-lg bg-indigo-500/5 transition-colors cursor-pointer',
+                  events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
+                  [Component.text('Top Up')],
+                ),
+                button(
+                  classes: 'px-2 py-1 text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 rounded-lg bg-emerald-500/5 transition-colors cursor-pointer',
+                  events: {'click': (_) => s.handleWithdrawTyx()},
+                  [Component.text('Withdraw')],
+                ),
+              ]),
+            ],
           ),
         ],
       ),
@@ -359,8 +419,7 @@ class _PersonalInfo extends StatelessComponent {
                     'w-full px-5 py-4 pl-12 rounded-2xl border bg-transparent font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all ${s.isDark ? "border-zinc-800 focus:border-indigo-500/50 text-white" : "border-zinc-200 focus:border-indigo-500 text-zinc-800"}',
                 events: {
                   'input': (e) {
-                    // ignore: avoid_dynamic_calls
-                    final val = (e as dynamic).target?.value as String? ?? '';
+                    final val = getInputValue(e.target);
                     final digits = val.replaceAll(RegExp(r'\D'), '');
                     var phoneNum = digits;
                     if (phoneNum.startsWith('63')) phoneNum = phoneNum.substring(2);
@@ -491,13 +550,11 @@ class _ProfessionalInfo extends StatelessComponent {
                   },
                   events: {
                     'input': (e) {
-                      // ignore: avoid_dynamic_calls
-                      final v = (e as dynamic).target?.value as String? ?? '';
+                      final v = getInputValue(e.target);
                       s.setState(() => s.newSkillInput = v);
                     },
                     'keydown': (e) {
-                      // ignore: avoid_dynamic_calls
-                      final key = (e as dynamic).key as String? ?? '';
+                      final key = (e as web.KeyboardEvent).key;
                       if (key == 'Enter' && s.newSkillInput.trim().isNotEmpty) {
                         final updated = List<String>.from(skills)..add(s.newSkillInput.trim());
                         s.setState(() {
@@ -511,6 +568,71 @@ class _ProfessionalInfo extends StatelessComponent {
               ]),
             ]),
           ]),
+
+          // ── Credential Upload Center ──
+          div(classes: 'border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} pt-4 space-y-3', [
+            span(classes: 'text-xs font-bold ${isDark ? "text-zinc-300" : "text-zinc-700"} flex items-center gap-1', [
+              lIcon('award', cls: 'w-4 h-4 text-indigo-400'),
+              Component.text('Professional Certifications & Licenses'),
+            ]),
+            p(classes: 'text-[10px] text-zinc-500 leading-relaxed', [
+              Component.text(
+                'Upload verified TESDA National Certificates, PRC Board IDs, or other professional credentials to display verified status badges on applicant cards.',
+              ),
+            ]),
+
+            // Render currently uploaded certificate links
+            if (s.userProfile?.certificationUrls != null && s.userProfile!.certificationUrls!.isNotEmpty)
+              div(classes: 'space-y-1.5', [
+                for (final url in s.userProfile!.certificationUrls!)
+                  div(
+                    classes:
+                        'flex items-center justify-between p-2 rounded-xl border ${isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-200"} text-xs',
+                    [
+                      a(href: url, target: Target.blank, classes: 'text-indigo-400 hover:underline truncate max-w-[70%]', [
+                        Component.text('Certificate Document ${s.userProfile!.certificationUrls!.indexOf(url) + 1}'),
+                      ]),
+                      span(
+                        classes:
+                            'text-[10px] font-bold text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded-lg border border-green-500/25',
+                        [
+                          Component.text('Verified'),
+                        ],
+                      ),
+                    ],
+                  ),
+              ]),
+
+            // Upload button
+            div(classes: 'relative mt-2', [
+              button(
+                classes:
+                    'w-full py-3 rounded-xl border border-dashed text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer '
+                    '${isDark ? "border-zinc-700 hover:border-zinc-500 text-zinc-400" : "border-zinc-300 hover:border-zinc-400 text-zinc-500"} transition-all',
+                [
+                  if (s.isUploadingCertificate)
+                    lIcon('loader-2', cls: 'w-4 h-4 animate-spin')
+                  else
+                    lIcon('upload-cloud', cls: 'w-4 h-4 text-indigo-400'),
+                  Component.text(
+                    s.isUploadingCertificate ? 'Uploading Document...' : 'Upload Certificate / ID (PDF/Image)',
+                  ),
+                ],
+              ),
+              input(
+                type: InputType.file,
+                classes: 'absolute inset-0 opacity-0 cursor-pointer',
+                attributes: {
+                  'accept': 'image/*,application/pdf',
+                  'id': 'certificate-upload-input',
+                  'name': 'certificate',
+                },
+                events: {
+                  'change': (e) => s.uploadCertification(e),
+                },
+              ),
+            ]),
+          ]),
         ]),
       ],
 
@@ -522,7 +644,7 @@ class _ProfessionalInfo extends StatelessComponent {
             ]),
           ]),
           inputField(
-            label: 'Company / Business Name',
+            label: 'Business/Company Name (Optional)',
             placeholder: 'Juan Constructions',
             iconName: 'building',
             isDark: isDark,
@@ -632,6 +754,44 @@ class _Payment extends StatelessComponent {
               ]),
             ]),
 
+            Builder(
+              builder: (context) {
+                final pendingTotal = s.pendingHoldbacks.fold<double>(0.0, (sum, item) {
+                  final amt = (item['amount'] as num?)?.toDouble() ?? 0.0;
+                  return sum + amt;
+                });
+                if (pendingTotal > 0) {
+                  return div(classes: 'p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-left space-y-2', [
+                    p(classes: 'text-xs font-bold text-amber-400 flex items-center gap-1.5', [
+                      lIcon('clock', cls: 'w-4 h-4'),
+                      Component.text('Pending Release (48-Hr Holdback): ₱ ${pendingTotal.toStringAsFixed(2)}'),
+                    ]),
+                    p(classes: 'text-[10px] text-zinc-400 font-medium leading-relaxed', [
+                      Component.text('In-app payments are held temporarily to protect users from incomplete jobs. Payouts release automatically after their inspection periods.'),
+                    ]),
+                    div(classes: 'space-y-1.5 pt-1.5 border-t border-amber-500/20', [
+                      for (final holdback in s.pendingHoldbacks)
+                        Builder(
+                          builder: (context) {
+                            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
+                            final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+                            final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
+                            final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
+                            return p(classes: 'text-[10px] text-amber-300 font-medium flex justify-between items-center', [
+                              Component.text('• Php ${amt.toStringAsFixed(2)}'),
+                              span(classes: 'text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold', [
+                                Component.text(hrsStr),
+                              ]),
+                            ]);
+                          },
+                        ),
+                    ]),
+                  ]);
+                }
+                return div([]);
+              },
+            ),
+
             div(classes: 'flex gap-3', [
               if (s.accountType == AccountType.employer || s.accountType == AccountType.hybrid)
                 button(
@@ -718,6 +878,73 @@ class _Payment extends StatelessComponent {
         ? '${s.walletAddress.substring(0, 4)}...${s.walletAddress.substring(s.walletAddress.length - 4)}'
         : s.walletAddress;
 
+    // Compile all assets to show in the list
+    final assets = <Map<String, dynamic>>[];
+
+    if (s.ethAddress.isNotEmpty) {
+      assets.add({
+        'symbol': 'ETH',
+        'name': 'Ethereum',
+        'address': s.ethAddress,
+        'amount': s.ethBalance,
+        'decimals': 4,
+        'icon': 'coins',
+        'color': 'purple',
+      });
+    }
+
+    if (s.suiAddress.isNotEmpty) {
+      assets.add({
+        'symbol': 'SUI',
+        'name': 'Sui',
+        'address': s.suiAddress,
+        'amount': s.suiBalance,
+        'decimals': 2,
+        'icon': 'coins',
+        'color': 'blue',
+      });
+    }
+
+    for (final t in s.walletCollectibles) {
+      final mint = t['mint'] as String;
+      final amount = t['amount'] as double;
+      final decimals = t['decimals'] as int;
+      final symVal = t['symbol'] as String?;
+      final nameVal = t['name'] as String?;
+
+      String symbol = (symVal != null && symVal.isNotEmpty) ? symVal : 'SPL Token';
+      String name = (nameVal != null && nameVal.isNotEmpty) ? nameVal : symbol;
+      String icon = 'coins';
+      String color = 'zinc';
+
+      if (mint == 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB') {
+        symbol = 'USDT';
+        name = 'USDT';
+        icon = 'dollar-sign';
+        color = 'green';
+      } else if (mint == '2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo' || mint == 'CXk2AMBfi3TwaEL2468s6zP8xq9NxTXjp9gjMgzeUynM') {
+        symbol = 'PYUSD';
+        name = 'PYUSD';
+        icon = 'dollar-sign';
+        color = 'green';
+      } else if (decimals == 0 && amount == 1) {
+        symbol = 'NFT';
+        name = 'NFT';
+        icon = 'image';
+        color = 'purple';
+      }
+
+      assets.add({
+        'symbol': symbol,
+        'name': name,
+        'address': mint,
+        'amount': amount,
+        'decimals': decimals,
+        'icon': icon,
+        'color': color,
+      });
+    }
+
     return div(
       classes:
           'p-6 rounded-[2rem] border transition-all duration-300 '
@@ -743,6 +970,11 @@ class _Payment extends StatelessComponent {
                 s.walletState = WalletState.disconnected;
                 s.walletAddress = '';
                 s.walletBalance = 0;
+                s.walletCollectibles = [];
+                s.ethAddress = '';
+                s.suiAddress = '';
+                s.ethBalance = 0;
+                s.suiBalance = 0;
               }),
             },
             [lIcon('log-out', cls: 'w-5 h-5')],
@@ -777,6 +1009,54 @@ class _Payment extends StatelessComponent {
             ],
           ),
         ]),
+
+        if (assets.isNotEmpty) ...[
+          div(classes: 'border-t border-zinc-800/60 pt-4 mt-2 space-y-3', [
+            p(classes: 'text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500', [
+              Component.text('Token Assets & Collectibles'),
+            ]),
+            div(
+              classes: 'grid grid-cols-1 gap-2.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar',
+              assets.map((t) {
+                final name = t['name'] as String;
+                final addr = t['address'] as String;
+                final shortAddr = addr.length > 8 ? '${addr.substring(0, 4)}...${addr.substring(addr.length - 4)}' : addr;
+                final amount = t['amount'] as double;
+                final decimals = t['decimals'] as int;
+                final icon = t['icon'] as String;
+                final color = t['color'] as String;
+
+                String iconBgCls = 'bg-zinc-500/10 text-zinc-400';
+                if (color == 'purple') {
+                  iconBgCls = 'bg-purple-500/10 text-purple-400';
+                } else if (color == 'blue') {
+                  iconBgCls = 'bg-blue-500/10 text-blue-400';
+                } else if (color == 'green') {
+                  iconBgCls = 'bg-green-500/10 text-green-400';
+                }
+
+                return div(
+                  classes: 'flex items-center justify-between p-3 rounded-2xl border ${isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-200"}',
+                  [
+                    div(classes: 'flex items-center gap-3', [
+                      div(
+                        classes: 'w-8 h-8 rounded-xl $iconBgCls flex items-center justify-center',
+                        [lIcon(icon, cls: 'w-4 h-4')],
+                      ),
+                      div([
+                        p(classes: 'text-xs font-bold ${isDark ? "text-zinc-200" : "text-zinc-800"}', [Component.text(name)]),
+                        p(classes: 'text-[10px] text-zinc-500 font-mono mt-0.5', [Component.text(shortAddr)]),
+                      ]),
+                    ]),
+                    p(classes: 'text-xs font-black ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                      Component.text(amount.toStringAsFixed(decimals == 0 ? 0 : decimals)),
+                    ]),
+                  ],
+                );
+              }).toList(),
+            ),
+          ]),
+        ],
       ],
     );
   }
@@ -851,6 +1131,77 @@ class _TrustVerification extends StatelessComponent {
             [
               if (isSaving) lIcon('loader-2', cls: 'w-3.5 h-3.5 animate-spin'),
               Component.text(isSaving ? 'Verifying...' : 'Verify Now'),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Component kycVerificationCard({
+    required String title,
+    required String desc,
+    required bool isVerified,
+    required String status,
+    required String? rejectionReason,
+    required bool isDark,
+    required void Function() onVerify,
+    required bool isSaving,
+  }) {
+    final displayStatus = isVerified ? 'approved' : status;
+
+    return div(
+      classes:
+          'p-5 rounded-2xl border ${isDark ? "bg-zinc-900/40 border-zinc-800/80" : "bg-white border-zinc-200/60 shadow-sm"} flex flex-col gap-3',
+      [
+        div(classes: 'flex items-center justify-between gap-4 w-full', [
+          div(classes: 'flex items-center gap-3', [
+            div(
+              classes:
+                  'w-10 h-10 rounded-xl flex items-center justify-center '
+                  '${displayStatus == "approved" ? "bg-green-500/10 text-green-400" : displayStatus == "pending" ? "bg-amber-500/10 text-amber-400" : displayStatus == "rejected" ? "bg-red-500/10 text-red-400" : "bg-zinc-500/10 text-zinc-400"}',
+              [lIcon(displayStatus == "approved" ? 'check-circle' : displayStatus == "pending" ? 'clock' : displayStatus == "rejected" ? 'alert-circle' : 'circle', cls: 'w-5 h-5')],
+            ),
+            div([
+              p(classes: 'font-bold text-sm ${isDark ? "text-white" : "text-zinc-800"}', [Component.text(title)]),
+              p(classes: 'text-[11px] ${isDark ? "text-zinc-500" : "text-zinc-550"}', [Component.text(desc)]),
+            ]),
+          ]),
+          if (displayStatus == 'approved')
+            span(
+              classes:
+                  'px-3 py-1 rounded-full text-xs font-bold bg-green-500/10 text-green-400 border border-green-500/20',
+              [Component.text('Verified')],
+            )
+          else if (displayStatus == 'pending')
+            span(
+              classes:
+                  'px-3 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse',
+              [Component.text('Pending Review')],
+            )
+          else if (displayStatus == 'rejected')
+            button(
+              classes:
+                  'px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-650 hover:bg-red-700 transition-colors flex items-center gap-1.5 min-w-[100px] justify-center border-0 cursor-pointer',
+              events: isSaving ? {} : {'click': (_) => onVerify()},
+              [Component.text('Try Again')],
+            )
+          else
+            button(
+              classes:
+                  'px-4 py-2 rounded-xl text-xs font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-1.5 min-w-[100px] justify-center border-0 cursor-pointer',
+              events: isSaving ? {} : {'click': (_) => onVerify()},
+              [Component.text('Verify Now')],
+            ),
+        ]),
+        if (displayStatus == 'rejected' && rejectionReason != null && rejectionReason.isNotEmpty)
+          div(
+            classes: 'mt-1 p-3 rounded-xl bg-red-500/5 border border-red-500/10 text-[10.5px] text-red-400 font-medium flex items-start gap-1.5',
+            [
+              lIcon('alert-triangle', cls: 'w-3.5 h-3.5 mt-0.5 shrink-0'),
+              div([
+                p(classes: 'font-bold text-[11px]', [Component.text('Rejection Reason:')]),
+                p(classes: 'mt-0.5 opacity-90', [Component.text(rejectionReason)]),
+              ]),
             ],
           ),
       ],
@@ -943,23 +1294,113 @@ class _TrustVerification extends StatelessComponent {
           isSaving: s.isUpdatingVerification && !isPhone,
           onVerify: () => s.updateVerificationField(phone: true),
         ),
-        verificationCard(
+        kycVerificationCard(
           title: 'Government ID',
           desc: 'Submit your Driver License, Passport or National ID',
           isVerified: isId,
+          status: s.activeKycSubmission?['idVerification']?['status']?.toString() ?? 'not_submitted',
+          rejectionReason: s.activeKycSubmission?['idVerification']?['rejectionReason']?.toString(),
           isDark: isDark,
-          isSaving: s.isUpdatingVerification && !isId,
-          onVerify: () => s.updateVerificationField(id: true),
+          isSaving: s.isLoadingKyc,
+          onVerify: () => s.setState(() => s.showKycIdModal = true),
         ),
-        verificationCard(
+        kycVerificationCard(
           title: 'Background Check',
           desc: 'Undergo criminal history background clearance',
           isVerified: isBg,
+          status: s.activeKycSubmission?['backgroundCheck']?['status']?.toString() ?? 'not_submitted',
+          rejectionReason: s.activeKycSubmission?['backgroundCheck']?['rejectionReason']?.toString(),
           isDark: isDark,
-          isSaving: s.isUpdatingVerification && !isBg,
-          onVerify: () => s.updateVerificationField(bg: true),
+          isSaving: s.isLoadingKyc,
+          onVerify: () => s.setState(() => s.showKycBgModal = true),
         ),
       ]),
+
+      // ── Skill Certifications ───────────────────────────────────────
+      if (s.accountType == AccountType.nyxian || s.accountType == AccountType.hybrid)
+        div(
+          classes:
+              'p-5 rounded-2xl border space-y-4 ${isDark ? "bg-zinc-900/40 border-zinc-800/80" : "bg-white border-zinc-200/60 shadow-sm"}',
+          [
+            div(classes: 'flex items-center justify-between', [
+              div(classes: 'flex items-center gap-2', [
+                div(
+                  classes: 'p-2 rounded-xl bg-yellow-500/10',
+                  [lIcon('award', cls: 'w-5 h-5 text-yellow-400')],
+                ),
+                div([
+                  p(classes: 'font-bold text-sm ${isDark ? "text-white" : "text-zinc-800"}', [
+                    Component.text('Skill Certifications'),
+                  ]),
+                  p(classes: 'text-[11px] ${isDark ? "text-zinc-500" : "text-zinc-550"}', [
+                    Component.text('Upload TESDA, PRC, or trade certificates to earn a Skill Certified badge'),
+                  ]),
+                ]),
+              ]),
+              if ((s.userProfile?.certificationUrls ?? []).isNotEmpty)
+                span(
+                  classes:
+                      'px-3 py-1 rounded-full text-xs font-bold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20',
+                  [Component.text('Skill Certified')],
+                ),
+            ]),
+
+            // Uploaded certificates
+            if ((s.userProfile?.certificationUrls ?? []).isNotEmpty)
+              div(classes: 'flex flex-wrap gap-2', [
+                for (final url in s.userProfile!.certificationUrls!)
+                  div(
+                    classes:
+                        'flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium '
+                        '${isDark ? "bg-zinc-800 border border-zinc-700 text-zinc-300" : "bg-zinc-50 border border-zinc-200 text-zinc-700"}',
+                    [
+                      lIcon('file-check', cls: 'w-3.5 h-3.5 text-green-400'),
+                      Component.text(
+                        url.split('/').last.split('?').first.length > 30
+                            ? '${url.split('/').last.split('?').first.substring(0, 28)}...'
+                            : url.split('/').last.split('?').first,
+                      ),
+                    ],
+                  ),
+              ]),
+
+            // Upload button
+            if ((s.userProfile?.certificationUrls ?? []).length < 3)
+              div(classes: 'relative', [
+                button(
+                  classes:
+                      'w-full py-3 rounded-xl border border-dashed text-sm font-semibold transition-colors flex items-center justify-center gap-2 '
+                      '${isDark ? "border-zinc-700 text-zinc-400 hover:border-yellow-500/50 hover:text-yellow-400" : "border-zinc-300 text-zinc-500 hover:border-yellow-500 hover:text-yellow-600"}',
+                  events: {},
+                  [
+                    if (s.isUploadingCertificate)
+                      lIcon('loader-2', cls: 'w-4 h-4 animate-spin')
+                    else
+                      lIcon('upload', cls: 'w-4 h-4'),
+                    Component.text(s.isUploadingCertificate ? 'Uploading...' : 'Upload Certificate (PDF or Image)'),
+                  ],
+                ),
+                input(
+                  type: InputType.file,
+                  classes: 'absolute inset-0 opacity-0 cursor-pointer',
+                  attributes: {
+                    'accept': 'image/*,application/pdf',
+                    'id': 'cert-upload-input',
+                    'name': 'certification_file',
+                  },
+                  events: {
+                    'change': (e) => s.uploadCertification(e),
+                  },
+                ),
+              ]),
+
+            p(classes: 'text-[10px] ${isDark ? "text-zinc-600" : "text-zinc-400"}', [
+              Component.text(
+                'Max 3 files • Supported: JPG, PNG, PDF • Admin review may be required for some certifications',
+              ),
+            ]),
+          ],
+        ),
     ]);
   }
 }
@@ -1294,8 +1735,7 @@ class _HelpSupportState extends State<_HelpSupport> {
                   onInput: (v) => setState(() => currentChatInput = v),
                   events: {
                     'keydown': (event) {
-                      final kEvent = event as dynamic;
-                      if (kEvent.key == 'Enter') {
+                      if ((event as web.KeyboardEvent).key == 'Enter') {
                         sendChatMessage();
                       }
                     },
@@ -1388,7 +1828,7 @@ class _HelpSupportState extends State<_HelpSupport> {
                     attributes: {'placeholder': 'Please specify details or reference contract IDs...'},
                     events: {
                       'input': (e) {
-                        setState(() => ticketDescription = (e as dynamic).target?.value as String? ?? '');
+                        setState(() => ticketDescription = getInputValue(e.target));
                       },
                     },
                     [Component.text(ticketDescription)],
@@ -1583,6 +2023,26 @@ class _HistoryViewState extends State<_HistoryView> {
     double earningsSum = 0.0;
     int gigsCount = 0;
 
+    final now = DateTime.now();
+    // Monday of the current week at 00:00:00 local time
+    final today = DateTime(now.year, now.month, now.day);
+    final currentWeekMonday = today.subtract(Duration(days: today.weekday - 1));
+    final currentWeekMondayMs = currentWeekMonday.millisecondsSinceEpoch;
+    final currentWeekSundayEnd = currentWeekMonday.add(const Duration(days: 7));
+    final currentWeekSundayEndMs = currentWeekSundayEnd.millisecondsSinceEpoch;
+
+    // Start & end of current month
+    final currentMonthStart = DateTime(now.year, now.month, 1);
+    final currentMonthStartMs = currentMonthStart.millisecondsSinceEpoch;
+    final currentMonthEnd = DateTime(now.year, now.month + 1, 1);
+    final currentMonthEndMs = currentMonthEnd.millisecondsSinceEpoch;
+
+    // Start & end of current year
+    final currentYearStart = DateTime(now.year, 1, 1);
+    final currentYearStartMs = currentYearStart.millisecondsSinceEpoch;
+    final currentYearEnd = DateTime(now.year + 1, 1, 1);
+    final currentYearEndMs = currentYearEnd.millisecondsSinceEpoch;
+
     // Initialize daily/weekly/monthly/yearly aggregates
     final dailyAgg = {'Mon': 0.0, 'Tue': 0.0, 'Wed': 0.0, 'Thu': 0.0, 'Fri': 0.0, 'Sat': 0.0, 'Sun': 0.0};
     final weeklyAgg = {'Week 1': 0.0, 'Week 2': 0.0, 'Week 3': 0.0, 'Week 4': 0.0};
@@ -1600,7 +2060,12 @@ class _HistoryViewState extends State<_HistoryView> {
       'Nov': 0.0,
       'Dec': 0.0,
     };
-    final yearlyAgg = {'2024': 0.0, '2025': 0.0, '2026': 0.0};
+    final currentYear = now.year;
+    final yearlyAgg = <String, double>{
+      '${currentYear - 2}': 0.0,
+      '${currentYear - 1}': 0.0,
+      '$currentYear': 0.0,
+    };
 
     for (final job in myJobs) {
       final status = job['status'] as String? ?? '';
@@ -1629,22 +2094,28 @@ class _HistoryViewState extends State<_HistoryView> {
           // Aggregate for graphs
           if (createdAt != null) {
             final dt = DateTime.fromMillisecondsSinceEpoch(createdAt);
-            // Daily
-            final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-            final dayName = days[dt.weekday - 1];
-            dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+            // Daily (only for current calendar week)
+            if (createdAt >= currentWeekMondayMs && createdAt < currentWeekSundayEndMs) {
+              final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+              final dayName = days[dt.weekday - 1];
+              dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+            }
 
-            // Weekly (approximate based on day of month)
-            final wNum = ((dt.day - 1) ~/ 7) + 1;
-            final wName = 'Week ${wNum > 4 ? 4 : wNum}';
-            weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+            // Weekly (only for current calendar month)
+            if (createdAt >= currentMonthStartMs && createdAt < currentMonthEndMs) {
+              final wNum = ((dt.day - 1) ~/ 7) + 1;
+              final wName = 'Week ${wNum > 4 ? 4 : wNum}';
+              weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+            }
 
-            // Monthly
-            final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            final mName = months[dt.month - 1];
-            monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+            // Monthly (only for current calendar year)
+            if (createdAt >= currentYearStartMs && createdAt < currentYearEndMs) {
+              final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+              final mName = months[dt.month - 1];
+              monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+            }
 
-            // Yearly
+            // Yearly (all-time)
             final yName = dt.year.toString();
             yearlyAgg[yName] = (yearlyAgg[yName] ?? 0.0) + payout;
           }
@@ -1674,7 +2145,7 @@ class _HistoryViewState extends State<_HistoryView> {
         final title = '${rental.year} ${rental.brand} ${rental.model}';
         final price = rental.totalCost ?? 0.0;
         final createdAtMs = rental.createdAt.millisecondsSinceEpoch;
-        
+
         // If the user was the host -> earnings
         if (creatorId == uid) {
           final payout = price * 0.95; // 5% host commission fee deducted
@@ -1691,22 +2162,28 @@ class _HistoryViewState extends State<_HistoryView> {
 
           // Aggregate for graphs
           final dt = rental.createdAt;
-          // Daily
-          final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-          final dayName = days[dt.weekday - 1];
-          dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+          // Daily (only for current calendar week)
+          if (createdAtMs >= currentWeekMondayMs && createdAtMs < currentWeekSundayEndMs) {
+            final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            final dayName = days[dt.weekday - 1];
+            dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+          }
 
-          // Weekly
-          final wNum = ((dt.day - 1) ~/ 7) + 1;
-          final wName = 'Week ${wNum > 4 ? 4 : wNum}';
-          weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+          // Weekly (only for current calendar month)
+          if (createdAtMs >= currentMonthStartMs && createdAtMs < currentMonthEndMs) {
+            final wNum = ((dt.day - 1) ~/ 7) + 1;
+            final wName = 'Week ${wNum > 4 ? 4 : wNum}';
+            weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+          }
 
-          // Monthly
-          final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-          final mName = months[dt.month - 1];
-          monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+          // Monthly (only for current calendar year)
+          if (createdAtMs >= currentYearStartMs && createdAtMs < currentYearEndMs) {
+            final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            final mName = months[dt.month - 1];
+            monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+          }
 
-          // Yearly
+          // Yearly (all-time)
           final yName = dt.year.toString();
           yearlyAgg[yName] = (yearlyAgg[yName] ?? 0.0) + payout;
         }
@@ -1736,13 +2213,13 @@ class _HistoryViewState extends State<_HistoryView> {
       final title = '${rental.year} ${rental.brand} ${rental.model}';
       final price = rental.totalCost ?? 0.0;
       final createdAtMs = rental.createdAt.millisecondsSinceEpoch;
-      
+
       // If the user was the host -> earnings
       if (creatorId == uid) {
         final payout = price * 0.95; // 5% host commission fee deducted
         earningsSum += payout;
         gigsCount++;
-        
+
         final alreadyAdded = eTrans.any((e) => e['timestamp'] == createdAtMs && e['title'] == title);
         if (!alreadyAdded) {
           eTrans.add({
@@ -1756,18 +2233,28 @@ class _HistoryViewState extends State<_HistoryView> {
 
           // Aggregate for graphs
           final dt = rental.createdAt;
-          final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-          final dayName = days[dt.weekday - 1];
-          dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+          // Daily (only for current calendar week)
+          if (createdAtMs >= currentWeekMondayMs && createdAtMs < currentWeekSundayEndMs) {
+            final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            final dayName = days[dt.weekday - 1];
+            dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+          }
 
-          final wNum = ((dt.day - 1) ~/ 7) + 1;
-          final wName = 'Week ${wNum > 4 ? 4 : wNum}';
-          weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+          // Weekly (only for current calendar month)
+          if (createdAtMs >= currentMonthStartMs && createdAtMs < currentMonthEndMs) {
+            final wNum = ((dt.day - 1) ~/ 7) + 1;
+            final wName = 'Week ${wNum > 4 ? 4 : wNum}';
+            weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+          }
 
-          final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-          final mName = months[dt.month - 1];
-          monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+          // Monthly (only for current calendar year)
+          if (createdAtMs >= currentYearStartMs && createdAtMs < currentYearEndMs) {
+            final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            final mName = months[dt.month - 1];
+            monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+          }
 
+          // Yearly (all-time)
           final yName = dt.year.toString();
           yearlyAgg[yName] = (yearlyAgg[yName] ?? 0.0) + payout;
         }
@@ -1948,9 +2435,15 @@ class _HistoryViewState extends State<_HistoryView> {
     final type = s.accountType;
 
     final hasPurchaseHistory = purchaseTransactions.isNotEmpty;
-    final showEarnings = (type == AccountType.nyxian || type == AccountType.hybrid);
-    final showPurchases = (type == AccountType.employer || type == AccountType.hybrid || (type == AccountType.nyxian && hasPurchaseHistory));
-    final showDeposits = (type == AccountType.employer || type == AccountType.hybrid || (type == AccountType.nyxian && hasPurchaseHistory));
+    final showEarnings = true;
+    final showPurchases =
+        (type == AccountType.employer ||
+        type == AccountType.hybrid ||
+        (type == AccountType.nyxian && hasPurchaseHistory));
+    final showDeposits =
+        (type == AccountType.employer ||
+        type == AccountType.hybrid ||
+        (type == AccountType.nyxian && hasPurchaseHistory));
 
     final activeData = earningsData[activeFilter] ?? [];
     double totalEarnedInFilter = 0.0;
@@ -2010,10 +2503,16 @@ class _HistoryViewState extends State<_HistoryView> {
             ]),
             div([
               span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
-                Component.text('Total Earnings'),
+                Component.text(activeFilter == 'daily'
+                    ? 'This Week\'s Earnings'
+                    : activeFilter == 'weekly'
+                        ? 'This Month\'s Earnings'
+                        : activeFilter == 'monthly'
+                            ? 'This Year\'s Earnings'
+                            : 'Total Earnings'),
               ]),
               p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text(formatCurrency(totalEarningsSum)),
+                Component.text(formatCurrency(totalEarnedInFilter)),
               ]),
             ]),
           ]),
@@ -2028,6 +2527,35 @@ class _HistoryViewState extends State<_HistoryView> {
               p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
                 Component.text(formatCurrency(s.userProfile?.tyxBalance ?? 0.0)),
               ]),
+              Builder(
+                builder: (context) {
+                  final pendingTotal = s.pendingHoldbacks.fold<double>(0.0, (sum, item) {
+                    final amt = (item['amount'] as num?)?.toDouble() ?? 0.0;
+                    return sum + amt;
+                  });
+                  if (pendingTotal > 0) {
+                    return div(classes: 'mt-1.5 space-y-1', [
+                      span(classes: 'text-xs text-amber-500 font-bold flex items-center gap-1', [
+                        lIcon('clock', cls: 'w-3.5 h-3.5'),
+                        Component.text('+ ${formatCurrency(pendingTotal)} Pending Release'),
+                      ]),
+                      for (final holdback in s.pendingHoldbacks)
+                        Builder(
+                          builder: (context) {
+                            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
+                            final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+                            final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
+                            final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
+                            return p(classes: 'text-[10px] text-amber-500/80 font-bold pl-4', [
+                              Component.text('• Php ${amt.toStringAsFixed(2)} $hrsStr'),
+                            ]);
+                          },
+                        ),
+                    ]);
+                  }
+                  return div([]);
+                },
+              ),
             ]),
           ]),
           div(classes: 'p-6 rounded-[2rem] border $cardCls flex items-center gap-4', [
@@ -2169,12 +2697,14 @@ class _HistoryViewState extends State<_HistoryView> {
                         ]),
                         p(classes: 'text-xs text-amber-500/80 mt-0.5', [
                           lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
-                          Component.text('Platform fee (3%): − ${formatCurrency((tx['bookingFee'] as num).toDouble())}'),
+                          Component.text(
+                            'Platform fee (3%): − ${formatCurrency((tx['bookingFee'] as num).toDouble())}',
+                          ),
                         ]),
                       ],
                     ]),
                   ]),
-                   div(classes: 'text-right', [
+                  div(classes: 'text-right', [
                     p(classes: 'font-black text-sm ${isDark ? "text-zinc-100" : "text-zinc-900"}', [
                       Component.text('− ${formatCurrency((tx['amount'] as num).toDouble())}'),
                     ]),
@@ -2217,7 +2747,7 @@ class _HistoryViewState extends State<_HistoryView> {
                       ]),
                     ]),
                   ]),
-                   div(classes: 'text-right', [
+                  div(classes: 'text-right', [
                     p(classes: 'font-black text-sm text-indigo-400', [
                       Component.text('+ ${formatCurrency((tx['amount'] as num).toDouble())}'),
                     ]),

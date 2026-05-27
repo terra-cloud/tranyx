@@ -13,6 +13,8 @@ enum ProfileView { main, personal, professional, payment, trust, support, histor
 
 enum TransitMode { rent, host }
 
+enum RentalCategory { vehicles, properties }
+
 enum JobDateType { flexible, onDate, beforeDate }
 
 enum TimePref { morning, midday, afternoon, evening }
