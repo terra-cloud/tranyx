@@ -736,6 +736,19 @@ class FirestoreService {
     ]);
   }
 
+  /// Fetch all jobs where the user has applied.
+  Future<List<Map<String, dynamic>>> getAppliedJobs(String uid) async {
+    return _queryJobs([
+      {
+        'fieldFilter': {
+          'field': {'fieldPath': 'applicantUids'},
+          'op': 'ARRAY_CONTAINS',
+          'value': {'stringValue': uid},
+        },
+      },
+    ]);
+  }
+
   /// Fetch available jobs for the given viewer type.
   /// Nyxians see Employer postings; Employers see Nyxian postings.
   Future<List<Map<String, dynamic>>> getAvailableJobs(AccountType viewerType) async {
@@ -853,6 +866,17 @@ class FirestoreService {
           'applicantUids': uids,
           'applicantCount': count,
         });
+      }
+
+      // Notify the employer/creator about the new job application
+      final creatorId = jobDoc['creatorId'] as String?;
+      final jobTitle = jobDoc['title'] as String? ?? 'Your Posting';
+      if (creatorId != null && creatorId != applicantUid) {
+        await createNotification(
+          uid: creatorId,
+          title: 'New Job Application',
+          message: '$applicantName has applied to your posting "$jobTitle".',
+        );
       }
     }
   }
@@ -1776,6 +1800,60 @@ class FirestoreService {
         if (data['status'] == 'Pending') {
           list.add(data);
         }
+      }
+    }
+    return list;
+  }
+
+  /// Fetch all pending requests for a specific host, filtered in-memory
+  Future<List<Map<String, dynamic>>> getPendingRequestsForHost(String hostId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'rental_requests'},
+        ],
+        'where': {
+          'compositeFilter': {
+            'op': 'AND',
+            'filters': [
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'hostId'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': hostId},
+                },
+              },
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'status'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': 'Pending'},
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map<String, dynamic>;
+        final name = doc['name'] as String;
+        final docId = name.split('/').last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        list.add(data);
       }
     }
     return list;

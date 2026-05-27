@@ -50,11 +50,19 @@ class SidebarComponent extends StatelessComponent {
     final inactiveCls = s.isDark
         ? 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
         : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900';
+    final showBadge = (tab == AppTab.jobs && s.jobsHasUpdates) || (tab == AppTab.transit && s.transitHasUpdates);
+
     return button(
       classes: 'w-full flex justify-center p-4 rounded-2xl transition-all ${isActive ? activeCls : inactiveCls}',
       events: {'click': (_) => s.switchTab(tab)},
       attributes: {'title': label},
-      [lIcon(iconName, cls: 'w-6 h-6')],
+      [
+        div(classes: 'relative', [
+          lIcon(iconName, cls: 'w-6 h-6'),
+          if (showBadge)
+            div([], classes: 'absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 border border-white dark:border-zinc-900 animate-pulse'),
+        ]),
+      ],
     );
   }
 }

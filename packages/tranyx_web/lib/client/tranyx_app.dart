@@ -142,6 +142,9 @@ class TranyxAppState extends State<TranyxApp> {
   List<Map<String, dynamic>> availableJobs = [];
   List<Map<String, dynamic>> realtimeRentals = [];
   List<Map<String, dynamic>> renterPendingRequests = [];
+  List<Map<String, dynamic>> appliedJobs = [];
+  List<Map<String, dynamic>> hostPendingRequests = [];
+  List<Map<String, dynamic>> propertyHostPendingRequests = [];
   bool isLoadingJobs = false;
   String? jobsError;
   String activeJobFilter = 'Recommended';
@@ -490,6 +493,8 @@ class TranyxAppState extends State<TranyxApp> {
     // Load jobs for current tab
     await loadJobs();
     await loadTransactions();
+    await loadRenterPendingRequests();
+    await loadHostPendingRequests();
     _startListeningNotifications();
     _startListeningJobs();
     _startListeningRentals();
@@ -719,6 +724,22 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  Future<void> loadHostPendingRequests() async {
+    final uid = SessionStorage.uid;
+    if (uid == null) return;
+    try {
+      final list = await _firestore.getPendingRequestsForHost(uid);
+      final propList = await _firestore.getPropertyPendingRequestsForHost(uid);
+      setState(() {
+        hostPendingRequests = list;
+        propertyHostPendingRequests = propList;
+      });
+    } catch (e) {
+      print('Error loading host pending requests: $e');
+    }
+  }
+
+
   Future<void> loadUserProfile() async {
     final uid = SessionStorage.uid;
     if (uid == null) return;
@@ -795,6 +816,8 @@ class TranyxAppState extends State<TranyxApp> {
       _initGemini();
       await loadJobs();
       await loadTransactions();
+      await loadRenterPendingRequests();
+      await loadHostPendingRequests();
       _startListeningNotifications();
       _startListeningJobs();
       _startListeningRentals();
@@ -1254,6 +1277,7 @@ class TranyxAppState extends State<TranyxApp> {
       final allMyJobs = [...my, ...accepted];
 
       final avail = await _firestore.getAvailableJobs(currentViewMode);
+      final applied = await _firestore.getAppliedJobs(uid);
 
       // De-duplicate by id
       final seenIds = <String>{};
@@ -1286,6 +1310,7 @@ class TranyxAppState extends State<TranyxApp> {
       setState(() {
         myJobs = merged;
         availableJobs = avail;
+        appliedJobs = applied;
         ongoingJob = ongoing;
         isLoadingJobs = false;
       });
@@ -4075,7 +4100,36 @@ class TranyxAppState extends State<TranyxApp> {
       }
     });
     if (tab == AppTab.jobs) loadJobs();
-    if (tab == AppTab.transit) loadRenterPendingRequests();
+    if (tab == AppTab.transit) {
+      loadRenterPendingRequests();
+      loadHostPendingRequests();
+    }
+  }
+
+  bool get jobsHasUpdates {
+    if (!isAuthenticated) return false;
+    final myUid = SessionStorage.uid;
+    if (myUid == null) return false;
+    if (currentViewMode == AccountType.employer) {
+      return myJobs.any((j) {
+        final status = (j['status'] as String? ?? 'Open').toLowerCase();
+        final count = j['applicantCount'] as int? ?? 0;
+        return status == 'open' && count > 0;
+      });
+    } else {
+      return appliedJobs.any((j) {
+        final status = (j['status'] as String? ?? 'Open').toLowerCase();
+        return status != 'open';
+      });
+    }
+  }
+
+  bool get transitHasUpdates {
+    if (!isAuthenticated) return false;
+    final renterHasUpdates = renterPendingRequests.any((r) => r['status'] != 'Pending') ||
+        propertyRenterPendingRequests.any((r) => r['status'] != 'Pending');
+    final hostHasUpdates = hostPendingRequests.isNotEmpty || propertyHostPendingRequests.isNotEmpty;
+    return renterHasUpdates || hostHasUpdates;
   }
 
   // ── Wallet ──────────────────────────────────────────────────

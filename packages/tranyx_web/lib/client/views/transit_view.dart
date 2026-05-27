@@ -890,32 +890,45 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         ]),
 
         if (isHostView)
-          div(classes: 'flex gap-2', [
-            button(
-              classes:
-                  'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-              events: {
-                'click': (_) => s.setState(() {
-                  s.selectedRentalData = r;
-                  s.showVehicleQaModal = true;
-                }),
-              },
-              [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
-            ),
-            button(
-              classes:
-                  'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-              events: {
-                'click': (_) {
-                  s.setState(() {
+          Builder(builder: (context) {
+            final hasRequests = s.hostPendingRequests.any((req) => req['rentalId'] == r['id']);
+            return div(classes: 'flex gap-2', [
+              button(
+                classes:
+                    'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
+                events: {
+                  'click': (_) => s.setState(() {
                     s.selectedRentalData = r;
-                    s.showManageVehicleModal = true;
-                  });
+                    s.showVehicleQaModal = true;
+                  }),
                 },
-              },
-              [Component.text('Manage')],
-            ),
-          ])
+                [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
+              ),
+              button(
+                classes:
+                    'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
+                events: {
+                  'click': (_) {
+                    s.setState(() {
+                      s.selectedRentalData = r;
+                      s.showManageVehicleModal = true;
+                    });
+                  },
+                },
+                [
+                  Component.text('Manage'),
+                  if (hasRequests)
+                    span(
+                      classes: 'absolute -top-1 -right-1 flex h-2.5 w-2.5',
+                      [
+                        span(classes: 'animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75', []),
+                        span(classes: 'relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500', []),
+                      ],
+                    ),
+                ],
+              ),
+            ]);
+          })
         else
           div(classes: 'flex items-center gap-2', [
             button(
@@ -990,32 +1003,45 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         ]),
 
         if (isHostView)
-          div(classes: 'flex gap-2', [
-            button(
-              classes:
-                  'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-              events: {
-                'click': (_) => s.setState(() {
-                  s.selectedPropertyData = prop.toMap();
-                  s.showPropertyQaModal = true;
-                }),
-              },
-              [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
-            ),
-            button(
-              classes:
-                  'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-              events: {
-                'click': (_) {
-                  s.setState(() {
+          Builder(builder: (context) {
+            final hasRequests = s.propertyHostPendingRequests.any((req) => req['propertyId'] == prop.id);
+            return div(classes: 'flex gap-2', [
+              button(
+                classes:
+                    'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
+                events: {
+                  'click': (_) => s.setState(() {
                     s.selectedPropertyData = prop.toMap();
-                    s.showManagePropertyModal = true;
-                  });
+                    s.showPropertyQaModal = true;
+                  }),
                 },
-              },
-              [Component.text('Manage')],
-            ),
-          ])
+                [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
+              ),
+              button(
+                classes:
+                    'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
+                events: {
+                  'click': (_) {
+                    s.setState(() {
+                      s.selectedPropertyData = prop.toMap();
+                      s.showManagePropertyModal = true;
+                    });
+                  },
+                },
+                [
+                  Component.text('Manage'),
+                  if (hasRequests)
+                    span(
+                      classes: 'absolute -top-1 -right-1 flex h-2.5 w-2.5',
+                      [
+                        span(classes: 'animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75', []),
+                        span(classes: 'relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500', []),
+                      ],
+                    ),
+                ],
+              ),
+            ]);
+          })
         else
           div(classes: 'flex items-center gap-2', [
             button(

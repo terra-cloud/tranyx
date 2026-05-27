@@ -14,7 +14,9 @@ service cloud.firestore {
     // Users Collection
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
-      allow write: if isOwner(userId); // Users can only update their own profile
+      allow create: if isOwner(userId);
+      allow update: if isAuthenticated(); // Allowed for transaction/balance updates between users
+      allow delete: if isOwner(userId);
       
       // User Reviews subcollection
       match /reviews/{reviewId} {
@@ -121,6 +123,23 @@ service cloud.firestore {
     match /kyc_submissions/{submissionId} {
       allow read: if isAuthenticated() && (request.auth.uid == submissionId || resource.data.uid == request.auth.uid);
       allow write: if isAuthenticated() && request.auth.uid == submissionId;
+    }
+
+    // Escrow Collections
+    match /escrow/{jobId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /rental_escrows/{rentalId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /rental_extension_escrows/{extensionId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /property_escrows/{requestId} {
+      allow read, write: if isAuthenticated();
     }
 
     // Chats Collection
