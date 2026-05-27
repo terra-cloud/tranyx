@@ -32,6 +32,23 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-firestore-compat.js"></script>
+
+  <!-- Buffer Polyfill loaded BEFORE Solana web3.js -->
+  <script src="/buffer.min.js"></script>
+  <script>
+    try {
+      window.Buffer = window.Buffer || window.buffer?.Buffer;
+      if (window.Buffer) {
+        window.globalThis = window.globalThis || window;
+        window.globalThis.Buffer = window.Buffer;
+        console.log("Buffer polyfill successfully initialized on globalThis. Type:", typeof window.Buffer);
+      } else {
+        console.error("Buffer polyfill could not be resolved from local script!");
+      }
+    } catch (e) {
+      console.error("Buffer polyfill error:", e);
+    }
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.95.3/lib/index.iife.min.js"></script>
 
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
@@ -122,6 +139,7 @@
       observer.observe(document.body, { childList: true, subtree: true });
     });
 
+
     window._createMap = function (options) {
       console.log("DEBUG: _createMap called with options:", options);
       if (!window.maplibregl) {
@@ -168,8 +186,24 @@
       return new maplibregl.LngLatBounds();
     };
 
-    window.sendSolPayment = async function (fromAddress, toAddress, amountInSol) {
-      console.log("sendSolPayment started", fromAddress, toAddress, amountInSol);
+    function ensureBuffer() {
+      try {
+        if (typeof window.Buffer === 'undefined') {
+          const b = window.buffer || (window.phantom && window.phantom.buffer) || (typeof buffer !== 'undefined' ? buffer : null);
+          if (b && b.Buffer) {
+            window.Buffer = b.Buffer;
+            window.globalThis = window.globalThis || window;
+            window.globalThis.Buffer = b.Buffer;
+          }
+        }
+      } catch (e) {
+        console.error("Buffer initialization failed:", e);
+      }
+    }
+
+    window.sendSolPayment = async function (fromAddress, toAddress, amountInSol, rpcUrl) {
+      console.log("sendSolPayment started", fromAddress, toAddress, amountInSol, rpcUrl);
+      ensureBuffer();
       try {
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
@@ -182,9 +216,18 @@
           throw new Error("Phantom Wallet is not connected.");
         }
 
-        // Establish connection to mainnet-beta (matching getSolanaBalance)
-        const connection = new solanaWeb3.Connection("https://rpc.ankr.com/solana");
-        
+        // Establish connection to dynamic RPC URL
+        let fallbackRpc = "https://api.testnet.solana.com";
+        try {
+          const hostname = window.location.hostname;
+          if (hostname.includes("uat") || hostname.includes("devnet")) {
+            fallbackRpc = "https://api.devnet.solana.com";
+          } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
+            fallbackRpc = "https://rpc.ankr.com/solana";
+          }
+        } catch (e) {}
+        const connection = new solanaWeb3.Connection(rpcUrl || fallbackRpc);
+
         const fromPubkey = new solanaWeb3.PublicKey(fromAddress);
         const toPubkey = new solanaWeb3.PublicKey(toAddress);
         const lamports = Math.round(amountInSol * 1000000000);
@@ -198,8 +241,8 @@
         );
 
         // Fetch recent blockhash
-        const { blockhash } = await connection.getLatestBlockhash("confirmed");
-        transaction.recentBlockhash = blockhash;
+        const latestBlockHash = await connection.getLatestBlockhash("confirmed");
+        transaction.recentBlockhash = latestBlockHash.blockhash;
         transaction.feePayer = fromPubkey;
 
         // Sign and send transaction via Phantom provider
@@ -207,7 +250,6 @@
         console.log("Transaction sent. Signature:", signature);
 
         // Wait for confirmation
-        const latestBlockHash = await connection.getLatestBlockhash("confirmed");
         await connection.confirmTransaction({
           blockhash: latestBlockHash.blockhash,
           lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
@@ -222,11 +264,13 @@
       }
     };
 
-    // ── USDC SPL Token Transfer ────────────────────────────────────────────────
-    // USDC Mint on Mainnet: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
-    window.sendUsdcPayment = async function (fromAddress, toAddress, amountInUsdc) {
-      console.log("sendUsdcPayment started", fromAddress, toAddress, amountInUsdc);
+    // ── USDT SPL Token Transfer ────────────────────────────────────────────────
+    // USDT Mint on Mainnet: Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB
+    window.sendUsdtPayment = async function (fromAddress, toAddress, amountInUsdt, rpcUrl, usdtMint) {
+      console.log("sendUsdtPayment started", fromAddress, toAddress, amountInUsdt, rpcUrl, usdtMint);
+      ensureBuffer();
       try {
+
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
         }
@@ -234,10 +278,20 @@
         if (!solana) throw new Error("Phantom Wallet is not installed.");
         if (!solana.publicKey) throw new Error("Phantom Wallet is not connected.");
 
-        const connection = new solanaWeb3.Connection("https://rpc.ankr.com/solana");
-        const USDC_MINT = new solanaWeb3.PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-        const USDC_DECIMALS = 6;
-        const amountInMicroUsdc = Math.round(amountInUsdc * Math.pow(10, USDC_DECIMALS));
+        let fallbackRpc = "https://api.testnet.solana.com";
+        let fallbackUsdtMint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+        try {
+          const hostname = window.location.hostname;
+          if (hostname.includes("uat") || hostname.includes("devnet")) {
+            fallbackRpc = "https://api.devnet.solana.com";
+          } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
+            fallbackRpc = "https://rpc.ankr.com/solana";
+          }
+        } catch (e) {}
+        const connection = new solanaWeb3.Connection(rpcUrl || fallbackRpc);
+        const USDT_MINT = new solanaWeb3.PublicKey(usdtMint || fallbackUsdtMint);
+        const USDT_DECIMALS = 6;
+        const amountInMicroUsdt = Math.round(amountInUsdt * Math.pow(10, USDT_DECIMALS));
 
         const fromPubkey = new solanaWeb3.PublicKey(fromAddress);
         const toPubkey = new solanaWeb3.PublicKey(toAddress);
@@ -253,8 +307,8 @@
           )[0];
         }
 
-        const fromATA = findATA(fromPubkey, USDC_MINT);
-        const toATA = findATA(toPubkey, USDC_MINT);
+        const fromATA = findATA(fromPubkey, USDT_MINT);
+        const toATA = findATA(toPubkey, USDT_MINT);
 
         // Build transfer instruction manually (compatible with all web3.js versions)
         const keys = [
@@ -266,7 +320,7 @@
         const data = new Uint8Array(9);
         const view = new DataView(data.buffer);
         view.setUint8(0, 3); // Transfer instruction
-        view.setBigUint64(1, BigInt(amountInMicroUsdc), true); // amount in little endian
+        view.setBigUint64(1, BigInt(amountInMicroUsdt), true); // amount in little endian
 
         const transferInstruction = new solanaWeb3.TransactionInstruction({
           keys: keys,
@@ -274,26 +328,166 @@
           data: data,
         });
 
-        const transaction = new solanaWeb3.Transaction().add(transferInstruction);
-        const { blockhash } = await connection.getLatestBlockhash("confirmed");
-        transaction.recentBlockhash = blockhash;
+        const transaction = new solanaWeb3.Transaction();
+
+        // Check if recipient's Associated Token Account (ATA) exists
+        const toATAInfo = await connection.getAccountInfo(toATA);
+        if (!toATAInfo) {
+          console.log("Recipient ATA does not exist, appending createAssociatedTokenAccountInstruction...");
+          const createATAInstruction = new solanaWeb3.TransactionInstruction({
+            keys: [
+              { pubkey: fromPubkey, isSigner: true, isWritable: true },
+              { pubkey: toATA, isSigner: false, isWritable: true },
+              { pubkey: toPubkey, isSigner: false, isWritable: false },
+              { pubkey: USDT_MINT, isSigner: false, isWritable: false },
+              { pubkey: solanaWeb3.SystemProgram.programId, isSigner: false, isWritable: false },
+              { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+            ],
+            programId: ASSOCIATED_TOKEN_PROGRAM_ID,
+            data: new Uint8Array(0),
+          });
+          transaction.add(createATAInstruction);
+        }
+
+        transaction.add(transferInstruction);
+
+        const latestBlockHash = await connection.getLatestBlockhash("confirmed");
+        transaction.recentBlockhash = latestBlockHash.blockhash;
         transaction.feePayer = fromPubkey;
 
         const { signature } = await solana.signAndSendTransaction(transaction);
-        console.log("USDC Transaction sent. Signature:", signature);
+        console.log("USDT Transaction sent. Signature:", signature);
 
-        const latestBlockHash = await connection.getLatestBlockhash("confirmed");
         await connection.confirmTransaction({
           blockhash: latestBlockHash.blockhash,
           lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
           signature: signature
         }, "confirmed");
 
-        console.log("USDC Transaction confirmed:", signature);
+        console.log("USDT Transaction confirmed:", signature);
         return signature;
       } catch (error) {
-        console.error("sendUsdcPayment failed:", error);
+        console.error("sendUsdtPayment failed:", error);
         throw error;
+      }
+    };
+
+    window.connectEthereumWallet = async function () {
+      try {
+        const provider = window.ethereum || (window.phantom && window.phantom.ethereum);
+        if (!provider) return null;
+        const accounts = await provider.request({ method: 'eth_requestAccounts' });
+        return accounts[0] || null;
+      } catch (e) {
+        console.error("connectEthereumWallet failed:", e);
+        return null;
+      }
+    };
+
+    window.connectSuiWallet = async function () {
+      try {
+        const provider = window.sui || (window.phantom && window.phantom.sui);
+        if (!provider) return null;
+        if (typeof provider.requestAccount === 'function') {
+          const resp = await provider.requestAccount();
+          if (resp) {
+            if (resp.address) return resp.address;
+            if (resp.publicKey) return resp.publicKey.toString();
+            return resp.toString();
+          }
+        }
+        if (typeof provider.connect === 'function') {
+          const response = await provider.connect();
+          if (response && response.address) {
+            return response.address;
+          }
+        }
+        if (typeof provider.getAccounts === 'function') {
+          const accounts = await provider.getAccounts();
+          return accounts[0] || null;
+        }
+        return null;
+      } catch (e) {
+        console.error("connectSuiWallet failed:", e);
+        return null;
+      }
+    };
+
+    window.getEthereumAddressIfConnected = async function () {
+      try {
+        const provider = window.ethereum || (window.phantom && window.phantom.ethereum);
+        if (!provider) return null;
+        const accounts = await provider.request({ method: 'eth_accounts' });
+        return accounts[0] || null;
+      } catch (e) {
+        return null;
+      }
+    };
+
+    window.getSuiAddressIfConnected = async function () {
+      try {
+        const provider = window.sui || (window.phantom && window.phantom.sui);
+        if (!provider) return null;
+        if (typeof provider.getAccounts === 'function') {
+          const accounts = await provider.getAccounts();
+          if (accounts && accounts[0]) {
+            return accounts[0].address || accounts[0].toString();
+          }
+        }
+        return null;
+      } catch (e) {
+        return null;
+      }
+    };
+
+    window.getTokenMetadata = async function (mintAddress, rpcUrl) {
+      ensureBuffer();
+      try {
+        if (!window.solanaWeb3) return null;
+        let fallbackRpc = "https://api.testnet.solana.com";
+        try {
+          const hostname = window.location.hostname;
+          if (hostname.includes("uat") || hostname.includes("devnet")) {
+            fallbackRpc = "https://api.devnet.solana.com";
+          } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
+            fallbackRpc = "https://rpc.ankr.com/solana";
+          }
+        } catch (e) {}
+        const connection = new solanaWeb3.Connection(rpcUrl || fallbackRpc);
+        const mintPubkey = new solanaWeb3.PublicKey(mintAddress);
+        const METADATA_PROGRAM_ID = new solanaWeb3.PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+
+        const [metadataPDA] = solanaWeb3.PublicKey.findProgramAddressSync(
+          [
+            window.Buffer.from("metadata"),
+            METADATA_PROGRAM_ID.toBuffer(),
+            mintPubkey.toBuffer(),
+          ],
+          METADATA_PROGRAM_ID
+        );
+
+        const accountInfo = await connection.getAccountInfo(metadataPDA);
+        if (!accountInfo || !accountInfo.data) return null;
+
+        const data = accountInfo.data;
+        const nameLen = data[65] | (data[66] << 8) | (data[67] << 16) | (data[68] << 24);
+        let name = "";
+        if (nameLen > 0 && nameLen <= 32) {
+          const nameBytes = data.slice(69, 69 + nameLen);
+          name = new TextDecoder().decode(nameBytes).replace(/\0/g, '').trim();
+        }
+
+        const symbolLen = data[101] | (data[102] << 8) | (data[103] << 16) | (data[104] << 24);
+        let symbol = "";
+        if (symbolLen > 0 && symbolLen <= 10) {
+          const symbolBytes = data.slice(105, 105 + symbolLen);
+          symbol = new TextDecoder().decode(symbolBytes).replace(/\0/g, '').trim();
+        }
+
+        return JSON.stringify({ name: name || null, symbol: symbol || null });
+      } catch (e) {
+        console.error("Failed to fetch token metadata for " + mintAddress, e);
+        return null;
       }
     };
 
@@ -350,7 +544,7 @@
     window.listenToNotifications = function (uid, callback) {
       if (!firebase.apps.length) return () => { };
       const db = firebase.firestore();
-      
+
       let unsubSnapshot = null;
       let isUnsubscribed = false;
 

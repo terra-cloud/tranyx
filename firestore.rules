@@ -142,6 +142,12 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
 
+    // Wallet Links Collection
+    match /walletLinks/{walletPublicKey} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
     // Chats Collection
     match /chats/{chatId} {
       allow read, write: if isAuthenticated();

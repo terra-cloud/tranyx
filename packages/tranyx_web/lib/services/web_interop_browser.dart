@@ -119,9 +119,260 @@ void markNotificationReadJs(String notifId) {
 
 // ── Solana balance ────────────────────────────────────────────────────────────
 
+String getSolanaRpcUrl() {
+  const env = String.fromEnvironment('ENV', defaultValue: 'dev');
+  if (env == 'prod') {
+    return 'https://rpc.ankr.com/solana';
+  } else {
+    // Both dev and uat environments point to Devnet where faucet SOL is active
+    return 'https://api.devnet.solana.com';
+  }
+}
+
+String getUsdtMintAddress() {
+  const env = String.fromEnvironment('ENV', defaultValue: 'dev');
+  if (env == 'prod') {
+    return 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
+  } else {
+    return 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
+  }
+}
+
+
+
+@JS('JSON.stringify')
+external JSString _jsStringify(JSAny? obj);
+
+Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey) async {
+  try {
+    final rpc = getSolanaRpcUrl();
+    final headers = web.Headers();
+    headers.set('Content-Type', 'application/json');
+
+    // 1. Legacy Token accounts
+    final bodyLegacy = jsonEncode({
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "getTokenAccountsByOwner",
+      "params": [
+        publicKey,
+        {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
+        {"encoding": "jsonParsed"}
+      ]
+    });
+    final optsLegacy = web.RequestInit(method: 'POST', body: bodyLegacy.toJS, headers: headers);
+    final respLegacy = await web.window.fetch(rpc.toJS, optsLegacy).toDart;
+    final jsonLegacy = await respLegacy.json().toDart;
+    final jsonStrLegacy = _jsStringify(jsonLegacy).toDart;
+    final decodedLegacy = jsonDecode(jsonStrLegacy) as Map<String, dynamic>;
+
+    // 2. Token-2022 accounts
+    final body2022 = jsonEncode({
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "getTokenAccountsByOwner",
+      "params": [
+        publicKey,
+        {"programId": "TokenzQdBNbMcHuCxQC6YYeeTJHGDLXci3jTF5tk726V"},
+        {"encoding": "jsonParsed"}
+      ]
+    });
+    final opts2022 = web.RequestInit(method: 'POST', body: body2022.toJS, headers: headers);
+    final resp2022 = await web.window.fetch(rpc.toJS, opts2022).toDart;
+    final json2022 = await resp2022.json().toDart;
+    final jsonStr2022 = _jsStringify(json2022).toDart;
+    final decoded2022 = jsonDecode(jsonStr2022) as Map<String, dynamic>;
+
+    final parsedTokens = <Map<String, dynamic>>[];
+
+    void parseAndAdd(Map<String, dynamic> decoded) {
+      final result = decoded['result'] as Map<String, dynamic>?;
+      if (result == null) return;
+      final value = result['value'] as List<dynamic>?;
+      if (value == null) return;
+
+      for (final item in value) {
+        if (item is Map<String, dynamic>) {
+          final account = item['account'] as Map<String, dynamic>?;
+          if (account == null) continue;
+          final data = account['data'] as Map<String, dynamic>?;
+          if (data == null) continue;
+          final parsed = data['parsed'] as Map<String, dynamic>?;
+          if (parsed == null) continue;
+          final info = parsed['info'] as Map<String, dynamic>?;
+          if (info == null) continue;
+          
+          final mint = info['mint'] as String? ?? '';
+          final tokenAmount = info['tokenAmount'] as Map<String, dynamic>?;
+          if (tokenAmount == null) continue;
+          
+          final amountStr = tokenAmount['uiAmountString'] as String? ?? '0';
+          final decimals = tokenAmount['decimals'] as int? ?? 0;
+          final amount = double.tryParse(amountStr) ?? 0.0;
+          
+          if (amount > 0) {
+            parsedTokens.add({
+              'mint': mint,
+              'amount': amount,
+              'decimals': decimals,
+            });
+          }
+        }
+      }
+    }
+
+    parseAndAdd(decodedLegacy);
+    parseAndAdd(decoded2022);
+
+    final list = <Map<String, dynamic>>[];
+    await Future.wait(parsedTokens.map((token) async {
+      final mint = token['mint'] as String;
+      String? symbol;
+      String? name;
+      try {
+        final promise = web.window.callMethod<JSPromise>(
+          'getTokenMetadata'.toJS,
+          mint.toJS,
+          rpc.toJS,
+        );
+        final res = await promise.toDart;
+        if (res != null) {
+          final resStr = (res as JSString).toDart;
+          final meta = jsonDecode(resStr) as Map<String, dynamic>;
+          symbol = meta['symbol'] as String?;
+          name = meta['name'] as String?;
+        }
+      } catch (_) {}
+
+      list.add({
+        'mint': mint,
+        'amount': token['amount'],
+        'decimals': token['decimals'],
+        'symbol': symbol ?? '',
+        'name': name ?? '',
+      });
+    }));
+
+    return list;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<String?> connectEthereumWallet() async {
+  try {
+    final res = await web.window.callMethod<JSPromise>('connectEthereumWallet'.toJS).toDart;
+    if (res == null) return null;
+    return (res as JSString).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<String?> connectSuiWallet() async {
+  try {
+    final res = await web.window.callMethod<JSPromise>('connectSuiWallet'.toJS).toDart;
+    if (res == null) return null;
+    return (res as JSString).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<String?> getEthereumAddressIfConnected() async {
+  try {
+    final res = await web.window.callMethod<JSPromise>('getEthereumAddressIfConnected'.toJS).toDart;
+    if (res == null) return null;
+    return (res as JSString).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<String?> getSuiAddressIfConnected() async {
+  try {
+    final res = await web.window.callMethod<JSPromise>('getSuiAddressIfConnected'.toJS).toDart;
+    if (res == null) return null;
+    return (res as JSString).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
+String getEthereumRpcUrl() {
+  const env = String.fromEnvironment('ENV', defaultValue: 'dev');
+  if (env == 'prod') {
+    return 'https://rpc.ankr.com/eth';
+  } else {
+    return 'https://rpc.ankr.com/eth_sepolia';
+  }
+}
+
+String getSuiRpcUrl() {
+  const env = String.fromEnvironment('ENV', defaultValue: 'dev');
+  if (env == 'prod') {
+    return 'https://fullnode.mainnet.sui.io';
+  } else {
+    return 'https://fullnode.testnet.sui.io';
+  }
+}
+
+Future<double?> getEthereumBalance(String address) async {
+  try {
+    final rpc = getEthereumRpcUrl();
+    final body = jsonEncode({
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "eth_getBalance",
+      "params": [address, "latest"]
+    });
+    final headers = web.Headers();
+    headers.set('Content-Type', 'application/json');
+    final opts = web.RequestInit(method: 'POST', body: body.toJS, headers: headers);
+    final resp = await web.window.fetch(rpc.toJS, opts).toDart;
+    final json = await resp.json().toDart;
+    final jsonStr = _jsStringify(json).toDart;
+    final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
+    final result = decoded['result'] as String?;
+    if (result == null) return 0.0;
+    final cleanHex = result.startsWith('0x') ? result.substring(2) : result;
+    final wei = BigInt.parse(cleanHex, radix: 16);
+    return wei.toDouble() / 1e18;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<double?> getSuiBalance(String address) async {
+  try {
+    final rpc = getSuiRpcUrl();
+    final body = jsonEncode({
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "suix_getBalance",
+      "params": [address, "0x2::sui::SUI"]
+    });
+    final headers = web.Headers();
+    headers.set('Content-Type', 'application/json');
+    final opts = web.RequestInit(method: 'POST', body: body.toJS, headers: headers);
+    final resp = await web.window.fetch(rpc.toJS, opts).toDart;
+    final json = await resp.json().toDart;
+    final jsonStr = _jsStringify(json).toDart;
+    final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
+    final result = decoded['result'] as Map<String, dynamic>?;
+    if (result == null) return 0.0;
+    final totalBalance = result['totalBalance'] as String?;
+    if (totalBalance == null) return 0.0;
+    final mist = double.tryParse(totalBalance) ?? 0.0;
+    return mist / 1e9;
+  } catch (_) {
+    return null;
+  }
+}
+
 Future<double?> getSolanaBalance(String publicKey) async {
   try {
-    const rpc = 'https://rpc.ankr.com/solana';
+    final rpc = getSolanaRpcUrl();
     final body = '{"jsonrpc":"2.0","id":1,"method":"getBalance","params":["$publicKey"]}';
     final headers = web.Headers();
     headers.set('Content-Type', 'application/json');
@@ -137,33 +388,42 @@ Future<double?> getSolanaBalance(String publicKey) async {
 
 Future<String?> sendSolanaPayment(String fromAddress, String toAddress, double amountInSol) async {
   try {
+    final rpcUrl = getSolanaRpcUrl();
     final res = await web.window
         .callMethod<JSPromise>(
           'sendSolPayment'.toJS,
           fromAddress.toJS,
           toAddress.toJS,
           amountInSol.toJS,
+          rpcUrl.toJS,
         )
         .toDart;
     return (res as JSString).toDart;
-  } catch (_) {
-    return null;
+  } catch (e) {
+    print("sendSolanaPayment exception: $e");
+    rethrow;
   }
 }
 
-Future<String?> sendUsdcPayment(String fromAddress, String toAddress, double amountInUsdc) async {
+Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amountInUsdt, {String? usdtMint}) async {
   try {
-    final res = await web.window
-        .callMethod<JSPromise>(
-          'sendUsdcPayment'.toJS,
-          fromAddress.toJS,
-          toAddress.toJS,
-          amountInUsdc.toJS,
-        )
-        .toDart;
+    final rpcUrl = getSolanaRpcUrl();
+    final mint = usdtMint ?? getUsdtMintAddress();
+    final promise = web.window.callMethodVarArgs(
+      'sendUsdtPayment'.toJS,
+      [
+        fromAddress.toJS,
+        toAddress.toJS,
+        amountInUsdt.toJS,
+        rpcUrl.toJS,
+        mint.toJS,
+      ],
+    ) as JSPromise;
+    final res = await promise.toDart;
     return (res as JSString).toDart;
-  } catch (_) {
-    return null;
+  } catch (e) {
+    print("sendUsdtPayment exception: $e");
+    rethrow;
   }
 }
 

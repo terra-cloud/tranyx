@@ -50,9 +50,18 @@ Future<String?> getPhantomPublicKeyIfConnected() async => null;
 
 Future<double?> getSolanaBalance(String publicKey) async => null;
 
+Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey) async => null;
+
+Future<String?> connectEthereumWallet() async => null;
+Future<String?> connectSuiWallet() async => null;
+Future<String?> getEthereumAddressIfConnected() async => null;
+Future<String?> getSuiAddressIfConnected() async => null;
+Future<double?> getEthereumBalance(String address) async => null;
+Future<double?> getSuiBalance(String address) async => null;
+
 Future<String?> sendSolanaPayment(String fromAddress, String toAddress, double amountInSol) async => null;
 
-Future<String?> sendUsdcPayment(String fromAddress, String toAddress, double amountInUsdc) async => null;
+Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amountInUsdt, {String? usdtMint}) async => null;
 
 Future<String?> signInWithGoogleJs(Map<String, String> config) async => null;
 

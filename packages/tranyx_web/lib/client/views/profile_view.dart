@@ -878,6 +878,73 @@ class _Payment extends StatelessComponent {
         ? '${s.walletAddress.substring(0, 4)}...${s.walletAddress.substring(s.walletAddress.length - 4)}'
         : s.walletAddress;
 
+    // Compile all assets to show in the list
+    final assets = <Map<String, dynamic>>[];
+
+    if (s.ethAddress.isNotEmpty) {
+      assets.add({
+        'symbol': 'ETH',
+        'name': 'Ethereum',
+        'address': s.ethAddress,
+        'amount': s.ethBalance,
+        'decimals': 4,
+        'icon': 'coins',
+        'color': 'purple',
+      });
+    }
+
+    if (s.suiAddress.isNotEmpty) {
+      assets.add({
+        'symbol': 'SUI',
+        'name': 'Sui',
+        'address': s.suiAddress,
+        'amount': s.suiBalance,
+        'decimals': 2,
+        'icon': 'coins',
+        'color': 'blue',
+      });
+    }
+
+    for (final t in s.walletCollectibles) {
+      final mint = t['mint'] as String;
+      final amount = t['amount'] as double;
+      final decimals = t['decimals'] as int;
+      final symVal = t['symbol'] as String?;
+      final nameVal = t['name'] as String?;
+
+      String symbol = (symVal != null && symVal.isNotEmpty) ? symVal : 'SPL Token';
+      String name = (nameVal != null && nameVal.isNotEmpty) ? nameVal : symbol;
+      String icon = 'coins';
+      String color = 'zinc';
+
+      if (mint == 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB') {
+        symbol = 'USDT';
+        name = 'USDT';
+        icon = 'dollar-sign';
+        color = 'green';
+      } else if (mint == '2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo' || mint == 'CXk2AMBfi3TwaEL2468s6zP8xq9NxTXjp9gjMgzeUynM') {
+        symbol = 'PYUSD';
+        name = 'PYUSD';
+        icon = 'dollar-sign';
+        color = 'green';
+      } else if (decimals == 0 && amount == 1) {
+        symbol = 'NFT';
+        name = 'NFT';
+        icon = 'image';
+        color = 'purple';
+      }
+
+      assets.add({
+        'symbol': symbol,
+        'name': name,
+        'address': mint,
+        'amount': amount,
+        'decimals': decimals,
+        'icon': icon,
+        'color': color,
+      });
+    }
+
     return div(
       classes:
           'p-6 rounded-[2rem] border transition-all duration-300 '
@@ -903,6 +970,11 @@ class _Payment extends StatelessComponent {
                 s.walletState = WalletState.disconnected;
                 s.walletAddress = '';
                 s.walletBalance = 0;
+                s.walletCollectibles = [];
+                s.ethAddress = '';
+                s.suiAddress = '';
+                s.ethBalance = 0;
+                s.suiBalance = 0;
               }),
             },
             [lIcon('log-out', cls: 'w-5 h-5')],
@@ -937,6 +1009,54 @@ class _Payment extends StatelessComponent {
             ],
           ),
         ]),
+
+        if (assets.isNotEmpty) ...[
+          div(classes: 'border-t border-zinc-800/60 pt-4 mt-2 space-y-3', [
+            p(classes: 'text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500', [
+              Component.text('Token Assets & Collectibles'),
+            ]),
+            div(
+              classes: 'grid grid-cols-1 gap-2.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar',
+              assets.map((t) {
+                final name = t['name'] as String;
+                final addr = t['address'] as String;
+                final shortAddr = addr.length > 8 ? '${addr.substring(0, 4)}...${addr.substring(addr.length - 4)}' : addr;
+                final amount = t['amount'] as double;
+                final decimals = t['decimals'] as int;
+                final icon = t['icon'] as String;
+                final color = t['color'] as String;
+
+                String iconBgCls = 'bg-zinc-500/10 text-zinc-400';
+                if (color == 'purple') {
+                  iconBgCls = 'bg-purple-500/10 text-purple-400';
+                } else if (color == 'blue') {
+                  iconBgCls = 'bg-blue-500/10 text-blue-400';
+                } else if (color == 'green') {
+                  iconBgCls = 'bg-green-500/10 text-green-400';
+                }
+
+                return div(
+                  classes: 'flex items-center justify-between p-3 rounded-2xl border ${isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-200"}',
+                  [
+                    div(classes: 'flex items-center gap-3', [
+                      div(
+                        classes: 'w-8 h-8 rounded-xl $iconBgCls flex items-center justify-center',
+                        [lIcon(icon, cls: 'w-4 h-4')],
+                      ),
+                      div([
+                        p(classes: 'text-xs font-bold ${isDark ? "text-zinc-200" : "text-zinc-800"}', [Component.text(name)]),
+                        p(classes: 'text-[10px] text-zinc-500 font-mono mt-0.5', [Component.text(shortAddr)]),
+                      ]),
+                    ]),
+                    p(classes: 'text-xs font-black ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                      Component.text(amount.toStringAsFixed(decimals == 0 ? 0 : decimals)),
+                    ]),
+                  ],
+                );
+              }).toList(),
+            ),
+          ]),
+        ],
       ],
     );
   }
