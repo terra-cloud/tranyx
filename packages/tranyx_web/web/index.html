@@ -755,6 +755,11 @@
       const map = window['__lmap_' + elementId];
       if (!map || !window.maplibregl) return JSON.stringify({ error: 'No map or MapLibre' });
 
+      // Wait for style to load to prevent "Style is not done loading" errors
+      if (!map.isStyleLoaded()) {
+        await new Promise(resolve => map.once('load', resolve));
+      }
+
       const routeKey = '__lroute_' + elementId;
       const existing = window[routeKey];
       if (existing) {
@@ -953,6 +958,24 @@
       }
     };
 
+    function createChatNotification(db, recipientId, senderName, messageText, chatId) {
+      if (!recipientId) return;
+      const prefix = recipientId.length > 5 ? recipientId.substring(0, 5) : recipientId;
+      const docId = 'notif_' + Date.now() + '_' + prefix;
+      db.collection('notifications').doc(docId).set({
+        uid: recipientId,
+        title: 'New message from ' + senderName,
+        message: messageText,
+        isRead: false,
+        createdAt: Date.now(),
+        type: 'chat',
+        chatId: chatId,
+        senderName: senderName
+      }).catch(err => {
+        console.error("Error creating chat notification:", err);
+      });
+    }
+
     window.sendChatMessage = function (chatId, msgObj) {
       if (!firebase.apps.length) return 'firebase_not_init';
       const senderId = msgObj.senderId;
@@ -974,6 +997,42 @@
       db.collection('chats').doc(chatId).collection('messages').add(msg);
       // Touch chat metadata
       db.collection('chats').doc(chatId).set({ updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+
+      // Determine recipient and create notification
+      const notificationText = photoUrl ? 'Sent a photo' : text;
+      if (chatId.startsWith('rental_')) {
+        const parts = chatId.split('_');
+        const rentalId = parts[1];
+        const renteeId = parts[2];
+        db.collection('rentals').doc(rentalId).get().then(doc => {
+          if (doc.exists) {
+            const rental = doc.data();
+            const recipientId = (senderId === renteeId) ? rental.hostId : renteeId;
+            createChatNotification(db, recipientId, senderName, notificationText, chatId);
+          }
+        });
+      } else if (chatId.startsWith('property_')) {
+        const parts = chatId.split('_');
+        const propertyId = parts[1];
+        const renteeId = parts[2];
+        db.collection('properties').doc(propertyId).get().then(doc => {
+          if (doc.exists) {
+            const property = doc.data();
+            const recipientId = (senderId === renteeId) ? property.hostId : renteeId;
+            createChatNotification(db, recipientId, senderName, notificationText, chatId);
+          }
+        });
+      } else {
+        // Job chat
+        db.collection('jobs').doc(chatId).get().then(doc => {
+          if (doc.exists) {
+            const job = doc.data();
+            const recipientId = (senderId === job.creatorId) ? job.acceptedApplicantId : job.creatorId;
+            createChatNotification(db, recipientId, senderName, notificationText, chatId);
+          }
+        });
+      }
+
       return 'ok';
     };
 

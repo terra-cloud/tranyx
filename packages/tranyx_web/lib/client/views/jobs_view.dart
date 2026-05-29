@@ -20,6 +20,10 @@ class JobsViewComponent extends StatelessComponent {
     final isDark = s.isDark;
     final isNyxian = s.currentViewMode == AccountType.nyxian;
 
+    if (isNyxian && s.activeJobPane == 'active') {
+      s.activeJobPane = 'browse';
+    }
+
     if (s.jobsView == JobsView.list) {
       final displayJobs = isNyxian ? _getFilteredJobs(s.availableJobs, s) : _getFilteredJobs(s.myJobs, s);
 
@@ -62,7 +66,7 @@ class JobsViewComponent extends StatelessComponent {
                 button(
                   classes:
                       'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
-                      '${s.activeJobPane == 'browse' || (s.activeJobPane != 'active' && s.activeJobPane != 'history' && s.activeJobPane != 'applied') ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
+                      '${s.activeJobPane == 'browse' || (s.activeJobPane != 'history' && s.activeJobPane != 'applied') ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
                   events: {'click': (_) => s.setState(() => s.activeJobPane = 'browse')},
                   [Component.text('Browse Gigs')],
                 ),
@@ -72,13 +76,6 @@ class JobsViewComponent extends StatelessComponent {
                       '${s.activeJobPane == 'applied' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
                   events: {'click': (_) => s.setState(() => s.activeJobPane = 'applied')},
                   [Component.text('Applied')],
-                ),
-                button(
-                  classes:
-                      'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
-                      '${s.activeJobPane == 'active' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-555 hover:text-zinc-700 dark:hover:text-zinc-300"}',
-                  events: {'click': (_) => s.setState(() => s.activeJobPane = 'active')},
-                  [Component.text('Active')],
                 ),
                 button(
                   classes:
@@ -281,34 +278,47 @@ class JobsViewComponent extends StatelessComponent {
   List<Map<String, dynamic>> _getFilteredJobs(List<Map<String, dynamic>> jobs, TranyxAppState s) {
     final isNyxian = s.currentViewMode == AccountType.nyxian;
     final isBrowsePane = isNyxian && s.activeJobPane == 'browse';
+    final myUid = s.userProfile?.uid ?? SessionStorage.uid ?? '';
 
     // Apply the active tab/pane filter
     if (isNyxian) {
       if (s.activeJobPane == 'history') {
         jobs = s.myJobs.where((j) {
+          final isWorker = j['acceptedApplicantId'] == myUid;
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
-          return stat == 'completed' || stat == 'closed' || stat == 'cancelled';
+          final isTerminal = stat == 'completed' || stat == 'closed' || stat == 'cancelled';
+          return isWorker && isTerminal;
         }).toList();
       } else if (s.activeJobPane == 'active') {
         jobs = s.myJobs.where((j) {
+          final isWorker = j['acceptedApplicantId'] == myUid;
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
-          return stat != 'completed' && stat != 'closed' && stat != 'cancelled';
+          final isActive = stat != 'completed' && stat != 'closed' && stat != 'cancelled';
+          return isWorker && isActive;
         }).toList();
       } else if (s.activeJobPane == 'applied') {
-        jobs = s.appliedJobs;
+        jobs = s.appliedJobs.where((j) {
+          final acceptedId = j['acceptedApplicantId'] as String?;
+          // Display only pending or rejected applications (not chosen)
+          return acceptedId != myUid;
+        }).toList();
       } else {
         jobs = s.availableJobs;
       }
     } else {
       if (s.activeJobPane == 'history') {
         jobs = s.myJobs.where((j) {
+          final isCreator = j['creatorId'] == myUid;
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
-          return stat == 'completed' || stat == 'closed' || stat == 'cancelled';
+          final isTerminal = stat == 'completed' || stat == 'closed' || stat == 'cancelled' || stat == 'done';
+          return isCreator && isTerminal;
         }).toList();
       } else {
         jobs = s.myJobs.where((j) {
+          final isCreator = j['creatorId'] == myUid;
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
-          return stat != 'completed' && stat != 'closed' && stat != 'cancelled';
+          final isActive = stat != 'completed' && stat != 'closed' && stat != 'cancelled' && stat != 'done';
+          return isCreator && isActive;
         }).toList();
       }
     }
@@ -457,7 +467,13 @@ class JobsViewComponent extends StatelessComponent {
   }
 
   Component _employerCard(Map<String, dynamic> j, bool isDark, TranyxAppState s) {
-    final title = j['title'] as String? ?? 'Untitled';
+    var title = j['title'] as String? ?? '';
+    if (title.isEmpty || title == 'Untitled') {
+      final category = j['category'] as String? ?? '';
+      final categoryLabel = j['categoryLabel'] as String? ?? '';
+      final nameToNormalize = categoryLabel.isNotEmpty ? categoryLabel : category;
+      title = nameToNormalize.isNotEmpty ? normalizeCategoryName(nameToNormalize) : 'Untitled Gig';
+    }
     final status = j['status'] as String? ?? 'Open';
     final applicants = (j['applicantCount'] as int?) ?? 0;
     final pricingValue = (j['pricingValue'] as num?)?.toDouble() ?? 0.0;
@@ -521,7 +537,13 @@ class JobsViewComponent extends StatelessComponent {
   }
 
   Component _nyxianCard(Map<String, dynamic> j, bool isDark, TranyxAppState s) {
-    final title = j['title'] as String? ?? 'Untitled';
+    var title = j['title'] as String? ?? '';
+    if (title.isEmpty || title == 'Untitled') {
+      final category = j['category'] as String? ?? '';
+      final categoryLabel = j['categoryLabel'] as String? ?? '';
+      final nameToNormalize = categoryLabel.isNotEmpty ? categoryLabel : category;
+      title = nameToNormalize.isNotEmpty ? normalizeCategoryName(nameToNormalize) : 'Untitled Gig';
+    }
     final status = j['status'] as String? ?? 'Open';
     final pricingValue = (j['pricingValue'] as num?)?.toDouble() ?? 0.0;
     final pricingType = j['pricingType'] as String? ?? '';
@@ -634,7 +656,13 @@ class JobsViewComponent extends StatelessComponent {
   }
 
   Component _pinnedOngoingCard(Map<String, dynamic> j, bool isDark, TranyxAppState s) {
-    final title = j['title'] as String? ?? 'Untitled';
+    var title = j['title'] as String? ?? '';
+    if (title.isEmpty || title == 'Untitled') {
+      final category = j['category'] as String? ?? '';
+      final categoryLabel = j['categoryLabel'] as String? ?? '';
+      final nameToNormalize = categoryLabel.isNotEmpty ? categoryLabel : category;
+      title = nameToNormalize.isNotEmpty ? normalizeCategoryName(nameToNormalize) : 'Untitled Gig';
+    }
     final status = j['status'] as String? ?? 'In Progress';
     final pricingValue = (j['pricingValue'] as num?)?.toDouble() ?? 0.0;
     final pricingType = j['pricingType'] as String? ?? '';
@@ -752,8 +780,18 @@ class _JobDetails extends StatelessComponent {
     final s = state;
     final isDark = s.isDark;
     final job = s.selectedJob;
-    final isNyxian = s.currentViewMode == AccountType.nyxian;
+    final isNyxian = s.selectedJobData?['creatorId'] != (s.userProfile?.uid ?? SessionStorage.uid);
     final status = s.selectedJobData?['status'] as String? ?? 'Open';
+    final catName = (s.selectedJobData?['category'] as String? ?? '').toLowerCase();
+    final cat = JobCategory.values.firstWhere(
+      (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
+      orElse: () => JobCategory.others,
+    );
+    final hasTracker = s.hasTracker ||
+        s.selectedJobData?['hasTracker'] == true ||
+        s.selectedJobData?['hasTracker'] == 'true' ||
+        cat.hasTracker;
+
     if (job == null) return div([]);
 
     final applicantUids = List<String>.from(s.selectedJobData?['applicantUids'] as List? ?? []);
@@ -874,12 +912,14 @@ class _JobDetails extends StatelessComponent {
           ],
         ),
 
-      // Creator/Worker info and Chat
       Builder(
         builder: (context) {
           final acceptedId = s.selectedJobData?['acceptedApplicantId'] as String?;
           final isAccepted = acceptedId == s.userProfile?.uid;
           final isChatActive = status != 'Completed' && status != 'Complete' && status != 'Cancelled';
+          final creatorName = (s.selectedJobCreatorProfile?['name'] ?? s.selectedJobCreatorProfile?['displayName'] ?? s.selectedJobData?['creatorName']) as String? ?? 'Employer';
+          final creatorPhotoUrl = (s.selectedJobCreatorProfile?['photoUrl'] ?? s.selectedJobData?['creatorPhotoUrl']) as String? ?? '';
+          final creatorInitials = creatorName.isNotEmpty ? creatorName[0].toUpperCase() : '?';
 
           if (isNyxian) {
             // Nyxian View: Show Employer Card
@@ -895,24 +935,20 @@ class _JobDetails extends StatelessComponent {
                       classes:
                           'w-10 h-10 rounded-full flex items-center justify-center bg-indigo-600 flex-shrink-0 overflow-hidden',
                       [
-                        if ((s.selectedJobData?['creatorPhotoUrl'] as String?)?.isNotEmpty ?? false)
+                        if (creatorPhotoUrl.isNotEmpty)
                           img(
-                            src: s.selectedJobData!['creatorPhotoUrl'] as String,
+                            src: creatorPhotoUrl,
                             classes: 'w-full h-full object-cover',
                           )
                         else
                           span(classes: 'text-sm font-bold text-white', [
-                            Component.text(
-                              ((s.selectedJobData?['creatorName'] as String?) ?? '?').isNotEmpty
-                                  ? (s.selectedJobData!['creatorName'] as String)[0].toUpperCase()
-                                  : '?',
-                            ),
+                            Component.text(creatorInitials),
                           ]),
                       ],
                     ),
                     div([
                       p(classes: 'font-semibold text-sm', [
-                        Component.text(s.selectedJobData?['creatorName'] as String? ?? 'Unknown'),
+                        Component.text(creatorName),
                       ]),
                       p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
                         Component.text('Employer'),
@@ -961,24 +997,20 @@ class _JobDetails extends StatelessComponent {
                       classes:
                           'w-10 h-10 rounded-full flex items-center justify-center bg-zinc-700 flex-shrink-0 overflow-hidden',
                       [
-                        if ((s.selectedJobData?['creatorPhotoUrl'] as String?)?.isNotEmpty ?? false)
+                        if (creatorPhotoUrl.isNotEmpty)
                           img(
-                            src: s.selectedJobData!['creatorPhotoUrl'] as String,
+                            src: creatorPhotoUrl,
                             classes: 'w-full h-full object-cover',
                           )
                         else
                           span(classes: 'text-sm font-bold text-white', [
-                            Component.text(
-                              ((s.selectedJobData?['creatorName'] as String?) ?? '?').isNotEmpty
-                                  ? (s.selectedJobData!['creatorName'] as String)[0].toUpperCase()
-                                  : '?',
-                            ),
+                            Component.text(creatorInitials),
                           ]),
                       ],
                     ),
                     div([
                       p(classes: 'font-semibold text-sm', [
-                        Component.text(s.selectedJobData?['creatorName'] as String? ?? 'Unknown'),
+                        Component.text(creatorName),
                       ]),
                       p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
                         Component.text('You (Employer)'),
@@ -1107,13 +1139,6 @@ class _JobDetails extends StatelessComponent {
         builder: (context) {
           final acceptedId = s.selectedJobData?['acceptedApplicantId'] as String?;
           final isAccepted = acceptedId == s.userProfile?.uid;
-          final catName = (s.selectedJobData?['category'] as String? ?? '').toLowerCase();
-          final cat = JobCategory.values.firstWhere(
-            (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
-            orElse: () => JobCategory.others,
-          );
-          final hasTracker =
-              s.selectedJobData?['hasTracker'] == true || s.selectedJobData?['hasTracker'] == 'true' || cat.hasTracker;
           final isOngoingStatus =
               status == 'In Progress' || status == 'in_progress' || status == 'onGoing' || status == 'ongoing';
 
@@ -1166,60 +1191,21 @@ class _JobDetails extends StatelessComponent {
                   ]),
                 ]);
               } else if (isOngoingStatus && hasTracker) {
-                // DELIVERY JOB: Step 1 (In Progress -> Heading to Pickup)
+                // DELIVERY JOB: Step 1 (In Progress -> Arrived at First Point)
+                // Blueprint: from in_progress, Nyxian taps "Arrived at First Point" directly
+                final firstPointLabel =
+                    s.selectedJobData?['routing']?['firstPoint']?['label'] as String? ??
+                    s.selectedJobData?['pickupAddress'] as String? ??
+                    'First Point';
                 return div(classes: 'space-y-3', [
                   div(
                     classes: 'p-4 rounded-2xl border border-blue-500/30 bg-blue-500/10 flex items-center gap-3',
                     [
-                      lIcon('map', cls: 'w-5 h-5 text-blue-400'),
+                      lIcon('map-pin', cls: 'w-5 h-5 text-blue-400'),
                       div([
-                        p(classes: 'font-bold text-blue-400 text-sm', [Component.text('Heading to Pickup')]),
+                        p(classes: 'font-bold text-blue-400 text-sm', [Component.text('Delivery In Progress')]),
                         p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                          Component.text('Tap the button below to start navigation to the first point.'),
-                        ]),
-                      ]),
-                    ],
-                  ),
-                  div(classes: 'flex gap-3', [
-                    button(
-                      classes:
-                          'flex-1 py-4 rounded-2xl font-semibold text-red-500 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-all flex items-center justify-center gap-2',
-                      events: {
-                        'click': (_) {
-                          final confirmed = confirmDialog('Are you sure you want to cancel this job?');
-                          if (confirmed) {
-                            s.handleCancelJob();
-                          }
-                        },
-                      },
-                      [
-                        if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                        lIcon('x-circle', cls: 'w-5 h-5'),
-                        Component.text(s.isUpdatingJobStatus ? 'Cancelling...' : 'Cancel Job'),
-                      ],
-                    ),
-                    button(
-                      classes:
-                          'flex-1 py-4 rounded-2xl font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors flex items-center justify-center gap-2',
-                      events: {'click': (_) => s.handleUpdateNyxianSubStatus('heading_to_pickup')},
-                      [
-                        if (s.isUpdatingSubStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                        Component.text(s.isUpdatingSubStatus ? 'Updating...' : 'Go to First Point'),
-                      ],
-                    ),
-                  ]),
-                ]);
-              } else if (status == 'heading_to_pickup') {
-                // DELIVERY JOB: Step 2 (Heading to Pickup -> Arrived Pickup)
-                return div(classes: 'space-y-3', [
-                  div(
-                    classes: 'p-4 rounded-2xl border border-blue-500/30 bg-blue-500/10 flex items-center gap-3',
-                    [
-                      lIcon('map', cls: 'w-5 h-5 text-blue-400'),
-                      div([
-                        p(classes: 'font-bold text-blue-400 text-sm', [Component.text('On the Way to Pickup')]),
-                        p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                          Component.text('Please proceed to the pickup location and tap below when you arrive.'),
+                          Component.text('Tap below when you arrive at the pickup point: $firstPointLabel'),
                         ]),
                       ]),
                     ],
@@ -1248,6 +1234,7 @@ class _JobDetails extends StatelessComponent {
                       events: {'click': (_) => s.handleUpdateNyxianSubStatus('arrived_pickup')},
                       [
                         if (s.isUpdatingSubStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                        lIcon('map-pin', cls: 'w-5 h-5'),
                         Component.text(s.isUpdatingSubStatus ? 'Updating...' : 'Arrived at First Point'),
                       ],
                     ),
@@ -1358,40 +1345,88 @@ class _JobDetails extends StatelessComponent {
                     ],
                   ),
                 ]);
-              } else if (status == 'Done' || status == 'arrived_dropoff') {
-                // FINAL STEP (Standard & Delivery): Waiting for Payment Verification
+              } else if (status == 'Done' || status == 'done' || status == 'arrived_dropoff') {
+                if (hasTracker) {
+                  // DELIVERY JOB (Tracker): Nyxian generates code
+                  return div(classes: 'space-y-3', [
+                    div(classes: 'p-4 rounded-2xl border border-indigo-500/30 bg-indigo-500/10 flex items-center gap-3', [
+                      lIcon('check-circle', cls: 'w-5 h-5 text-indigo-400'),
+                      div([
+                        p(classes: 'font-bold text-indigo-400 text-sm', [Component.text('Arrived at Destination')]),
+                        p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                          Component.text('Generate a completion code for the employer/recipient to scan or enter.'),
+                        ]),
+                      ]),
+                    ]),
+                    button(
+                      classes:
+                          'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                      events: {'click': (_) => s.generateCompletionCode()},
+                      [
+                        if (s.isGeneratingCode) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                        lIcon('qr-code', cls: 'w-5 h-5'),
+                        Component.text(s.isGeneratingCode ? 'Generating...' : 'Generate Completion QR / Code'),
+                      ],
+                    ),
+                  ]);
+                } else {
+                  // STANDARD JOB (No Tracker): Employer generates code, Nyxian enters
+                  return div(classes: 'space-y-3', [
+                    div(classes: 'p-4 rounded-2xl border border-indigo-500/30 bg-indigo-500/10 flex items-center gap-3', [
+                      lIcon('check-circle', cls: 'w-5 h-5 text-indigo-400'),
+                      div([
+                        p(classes: 'font-bold text-indigo-400 text-sm', [Component.text('Task Completed')]),
+                        p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                          Component.text(
+                            'Waiting for Employer to generate payment code. Click below to enter or scan it.',
+                          ),
+                        ]),
+                      ]),
+                    ]),
+                    button(
+                      classes:
+                          'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                      events: {'click': (_) => s.setState(() => s.showCompletionScanner = true)},
+                      [lIcon('key', cls: 'w-5 h-5'), Component.text('Enter Payment Code')],
+                    ),
+                  ]);
+                }
+              } else if (status == 'Completed' || status == 'completed') {
+                final nyxianRated = s.selectedJobData?['nyxianRated'] == true;
                 return div(classes: 'space-y-3', [
-                  div(classes: 'p-4 rounded-2xl border border-indigo-500/30 bg-indigo-500/10 flex items-center gap-3', [
-                    lIcon('check-circle', cls: 'w-5 h-5 text-indigo-400'),
-                    div([
-                      p(classes: 'font-bold text-indigo-400 text-sm', [Component.text('Task Completed')]),
-                      p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                        Component.text(
-                          'Waiting for Employer to generate payment code. Click below to enter or scan it.',
-                        ),
+                  div(
+                    classes: 'p-4 rounded-2xl border border-green-500/30 bg-green-500/10 flex items-center gap-3',
+                    [
+                      lIcon('check-circle', cls: 'w-6 h-6 text-green-400'),
+                      div([
+                        p(classes: 'font-bold text-green-400 text-sm', [Component.text('Job Completed')]),
+                        p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                          Component.text('Payment has been transferred to your Tyxbit wallet.'),
+                        ]),
                       ]),
-                    ]),
-                  ]),
-                  button(
-                    classes:
-                        'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
-                    events: {'click': (_) => s.setState(() => s.showCompletionScanner = true)},
-                    [lIcon('key', cls: 'w-5 h-5'), Component.text('Enter Payment Code')],
+                    ],
                   ),
+                  if (!nyxianRated)
+                    button(
+                      classes:
+                          'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                      events: {
+                        'click': (_) {
+                          s.setState(() {
+                            s.showRatingPopup = true;
+                            s.ratingTargetId = s.selectedJobData?['creatorId'] as String?;
+                            s.ratingTargetName = s.selectedJobData?['creatorName'] as String? ?? 'Employer';
+                            s.ratingScore = 0;
+                            s.ratingComment = '';
+                          });
+                        },
+                      },
+                      [
+                        lIcon('star', cls: 'w-5 h-5 fill-white'),
+                        Component.text('Rate Employer'),
+                      ],
+                    ),
                 ]);
-              } else if (status == 'Completed') {
-                return div(
-                  classes: 'p-4 rounded-2xl border border-green-500/30 bg-green-500/10 flex items-center gap-3',
-                  [
-                    lIcon('check-circle', cls: 'w-6 h-6 text-green-400'),
-                    div([
-                      p(classes: 'font-bold text-green-400 text-sm', [Component.text('Job Completed')]),
-                      p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-                        Component.text('Payment has been transferred to your Tyxbit wallet.'),
-                      ]),
-                    ]),
-                  ],
-                );
               } else if (status == 'Cancelled') {
                 return div(
                   classes: 'p-4 rounded-2xl border border-red-500/30 bg-red-500/10 flex items-center gap-3',
@@ -1526,40 +1561,75 @@ class _JobDetails extends StatelessComponent {
             }
 
             if (status == 'Done' || status == 'arrived_dropoff') {
-              return div(classes: 'space-y-3', [
-                div(classes: 'p-4 rounded-2xl border border-green-500/30 bg-green-500/10 flex items-center gap-3', [
-                  lIcon('check-circle', cls: 'w-5 h-5 text-green-400'),
-                  div([
-                    p(classes: 'font-bold text-green-400 text-sm', [Component.text('Task Ready for Payment')]),
-                    p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                      Component.text(
-                        'The Nyxian has completed the task. Generate a payment code to release the escrow.',
-                      ),
+              if (hasTracker) {
+                // DELIVERY JOB (Tracker): Nyxian generated, Employer enters code
+                return div(classes: 'space-y-3', [
+                  div(classes: 'p-4 rounded-2xl border border-green-500/30 bg-green-500/10 flex items-center gap-3', [
+                    lIcon('check-circle', cls: 'w-5 h-5 text-green-400'),
+                    div([
+                      p(classes: 'font-bold text-green-400 text-sm', [Component.text('Delivery Ready for Verification')]),
+                      p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                        Component.text(
+                          'The Nyxian has arrived at the destination. Enter their completion code to verify and release payment.',
+                        ),
+                      ]),
                     ]),
                   ]),
-                ]),
-                if ((s.selectedJobData?['receiptUrl'] as String?) != null)
-                  div(classes: 'mt-2 p-3 rounded-xl border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
-                    p(classes: 'text-xs font-bold text-indigo-400 mb-2', [Component.text('Receipt / Item Photo')]),
-                    img(
-                      src: s.selectedJobData!['receiptUrl'] as String,
-                      classes: 'w-full h-auto rounded-lg cursor-zoom-in hover:opacity-90 transition-opacity',
-                      events: {
-                        'click': (_) => s.showFullScreenPhoto(s.selectedJobData!['receiptUrl'] as String),
-                      },
-                    ),
+                  if ((s.selectedJobData?['receiptUrl'] as String?) != null)
+                    div(classes: 'mt-2 p-3 rounded-xl border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+                      p(classes: 'text-xs font-bold text-indigo-400 mb-2', [Component.text('Receipt / Item Photo')]),
+                      img(
+                        src: s.selectedJobData!['receiptUrl'] as String,
+                        classes: 'w-full h-auto rounded-lg cursor-zoom-in hover:opacity-90 transition-opacity',
+                        events: {
+                          'click': (_) => s.showFullScreenPhoto(s.selectedJobData!['receiptUrl'] as String),
+                        },
+                      ),
+                    ]),
+                  button(
+                    classes:
+                        'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                    events: {'click': (_) => s.setState(() => s.showCompletionScanner = true)},
+                    [lIcon('key', cls: 'w-5 h-5'), Component.text('Enter Completion Code')],
+                  ),
+                ]);
+              } else {
+                // STANDARD JOB (No Tracker): Employer generates code, Nyxian enters
+                return div(classes: 'space-y-3', [
+                  div(classes: 'p-4 rounded-2xl border border-green-500/30 bg-green-500/10 flex items-center gap-3', [
+                    lIcon('check-circle', cls: 'w-5 h-5 text-green-400'),
+                    div([
+                      p(classes: 'font-bold text-green-400 text-sm', [Component.text('Task Ready for Payment')]),
+                      p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                        Component.text(
+                          'The Nyxian has completed the task. Generate a payment code to release the escrow.',
+                        ),
+                      ]),
+                    ]),
                   ]),
-                button(
-                  classes:
-                      'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
-                  events: {'click': (_) => s.generateCompletionCode()},
-                  [
-                    if (s.isGeneratingCode) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                    lIcon('qr-code', cls: 'w-5 h-5'),
-                    Component.text(s.isGeneratingCode ? 'Generating...' : 'Generate Payment QR / Code'),
-                  ],
-                ),
-              ]);
+                  if ((s.selectedJobData?['receiptUrl'] as String?) != null)
+                    div(classes: 'mt-2 p-3 rounded-xl border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+                      p(classes: 'text-xs font-bold text-indigo-400 mb-2', [Component.text('Receipt / Item Photo')]),
+                      img(
+                        src: s.selectedJobData!['receiptUrl'] as String,
+                        classes: 'w-full h-auto rounded-lg cursor-zoom-in hover:opacity-90 transition-opacity',
+                        events: {
+                          'click': (_) => s.showFullScreenPhoto(s.selectedJobData!['receiptUrl'] as String),
+                        },
+                      ),
+                    ]),
+                  button(
+                    classes:
+                        'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                    events: {'click': (_) => s.generateCompletionCode()},
+                    [
+                      if (s.isGeneratingCode) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                      lIcon('qr-code', cls: 'w-5 h-5'),
+                      Component.text(s.isGeneratingCode ? 'Generating...' : 'Generate Payment QR / Code'),
+                    ],
+                  ),
+                ]);
+              }
             }
 
             if (status == 'Completed') {
@@ -1719,7 +1789,7 @@ class _JobDetails extends StatelessComponent {
                       : {'click': (_) => s.handleCompleteJob()},
                   [
                     if (s.isCompletingJob) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
-                    Component.text(s.isCompletingJob ? 'Verifying...' : 'Release Payment'),
+                    Component.text(s.isCompletingJob ? 'Verifying...' : (hasTracker ? 'Verify & Release Payment' : 'Release Payment')),
                   ],
                 ),
               ]),
@@ -1787,7 +1857,7 @@ class _JobDetails extends StatelessComponent {
                     },
                     [
                       lIcon('send', cls: 'w-3.5 h-3.5'),
-                      Component.text('Send to Worker'),
+                      Component.text(isNyxian ? 'Send to Employer' : 'Send to Worker'),
                     ],
                   ),
                 ]),

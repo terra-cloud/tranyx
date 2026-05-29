@@ -199,12 +199,28 @@ class HomeViewComponent extends StatelessComponent {
             ]),
             div(classes: 'flex items-center justify-between', [
               span(classes: 'font-bold text-green-300 text-lg', [Component.text(rate)]),
-              button(
-                classes:
-                    'px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-green-500 hover:bg-green-400 transition-colors',
-                events: {'click': (_) => s.selectJobAndLoadDetails(job)},
-                [Component.text('View Details')],
-              ),
+              div(classes: 'flex items-center gap-2', [
+                button(
+                  classes:
+                      'px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-green-500 hover:bg-green-400 transition-colors',
+                  events: {'click': (_) => s.selectJobAndLoadDetails(job)},
+                  [Component.text('View Details')],
+                ),
+                button(
+                  classes:
+                      'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-350" : "border-zinc-200 hover:bg-zinc-100 text-zinc-700"} transition-colors relative',
+                  events: {'click': (_) => s.openChat(job['id'] as String)},
+                  [
+                    lIcon('message-square', cls: 'w-4 h-4'),
+                    if (s.getUnreadChatCount(job['id'] as String) > 0)
+                      span(
+                        classes:
+                            'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-[10px] font-black text-white bg-red-500 rounded-full border-2 ${isDark ? "border-zinc-900" : "border-white"} animate-pulse',
+                        [Component.text('${s.getUnreadChatCount(job['id'] as String)}')],
+                      ),
+                  ],
+                ),
+              ]),
             ]),
           ],
         );
@@ -247,12 +263,28 @@ class HomeViewComponent extends StatelessComponent {
             p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
               Component.text('$applicants applicant${applicants == 1 ? "" : "s"}'),
             ]),
-            button(
-              classes:
-                  'flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold logo-gradient text-white transition-opacity',
-              events: {'click': (_) => s.selectJobAndLoadDetails(job)},
-              [lIcon('users', cls: 'w-4 h-4'), Component.text(' Manage')],
-            ),
+            div(classes: 'flex items-center gap-2', [
+              button(
+                classes:
+                    'flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold logo-gradient text-white transition-opacity',
+                events: {'click': (_) => s.selectJobAndLoadDetails(job)},
+                [lIcon('users', cls: 'w-4 h-4'), Component.text(' Manage')],
+              ),
+              button(
+                classes:
+                    'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-350" : "border-zinc-200 hover:bg-zinc-100 text-zinc-700"} transition-colors relative',
+                events: {'click': (_) => s.openChat(job['id'] as String)},
+                [
+                  lIcon('message-square', cls: 'w-4 h-4'),
+                  if (s.getUnreadChatCount(job['id'] as String) > 0)
+                    span(
+                      classes:
+                          'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-[10px] font-black text-white bg-red-500 rounded-full border-2 ${isDark ? "border-zinc-900" : "border-white"} animate-pulse',
+                      [Component.text('${s.getUnreadChatCount(job['id'] as String)}')],
+                    ),
+                ],
+              ),
+            ]),
           ]),
         ],
       );

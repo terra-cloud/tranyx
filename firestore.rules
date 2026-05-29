@@ -78,7 +78,7 @@ service cloud.firestore {
 
     // Transactions Collection
     match /transactions/{txId} {
-      allow read: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || resource.data.type == 'rebate');
       allow create: if isAuthenticated(); // To record listing fees, escrow payments, etc.
       allow update, delete: if false; // Transactions should be immutable
     }
@@ -154,6 +154,11 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read, write: if isAuthenticated();
       }
+    }
+
+    // Platform Fees Collection
+    match /platform_fees/{feeId} {
+      allow read, write: if isAuthenticated();
     }
   }
 }

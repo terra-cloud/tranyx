@@ -296,6 +296,7 @@ class TranyxAppState extends State<TranyxApp> {
   bool isUploadingChatPhoto = false;
   bool isUploadingCertificate = false;
   Map<String, dynamic>? acceptedApplicantProfile;
+  Map<String, dynamic>? selectedJobCreatorProfile;
   List<Map<String, double>> offlineLocationBuffer = [];
   bool hasInspectionHoldback = false;
 
@@ -372,6 +373,8 @@ class TranyxAppState extends State<TranyxApp> {
       jobsView = JobsView.list;
       selectedJob = null;
       selectedJobData = null;
+      selectedJobCreatorProfile = null;
+      acceptedApplicantProfile = null;
       showDeleteConfirm = false;
       _stopSelectedJobRealtime();
     });
@@ -389,7 +392,21 @@ class TranyxAppState extends State<TranyxApp> {
             if (selectedJobData != null && selectedJobData!['id'] == fresh['id']) {
               selectedJobData = {...selectedJobData!, ...fresh};
 
-              final title = fresh['title'] as String? ?? selectedJob?.title ?? '';
+              final catName = (fresh['category'] as String? ?? selectedJobData?['category'] as String? ?? '').toLowerCase();
+              final cat = JobCategory.values.firstWhere(
+                (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
+                orElse: () => JobCategory.others,
+              );
+              this.hasTracker = fresh['hasTracker'] == true || fresh['hasTracker'] == 'true' || selectedJobData?['hasTracker'] == true || selectedJobData?['hasTracker'] == 'true' || cat.hasTracker;
+
+              var title = fresh['title'] as String? ?? selectedJob?.title ?? '';
+              if (title.isEmpty || title == 'Untitled') {
+                final category = fresh['category'] as String? ?? selectedJobData?['category'] as String? ?? '';
+                final categoryLabel = fresh['categoryLabel'] as String? ?? selectedJobData?['categoryLabel'] as String? ?? '';
+                final nameToNormalize = categoryLabel.isNotEmpty ? categoryLabel : category;
+                title = nameToNormalize.isNotEmpty ? normalizeCategoryName(nameToNormalize) : 'Untitled Gig';
+              }
+
               final rate = fresh['pricingValue'] != null
                   ? '₱ ${(fresh['pricingValue'] as num).toStringAsFixed(0)}'
                   : selectedJob?.rate ?? '';
@@ -2144,7 +2161,14 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   Future<void> selectJobAndLoadDetails(Map<String, dynamic> jobMap) async {
-    final title = jobMap['title'] as String? ?? '';
+    var title = jobMap['title'] as String? ?? '';
+    if (title.isEmpty || title == 'Untitled') {
+      final category = jobMap['category'] as String? ?? '';
+      final categoryLabel = jobMap['categoryLabel'] as String? ?? '';
+      final nameToNormalize = categoryLabel.isNotEmpty ? categoryLabel : category;
+      title = nameToNormalize.isNotEmpty ? normalizeCategoryName(nameToNormalize) : 'Untitled Gig';
+    }
+
     final rate = '₱ ${(jobMap['pricingValue'] as num?)?.toStringAsFixed(0) ?? '0'}';
     final urgency = jobMap['dateRequirement'] as String? ?? 'Flexible';
     final status = jobMap['status'] as String? ?? 'Open';
@@ -2197,6 +2221,30 @@ class TranyxAppState extends State<TranyxApp> {
     } else {
       setState(() {
         acceptedApplicantProfile = null;
+      });
+    }
+
+    final creatorId = jobMap['creatorId'] as String?;
+    if (creatorId != null && creatorId.isNotEmpty) {
+      try {
+        final token = SessionStorage.idToken;
+        if (token != null) {
+          final doc = await FirestoreService(token, _handleTokenRefresh).getDocument('users/$creatorId');
+          setState(() {
+            selectedJobCreatorProfile = doc;
+            if (selectedJobData != null && doc != null) {
+              selectedJobData = {
+                ...selectedJobData!,
+                'creatorName': doc['name'] as String? ?? doc['displayName'] as String? ?? selectedJobData!['creatorName'] ?? 'Employer',
+                'creatorPhotoUrl': doc['photoUrl'] as String? ?? selectedJobData!['creatorPhotoUrl'] ?? '',
+              };
+            }
+          });
+        }
+      } catch (_) {}
+    } else {
+      setState(() {
+        selectedJobCreatorProfile = null;
       });
     }
 
@@ -2715,8 +2763,8 @@ class TranyxAppState extends State<TranyxApp> {
       final jobDoc = await svc.getDocument('jobs/${job['id']}');
 
       if (jobDoc != null) {
-        final correctCode = jobDoc['completionCode'] as String?;
-        if (completionScanInput.trim() != correctCode) {
+        final correctCode = jobDoc['completionCode']?.toString();
+        if (completionScanInput.trim() != correctCode?.trim()) {
           throw 'Invalid completion code. Please try again.';
         }
 
@@ -2741,36 +2789,39 @@ class TranyxAppState extends State<TranyxApp> {
 
         // Add to Nyxian Wallet (Payout + 2% Rebate)
         if (nyxianId != null) {
-          final nyxDoc = await svc.getDocument('users/$nyxianId');
-          if (nyxDoc != null) {
-            final currentNyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            final currentJobsDone = nyxDoc['jobsDone'] as int? ?? 0;
-            final currentEarned = (nyxDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
-            final gigsCount = (nyxDoc['completedGigsCount'] as int?) ?? 0;
-            final newGigsCount = gigsCount + 1;
-            final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
-            final rebateAmount = price * 0.02;
+          final txNyxDoc = await svc.getDocument('transactions/rebate_nyx_${job['id']}');
+          if (txNyxDoc == null) {
+            final nyxDoc = await svc.getDocument('users/$nyxianId');
+            if (nyxDoc != null) {
+              final currentNyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final currentJobsDone = nyxDoc['jobsDone'] as int? ?? 0;
+              final currentEarned = (nyxDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
+              final gigsCount = (nyxDoc['completedGigsCount'] as int?) ?? 0;
+              final newGigsCount = gigsCount + 1;
+              final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
+              final rebateAmount = price * 0.02;
 
-            await svc.createOrUpdate('users/$nyxianId', {
-              ...nyxDoc,
-              'tyxBalance': currentNyxBal + immediatePayout + rebateAmount,
-              'jobsDone': currentJobsDone + 1,
-              'totalEarned': currentEarned + immediatePayout,
-              'completedGigsCount': newGigsCount,
-              'repeatHireRate': repeatHireRate,
-            });
+              await svc.createOrUpdate('users/$nyxianId', {
+                ...nyxDoc,
+                'tyxBalance': currentNyxBal + immediatePayout + rebateAmount,
+                'jobsDone': currentJobsDone + 1,
+                'totalEarned': currentEarned + immediatePayout,
+                'completedGigsCount': newGigsCount,
+                'repeatHireRate': repeatHireRate,
+              });
 
-            // Log rebate transaction for Nyxian
-            await svc.createOrUpdate('transactions/rebate_nyx_${job['id']}', {
-              'uid': nyxianId,
-              'title': 'TYXBIT Loyalty Rebate (2%)',
-              'desc': 'Rebate for completing job ${job['id']}',
-              'amount': rebateAmount,
-              'status': 'Successful',
-              'method': 'Tranyx Reward',
-              'createdAt': DateTime.now().millisecondsSinceEpoch,
-              'type': 'rebate',
-            });
+              // Log rebate transaction for Nyxian
+              await svc.createOrUpdate('transactions/rebate_nyx_${job['id']}', {
+                'uid': nyxianId,
+                'title': 'TYXBIT Loyalty Rebate (2%)',
+                'desc': 'Rebate for completing job ${job['id']}',
+                'amount': rebateAmount,
+                'status': 'Successful',
+                'method': 'Tranyx Reward',
+                'createdAt': DateTime.now().millisecondsSinceEpoch,
+                'type': 'rebate',
+              });
+            }
           }
         }
 
@@ -2790,26 +2841,29 @@ class TranyxAppState extends State<TranyxApp> {
         // Credit Employer Wallet (2% Rebate)
         final employerId = jobDoc['creatorId'] as String?;
         if (employerId != null) {
-          final empDoc = await svc.getDocument('users/$employerId');
-          if (empDoc != null) {
-            final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            final rebateAmount = price * 0.02;
-            await svc.createOrUpdate('users/$employerId', {
-              ...empDoc,
-              'tyxBalance': currentBal + rebateAmount,
-            });
+          final txEmpDoc = await svc.getDocument('transactions/rebate_emp_${job['id']}');
+          if (txEmpDoc == null) {
+            final empDoc = await svc.getDocument('users/$employerId');
+            if (empDoc != null) {
+              final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final rebateAmount = price * 0.02;
+              await svc.createOrUpdate('users/$employerId', {
+                ...empDoc,
+                'tyxBalance': currentBal + rebateAmount,
+              });
 
-            // Log rebate transaction for Employer
-            await svc.createOrUpdate('transactions/rebate_emp_${job['id']}', {
-              'uid': employerId,
-              'title': 'TYXBIT Loyalty Rebate (2%)',
-              'desc': 'Rebate for completing job ${job['id']}',
-              'amount': rebateAmount,
-              'status': 'Successful',
-              'method': 'Tranyx Reward',
-              'createdAt': DateTime.now().millisecondsSinceEpoch,
-              'type': 'rebate',
-            });
+              // Log rebate transaction for Employer
+              await svc.createOrUpdate('transactions/rebate_emp_${job['id']}', {
+                'uid': employerId,
+                'title': 'TYXBIT Loyalty Rebate (2%)',
+                'desc': 'Rebate for completing job ${job['id']}',
+                'amount': rebateAmount,
+                'status': 'Successful',
+                'method': 'Tranyx Reward',
+                'createdAt': DateTime.now().millisecondsSinceEpoch,
+                'type': 'rebate',
+              });
+            }
           }
         }
 
@@ -2829,9 +2883,10 @@ class TranyxAppState extends State<TranyxApp> {
           'status': 'Completed',
         });
 
+        final isCreator = jobDoc['creatorId'] == uid;
         String? targetId;
         String? targetName;
-        if (currentViewMode == AccountType.employer) {
+        if (isCreator) {
           targetId = nyxianId;
           if (nyxianId != null) {
             final targetDoc = await svc.getDocument('users/$nyxianId');
@@ -2903,6 +2958,7 @@ class TranyxAppState extends State<TranyxApp> {
         isCompletingJob = false;
         profileSaveError = e.toString();
       });
+      showAppToast('Verification Error', e.toString());
     }
   }
 
@@ -2965,15 +3021,31 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       // Check verification/completion code
-      final correctCode = jobDoc['completionCode'] as String? ?? jobDoc['verificationCode'] as String?;
+      final correctCode = jobDoc['completionCode']?.toString() ?? jobDoc['verificationCode']?.toString();
       if (code.trim() != correctCode?.trim()) {
         throw 'Invalid or expired verification code.';
       }
 
-      // Check if logged user is the correct Nyxian
+      // Check if logged user is authorized to verify completion based on hasTracker
+      final catName = (jobDoc['category'] as String? ?? '').toLowerCase();
+      final cat = JobCategory.values.firstWhere(
+        (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
+        orElse: () => JobCategory.others,
+      );
+      final hasTracker =
+          jobDoc['hasTracker'] == true || jobDoc['hasTracker'] == 'true' || cat.hasTracker;
+
       final nyxianId = jobDoc['acceptedApplicantId'] as String? ?? jobDoc['nyxianId'] as String?;
-      if (nyxianId != uid) {
-        throw 'Verification failed: You are not the assigned Nyxian for this job.';
+      final employerId = jobDoc['creatorId'] as String?;
+
+      if (hasTracker) {
+        if (employerId != uid) {
+          throw 'Verification failed: You are not the Employer for this job.';
+        }
+      } else {
+        if (nyxianId != uid) {
+          throw 'Verification failed: You are not the assigned Nyxian for this job.';
+        }
       }
 
       // Release payment from escrow and credit the Nyxian
@@ -2992,8 +3064,8 @@ class TranyxAppState extends State<TranyxApp> {
         await svc.createOrUpdate('escrow_holdbacks/$jobId', {
           'jobId': jobId,
           'amount': holdbackAmount,
-          'nyxianId': uid,
-          'employerId': jobDoc['creatorId'],
+          'nyxianId': nyxianId,
+          'employerId': employerId,
           'status': 'held',
           'createdAt': DateTime.now().millisecondsSinceEpoch,
           'releaseAt': DateTime.now().add(const Duration(hours: 48)).millisecondsSinceEpoch,
@@ -3001,61 +3073,68 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       // 2. Add to Nyxian Wallet (Payout + 2% Rebate)
-      final nyxDoc = await svc.getDocument('users/$uid');
-      if (nyxDoc != null) {
-        final currentNyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-        final currentJobsDone = nyxDoc['jobsDone'] as int? ?? 0;
-        final currentEarned = (nyxDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
-        final gigsCount = (nyxDoc['completedGigsCount'] as int?) ?? 0;
-        final newGigsCount = gigsCount + 1;
-        final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
-        final rebateAmount = price * 0.02;
+      final txNyxDoc = await svc.getDocument('transactions/rebate_nyx_$jobId');
+      if (txNyxDoc == null) {
+        if (nyxianId != null) {
+          final nyxDoc = await svc.getDocument('users/$nyxianId');
+          if (nyxDoc != null) {
+            final currentNyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            final currentJobsDone = nyxDoc['jobsDone'] as int? ?? 0;
+            final currentEarned = (nyxDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
+            final gigsCount = (nyxDoc['completedGigsCount'] as int?) ?? 0;
+            final newGigsCount = gigsCount + 1;
+            final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
+            final rebateAmount = price * 0.02;
 
-        await svc.createOrUpdate('users/$uid', {
-          ...nyxDoc,
-          'tyxBalance': currentNyxBal + immediatePayout + rebateAmount,
-          'jobsDone': currentJobsDone + 1,
-          'totalEarned': currentEarned + immediatePayout,
-          'completedGigsCount': newGigsCount,
-          'repeatHireRate': repeatHireRate,
-        });
+            await svc.createOrUpdate('users/$nyxianId', {
+              ...nyxDoc,
+              'tyxBalance': currentNyxBal + immediatePayout + rebateAmount,
+              'jobsDone': currentJobsDone + 1,
+              'totalEarned': currentEarned + immediatePayout,
+              'completedGigsCount': newGigsCount,
+              'repeatHireRate': repeatHireRate,
+            });
 
-        // Log rebate transaction for Nyxian
-        await svc.createOrUpdate('transactions/rebate_nyx_$jobId', {
-          'uid': uid,
-          'title': 'TYXBIT Loyalty Rebate (2%)',
-          'desc': 'Rebate for completing job $jobId',
-          'amount': rebateAmount,
-          'status': 'Successful',
-          'method': 'Tranyx Reward',
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-          'type': 'rebate',
-        });
+            // Log rebate transaction for Nyxian
+            await svc.createOrUpdate('transactions/rebate_nyx_$jobId', {
+              'uid': nyxianId,
+              'title': 'TYXBIT Loyalty Rebate (2%)',
+              'desc': 'Rebate for completing job $jobId',
+              'amount': rebateAmount,
+              'status': 'Successful',
+              'method': 'Tranyx Reward',
+              'createdAt': DateTime.now().millisecondsSinceEpoch,
+              'type': 'rebate',
+            });
+          }
+        }
       }
 
       // 2.1 Credit Employer Wallet (2% Rebate)
-      final employerId = jobDoc['creatorId'] as String?;
       if (employerId != null) {
-        final empDoc = await svc.getDocument('users/$employerId');
-        if (empDoc != null) {
-          final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-          final rebateAmount = price * 0.02;
-          await svc.createOrUpdate('users/$employerId', {
-            ...empDoc,
-            'tyxBalance': currentBal + rebateAmount,
-          });
+        final txEmpDoc = await svc.getDocument('transactions/rebate_emp_$jobId');
+        if (txEmpDoc == null) {
+          final empDoc = await svc.getDocument('users/$employerId');
+          if (empDoc != null) {
+            final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            final rebateAmount = price * 0.02;
+            await svc.createOrUpdate('users/$employerId', {
+              ...empDoc,
+              'tyxBalance': currentBal + rebateAmount,
+            });
 
-          // Log rebate transaction for Employer
-          await svc.createOrUpdate('transactions/rebate_emp_$jobId', {
-            'uid': employerId,
-            'title': 'TYXBIT Loyalty Rebate (2%)',
-            'desc': 'Rebate for completing job $jobId',
-            'amount': rebateAmount,
-            'status': 'Successful',
-            'method': 'Tranyx Reward',
-            'createdAt': DateTime.now().millisecondsSinceEpoch,
-            'type': 'rebate',
-          });
+            // Log rebate transaction for Employer
+            await svc.createOrUpdate('transactions/rebate_emp_$jobId', {
+              'uid': employerId,
+              'title': 'TYXBIT Loyalty Rebate (2%)',
+              'desc': 'Rebate for completing job $jobId',
+              'amount': rebateAmount,
+              'status': 'Successful',
+              'method': 'Tranyx Reward',
+              'createdAt': DateTime.now().millisecondsSinceEpoch,
+              'type': 'rebate',
+            });
+          }
         }
       }
 
@@ -3076,25 +3155,19 @@ class TranyxAppState extends State<TranyxApp> {
       setState(() {
         pendingQrJobId = null;
         pendingQrCode = null;
-        if (userProfile != null) {
-          final rebateAmount = price * 0.02;
-          userProfile = userProfile!.copyWith(
-            tyxBalance: userProfile!.tyxBalance + immediatePayout + rebateAmount,
-            totalEarned: userProfile!.totalEarned + immediatePayout,
-          );
-        }
       });
       SessionStorage.pendingQrJobId = null;
       SessionStorage.pendingQrCode = null;
 
       showAppToast('Payment Released! 🎉', '₱ ${nyxianPayout.toStringAsFixed(2)} has been credited to your wallet.');
 
-      // Send a notification to the Employer (creatorId) about job completion to trigger rating popup
-      if (employerId != null) {
-        final prefix = employerId.length > 5 ? employerId.substring(0, 5) : employerId;
+      // Send a notification to the other party about job completion to trigger rating popup
+      final targetUser = (uid == employerId) ? nyxianId : employerId;
+      if (targetUser != null) {
+        final prefix = targetUser.length > 5 ? targetUser.substring(0, 5) : targetUser;
         final docId = 'notif_${DateTime.now().millisecondsSinceEpoch}_$prefix';
         await svc.createOrUpdate('notifications/$docId', {
-          'uid': employerId,
+          'uid': targetUser,
           'title': 'Gig Completed 🎉',
           'message': '${userProfile?.name ?? "Someone"} has completed "${jobDoc['title']}". Click to rate them.',
           'type': 'job_completed',
@@ -3110,16 +3183,21 @@ class TranyxAppState extends State<TranyxApp> {
       await loadUserProfile();
       await loadJobs();
 
-      // Show details & rating popup for the employer
+      // Show details & rating popup for the scanning user
       final updatedJob = await svc.getDocument('jobs/$jobId');
       if (updatedJob != null) {
         setState(() {
           selectedJobData = {'id': jobId, ...updatedJob};
-          final employerId = updatedJob['creatorId'] as String?;
-          if (employerId != null) {
+          final isCreator = updatedJob['creatorId'] == uid;
+          final ratingTarget = isCreator ? nyxianId : employerId;
+          final ratingName = isCreator
+              ? (updatedJob['acceptedApplicantName'] as String? ?? 'Nyxian')
+              : (updatedJob['creatorName'] as String? ?? 'Employer');
+
+          if (ratingTarget != null) {
             showRatingPopup = true;
-            ratingTargetId = employerId;
-            ratingTargetName = updatedJob['creatorName'] as String? ?? 'Employer';
+            ratingTargetId = ratingTarget;
+            ratingTargetName = ratingName;
             ratingScore = 0;
             ratingComment = '';
           }
