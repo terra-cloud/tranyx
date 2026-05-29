@@ -655,20 +655,30 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                         ]),
                       ]),
                       if (r['allowChat'] == true)
-                        button(
-                          classes:
-                              'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent',
-                          events: {
-                            'click': (_) {
-                              component.appState.setState(() {
-                                component.appState.showManageVehicleModal = false;
-                              });
-                              final chatId = 'rental_${r['id']}_${r['renteeId']}';
-                              component.appState.openChat(chatId);
+                        () {
+                          final chatId = 'rental_${r['id']}_${r['renteeId']}';
+                          return button(
+                            classes:
+                                'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative',
+                            events: {
+                              'click': (_) {
+                                component.appState.setState(() {
+                                  component.appState.showManageVehicleModal = false;
+                                });
+                                component.appState.openChat(chatId);
+                              },
                             },
-                          },
-                          [lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'), Component.text('Chat Renter')],
-                        ),
+                            [
+                              lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
+                              Component.text('Chat Renter'),
+                              if (component.appState.getUnreadChatCount(chatId) > 0)
+                                span(
+                                  classes: 'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                                  [Component.text('${component.appState.getUnreadChatCount(chatId)}')],
+                                ),
+                            ],
+                          );
+                        }()
                     ]),
 
                     // Contract Duration / Details

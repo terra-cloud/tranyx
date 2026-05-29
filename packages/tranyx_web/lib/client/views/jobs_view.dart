@@ -926,11 +926,16 @@ class _JobDetails extends StatelessComponent {
               if (acceptedId != null && isAccepted && isChatActive)
                 button(
                   classes:
-                      'w-full py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20',
+                      'w-full py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 relative',
                   events: {'click': (_) => s.openChat(s.selectedJobData!['id'] as String)},
                   [
                     lIcon('message-square', cls: 'w-5 h-5'),
                     Component.text('Chat with Employer'),
+                    if (s.getUnreadChatCount(s.selectedJobData!['id'] as String) > 0)
+                      span(
+                        classes: 'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-xs font-black text-white bg-red-500 rounded-full border-2 border-white animate-pulse',
+                        [Component.text('${s.getUnreadChatCount(s.selectedJobData!['id'] as String)}')],
+                      ),
                   ],
                 ),
             ]);
@@ -1015,11 +1020,16 @@ class _JobDetails extends StatelessComponent {
                     if (isChatActive)
                       button(
                         classes:
-                            'w-full py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20',
+                            'w-full py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 relative',
                         events: {'click': (_) => s.openChat(s.selectedJobData!['id'] as String)},
                         [
                           lIcon('message-square', cls: 'w-5 h-5'),
                           Component.text('Chat with Nyxian'),
+                          if (s.getUnreadChatCount(s.selectedJobData!['id'] as String) > 0)
+                            span(
+                              classes: 'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-xs font-black text-white bg-red-500 rounded-full border-2 border-white animate-pulse',
+                              [Component.text('${s.getUnreadChatCount(s.selectedJobData!['id'] as String)}')],
+                            ),
                         ],
                       ),
                   ],
@@ -1677,7 +1687,7 @@ class _JobDetails extends StatelessComponent {
                   classes: 'text-sm font-semibold ${isDark ? "text-zinc-300" : "text-zinc-700"}',
                   [Component.text('Enter the 6-digit code:')],
                 ),
-                input(
+                input<String>(
                   type: InputType.text,
                   classes:
                       'w-full px-4 py-4 text-center text-3xl font-black tracking-widest rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white focus:border-indigo-500" : "bg-white border-zinc-200 text-zinc-900 focus:border-indigo-500"} outline-none transition-colors',
@@ -1688,8 +1698,8 @@ class _JobDetails extends StatelessComponent {
                     'name': 'completion_code',
                   },
                   value: s.completionScanInput,
-                  onInput: (dynamic v) => s.setState(() {
-                    s.completionScanInput = v as String;
+                  onInput: (String v) => s.setState(() {
+                    s.completionScanInput = v;
                   }),
                 ),
               ]),
@@ -2750,9 +2760,17 @@ class _ReviewApplicants extends StatelessComponent {
                         Component.text(coverNote),
                       ]),
                       button(
-                        classes: 'px-5 py-2.5 rounded-xl font-bold text-white bg-green-500 hover:bg-green-400 transition-colors flex items-center gap-2 text-sm whitespace-nowrap',
+                        classes: 'px-5 py-2.5 rounded-xl font-bold text-white bg-green-500 hover:bg-green-400 transition-colors flex items-center gap-2 text-sm whitespace-nowrap relative',
                         events: {'click': (_) => s.openChat(job!['id'] as String)},
-                        [lIcon('message-square', cls: 'w-4 h-4'), Component.text('Chat with Worker')],
+                        [
+                          lIcon('message-square', cls: 'w-4 h-4'),
+                          Component.text('Chat with Worker'),
+                          if (s.getUnreadChatCount(job!['id'] as String) > 0)
+                            span(
+                              classes: 'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-xs font-black text-white bg-red-500 rounded-full border-2 border-white animate-pulse',
+                              [Component.text('${s.getUnreadChatCount(job!['id'] as String)}')],
+                            ),
+                        ],
                       ),
                     ],
                   );

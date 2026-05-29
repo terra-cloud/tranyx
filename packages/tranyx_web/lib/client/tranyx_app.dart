@@ -331,7 +331,7 @@ class TranyxAppState extends State<TranyxApp> {
       final isCreator = j['creatorId'] == uid;
       if (!isCreator) return false;
       final s = (j['status'] as String?)?.toLowerCase();
-      final isTerminal = s == 'completed' || s == 'done' || s == 'complete' || s == 'cancelled' || s == 'closed';
+      final isTerminal = s == 'completed' || s == 'complete' || s == 'cancelled' || s == 'closed';
       return !isTerminal;
     }).length;
 
@@ -346,7 +346,7 @@ class TranyxAppState extends State<TranyxApp> {
         final isCreator = j['creatorId'] == uid;
         if (!isCreator) return false;
         final s = (j['status'] as String?)?.toLowerCase();
-        final isTerminal = s == 'completed' || s == 'done' || s == 'complete' || s == 'cancelled' || s == 'closed';
+        final isTerminal = s == 'completed' || s == 'complete' || s == 'cancelled' || s == 'closed';
         return !isTerminal;
       });
     } catch (_) {
@@ -457,7 +457,7 @@ class TranyxAppState extends State<TranyxApp> {
     if (SessionStorage.hasSession) {
       _restoreSession();
     } else {
-      handleQrVerificationParams();
+      _checkGoogleRedirectResult();
     }
   }
 
@@ -515,6 +515,77 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  Future<void> _checkGoogleRedirectResult() async {
+    try {
+      final configMap = {
+        'apiKey': currentFirebaseConfig.apiKey,
+        'authDomain': currentFirebaseConfig.authDomain,
+        'projectId': currentFirebaseConfig.projectId,
+        'storageBucket': currentFirebaseConfig.storageBucket,
+        'messagingSenderId': currentFirebaseConfig.messagingSenderId,
+        'appId': currentFirebaseConfig.appId,
+      };
+
+      final googleJsonStr = await checkRedirectResultJs(configMap);
+      if (googleJsonStr != null) {
+        setState(() {
+          isAuthLoading = true;
+          authError = null;
+        });
+
+        final Map<String, dynamic> googleData = jsonDecode(googleJsonStr);
+        final authResult = AuthResult(
+          uid: googleData['uid'],
+          idToken: googleData['idToken'],
+          refreshToken: googleData['refreshToken'],
+          email: googleData['email'],
+          displayName: googleData['displayName'],
+          photoUrl: googleData['photoUrl'],
+        );
+
+        SessionStorage.save(authResult);
+
+        var profile = await FirestoreService(authResult.idToken, _handleTokenRefresh).getUser(authResult.uid);
+
+        if (profile == null) {
+          setState(() {
+            pendingGoogleAuthResult = authResult;
+            authView = AuthView.registerPath;
+            isAuthLoading = false;
+          });
+        } else {
+          final type = profile.accountType;
+          SessionStorage.saveProfile(
+            name: profile.name,
+            email: profile.email,
+            accountType: type.name,
+          );
+          await _restoreSession();
+          setState(() {
+            isAuthLoading = false;
+          });
+        }
+      } else {
+        handleQrVerificationParams();
+      }
+    } catch (e) {
+      print("checkGoogleRedirectResult error: $e");
+      handleQrVerificationParams();
+    }
+  }
+
+  int getUnreadChatCount(String chatId) {
+    return notifications.where((n) => n['type'] == 'chat' && n['chatId'] == chatId).length;
+  }
+
+  bool get hasUnreadJobChats {
+    return notifications.any((n) => n['type'] == 'chat' && !n['chatId'].toString().startsWith('rental_') && !n['chatId'].toString().startsWith('property_'));
+  }
+
+  bool get hasUnreadRentalChats {
+    return notifications.any((n) => n['type'] == 'chat' && (n['chatId'].toString().startsWith('rental_') || n['chatId'].toString().startsWith('property_')));
+  }
+
   void _startListeningNotifications() {
     final uid = SessionStorage.uid;
     if (uid == null) return;
@@ -536,8 +607,21 @@ class TranyxAppState extends State<TranyxApp> {
           // Filter out read notifications locally
           final unreadNotifs = parsed.where((n) => n['isRead'] != true).toList();
 
+          // Automatically mark notifications read if they belong to the current open chat
+          final List<Map<String, dynamic>> finalUnreadNotifs = [];
+          for (final notif in unreadNotifs) {
+            if (notif['type'] == 'chat' && notif['chatId'] == currentChatId) {
+              final id = notif['id'] as String?;
+              if (id != null) {
+                markNotificationReadJs(id);
+              }
+            } else {
+              finalUnreadNotifs.add(notif);
+            }
+          }
+
           // Identify if there are new notifications that we didn't have before
-          final newNotifs = unreadNotifs
+          final newNotifs = finalUnreadNotifs
               .where((n) => !notifications.any((existing) => existing['id'] == n['id']))
               .toList();
           if (newNotifs.isNotEmpty) {
@@ -571,7 +655,7 @@ class TranyxAppState extends State<TranyxApp> {
               }
             });
           }
-          notifications = unreadNotifs;
+          notifications = finalUnreadNotifs;
         });
       } catch (e) {
         print('Error parsing notifications: $e');
@@ -727,6 +811,7 @@ class TranyxAppState extends State<TranyxApp> {
       setState(() {
         renterPendingRequests = list;
       });
+      await _loadRenterPendingPropertyRequests();
     } catch (e) {
       print('Error loading renter pending requests: $e');
     }
@@ -982,12 +1067,18 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       final Map<String, dynamic> googleData = jsonDecode(googleJsonStr);
+      if (googleData['redirecting'] == true) {
+        setState(() {
+          isAuthLoading = true;
+        });
+        return;
+      }
       final authResult = AuthResult(
-        uid: googleData['uid'],
-        idToken: googleData['idToken'],
-        refreshToken: googleData['refreshToken'],
-        email: googleData['email'],
-        displayName: googleData['displayName'],
+        uid: googleData['uid'] ?? '',
+        idToken: googleData['idToken'] ?? '',
+        refreshToken: googleData['refreshToken'] ?? '',
+        email: googleData['email'] ?? '',
+        displayName: googleData['displayName'] ?? '',
         photoUrl: googleData['photoUrl'],
       );
 
@@ -1539,11 +1630,12 @@ class TranyxAppState extends State<TranyxApp> {
           renteePhotoUrl: userProfile!.photoUrl,
           durationType: data['durationType'] as String,
           multiplier: data['multiplier'] as int,
-          totalCost: data['totalCost'] as double,
+          totalCost: (data['totalCost'] as num).toDouble(),
           contractType: data['contractType'] as String,
           contractTerms: data['contractTerms'] as String,
           startDate: data['startDate'] as int,
           endDate: data['endDate'] as int,
+          licenseNumber: data['licenseNumber'] as String? ?? '',
         );
       } else if (pendingVehicleBookingData != null) {
         final data = pendingVehicleBookingData!;
@@ -1556,12 +1648,12 @@ class TranyxAppState extends State<TranyxApp> {
           durationType: data['durationType'] as String,
           multiplier: data['multiplier'] as int,
           licenseNumber: data['licenseNumber'] as String,
-          totalCost: data['totalCost'] as double,
+          totalCost: (data['totalCost'] as num).toDouble(),
           hireWithDriver: data['hireWithDriver'] as bool,
           rentalType: data['rentalType'] as String,
           deliveryAddress: data['deliveryAddress'] as String?,
-          deliveryLat: data['deliveryLat'] as double?,
-          deliveryLng: data['deliveryLng'] as double?,
+          deliveryLat: data['deliveryLat'] == null ? null : (data['deliveryLat'] as num).toDouble(),
+          deliveryLng: data['deliveryLng'] == null ? null : (data['deliveryLng'] as num).toDouble(),
           startDate: data['startDate'] as int,
           endDate: data['endDate'] as int,
         );
@@ -1684,11 +1776,12 @@ class TranyxAppState extends State<TranyxApp> {
           renteePhotoUrl: userProfile!.photoUrl,
           durationType: data['durationType'] as String,
           multiplier: data['multiplier'] as int,
-          totalCost: data['totalCost'] as double,
+          totalCost: (data['totalCost'] as num).toDouble(),
           contractType: data['contractType'] as String,
           contractTerms: data['contractTerms'] as String,
           startDate: data['startDate'] as int,
           endDate: data['endDate'] as int,
+          licenseNumber: data['licenseNumber'] as String? ?? '',
         );
       } else if (pendingVehicleBookingData != null) {
         final data = pendingVehicleBookingData!;
@@ -1701,12 +1794,12 @@ class TranyxAppState extends State<TranyxApp> {
           durationType: data['durationType'] as String,
           multiplier: data['multiplier'] as int,
           licenseNumber: data['licenseNumber'] as String,
-          totalCost: data['totalCost'] as double,
+          totalCost: (data['totalCost'] as num).toDouble(),
           hireWithDriver: data['hireWithDriver'] as bool,
           rentalType: data['rentalType'] as String,
           deliveryAddress: data['deliveryAddress'] as String?,
-          deliveryLat: data['deliveryLat'] as double?,
-          deliveryLng: data['deliveryLng'] as double?,
+          deliveryLat: data['deliveryLat'] == null ? null : (data['deliveryLat'] as num).toDouble(),
+          deliveryLng: data['deliveryLng'] == null ? null : (data['deliveryLng'] as num).toDouble(),
           startDate: data['startDate'] as int,
           endDate: data['endDate'] as int,
         );
@@ -1888,11 +1981,12 @@ class TranyxAppState extends State<TranyxApp> {
               renteePhotoUrl: userProfile!.photoUrl,
               durationType: data['durationType'] as String,
               multiplier: data['multiplier'] as int,
-              totalCost: data['totalCost'] as double,
+              totalCost: (data['totalCost'] as num).toDouble(),
               contractType: data['contractType'] as String,
               contractTerms: data['contractTerms'] as String,
               startDate: data['startDate'] as int,
               endDate: data['endDate'] as int,
+              licenseNumber: data['licenseNumber'] as String? ?? '',
             );
           } else if (pendingVehicleBookingData != null) {
             final data = pendingVehicleBookingData!;
@@ -1905,12 +1999,12 @@ class TranyxAppState extends State<TranyxApp> {
               durationType: data['durationType'] as String,
               multiplier: data['multiplier'] as int,
               licenseNumber: data['licenseNumber'] as String,
-              totalCost: data['totalCost'] as double,
+              totalCost: (data['totalCost'] as num).toDouble(),
               hireWithDriver: data['hireWithDriver'] as bool,
               rentalType: data['rentalType'] as String,
               deliveryAddress: data['deliveryAddress'] as String?,
-              deliveryLat: data['deliveryLat'] as double?,
-              deliveryLng: data['deliveryLng'] as double?,
+              deliveryLat: data['deliveryLat'] == null ? null : (data['deliveryLat'] as num).toDouble(),
+              deliveryLng: data['deliveryLng'] == null ? null : (data['deliveryLng'] as num).toDouble(),
               startDate: data['startDate'] as int,
               endDate: data['endDate'] as int,
             );
@@ -2260,6 +2354,15 @@ class TranyxAppState extends State<TranyxApp> {
       chatPiiBlocked = false;
       chatDisintermediationBlocked = false;
     });
+
+    // Clear unread notifications for this chat
+    final notifsToRead = notifications.where((n) => n['type'] == 'chat' && n['chatId'] == chatId).toList();
+    for (final notif in notifsToRead) {
+      final notifId = notif['id'] as String?;
+      if (notifId != null) {
+        markNotificationReadJs(notifId);
+      }
+    }
     listenToChatJs(chatId, (String jsonStr) {
       try {
         final raw = jsonDecode(jsonStr) as List<dynamic>;

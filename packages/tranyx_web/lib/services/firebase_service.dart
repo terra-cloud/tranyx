@@ -2497,6 +2497,7 @@ class FirestoreService {
     required String contractTerms,
     required int startDate,
     required int endDate,
+    String? licenseNumber,
   }) async {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
@@ -2558,6 +2559,7 @@ class FirestoreService {
       'contractTerms': contractTerms,
       'startDate': startDate,
       'endDate': endDate,
+      'licenseNumber': licenseNumber ?? '',
     };
     await setDocument('property_requests/$requestId', requestDoc);
 
@@ -2639,6 +2641,7 @@ class FirestoreService {
       'signedAt': 0,
       'currentRequestId': requestId,
       'allowChat': allowChat,
+      'licenseNumber': reqDoc['licenseNumber'] ?? '',
     });
 
     // 4. Reject other requests

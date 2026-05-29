@@ -68,6 +68,22 @@ Future<String?> signInWithGoogleJs(Map<String, String> config) async {
   }
 }
 
+Future<String?> checkRedirectResultJs(Map<String, String> config) async {
+  try {
+    final jsConfig = JSObject();
+    for (final e in config.entries) {
+      jsConfig.setProperty(e.key.toJS, e.value.toJS);
+    }
+    final promise = web.window.callMethod<JSPromise?>('checkRedirectResultJs'.toJS, jsConfig);
+    if (promise == null) return null;
+    final res = await promise.toDart;
+    if (res == null) return null;
+    return (res as JSString).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
 Future<void> signInWithEmailAndPasswordJs(Map<String, String> config, String email, String password) async {
   try {
     final jsConfig = JSObject();

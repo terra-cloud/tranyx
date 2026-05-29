@@ -31,7 +31,8 @@ class BottomNavComponent extends StatelessComponent {
     final isActive = s.activeTab == tab;
     final activeTxt = 'text-indigo-500';
     final inactiveTxt = isDark ? 'text-zinc-500' : 'text-zinc-400';
-    final showBadge = (tab == AppTab.jobs && s.jobsHasUpdates) || (tab == AppTab.transit && s.transitHasUpdates);
+    final hasUnreadChats = (tab == AppTab.jobs && s.hasUnreadJobChats) || (tab == AppTab.transit && s.hasUnreadRentalChats);
+    final showBadge = (tab == AppTab.jobs && s.jobsHasUpdates) || (tab == AppTab.transit && s.transitHasUpdates) || hasUnreadChats;
 
     return button(
       classes:

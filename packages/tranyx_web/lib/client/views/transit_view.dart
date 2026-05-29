@@ -622,18 +622,28 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           p([Component.text('Click card to view tracker and live trip map')]),
           div(classes: 'flex items-center gap-2', [
             if (active['allowChat'] == true)
-              button(
-                classes:
-                    'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent',
-                events: {
-                  'click': (e) {
-                    e.stopPropagation();
-                    final chatId = 'rental_${active['id']}_${s.userProfile?.uid}';
-                    s.openChat(chatId);
+              () {
+                final chatId = 'rental_${active['id']}_${s.userProfile?.uid}';
+                return button(
+                  classes:
+                      'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative',
+                  events: {
+                    'click': (e) {
+                      e.stopPropagation();
+                      s.openChat(chatId);
+                    },
                   },
-                },
-                [lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'), Component.text('Chat Host')],
-              )
+                  [
+                    lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
+                    Component.text('Chat Host'),
+                    if (s.getUnreadChatCount(chatId) > 0)
+                      span(
+                        classes: 'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                        [Component.text('${s.getUnreadChatCount(chatId)}')],
+                      ),
+                  ],
+                );
+              }()
             else
               span(classes: 'text-zinc-550 italic mr-1', [Component.text('Chat disabled')]),
             if (status == 'Booked' || status == 'Active' || status == 'Ongoing')
@@ -708,17 +718,27 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             ),
           ]),
           if (active.allowChat)
-            button(
-              classes:
-                  'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent',
-              events: {
-                'click': (_) {
-                  final chatId = 'property_${active.id}_${s.userProfile?.uid}';
-                  s.openChat(chatId);
+            () {
+              final chatId = 'property_${active.id}_${s.userProfile?.uid}';
+              return button(
+                classes:
+                    'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative',
+                events: {
+                  'click': (_) {
+                    s.openChat(chatId);
+                  },
                 },
-              },
-              [lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'), Component.text('Chat Owner')],
-            )
+                [
+                  lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
+                  Component.text('Chat Owner'),
+                  if (s.getUnreadChatCount(chatId) > 0)
+                    span(
+                      classes: 'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                      [Component.text('${s.getUnreadChatCount(chatId)}')],
+                    ),
+                ],
+              );
+            }()
           else
             span(classes: 'text-zinc-550 italic', [Component.text('Chat disabled by host')]),
         ]),

@@ -68,6 +68,8 @@ Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amo
 
 Future<String?> signInWithGoogleJs(Map<String, String> config) async => null;
 
+Future<String?> checkRedirectResultJs(Map<String, String> config) async => null;
+
 Future<void> signInWithEmailAndPasswordJs(Map<String, String> config, String email, String password) async {}
 
 Future<void> signOutJs() async {}

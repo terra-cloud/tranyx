@@ -124,6 +124,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
             'contractTerms': p['contractTerms'] ?? 'Standard lease terms',
             'startDate': now.millisecondsSinceEpoch,
             'endDate': end.millisecondsSinceEpoch,
+            'licenseNumber': _licenseNumber,
           };
           component.appState.showBookPropertyModal = false;
         });
@@ -143,6 +144,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         contractTerms: p['contractTerms'] ?? 'Standard lease terms',
         startDate: now.millisecondsSinceEpoch,
         endDate: end.millisecondsSinceEpoch,
+        licenseNumber: _licenseNumber,
       );
 
       // Close modal
@@ -150,6 +152,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         component.appState.showBookPropertyModal = false;
         component.appState.selectedPropertyData = null;
       });
+      await component.appState.loadRenterPendingRequests();
       // Optionally reload requests
       if (component.appState.activeTab == AppTab.transit) {
         // Trigger transit view pending requests reload

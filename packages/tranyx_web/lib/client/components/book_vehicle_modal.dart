@@ -225,8 +225,8 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         return;
       }
       final cleanedLicense = _licenseNumber.replaceAll(RegExp(r'[\s-]'), '');
-      if (cleanedLicense.length != 11) {
-        setState(() => _error = 'Please enter a valid Driver\'s License Number (11 characters).');
+      if (cleanedLicense.length < 5) {
+        setState(() => _error = 'Please enter a valid Driver\'s License Number (minimum 5 characters).');
         return;
       }
       final currentUid = component.appState.userProfile?.uid;

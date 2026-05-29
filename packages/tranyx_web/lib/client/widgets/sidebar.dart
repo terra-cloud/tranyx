@@ -50,7 +50,8 @@ class SidebarComponent extends StatelessComponent {
     final inactiveCls = s.isDark
         ? 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
         : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900';
-    final showBadge = (tab == AppTab.jobs && s.jobsHasUpdates) || (tab == AppTab.transit && s.transitHasUpdates);
+    final hasUnreadChats = (tab == AppTab.jobs && s.hasUnreadJobChats) || (tab == AppTab.transit && s.hasUnreadRentalChats);
+    final showBadge = (tab == AppTab.jobs && s.jobsHasUpdates) || (tab == AppTab.transit && s.transitHasUpdates) || hasUnreadChats;
 
     return button(
       classes: 'w-full flex justify-center p-4 rounded-2xl transition-all ${isActive ? activeCls : inactiveCls}',
