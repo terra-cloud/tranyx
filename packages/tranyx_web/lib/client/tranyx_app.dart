@@ -656,11 +656,23 @@ class TranyxAppState extends State<TranyxApp> {
             });
           }
           notifications = finalUnreadNotifs;
+          _updateDocumentTitle();
         });
       } catch (e) {
         print('Error parsing notifications: $e');
       }
     });
+  }
+
+  void _updateDocumentTitle() {
+    try {
+      final unreadCount = notifications.where((n) => n['type'] == 'chat').length;
+      if (unreadCount > 0) {
+        web.document.title = '($unreadCount) Tranyx Web';
+      } else {
+        web.document.title = 'Tranyx — Decentralized Freelance Gig Marketplace';
+      }
+    } catch (_) {}
   }
 
   void _startListeningJobs() {
@@ -1235,7 +1247,9 @@ class TranyxAppState extends State<TranyxApp> {
       sessionPostedJobs = [];
       availableJobs = [];
       authError = null;
+      notifications = [];
     });
+    _updateDocumentTitle();
   }
 
   // ── Job actions ─────────────────────────────────────────────
