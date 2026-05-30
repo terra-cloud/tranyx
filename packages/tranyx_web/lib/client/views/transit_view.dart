@@ -576,6 +576,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
   Component _activeVehicleCard(Map<String, dynamic> active, bool isDark) {
     final s = component.state;
     final status = active['status'] as String? ?? 'Booked';
+    final chatId = 'rental_${active['id']}_${s.userProfile?.uid}';
+    final unreadCount = s.getUnreadChatCount(chatId);
 
     return div(
       classes:
@@ -599,24 +601,35 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               ]),
             ]),
           ]),
-          if (status == 'Awaiting Signature')
-            button(
-              classes:
-                  'px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer',
-              events: {
-                'click': (e) {
-                  e.stopPropagation();
-                  s.setState(() {
-                    s.signingContractId = active['id']?.toString();
-                    s.signingContractTitle = '${active['brand']} ${active['model']} Rental Agreement';
-                    s.signingContractTerms = active['contractTerms'] ?? 'Rental Agreement terms';
-                    s.signingContractIsProperty = false;
-                    s.showSignContractModal = true;
-                  });
+          div(classes: 'flex items-center gap-2', [
+            if (status == 'Awaiting Signature')
+              button(
+                classes:
+                    'px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    s.setState(() {
+                      s.signingContractId = active['id']?.toString();
+                      s.signingContractTitle = '${active['brand']} ${active['model']} Rental Agreement';
+                      s.signingContractTerms = active['contractTerms'] ?? 'Rental Agreement terms';
+                      s.signingContractIsProperty = false;
+                      s.showSignContractModal = true;
+                    });
+                  },
                 },
-              },
-              [Component.text('Sign Contract')],
-            ),
+                [Component.text('Sign Contract')],
+              ),
+            if (status != 'Awaiting Signature' && unreadCount > 0)
+              span(
+                classes:
+                    'px-2 py-1 rounded-lg text-xs font-black bg-red-500/10 text-red-500 border border-red-500/30 flex items-center gap-1 animate-pulse',
+                [
+                  lIcon('message-square', cls: 'w-3 h-3 text-red-500'),
+                  Component.text('$unreadCount New'),
+                ],
+              ),
+          ]),
         ]),
         div(classes: 'flex items-center justify-between text-xs text-purple-300', [
           p([Component.text('Click card to view tracker and live trip map')]),
@@ -679,6 +692,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
   Component _activePropertyCard(PropertyRental active, bool isDark) {
     final s = component.state;
     final status = active.status;
+    final chatId = 'property_${active.id}_${s.userProfile?.uid}';
+    final unreadCount = s.getUnreadChatCount(chatId);
 
     return div(
       classes: 'p-5 rounded-2xl border border-purple-500/30 bg-purple-500/10 transition-colors mb-4',
@@ -693,23 +708,34 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               p(classes: 'font-bold', [Component.text(active.title)]),
             ]),
           ]),
-          if (status == 'Awaiting Signature')
-            button(
-              classes:
-                  'px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer',
-              events: {
-                'click': (_) {
-                  s.setState(() {
-                    s.signingContractId = active.id;
-                    s.signingContractTitle = '${active.title} Lease Agreement';
-                    s.signingContractTerms = active.contractTerms;
-                    s.signingContractIsProperty = true;
-                    s.showSignContractModal = true;
-                  });
+          div(classes: 'flex items-center gap-2', [
+            if (status == 'Awaiting Signature')
+              button(
+                classes:
+                    'px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer',
+                events: {
+                  'click': (_) {
+                    s.setState(() {
+                      s.signingContractId = active.id;
+                      s.signingContractTitle = '${active.title} Lease Agreement';
+                      s.signingContractTerms = active.contractTerms;
+                      s.signingContractIsProperty = true;
+                      s.showSignContractModal = true;
+                    });
+                  },
                 },
-              },
-              [Component.text('Sign Contract')],
-            ),
+                [Component.text('Sign Contract')],
+              ),
+            if (status != 'Awaiting Signature' && unreadCount > 0)
+              span(
+                classes:
+                    'px-2 py-1 rounded-lg text-xs font-black bg-red-500/10 text-red-500 border border-red-500/30 flex items-center gap-1 animate-pulse',
+                [
+                  lIcon('message-square', cls: 'w-3 h-3 text-red-500'),
+                  Component.text('$unreadCount New'),
+                ],
+              ),
+          ]),
         ]),
         div(classes: 'flex items-center justify-between text-xs text-purple-300', [
           p([
@@ -835,6 +861,11 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final fuelType = r['fuelType'] as String? ?? 'Gasoline';
     final transmission = r['transmission'] as String? ?? 'Automatic';
 
+    final renteeId = r['renteeId']?.toString();
+    final hasActiveRenter = renteeId != null && renteeId.isNotEmpty;
+    final chatId = hasActiveRenter ? 'rental_${r['id']}_$renteeId' : null;
+    final unreadCount = chatId != null ? s.getUnreadChatCount(chatId) : 0;
+
     return div(classes: 'p-5 rounded-2xl border transition-all card-hover $cardCls', [
       div(classes: 'flex items-start justify-between mb-4', [
         div([
@@ -870,6 +901,15 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 [
                   lIcon('alert-triangle', cls: 'w-3 h-3 text-amber-400'),
                   Component.text('No GPS Registered'),
+                ],
+              ),
+            if (unreadCount > 0)
+              span(
+                classes:
+                    'px-2 py-1 rounded-lg text-xs font-black bg-red-500/10 text-red-500 border border-red-500/30 flex items-center gap-1 animate-pulse',
+                [
+                  lIcon('message-square', cls: 'w-3 h-3 text-red-500'),
+                  Component.text('$unreadCount New'),
                 ],
               ),
           ] else if (hasGps) ...[
@@ -912,7 +952,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         if (isHostView)
           Builder(builder: (context) {
             final hasRequests = s.hostPendingRequests.any((req) => req['rentalId'] == r['id']);
-            return div(classes: 'flex gap-2', [
+            final showChat = hasActiveRenter && r['allowChat'] == true;
+            return div(classes: 'flex gap-2 items-center', [
               button(
                 classes:
                     'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
@@ -924,6 +965,27 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 },
                 [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
               ),
+              if (showChat)
+                button(
+                  classes:
+                      'px-3 py-2 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative flex items-center',
+                  events: {
+                    'click': (e) {
+                      e.stopPropagation();
+                      s.openChat(chatId!);
+                    },
+                  },
+                  [
+                    lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
+                    Component.text('Chat Renter'),
+                    if (unreadCount > 0)
+                      span(
+                        classes:
+                            'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                        [Component.text('$unreadCount')],
+                      ),
+                  ],
+                ),
               button(
                 classes:
                     'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
@@ -989,6 +1051,11 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
     final hasPhoto = prop.photoUrls.isNotEmpty && prop.photoUrls.first.isNotEmpty;
 
+    final renteeId = prop.renteeId;
+    final hasActiveRenter = renteeId != null && renteeId.isNotEmpty;
+    final chatId = hasActiveRenter ? 'property_${prop.id}_$renteeId' : null;
+    final unreadCount = chatId != null ? s.getUnreadChatCount(chatId) : 0;
+
     return div(classes: 'p-5 rounded-2xl border transition-all card-hover $cardCls', [
       div(classes: 'flex items-start justify-between mb-4', [
         div([
@@ -997,8 +1064,19 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             Component.text('${prop.category.label} • ${prop.type.label}'),
           ]),
         ]),
-        span(classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-400', [
-          Component.text(prop.status),
+        div(classes: 'flex items-center gap-1.5', [
+          if (isHostView && unreadCount > 0)
+            span(
+              classes:
+                  'px-2 py-1 rounded-lg text-xs font-black bg-red-500/10 text-red-500 border border-red-500/30 flex items-center gap-1 animate-pulse',
+              [
+                lIcon('message-square', cls: 'w-3 h-3 text-red-500'),
+                Component.text('$unreadCount New'),
+              ],
+            ),
+          span(classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-400', [
+            Component.text(prop.status),
+          ]),
         ]),
       ]),
 
@@ -1025,7 +1103,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         if (isHostView)
           Builder(builder: (context) {
             final hasRequests = s.propertyHostPendingRequests.any((req) => req['propertyId'] == prop.id);
-            return div(classes: 'flex gap-2', [
+            final showChat = hasActiveRenter && prop.allowChat;
+            return div(classes: 'flex gap-2 items-center', [
               button(
                 classes:
                     'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
@@ -1037,6 +1116,27 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 },
                 [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
               ),
+              if (showChat)
+                button(
+                  classes:
+                      'px-3 py-2 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative flex items-center',
+                  events: {
+                    'click': (e) {
+                      e.stopPropagation();
+                      s.openChat(chatId!);
+                    },
+                  },
+                  [
+                    lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
+                    Component.text('Chat Renter'),
+                    if (unreadCount > 0)
+                      span(
+                        classes:
+                            'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                        [Component.text('$unreadCount')],
+                      ),
+                  ],
+                ),
               button(
                 classes:
                     'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',

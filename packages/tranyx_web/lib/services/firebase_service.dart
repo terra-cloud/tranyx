@@ -602,7 +602,9 @@ class FirestoreService {
       idToken: idToken,
       onTokenRefresh: _refreshToken,
     );
-    return _docId(result);
+    final docId = _docId(result);
+    await setDocument('jobs/$docId', {'id': docId});
+    return docId;
   }
 
   /// Fetch all jobs created by [uid].
@@ -1123,7 +1125,9 @@ class FirestoreService {
     }
 
     final result = jsonDecode(req.body) as Map<String, dynamic>;
-    return _docId(result);
+    final docId = _docId(result);
+    await setDocument('rentals/$docId', {'id': docId});
+    return docId;
   }
 
   /// Creates a vehicle rental from a pre-built map (allows extra fields like gpsTrackerId).
@@ -1175,7 +1179,9 @@ class FirestoreService {
     }
 
     final result = jsonDecode(req.body) as Map<String, dynamic>;
-    return _docId(result);
+    final docId = _docId(result);
+    await setDocument('rentals/$docId', {'id': docId});
+    return docId;
   }
 
   /// Delete rental posting and refund listing fee
@@ -2432,7 +2438,9 @@ class FirestoreService {
     }
 
     final result = jsonDecode(req.body) as Map<String, dynamic>;
-    return _docId(result);
+    final docId = _docId(result);
+    await setDocument('properties/$docId', {'id': docId});
+    return docId;
   }
 
   /// Delete property rental posting and reject pending requests

@@ -603,6 +603,14 @@ class TranyxAppState extends State<TranyxApp> {
     return notifications.any((n) => n['type'] == 'chat' && (n['chatId'].toString().startsWith('rental_') || n['chatId'].toString().startsWith('property_')));
   }
 
+  int get unreadJobChatsCount {
+    return notifications.where((n) => n['type'] == 'chat' && !n['chatId'].toString().startsWith('rental_') && !n['chatId'].toString().startsWith('property_')).length;
+  }
+
+  int get unreadRentalChatsCount {
+    return notifications.where((n) => n['type'] == 'chat' && (n['chatId'].toString().startsWith('rental_') || n['chatId'].toString().startsWith('property_'))).length;
+  }
+
   void _startListeningNotifications() {
     final uid = SessionStorage.uid;
     if (uid == null) return;
