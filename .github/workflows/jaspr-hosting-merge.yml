@@ -46,14 +46,6 @@ jobs:
           channelId: live
           projectId: tranyx-app
 
-      - name: Deploy Firestore Rules & Indexes (prod)
-        if: github.ref_name == 'main'
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only firestore:rules,indexes --project tranyx-app
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}
-
       - name: Deploy to Firebase Hosting (uat)
         if: github.ref_name == 'uat'
         uses: FirebaseExtended/action-hosting-deploy@v0
@@ -63,14 +55,6 @@ jobs:
           projectId: tranyx-uat
           channelId: live
 
-      - name: Deploy Firestore Rules & Indexes (uat)
-        if: github.ref_name == 'uat'
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only firestore:rules,indexes --project tranyx-uat
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT }}
-
       - name: Deploy to Firebase Hosting (dev)
         if: github.ref_name == 'develop'
         uses: FirebaseExtended/action-hosting-deploy@v0
@@ -79,11 +63,3 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}
           projectId: tranyx-dev
           channelId: live
-
-      - name: Deploy Firestore Rules & Indexes (dev)
-        if: github.ref_name == 'develop'
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only firestore:rules,indexes --project tranyx-dev
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}
