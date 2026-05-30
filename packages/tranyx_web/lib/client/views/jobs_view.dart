@@ -373,7 +373,9 @@ class JobsViewComponent extends StatelessComponent {
     }
 
     final result = <Map<String, dynamic>>[];
-    if (s.activeJobFilter == 'All') {
+    if (!isBrowsePane) {
+      result.addAll(jobs);
+    } else if (s.activeJobFilter == 'All') {
       result.addAll(jobs);
     } else if (s.activeJobFilter == 'Recommended') {
       var skills = s.userProfile?.skills ?? [];

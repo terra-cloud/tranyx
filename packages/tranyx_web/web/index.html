@@ -617,7 +617,7 @@
             .where('uid', '==', uid)
             .onSnapshot((snapshot) => {
               const notifs = [];
-              snapshot.forEach(doc => notifs.push({ id: doc.id, ...doc.data() }));
+              snapshot.forEach(doc => notifs.push({ ...doc.data(), id: doc.id }));
               callback(JSON.stringify(notifs));
             }, (error) => {
               console.error("Notifications listener error:", error);
@@ -649,7 +649,7 @@
         .where('creatorId', '==', uid)
         .onSnapshot((snapshot) => {
           const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify({ type: 'employer', jobs: list }));
         }, (error) => {
           console.error("Employer jobs listener error:", error);
@@ -659,7 +659,7 @@
         .where('acceptedApplicantId', '==', uid)
         .onSnapshot((snapshot) => {
           const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify({ type: 'nyxian', jobs: list }));
         }, (error) => {
           console.error("Nyxian jobs listener error:", error);
@@ -689,7 +689,7 @@
           unsubApps = db.collection('jobs').doc(jobId).collection('applications')
             .onSnapshot((snapshot) => {
               const list = [];
-              snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+              snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
               callback(JSON.stringify({ type: 'applications', data: list }));
             }, (error) => {
               console.error("Job applications listener error:", error);
@@ -701,7 +701,7 @@
         .onSnapshot((doc) => {
           if (doc.exists) {
             currentJobData = doc.data();
-            callback(JSON.stringify({ type: 'job', data: { id: doc.id, ...currentJobData } }));
+            callback(JSON.stringify({ type: 'job', data: { ...currentJobData, id: doc.id } }));
             setupAppsListener(firebase.auth().currentUser);
           }
         }, (error) => {
@@ -728,7 +728,7 @@
       const unsub = db.collection('rentals')
         .onSnapshot((snapshot) => {
           const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify(list));
         }, (error) => {
           console.error("Rentals list listener error:", error);
@@ -742,7 +742,7 @@
       const unsub = db.collection('rentals').doc(rentalId)
         .onSnapshot((doc) => {
           if (doc.exists) {
-            callback(JSON.stringify({ id: doc.id, ...doc.data() }));
+            callback(JSON.stringify({ ...doc.data(), id: doc.id }));
           }
         }, (error) => {
           console.error("Rental details listener error:", error);
@@ -943,7 +943,7 @@
         .orderBy('createdAt', 'asc')
         .onSnapshot((snapshot) => {
           const msgs = [];
-          snapshot.forEach(doc => msgs.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => msgs.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify(msgs));
         }, (err) => {
           console.error('Chat listener error:', err);
@@ -1142,7 +1142,7 @@
         .orderBy('createdAt', 'asc')
         .onSnapshot((snapshot) => {
           const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify(list));
         }, (err) => {
           console.error('Rental Q&A listener error:', err);
@@ -1190,7 +1190,7 @@
         .orderBy('createdAt', 'asc')
         .onSnapshot((snapshot) => {
           const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify(list));
         }, (err) => {
           console.error('Property Q&A listener error:', err);
@@ -1234,7 +1234,7 @@
       const unsub = db.collection('properties')
         .onSnapshot((snapshot) => {
           const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify(list));
         }, (error) => {
           console.error("Properties list listener error:", error);
@@ -1248,7 +1248,7 @@
       const unsub = db.collection('properties').doc(propertyId)
         .onSnapshot((doc) => {
           if (doc.exists) {
-            callback(JSON.stringify({ id: doc.id, ...doc.data() }));
+            callback(JSON.stringify({ ...doc.data(), id: doc.id }));
           }
         }, (error) => {
           console.error("Property details listener error:", error);

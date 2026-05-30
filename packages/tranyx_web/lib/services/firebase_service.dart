@@ -447,7 +447,7 @@ class FirestoreService {
       final result = docs.map((d) {
         final doc = d as Map<String, dynamic>;
         final id = _docId(doc);
-        return {'id': id, ..._fromFirestoreDoc(doc)};
+        return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
       result.sort((a, b) => (b['timestamp'] as int? ?? 0).compareTo(a['timestamp'] as int? ?? 0));
       return result;
@@ -555,7 +555,7 @@ class FirestoreService {
         if (res is Map<String, dynamic> && res.containsKey('document')) {
           final doc = res['document'] as Map<String, dynamic>;
           final id = _docId(doc);
-          holdbacks.add({'id': id, ..._fromFirestoreDoc(doc)});
+          holdbacks.add({..._fromFirestoreDoc(doc), 'id': id});
         }
       }
       return holdbacks;
@@ -654,7 +654,7 @@ class FirestoreService {
         if (res is Map<String, dynamic> && res.containsKey('document')) {
           final doc = res['document'] as Map<String, dynamic>;
           final id = _docId(doc);
-          transactions.add({'id': id, ..._fromFirestoreDoc(doc)});
+          transactions.add({..._fromFirestoreDoc(doc), 'id': id});
         }
       }
       return transactions;
@@ -699,7 +699,7 @@ class FirestoreService {
         if (res is Map<String, dynamic> && res.containsKey('document')) {
           final doc = res['document'] as Map<String, dynamic>;
           final id = _docId(doc);
-          notifications.add({'id': id, ..._fromFirestoreDoc(doc)});
+          notifications.add({..._fromFirestoreDoc(doc), 'id': id});
         }
       }
       return notifications;
@@ -828,7 +828,7 @@ class FirestoreService {
       final list = results.where((r) => (r as Map).containsKey('document')).map((r) {
         final doc = (r as Map<String, dynamic>)['document'] as Map<String, dynamic>;
         final id = _docId(doc);
-        return {'id': id, ..._fromFirestoreDoc(doc)};
+        return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
 
       if (!orderByCreatedAt) {
@@ -905,7 +905,7 @@ class FirestoreService {
       return docs.map((d) {
         final doc = d as Map<String, dynamic>;
         final id = _docId(doc);
-        return {'id': id, ..._fromFirestoreDoc(doc)};
+        return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
     } catch (_) {
       return [];
@@ -922,7 +922,7 @@ class FirestoreService {
       final messages = docs.map((d) {
         final doc = d as Map<String, dynamic>;
         final id = _docId(doc);
-        return {'id': id, ..._fromFirestoreDoc(doc)};
+        return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
 
       // Sort by timestamp ascending
@@ -1064,7 +1064,7 @@ class FirestoreService {
       final result = docs.map((d) {
         final doc = d as Map<String, dynamic>;
         final id = _docId(doc);
-        return {'id': id, ..._fromFirestoreDoc(doc)};
+        return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
       result.sort((a, b) => (a['createdAt'] as int? ?? 0).compareTo(b['createdAt'] as int? ?? 0));
       return result;
