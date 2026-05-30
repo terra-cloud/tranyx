@@ -51,9 +51,6 @@ jobs:
             echo "sa_key_name=FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV" >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy rules and indexes
-        run: |
-          firebase deploy --only firestore:rules,indexes
       # Deploy to prod project (PR preview — no channelId = auto preview channel)
       - name: Deploy PR Preview (prod)
         if: github.ref_name == 'main'
