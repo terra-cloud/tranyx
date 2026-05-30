@@ -37,7 +37,9 @@ jobs:
           elif [[ "${{ github.ref_name }}" == "develop" ]]; then
             jaspr build --dart-define=ENV=dev
           fi
-
+      - name: Deploy rules and indexes
+        run: |
+          firebase deploy --only firestore:rules,indexes
       - name: Deploy to Firebase Hosting (prod)
         if: github.ref_name == 'main'
         uses: FirebaseExtended/action-hosting-deploy@v0
