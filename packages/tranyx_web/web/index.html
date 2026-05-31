@@ -571,7 +571,37 @@
           photoUrl: result.user.photoURL
         });
       } catch (error) {
-        console.error(error);
+        console.warn("Popup authentication failed/blocked, falling back to redirect flow:", error);
+        try {
+          await firebase.auth().signInWithRedirect(provider);
+          return JSON.stringify({ redirecting: true });
+        } catch (redirectError) {
+          console.error("Redirect authentication failed:", redirectError);
+          throw redirectError;
+        }
+      }
+    };
+
+    window.checkRedirectResultJs = async function (config) {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(config);
+      }
+      try {
+        const result = await firebase.auth().getRedirectResult();
+        if (result && result.user) {
+          const idToken = await result.user.getIdToken();
+          return JSON.stringify({
+            uid: result.user.uid,
+            idToken: idToken,
+            refreshToken: result.user.refreshToken,
+            email: result.user.email,
+            displayName: result.user.displayName,
+            photoUrl: result.user.photoURL
+          });
+        }
+        return null;
+      } catch (error) {
+        console.error("checkRedirectResultJs error:", error);
         throw error;
       }
     };
