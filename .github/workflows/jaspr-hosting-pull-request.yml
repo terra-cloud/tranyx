@@ -53,7 +53,7 @@ jobs:
 
       # Deploy to prod project (PR preview — no channelId = auto preview channel)
       - name: Deploy PR Preview (prod)
-        if: github.ref_name == 'main'
+        if: github.base_ref == 'main'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -62,7 +62,7 @@ jobs:
           projectId: tranyx-app
 
       - name: Deploy PR Preview (uat)
-        if: github.ref_name == 'uat'
+        if: github.base_ref == 'uat'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -71,7 +71,7 @@ jobs:
           channelId: live
 
       - name: Deploy PR Preview (dev)
-        if: github.base_ref != 'main' || github.base_ref != 'uat'
+        if: github.base_ref != 'main' && github.base_ref != 'uat'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
