@@ -48,11 +48,11 @@ FirebaseConfig _getEnvironmentConfig() {
 
   SharedFirebaseOptions options;
   if (env == 'prod') {
-    options = DefaultFirebaseConfig.prodAndroid;
+    options = DefaultFirebaseConfig.prodWeb;
   } else if (env == 'uat') {
-    options = DefaultFirebaseConfig.uatAndroid;
+    options = DefaultFirebaseConfig.uatWeb;
   } else {
-    options = DefaultFirebaseConfig.devAndroid;
+    options = DefaultFirebaseConfig.devWeb;
   }
 
   return FirebaseConfig.fromShared(options);

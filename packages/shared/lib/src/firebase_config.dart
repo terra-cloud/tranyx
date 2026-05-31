@@ -77,4 +77,28 @@ class DefaultFirebaseConfig {
         '174332525079-t08i7bqf10ng9ugnrjhgte8h9i8orisn.apps.googleusercontent.com',
     iosBundleId: 'com.terraph.tranyx',
   );
+
+  static const SharedFirebaseOptions devWeb = SharedFirebaseOptions(
+    apiKey: 'AIzaSyDyIwtMC_ssjILT0tAdtLVf8M4qc7L3ijU',
+    appId: '1:709467070093:web:4d38bcfda904b0d5df4cc4',
+    messagingSenderId: '709467070093',
+    projectId: 'tranyx-dev',
+    storageBucket: 'tranyx-dev.firebasestorage.app',
+  );
+
+  static const SharedFirebaseOptions uatWeb = SharedFirebaseOptions(
+    apiKey: 'AIzaSyCnIIBVASeoA7TiBUMdk-5_tNpooNdO42w',
+    appId: '1:108125328804:web:f7ada108909ef0a5881d31',
+    messagingSenderId: '108125328804',
+    projectId: 'tranyx-uat',
+    storageBucket: 'tranyx-uat.firebasestorage.app',
+  );
+
+  static const SharedFirebaseOptions prodWeb = SharedFirebaseOptions(
+    apiKey: 'AIzaSyAwy7lkwlhiSBCvtAoKyaeox2YKpKqD1hs',
+    appId: '1:174332525079:web:4ad05af27a88c4ba8f7a52',
+    messagingSenderId: '174332525079',
+    projectId: 'tranyx-app',
+    storageBucket: 'tranyx-app.firebasestorage.app',
+  );
 }
