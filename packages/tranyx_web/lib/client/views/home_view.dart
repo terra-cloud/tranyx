@@ -6,6 +6,7 @@ import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
 import '../../services/web_interop.dart';
 import 'package:shared/shared.dart';
+import '../utils/geo_helper.dart';
 
 
 // ── Top-services computation helper ──────────────────────────────────────────
@@ -65,6 +66,37 @@ class HomeViewComponent extends StatelessComponent {
     final isDark = s.isDark;
     final isNyxian = s.currentViewMode == AccountType.nyxian;
     final isHybrid = s.accountType == AccountType.hybrid;
+
+    final localVehicles = s.realtimeRentals.where((r) {
+      if (r['status'] != 'Available' || r['hostId'] == s.userProfile?.uid) return false;
+      final lat = (r['pickupLat'] as num?)?.toDouble();
+      final lng = (r['pickupLng'] as num?)?.toDouble();
+      if (lat == null || lng == null) return false;
+      final dist = calculateDistance(s.userLatitude, s.userLongitude, lat, lng);
+      return dist <= 30.0;
+    }).toList()
+    ..sort((vA, vB) {
+      final latA = (vA['pickupLat'] as num?)?.toDouble();
+      final lngA = (vA['pickupLng'] as num?)?.toDouble();
+      final distA = calculateDistance(s.userLatitude, s.userLongitude, latA, lngA);
+
+      final latB = (vB['pickupLat'] as num?)?.toDouble();
+      final lngB = (vB['pickupLng'] as num?)?.toDouble();
+      final distB = calculateDistance(s.userLatitude, s.userLongitude, latB, lngB);
+
+      return distA.compareTo(distB);
+    });
+
+    final localProperties = s.realtimeProperties.where((prop) {
+      if (prop.status != 'Available' || prop.hostId == s.userProfile?.uid) return false;
+      final dist = calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude);
+      return dist <= 30.0;
+    }).toList()
+    ..sort((pA, pB) {
+      final distA = calculateDistance(s.userLatitude, s.userLongitude, pA.latitude, pA.longitude);
+      final distB = calculateDistance(s.userLatitude, s.userLongitude, pB.latitude, pB.longitude);
+      return distA.compareTo(distB);
+    });
 
     return div(classes: 'space-y-8 animate-fade-up', [
       // ── Hybrid mode switcher ──────────────────────────────
@@ -150,10 +182,7 @@ class HomeViewComponent extends StatelessComponent {
         // Employer view: Proximity-sorted rentals carousels
         _nearMeRentalsSection(
           title: '🚗 Vehicles Near Me',
-          items: s.realtimeRentals
-              .where((r) => r['status'] == 'Available' && r['hostId'] != s.userProfile?.uid)
-              .take(4)
-              .toList(),
+          items: localVehicles.take(4).toList(),
           isProperty: false,
           isDark: isDark,
           s: s,
@@ -161,10 +190,7 @@ class HomeViewComponent extends StatelessComponent {
 
         _nearMeRentalsSection(
           title: '🏢 Real Estate Near Me',
-          items: s.realtimeProperties
-              .where((prop) => prop.status == 'Available' && prop.hostId != s.userProfile?.uid)
-              .take(4)
-              .toList(),
+          items: localProperties.take(4).toList(),
           isProperty: true,
           isDark: isDark,
           s: s,
@@ -349,7 +375,7 @@ class HomeViewComponent extends StatelessComponent {
     if (isProperty) {
       final prop = item as PropertyRental;
       final hasPhoto = prop.photoUrls.isNotEmpty && prop.photoUrls.first.isNotEmpty;
-      final dist = ((prop.id.hashCode).abs() % 80) / 10.0 + 0.5;
+      final dist = calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude);
 
       return div(
         classes: 'p-4 rounded-2xl border transition-all cursor-pointer $cardCls',
@@ -392,7 +418,9 @@ class HomeViewComponent extends StatelessComponent {
       final brand = r['brand'] ?? 'Unknown';
       final photoUrl = r['frontPhotoUrl'] ?? r['frontPhoto'] ?? r['photoUrl'];
       final hasPhoto = photoUrl != null && photoUrl.toString().isNotEmpty && photoUrl.toString() != 'null';
-      final dist = ((r['id']?.toString().hashCode ?? 0).abs() % 80) / 10.0 + 0.5;
+      final pickupLat = (r['pickupLat'] as num?)?.toDouble();
+      final pickupLng = (r['pickupLng'] as num?)?.toDouble();
+      final dist = calculateDistance(s.userLatitude, s.userLongitude, pickupLat, pickupLng);
       final priceVal = r['priceDaily'] ?? r['dailyRate'];
 
       return div(
