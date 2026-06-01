@@ -148,6 +148,12 @@ service cloud.firestore {
       allow write: if isAuthenticated();
     }
 
+    // Config Collection
+    match /config/app_config {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
     // Chats Collection
     match /chats/{chatId} {
       allow read, write: if isAuthenticated();
