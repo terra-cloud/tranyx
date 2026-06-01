@@ -1928,49 +1928,32 @@ class FirestoreService {
     return list;
   }
 
-  /// Fetch all completed rental history (both as host and rentee)
+  /// Fetch all completed rental history (both as host and rentee) — vehicles + properties
   Future<List<Map<String, dynamic>>> getMyRentalHistory(String uid) async {
     final url =
         'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
 
-    // Query as Host
-    final bodyHost = jsonEncode({
-      'structuredQuery': {
-        'from': [
-          {'collectionId': 'rental_history'},
-        ],
-        'where': {
-          'fieldFilter': {
-            'field': {'fieldPath': 'hostId'},
-            'op': 'EQUAL',
-            'value': {'stringValue': uid},
-          },
-        },
-      },
-    });
-
-    // Query as Rentee
-    final bodyRentee = jsonEncode({
-      'structuredQuery': {
-        'from': [
-          {'collectionId': 'rental_history'},
-        ],
-        'where': {
-          'fieldFilter': {
-            'field': {'fieldPath': 'renteeId'},
-            'op': 'EQUAL',
-            'value': {'stringValue': uid},
-          },
-        },
-      },
-    });
-
     final list = <Map<String, dynamic>>[];
     final ids = <String>{};
 
-    Future<void> runQuery(String body) async {
+    /// Runs a Firestore structuredQuery and appends results tagged with [rentalKind]
+    Future<void> runQuery(String collectionId, String field, String rentalKind) async {
+      final body = jsonEncode({
+        'structuredQuery': {
+          'from': [
+            {'collectionId': collectionId},
+          ],
+          'where': {
+            'fieldFilter': {
+              'field': {'fieldPath': field},
+              'op': 'EQUAL',
+              'value': {'stringValue': uid},
+            },
+          },
+        },
+      });
       try {
         final req = await http.post(Uri.parse(url), headers: headers, body: body);
         if (req.statusCode >= 400) return;
@@ -1981,20 +1964,27 @@ class FirestoreService {
             final name = doc['name'] as String;
             final parts = name.split('/');
             final docId = parts.last;
-            if (ids.contains(docId)) continue;
-            ids.add(docId);
+            final uniqueKey = '${rentalKind}_$docId';
+            if (ids.contains(uniqueKey)) continue;
+            ids.add(uniqueKey);
             final data = _fromFirestoreDoc(doc);
             data['id'] = docId;
+            data['rentalKind'] = rentalKind; // 'vehicle' or 'property'
             list.add(data);
           }
         }
       } catch (e) {
-        print('Error running history query: $e');
+        print('Error running history query ($collectionId/$field): $e');
       }
     }
 
-    await runQuery(bodyHost);
-    await runQuery(bodyRentee);
+    // Vehicle rentals — as host and as rentee
+    await runQuery('rental_history', 'hostId', 'vehicle');
+    await runQuery('rental_history', 'renteeId', 'vehicle');
+
+    // Property rentals — as host and as rentee
+    await runQuery('property_history', 'hostId', 'property');
+    await runQuery('property_history', 'renteeId', 'property');
 
     // Sort by completedAt descending
     list.sort((a, b) {
@@ -2004,6 +1994,42 @@ class FirestoreService {
     });
 
     return list;
+  }
+
+  /// Submit a role-specific rating for a counterparty after a completed rental.
+  /// [role] must be 'renter' or 'host'.
+  /// Uses a weighted moving average: newRating = (existingRating * count + stars) / (count + 1).
+  Future<void> submitRentalRating({
+    required String targetUid,
+    required String callerUid, // UID of the person submitting the rating
+    required String role, // 'renter' or 'host'
+    required double stars, // 1.0 – 5.0
+    required String rentalId,
+  }) async {
+    assert(role == 'renter' || role == 'host', 'role must be renter or host');
+    assert(stars >= 1.0 && stars <= 5.0, 'stars must be 1–5');
+
+    final field = role == 'renter' ? 'renterRating' : 'hostRating';
+    final countField = role == 'renter' ? 'renterRatingCount' : 'hostRatingCount';
+
+    // Fetch current values
+    final userDoc = await getDocument('users/$targetUid');
+    if (userDoc == null) throw Exception('User not found.');
+
+    final existingRating = (userDoc[field] as num?)?.toDouble() ?? 0.0;
+    final existingCount = (userDoc[countField] as num?)?.toInt() ?? 0;
+    final newCount = existingCount + 1;
+    final newRating = ((existingRating * existingCount) + stars) / newCount;
+
+    await setDocument('users/$targetUid', {
+      field: double.parse(newRating.toStringAsFixed(2)),
+      countField: newCount,
+    });
+
+    // Mark this rental as rated so the button is hidden after submission
+    final ratedField = '${role}RatedBy_$callerUid';
+    final collection = rentalId.startsWith('ph_') ? 'property_history' : 'rental_history';
+    await setDocument('$collection/$rentalId', {ratedField: true});
   }
 
   /// Cancel rental — full refund (totalCost + bookingFee) back to rentee

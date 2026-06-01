@@ -30,59 +30,84 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final s = component.state;
     final isDark = s.isDark;
     final isVehicles = s.activeRentalCategory == RentalCategory.vehicles;
+    final isHistory = s.transitMode == TransitMode.history;
 
     return div(classes: 'space-y-8 animate-fade-up', [
       // Top Header
       div(classes: 'flex items-center justify-between', [
         div([
-          h1(classes: 'text-3xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent', [
-            Component.text(isVehicles ? 'Vehicles & Transit Marketplace' : 'Properties & Spaces Marketplace'),
-          ]),
+          h1(
+            classes:
+                'text-3xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent',
+            [
+              Component.text(
+                isHistory
+                    ? 'Rental History'
+                    : (isVehicles ? 'Vehicles & Transit Marketplace' : 'Properties & Spaces Marketplace'),
+              ),
+            ],
+          ),
           p(classes: 'text-sm mt-2 max-w-xl leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-650"}', [
             Component.text(
-              isVehicles
-                  ? 'Discover verified local rides or capitalize on your idle garage. Seamless, secure, and peer-to-peer.'
-                  : 'Discover verified residential and commercial spaces or lease your properties in secure escrow.',
+              isHistory
+                  ? 'A complete record of your past rentals as a renter and as a host.'
+                  : (isVehicles
+                        ? 'Discover verified local rides or capitalize on your idle garage. Seamless, secure, and peer-to-peer.'
+                        : 'Discover verified residential and commercial spaces or lease your properties in secure escrow.'),
             ),
           ]),
         ]),
         div(classes: 'p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20', [
-          lIcon(isVehicles ? 'car' : 'home', cls: 'w-7 h-7 text-indigo-400'),
+          lIcon(isHistory ? 'clock' : (isVehicles ? 'car' : 'home'), cls: 'w-7 h-7 text-indigo-400'),
         ]),
       ]),
 
-      // Segmented Switcher for Category: Vehicles vs Properties
+      // Segmented Switcher for Category: Vehicles vs Properties (hidden in History mode)
+      if (!isHistory)
+        segmentedControl(
+          options: const [
+            ('🚗 Vehicles', 'vehicles'),
+            ('🏢 Real Estate', 'properties'),
+          ],
+          selected: isVehicles ? 'vehicles' : 'properties',
+          isDark: isDark,
+          onChange: (v) {
+            s.setState(() {
+              s.activeRentalCategory = v == 'vehicles' ? RentalCategory.vehicles : RentalCategory.properties;
+              // Clear filters when switching
+              _searchQuery = '';
+              _maxPrice = null;
+              _selectedCategory = null;
+              _selectedType = null;
+            });
+          },
+        ),
+
+      // Segmented Switcher for Mode: Rent | Host | History
       segmentedControl(
         options: const [
-          ('🚗 Vehicles', 'vehicles'),
-          ('🏢 Real Estate', 'properties'),
+          ('🔍 Rent', 'rent'),
+          ('🏠 Host', 'host'),
+          ('📋 History', 'history'),
         ],
-        selected: isVehicles ? 'vehicles' : 'properties',
+        selected: s.transitMode == TransitMode.rent ? 'rent' : (s.transitMode == TransitMode.host ? 'host' : 'history'),
         isDark: isDark,
-        onChange: (v) {
-          s.setState(() {
-            s.activeRentalCategory = v == 'vehicles' ? RentalCategory.vehicles : RentalCategory.properties;
-            // Clear filters when switching
-            _searchQuery = '';
-            _maxPrice = null;
-            _selectedCategory = null;
-            _selectedType = null;
-          });
-        },
+        onChange: (v) => s.setState(() {
+          if (v == 'rent')
+            s.transitMode = TransitMode.rent;
+          else if (v == 'host')
+            s.transitMode = TransitMode.host;
+          else
+            s.transitMode = TransitMode.history;
+        }),
       ),
 
-      // Segmented Switcher for Mode: Rent vs Host
-      segmentedControl(
-        options: [
-          (isVehicles ? 'Rent a Vehicle' : 'Rent a Space', 'rent'),
-          (isVehicles ? 'Host (My Garage)' : 'Host (My Properties)', 'host'),
-        ],
-        selected: s.transitMode == TransitMode.rent ? 'rent' : 'host',
-        isDark: isDark,
-        onChange: (v) => s.setState(() => s.transitMode = v == 'rent' ? TransitMode.rent : TransitMode.host),
-      ),
-
-      if (s.transitMode == TransitMode.rent) _rentView(isVehicles, isDark) else _hostView(isVehicles, isDark),
+      if (s.transitMode == TransitMode.rent)
+        _rentView(isVehicles, isDark)
+      else if (s.transitMode == TransitMode.host)
+        _hostView(isVehicles, isDark)
+      else
+        _RentalHistoryView(state: s),
     ]);
   }
 
@@ -651,7 +676,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                     Component.text('Chat Host'),
                     if (s.getUnreadChatCount(chatId) > 0)
                       span(
-                        classes: 'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                        classes:
+                            'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
                         [Component.text('${s.getUnreadChatCount(chatId)}')],
                       ),
                   ],
@@ -759,7 +785,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                   Component.text('Chat Owner'),
                   if (s.getUnreadChatCount(chatId) > 0)
                     span(
-                      classes: 'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                      classes:
+                          'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
                       [Component.text('${s.getUnreadChatCount(chatId)}')],
                     ),
                 ],
@@ -873,13 +900,21 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           p(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-500"} capitalize flex items-center gap-1.5', [
             Component.text(type),
             span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
-            span(classes: 'text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider', [
-              Component.text(fuelType),
-            ]),
+            span(
+              classes:
+                  'text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider',
+              [
+                Component.text(fuelType),
+              ],
+            ),
             span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
-            span(classes: 'text-[10px] font-bold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider', [
-              Component.text(transmission),
-            ]),
+            span(
+              classes:
+                  'text-[10px] font-bold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider',
+              [
+                Component.text(transmission),
+              ],
+            ),
           ]),
         ]),
         div(classes: 'flex items-center gap-1.5', [
@@ -950,67 +985,73 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         ]),
 
         if (isHostView)
-          Builder(builder: (context) {
-            final hasRequests = s.hostPendingRequests.any((req) => req['rentalId'] == r['id']);
-            final showChat = hasActiveRenter && r['allowChat'] == true;
-            return div(classes: 'flex gap-2 items-center', [
-              button(
-                classes:
-                    'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-                events: {
-                  'click': (_) => s.setState(() {
-                    s.selectedRentalData = r;
-                    s.showVehicleQaModal = true;
-                  }),
-                },
-                [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
-              ),
-              if (showChat)
+          Builder(
+            builder: (context) {
+              final hasRequests = s.hostPendingRequests.any((req) => req['rentalId'] == r['id']);
+              final showChat = hasActiveRenter && r['allowChat'] == true;
+              return div(classes: 'flex gap-2 items-center', [
                 button(
                   classes:
-                      'px-3 py-2 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative flex items-center',
+                      'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
                   events: {
-                    'click': (e) {
-                      e.stopPropagation();
-                      s.openChat(chatId!);
+                    'click': (_) => s.setState(() {
+                      s.selectedRentalData = r;
+                      s.showVehicleQaModal = true;
+                    }),
+                  },
+                  [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
+                ),
+                if (showChat)
+                  button(
+                    classes:
+                        'px-3 py-2 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative flex items-center',
+                    events: {
+                      'click': (e) {
+                        e.stopPropagation();
+                        s.openChat(chatId!);
+                      },
+                    },
+                    [
+                      lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
+                      Component.text('Chat Renter'),
+                      if (unreadCount > 0)
+                        span(
+                          classes:
+                              'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                          [Component.text('$unreadCount')],
+                        ),
+                    ],
+                  ),
+                button(
+                  classes:
+                      'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
+                  events: {
+                    'click': (_) {
+                      s.setState(() {
+                        s.selectedRentalData = r;
+                        s.showManageVehicleModal = true;
+                      });
                     },
                   },
                   [
-                    lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
-                    Component.text('Chat Renter'),
-                    if (unreadCount > 0)
+                    Component.text('Manage'),
+                    if (hasRequests)
                       span(
-                        classes:
-                            'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
-                        [Component.text('$unreadCount')],
+                        classes: 'absolute -top-1 -right-1 flex h-2.5 w-2.5',
+                        [
+                          span(
+                            classes:
+                                'animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75',
+                            [],
+                          ),
+                          span(classes: 'relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500', []),
+                        ],
                       ),
                   ],
                 ),
-              button(
-                classes:
-                    'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
-                events: {
-                  'click': (_) {
-                    s.setState(() {
-                      s.selectedRentalData = r;
-                      s.showManageVehicleModal = true;
-                    });
-                  },
-                },
-                [
-                  Component.text('Manage'),
-                  if (hasRequests)
-                    span(
-                      classes: 'absolute -top-1 -right-1 flex h-2.5 w-2.5',
-                      [
-                        span(classes: 'animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75', []),
-                        span(classes: 'relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500', []),
-                      ],
-                    ),
-                ],
-              ),
-            ]);
-          })
+              ]);
+            },
+          )
         else
           div(classes: 'flex items-center gap-2', [
             button(
@@ -1101,67 +1142,73 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         ]),
 
         if (isHostView)
-          Builder(builder: (context) {
-            final hasRequests = s.propertyHostPendingRequests.any((req) => req['propertyId'] == prop.id);
-            final showChat = hasActiveRenter && prop.allowChat;
-            return div(classes: 'flex gap-2 items-center', [
-              button(
-                classes:
-                    'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-                events: {
-                  'click': (_) => s.setState(() {
-                    s.selectedPropertyData = prop.toMap();
-                    s.showPropertyQaModal = true;
-                  }),
-                },
-                [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
-              ),
-              if (showChat)
+          Builder(
+            builder: (context) {
+              final hasRequests = s.propertyHostPendingRequests.any((req) => req['propertyId'] == prop.id);
+              final showChat = hasActiveRenter && prop.allowChat;
+              return div(classes: 'flex gap-2 items-center', [
                 button(
                   classes:
-                      'px-3 py-2 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative flex items-center',
+                      'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
                   events: {
-                    'click': (e) {
-                      e.stopPropagation();
-                      s.openChat(chatId!);
+                    'click': (_) => s.setState(() {
+                      s.selectedPropertyData = prop.toMap();
+                      s.showPropertyQaModal = true;
+                    }),
+                  },
+                  [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
+                ),
+                if (showChat)
+                  button(
+                    classes:
+                        'px-3 py-2 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative flex items-center',
+                    events: {
+                      'click': (e) {
+                        e.stopPropagation();
+                        s.openChat(chatId!);
+                      },
+                    },
+                    [
+                      lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
+                      Component.text('Chat Renter'),
+                      if (unreadCount > 0)
+                        span(
+                          classes:
+                              'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                          [Component.text('$unreadCount')],
+                        ),
+                    ],
+                  ),
+                button(
+                  classes:
+                      'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
+                  events: {
+                    'click': (_) {
+                      s.setState(() {
+                        s.selectedPropertyData = prop.toMap();
+                        s.showManagePropertyModal = true;
+                      });
                     },
                   },
                   [
-                    lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
-                    Component.text('Chat Renter'),
-                    if (unreadCount > 0)
+                    Component.text('Manage'),
+                    if (hasRequests)
                       span(
-                        classes:
-                            'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
-                        [Component.text('$unreadCount')],
+                        classes: 'absolute -top-1 -right-1 flex h-2.5 w-2.5',
+                        [
+                          span(
+                            classes:
+                                'animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75',
+                            [],
+                          ),
+                          span(classes: 'relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500', []),
+                        ],
                       ),
                   ],
                 ),
-              button(
-                classes:
-                    'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
-                events: {
-                  'click': (_) {
-                    s.setState(() {
-                      s.selectedPropertyData = prop.toMap();
-                      s.showManagePropertyModal = true;
-                    });
-                  },
-                },
-                [
-                  Component.text('Manage'),
-                  if (hasRequests)
-                    span(
-                      classes: 'absolute -top-1 -right-1 flex h-2.5 w-2.5',
-                      [
-                        span(classes: 'animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75', []),
-                        span(classes: 'relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500', []),
-                      ],
-                    ),
-                ],
-              ),
-            ]);
-          })
+              ]);
+            },
+          )
         else
           div(classes: 'flex items-center gap-2', [
             button(
@@ -1188,6 +1235,556 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             ),
           ]),
       ]),
+    ]);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENTAL HISTORY VIEW
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _RentalHistoryView extends StatefulComponent {
+  final TranyxAppState state;
+  const _RentalHistoryView({required this.state});
+
+  @override
+  State<_RentalHistoryView> createState() => _RentalHistoryViewState();
+}
+
+class _RentalHistoryViewState extends State<_RentalHistoryView> {
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _historyItems = [];
+  final Map<String, UserProfile?> _counterpartyCache = {};
+
+  // Filters
+  String _roleFilter = 'all'; // 'all', 'renter', 'host'
+  String _kindFilter = 'all'; // 'all', 'vehicle', 'property'
+
+  // Rating state
+  final Map<String, double> _pendingStars = {}; // rentalId -> star hover/selection
+  final Set<String> _submittingRating = {};
+  final Set<String> _ratedThisSession = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  @override
+  void didUpdateComponent(_RentalHistoryView oldComponent) {
+    super.didUpdateComponent(oldComponent);
+    if (oldComponent.state.userProfile?.uid != component.state.userProfile?.uid) {
+      _loadHistory();
+    }
+  }
+
+  Future<void> _loadHistory() async {
+    setState(() => _isLoading = true);
+    final uid = component.state.userProfile?.uid;
+    if (uid == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    try {
+      final items = await component.state.firestore.getMyRentalHistory(uid);
+      // Pre-fetch counterparty profiles
+      for (final item in items) {
+        final counterpartyUid = _counterpartyUid(item, uid);
+        if (counterpartyUid != null && !_counterpartyCache.containsKey(counterpartyUid)) {
+          _counterpartyCache[counterpartyUid] = await component.state.firestore.getUser(counterpartyUid);
+        }
+      }
+      setState(() {
+        _historyItems = items;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  /// Returns the UID of the counterparty for a given history record and current user.
+  String? _counterpartyUid(Map<String, dynamic> item, String myUid) {
+    final hostId = item['hostId']?.toString();
+    final renteeId = item['renteeId']?.toString();
+    if (hostId == myUid) return (renteeId?.isNotEmpty == true) ? renteeId : null;
+    return (hostId?.isNotEmpty == true) ? hostId : null;
+  }
+
+  String _formatDate(int? ms) {
+    if (ms == null) return '—';
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[dt.month - 1]} ${dt.day.toString().padLeft(2, '0')}, ${dt.year}';
+  }
+
+  String _roleLabel(Map<String, dynamic> item, String myUid) {
+    return item['hostId']?.toString() == myUid ? 'host' : 'renter';
+  }
+
+  /// Build a small pill badge
+  Component _pill(String text, String colorCls) {
+    return span(
+      classes: 'px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider $colorCls',
+      [Component.text(text)],
+    );
+  }
+
+  /// Build a star row (read-only)
+  Component _starDisplay(double? rating, String label) {
+    final isDark = component.state.isDark;
+    if (rating == null) {
+      return span(classes: 'text-xs italic ${isDark ? "text-zinc-600" : "text-zinc-400"}', [
+        Component.text('No $label yet'),
+      ]);
+    }
+    final full = rating.floor();
+    final frac = rating - full;
+    return div(classes: 'flex items-center gap-1', [
+      for (int i = 1; i <= 5; i++)
+        span(
+          classes: i <= full
+              ? 'text-amber-400 text-sm'
+              : (i == full + 1 && frac >= 0.5 ? 'text-amber-300 text-sm' : 'text-zinc-600 text-sm'),
+          [Component.text('★')],
+        ),
+      span(classes: 'text-xs font-bold ml-1 ${isDark ? "text-zinc-300" : "text-zinc-600"}', [
+        Component.text(rating.toStringAsFixed(1)),
+      ]),
+      span(classes: 'text-[10px] ml-1 ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+        Component.text('($label)'),
+      ]),
+    ]);
+  }
+
+  /// Build the interactive star-rating + submit section
+  Component _buildRatingWidget(Map<String, dynamic> item, String myRole, String counterpartyUid) {
+    final s = component.state;
+    final isDark = s.isDark;
+    final rentalId = item['id']?.toString() ?? '';
+    final ratingRole = myRole == 'host' ? 'renter' : 'host'; // who I'm rating
+    final ratedFieldKey = '${ratingRole}RatedBy_${s.userProfile?.uid}';
+    final alreadyRated = item[ratedFieldKey] == true || _ratedThisSession.contains(rentalId);
+    final isSubmitting = _submittingRating.contains(rentalId);
+    final selectedStars = _pendingStars[rentalId] ?? 0.0;
+
+    if (alreadyRated) {
+      return div(classes: 'flex items-center gap-1.5 text-xs text-emerald-400 font-semibold', [
+        lIcon('check-circle', cls: 'w-3.5 h-3.5'),
+        Component.text('Rating submitted'),
+      ]);
+    }
+
+    return div(classes: 'space-y-2', [
+      p(classes: 'text-[10px] font-bold uppercase tracking-wider ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+        Component.text(myRole == 'host' ? 'Rate this Renter' : 'Rate this Host'),
+      ]),
+      div(classes: 'flex items-center gap-1', [
+        for (int i = 1; i <= 5; i++)
+          button(
+            classes:
+                'text-xl border-0 bg-transparent cursor-pointer transition-transform hover:scale-125 p-0.5 ${i <= selectedStars ? "text-amber-400" : (isDark ? "text-zinc-700" : "text-zinc-300")}',
+            events: {
+              'click': (_) => setState(() => _pendingStars[rentalId] = i.toDouble()),
+            },
+            [Component.text('★')],
+          ),
+      ]),
+      if (selectedStars > 0)
+        button(
+          classes:
+              'px-3 py-1.5 rounded-xl text-xs font-bold text-white logo-gradient border-0 cursor-pointer hover:opacity-90 transition-opacity flex items-center gap-1.5 ${isSubmitting ? "opacity-60 pointer-events-none" : ""}',
+          events: {
+            'click': (_) async {
+              if (isSubmitting || selectedStars <= 0) return;
+              setState(() => _submittingRating.add(rentalId));
+              try {
+                await s.firestore.submitRentalRating(
+                  targetUid: counterpartyUid,
+                  callerUid: s.userProfile?.uid ?? '',
+                  role: ratingRole,
+                  stars: selectedStars,
+                  rentalId: rentalId,
+                );
+                setState(() {
+                  _ratedThisSession.add(rentalId);
+                  _submittingRating.remove(rentalId);
+                });
+                s.showAppToast('Rating Submitted', 'Thank you for your feedback!');
+              } catch (e) {
+                setState(() => _submittingRating.remove(rentalId));
+                s.showAppToast('Error', 'Could not submit rating: $e');
+              }
+            },
+          },
+          [
+            if (isSubmitting) lIcon('loader-2', cls: 'w-3 h-3 animate-spin'),
+            Component.text(isSubmitting ? 'Submitting...' : 'Submit Rating'),
+          ],
+        ),
+    ]);
+  }
+
+  /// Counterparty profile block
+  Component _buildCounterpartySection(
+    UserProfile? profile,
+    String counterpartyRole, // 'renter' or 'host'
+    bool isDark,
+    Map<String, dynamic> item,
+    String myRole,
+    String counterpartyUid,
+  ) {
+    final name = profile?.name ?? 'Unknown User';
+    final photo = profile?.photoUrl;
+    final hasPhoto = photo != null && photo.isNotEmpty;
+    final renterRating = profile?.renterRating;
+    final hostRating = profile?.hostRating;
+    final serviceRating = profile?.rating;
+
+    return div(
+      classes: 'mt-4 pt-4 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"} space-y-3',
+      [
+        p(classes: 'text-[10px] font-bold uppercase tracking-wider ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+          Component.text(counterpartyRole == 'renter' ? '👤 Renter Details' : '🏠 Host / Owner Details'),
+        ]),
+        div(classes: 'flex items-start gap-3', [
+          // Avatar
+          div(
+            classes:
+                'w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-sm overflow-hidden '
+                '${isDark ? "bg-indigo-500/20 text-indigo-300" : "bg-indigo-100 text-indigo-600"}',
+            [
+              if (hasPhoto)
+                img(
+                  src: photo,
+                  alt: name,
+                  classes: 'w-full h-full object-cover',
+                )
+              else
+                Component.text(name.isNotEmpty ? name[0].toUpperCase() : '?'),
+            ],
+          ),
+          // Info
+          div(classes: 'flex-1 min-w-0', [
+            p(classes: 'font-bold text-sm truncate', [Component.text(name)]),
+            if (profile != null) ...[
+              div(classes: 'flex flex-wrap gap-2 mt-1', [
+                _starDisplay(renterRating, 'As Renter'),
+                _starDisplay(hostRating, 'As Host'),
+                if (serviceRating != null) _starDisplay(serviceRating, 'Service'),
+              ]),
+              div(classes: 'flex flex-wrap gap-1.5 mt-2', [
+                if (profile.idVerified) _pill('ID Verified', 'bg-blue-500/20 text-blue-400'),
+                if (profile.bgChecked) _pill('BG Checked', 'bg-emerald-500/20 text-emerald-400'),
+                if (profile.isPremium) _pill('Premium', 'bg-amber-500/20 text-amber-500'),
+              ]),
+            ],
+          ]),
+        ]),
+        // Rating widget
+        _buildRatingWidget(item, myRole, counterpartyUid),
+      ],
+    );
+  }
+
+  Component _buildVehicleHistoryCard(Map<String, dynamic> item, bool isDark, String myUid) {
+    final myRole = _roleLabel(item, myUid);
+    final counterpartyUid = _counterpartyUid(item, myUid);
+    final counterparty = counterpartyUid != null ? _counterpartyCache[counterpartyUid] : null;
+    final brand = item['brand']?.toString() ?? '';
+    final model = item['model']?.toString() ?? '';
+    final year = item['year']?.toString() ?? '';
+    final plate = item['plateNumber']?.toString() ?? item['plate']?.toString() ?? '';
+    final fuelType = item['fuelType']?.toString() ?? 'Gasoline';
+    final transmission = item['transmission']?.toString() ?? 'Automatic';
+    final vehicleType =
+        item['vehicleType']?.toString().split('.').last ?? item['type']?.toString().split('.').last ?? '';
+    final totalCost = (item['totalCost'] as num?)?.toDouble() ?? 0.0;
+    final durationType = item['rentalDurationType']?.toString() ?? item['durationType']?.toString() ?? '';
+    final multiplier = item['rentalMultiplier'] ?? item['multiplier'] ?? '';
+    final startDate = (item['startDate'] as num?)?.toInt();
+    final endDate = (item['endDate'] as num?)?.toInt();
+    final completedAt = (item['completedAt'] as num?)?.toInt();
+
+    final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+
+    return div(classes: 'p-5 rounded-2xl border $cardCls space-y-1', [
+      // Header row
+      div(classes: 'flex items-start justify-between gap-3', [
+        div(classes: 'flex items-center gap-3', [
+          div(classes: 'p-2.5 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', [
+            lIcon('car', cls: 'w-5 h-5 text-purple-400'),
+          ]),
+          div([
+            p(classes: 'font-bold text-base', [
+              Component.text('$year $brand $model'.trim()),
+            ]),
+            if (plate.isNotEmpty)
+              p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
+                Component.text('Plate: $plate'),
+              ]),
+          ]),
+        ]),
+        div(classes: 'flex flex-col items-end gap-1.5', [
+          _pill(
+            myRole == 'host' ? 'As Host' : 'As Renter',
+            myRole == 'host' ? 'bg-indigo-500/20 text-indigo-400' : 'bg-purple-500/20 text-purple-400',
+          ),
+          _pill('Completed', 'bg-emerald-500/20 text-emerald-400'),
+        ]),
+      ]),
+
+      // Specs row
+      div(classes: 'flex flex-wrap gap-2 mt-3', [
+        _pill(fuelType, 'bg-amber-500/15 text-amber-400'),
+        _pill(transmission, 'bg-blue-500/15 text-blue-400'),
+        if (vehicleType.isNotEmpty && vehicleType.toLowerCase() != 'null')
+          _pill(vehicleType, 'bg-zinc-500/20 ${isDark ? "text-zinc-400" : "text-zinc-600"}'),
+      ]),
+
+      // Rental details
+      div(classes: 'mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs', [
+        if (startDate != null)
+          div([
+            span(classes: '${isDark ? "text-zinc-500" : "text-zinc-400"} mr-1', [Component.text('From:')]),
+            Component.text(_formatDate(startDate)),
+          ]),
+        if (endDate != null)
+          div([
+            span(classes: '${isDark ? "text-zinc-500" : "text-zinc-400"} mr-1', [Component.text('To:')]),
+            Component.text(_formatDate(endDate)),
+          ]),
+        if (durationType.isNotEmpty && multiplier.toString().isNotEmpty)
+          div([
+            span(classes: '${isDark ? "text-zinc-500" : "text-zinc-400"} mr-1', [Component.text('Duration:')]),
+            Component.text('$multiplier $durationType'),
+          ]),
+        div([
+          span(classes: '${isDark ? "text-zinc-500" : "text-zinc-400"} mr-1', [Component.text('Total:')]),
+          span(classes: 'font-bold text-emerald-400', [Component.text('₱${totalCost.toStringAsFixed(2)}')]),
+        ]),
+        if (completedAt != null)
+          div([
+            span(classes: '${isDark ? "text-zinc-500" : "text-zinc-400"} mr-1', [Component.text('Completed:')]),
+            Component.text(_formatDate(completedAt)),
+          ]),
+      ]),
+
+      // Counterparty
+      _buildCounterpartySection(
+        counterparty,
+        myRole == 'host' ? 'renter' : 'host',
+        isDark,
+        item,
+        myRole,
+        counterpartyUid ?? '',
+      ),
+    ]);
+  }
+
+  Component _buildPropertyHistoryCard(Map<String, dynamic> item, bool isDark, String myUid) {
+    final myRole = _roleLabel(item, myUid);
+    final counterpartyUid = _counterpartyUid(item, myUid);
+    final counterparty = counterpartyUid != null ? _counterpartyCache[counterpartyUid] : null;
+    final title = item['title']?.toString() ?? 'Property Rental';
+    final address = item['address']?.toString() ?? '';
+    // Parse category/type labels — they may be enum names
+    String categoryLabel = item['category']?.toString().split('.').last ?? '';
+    String typeLabel = item['type']?.toString().split('.').last ?? '';
+    // Attempt to map to friendly label via enums if available
+    try {
+      if (categoryLabel.isNotEmpty) {
+        final cat = PropertyCategory.values.firstWhere(
+          (c) => c.name == categoryLabel,
+          orElse: () => PropertyCategory.values.first,
+        );
+        categoryLabel = cat.label;
+      }
+    } catch (_) {}
+    try {
+      if (typeLabel.isNotEmpty) {
+        final t = PropertyType.values.firstWhere((t) => t.name == typeLabel, orElse: () => PropertyType.values.first);
+        typeLabel = t.label;
+      }
+    } catch (_) {}
+
+    final priceMonthly = (item['priceMonthly'] as num?)?.toDouble() ?? 0.0;
+    final depositMonths = item['depositMonths'] ?? '';
+    final totalCost = (item['totalCost'] as num?)?.toDouble() ?? 0.0;
+    final startDate = (item['startDate'] as num?)?.toInt();
+    final endDate = (item['endDate'] as num?)?.toInt();
+    final completedAt = (item['completedAt'] as num?)?.toInt();
+
+    final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+
+    return div(classes: 'p-5 rounded-2xl border $cardCls space-y-1', [
+      // Header row
+      div(classes: 'flex items-start justify-between gap-3', [
+        div(classes: 'flex items-center gap-3', [
+          div(classes: 'p-2.5 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', [
+            lIcon('home', cls: 'w-5 h-5 text-teal-400'),
+          ]),
+          div(classes: 'flex-1 min-w-0', [
+            p(classes: 'font-bold text-base truncate', [Component.text(title)]),
+            if (address.isNotEmpty)
+              p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"} truncate', [Component.text(address)]),
+          ]),
+        ]),
+        div(classes: 'flex flex-col items-end gap-1.5 flex-shrink-0', [
+          _pill(
+            myRole == 'host' ? 'As Host' : 'As Renter',
+            myRole == 'host' ? 'bg-indigo-500/20 text-indigo-400' : 'bg-teal-500/20 text-teal-400',
+          ),
+          _pill('Completed', 'bg-emerald-500/20 text-emerald-400'),
+        ]),
+      ]),
+
+      // Category / Type chips
+      div(classes: 'flex flex-wrap gap-2 mt-3', [
+        if (categoryLabel.isNotEmpty) _pill(categoryLabel, 'bg-teal-500/15 text-teal-400'),
+        if (typeLabel.isNotEmpty) _pill(typeLabel, 'bg-cyan-500/15 text-cyan-400'),
+      ]),
+
+      // Rental details
+      div(classes: 'mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs', [
+        if (startDate != null)
+          div([
+            span(classes: '${isDark ? "text-zinc-500" : "text-zinc-400"} mr-1', [Component.text('From:')]),
+            Component.text(_formatDate(startDate)),
+          ]),
+        if (endDate != null)
+          div([
+            span(classes: '${isDark ? "text-zinc-500" : "text-zinc-400"} mr-1', [Component.text('To:')]),
+            Component.text(_formatDate(endDate)),
+          ]),
+        if (priceMonthly > 0)
+          div([
+            span(classes: '${isDark ? "text-zinc-500" : "text-zinc-400"} mr-1', [Component.text('Monthly:')]),
+            Component.text('₱${priceMonthly.toStringAsFixed(0)}/mo'),
+          ]),
+        if (depositMonths.toString().isNotEmpty && depositMonths.toString() != '0')
+          div([
+            span(classes: '${isDark ? "text-zinc-500" : "text-zinc-400"} mr-1', [Component.text('Deposit:')]),
+            Component.text('$depositMonths month(s)'),
+          ]),
+        if (totalCost > 0)
+          div([
+            span(classes: '${isDark ? "text-zinc-500" : "text-zinc-400"} mr-1', [Component.text('Total:')]),
+            span(classes: 'font-bold text-emerald-400', [Component.text('₱${totalCost.toStringAsFixed(2)}')]),
+          ]),
+        if (completedAt != null)
+          div([
+            span(classes: '${isDark ? "text-zinc-500" : "text-zinc-400"} mr-1', [Component.text('Completed:')]),
+            Component.text(_formatDate(completedAt)),
+          ]),
+      ]),
+
+      // Counterparty
+      _buildCounterpartySection(
+        counterparty,
+        myRole == 'host' ? 'renter' : 'host',
+        isDark,
+        item,
+        myRole,
+        counterpartyUid ?? '',
+      ),
+    ]);
+  }
+
+  @override
+  Component build(BuildContext context) {
+    final s = component.state;
+    final isDark = s.isDark;
+    final myUid = s.userProfile?.uid ?? '';
+    final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+
+    // Apply filters
+    final filtered = _historyItems.where((item) {
+      if (_roleFilter != 'all') {
+        final role = _roleLabel(item, myUid);
+        if (role != _roleFilter) return false;
+      }
+      if (_kindFilter != 'all') {
+        final kind = item['rentalKind']?.toString() ?? 'vehicle';
+        if (kind != _kindFilter) return false;
+      }
+      return true;
+    }).toList();
+
+    // Filter chip builder
+    Component filterChip(String label, String value, String current, void Function(String) onTap) {
+      final active = value == current;
+      return button(
+        classes:
+            'px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer '
+            '${active ? "logo-gradient text-white border-transparent" : (isDark ? "bg-zinc-900 border-zinc-700 text-zinc-400 hover:bg-zinc-800" : "bg-white border-zinc-300 text-zinc-500 hover:bg-zinc-50")}',
+        events: {'click': (_) => setState(() => onTap(value))},
+        [Component.text(label)],
+      );
+    }
+
+    return div(classes: 'space-y-6', [
+      // Filter bar
+      div(classes: 'flex flex-wrap items-center gap-3', [
+        div(classes: 'flex items-center gap-2', [
+          span(classes: 'text-xs font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [Component.text('Role:')]),
+          filterChip('All', 'all', _roleFilter, (v) => _roleFilter = v),
+          filterChip('As Renter', 'renter', _roleFilter, (v) => _roleFilter = v),
+          filterChip('As Host', 'host', _roleFilter, (v) => _roleFilter = v),
+        ]),
+        div(classes: 'w-px h-5 ${isDark ? "bg-zinc-700" : "bg-zinc-300"}', []),
+        div(classes: 'flex items-center gap-2', [
+          span(classes: 'text-xs font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [Component.text('Type:')]),
+          filterChip('All', 'all', _kindFilter, (v) => _kindFilter = v),
+          filterChip('Vehicles', 'vehicle', _kindFilter, (v) => _kindFilter = v),
+          filterChip('Properties', 'property', _kindFilter, (v) => _kindFilter = v),
+        ]),
+        div(classes: 'ml-auto', [
+          button(
+            classes:
+                'p-2 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-zinc-400 hover:bg-zinc-800" : "bg-white border-zinc-300 text-zinc-500 hover:bg-zinc-50"} transition-colors cursor-pointer',
+            events: {'click': (_) => _loadHistory()},
+            [lIcon('refresh-cw', cls: 'w-3.5 h-3.5')],
+          ),
+        ]),
+      ]),
+
+      // Loading state
+      if (_isLoading)
+        div(classes: 'space-y-4', [
+          for (int i = 0; i < 3; i++)
+            div(
+              classes: 'h-48 rounded-2xl border $cardCls animate-pulse',
+              [],
+            ),
+        ])
+      // Empty state
+      else if (filtered.isEmpty)
+        div(
+          classes: 'py-16 flex flex-col items-center justify-center text-center space-y-4',
+          [
+            div(
+              classes: 'p-5 rounded-2xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}',
+              [lIcon('clock', cls: 'w-10 h-10 ${isDark ? "text-zinc-600" : "text-zinc-400"}')],
+            ),
+            p(classes: 'font-bold text-lg ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+              Component.text('No rental history yet'),
+            ]),
+            p(classes: 'text-sm max-w-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
+              Component.text('Completed rentals will appear here — both as a renter and as a host.'),
+            ]),
+          ],
+        )
+      // History cards
+      else
+        div(classes: 'space-y-4', [
+          for (final item in filtered)
+            if ((item['rentalKind']?.toString() ?? 'vehicle') == 'vehicle')
+              _buildVehicleHistoryCard(item, isDark, myUid)
+            else
+              _buildPropertyHistoryCard(item, isDark, myUid),
+        ]),
     ]);
   }
 }

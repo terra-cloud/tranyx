@@ -49,6 +49,8 @@ class UserProfile {
   final double? hourlyRate;
   final List<String>? skills;
   final double? rating;
+  final double? renterRating;
+  final double? hostRating;
   final DateTime? createdAt;
   final String? walletPublicKey;
   final double tyxBalance;
@@ -79,6 +81,8 @@ class UserProfile {
     this.hourlyRate,
     this.skills,
     this.rating,
+    this.renterRating,
+    this.hostRating,
     this.createdAt,
     this.walletPublicKey,
     this.tyxBalance = 0.0,
@@ -120,6 +124,8 @@ class UserProfile {
       hourlyRate: (map['hourlyRate'] as num?)?.toDouble(),
       skills: (map['skills'] as List?)?.map((e) => e as String).toList(),
       rating: (map['rating'] as num?)?.toDouble(),
+      renterRating: (map['renterRating'] as num?)?.toDouble(),
+      hostRating: (map['hostRating'] as num?)?.toDouble(),
       createdAt: map['createdAt'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int)
           : null,
@@ -156,6 +162,8 @@ class UserProfile {
     'hourlyRate': hourlyRate,
     'skills': skills,
     'rating': rating,
+    'renterRating': renterRating,
+    'hostRating': hostRating,
     'createdAt': createdAt?.millisecondsSinceEpoch,
     'walletPublicKey': walletPublicKey,
     'tyxBalance': tyxBalance,
@@ -186,6 +194,8 @@ class UserProfile {
     double? hourlyRate,
     List<String>? skills,
     double? rating,
+    double? renterRating,
+    double? hostRating,
     DateTime? createdAt,
     String? walletPublicKey,
     double? tyxBalance,
@@ -216,6 +226,8 @@ class UserProfile {
       hourlyRate: hourlyRate ?? this.hourlyRate,
       skills: skills ?? this.skills,
       rating: rating ?? this.rating,
+      renterRating: renterRating ?? this.renterRating,
+      hostRating: hostRating ?? this.hostRating,
       createdAt: createdAt ?? this.createdAt,
       walletPublicKey: walletPublicKey ?? this.walletPublicKey,
       tyxBalance: tyxBalance ?? this.tyxBalance,
