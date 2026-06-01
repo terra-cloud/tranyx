@@ -96,6 +96,122 @@ class _NotificationsDropdown extends StatelessComponent {
   final bool isDark;
   const _NotificationsDropdown({required this.state, required this.isDark});
 
+  Component _buildNotificationItem(Map<String, dynamic> n, TranyxAppState s) {
+    final type = n['type'] as String?;
+    final chatId = n['chatId']?.toString() ?? '';
+    final title = (n['title'] as String? ?? '').toLowerCase();
+    final message = (n['message'] as String? ?? '').toLowerCase();
+
+    final isProperty = type == 'property' ||
+        chatId.startsWith('property_') ||
+        title.contains('property') ||
+        title.contains('lease') ||
+        title.contains('tenant') ||
+        message.contains('property') ||
+        message.contains('lease') ||
+        message.contains('tenant');
+
+    final isVehicle = !isProperty && (type == 'rental' ||
+        chatId.startsWith('rental_') ||
+        title.contains('rental') ||
+        title.contains('vehicle') ||
+        title.contains('booking') ||
+        title.contains('contract') ||
+        title.contains('garage') ||
+        message.contains('rental') ||
+        message.contains('vehicle') ||
+        message.contains('booking') ||
+        message.contains('contract') ||
+        message.contains('garage'));
+
+    final isHost = title.contains('received') ||
+        message.contains('your vehicle') ||
+        message.contains('your property') ||
+        message.contains('your listing') ||
+        message.contains('your garage') ||
+        message.contains('awaiting tenant') ||
+        message.contains('awaiting renter') ||
+        message.contains('credited to your wallet') ||
+        message.contains('for your');
+
+    return div(
+      classes: 'p-4 hover:${isDark ? "bg-zinc-800/50" : "bg-zinc-50"} transition-colors cursor-pointer flex gap-3 items-start',
+      events: {
+        'click': (_) {
+          final id = n['id'] as String?;
+          if (id != null) {
+            markNotificationReadJs(id);
+          }
+
+          if (isVehicle) {
+            s.activeRentalCategory = RentalCategory.vehicles;
+            s.transitMode = isHost ? TransitMode.host : TransitMode.rent;
+            s.switchTab(AppTab.transit);
+          } else if (isProperty) {
+            s.activeRentalCategory = RentalCategory.properties;
+            s.transitMode = isHost ? TransitMode.host : TransitMode.rent;
+            s.switchTab(AppTab.transit);
+          } else {
+            s.switchTab(AppTab.jobs);
+          }
+          s.setState(() => s.showNotificationsDropdown = false);
+        },
+      },
+      [
+        // Icon container
+        div(
+          classes: 'p-2 rounded-xl flex-shrink-0 ${
+            isVehicle ? (isDark ? "bg-indigo-950 text-indigo-400" : "bg-indigo-50 text-indigo-600") :
+            isProperty ? (isDark ? "bg-emerald-950 text-emerald-400" : "bg-emerald-50 text-emerald-600") :
+            (isDark ? "bg-zinc-800 text-zinc-400" : "bg-zinc-100 text-zinc-600")
+          }',
+          [
+            lIcon(
+              isVehicle ? 'car' :
+              isProperty ? 'home' :
+              'briefcase',
+              cls: 'w-4 h-4'
+            )
+          ],
+        ),
+        // Content
+        div(classes: 'flex-1 min-w-0', [
+          // Badge & Title Row
+          div(classes: 'flex items-center gap-1.5 flex-wrap mb-1', [
+            span(
+              classes: 'px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+                isVehicle ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" :
+                isProperty ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
+                "bg-zinc-500/10 text-zinc-400 border border-zinc-500/20"
+              }',
+              [
+                Component.text(
+                  isVehicle ? 'Vehicle' :
+                  isProperty ? 'Property' :
+                  'Gig'
+                )
+              ]
+            ),
+            span(classes: 'text-xs font-semibold text-zinc-400', [Component.text('•')]),
+            span(classes: 'text-sm font-bold ${isDark ? "text-zinc-200" : "text-zinc-800"} truncate', [
+              Component.text(n['title'] as String? ?? 'Notification'),
+            ]),
+          ]),
+          p(classes: 'text-xs leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+            Component.text(n['message'] as String? ?? ''),
+          ]),
+          p(classes: 'text-[10px] mt-2 font-medium opacity-50 ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+            Component.text(
+              DateTime.fromMillisecondsSinceEpoch(
+                n['createdAt'] as int? ?? DateTime.now().millisecondsSinceEpoch,
+              ).toString().substring(0, 16),
+            ),
+          ]),
+        ]),
+      ],
+    );
+  }
+
   @override
   Component build(BuildContext context) {
     final s = state;
@@ -140,35 +256,7 @@ class _NotificationsDropdown extends StatelessComponent {
         else
           div(classes: 'divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-100"}', [
             for (final n in notifications)
-              div(
-                classes: 'p-4 hover:${isDark ? "bg-zinc-800/50" : "bg-zinc-50"} transition-colors cursor-pointer',
-                events: {
-                  'click': (_) {
-                    final id = n['id'] as String?;
-                    if (id != null) {
-                      markNotificationReadJs(id);
-                    }
-                    // Navigate to jobs tab if it's job related
-                    s.switchTab(AppTab.jobs);
-                    s.setState(() => s.showNotificationsDropdown = false);
-                  },
-                },
-                [
-                  p(classes: 'text-sm font-bold ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
-                    Component.text(n['title'] as String? ?? 'Notification'),
-                  ]),
-                  p(classes: 'text-xs mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-                    Component.text(n['message'] as String? ?? ''),
-                  ]),
-                  p(classes: 'text-[10px] mt-2 font-medium opacity-50', [
-                    Component.text(
-                      DateTime.fromMillisecondsSinceEpoch(
-                        n['createdAt'] as int? ?? DateTime.now().millisecondsSinceEpoch,
-                      ).toString().substring(0, 16),
-                    ),
-                  ]),
-                ],
-              ),
+              _buildNotificationItem(n, s),
           ]),
       ],
     );
