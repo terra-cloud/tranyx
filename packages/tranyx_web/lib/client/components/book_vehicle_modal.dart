@@ -8,6 +8,7 @@ import '../../components/ui_helpers.dart';
 import '../../components/map_container.dart';
 import '../../services/map_interop.dart';
 import '../../services/web_interop.dart';
+import '../../services/firebase_service.dart';
 import 'contract_viewer.dart';
 
 class BookVehicleModalComponent extends StatefulComponent {
@@ -230,7 +231,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         return;
       }
       final currentUid = component.appState.userProfile?.uid;
-      if (currentUid == null) throw Exception('Not logged in');
+      if (currentUid == null) throw FirebaseException('Not logged in', 403);
       final user = component.appState.userProfile;
       if (user == null) throw Exception('User profile not loaded.');
 

@@ -135,7 +135,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
 
     try {
       final hostId = component.appState.userProfile?.uid;
-      if (hostId == null) throw Exception('Not logged in');
+      if (hostId == null) throw FirebaseException('Not logged in', 403);
 
       final user = component.appState.userProfile;
       if (user == null) throw Exception('User profile not loaded.');

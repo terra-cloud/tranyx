@@ -145,10 +145,19 @@ Future<Map<String, dynamic>> _patch(
 }
 
 // ── Auth service ──────────────────────────────────────────────────────────────
+// Global callback to notify app of expired sessions / unauthorized requests
+void Function()? onSessionExpiredGlobal;
+
 class FirebaseException implements Exception {
   final String message;
   final int? statusCode;
-  FirebaseException(this.message, [this.statusCode]);
+  FirebaseException(this.message, [this.statusCode]) {
+    final lowerMsg = message.toLowerCase();
+    if (statusCode == 403 || lowerMsg.contains('not logged in')) {
+      final cb = onSessionExpiredGlobal;
+      if (cb != null) cb();
+    }
+  }
   @override
   String toString() => message;
 }

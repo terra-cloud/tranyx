@@ -39,6 +39,7 @@ import '../client/components/property_qa_modal.dart';
 import '../client/components/sign_contract_modal.dart';
 import '../client/components/kyc_id_modal.dart';
 import '../client/components/kyc_bg_modal.dart';
+import '../client/widgets/session_expired_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -134,6 +135,7 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Wallet reconnect modal ──────────────────────────────────
   bool showWalletReconnectPrompt = false;
   String? pendingReconnectWalletKey;
+  bool showSessionExpiredModal = false;
 
   // ── Jobs state ──────────────────────────────────────────────
   List<Map<String, dynamic>> myJobs = [];
@@ -355,7 +357,22 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  void triggerSessionExpired() {
+    if (showSessionExpiredModal) return;
+    setState(() {
+      showSessionExpiredModal = true;
+    });
+  }
+
   void showAppToast(String title, String message) {
+    final lowerTitle = title.toLowerCase();
+    final lowerMsg = message.toLowerCase();
+    if (lowerTitle.contains('403') || lowerTitle.contains('not logged in') ||
+        lowerMsg.contains('403') || lowerMsg.contains('not logged in')) {
+      triggerSessionExpired();
+      return;
+    }
+
     setState(() {
       latestToastNotification = {
         'id': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -453,6 +470,9 @@ class TranyxAppState extends State<TranyxApp> {
   @override
   void initState() {
     super.initState();
+    onSessionExpiredGlobal = () {
+      triggerSessionExpired();
+    };
     _initGemini();
     // Load any pending QR details from SessionStorage
     pendingQrJobId = SessionStorage.pendingQrJobId;
@@ -4982,6 +5002,9 @@ class TranyxAppState extends State<TranyxApp> {
             }
           },
         ),
+
+      // Session Expired modal overlay
+      if (showSessionExpiredModal) SessionExpiredModalComponent(state: this),
 
       // Wallet Selection modal overlay
       if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
