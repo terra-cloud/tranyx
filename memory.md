@@ -28,7 +28,7 @@ graph TD
 | 2026-06-04 00:17 | **Unit** | `test/wallet_fees_test.dart` | 1000/2000/5000 PHP base rates calculations & custom exception session expiry interceptor (401/403 errors). | **PASSED** (7/7 tests) |
 | 2026-06-04 00:17 | **Integration** | `test/firestore_integration_test.dart` | Authentication token resolution, profile document creation, and platform fee records write/read/delete. | **PASSED** (3/3 tests) |
 | 2026-06-04 00:28 | **E2E Integration** | `test/job_lifecycle_integration_test.dart` | Full E2E transaction flow (open job -> apply -> accept/escrow -> complete/payout -> verify wallets). | **FAILED** (Cleanup Permission Denied on transactions) |
-| 2026-06-04 00:29 | **E2E Integration** | `test/job_lifecycle_integration_test.dart` | Rerun after wrapping cleanup in safe try-catch blocks to ignore immutable transaction record deletions. | **PASSED** (All validation checks green) |
+| 2026-06-04 00:29 | **E2E Integration** | `test/job_lifecycle_integration_test.dart` | Rerun after wrapping cleanup in safe try-catch blocks to ignore immutable transaction record deletions. | **PASSED** (All validation checks green) |  
 
 ---
 
