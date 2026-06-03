@@ -11,21 +11,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check for code changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+
       - name: Setup Flutter
+        if: steps.filter.outputs.code == 'true'
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
 
       - name: Install workspace dependencies
+        if: steps.filter.outputs.code == 'true'
         run: flutter pub get
 
       - name: Install Jaspr CLI
+        if: steps.filter.outputs.code == 'true'
         run: |
           flutter pub global activate jaspr_cli
           echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
 
       - name: Build Jaspr Web
+        if: steps.filter.outputs.code == 'true'
         working-directory: packages/tranyx_web
         run: |
           jaspr clean
@@ -38,6 +51,7 @@ jobs:
           fi
 
       - name: Set Environment Variables
+        if: steps.filter.outputs.code == 'true'
         id: set_env
         run: |
           if [[ "${{ github.base_ref }}" == "main" ]]; then
@@ -53,7 +67,7 @@ jobs:
 
       # Deploy to prod project (PR preview — no channelId = auto preview channel)
       - name: Deploy PR Preview (prod)
-        if: github.base_ref == 'main'
+        if: steps.filter.outputs.code == 'true' && github.base_ref == 'main'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -62,7 +76,7 @@ jobs:
           projectId: tranyx-app
 
       - name: Deploy PR Preview (uat)
-        if: github.base_ref == 'uat'
+        if: steps.filter.outputs.code == 'true' && github.base_ref == 'uat'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -71,7 +85,7 @@ jobs:
           channelId: live
 
       - name: Deploy PR Preview (dev)
-        if: github.base_ref != 'main' && github.base_ref != 'uat'
+        if: steps.filter.outputs.code == 'true' && github.base_ref != 'main' && github.base_ref != 'uat'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

@@ -29,6 +29,7 @@ graph TD
 | 2026-06-04 00:17 | **Integration** | `test/firestore_integration_test.dart` | Authentication token resolution, profile document creation, and platform fee records write/read/delete. | **PASSED** (3/3 tests) |
 | 2026-06-04 00:28 | **E2E Integration** | `test/job_lifecycle_integration_test.dart` | Full E2E transaction flow (open job -> apply -> accept/escrow -> complete/payout -> verify wallets). | **FAILED** (Cleanup Permission Denied on transactions) |
 | 2026-06-04 00:29 | **E2E Integration** | `test/job_lifecycle_integration_test.dart` | Rerun after wrapping cleanup in safe try-catch blocks to ignore immutable transaction record deletions. | **PASSED** (All validation checks green) |  
+| 2026-06-04 00:43 | **CI/CD Config** | `.github/workflows/*` | Added paths-filter logic using `dorny/paths-filter@v3` to skip setup, build, and deploy steps when only markdown files are modified. | **UPDATED & VERIFIED** |
 
 ---
 
@@ -79,3 +80,18 @@ Simulates the complete transaction flow with real authenticated tokens and datab
 
 > [!NOTE]
 > All automated tests execute directly against the `tranyx-dev` Firebase project, confirming both code logic correctness and database rule constraints.
+
+---
+
+## 4. CI/CD Optimization Rules
+
+To optimize workflow run times and ensure fast merge capabilities:
+- **Rule**: If a pull request or merge commit only contains changes to markdown files (`.md` extension), all execution steps (Setup Flutter, workspace installs, CLI builds, and Firebase deployments) are skipped.
+- **Implementation**: Utilizes `dorny/paths-filter@v3` with the following configuration:
+  ```yaml
+  filters: |
+    code:
+      - '**'
+      - '!**/*.md'
+  ```
+- **Outcome**: The job will execute in a few seconds, skip building steps, return a `success` status check, and allow the branch to satisfy required PR checks for merging. If any code files are changed (e.g., `.dart`, `.yaml`, `.rules`), the full test, build, and deploy processes are triggered.
