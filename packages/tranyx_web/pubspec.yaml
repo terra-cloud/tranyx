@@ -19,6 +19,7 @@ dev_dependencies:
   dart_style: ^3.1.7
   jaspr_builder: ^0.23.1
   lints: ^6.0.0
+  test: ^1.25.8
 
 jaspr:
   mode: client
