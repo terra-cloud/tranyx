@@ -2098,6 +2098,8 @@ class _HistoryViewState extends State<_HistoryView> {
             'desc': 'Completed contract',
             'date': _formatDate(createdAt),
             'amount': payout,
+            'baseAmount': price,
+            'commissionFee': price * 0.03,
             'status': 'Released',
             'timestamp': createdAt ?? 0,
           });
@@ -2134,11 +2136,17 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the creator -> purchases
         if (creatorId == uid) {
+          final txFee = price * 0.07;
+          final convFee = price * 0.03;
+          final totalCost = price + txFee + convFee;
           pTrans.add({
             'title': title,
             'desc': 'Job payment',
             'date': _formatDate(createdAt),
-            'amount': price,
+            'amount': totalCost,
+            'baseAmount': price,
+            'txFee': txFee,
+            'convFee': convFee,
             'status': 'Successful',
             'timestamp': createdAt ?? 0,
           });
@@ -2661,6 +2669,17 @@ class _HistoryViewState extends State<_HistoryView> {
                       p(classes: 'text-xs text-zinc-500 mt-0.5', [
                         Component.text('${tx['desc']} • ${tx['date']}'),
                       ]),
+                      if (tx['commissionFee'] != null) ...[
+                        p(classes: 'text-xs text-zinc-500 mt-1', [
+                          Component.text('Base Payout: ${formatCurrency((tx['baseAmount'] as num).toDouble())}'),
+                        ]),
+                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
+                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
+                          Component.text(
+                            'Platform Commission (3%): − ${formatCurrency((tx['commissionFee'] as num).toDouble())}',
+                          ),
+                        ]),
+                      ],
                     ]),
                   ]),
                   div(classes: 'text-right', [
@@ -2710,6 +2729,23 @@ class _HistoryViewState extends State<_HistoryView> {
                           lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
                           Component.text(
                             'Platform fee (3%): − ${formatCurrency((tx['bookingFee'] as num).toDouble())}',
+                          ),
+                        ]),
+                      ],
+                      if (tx['txFee'] != null) ...[
+                        p(classes: 'text-xs text-zinc-500 mt-1', [
+                          Component.text('Base Gig Price: ${formatCurrency((tx['baseAmount'] as num).toDouble())}'),
+                        ]),
+                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
+                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
+                          Component.text(
+                            'Transaction Fee (7%): + ${formatCurrency((tx['txFee'] as num).toDouble())}',
+                          ),
+                        ]),
+                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
+                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
+                          Component.text(
+                            'Convenience Fee (3%): + ${formatCurrency((tx['convFee'] as num).toDouble())}',
                           ),
                         ]),
                       ],

@@ -367,8 +367,9 @@ class TranyxAppState extends State<TranyxApp> {
   void showAppToast(String title, String message) {
     final lowerTitle = title.toLowerCase();
     final lowerMsg = message.toLowerCase();
-    if (lowerTitle.contains('403') || lowerTitle.contains('not logged in') ||
-        lowerMsg.contains('403') || lowerMsg.contains('not logged in')) {
+    if (lowerTitle.contains('401') || lowerTitle.contains('not logged in') ||
+        lowerMsg.contains('401') || lowerMsg.contains('not logged in') ||
+        lowerMsg.contains('id-token-expired')) {
       triggerSessionExpired();
       return;
     }
@@ -2807,7 +2808,7 @@ class TranyxAppState extends State<TranyxApp> {
           );
         }
 
-        // Deduct 3% fee
+        // Deduct 3% platform commission fee from Nyxian payout
         final platformFee = price * 0.03;
         final nyxianPayout = price - platformFee;
 
@@ -2815,9 +2816,9 @@ class TranyxAppState extends State<TranyxApp> {
         final holdbackAmount = hasHoldback ? price * 0.10 : 0.0;
         final immediatePayout = nyxianPayout - holdbackAmount;
 
-        // Add to Nyxian Wallet (Payout + 2% Rebate)
+        // Add to Nyxian Wallet (Payout only, NO rebate)
         if (nyxianId != null) {
-          final txNyxDoc = await svc.getDocument('transactions/rebate_nyx_${job['id']}');
+          final txNyxDoc = await svc.getDocument('transactions/payout_nyx_${job['id']}');
           if (txNyxDoc == null) {
             final nyxDoc = await svc.getDocument('users/$nyxianId');
             if (nyxDoc != null) {
@@ -2827,27 +2828,26 @@ class TranyxAppState extends State<TranyxApp> {
               final gigsCount = (nyxDoc['completedGigsCount'] as int?) ?? 0;
               final newGigsCount = gigsCount + 1;
               final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
-              final rebateAmount = price * 0.02;
 
               await svc.createOrUpdate('users/$nyxianId', {
                 ...nyxDoc,
-                'tyxBalance': currentNyxBal + immediatePayout + rebateAmount,
+                'tyxBalance': currentNyxBal + immediatePayout,
                 'jobsDone': currentJobsDone + 1,
                 'totalEarned': currentEarned + immediatePayout,
                 'completedGigsCount': newGigsCount,
                 'repeatHireRate': repeatHireRate,
               });
 
-              // Log rebate transaction for Nyxian
-              await svc.createOrUpdate('transactions/rebate_nyx_${job['id']}', {
+              // Log payout transaction for Nyxian
+              await svc.createOrUpdate('transactions/payout_nyx_${job['id']}', {
                 'uid': nyxianId,
-                'title': 'TYXBIT Loyalty Rebate (2%)',
-                'desc': 'Rebate for completing job ${job['id']}',
-                'amount': rebateAmount,
+                'title': 'Gig Payout Released',
+                'desc': 'Payout for completing job ${job['id']} (3% commission deducted)',
+                'amount': immediatePayout,
                 'status': 'Successful',
-                'method': 'Tranyx Reward',
+                'method': 'Tranyx Wallet',
                 'createdAt': DateTime.now().millisecondsSinceEpoch,
-                'type': 'rebate',
+                'type': 'payout',
               });
             }
           }
@@ -2866,39 +2866,50 @@ class TranyxAppState extends State<TranyxApp> {
           });
         }
 
-        // Credit Employer Wallet (2% Rebate)
+        // Deduct fees from Employer Wallet (7% Transaction Fee + 3% Convenience Fee = 10%)
         final employerId = jobDoc['creatorId'] as String?;
         if (employerId != null) {
-          final txEmpDoc = await svc.getDocument('transactions/rebate_emp_${job['id']}');
+          final txEmpDoc = await svc.getDocument('transactions/fees_emp_${job['id']}');
           if (txEmpDoc == null) {
             final empDoc = await svc.getDocument('users/$employerId');
             if (empDoc != null) {
               final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-              final rebateAmount = price * 0.02;
+              final txFee = price * 0.07;
+              final convFee = price * 0.03;
+              final totalFees = txFee + convFee;
               await svc.createOrUpdate('users/$employerId', {
                 ...empDoc,
-                'tyxBalance': currentBal + rebateAmount,
+                'tyxBalance': currentBal - totalFees,
               });
 
-              // Log rebate transaction for Employer
-              await svc.createOrUpdate('transactions/rebate_emp_${job['id']}', {
+              // Log fee deduction transaction for Employer
+              await svc.createOrUpdate('transactions/fees_emp_${job['id']}', {
                 'uid': employerId,
-                'title': 'TYXBIT Loyalty Rebate (2%)',
-                'desc': 'Rebate for completing job ${job['id']}',
-                'amount': rebateAmount,
+                'title': 'Job Completion Fees (10%)',
+                'desc': '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job ${job['id']}',
+                'amount': totalFees,
                 'status': 'Successful',
-                'method': 'Tranyx Reward',
+                'method': 'Tranyx Wallet',
                 'createdAt': DateTime.now().millisecondsSinceEpoch,
-                'type': 'rebate',
+                'type': 'fee_deduction',
               });
             }
           }
         }
 
-        // Record platform fee
+        // Record all platform fees and company income (total 13% of base price)
+        final txFee = price * 0.07;
+        final convFee = price * 0.03;
+        final totalCompanyIncome = platformFee + txFee + convFee;
         await svc.createOrUpdate('platform_fees/${job['id']}', {
           'jobId': job['id'],
-          'amount': platformFee,
+          'amount': totalCompanyIncome,
+          'commissionFee': platformFee, // 3% from Nyxian
+          'transactionFee': txFee, // 7% from Employer
+          'convenienceFee': convFee, // 3% from Employer
+          'employerFees': txFee + convFee, // 10% total from Employer
+          'nyxianFee': platformFee, // 3% total from Nyxian
+          'totalFees': totalCompanyIncome, // 13% total Company Funds
           'timestamp': DateTime.now().millisecondsSinceEpoch,
         });
 
@@ -2932,18 +2943,20 @@ class TranyxAppState extends State<TranyxApp> {
           isCompletingJob = false;
           showCompletionScanner = false;
           completionScanInput = '';
-          final rebateAmount = price * 0.02;
           final hasHoldback = jobDoc['hasInspectionHoldback'] as bool? ?? false;
           final holdbackAmount = hasHoldback ? price * 0.10 : 0.0;
           final immediatePayout = nyxianPayout - holdbackAmount;
           if (nyxianId == uid && userProfile != null) {
             userProfile = userProfile!.copyWith(
-              tyxBalance: userProfile!.tyxBalance + immediatePayout + rebateAmount,
+              tyxBalance: userProfile!.tyxBalance + immediatePayout,
               totalEarned: userProfile!.totalEarned + immediatePayout,
             );
           } else if (jobDoc['creatorId'] == uid && userProfile != null) {
+            final txFee = price * 0.07;
+            final convFee = price * 0.03;
+            final totalFees = txFee + convFee;
             userProfile = userProfile!.copyWith(
-              tyxBalance: userProfile!.tyxBalance + rebateAmount,
+              tyxBalance: userProfile!.tyxBalance - totalFees,
             );
           }
           if (targetId != null) {
@@ -3100,8 +3113,8 @@ class TranyxAppState extends State<TranyxApp> {
         });
       }
 
-      // 2. Add to Nyxian Wallet (Payout + 2% Rebate)
-      final txNyxDoc = await svc.getDocument('transactions/rebate_nyx_$jobId');
+      // 2. Add to Nyxian Wallet (Payout only, NO rebate)
+      final txNyxDoc = await svc.getDocument('transactions/payout_nyx_$jobId');
       if (txNyxDoc == null) {
         if (nyxianId != null) {
           final nyxDoc = await svc.getDocument('users/$nyxianId');
@@ -3112,64 +3125,74 @@ class TranyxAppState extends State<TranyxApp> {
             final gigsCount = (nyxDoc['completedGigsCount'] as int?) ?? 0;
             final newGigsCount = gigsCount + 1;
             final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
-            final rebateAmount = price * 0.02;
 
             await svc.createOrUpdate('users/$nyxianId', {
               ...nyxDoc,
-              'tyxBalance': currentNyxBal + immediatePayout + rebateAmount,
+              'tyxBalance': currentNyxBal + immediatePayout,
               'jobsDone': currentJobsDone + 1,
               'totalEarned': currentEarned + immediatePayout,
               'completedGigsCount': newGigsCount,
               'repeatHireRate': repeatHireRate,
             });
 
-            // Log rebate transaction for Nyxian
-            await svc.createOrUpdate('transactions/rebate_nyx_$jobId', {
+            // Log payout transaction for Nyxian
+            await svc.createOrUpdate('transactions/payout_nyx_$jobId', {
               'uid': nyxianId,
-              'title': 'TYXBIT Loyalty Rebate (2%)',
-              'desc': 'Rebate for completing job $jobId',
-              'amount': rebateAmount,
+              'title': 'Gig Payout Released',
+              'desc': 'Payout for completing job $jobId (3% commission deducted)',
+              'amount': immediatePayout,
               'status': 'Successful',
-              'method': 'Tranyx Reward',
+              'method': 'Tranyx Wallet',
               'createdAt': DateTime.now().millisecondsSinceEpoch,
-              'type': 'rebate',
+              'type': 'payout',
             });
           }
         }
       }
 
-      // 2.1 Credit Employer Wallet (2% Rebate)
+      // 2.1 Deduct fees from Employer Wallet (7% Transaction Fee + 3% Convenience Fee = 10%)
       if (employerId != null) {
-        final txEmpDoc = await svc.getDocument('transactions/rebate_emp_$jobId');
+        final txEmpDoc = await svc.getDocument('transactions/fees_emp_$jobId');
         if (txEmpDoc == null) {
           final empDoc = await svc.getDocument('users/$employerId');
           if (empDoc != null) {
             final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            final rebateAmount = price * 0.02;
+            final txFee = price * 0.07;
+            final convFee = price * 0.03;
+            final totalFees = txFee + convFee;
             await svc.createOrUpdate('users/$employerId', {
               ...empDoc,
-              'tyxBalance': currentBal + rebateAmount,
+              'tyxBalance': currentBal - totalFees,
             });
 
-            // Log rebate transaction for Employer
-            await svc.createOrUpdate('transactions/rebate_emp_$jobId', {
+            // Log fee deduction transaction for Employer
+            await svc.createOrUpdate('transactions/fees_emp_$jobId', {
               'uid': employerId,
-              'title': 'TYXBIT Loyalty Rebate (2%)',
-              'desc': 'Rebate for completing job $jobId',
-              'amount': rebateAmount,
+              'title': 'Job Completion Fees (10%)',
+              'desc': '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId',
+              'amount': totalFees,
               'status': 'Successful',
-              'method': 'Tranyx Reward',
+              'method': 'Tranyx Wallet',
               'createdAt': DateTime.now().millisecondsSinceEpoch,
-              'type': 'rebate',
+              'type': 'fee_deduction',
             });
           }
         }
       }
 
-      // 3. Record platform fee
+      // 3. Record all platform fees and company income (total 13% of base price)
+      final txFee = price * 0.07;
+      final convFee = price * 0.03;
+      final totalCompanyIncome = platformFee + txFee + convFee;
       await svc.createOrUpdate('platform_fees/$jobId', {
         'jobId': jobId,
-        'amount': platformFee,
+        'amount': totalCompanyIncome,
+        'commissionFee': platformFee, // 3% from Nyxian
+        'transactionFee': txFee, // 7% from Employer
+        'convenienceFee': convFee, // 3% from Employer
+        'employerFees': txFee + convFee, // 10% total from Employer
+        'nyxianFee': platformFee, // 3% total from Nyxian
+        'totalFees': totalCompanyIncome, // 13% total Company Funds
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
 
@@ -3282,11 +3305,23 @@ class TranyxAppState extends State<TranyxApp> {
         if (jId != null) {
           final jobDoc = await svc.getDocument('jobs/$jId');
           if (jobDoc != null) {
+            final isEmployerRole = currentViewMode == AccountType.employer;
+            final isNyxianRole = currentViewMode == AccountType.nyxian;
+            
             await svc.createOrUpdate('jobs/$jId', {
               ...jobDoc,
-              if (accountType == AccountType.employer) 'employerRated': true,
-              if (accountType == AccountType.nyxian) 'nyxianRated': true,
+              if (isEmployerRole) 'employerRated': true,
+              if (isNyxianRole) 'nyxianRated': true,
             });
+
+            // Update local state immediately so UI refreshes without reopening job details
+            if (selectedJobData != null && selectedJobData!['id'] == jId) {
+              selectedJobData = {
+                ...selectedJobData!,
+                if (isEmployerRole) 'employerRated': true,
+                if (isNyxianRole) 'nyxianRated': true,
+              };
+            }
           }
         }
       }

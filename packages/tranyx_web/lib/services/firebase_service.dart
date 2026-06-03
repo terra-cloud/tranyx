@@ -153,7 +153,7 @@ class FirebaseException implements Exception {
   final int? statusCode;
   FirebaseException(this.message, [this.statusCode]) {
     final lowerMsg = message.toLowerCase();
-    if (statusCode == 403 || lowerMsg.contains('not logged in')) {
+    if (statusCode == 401 || lowerMsg.contains('not logged in') || lowerMsg.contains('id-token-expired')) {
       final cb = onSessionExpiredGlobal;
       if (cb != null) cb();
     }

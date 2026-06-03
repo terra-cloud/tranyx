@@ -1765,21 +1765,58 @@ class _JobDetails extends StatelessComponent {
                   [lIcon('x', cls: 'w-5 h-5 ${isDark ? "text-zinc-400" : "text-zinc-600"}')],
                 ),
               ]),
-              div(
-                classes:
-                    'p-4 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-800/50" : "border-zinc-200 bg-zinc-50"}',
-                [
-                  p(
-                    classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-400 mb-1',
-                    [Component.text('Payout Amount')],
-                  ),
-                  p(classes: 'text-3xl font-bold logo-gradient-text', [
-                    Component.text(
-                      '${((s.selectedJobData?['pricingValue'] as num?)?.toDouble() ?? 0.0 * 0.97).toStringAsFixed(2)} Tyxbits',
-                    ),
-                  ]),
-                  p(classes: 'text-[10px] text-zinc-500 mt-1', [Component.text('3% convenience fee included')]),
-                ],
+              Builder(
+                builder: (context) {
+                  final basePrice = (s.selectedJobData?['pricingValue'] as num?)?.toDouble() ?? 0.0;
+                  if (isNyxian) {
+                    final commFee = basePrice * 0.03;
+                    final netPayout = basePrice - commFee;
+                    return div(
+                      classes:
+                          'p-4 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-800/50" : "border-zinc-200 bg-zinc-50"} space-y-2',
+                      [
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                          span([Component.text('Base Payout:')]),
+                          span(classes: 'font-semibold', [Component.text('₱ ${basePrice.toStringAsFixed(2)}')]),
+                        ]),
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800/60" : "border-zinc-200/60"} pb-2', [
+                          span([Component.text('Platform Commission (3%):')]),
+                          span(classes: 'font-semibold text-red-400', [Component.text('− ₱ ${commFee.toStringAsFixed(2)}')]),
+                        ]),
+                        div(classes: 'flex justify-between items-center pt-1', [
+                          span(classes: 'text-xs font-semibold text-indigo-400', [Component.text('Net Payout Amount:')]),
+                          span(classes: 'text-2xl font-black logo-gradient-text', [Component.text('₱ ${netPayout.toStringAsFixed(2)}')]),
+                        ]),
+                      ],
+                    );
+                  } else {
+                    final txFee = basePrice * 0.07;
+                    final convFee = basePrice * 0.03;
+                    final totalPaid = basePrice + txFee + convFee;
+                    return div(
+                      classes:
+                          'p-4 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-800/50" : "border-zinc-200 bg-zinc-50"} space-y-2',
+                      [
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                          span([Component.text('Base Gig Price:')]),
+                          span(classes: 'font-semibold', [Component.text('₱ ${basePrice.toStringAsFixed(2)}')]),
+                        ]),
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                          span([Component.text('Transaction Fee (7%):')]),
+                          span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${txFee.toStringAsFixed(2)}')]),
+                        ]),
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800/60" : "border-zinc-200/60"} pb-2', [
+                          span([Component.text('Convenience Fee (3%):')]),
+                          span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${convFee.toStringAsFixed(2)}')]),
+                        ]),
+                        div(classes: 'flex justify-between items-center pt-1', [
+                          span(classes: 'text-xs font-semibold text-indigo-400', [Component.text('Total Cost:')]),
+                          span(classes: 'text-2xl font-black logo-gradient-text', [Component.text('₱ ${totalPaid.toStringAsFixed(2)}')]),
+                        ]),
+                      ],
+                    );
+                  }
+                },
               ),
               div(classes: 'space-y-2', [
                 p(

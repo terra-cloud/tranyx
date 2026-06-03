@@ -78,7 +78,7 @@ service cloud.firestore {
 
     // Transactions Collection
     match /transactions/{txId} {
-      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || resource.data.type == 'rebate');
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.type == 'rebate' || resource.data.type == 'payout' || resource.data.type == 'fee_deduction');
       allow create: if isAuthenticated(); // To record listing fees, escrow payments, etc.
       allow update, delete: if false; // Transactions should be immutable
     }
@@ -109,6 +109,12 @@ service cloud.firestore {
 
     // Rental History Collection
     match /rental_history/{historyId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Property History Collection
+    match /property_history/{historyId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();
     }
