@@ -516,10 +516,40 @@ class JobsViewComponent extends StatelessComponent {
         if (categoryLabel.isNotEmpty)
           span(
             classes:
-                'px-2 py-0.5 rounded text-[9px] font-bold ${isDark ? "bg-zinc-800 text-zinc-550" : "bg-zinc-100 text-zinc-500"}',
+                'px-2 py-0.5 rounded text-[9px] font-bold ${isDark ? "bg-zinc-800 text-zinc-555" : "bg-zinc-100 text-zinc-500"}',
             [Component.text(categoryLabel)],
           ),
       ]),
+      if (status == 'Completed' && pricingValue > 0)
+        Builder(
+          builder: (context) {
+            final txFee = pricingValue * 0.07;
+            final convFee = pricingValue * 0.03;
+            final totalPaid = pricingValue + txFee + convFee;
+            return div(
+              classes:
+                  'mt-2.5 mb-2.5 p-3 rounded-xl border ${isDark ? "border-zinc-800/80 bg-zinc-950/20" : "border-zinc-150 bg-zinc-50/50"} space-y-1',
+              [
+                div(classes: 'flex justify-between items-center text-[10px] text-zinc-500', [
+                  span([Component.text('Base Gig Price:')]),
+                  span(classes: 'font-semibold ${isDark ? "text-zinc-350" : "text-zinc-650"}', [Component.text('₱ ${pricingValue.toStringAsFixed(2)}')]),
+                ]),
+                div(classes: 'flex justify-between items-center text-[10px] text-zinc-505', [
+                  span([Component.text('Transaction Fee (7%):')]),
+                  span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${txFee.toStringAsFixed(2)}')]),
+                ]),
+                div(classes: 'flex justify-between items-center text-[10px] text-zinc-505 border-b ${isDark ? "border-zinc-800/40" : "border-zinc-200/40"} pb-1', [
+                  span([Component.text('Convenience Fee (3%):')]),
+                  span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${convFee.toStringAsFixed(2)}')]),
+                ]),
+                div(classes: 'flex justify-between items-center pt-0.5', [
+                  span(classes: 'text-[10px] font-bold text-indigo-400', [Component.text('Total Paid:')]),
+                  span(classes: 'text-xs font-black logo-gradient-text', [Component.text('₱ ${totalPaid.toStringAsFixed(2)}')]),
+                ]),
+              ],
+            );
+          },
+        ),
       div(classes: 'flex items-center justify-between', [
         div(classes: 'flex items-center gap-2 text-xs', [
           div(classes: 'flex items-center gap-1 text-zinc-500', [
@@ -630,6 +660,31 @@ class JobsViewComponent extends StatelessComponent {
             ),
         ]),
       ]),
+      if (status == 'Completed' && pricingValue > 0)
+        Builder(
+          builder: (context) {
+            final commFee = pricingValue * 0.03;
+            final netPayout = pricingValue - commFee;
+            return div(
+              classes:
+                  'mt-2.5 mb-2.5 p-3 rounded-xl border ${isDark ? "border-zinc-800/80 bg-zinc-950/20" : "border-zinc-150 bg-zinc-50/50"} space-y-1',
+              [
+                div(classes: 'flex justify-between items-center text-[10px] text-zinc-500', [
+                  span([Component.text('Base Payout:')]),
+                  span(classes: 'font-semibold ${isDark ? "text-zinc-350" : "text-zinc-650"}', [Component.text('₱ ${pricingValue.toStringAsFixed(2)}')]),
+                ]),
+                div(classes: 'flex justify-between items-center text-[10px] text-zinc-555 border-b ${isDark ? "border-zinc-800/40" : "border-zinc-200/40"} pb-1', [
+                  span([Component.text('Platform Commission (3%):')]),
+                  span(classes: 'font-semibold text-red-400', [Component.text('− ₱ ${commFee.toStringAsFixed(2)}')]),
+                ]),
+                div(classes: 'flex justify-between items-center pt-0.5', [
+                  span(classes: 'text-[10px] font-bold text-indigo-400', [Component.text('Net Earnings:')]),
+                  span(classes: 'text-xs font-black logo-gradient-text', [Component.text('₱ ${netPayout.toStringAsFixed(2)}')]),
+                ]),
+              ],
+            );
+          },
+        ),
       div(classes: 'flex items-center justify-between', [
         div(classes: 'flex items-center gap-3 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
           span(classes: 'font-bold text-indigo-400 text-sm', [Component.text(rate)]),
@@ -1991,6 +2046,75 @@ class _JobDetails extends StatelessComponent {
           ),
         ]),
 
+      if (s.showEmployerFeePopup)
+        div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
+          div(
+            classes:
+                'w-full max-w-md p-8 rounded-[2.5rem] ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"} shadow-2xl animate-fade-up flex flex-col items-center gap-6',
+            [
+              div(classes: 'text-center', [
+                div(classes: 'p-4 bg-green-500/10 rounded-full inline-flex mb-3 text-green-500', [
+                  lIcon('check-circle', cls: 'w-10 h-10'),
+                ]),
+                h3(classes: 'text-2xl font-black mb-2', [Component.text('Job Completed & Paid')]),
+                p(classes: 'text-sm text-zinc-500', [
+                  Component.text('The escrow funds have been successfully released to the Nyxian.'),
+                ]),
+              ]),
+
+              Builder(
+                builder: (context) {
+                  final basePrice = (s.selectedJobData?['pricingValue'] as num?)?.toDouble() ?? 0.0;
+                  final txFee = basePrice * 0.07;
+                  final convFee = basePrice * 0.03;
+                  final totalFees = txFee + convFee;
+
+                  return div(
+                    classes:
+                        'w-full p-5 rounded-3xl border ${isDark ? "border-zinc-800 bg-zinc-800/30" : "border-zinc-200 bg-zinc-50"} space-y-3',
+                    [
+                      p(classes: 'text-xs font-bold text-indigo-400 uppercase tracking-wider', [
+                        Component.text('Employer Fee Deduction Notice'),
+                      ]),
+                      div(classes: 'space-y-2', [
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                          span([Component.text('Base Gig Price:')]),
+                          span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [Component.text('₱ ${basePrice.toStringAsFixed(2)}')]),
+                        ]),
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                          span([Component.text('Transaction Fee (7%):')]),
+                          span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${txFee.toStringAsFixed(2)}')]),
+                        ]),
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800/60" : "border-zinc-200/60"} pb-2.5', [
+                          span([Component.text('Convenience Fee (3%):')]),
+                          span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${convFee.toStringAsFixed(2)}')]),
+                        ]),
+                        div(classes: 'flex justify-between items-center pt-1.5', [
+                          span(classes: 'text-xs font-bold text-indigo-400', [Component.text('Total Fees Charged (10%):')]),
+                          span(classes: 'text-xl font-black logo-gradient-text', [Component.text('₱ ${totalFees.toStringAsFixed(2)}')]),
+                        ]),
+                      ]),
+                    ],
+                  );
+                },
+              ),
+
+              p(classes: 'text-[11px] text-zinc-500 text-center leading-relaxed px-2', [
+                Component.text(
+                  'A total fee of 10% was automatically deducted from your wallet to cover secure transaction processing and platform convenience.',
+                ),
+              ]),
+
+              button(
+                classes:
+                    'w-full py-4 rounded-2xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity',
+                events: {'click': (_) => s.setState(() => s.showEmployerFeePopup = false)},
+                [Component.text('Got It, Thanks!')],
+              ),
+            ],
+          ),
+        ]),
+
       if (s.showAuthenticityModal)
         div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
           div(
@@ -2029,212 +2153,6 @@ class _JobDetails extends StatelessComponent {
           ),
         ]),
 
-      if (s.showEmployerProfileModal)
-        div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
-          div(
-            classes:
-                'w-full max-w-md p-6 rounded-3xl ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"} shadow-2xl animate-fade-up flex flex-col relative',
-            [
-              button(
-                classes: 'absolute top-4 right-4 p-2 rounded-full hover:bg-zinc-500/20 transition-colors',
-                events: {'click': (_) => s.setState(() => s.showEmployerProfileModal = false)},
-                [lIcon('x', cls: 'w-5 h-5 ${isDark ? "text-zinc-400" : "text-zinc-600"}')],
-              ),
-
-              if (s.isLoadingEmployerProfile)
-                div(classes: 'py-12 flex justify-center', [
-                  lIcon('loader-2', cls: 'w-8 h-8 animate-spin text-indigo-500'),
-                ])
-              else if (s.employerProfileData != null)
-                Builder(
-                  builder: (context) {
-                    final emp = s.employerProfileData!;
-                    final name = emp['name'] as String? ?? emp['displayName'] as String? ?? 'Unknown';
-                    final rating = (emp['rating'] as num?)?.toDouble() ?? 0.0;
-                    final about = emp['about'] as String? ?? emp['headline'] as String? ?? 'No description provided.';
-                    final phone = emp['phoneNumber'] as String? ?? emp['mobileNumber'] as String? ?? 'Not provided';
-                    final photo = emp['photoUrl'] as String? ?? emp['profile_photo'] as String? ?? '';
-
-                    final businessName = emp['businessName'] as String? ?? '';
-                    final industry = emp['industry'] as String? ?? '';
-                    final hasBusinessInfo = businessName.isNotEmpty && industry.isNotEmpty;
-
-                    final isEmail = emp['emailVerified'] == true;
-                    final isPhone = emp['phoneVerified'] == true;
-                    final isId = emp['idVerified'] == true;
-                    final isBg = emp['bgChecked'] == true;
-                    final vLevel = emp['verificationLevel'] as int? ?? 0;
-
-                    return div(classes: 'flex flex-col', [
-                      div(classes: 'flex items-center gap-4 mb-6 mt-2', [
-                        div(
-                          classes:
-                              'w-16 h-16 rounded-full flex items-center justify-center bg-indigo-600 flex-shrink-0 overflow-hidden relative',
-                          [
-                            if (photo.isNotEmpty)
-                              img(src: photo, classes: 'w-full h-full object-cover')
-                            else
-                              span(classes: 'text-2xl font-bold text-white', [
-                                Component.text(name.isNotEmpty ? name[0].toUpperCase() : '?'),
-                              ]),
-                          ],
-                        ),
-                        div(classes: 'flex-1 min-w-0', [
-                          h3(
-                            classes:
-                                'text-xl font-bold truncate leading-tight ${isDark ? "text-white" : "text-zinc-800"}',
-                            [
-                              Component.text(
-                                hasBusinessInfo ? businessName : name,
-                              ),
-                            ],
-                          ),
-                          if (hasBusinessInfo)
-                            p(classes: 'text-xs text-indigo-400 font-semibold mb-1 truncate', [
-                              Component.text('Industry: $industry'),
-                            ]),
-                          if (hasBusinessInfo)
-                            p(classes: 'text-[11px] ${isDark ? "text-zinc-400" : "text-zinc-500"} mb-1.5', [
-                              Component.text('Contact Person: $name'),
-                            ]),
-                          div(classes: 'flex items-center gap-2 mt-1', [
-                            div(
-                              classes:
-                                  'flex items-center gap-1 text-sm font-semibold ${isDark ? "text-zinc-400" : "text-zinc-650"} mr-2',
-                              [
-                                lIcon('star', cls: 'w-4 h-4 text-yellow-500 fill-current'),
-                                Component.text(rating.toStringAsFixed(1)),
-                              ],
-                            ),
-                            // Verification Badge
-                            div(
-                              classes:
-                                  'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold '
-                                  '${vLevel == 2
-                                      ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                                      : vLevel == 1
-                                      ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                                      : "bg-zinc-500/10 text-zinc-400 border border-zinc-500/20"}',
-                              [
-                                lIcon(vLevel > 0 ? 'shield-check' : 'shield-alert', cls: 'w-3 h-3'),
-                                Component.text(
-                                  vLevel == 2
-                                      ? 'Fully Verified'
-                                      : vLevel == 1
-                                      ? 'Basic Verified'
-                                      : 'Unverified',
-                                ),
-                              ],
-                            ),
-                          ]),
-                        ]),
-                      ]),
-
-                      div(classes: 'space-y-4 mb-2', [
-                        div([
-                          p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-1', [
-                            Component.text('About'),
-                          ]),
-                          p(classes: 'text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"}', [Component.text(about)]),
-                        ]),
-                        div([
-                          p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-1', [
-                            Component.text('Contact'),
-                          ]),
-                          p(classes: 'text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"} flex items-center gap-2', [
-                            lIcon('phone', cls: 'w-4 h-4 opacity-70'),
-                            Component.text(phone),
-                          ]),
-                        ]),
-
-                        // Trust & Verification Status Dashboard summary
-                        div([
-                          p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-2', [
-                            Component.text('Verification Levels'),
-                          ]),
-                          div(
-                            classes:
-                                'p-3.5 rounded-2xl border ${isDark ? "bg-zinc-950 border-zinc-800" : "bg-zinc-50 border-zinc-200"} flex items-center justify-around gap-2 text-center',
-                            [
-                              div(classes: 'flex flex-col items-center gap-1', [
-                                div(
-                                  classes:
-                                      'p-1.5 rounded-lg ${isEmail ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
-                                  [
-                                    lIcon('mail', cls: 'w-4 h-4'),
-                                  ],
-                                ),
-                                p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                                  Component.text('Email'),
-                                ]),
-                              ]),
-                              div(classes: 'flex flex-col items-center gap-1', [
-                                div(
-                                  classes:
-                                      'p-1.5 rounded-lg ${isPhone ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
-                                  [
-                                    lIcon('phone', cls: 'w-4 h-4'),
-                                  ],
-                                ),
-                                p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                                  Component.text('Phone'),
-                                ]),
-                              ]),
-                              div(classes: 'flex flex-col items-center gap-1', [
-                                div(
-                                  classes:
-                                      'p-1.5 rounded-lg ${isId ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
-                                  [
-                                    lIcon('file-text', cls: 'w-4 h-4'),
-                                  ],
-                                ),
-                                p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                                  Component.text('ID'),
-                                ]),
-                              ]),
-                              div(classes: 'flex flex-col items-center gap-1', [
-                                div(
-                                  classes:
-                                      'p-1.5 rounded-lg ${isBg ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
-                                  [
-                                    lIcon('shield-check', cls: 'w-4 h-4'),
-                                  ],
-                                ),
-                                p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                                  Component.text('Background'),
-                                ]),
-                              ]),
-                            ],
-                          ),
-                        ]),
-
-                        if (emp['skills'] != null && (emp['skills'] as List).isNotEmpty)
-                          div([
-                            p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-2', [
-                              Component.text('Preferred Skills'),
-                            ]),
-                            div(classes: 'flex flex-wrap gap-2', [
-                              for (final skill in emp['skills'] as List)
-                                span(
-                                  classes:
-                                      'px-2 py-1 rounded-md text-xs font-medium border ${isDark ? "border-zinc-700 bg-zinc-800 text-zinc-300" : "border-zinc-200 bg-zinc-100 text-zinc-700"}',
-                                  [
-                                    Component.text(skill.toString()),
-                                  ],
-                                ),
-                            ]),
-                          ]),
-                      ]),
-                    ]);
-                  },
-                )
-              else
-                div(classes: 'py-12 flex justify-center text-red-500 text-sm font-semibold', [
-                  Component.text('Failed to load profile.'),
-                ]),
-            ],
-          ),
-        ]),
       if ((s.selectedJobData?['pickupLat'] != null) && (s.selectedJobData?['destinationLat'] != null))
         NavigationMapComponent(state: s, isNyxian: isNyxian),
     ]);
@@ -2478,7 +2396,22 @@ class _CreateJob extends StatelessComponent {
                 return;
               }
               if (s.isPostingJob) return;
-              await s.handlePostJob();
+
+              final txFee = price * 0.07;
+              final convFee = price * 0.03;
+              final total = price + txFee + convFee;
+              final msg = 'Confirm Posting:\n\n'
+                  'Escrow Deposit: ₱${price.toStringAsFixed(2)}\n'
+                  '7% Transaction Fee: ₱${txFee.toStringAsFixed(2)}\n'
+                  '3% Convenience Fee: ₱${convFee.toStringAsFixed(2)}\n'
+                  'Total Cost: ₱${total.toStringAsFixed(2)}\n\n'
+                  'Only the base price of ₱${price.toStringAsFixed(2)} will be deducted from your wallet now to fund the escrow. '
+                  'The fees will be charged automatically upon successful job completion. Do you want to proceed?';
+
+              final confirmed = confirmDialog(msg);
+              if (confirmed) {
+                await s.handlePostJob();
+              }
             }
           },
         },
@@ -2731,6 +2664,47 @@ class _CreateJob extends StatelessComponent {
           ]),
         ],
       ),
+
+      Builder(
+        builder: (context) {
+          final basePrice = double.tryParse(s.priceRate) ?? 0.0;
+          if (basePrice <= 0) return div([]);
+          final txFee = basePrice * 0.07;
+          final convFee = basePrice * 0.03;
+          final totalFees = txFee + convFee;
+          final totalCost = basePrice + totalFees;
+
+          return div(
+            classes: 'p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900/50" : "border-zinc-200 bg-zinc-50"} space-y-3',
+            [
+              p(classes: 'text-xs font-bold text-indigo-400', [Component.text('Estimated Payment Breakdown')]),
+              div(classes: 'space-y-1.5', [
+                div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                  span([Component.text('Escrow Deposit (Base Price):')]),
+                  span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [Component.text('₱ ${basePrice.toStringAsFixed(2)}')]),
+                ]),
+                div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                  span([Component.text('Transaction Fee (7%):')]),
+                  span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${txFee.toStringAsFixed(2)}')]),
+                ]),
+                div(classes: 'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800/60" : "border-zinc-200/60"} pb-2', [
+                  span([Component.text('Convenience Fee (3%):')]),
+                  span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${convFee.toStringAsFixed(2)}')]),
+                ]),
+                div(classes: 'flex justify-between items-center pt-1.5', [
+                  span(classes: 'text-xs font-semibold text-indigo-400', [Component.text('Total Cost:')]),
+                  span(classes: 'text-lg font-black logo-gradient-text', [Component.text('₱ ${totalCost.toStringAsFixed(2)}')]),
+                ]),
+              ]),
+              p(classes: 'text-[9px] text-zinc-500 leading-normal', [
+                Component.text(
+                  'Notice: Only the base price of ₱${basePrice.toStringAsFixed(2)} is deducted from your wallet to fund the escrow now. The 10% platform fee (₱${totalFees.toStringAsFixed(2)}) will only be charged from your wallet upon successful completion of the job.',
+                ),
+              ]),
+            ],
+          );
+        },
+      ),
     ]);
   }
 }
@@ -2825,6 +2799,12 @@ class _ReviewApplicants extends StatelessComponent {
     final isDark = s.isDark;
     final job = s.selectedJobData;
     final status = job?['status'] as String? ?? 'Open';
+    final catName = (job?['category'] as String? ?? '').toLowerCase();
+    final cat = JobCategory.values.firstWhere(
+      (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
+      orElse: () => JobCategory.others,
+    );
+    final hasTracker = job?['hasTracker'] == true || job?['hasTracker'] == 'true' || cat.hasTracker;
 
     return div(classes: 'space-y-6 animate-fade-up max-w-3xl', [
       subViewHeader(
@@ -3078,26 +3058,48 @@ class _ReviewApplicants extends StatelessComponent {
             ]),
           ]),
       ] else if (status == 'Done' || status == 'arrived_dropoff') ...[
-        div(classes: 'p-8 rounded-3xl border border-green-500/30 bg-green-500/10 text-center space-y-4', [
-          lIcon('check-circle', cls: 'w-12 h-12 text-green-400 mx-auto'),
-          h2(classes: 'text-2xl font-bold text-green-400', [Component.text('Task Ready for Payment')]),
-          p(classes: isDark ? "text-zinc-300" : "text-zinc-700", [
-            Component.text('The Nyxian has completed the task.'),
+        if (hasTracker) ...[
+          div(classes: 'p-8 rounded-3xl border border-green-500/30 bg-green-500/10 text-center space-y-4', [
+            lIcon('check-circle', cls: 'w-12 h-12 text-green-400 mx-auto'),
+            h2(classes: 'text-2xl font-bold text-green-400', [Component.text('Delivery Ready for Verification')]),
+            p(classes: isDark ? "text-zinc-300" : "text-zinc-700", [
+              Component.text('The Nyxian has arrived at the destination.'),
+            ]),
+            p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+              Component.text("Enter the Nyxian's completion code to verify and release payment."),
+            ]),
+            button(
+              classes:
+                  'px-8 py-3 rounded-2xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity inline-flex items-center gap-2',
+              events: {'click': (_) => s.setState(() => s.showCompletionScanner = true)},
+              [
+                lIcon('key', cls: 'w-5 h-5'),
+                Component.text('Enter Completion Code'),
+              ],
+            ),
           ]),
-          p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-            Component.text('Generate the payment code and show it to the Nyxian to release the payout.'),
+        ] else ...[
+          div(classes: 'p-8 rounded-3xl border border-green-500/30 bg-green-500/10 text-center space-y-4', [
+            lIcon('check-circle', cls: 'w-12 h-12 text-green-400 mx-auto'),
+            h2(classes: 'text-2xl font-bold text-green-400', [Component.text('Task Ready for Payment')]),
+            p(classes: isDark ? "text-zinc-300" : "text-zinc-700", [
+              Component.text('The Nyxian has completed the task.'),
+            ]),
+            p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+              Component.text('Generate the payment code and show it to the Nyxian to release the payout.'),
+            ]),
+            button(
+              classes:
+                  'px-8 py-3 rounded-2xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity inline-flex items-center gap-2',
+              events: {'click': (_) => s.generateCompletionCode()},
+              [
+                if (s.isGeneratingCode) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+                lIcon('qr-code', cls: 'w-5 h-5'),
+                Component.text(s.isGeneratingCode ? 'Generating...' : ' Generate Payment Code'),
+              ],
+            ),
           ]),
-          button(
-            classes:
-                'px-8 py-3 rounded-2xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity inline-flex items-center gap-2',
-            events: {'click': (_) => s.generateCompletionCode()},
-            [
-              if (s.isGeneratingCode) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-              lIcon('qr-code', cls: 'w-5 h-5'),
-              Component.text(s.isGeneratingCode ? 'Generating...' : ' Generate Payment Code'),
-            ],
-          ),
-        ]),
+        ],
         if ((job?['receiptUrl'] as String?) != null)
           div(classes: 'p-6 rounded-3xl border border-indigo-500/20 bg-indigo-500/5 space-y-3', [
             div(classes: 'flex items-center gap-2 text-indigo-400 font-bold text-sm', [

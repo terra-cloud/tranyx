@@ -244,6 +244,7 @@ class TranyxAppState extends State<TranyxApp> {
 
   // Job Completion State
   bool showCompletionScanner = false;
+  bool showEmployerFeePopup = false;
   String completionScanInput = '';
   bool isCompletingJob = false;
   bool isGeneratingCode = false;
@@ -536,6 +537,12 @@ class TranyxAppState extends State<TranyxApp> {
 
     // Load full profile from Firestore
     await loadUserProfile();
+    if (userProfile == null) {
+      setState(() {
+        activeTab = AppTab.profile;
+        profileView = ProfileView.personal;
+      });
+    }
     // Load jobs for current tab
     await loadJobs();
     await loadTransactions();
@@ -906,6 +913,7 @@ class TranyxAppState extends State<TranyxApp> {
           hybridToggle = accountType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
         });
       }
+      initializeProfileEditing();
       await loadKycSubmission();
       await loadHoldbacks();
     } catch (_) {}
@@ -2792,7 +2800,7 @@ class TranyxAppState extends State<TranyxApp> {
       final jobDoc = await svc.getDocument('jobs/${job['id']}');
 
       if (jobDoc != null) {
-        final correctCode = jobDoc['completionCode']?.toString();
+        final correctCode = jobDoc['completionCode']?.toString() ?? jobDoc['verificationCode']?.toString();
         if (completionScanInput.trim() != correctCode?.trim()) {
           throw 'Invalid completion code. Please try again.';
         }
@@ -2943,6 +2951,9 @@ class TranyxAppState extends State<TranyxApp> {
           isCompletingJob = false;
           showCompletionScanner = false;
           completionScanInput = '';
+          if (isCreator) {
+            showEmployerFeePopup = true;
+          }
           final hasHoldback = jobDoc['hasInspectionHoldback'] as bool? ?? false;
           final holdbackAmount = hasHoldback ? price * 0.10 : 0.0;
           final immediatePayout = nyxianPayout - holdbackAmount;
@@ -3797,7 +3808,19 @@ class TranyxAppState extends State<TranyxApp> {
 
   void initializeProfileEditing() {
     final profile = userProfile;
-    if (profile == null) return;
+    if (profile == null) {
+      editName = SessionStorage.displayName ?? userName;
+      editEmail = SessionStorage.email ?? userEmail;
+      editPhone = '';
+      editTaxId = '';
+      editHeadline = '';
+      editHourlyRate = '';
+      editSkills = [];
+      editBusinessName = '';
+      editIndustry = '';
+      profileSaveError = null;
+      return;
+    }
     editName = profile.name;
     editEmail = profile.email;
     editPhone = getDisplayPhone(profile.phoneNumber);
@@ -3844,7 +3867,9 @@ class TranyxAppState extends State<TranyxApp> {
 
   bool get hasPersonalInfoChanges {
     final profile = userProfile;
-    if (profile == null) return false;
+    if (profile == null) {
+      return editName.trim().isNotEmpty && editEmail.trim().isNotEmpty;
+    }
 
     final cleanEditPhone = editPhone.replaceAll(RegExp(r'\D'), '');
     final cleanProfilePhone = (profile.phoneNumber ?? '').replaceAll(RegExp(r'\D'), '');
@@ -3875,7 +3900,14 @@ class TranyxAppState extends State<TranyxApp> {
 
   bool get hasProfessionalInfoChanges {
     final profile = userProfile;
-    if (profile == null) return false;
+    if (profile == null) {
+      return editHeadline.trim().isNotEmpty ||
+          editHourlyRate.trim().isNotEmpty ||
+          editSkills.isNotEmpty ||
+          editBusinessName.trim().isNotEmpty ||
+          editIndustry.trim().isNotEmpty ||
+          editTaxId.trim().isNotEmpty;
+    }
     final skillsChanged = !_listsEqual(editSkills, profile.skills ?? []);
     final cleanEditTax = editTaxId.replaceAll(RegExp(r'\D'), '');
     final cleanProfileTax = (profile.taxId ?? '').replaceAll(RegExp(r'\D'), '');
@@ -4184,24 +4216,36 @@ class TranyxAppState extends State<TranyxApp> {
       profileSaveError = null;
     });
     try {
-      final existing = userProfile;
-      if (existing == null) return;
+      final uid = SessionStorage.uid;
+      if (uid == null) return;
 
       final formattedEditPhone = editPhone.trim().isNotEmpty ? '+63 ${editPhone.trim()}' : null;
 
-      final updated = existing.copyWith(
-        name: editName.trim().isNotEmpty ? editName.trim() : null,
-        email: editEmail.trim().isNotEmpty ? editEmail.trim() : null,
-        phoneNumber: formattedEditPhone,
-        taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
-      );
+      final existing = userProfile;
+      final UserProfile updated;
+      if (existing == null) {
+        updated = UserProfile(
+          uid: uid,
+          name: editName.trim().isNotEmpty ? editName.trim() : (SessionStorage.displayName ?? 'User'),
+          email: editEmail.trim().isNotEmpty ? editEmail.trim() : (SessionStorage.email ?? ''),
+          accountType: accountType,
+          phoneNumber: formattedEditPhone,
+          taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
+          createdAt: DateTime.now(),
+        );
+      } else {
+        updated = existing.copyWith(
+          name: editName.trim().isNotEmpty ? editName.trim() : null,
+          email: editEmail.trim().isNotEmpty ? editEmail.trim() : null,
+          phoneNumber: formattedEditPhone,
+          taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
+        );
+      }
+
       await handleSaveProfile(updated);
       setState(() {
         isSavingProfile = false;
-        editName = '';
-        editEmail = '';
-        editPhone = '';
-        editTaxId = '';
+        initializeProfileEditing();
       });
     } catch (e) {
       setState(() {
@@ -4218,27 +4262,41 @@ class TranyxAppState extends State<TranyxApp> {
       profileSaveError = null;
     });
     try {
-      final existing = userProfile;
-      if (existing == null) return;
+      final uid = SessionStorage.uid;
+      if (uid == null) return;
       final skills = editSkills;
-      final updated = existing.copyWith(
-        businessName: editBusinessName.trim().isNotEmpty ? editBusinessName.trim() : '',
-        industry: editIndustry.trim().isNotEmpty ? editIndustry.trim() : '',
-        taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
-        headline: editHeadline.trim().isNotEmpty ? editHeadline.trim() : '',
-        hourlyRate: editHourlyRate.trim().isNotEmpty ? (double.tryParse(editHourlyRate) ?? existing.hourlyRate) : 0.0,
-        skills: skills,
-      );
+
+      final existing = userProfile;
+      final UserProfile updated;
+      if (existing == null) {
+        updated = UserProfile(
+          uid: uid,
+          name: SessionStorage.displayName ?? userName,
+          email: SessionStorage.email ?? userEmail,
+          accountType: accountType,
+          taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
+          headline: editHeadline.trim().isNotEmpty ? editHeadline.trim() : '',
+          hourlyRate: editHourlyRate.trim().isNotEmpty ? (double.tryParse(editHourlyRate) ?? 0.0) : 0.0,
+          skills: skills,
+          businessName: editBusinessName.trim().isNotEmpty ? editBusinessName.trim() : '',
+          industry: editIndustry.trim().isNotEmpty ? editIndustry.trim() : '',
+          createdAt: DateTime.now(),
+        );
+      } else {
+        updated = existing.copyWith(
+          businessName: editBusinessName.trim().isNotEmpty ? editBusinessName.trim() : '',
+          industry: editIndustry.trim().isNotEmpty ? editIndustry.trim() : '',
+          taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
+          headline: editHeadline.trim().isNotEmpty ? editHeadline.trim() : '',
+          hourlyRate: editHourlyRate.trim().isNotEmpty ? (double.tryParse(editHourlyRate) ?? existing.hourlyRate) : 0.0,
+          skills: skills,
+        );
+      }
+
       await handleSaveProfile(updated);
       setState(() {
         isSavingProfile = false;
-        editSkills = [];
-        newSkillInput = '';
-        editHeadline = '';
-        editHourlyRate = '';
-        editBusinessName = '';
-        editIndustry = '';
-        editTaxId = '';
+        initializeProfileEditing();
       });
     } catch (e) {
       setState(() {
@@ -4263,6 +4321,15 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Navigation ──────────────────────────────────────────────
 
   void switchTab(AppTab tab) {
+    if (userProfile == null) {
+      showAppToast('Profile Incomplete', 'Please complete and save your profile details first to unlock all features.');
+      setState(() {
+        activeTab = AppTab.profile;
+        profileView = ProfileView.personal;
+        initializeProfileEditing();
+      });
+      return;
+    }
     setState(() {
       activeTab = tab;
       if (tab != AppTab.profile) profileView = ProfileView.main;
@@ -4853,6 +4920,214 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  Component _buildUserProfileModal(bool isDark) {
+    return div(classes: 'fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
+      div(
+        classes:
+            'w-full max-w-md p-6 rounded-3xl ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"} shadow-2xl animate-fade-up flex flex-col relative',
+        [
+          button(
+            classes: 'absolute top-4 right-4 p-2 rounded-full hover:bg-zinc-500/20 transition-colors',
+            events: {'click': (_) => setState(() => showEmployerProfileModal = false)},
+            [lIcon('x', cls: 'w-5 h-5 ${isDark ? "text-zinc-400" : "text-zinc-600"}')],
+          ),
+
+          if (isLoadingEmployerProfile)
+            div(classes: 'py-12 flex justify-center', [
+              lIcon('loader-2', cls: 'w-8 h-8 animate-spin text-indigo-500'),
+            ])
+          else if (employerProfileData != null)
+            Builder(
+              builder: (context) {
+                final emp = employerProfileData!;
+                final name = emp['name'] as String? ?? emp['displayName'] as String? ?? 'Unknown';
+                final rating = (emp['rating'] as num?)?.toDouble() ?? 0.0;
+                final about = emp['about'] as String? ?? emp['headline'] as String? ?? 'No description provided.';
+                final phone = emp['phoneNumber'] as String? ?? emp['mobileNumber'] as String? ?? 'Not provided';
+                final photo = emp['photoUrl'] as String? ?? emp['profile_photo'] as String? ?? '';
+
+                final businessName = emp['businessName'] as String? ?? '';
+                final industry = emp['industry'] as String? ?? '';
+                final hasBusinessInfo = businessName.isNotEmpty && industry.isNotEmpty;
+
+                final isEmail = emp['emailVerified'] == true;
+                final isPhone = emp['phoneVerified'] == true;
+                final isId = emp['idVerified'] == true;
+                final isBg = emp['bgChecked'] == true;
+                final vLevel = emp['verificationLevel'] as int? ?? 0;
+
+                return div(classes: 'flex flex-col', [
+                  div(classes: 'flex items-center gap-4 mb-6 mt-2', [
+                    div(
+                      classes:
+                          'w-16 h-16 rounded-full flex items-center justify-center bg-indigo-600 flex-shrink-0 overflow-hidden relative',
+                      [
+                        if (photo.isNotEmpty)
+                          img(src: photo, classes: 'w-full h-full object-cover')
+                        else
+                          span(classes: 'text-2xl font-bold text-white', [
+                            Component.text(name.isNotEmpty ? name[0].toUpperCase() : '?'),
+                          ]),
+                      ],
+                    ),
+                    div(classes: 'flex-1 min-w-0', [
+                      h3(
+                        classes:
+                            'text-xl font-bold truncate leading-tight ${isDark ? "text-white" : "text-zinc-800"}',
+                        [
+                          Component.text(
+                            hasBusinessInfo ? businessName : name,
+                          ),
+                        ],
+                      ),
+                      if (hasBusinessInfo)
+                        p(classes: 'text-xs text-indigo-400 font-semibold mb-1 truncate', [
+                          Component.text('Industry: $industry'),
+                        ]),
+                      if (hasBusinessInfo)
+                        p(classes: 'text-[11px] ${isDark ? "text-zinc-400" : "text-zinc-500"} mb-1.5', [
+                          Component.text('Contact Person: $name'),
+                        ]),
+                      div(classes: 'flex items-center gap-2 mt-1', [
+                        div(
+                          classes:
+                              'flex items-center gap-1 text-sm font-semibold ${isDark ? "text-zinc-400" : "text-zinc-650"} mr-2',
+                          [
+                            lIcon('star', cls: 'w-4 h-4 text-yellow-500 fill-current'),
+                            Component.text(rating.toStringAsFixed(1)),
+                          ],
+                        ),
+                        // Verification Badge
+                        div(
+                          classes:
+                              'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold '
+                              '${vLevel == 2
+                                  ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                                  : vLevel == 1
+                                  ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                                  : "bg-zinc-500/10 text-zinc-400 border border-zinc-500/20"}',
+                          [
+                            lIcon(vLevel > 0 ? 'shield-check' : 'shield-alert', cls: 'w-3 h-3'),
+                            Component.text(
+                              vLevel == 2
+                                  ? 'Fully Verified'
+                                  : vLevel == 1
+                                  ? 'Basic Verified'
+                                  : 'Unverified',
+                            ),
+                          ],
+                        ),
+                      ]),
+                    ]),
+                  ]),
+
+                  div(classes: 'space-y-4 mb-2', [
+                    div([
+                      p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-1', [
+                        Component.text('About'),
+                      ]),
+                      p(classes: 'text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"}', [Component.text(about)]),
+                    ]),
+                    div([
+                      p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-1', [
+                        Component.text('Contact'),
+                      ]),
+                      p(classes: 'text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"} flex items-center gap-2', [
+                        lIcon('phone', cls: 'w-4 h-4 opacity-70'),
+                        Component.text(phone),
+                      ]),
+                    ]),
+
+                    // Trust & Verification Status Dashboard summary
+                    div([
+                      p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-2', [
+                        Component.text('Verification Levels'),
+                      ]),
+                      div(
+                        classes:
+                            'p-3.5 rounded-2xl border ${isDark ? "bg-zinc-950 border-zinc-800" : "bg-zinc-50 border-zinc-200"} flex items-center justify-around gap-2 text-center',
+                        [
+                          div(classes: 'flex flex-col items-center gap-1', [
+                            div(
+                              classes:
+                                  'p-1.5 rounded-lg ${isEmail ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+                              [
+                                lIcon('mail', cls: 'w-4 h-4'),
+                              ],
+                            ),
+                            p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                              Component.text('Email'),
+                            ]),
+                          ]),
+                          div(classes: 'flex flex-col items-center gap-1', [
+                            div(
+                              classes:
+                                  'p-1.5 rounded-lg ${isPhone ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+                              [
+                                lIcon('phone', cls: 'w-4 h-4'),
+                              ],
+                            ),
+                            p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                              Component.text('Phone'),
+                            ]),
+                          ]),
+                          div(classes: 'flex flex-col items-center gap-1', [
+                            div(
+                              classes:
+                                  'p-1.5 rounded-lg ${isId ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+                              [
+                                lIcon('file-text', cls: 'w-4 h-4'),
+                              ],
+                            ),
+                            p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                              Component.text('ID'),
+                            ]),
+                          ]),
+                          div(classes: 'flex flex-col items-center gap-1', [
+                            div(
+                              classes:
+                                  'p-1.5 rounded-lg ${isBg ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+                              [
+                                lIcon('shield-check', cls: 'w-4 h-4'),
+                              ],
+                            ),
+                            p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                              Component.text('Background'),
+                            ]),
+                          ]),
+                        ],
+                      ),
+                    ]),
+
+                    if (emp['skills'] != null && (emp['skills'] as List).isNotEmpty)
+                      div([
+                        p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-2', [
+                          Component.text('Preferred Skills'),
+                        ]),
+                        div(classes: 'flex flex-wrap gap-2', [
+                          for (final skill in emp['skills'] as List)
+                            span(
+                              classes:
+                                  'px-2 py-1 rounded-md text-xs font-medium border ${isDark ? "border-zinc-700 bg-zinc-800 text-zinc-300" : "border-zinc-200 bg-zinc-100 text-zinc-700"}',
+                              [
+                                Component.text(skill.toString()),
+                              ],
+                            ),
+                        ]),
+                      ]),
+                  ]),
+                ]);
+              },
+            )
+          else
+            div(classes: 'py-12 flex justify-center text-red-500 text-sm font-semibold', [
+              Component.text('Failed to load profile.'),
+            ]),
+        ],
+      ),
+    ]);
+  }
+
   @override
   Component build(BuildContext context) {
     final darkBg = isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900';
@@ -5084,6 +5359,9 @@ class TranyxAppState extends State<TranyxApp> {
             ),
           ],
         ),
+
+      // User Profile modal overlay
+      if (showEmployerProfileModal) _buildUserProfileModal(isDark),
     ]);
   }
 }

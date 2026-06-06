@@ -19,8 +19,6 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
   bool _isProcessing = false;
   bool _showConfirmDelete = false;
 
-  UserProfile? _renterProfilePreview;
-  bool _isLoadingProfile = false;
   bool _allowChat = false;
 
   @override
@@ -50,23 +48,6 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
     }
   }
 
-  void _viewRenterProfile(String renteeId) async {
-    if (renteeId.isEmpty) return;
-    setState(() {
-      _isLoadingProfile = true;
-      _error = null;
-    });
-    try {
-      final profile = await component.appState.firestore.getUser(renteeId);
-      setState(() {
-        _renterProfilePreview = profile;
-      });
-    } catch (e) {
-      setState(() => _error = 'Failed to load renter profile: $e');
-    } finally {
-      setState(() => _isLoadingProfile = false);
-    }
-  }
 
   void _approveRequest(String requestId) async {
     final prop = component.appState.selectedPropertyData;
@@ -356,10 +337,10 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                               button(
                                 classes:
                                     'text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 bg-transparent border-0 cursor-pointer',
-                                events: {'click': (_) => _viewRenterProfile(req['renteeId'] ?? '')},
+                                events: {'click': (_) => component.appState.viewEmployerProfile(req['renteeId'] ?? '')},
                                 [
                                   lIcon('user', cls: 'w-3.5 h-3.5'),
-                                  Component.text(_isLoadingProfile ? 'Loading...' : 'View Renter Profile'),
+                                  Component.text('View Renter Profile'),
                                 ],
                               ),
                               label(
@@ -523,90 +504,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
             ]),
           ],
         ),
-        if (_renterProfilePreview != null) _buildRenterProfileModal(_renterProfilePreview!, isDark),
       ],
     );
-  }
-
-  Component _buildRenterProfileModal(UserProfile profile, bool isDark) {
-    return div(
-      classes: 'fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in',
-      [
-        div(
-          classes:
-              'w-full max-w-md rounded-3xl shadow-2xl p-6 relative '
-              '${isDark ? "bg-zinc-900 border border-zinc-800 text-white" : "bg-white text-zinc-900"}',
-          [
-            // Close button
-            button(
-              classes:
-                  'absolute top-4 right-4 p-2 rounded-full hover:bg-zinc-800/20 transition-colors bg-transparent border-0 cursor-pointer',
-              events: {'click': (_) => setState(() => _renterProfilePreview = null)},
-              [lIcon('x', cls: 'w-5 h-5 text-zinc-400 hover:text-zinc-200')],
-            ),
-
-            // Profile info
-            div(classes: 'flex flex-col items-center text-center space-y-4', [
-              div(
-                classes:
-                    'w-20 h-20 rounded-full bg-purple-500/20 flex items-center justify-center overflow-hidden border-2 border-purple-500/40',
-                [
-                  if (profile.photoUrl != null && profile.photoUrl!.isNotEmpty)
-                    img(src: profile.photoUrl!, classes: 'w-full h-full object-cover')
-                  else
-                    lIcon('user', cls: 'w-10 h-10 text-purple-400'),
-                ],
-              ),
-              div([
-                h3(classes: 'text-xl font-bold', [Component.text(profile.name)]),
-                p(classes: 'text-xs text-zinc-500 mt-1', [Component.text(profile.email)]),
-              ]),
-
-              // Rating / Stats
-              div(
-                classes:
-                    'flex items-center gap-4 py-2 border-y border-zinc-200 dark:border-zinc-800 w-full justify-around',
-                [
-                  div(classes: 'text-center', [
-                    div(classes: 'flex items-center gap-1 justify-center', [
-                      lIcon('star', cls: 'w-4 h-4 text-yellow-400 fill-current'),
-                      span(classes: 'font-bold text-sm', [
-                        Component.text(profile.rating != null ? profile.rating!.toStringAsFixed(1) : '5.0'),
-                      ]),
-                    ]),
-                    p(classes: 'text-[10px] text-zinc-500 mt-0.5', [Component.text('Rating')]),
-                  ]),
-                  div(classes: 'text-center', [
-                    span(classes: 'font-bold text-sm', [Component.text('${profile.jobsDone}')]),
-                    p(classes: 'text-[10px] text-zinc-500 mt-0.5', [Component.text('Gigs Completed')]),
-                  ]),
-                ],
-              ),
-
-              // Verifications checklist
-              div(classes: 'w-full text-left space-y-2.5 pt-2', [
-                h4(classes: 'text-xs font-bold text-zinc-500 uppercase tracking-wider', [
-                  Component.text('Trust & Verification'),
-                ]),
-                _verificationRow('Email Verified', profile.emailVerified, isDark),
-                _verificationRow('Phone Verified', profile.phoneVerified, isDark),
-                _verificationRow('Identity (KYC) Verified', profile.idVerified, isDark),
-                _verificationRow('Background Checked', profile.bgChecked, isDark),
-              ]),
-            ]),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Component _verificationRow(String labelText, bool verified, bool isDark) {
-    return div(classes: 'flex items-center justify-between text-xs', [
-      span(classes: isDark ? 'text-zinc-300' : 'text-zinc-650', [Component.text(labelText)]),
-      div(classes: 'flex items-center gap-1 font-bold ${verified ? "text-green-400" : "text-zinc-500"}', [
-        lIcon(verified ? 'check-circle' : 'x-circle', cls: 'w-4 h-4'),
-        span([Component.text(verified ? 'Verified' : 'Not Verified')]),
-      ]),
-    ]);
   }
 }

@@ -170,6 +170,38 @@ class _ProfileMain extends StatelessComponent {
     return div(classes: 'space-y-6', [
       h2(classes: 'text-2xl font-bold hidden md:block', [Component.text('Account Settings')]),
 
+      if (s.userProfile == null)
+        div(
+          classes:
+              'p-5 rounded-2xl border flex flex-col md:flex-row items-center gap-4 border-amber-500/30 bg-amber-500/10',
+          [
+            div(classes: 'p-3 rounded-xl bg-amber-500/20 text-amber-500', [
+              lIcon('alert-triangle', cls: 'w-6 h-6'),
+            ]),
+            div(classes: 'flex-1 text-center md:text-left', [
+              p(classes: 'font-bold text-amber-500', [Component.text('Profile Incomplete')]),
+              p(classes: 'text-sm mt-1 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                Component.text(
+                  'Your profile records were not found in the database. Please complete your profile details to unlock all features.',
+                ),
+              ]),
+            ]),
+            button(
+              classes:
+                  'px-6 py-2.5 rounded-xl font-bold bg-amber-500 text-white shadow-lg hover:bg-amber-400 transition-colors',
+              events: {
+                'click': (_) {
+                  s.setState(() {
+                    s.profileView = ProfileView.personal;
+                    s.initializeProfileEditing();
+                  });
+                },
+              },
+              [Component.text('Go to Profile Setup')],
+            ),
+          ],
+        ),
+
       // Stats row
       div(
         classes: 'grid grid-cols-2 md:grid-cols-${s.accountType == AccountType.employer ? "2" : "3"} gap-4',
@@ -374,6 +406,16 @@ class _PersonalInfo extends StatelessComponent {
         isDark: s.isDark,
         onBack: () => s.setState(() => s.profileView = ProfileView.main),
       ),
+      if (s.userProfile == null)
+        div(classes: 'p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-3', [
+          lIcon('alert-triangle', cls: 'w-5 h-5 text-amber-500'),
+          div([
+            p(classes: 'font-bold text-amber-500 text-sm', [Component.text('Profile Setup Required')]),
+            p(classes: 'text-xs ${s.isDark ? "text-zinc-400" : "text-zinc-650"}', [
+              Component.text('Enter your name and email, then click "Save Changes" to activate your account.'),
+            ]),
+          ]),
+        ]),
       div(classes: 'space-y-4', [
         inputField(
           label: 'Full Name',
@@ -495,6 +537,16 @@ class _ProfessionalInfo extends StatelessComponent {
         isDark: isDark,
         onBack: () => s.setState(() => s.profileView = ProfileView.main),
       ),
+      if (s.userProfile == null)
+        div(classes: 'p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-3', [
+          lIcon('alert-triangle', cls: 'w-5 h-5 text-amber-500'),
+          div([
+            p(classes: 'font-bold text-amber-500 text-sm', [Component.text('Profile Setup Required')]),
+            p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-650"}', [
+              Component.text('Please complete and save your Personal Information first to register your profile.'),
+            ]),
+          ]),
+        ]),
 
       if (isNyxian) ...[
         div(classes: 'p-5 rounded-2xl border $sectionCls space-y-4', [
