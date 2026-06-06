@@ -846,6 +846,8 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
               ],
             ]),
           ],
+        ),
+      ],
     );
   }
 
