@@ -33,7 +33,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
   PropertyCategory _selectedCategory = PropertyCategory.residential;
   String _title = '';
   String _description = '';
-  List<String> _amenities = [];
+  final List<String> _amenities = [];
 
   // Pricing
   String _priceMonthly = '';
@@ -53,10 +53,10 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
   bool _showPreview = false;
 
   // Images
-  List<String> _imageUrls = ['', '']; // Requires Interior, Front/Exterior
-  List<bool> _isUploadingImage = [false, false];
-  List<String> _extraImageUrls = [];
-  List<bool> _isUploadingExtraImage = [];
+  final List<String> _imageUrls = ['', '']; // Requires Interior, Front/Exterior
+  final List<bool> _isUploadingImage = [false, false];
+  final List<String> _extraImageUrls = [];
+  final List<bool> _isUploadingExtraImage = [];
 
   bool _isSubmitting = false;
   String? _error;
@@ -90,7 +90,10 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
     if (component.appState.checkProfanity(_title) ||
         component.appState.checkProfanity(_description) ||
         (_contractType == 'Custom Contract' && component.appState.checkProfanity(_customTerms))) {
-      setState(() => _error = 'Your title, description, or custom terms contain inappropriate language. Please review and try again.');
+      setState(
+        () => _error =
+            'Your title, description, or custom terms contain inappropriate language. Please review and try again.',
+      );
       return;
     }
 
@@ -396,29 +399,39 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                       final monthly = double.tryParse(_priceMonthly) ?? 0.0;
                       if (monthly <= 0) return div([]);
                       return div(classes: 'flex flex-wrap gap-1.5 mb-4', [
-                        span(classes: 'text-[10px] text-zinc-500 font-semibold my-auto mr-1', [Component.text('Quick:')]),
+                        span(classes: 'text-[10px] text-zinc-500 font-semibold my-auto mr-1', [
+                          Component.text('Quick:'),
+                        ]),
                         button(
-                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                          classes:
+                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
                               '${_securityDepositAmount == "0" ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
                           events: {'click': (_) => setState(() => _securityDepositAmount = '0')},
                           [Component.text('None')],
                         ),
                         button(
-                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                          classes:
+                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
                               '${_securityDepositAmount == monthly.toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
                           events: {'click': (_) => setState(() => _securityDepositAmount = monthly.toInt().toString())},
                           [Component.text('1 mo')],
                         ),
                         button(
-                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                          classes:
+                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
                               '${_securityDepositAmount == (monthly * 2).toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _securityDepositAmount = (monthly * 2).toInt().toString())},
+                          events: {
+                            'click': (_) => setState(() => _securityDepositAmount = (monthly * 2).toInt().toString()),
+                          },
                           [Component.text('2 mo')],
                         ),
                         button(
-                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                          classes:
+                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
                               '${_securityDepositAmount == (monthly * 3).toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _securityDepositAmount = (monthly * 3).toInt().toString())},
+                          events: {
+                            'click': (_) => setState(() => _securityDepositAmount = (monthly * 3).toInt().toString()),
+                          },
                           [Component.text('3 mo')],
                         ),
                       ]);
@@ -440,21 +453,26 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                       final monthly = double.tryParse(_priceMonthly) ?? 0.0;
                       if (monthly <= 0) return div([]);
                       return div(classes: 'flex flex-wrap gap-1.5 mb-4', [
-                        span(classes: 'text-[10px] text-zinc-500 font-semibold my-auto mr-1', [Component.text('Quick:')]),
+                        span(classes: 'text-[10px] text-zinc-500 font-semibold my-auto mr-1', [
+                          Component.text('Quick:'),
+                        ]),
                         button(
-                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                          classes:
+                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
                               '${_advanceAmount == "0" ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
                           events: {'click': (_) => setState(() => _advanceAmount = '0')},
                           [Component.text('None')],
                         ),
                         button(
-                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                          classes:
+                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
                               '${_advanceAmount == monthly.toInt().toString() ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
                           events: {'click': (_) => setState(() => _advanceAmount = monthly.toInt().toString())},
                           [Component.text('1 mo')],
                         ),
                         button(
-                          classes: 'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
+                          classes:
+                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
                               '${_advanceAmount == (monthly * 2).toInt().toString() ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
                           events: {'click': (_) => setState(() => _advanceAmount = (monthly * 2).toInt().toString())},
                           [Component.text('2 mo')],
@@ -568,51 +586,54 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
               ]),
 
               if (_contractType == 'Tranyx Standard') ...[
-                div(classes: 'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50', [
-                  div(classes: 'flex items-center justify-between mb-2', [
-                    div(classes: 'flex items-center gap-3', [
-                      lIcon('file-text', cls: 'w-5 h-5 text-blue-500'),
-                      h4(classes: 'font-bold', [Component.text('Tranyx Standard Lease Agreement')]),
-                    ]),
-                    button(
-                      classes: 'text-xs text-blue-500 hover:underline',
-                      events: {'click': (_) => setState(() => _showPreview = !_showPreview)},
-                      [Component.text(_showPreview ? 'Hide Preview' : 'View Contract')],
-                    ),
-                  ]),
-                  p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"} mb-2', [
-                    Component.text(
-                      'By proceeding, you agree to compile under our standard P2P Rental Agreement underwritten by our partner legal firm.',
-                    ),
-                  ]),
-                  if (_showPreview)
-                    ContractViewerComponent(
-                      propertyRental: PropertyRental(
-                        id: '',
-                        hostId: '',
-                        hostName: component.appState.userProfile?.name ?? 'Owner',
-                        title: _title,
-                        description: _description,
-                        type: _selectedType,
-                        category: _selectedCategory,
-                        priceMonthly: double.tryParse(_priceMonthly) ?? 0,
-                        priceWeekly: double.tryParse(_priceWeekly) ?? 0,
-                        priceDaily: double.tryParse(_priceDaily) ?? 0,
-                        depositMonths: _depositMonths,
-                        securityDepositAmount: double.tryParse(_securityDepositAmount) ?? 0.0,
-                        advanceAmount: double.tryParse(_advanceAmount) ?? 0.0,
-                        address: _address.isNotEmpty ? _address : component.appState.pickupAddress,
-                        latitude: _latitude ?? component.appState.pickupLat ?? 0.0,
-                        longitude: _longitude ?? component.appState.pickupLng ?? 0.0,
-                        photoUrls: [],
-                        amenities: _amenities,
-                        status: 'Available',
-                        contractType: 'Tranyx Standard',
-                        contractTerms: '',
-                        createdAt: DateTime.now(),
+                div(
+                  classes: 'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50',
+                  [
+                    div(classes: 'flex items-center justify-between mb-2', [
+                      div(classes: 'flex items-center gap-3', [
+                        lIcon('file-text', cls: 'w-5 h-5 text-blue-500'),
+                        h4(classes: 'font-bold', [Component.text('Tranyx Standard Lease Agreement')]),
+                      ]),
+                      button(
+                        classes: 'text-xs text-blue-500 hover:underline',
+                        events: {'click': (_) => setState(() => _showPreview = !_showPreview)},
+                        [Component.text(_showPreview ? 'Hide Preview' : 'View Contract')],
                       ),
-                    ),
-                ]),
+                    ]),
+                    p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"} mb-2', [
+                      Component.text(
+                        'By proceeding, you agree to compile under our standard P2P Rental Agreement underwritten by our partner legal firm.',
+                      ),
+                    ]),
+                    if (_showPreview)
+                      ContractViewerComponent(
+                        propertyRental: PropertyRental(
+                          id: '',
+                          hostId: '',
+                          hostName: component.appState.userProfile?.name ?? 'Owner',
+                          title: _title,
+                          description: _description,
+                          type: _selectedType,
+                          category: _selectedCategory,
+                          priceMonthly: double.tryParse(_priceMonthly) ?? 0,
+                          priceWeekly: double.tryParse(_priceWeekly) ?? 0,
+                          priceDaily: double.tryParse(_priceDaily) ?? 0,
+                          depositMonths: _depositMonths,
+                          securityDepositAmount: double.tryParse(_securityDepositAmount) ?? 0.0,
+                          advanceAmount: double.tryParse(_advanceAmount) ?? 0.0,
+                          address: _address.isNotEmpty ? _address : component.appState.pickupAddress,
+                          latitude: _latitude ?? component.appState.pickupLat ?? 0.0,
+                          longitude: _longitude ?? component.appState.pickupLng ?? 0.0,
+                          photoUrls: [],
+                          amenities: _amenities,
+                          status: 'Available',
+                          contractType: 'Tranyx Standard',
+                          contractTerms: '',
+                          createdAt: DateTime.now(),
+                        ),
+                      ),
+                  ],
+                ),
               ] else ...[
                 div(classes: 'mt-4', [
                   label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
@@ -684,11 +705,11 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
         classes:
             'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors mb-4',
         type: type,
-        attributes: {'value': value, if (placeholder != null) 'placeholder': placeholder},
+        attributes: {'value': value, 'placeholder': ?placeholder},
         events: {
           'input': (e) {
             onChange(getInputValue(e.target));
-          }
+          },
         },
       ),
     ]);

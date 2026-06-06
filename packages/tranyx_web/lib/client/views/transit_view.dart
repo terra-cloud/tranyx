@@ -93,9 +93,9 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         selected: s.transitMode == TransitMode.rent ? 'rent' : (s.transitMode == TransitMode.host ? 'host' : 'history'),
         isDark: isDark,
         onChange: (v) => s.setState(() {
-          if (v == 'rent')
+          if (v == 'rent') {
             s.transitMode = TransitMode.rent;
-          else if (v == 'host')
+          } else if (v == 'host')
             s.transitMode = TransitMode.host;
           else
             s.transitMode = TransitMode.history;
@@ -1586,7 +1586,7 @@ class _RentalHistoryViewState extends State<_RentalHistoryView> {
         div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"} flex flex-col gap-1.5', [
           p(classes: 'text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-0.5', [Component.text('Payment Breakdown')]),
           div(classes: 'flex justify-between items-center text-xs', [
-            span(classes: '${isDark ? "text-zinc-400" : "text-zinc-500"}', [Component.text(myRole == 'host' ? 'Rental Cost:' : 'Base Cost:')]),
+            span(classes: isDark ? "text-zinc-400" : "text-zinc-500", [Component.text(myRole == 'host' ? 'Rental Cost:' : 'Base Cost:')]),
             span(classes: 'font-medium', [Component.text('₱${totalCost.toStringAsFixed(2)}')]),
           ]),
           if (myRole == 'renter')
@@ -1719,7 +1719,7 @@ class _RentalHistoryViewState extends State<_RentalHistoryView> {
         div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"} flex flex-col gap-1.5', [
           p(classes: 'text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-0.5', [Component.text('Payment Breakdown')]),
           div(classes: 'flex justify-between items-center text-xs', [
-            span(classes: '${isDark ? "text-zinc-400" : "text-zinc-500"}', [Component.text(myRole == 'host' ? 'Rental Cost:' : 'Base Cost:')]),
+            span(classes: isDark ? "text-zinc-400" : "text-zinc-500", [Component.text(myRole == 'host' ? 'Rental Cost:' : 'Base Cost:')]),
             span(classes: 'font-medium', [Component.text('₱${totalCost.toStringAsFixed(2)}')]),
           ]),
           if (myRole == 'renter')

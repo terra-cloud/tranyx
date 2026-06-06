@@ -957,9 +957,9 @@ class FirestoreService {
     final messageData = {
       'senderId': senderId,
       'senderName': senderName,
-      if (senderPhotoUrl != null) 'senderPhotoUrl': senderPhotoUrl,
+      'senderPhotoUrl': ?senderPhotoUrl,
       'text': text,
-      if (imageUrl != null) 'imageUrl': imageUrl,
+      'imageUrl': ?imageUrl,
       'timestamp': now,
     };
 
@@ -1682,7 +1682,7 @@ class FirestoreService {
       'status': 'Booked',
       'renteeSignatureName': signatureDataUrl,
       'signedAt': now.millisecondsSinceEpoch,
-      if (signatureHash != null) 'signatureHash': signatureHash,
+      'signatureHash': ?signatureHash,
     });
 
     final hostId = rentalDoc['hostId'] as String;
@@ -2762,7 +2762,7 @@ class FirestoreService {
       'status': 'Booked',
       'renteeSignatureName': signatureDataUrl,
       'signedAt': now.millisecondsSinceEpoch,
-      if (signatureHash != null) 'signatureHash': signatureHash,
+      'signatureHash': ?signatureHash,
     });
 
     final hostId = propDoc['hostId'] as String;
@@ -2772,7 +2772,7 @@ class FirestoreService {
     await createNotification(
       uid: hostId,
       title: 'Lease Agreement Signed',
-      message: '$renteeName has signed the Lease Agreement for "${title}". The lease is now active.',
+      message: '$renteeName has signed the Lease Agreement for "$title". The lease is now active.',
     );
   }
 

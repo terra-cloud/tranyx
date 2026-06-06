@@ -1,6 +1,5 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
-import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../services/web_interop.dart';
@@ -57,7 +56,6 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
       setState(() => _isLoadingRequests = false);
     }
   }
-
 
   void _approveRequest(String requestId) async {
     final r = component.appState.selectedRentalData;
@@ -307,7 +305,10 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                 [
                   div(classes: 'flex items-center justify-between', [
                     div(classes: 'flex items-center gap-2', [
-                      lIcon('activity', cls: 'w-4.5 h-4.5 text-indigo-400 ${_gpsInput.isNotEmpty ? "animate-pulse" : ""}'),
+                      lIcon(
+                        'activity',
+                        cls: 'w-4.5 h-4.5 text-indigo-400 ${_gpsInput.isNotEmpty ? "animate-pulse" : ""}',
+                      ),
                       span(classes: 'text-xs font-bold text-zinc-500 uppercase tracking-wider', [
                         Component.text('GPS Hardware Tracker'),
                       ]),
@@ -322,11 +323,13 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                               _gpsInput = r['gpsTrackerId']?.toString() ?? '';
                               _isEditingGps = true;
                             });
-                          }
+                          },
                         },
                         [
                           lIcon('edit-2', cls: 'w-3.5 h-3.5'),
-                          Component.text(r['gpsTrackerId'] != null && r['gpsTrackerId'].toString().isNotEmpty ? 'Edit' : 'Register'),
+                          Component.text(
+                            r['gpsTrackerId'] != null && r['gpsTrackerId'].toString().isNotEmpty ? 'Edit' : 'Register',
+                          ),
                         ],
                       ),
                   ]),
@@ -381,7 +384,8 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                         ]),
                     ]),
                   p(
-                    classes: 'text-[11px] text-zinc-500 italic mt-1 pt-2 border-t ${isDark ? "border-zinc-800/60" : "border-zinc-200"}',
+                    classes:
+                        'text-[11px] text-zinc-500 italic mt-1 pt-2 border-t ${isDark ? "border-zinc-800/60" : "border-zinc-200"}',
                     [
                       Component.text(
                         'Note: Real-time vehicle tracking functions only when the active renter is logged into the app on their device with location permissions enabled.',
@@ -473,9 +477,11 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                                       req['renteePhotoUrl'].toString() != 'null')
                                     img(
                                       src: req['renteePhotoUrl'].toString(),
-                                      classes: 'w-full h-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
+                                      classes:
+                                          'w-full h-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
                                       events: {
-                                        'click': (_) => component.appState.showFullScreenPhoto(req['renteePhotoUrl'].toString()),
+                                        'click': (_) =>
+                                            component.appState.showFullScreenPhoto(req['renteePhotoUrl'].toString()),
                                       },
                                     )
                                   else
@@ -519,7 +525,8 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                                     classes:
                                         'max-h-16 h-auto object-contain bg-white rounded-lg p-1 max-w-[200px] mt-1 cursor-zoom-in hover:opacity-90 transition-opacity',
                                     events: {
-                                      'click': (_) => component.appState.showFullScreenPhoto(req['signatureName'].toString()),
+                                      'click': (_) =>
+                                          component.appState.showFullScreenPhoto(req['signatureName'].toString()),
                                     },
                                   )
                                 else
@@ -611,9 +618,11 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                                 r['renteePhotoUrl'].toString() != 'null')
                               img(
                                 src: r['renteePhotoUrl'].toString(),
-                                classes: 'w-full h-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
+                                classes:
+                                    'w-full h-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
                                 events: {
-                                  'click': (_) => component.appState.showFullScreenPhoto(r['renteePhotoUrl'].toString()),
+                                  'click': (_) =>
+                                      component.appState.showFullScreenPhoto(r['renteePhotoUrl'].toString()),
                                 },
                               )
                             else
@@ -654,12 +663,13 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                               Component.text('Chat Renter'),
                               if (component.appState.getUnreadChatCount(chatId) > 0)
                                 span(
-                                  classes: 'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                                  classes:
+                                      'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
                                   [Component.text('${component.appState.getUnreadChatCount(chatId)}')],
                                 ),
                             ],
                           );
-                        }()
+                        }(),
                     ]),
 
                     // Contract Duration / Details
@@ -703,9 +713,11 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                               if (r['renteeSignatureName'].toString().startsWith('data:image/'))
                                 img(
                                   src: r['renteeSignatureName'].toString(),
-                                  classes: 'max-h-16 h-auto object-contain bg-white rounded-lg p-1 max-w-[200px] mt-1 cursor-zoom-in hover:opacity-90 transition-opacity',
+                                  classes:
+                                      'max-h-16 h-auto object-contain bg-white rounded-lg p-1 max-w-[200px] mt-1 cursor-zoom-in hover:opacity-90 transition-opacity',
                                   events: {
-                                    'click': (_) => component.appState.showFullScreenPhoto(r['renteeSignatureName'].toString()),
+                                    'click': (_) =>
+                                        component.appState.showFullScreenPhoto(r['renteeSignatureName'].toString()),
                                   },
                                 )
                               else

@@ -1,6 +1,5 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
-import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 
@@ -47,7 +46,6 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
       setState(() => _isLoadingRequests = false);
     }
   }
-
 
   void _approveRequest(String requestId) async {
     final prop = component.appState.selectedPropertyData;
@@ -429,12 +427,13 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                               Component.text('Chat Tenant'),
                               if (component.appState.getUnreadChatCount(chatId) > 0)
                                 span(
-                                  classes: 'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                                  classes:
+                                      'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
                                   [Component.text('${component.appState.getUnreadChatCount(chatId)}')],
                                 ),
                             ],
                           );
-                        }()
+                        }(),
                     ]),
 
                     // Duration / Timeline
@@ -473,9 +472,11 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                         p(classes: 'text-xs text-zinc-500 mb-2', [Component.text('Signed Lease Agreement:')]),
                         img(
                           src: prop['renteeSignatureName'].toString(),
-                          classes: 'max-h-20 h-auto object-contain bg-white rounded-lg p-2 max-w-[240px] cursor-zoom-in hover:opacity-95 transition-opacity',
+                          classes:
+                              'max-h-20 h-auto object-contain bg-white rounded-lg p-2 max-w-[240px] cursor-zoom-in hover:opacity-95 transition-opacity',
                           events: {
-                            'click': (_) => component.appState.showFullScreenPhoto(prop['renteeSignatureName'].toString())
+                            'click': (_) =>
+                                component.appState.showFullScreenPhoto(prop['renteeSignatureName'].toString()),
                           },
                         ),
                       ]),

@@ -416,7 +416,7 @@ class TranyxAppState extends State<TranyxApp> {
                 (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
                 orElse: () => JobCategory.others,
               );
-              this.hasTracker = fresh['hasTracker'] == true || fresh['hasTracker'] == 'true' || selectedJobData?['hasTracker'] == true || selectedJobData?['hasTracker'] == 'true' || cat.hasTracker;
+              hasTracker = fresh['hasTracker'] == true || fresh['hasTracker'] == 'true' || selectedJobData?['hasTracker'] == true || selectedJobData?['hasTracker'] == 'true' || cat.hasTracker;
 
               var title = fresh['title'] as String? ?? selectedJob?.title ?? '';
               if (title.isEmpty || title == 'Untitled') {

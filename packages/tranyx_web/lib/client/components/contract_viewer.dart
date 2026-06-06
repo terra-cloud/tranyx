@@ -22,7 +22,8 @@ class ContractViewerComponent extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     // Determine mode
-    final isCustom = (contractType == 'Custom Contract') ||
+    final isCustom =
+        (contractType == 'Custom Contract') ||
         (customTerms != null &&
             customTerms!.isNotEmpty &&
             customTerms != 'Standard P2P terms' &&
@@ -36,7 +37,8 @@ class ContractViewerComponent extends StatelessComponent {
         : "bg-white border-zinc-200 text-zinc-800 shadow-inner";
 
     return div(
-      classes: 'w-full rounded-2xl border p-6 md:p-8 font-sans leading-relaxed text-left overflow-y-auto max-h-[480px] $bgBorderText',
+      classes:
+          'w-full rounded-2xl border p-6 md:p-8 font-sans leading-relaxed text-left overflow-y-auto max-h-[480px] $bgBorderText',
       [
         if (isCustom)
           ..._buildCustomContract(isDark)
@@ -45,7 +47,7 @@ class ContractViewerComponent extends StatelessComponent {
         else if (propertyRental != null)
           ..._buildPropertyContract(propertyRental!, isDark)
         else
-          div([Component.text('No contract details available.')])
+          div([Component.text('No contract details available.')]),
       ],
     );
   }
@@ -130,7 +132,9 @@ class ContractViewerComponent extends StatelessComponent {
       // Section 3: LTO Compliance
       _buildSectionHeader('3. LTO REGISTRATION & COMPLIANCE', isDark),
       p(classes: 'text-sm mb-4 leading-relaxed', [
-        Component.text('The Owner warrants that the vehicle is legally registered, roadworthy, and free of any police/traffic warrants:'),
+        Component.text(
+          'The Owner warrants that the vehicle is legally registered, roadworthy, and free of any police/traffic warrants:',
+        ),
       ]),
       _buildSpecsGrid(isDark, [
         _specRow('LTO Certificate of Registration (CR)', r.ltoCrNumber.isNotEmpty ? r.ltoCrNumber : 'PENDING'),
@@ -160,7 +164,9 @@ class ContractViewerComponent extends StatelessComponent {
         _bulletRow('Renter must operate the vehicle in strict compliance with all local road safety laws.'),
         _bulletRow('Renter must keep the vehicle clear of any contrabands, narcotics, or hazardous materials.'),
         _bulletRow('Vehicle must be returned with the same fuel level as recorded during pickup.'),
-        _bulletRow('Tollways, parking tickets, and traffic violations incurred during the period are borne by the Renter.'),
+        _bulletRow(
+          'Tollways, parking tickets, and traffic violations incurred during the period are borne by the Renter.',
+        ),
       ]),
 
       // Section 7: Signatures
@@ -176,7 +182,7 @@ class ContractViewerComponent extends StatelessComponent {
         _buildSignatureStamp(
           title: 'Renter/Lessee Digital Sign',
           signedName: r.renteeSignatureName,
-          timestamp: r.signedAt != null ? r.signedAt!.toIso8601String().substring(0, 16).replaceFirst('T', ' ') : null,
+          timestamp: r.signedAt?.toIso8601String().substring(0, 16).replaceFirst('T', ' '),
           isDark: isDark,
           isSigned: r.signedAt != null,
         ),
@@ -236,8 +242,18 @@ class ContractViewerComponent extends StatelessComponent {
       _buildSectionHeader('4. RENTAL ESCROW RATES & DEPOSITS', isDark),
       _buildSpecsGrid(isDark, [
         _specRow('Monthly Rental Rate', '₱${r.priceMonthly} / month'),
-        _specRow('Security Deposit', r.depositMonths > 0 ? '${r.depositMonths} Month(s) (₱${r.priceMonthly * r.depositMonths})' : 'No Deposit Required'),
-        _specRow('Lease Duration', r.rentalMultiplier != null ? '${r.rentalMultiplier} ${r.rentalDurationType ?? "month(s)"}' : '[Duration Pending]'),
+        _specRow(
+          'Security Deposit',
+          r.depositMonths > 0
+              ? '${r.depositMonths} Month(s) (₱${r.priceMonthly * r.depositMonths})'
+              : 'No Deposit Required',
+        ),
+        _specRow(
+          'Lease Duration',
+          r.rentalMultiplier != null
+              ? '${r.rentalMultiplier} ${r.rentalDurationType ?? "month(s)"}'
+              : '[Duration Pending]',
+        ),
         _specRow('Escrow Total Price', r.totalCost != null ? '₱${r.totalCost}' : '[Total Escrow Pending]'),
       ]),
 
@@ -245,8 +261,12 @@ class ContractViewerComponent extends StatelessComponent {
       _buildSectionHeader('5. LEASE COVENANTS & HOUSE RULES', isDark),
       ul(classes: 'space-y-2 mb-6 text-sm text-zinc-400 list-none p-0 m-0', [
         _bulletRow('Tenant agrees to maintain the property in a clean, hygienic, and undamaged condition.'),
-        _bulletRow('Use of the property is restricted to legal activities. No illegal substances or commercial operation in residential zones.'),
-        _bulletRow('Tenant is responsible for utility bills (electricity, water, internet) unless explicitly covered in custom terms.'),
+        _bulletRow(
+          'Use of the property is restricted to legal activities. No illegal substances or commercial operation in residential zones.',
+        ),
+        _bulletRow(
+          'Tenant is responsible for utility bills (electricity, water, internet) unless explicitly covered in custom terms.',
+        ),
         _bulletRow('Lessor reserves the right to inspect premises with a 24-hour advance notice to Tenant.'),
       ]),
 
@@ -263,7 +283,7 @@ class ContractViewerComponent extends StatelessComponent {
         _buildSignatureStamp(
           title: 'Lessee/Tenant Digital Sign',
           signedName: r.renteeSignatureName,
-          timestamp: r.signedAt != null ? r.signedAt!.toIso8601String().substring(0, 16).replaceFirst('T', ' ') : null,
+          timestamp: r.signedAt?.toIso8601String().substring(0, 16).replaceFirst('T', ' '),
           isDark: isDark,
           isSigned: r.signedAt != null,
         ),
@@ -274,24 +294,36 @@ class ContractViewerComponent extends StatelessComponent {
   // ── REUSABLE DESIGN SYSTEMS ───────────────────────────────────────────────
 
   Component _buildDocHeader({required bool isDark, required String title, required String sub}) {
-    return div(classes: 'flex flex-col items-center text-center pb-6 mb-6 border-b ${isDark ? "border-zinc-800" : "border-zinc-150"}', [
-      div(classes: 'px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider mb-3 flex items-center gap-1.5 '
-          '${isDark ? "bg-purple-500/10 text-purple-400" : "bg-purple-50 text-purple-650"}', [
-        lIcon('shield-check', cls: 'w-3.5 h-3.5'),
-        Component.text('Tranyx Secure Escrow Contract'),
-      ]),
-      h1(classes: 'text-lg md:text-xl font-black tracking-tight ${isDark ? "text-white" : "text-zinc-900"}', [
-        Component.text(title),
-      ]),
-      p(classes: 'text-xs text-zinc-500 mt-1', [Component.text(sub)]),
-    ]);
+    return div(
+      classes:
+          'flex flex-col items-center text-center pb-6 mb-6 border-b ${isDark ? "border-zinc-800" : "border-zinc-150"}',
+      [
+        div(
+          classes:
+              'px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider mb-3 flex items-center gap-1.5 '
+              '${isDark ? "bg-purple-500/10 text-purple-400" : "bg-purple-50 text-purple-650"}',
+          [
+            lIcon('shield-check', cls: 'w-3.5 h-3.5'),
+            Component.text('Tranyx Secure Escrow Contract'),
+          ],
+        ),
+        h1(classes: 'text-lg md:text-xl font-black tracking-tight ${isDark ? "text-white" : "text-zinc-900"}', [
+          Component.text(title),
+        ]),
+        p(classes: 'text-xs text-zinc-500 mt-1', [Component.text(sub)]),
+      ],
+    );
   }
 
   Component _buildSectionHeader(String title, bool isDark) {
-    return h3(classes: 'text-xs font-bold uppercase tracking-wider mb-3 mt-6 pb-1 border-b '
-        '${isDark ? "text-purple-400 border-zinc-900" : "text-purple-650 border-zinc-100"}', [
-      Component.text(title),
-    ]);
+    return h3(
+      classes:
+          'text-xs font-bold uppercase tracking-wider mb-3 mt-6 pb-1 border-b '
+          '${isDark ? "text-purple-400 border-zinc-900" : "text-purple-650 border-zinc-100"}',
+      [
+        Component.text(title),
+      ],
+    );
   }
 
   Component _buildPartyCard({
@@ -303,11 +335,13 @@ class ContractViewerComponent extends StatelessComponent {
   }) {
     final showPhoto = photoUrl != null && photoUrl.isNotEmpty && photoUrl != 'null';
     return div(
-      classes: 'p-4 rounded-xl border flex items-center gap-3 '
+      classes:
+          'p-4 rounded-xl border flex items-center gap-3 '
           '${isDark ? "bg-zinc-900/40 border-zinc-805" : "bg-zinc-50 border-zinc-200"}',
       [
         div(
-          classes: 'w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center overflow-hidden '
+          classes:
+              'w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center overflow-hidden '
               '${isDark ? "bg-zinc-800" : "bg-zinc-200"}',
           [
             if (showPhoto)
@@ -327,7 +361,8 @@ class ContractViewerComponent extends StatelessComponent {
 
   Component _buildSpecsGrid(bool isDark, List<Component> children) {
     return div(
-      classes: 'rounded-xl border overflow-hidden mb-4 divide-y '
+      classes:
+          'rounded-xl border overflow-hidden mb-4 divide-y '
           '${isDark ? "border-zinc-850 bg-zinc-900/10 divide-zinc-850" : "border-zinc-150 bg-zinc-50/10 divide-zinc-150"}',
       children,
     );
@@ -342,7 +377,8 @@ class ContractViewerComponent extends StatelessComponent {
 
   Component _buildPlatformDisclaimer(bool isDark) {
     return div(
-      classes: 'p-4 rounded-xl border flex items-start gap-3 '
+      classes:
+          'p-4 rounded-xl border flex items-start gap-3 '
           '${isDark ? "bg-blue-500/5 border-blue-500/10 text-blue-400" : "bg-blue-50 border-blue-100 text-blue-800"}',
       [
         lIcon('info', cls: 'w-5 h-5 flex-shrink-0 mt-0.5'),
@@ -359,7 +395,8 @@ class ContractViewerComponent extends StatelessComponent {
 
   Component _buildSafetyNotice(bool isDark) {
     return div(
-      classes: 'p-4 rounded-xl border flex items-start gap-3 '
+      classes:
+          'p-4 rounded-xl border flex items-start gap-3 '
           '${isDark ? "bg-amber-500/5 border-amber-500/10 text-amber-400" : "bg-amber-50 border-amber-100 text-amber-800"}',
       [
         lIcon('alert-triangle', cls: 'w-5 h-5 flex-shrink-0 mt-0.5'),
@@ -389,7 +426,8 @@ class ContractViewerComponent extends StatelessComponent {
     required bool isSigned,
   }) {
     return div(
-      classes: 'p-4 rounded-xl border flex flex-col items-center text-center justify-center min-h-[100px] relative overflow-hidden '
+      classes:
+          'p-4 rounded-xl border flex flex-col items-center text-center justify-center min-h-[100px] relative overflow-hidden '
           '${isSigned ? (isDark ? "bg-green-500/5 border-green-500/20" : "bg-green-50 border-green-200") : (isDark ? "bg-zinc-900/30 border-dashed border-zinc-800" : "bg-zinc-50 border-dashed border-zinc-200")}',
       [
         p(classes: 'text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2', [Component.text(title)]),
@@ -406,9 +444,13 @@ class ContractViewerComponent extends StatelessComponent {
               [Component.text(signedName)],
             ),
           p(classes: 'text-[9px] text-zinc-500', [Component.text('Timestamp: ${timestamp ?? "N/A"}')]),
-          div(classes: 'absolute top-1 right-1 p-0.5 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center', [
-            lIcon('check', cls: 'w-3 h-3'),
-          ]),
+          div(
+            classes:
+                'absolute top-1 right-1 p-0.5 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center',
+            [
+              lIcon('check', cls: 'w-3 h-3'),
+            ],
+          ),
         ] else ...[
           lIcon('pen-tool', cls: 'w-5 h-5 text-zinc-600 mb-1'),
           p(classes: 'text-xs text-zinc-550 italic', [Component.text('Signature Required')]),

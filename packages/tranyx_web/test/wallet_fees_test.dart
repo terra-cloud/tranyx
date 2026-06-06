@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import '../lib/services/firebase_service.dart';
+import 'package:tranyx_web/services/firebase_service.dart';
 
 void main() {
   group('Wallet & Platform Fees Calculations', () {

@@ -532,19 +532,29 @@ class JobsViewComponent extends StatelessComponent {
               [
                 div(classes: 'flex justify-between items-center text-[10px] text-zinc-500', [
                   span([Component.text('Base Gig Price:')]),
-                  span(classes: 'font-semibold ${isDark ? "text-zinc-350" : "text-zinc-650"}', [Component.text('₱ ${pricingValue.toStringAsFixed(2)}')]),
+                  span(classes: 'font-semibold ${isDark ? "text-zinc-350" : "text-zinc-650"}', [
+                    Component.text('₱ ${pricingValue.toStringAsFixed(2)}'),
+                  ]),
                 ]),
                 div(classes: 'flex justify-between items-center text-[10px] text-zinc-505', [
                   span([Component.text('Transaction Fee (7%):')]),
                   span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${txFee.toStringAsFixed(2)}')]),
                 ]),
-                div(classes: 'flex justify-between items-center text-[10px] text-zinc-505 border-b ${isDark ? "border-zinc-800/40" : "border-zinc-200/40"} pb-1', [
-                  span([Component.text('Convenience Fee (3%):')]),
-                  span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${convFee.toStringAsFixed(2)}')]),
-                ]),
+                div(
+                  classes:
+                      'flex justify-between items-center text-[10px] text-zinc-505 border-b ${isDark ? "border-zinc-800/40" : "border-zinc-200/40"} pb-1',
+                  [
+                    span([Component.text('Convenience Fee (3%):')]),
+                    span(classes: 'font-semibold text-amber-500', [
+                      Component.text('+ ₱ ${convFee.toStringAsFixed(2)}'),
+                    ]),
+                  ],
+                ),
                 div(classes: 'flex justify-between items-center pt-0.5', [
                   span(classes: 'text-[10px] font-bold text-indigo-400', [Component.text('Total Paid:')]),
-                  span(classes: 'text-xs font-black logo-gradient-text', [Component.text('₱ ${totalPaid.toStringAsFixed(2)}')]),
+                  span(classes: 'text-xs font-black logo-gradient-text', [
+                    Component.text('₱ ${totalPaid.toStringAsFixed(2)}'),
+                  ]),
                 ]),
               ],
             );
@@ -671,15 +681,23 @@ class JobsViewComponent extends StatelessComponent {
               [
                 div(classes: 'flex justify-between items-center text-[10px] text-zinc-500', [
                   span([Component.text('Base Payout:')]),
-                  span(classes: 'font-semibold ${isDark ? "text-zinc-350" : "text-zinc-650"}', [Component.text('₱ ${pricingValue.toStringAsFixed(2)}')]),
+                  span(classes: 'font-semibold ${isDark ? "text-zinc-350" : "text-zinc-650"}', [
+                    Component.text('₱ ${pricingValue.toStringAsFixed(2)}'),
+                  ]),
                 ]),
-                div(classes: 'flex justify-between items-center text-[10px] text-zinc-555 border-b ${isDark ? "border-zinc-800/40" : "border-zinc-200/40"} pb-1', [
-                  span([Component.text('Platform Commission (3%):')]),
-                  span(classes: 'font-semibold text-red-400', [Component.text('− ₱ ${commFee.toStringAsFixed(2)}')]),
-                ]),
+                div(
+                  classes:
+                      'flex justify-between items-center text-[10px] text-zinc-555 border-b ${isDark ? "border-zinc-800/40" : "border-zinc-200/40"} pb-1',
+                  [
+                    span([Component.text('Platform Commission (3%):')]),
+                    span(classes: 'font-semibold text-red-400', [Component.text('− ₱ ${commFee.toStringAsFixed(2)}')]),
+                  ],
+                ),
                 div(classes: 'flex justify-between items-center pt-0.5', [
                   span(classes: 'text-[10px] font-bold text-indigo-400', [Component.text('Net Earnings:')]),
-                  span(classes: 'text-xs font-black logo-gradient-text', [Component.text('₱ ${netPayout.toStringAsFixed(2)}')]),
+                  span(classes: 'text-xs font-black logo-gradient-text', [
+                    Component.text('₱ ${netPayout.toStringAsFixed(2)}'),
+                  ]),
                 ]),
               ],
             );
@@ -1834,13 +1852,23 @@ class _JobDetails extends StatelessComponent {
                           span([Component.text('Base Payout:')]),
                           span(classes: 'font-semibold', [Component.text('₱ ${basePrice.toStringAsFixed(2)}')]),
                         ]),
-                        div(classes: 'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800/60" : "border-zinc-200/60"} pb-2', [
-                          span([Component.text('Platform Commission (3%):')]),
-                          span(classes: 'font-semibold text-red-400', [Component.text('− ₱ ${commFee.toStringAsFixed(2)}')]),
-                        ]),
+                        div(
+                          classes:
+                              'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800/60" : "border-zinc-200/60"} pb-2',
+                          [
+                            span([Component.text('Platform Commission (3%):')]),
+                            span(classes: 'font-semibold text-red-400', [
+                              Component.text('− ₱ ${commFee.toStringAsFixed(2)}'),
+                            ]),
+                          ],
+                        ),
                         div(classes: 'flex justify-between items-center pt-1', [
-                          span(classes: 'text-xs font-semibold text-indigo-400', [Component.text('Net Payout Amount:')]),
-                          span(classes: 'text-2xl font-black logo-gradient-text', [Component.text('₱ ${netPayout.toStringAsFixed(2)}')]),
+                          span(classes: 'text-xs font-semibold text-indigo-400', [
+                            Component.text('Net Payout Amount:'),
+                          ]),
+                          span(classes: 'text-2xl font-black logo-gradient-text', [
+                            Component.text('₱ ${netPayout.toStringAsFixed(2)}'),
+                          ]),
                         ]),
                       ],
                     );
@@ -1858,15 +1886,25 @@ class _JobDetails extends StatelessComponent {
                         ]),
                         div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                           span([Component.text('Transaction Fee (7%):')]),
-                          span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${txFee.toStringAsFixed(2)}')]),
+                          span(classes: 'font-semibold text-amber-500', [
+                            Component.text('+ ₱ ${txFee.toStringAsFixed(2)}'),
+                          ]),
                         ]),
-                        div(classes: 'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800/60" : "border-zinc-200/60"} pb-2', [
-                          span([Component.text('Convenience Fee (3%):')]),
-                          span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${convFee.toStringAsFixed(2)}')]),
-                        ]),
+                        div(
+                          classes:
+                              'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800/60" : "border-zinc-200/60"} pb-2',
+                          [
+                            span([Component.text('Convenience Fee (3%):')]),
+                            span(classes: 'font-semibold text-amber-500', [
+                              Component.text('+ ₱ ${convFee.toStringAsFixed(2)}'),
+                            ]),
+                          ],
+                        ),
                         div(classes: 'flex justify-between items-center pt-1', [
                           span(classes: 'text-xs font-semibold text-indigo-400', [Component.text('Total Cost:')]),
-                          span(classes: 'text-2xl font-black logo-gradient-text', [Component.text('₱ ${totalPaid.toStringAsFixed(2)}')]),
+                          span(classes: 'text-2xl font-black logo-gradient-text', [
+                            Component.text('₱ ${totalPaid.toStringAsFixed(2)}'),
+                          ]),
                         ]),
                       ],
                     );
@@ -2079,19 +2117,33 @@ class _JobDetails extends StatelessComponent {
                       div(classes: 'space-y-2', [
                         div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                           span([Component.text('Base Gig Price:')]),
-                          span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [Component.text('₱ ${basePrice.toStringAsFixed(2)}')]),
+                          span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
+                            Component.text('₱ ${basePrice.toStringAsFixed(2)}'),
+                          ]),
                         ]),
                         div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                           span([Component.text('Transaction Fee (7%):')]),
-                          span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${txFee.toStringAsFixed(2)}')]),
+                          span(classes: 'font-semibold text-amber-500', [
+                            Component.text('+ ₱ ${txFee.toStringAsFixed(2)}'),
+                          ]),
                         ]),
-                        div(classes: 'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800/60" : "border-zinc-200/60"} pb-2.5', [
-                          span([Component.text('Convenience Fee (3%):')]),
-                          span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${convFee.toStringAsFixed(2)}')]),
-                        ]),
+                        div(
+                          classes:
+                              'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800/60" : "border-zinc-200/60"} pb-2.5',
+                          [
+                            span([Component.text('Convenience Fee (3%):')]),
+                            span(classes: 'font-semibold text-amber-500', [
+                              Component.text('+ ₱ ${convFee.toStringAsFixed(2)}'),
+                            ]),
+                          ],
+                        ),
                         div(classes: 'flex justify-between items-center pt-1.5', [
-                          span(classes: 'text-xs font-bold text-indigo-400', [Component.text('Total Fees Charged (10%):')]),
-                          span(classes: 'text-xl font-black logo-gradient-text', [Component.text('₱ ${totalFees.toStringAsFixed(2)}')]),
+                          span(classes: 'text-xs font-bold text-indigo-400', [
+                            Component.text('Total Fees Charged (10%):'),
+                          ]),
+                          span(classes: 'text-xl font-black logo-gradient-text', [
+                            Component.text('₱ ${totalFees.toStringAsFixed(2)}'),
+                          ]),
                         ]),
                       ]),
                     ],
@@ -2400,7 +2452,8 @@ class _CreateJob extends StatelessComponent {
               final txFee = price * 0.07;
               final convFee = price * 0.03;
               final total = price + txFee + convFee;
-              final msg = 'Confirm Posting:\n\n'
+              final msg =
+                  'Confirm Posting:\n\n'
                   'Escrow Deposit: ₱${price.toStringAsFixed(2)}\n'
                   '7% Transaction Fee: ₱${txFee.toStringAsFixed(2)}\n'
                   '3% Convenience Fee: ₱${convFee.toStringAsFixed(2)}\n'
@@ -2675,25 +2728,36 @@ class _CreateJob extends StatelessComponent {
           final totalCost = basePrice + totalFees;
 
           return div(
-            classes: 'p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900/50" : "border-zinc-200 bg-zinc-50"} space-y-3',
+            classes:
+                'p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900/50" : "border-zinc-200 bg-zinc-50"} space-y-3',
             [
               p(classes: 'text-xs font-bold text-indigo-400', [Component.text('Estimated Payment Breakdown')]),
               div(classes: 'space-y-1.5', [
                 div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                   span([Component.text('Escrow Deposit (Base Price):')]),
-                  span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [Component.text('₱ ${basePrice.toStringAsFixed(2)}')]),
+                  span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
+                    Component.text('₱ ${basePrice.toStringAsFixed(2)}'),
+                  ]),
                 ]),
                 div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                   span([Component.text('Transaction Fee (7%):')]),
                   span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${txFee.toStringAsFixed(2)}')]),
                 ]),
-                div(classes: 'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800/60" : "border-zinc-200/60"} pb-2', [
-                  span([Component.text('Convenience Fee (3%):')]),
-                  span(classes: 'font-semibold text-amber-500', [Component.text('+ ₱ ${convFee.toStringAsFixed(2)}')]),
-                ]),
+                div(
+                  classes:
+                      'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800/60" : "border-zinc-200/60"} pb-2',
+                  [
+                    span([Component.text('Convenience Fee (3%):')]),
+                    span(classes: 'font-semibold text-amber-500', [
+                      Component.text('+ ₱ ${convFee.toStringAsFixed(2)}'),
+                    ]),
+                  ],
+                ),
                 div(classes: 'flex justify-between items-center pt-1.5', [
                   span(classes: 'text-xs font-semibold text-indigo-400', [Component.text('Total Cost:')]),
-                  span(classes: 'text-lg font-black logo-gradient-text', [Component.text('₱ ${totalCost.toStringAsFixed(2)}')]),
+                  span(classes: 'text-lg font-black logo-gradient-text', [
+                    Component.text('₱ ${totalCost.toStringAsFixed(2)}'),
+                  ]),
                 ]),
               ]),
               p(classes: 'text-[9px] text-zinc-500 leading-normal', [
@@ -2903,7 +2967,7 @@ class _ReviewApplicants extends StatelessComponent {
                               span(
                                 classes:
                                     'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-xs font-black text-white bg-red-500 rounded-full border-2 border-white animate-pulse',
-                                [Component.text('${s.getUnreadChatCount(job!['id'] as String)}')],
+                                [Component.text('${s.getUnreadChatCount(job['id'] as String)}')],
                               ),
                           ],
                         ),
@@ -3052,7 +3116,7 @@ class _ReviewApplicants extends StatelessComponent {
                 src: job!['receiptUrl'] as String,
                 classes: 'w-full h-auto max-h-96 object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
                 events: {
-                  'click': (_) => s.showFullScreenPhoto(job!['receiptUrl'] as String),
+                  'click': (_) => s.showFullScreenPhoto(job['receiptUrl'] as String),
                 },
               ),
             ]),
@@ -3111,7 +3175,7 @@ class _ReviewApplicants extends StatelessComponent {
                 src: job!['receiptUrl'] as String,
                 classes: 'w-full h-auto max-h-96 object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
                 events: {
-                  'click': (_) => s.showFullScreenPhoto(job!['receiptUrl'] as String),
+                  'click': (_) => s.showFullScreenPhoto(job['receiptUrl'] as String),
                 },
               ),
             ]),
@@ -3135,7 +3199,7 @@ class _ReviewApplicants extends StatelessComponent {
                 src: job!['receiptUrl'] as String,
                 classes: 'w-full h-auto max-h-96 object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
                 events: {
-                  'click': (_) => s.showFullScreenPhoto(job!['receiptUrl'] as String),
+                  'click': (_) => s.showFullScreenPhoto(job['receiptUrl'] as String),
                 },
               ),
             ]),

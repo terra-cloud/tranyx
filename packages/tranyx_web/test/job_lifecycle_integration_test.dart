@@ -1,11 +1,11 @@
 import 'package:test/test.dart';
-import '../lib/services/firebase_service.dart';
+import 'package:tranyx_web/services/firebase_service.dart';
 import 'package:shared/shared.dart';
 
 void main() {
   group('E2E Job Lifecycle and Wallet Fees Integration Test', () {
     late FirebaseAuthService auth;
-    
+
     // Test users info
     late AuthResult empAuth;
     late AuthResult nyxAuth;
@@ -13,7 +13,7 @@ void main() {
     late String nyxEmail;
     final testPassword = 'Password123!';
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    
+
     // Document paths
     late String jobId;
     late String jobPath;
@@ -220,7 +220,7 @@ void main() {
 
       // 8. VERIFY FINAL DATABASE STATE
       print('Verifying final database balances and states...');
-      
+
       // Employer Final Balance: 5000 (start) - 2000 (escrow) - 200 (fees) = 2800 PHP
       final finalEmpDoc = await empSvc.getDocument('users/${empAuth.uid}');
       expect((finalEmpDoc!['tyxBalance'] as num).toDouble(), equals(2800.0));
@@ -243,7 +243,7 @@ void main() {
       final finalNyxTx = await nyxSvc.getDocument(nyxTxPath);
       expect(finalNyxTx, isNotNull);
       expect((finalNyxTx!['amount'] as num).toDouble(), equals(1940.0));
-      
+
       print('E2E validation checks passed successfully!');
     });
 
