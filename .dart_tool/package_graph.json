@@ -30,7 +30,6 @@
         "cloud_firestore",
         "cloud_functions",
         "cupertino_icons",
-        "firebase_ai",
         "firebase_analytics",
         "firebase_auth",
         "firebase_core",
@@ -401,20 +400,6 @@
         "google_sign_in_ios",
         "google_sign_in_platform_interface",
         "google_sign_in_web"
-      ]
-    },
-    {
-      "name": "firebase_ai",
-      "version": "2.3.0",
-      "dependencies": [
-        "firebase_app_check",
-        "firebase_auth",
-        "firebase_core",
-        "firebase_core_platform_interface",
-        "flutter",
-        "http",
-        "meta",
-        "web_socket_channel"
       ]
     },
     {
@@ -1368,28 +1353,6 @@
       ]
     },
     {
-      "name": "firebase_core_platform_interface",
-      "version": "6.0.3",
-      "dependencies": [
-        "collection",
-        "flutter",
-        "flutter_test",
-        "meta",
-        "plugin_platform_interface"
-      ]
-    },
-    {
-      "name": "firebase_app_check",
-      "version": "0.3.2+10",
-      "dependencies": [
-        "firebase_app_check_platform_interface",
-        "firebase_app_check_web",
-        "firebase_core",
-        "firebase_core_platform_interface",
-        "flutter"
-      ]
-    },
-    {
       "name": "flutter_secure_storage_windows",
       "version": "4.1.0",
       "dependencies": [
@@ -1523,6 +1486,17 @@
         "_flutterfire_internals",
         "firebase_core",
         "flutter",
+        "meta",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "firebase_core_platform_interface",
+      "version": "6.0.3",
+      "dependencies": [
+        "collection",
+        "flutter",
+        "flutter_test",
         "meta",
         "plugin_platform_interface"
       ]
@@ -1884,30 +1858,6 @@
       "dependencies": [
         "meta",
         "web"
-      ]
-    },
-    {
-      "name": "firebase_app_check_web",
-      "version": "0.2.0+14",
-      "dependencies": [
-        "_flutterfire_internals",
-        "firebase_app_check_platform_interface",
-        "firebase_core",
-        "firebase_core_web",
-        "flutter",
-        "flutter_web_plugins",
-        "web"
-      ]
-    },
-    {
-      "name": "firebase_app_check_platform_interface",
-      "version": "0.1.1+10",
-      "dependencies": [
-        "_flutterfire_internals",
-        "firebase_core",
-        "flutter",
-        "meta",
-        "plugin_platform_interface"
       ]
     },
     {

@@ -19,27 +19,39 @@
             "name": "tranyx_mobile",
             "cwd": "packages/tranyx_mobile",
             "request": "launch",
-            "type": "dart"
+            "type": "dart",
+            "args": [
+                "--dart-define-from-file=../../.env"
+            ]
         },
         {
             "name": "tranyx_mobile (profile mode)",
             "cwd": "packages/tranyx_mobile",
             "request": "launch",
             "type": "dart",
-            "flutterMode": "profile"
+            "flutterMode": "profile",
+            "args": [
+                "--dart-define-from-file=../../.env"
+            ]
         },
         {
             "name": "tranyx_mobile (release mode)",
             "cwd": "packages/tranyx_mobile",
             "request": "launch",
             "type": "dart",
-            "flutterMode": "release"
+            "flutterMode": "release",
+            "args": [
+                "--dart-define-from-file=../../.env"
+            ]
         },
         {
             "name": "tranyx_web",
             "cwd": "packages/tranyx_web",
             "request": "launch",
-            "type": "dart"
+            "type": "dart",
+            "args": [
+                "--dart-define-from-file=../../.env"
+            ]
         }
     ]
 }

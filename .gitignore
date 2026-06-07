@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Files and directories created by pub.
 **/doc/api/
 .dart_tool/
@@ -25,11 +24,6 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
-=======
 # Logs
 logs
 *.log
@@ -41,13 +35,6 @@ firebase-debug.*.log*
 
 # Firebase cache
 .firebase/
-
-# Firebase config
-
-# Uncomment this if you'd like others to create their own Firebase project.
-# For a team working on the same Firebase project(s), it is recommended to leave
-# it commented so all members can deploy to the same project(s) in .firebaserc.
-# .firebaserc
 
 # Runtime data
 pids
@@ -99,4 +86,3 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
->>>>>>> 54ea184 (feat: implement Xendit payment flow with invoice creation, verification, and Firebase infrastructure setup)
