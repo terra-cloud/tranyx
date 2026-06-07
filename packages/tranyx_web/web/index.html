@@ -201,6 +201,61 @@
       }
     }
 
+    function getSolanaProvider(type) {
+      if (type === 'phantom') {
+        return window.phantom?.solana || (window.solana?.isPhantom ? window.solana : null);
+      }
+      if (type === 'trust') {
+        return window.trustWallet?.solana || (window.solana?.isTrust ? window.solana : null);
+      }
+      if (type === 'solflare') {
+        return window.solflare || (window.solana?.isSolflare ? window.solana : null);
+      }
+      if (type === 'backpack') {
+        return window.backpack || (window.solana?.isBackpack ? window.solana : null);
+      }
+      return null;
+    }
+
+    window.getDetectedSolanaWallets = function () {
+      const wallets = [];
+      if (window.phantom?.solana || window.solana?.isPhantom) wallets.push('phantom');
+      if (window.trustWallet?.solana || window.solana?.isTrust) wallets.push('trust');
+      if (window.solflare || window.solana?.isSolflare) wallets.push('solflare');
+      if (window.backpack || window.solana?.isBackpack) wallets.push('backpack');
+      return wallets;
+    };
+
+    window.isSolanaWalletInstalled = function (type) {
+      return !!getSolanaProvider(type);
+    };
+
+    window.connectSolanaWallet = async function (type) {
+      const provider = getSolanaProvider(type);
+      if (!provider) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
+      window.selectedSolanaWallet = type;
+      localStorage.setItem('selectedSolanaWallet', type);
+      const resp = await provider.connect();
+      const pubKey = resp?.publicKey || provider.publicKey;
+      if (!pubKey) throw new Error("Could not retrieve public key from " + type + " Wallet.");
+      return pubKey.toString();
+    };
+
+    window.getSolanaPublicKeyIfConnected = async function (type) {
+      const provider = getSolanaProvider(type);
+      if (!provider) return null;
+      try {
+        const resp = await provider.connect({ onlyIfTrusted: true });
+        const pubKey = resp?.publicKey || provider.publicKey;
+        if (!pubKey) return null;
+        window.selectedSolanaWallet = type;
+        localStorage.setItem('selectedSolanaWallet', type);
+        return pubKey.toString();
+      } catch (e) {
+        return null;
+      }
+    };
+
     window.sendSolPayment = async function (fromAddress, toAddress, amountInSol, rpcUrl) {
       console.log("sendSolPayment started", fromAddress, toAddress, amountInSol, rpcUrl);
       ensureBuffer();
@@ -208,12 +263,13 @@
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
         }
-        const solana = window.phantom && window.phantom.solana;
+        const type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        const solana = getSolanaProvider(type);
         if (!solana) {
-          throw new Error("Phantom Wallet is not installed.");
+          throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
         }
         if (!solana.publicKey) {
-          throw new Error("Phantom Wallet is not connected.");
+          throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected.");
         }
 
         // Establish connection to dynamic RPC URL
@@ -245,7 +301,7 @@
         transaction.recentBlockhash = latestBlockHash.blockhash;
         transaction.feePayer = fromPubkey;
 
-        // Sign and send transaction via Phantom provider
+        // Sign and send transaction via selected provider
         const { signature } = await solana.signAndSendTransaction(transaction);
         console.log("Transaction sent. Signature:", signature);
 
@@ -274,9 +330,10 @@
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
         }
-        const solana = window.phantom && window.phantom.solana;
-        if (!solana) throw new Error("Phantom Wallet is not installed.");
-        if (!solana.publicKey) throw new Error("Phantom Wallet is not connected.");
+        const type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        const solana = getSolanaProvider(type);
+        if (!solana) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
+        if (!solana.publicKey) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected.");
 
         let fallbackRpc = "https://api.testnet.solana.com";
         let fallbackUsdtMint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
@@ -514,7 +571,37 @@
           photoUrl: result.user.photoURL
         });
       } catch (error) {
-        console.error(error);
+        console.warn("Popup authentication failed/blocked, falling back to redirect flow:", error);
+        try {
+          await firebase.auth().signInWithRedirect(provider);
+          return JSON.stringify({ redirecting: true });
+        } catch (redirectError) {
+          console.error("Redirect authentication failed:", redirectError);
+          throw redirectError;
+        }
+      }
+    };
+
+    window.checkRedirectResultJs = async function (config) {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(config);
+      }
+      try {
+        const result = await firebase.auth().getRedirectResult();
+        if (result && result.user) {
+          const idToken = await result.user.getIdToken();
+          return JSON.stringify({
+            uid: result.user.uid,
+            idToken: idToken,
+            refreshToken: result.user.refreshToken,
+            email: result.user.email,
+            displayName: result.user.displayName,
+            photoUrl: result.user.photoURL
+          });
+        }
+        return null;
+      } catch (error) {
+        console.error("checkRedirectResultJs error:", error);
         throw error;
       }
     };
@@ -560,7 +647,7 @@
             .where('uid', '==', uid)
             .onSnapshot((snapshot) => {
               const notifs = [];
-              snapshot.forEach(doc => notifs.push({ id: doc.id, ...doc.data() }));
+              snapshot.forEach(doc => notifs.push({ ...doc.data(), id: doc.id }));
               callback(JSON.stringify(notifs));
             }, (error) => {
               console.error("Notifications listener error:", error);
@@ -592,7 +679,7 @@
         .where('creatorId', '==', uid)
         .onSnapshot((snapshot) => {
           const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify({ type: 'employer', jobs: list }));
         }, (error) => {
           console.error("Employer jobs listener error:", error);
@@ -602,7 +689,7 @@
         .where('acceptedApplicantId', '==', uid)
         .onSnapshot((snapshot) => {
           const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify({ type: 'nyxian', jobs: list }));
         }, (error) => {
           console.error("Nyxian jobs listener error:", error);
@@ -632,7 +719,7 @@
           unsubApps = db.collection('jobs').doc(jobId).collection('applications')
             .onSnapshot((snapshot) => {
               const list = [];
-              snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+              snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
               callback(JSON.stringify({ type: 'applications', data: list }));
             }, (error) => {
               console.error("Job applications listener error:", error);
@@ -644,7 +731,7 @@
         .onSnapshot((doc) => {
           if (doc.exists) {
             currentJobData = doc.data();
-            callback(JSON.stringify({ type: 'job', data: { id: doc.id, ...currentJobData } }));
+            callback(JSON.stringify({ type: 'job', data: { ...currentJobData, id: doc.id } }));
             setupAppsListener(firebase.auth().currentUser);
           }
         }, (error) => {
@@ -671,7 +758,7 @@
       const unsub = db.collection('rentals')
         .onSnapshot((snapshot) => {
           const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify(list));
         }, (error) => {
           console.error("Rentals list listener error:", error);
@@ -685,7 +772,7 @@
       const unsub = db.collection('rentals').doc(rentalId)
         .onSnapshot((doc) => {
           if (doc.exists) {
-            callback(JSON.stringify({ id: doc.id, ...doc.data() }));
+            callback(JSON.stringify({ ...doc.data(), id: doc.id }));
           }
         }, (error) => {
           console.error("Rental details listener error:", error);
@@ -697,6 +784,11 @@
     window._osrmRoute = async function (elementId, fromLat, fromLng, toLat, toLng, color, midLat, midLng) {
       const map = window['__lmap_' + elementId];
       if (!map || !window.maplibregl) return JSON.stringify({ error: 'No map or MapLibre' });
+
+      // Wait for style to load to prevent "Style is not done loading" errors
+      if (!map.isStyleLoaded()) {
+        await new Promise(resolve => map.once('load', resolve));
+      }
 
       const routeKey = '__lroute_' + elementId;
       const existing = window[routeKey];
@@ -881,7 +973,7 @@
         .orderBy('createdAt', 'asc')
         .onSnapshot((snapshot) => {
           const msgs = [];
-          snapshot.forEach(doc => msgs.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => msgs.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify(msgs));
         }, (err) => {
           console.error('Chat listener error:', err);
@@ -895,6 +987,24 @@
         delete _chatUnsubs[chatId];
       }
     };
+
+    function createChatNotification(db, recipientId, senderName, messageText, chatId) {
+      if (!recipientId) return;
+      const prefix = recipientId.length > 5 ? recipientId.substring(0, 5) : recipientId;
+      const docId = 'notif_' + Date.now() + '_' + prefix;
+      db.collection('notifications').doc(docId).set({
+        uid: recipientId,
+        title: 'New message from ' + senderName,
+        message: messageText,
+        isRead: false,
+        createdAt: Date.now(),
+        type: 'chat',
+        chatId: chatId,
+        senderName: senderName
+      }).catch(err => {
+        console.error("Error creating chat notification:", err);
+      });
+    }
 
     window.sendChatMessage = function (chatId, msgObj) {
       if (!firebase.apps.length) return 'firebase_not_init';
@@ -917,6 +1027,42 @@
       db.collection('chats').doc(chatId).collection('messages').add(msg);
       // Touch chat metadata
       db.collection('chats').doc(chatId).set({ updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+
+      // Determine recipient and create notification
+      const notificationText = photoUrl ? 'Sent a photo' : text;
+      if (chatId.startsWith('rental_')) {
+        const parts = chatId.split('_');
+        const rentalId = parts[1];
+        const renteeId = parts[2];
+        db.collection('rentals').doc(rentalId).get().then(doc => {
+          if (doc.exists) {
+            const rental = doc.data();
+            const recipientId = (senderId === renteeId) ? rental.hostId : renteeId;
+            createChatNotification(db, recipientId, senderName, notificationText, chatId);
+          }
+        });
+      } else if (chatId.startsWith('property_')) {
+        const parts = chatId.split('_');
+        const propertyId = parts[1];
+        const renteeId = parts[2];
+        db.collection('properties').doc(propertyId).get().then(doc => {
+          if (doc.exists) {
+            const property = doc.data();
+            const recipientId = (senderId === renteeId) ? property.hostId : renteeId;
+            createChatNotification(db, recipientId, senderName, notificationText, chatId);
+          }
+        });
+      } else {
+        // Job chat
+        db.collection('jobs').doc(chatId).get().then(doc => {
+          if (doc.exists) {
+            const job = doc.data();
+            const recipientId = (senderId === job.creatorId) ? job.acceptedApplicantId : job.creatorId;
+            createChatNotification(db, recipientId, senderName, notificationText, chatId);
+          }
+        });
+      }
+
       return 'ok';
     };
 
@@ -1026,7 +1172,7 @@
         .orderBy('createdAt', 'asc')
         .onSnapshot((snapshot) => {
           const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify(list));
         }, (err) => {
           console.error('Rental Q&A listener error:', err);
@@ -1074,7 +1220,7 @@
         .orderBy('createdAt', 'asc')
         .onSnapshot((snapshot) => {
           const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify(list));
         }, (err) => {
           console.error('Property Q&A listener error:', err);
@@ -1118,7 +1264,7 @@
       const unsub = db.collection('properties')
         .onSnapshot((snapshot) => {
           const list = [];
-          snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
           callback(JSON.stringify(list));
         }, (error) => {
           console.error("Properties list listener error:", error);
@@ -1132,7 +1278,7 @@
       const unsub = db.collection('properties').doc(propertyId)
         .onSnapshot((doc) => {
           if (doc.exists) {
-            callback(JSON.stringify({ id: doc.id, ...doc.data() }));
+            callback(JSON.stringify({ ...doc.data(), id: doc.id }));
           }
         }, (error) => {
           console.error("Property details listener error:", error);

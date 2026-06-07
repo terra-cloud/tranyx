@@ -1,3 +1,5 @@
+// ignore_for_file: unnecessary_string_interpolations
+
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -5,6 +7,7 @@ import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
 import '../../services/web_interop.dart';
+import '../../services/firebase_service.dart';
 import 'contract_viewer.dart';
 
 class BookPropertyModalComponent extends StatefulComponent {
@@ -103,7 +106,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
       }
 
       final currentUid = component.appState.userProfile?.uid;
-      if (currentUid == null) throw Exception('Not logged in');
+      if (currentUid == null) throw FirebaseException('Not logged in', 403);
       final user = component.appState.userProfile;
       if (user == null) throw Exception('User profile not loaded.');
 
@@ -124,6 +127,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
             'contractTerms': p['contractTerms'] ?? 'Standard lease terms',
             'startDate': now.millisecondsSinceEpoch,
             'endDate': end.millisecondsSinceEpoch,
+            'licenseNumber': _licenseNumber,
           };
           component.appState.showBookPropertyModal = false;
         });
@@ -143,6 +147,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         contractTerms: p['contractTerms'] ?? 'Standard lease terms',
         startDate: now.millisecondsSinceEpoch,
         endDate: end.millisecondsSinceEpoch,
+        licenseNumber: _licenseNumber,
       );
 
       // Close modal
@@ -150,6 +155,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         component.appState.showBookPropertyModal = false;
         component.appState.selectedPropertyData = null;
       });
+      await component.appState.loadRenterPendingRequests();
       // Optionally reload requests
       if (component.appState.activeTab == AppTab.transit) {
         // Trigger transit view pending requests reload
@@ -241,10 +247,12 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     if (photos.isNotEmpty) ...[
                       img(
                         src: photos[_activeImageIndex % photos.length],
-                        classes: 'w-full h-full object-cover transition-all duration-300 cursor-zoom-in hover:opacity-95',
+                        classes:
+                            'w-full h-full object-cover transition-all duration-300 cursor-zoom-in hover:opacity-95',
                         attributes: {'alt': 'Property interior/exterior'},
                         events: {
-                          'click': (_) => component.appState.showFullScreenPhoto(photos[_activeImageIndex % photos.length])
+                          'click': (_) =>
+                              component.appState.showFullScreenPhoto(photos[_activeImageIndex % photos.length]),
                         },
                       ),
                       div(

@@ -170,6 +170,38 @@ class _ProfileMain extends StatelessComponent {
     return div(classes: 'space-y-6', [
       h2(classes: 'text-2xl font-bold hidden md:block', [Component.text('Account Settings')]),
 
+      if (s.userProfile == null)
+        div(
+          classes:
+              'p-5 rounded-2xl border flex flex-col md:flex-row items-center gap-4 border-amber-500/30 bg-amber-500/10',
+          [
+            div(classes: 'p-3 rounded-xl bg-amber-500/20 text-amber-500', [
+              lIcon('alert-triangle', cls: 'w-6 h-6'),
+            ]),
+            div(classes: 'flex-1 text-center md:text-left', [
+              p(classes: 'font-bold text-amber-500', [Component.text('Profile Incomplete')]),
+              p(classes: 'text-sm mt-1 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                Component.text(
+                  'Your profile records were not found in the database. Please complete your profile details to unlock all features.',
+                ),
+              ]),
+            ]),
+            button(
+              classes:
+                  'px-6 py-2.5 rounded-xl font-bold bg-amber-500 text-white shadow-lg hover:bg-amber-400 transition-colors',
+              events: {
+                'click': (_) {
+                  s.setState(() {
+                    s.profileView = ProfileView.personal;
+                    s.initializeProfileEditing();
+                  });
+                },
+              },
+              [Component.text('Go to Profile Setup')],
+            ),
+          ],
+        ),
+
       // Stats row
       div(
         classes: 'grid grid-cols-2 md:grid-cols-${s.accountType == AccountType.employer ? "2" : "3"} gap-4',
@@ -374,6 +406,16 @@ class _PersonalInfo extends StatelessComponent {
         isDark: s.isDark,
         onBack: () => s.setState(() => s.profileView = ProfileView.main),
       ),
+      if (s.userProfile == null)
+        div(classes: 'p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-3', [
+          lIcon('alert-triangle', cls: 'w-5 h-5 text-amber-500'),
+          div([
+            p(classes: 'font-bold text-amber-500 text-sm', [Component.text('Profile Setup Required')]),
+            p(classes: 'text-xs ${s.isDark ? "text-zinc-400" : "text-zinc-650"}', [
+              Component.text('Enter your name and email, then click "Save Changes" to activate your account.'),
+            ]),
+          ]),
+        ]),
       div(classes: 'space-y-4', [
         inputField(
           label: 'Full Name',
@@ -495,6 +537,16 @@ class _ProfessionalInfo extends StatelessComponent {
         isDark: isDark,
         onBack: () => s.setState(() => s.profileView = ProfileView.main),
       ),
+      if (s.userProfile == null)
+        div(classes: 'p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-3', [
+          lIcon('alert-triangle', cls: 'w-5 h-5 text-amber-500'),
+          div([
+            p(classes: 'font-bold text-amber-500 text-sm', [Component.text('Profile Setup Required')]),
+            p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-650"}', [
+              Component.text('Please complete and save your Personal Information first to register your profile.'),
+            ]),
+          ]),
+        ]),
 
       if (isNyxian) ...[
         div(classes: 'p-5 rounded-2xl border $sectionCls space-y-4', [
@@ -831,18 +883,29 @@ class _Payment extends StatelessComponent {
 
   Component _phantomWallet(TranyxAppState s, bool isDark) {
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+    final walletName = s.selectedWalletType != null
+        ? '${s.selectedWalletType!.substring(0, 1).toUpperCase()}${s.selectedWalletType!.substring(1)}'
+        : 'Solana';
+
+    Component getWalletIcon({String size = 'w-5 h-5'}) {
+      if (s.selectedWalletType == 'phantom') return img(src: '/images/PhantomWallet.png', classes: '$size object-contain rounded-md');
+      if (s.selectedWalletType == 'solflare') return img(src: '/images/Solflare.png', classes: '$size object-contain rounded-md');
+      if (s.selectedWalletType == 'trust') return img(src: '/images/TrustWallet.jpeg', classes: '$size object-contain rounded-md');
+      if (s.selectedWalletType == 'backpack') return img(src: '/images/BackPack.png', classes: '$size object-contain rounded-md');
+      return lIcon('wallet', cls: '$size text-white');
+    }
 
     if (s.walletState == WalletState.disconnected) {
       return div(classes: 'p-5 rounded-2xl border $cardCls', [
         div(classes: 'flex items-center justify-between', [
           div(classes: 'flex items-center gap-3', [
             div(classes: 'p-2.5 rounded-xl phantom-gradient', [
-              lIcon('wallet', cls: 'w-5 h-5 text-white'),
+              getWalletIcon(size: 'w-5 h-5'),
             ]),
             div([
-              p(classes: 'font-semibold', [Component.text('Phantom Wallet')]),
+              p(classes: 'font-semibold', [Component.text('Solana Wallet')]),
               p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-                Component.text('Connect your Solana wallet'),
+                Component.text('Connect Phantom, Trust, Solflare, or Backpack'),
               ]),
             ]),
           ]),
@@ -860,10 +923,10 @@ class _Payment extends StatelessComponent {
       return div(classes: 'p-5 rounded-2xl border $cardCls', [
         div(classes: 'flex items-center gap-3', [
           div(classes: 'p-2.5 rounded-xl phantom-gradient animate-pulse', [
-            lIcon('wallet', cls: 'w-5 h-5 text-white'),
+            getWalletIcon(size: 'w-5 h-5'),
           ]),
           div([
-            p(classes: 'font-semibold', [Component.text('Connecting Phantom...')]),
+            p(classes: 'font-semibold', [Component.text('Connecting $walletName...')]),
             p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
               Component.text('Please approve in your browser extension'),
             ]),
@@ -955,10 +1018,10 @@ class _Payment extends StatelessComponent {
             div(
               classes:
                   'w-12 h-12 rounded-full bg-[#512da8] flex items-center justify-center text-white shadow-lg shadow-purple-500/20',
-              [lIcon('wallet', cls: 'w-6 h-6')],
+              [getWalletIcon(size: 'w-6 h-6')],
             ),
             div([
-              p(classes: 'font-extrabold text-indigo-400 tracking-tight text-base', [Component.text('Phantom Wallet')]),
+              p(classes: 'font-extrabold text-indigo-400 tracking-tight text-base', [Component.text('$walletName Wallet')]),
               p(classes: 'text-xs text-zinc-500 font-mono mt-0.5', [Component.text(displayAddr)]),
             ]),
           ]),
@@ -1436,6 +1499,38 @@ class _HelpSupportState extends State<_HelpSupport> {
   ];
   String currentChatInput = '';
   bool isAiTyping = false;
+  double? supportTokens;
+
+  @override
+  void initState() {
+    super.initState();
+    loadSupportTokens();
+  }
+
+  Future<void> loadSupportTokens() async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token != null && uid != null) {
+      try {
+        final firestore = FirestoreService(token, component.state.handleTokenRefresh);
+        final userDoc = await firestore.getDocument('users/$uid');
+        if (userDoc != null && userDoc.containsKey('supportTokensAvailable')) {
+          final double savedTokens = (userDoc['supportTokensAvailable'] as num).toDouble();
+          final int savedTime = (userDoc['supportLastRequestedTimestamp'] as num).toInt();
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final elapsedMs = now - savedTime;
+          final recovered = elapsedMs / 3600000.0;
+          setState(() {
+            supportTokens = (savedTokens + recovered).clamp(0.0, 5.0);
+          });
+          return;
+        }
+      } catch (_) {}
+    }
+    setState(() {
+      supportTokens = 5.0;
+    });
+  }
 
   List<Map<String, String>> get faqData {
     final type = component.state.accountType;
@@ -1562,9 +1657,128 @@ class _HelpSupportState extends State<_HelpSupport> {
       isAiTyping = true;
     });
 
+    // Check for satisfaction / termination keywords
+    final cleanText = text.toLowerCase().trim();
+    final terminationKeywords = [
+      'thank you', 'thanks', 'thank u', 'no more questions', 'no more question', 
+      'no questions', "i'm good", 'im good', 'satisfied', 'all good', 'that is all', 
+      'thats all', "that's all", 'nothing else', 'no need',
+      'salamat', 'maraming salamat', 'wala na', 'ok na', 'okay na', 'ayos na', 
+      'sapat na', 'walang anuman',
+      'damo nga salamat', 'waray na', 'igo na', 'tolda na'
+    ];
+    final isTerminating = terminationKeywords.any((k) => cleanText.contains(k) || cleanText == k);
+
+    if (isTerminating) {
+      String partingMsg = "You're welcome! Glad I could help. Terminating the support session now. Have a great day!";
+      if (cleanText.contains('damo') || cleanText.contains('waray na') || cleanText.contains('igo na')) {
+        partingMsg = 'Waray anuman! Malipayon ako nga nakabulig. Awtomatiko ko na nga tatapuson ini nga chat. Maopay nga adlaw!';
+      } else if (cleanText.contains('salamat') || cleanText.contains('wala na') || cleanText.contains('ok na') || cleanText.contains('okay na') || cleanText.contains('ayos na')) {
+        partingMsg = 'Walang anuman! Masaya akong makatolong. Awtomatiko ko nang tatapusin ang chat na ito. Magandang araw!';
+      }
+
+      setState(() {
+        isAiTyping = false;
+        chatMessages.add({
+          'isUser': false,
+          'text': partingMsg,
+          'time': 'Just now',
+        });
+      });
+
+      // Terminate after 2 seconds
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          setState(() {
+            showChat = false;
+          });
+        }
+      });
+      return;
+    }
+
+    // Only check tokens for a new conversation session (the first user message)
+    double? tokensToUpdate;
+    int? timestampToUpdate;
+    final isNewConversation = (chatMessages.length == 2);
+
+    if (isNewConversation) {
+      final token = SessionStorage.idToken;
+      final uid = SessionStorage.uid;
+      if (token != null && uid != null) {
+        try {
+          final firestore = FirestoreService(token, component.state.handleTokenRefresh);
+          final userDoc = await firestore.getDocument('users/$uid');
+          final now = DateTime.now().millisecondsSinceEpoch;
+
+          double tokensAvailable = 5.0;
+          int lastRequestedTimestamp = now;
+
+          if (userDoc != null && userDoc.containsKey('supportTokensAvailable')) {
+            final double savedTokens = (userDoc['supportTokensAvailable'] as num).toDouble();
+            final int savedTime = (userDoc['supportLastRequestedTimestamp'] as num).toInt();
+
+            final elapsedMs = now - savedTime;
+            final recovered = elapsedMs / 3600000.0;
+            tokensAvailable = (savedTokens + recovered).clamp(0.0, 5.0);
+            lastRequestedTimestamp = now;
+          }
+
+          if (tokensAvailable < 1.0) {
+            final timeNeededMs = (1.0 - tokensAvailable) * 3600000.0;
+            final minutesLeft = (timeNeededMs / 60000.0).ceil();
+            setState(() {
+              isAiTyping = false;
+              chatMessages.add({
+                'isUser': false,
+                'text': 'You have run out of free support questions. A new free question token will recover in $minutesLeft minutes. Other services like title, description, and cover note generation remain unlimited!',
+                'time': 'Just now',
+              });
+            });
+            return;
+          }
+
+          // Keep track of the checked values, but don't save yet!
+          tokensToUpdate = tokensAvailable - 1.0;
+          timestampToUpdate = lastRequestedTimestamp;
+        } catch (e) {
+          // Fallback: Proceed if Firestore quota check fails, to ensure resilience.
+        }
+      }
+    }
+
+    // Prepare history to send to Cloudflare (exclude the greeting)
+    final history = chatMessages.sublist(1).map((m) {
+      return {
+        'role': m['isUser'] == true ? 'user' : 'assistant',
+        'content': m['text'] as String,
+      };
+    }).toList();
+
     try {
       final gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken);
-      final response = await gemini.askSupportQuestion(text);
+      final response = await gemini.askSupportQuestion(history);
+
+      // Successfully connected to server AI and got response!
+      // Now decrement token if this was a new conversation.
+      if (isNewConversation && tokensToUpdate != null && timestampToUpdate != null) {
+        final token = SessionStorage.idToken;
+        final uid = SessionStorage.uid;
+        if (token != null && uid != null) {
+          try {
+            final firestore = FirestoreService(token, component.state.handleTokenRefresh);
+            await firestore.setDocument('users/$uid', {
+              'supportTokensAvailable': tokensToUpdate,
+              'supportLastRequestedTimestamp': timestampToUpdate,
+            });
+            setState(() {
+              supportTokens = tokensToUpdate;
+            });
+          } catch (_) {
+            // Silently ignore or fallback
+          }
+        }
+      }
 
       setState(() {
         isAiTyping = false;
@@ -1667,7 +1881,9 @@ class _HelpSupportState extends State<_HelpSupport> {
                     ]),
                     p(classes: 'text-xs text-emerald-400 font-bold flex items-center gap-1.5', [
                       span(classes: 'w-2 h-2 rounded-full bg-emerald-400 animate-ping', []),
-                      Component.text('Online Now'),
+                      Component.text(supportTokens != null
+                          ? 'Online Now • Tokens: ${supportTokens! % 1 == 0 ? supportTokens!.toInt() : supportTokens!.toStringAsFixed(1)}/5'
+                          : 'Online Now'),
                     ]),
                   ]),
                 ]),
@@ -1855,7 +2071,20 @@ class _HelpSupportState extends State<_HelpSupport> {
             classes:
                 'py-6 px-4 rounded-[2rem] border transition-all text-center flex flex-col items-center justify-center gap-3 '
                 '${isDark ? "bg-zinc-900/60 border-zinc-800 hover:bg-zinc-800 hover:border-indigo-500/50" : "bg-white border-zinc-200 shadow-sm hover:shadow-md hover:border-indigo-400"}',
-            events: {'click': (_) => setState(() => showChat = true)},
+            events: {
+              'click': (_) {
+                loadSupportTokens();
+                setState(() {
+                  showChat = true;
+                  chatMessages.clear();
+                  chatMessages.add({
+                    'isUser': false,
+                    'text': 'Hi! I am Nyx, your Tranyx AI support agent. How can I help you today?',
+                    'time': 'Just now',
+                  });
+                });
+              }
+            },
             [
               div(
                 classes: 'w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400',
@@ -2087,6 +2316,8 @@ class _HistoryViewState extends State<_HistoryView> {
             'desc': 'Completed contract',
             'date': _formatDate(createdAt),
             'amount': payout,
+            'baseAmount': price,
+            'commissionFee': price * 0.03,
             'status': 'Released',
             'timestamp': createdAt ?? 0,
           });
@@ -2123,11 +2354,17 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the creator -> purchases
         if (creatorId == uid) {
+          final txFee = price * 0.07;
+          final convFee = price * 0.03;
+          final totalCost = price + txFee + convFee;
           pTrans.add({
             'title': title,
             'desc': 'Job payment',
             'date': _formatDate(createdAt),
-            'amount': price,
+            'amount': totalCost,
+            'baseAmount': price,
+            'txFee': txFee,
+            'convFee': convFee,
             'status': 'Successful',
             'timestamp': createdAt ?? 0,
           });
@@ -2650,6 +2887,17 @@ class _HistoryViewState extends State<_HistoryView> {
                       p(classes: 'text-xs text-zinc-500 mt-0.5', [
                         Component.text('${tx['desc']} • ${tx['date']}'),
                       ]),
+                      if (tx['commissionFee'] != null) ...[
+                        p(classes: 'text-xs text-zinc-500 mt-1', [
+                          Component.text('Base Payout: ${formatCurrency((tx['baseAmount'] as num).toDouble())}'),
+                        ]),
+                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
+                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
+                          Component.text(
+                            'Platform Commission (3%): − ${formatCurrency((tx['commissionFee'] as num).toDouble())}',
+                          ),
+                        ]),
+                      ],
                     ]),
                   ]),
                   div(classes: 'text-right', [
@@ -2699,6 +2947,23 @@ class _HistoryViewState extends State<_HistoryView> {
                           lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
                           Component.text(
                             'Platform fee (3%): − ${formatCurrency((tx['bookingFee'] as num).toDouble())}',
+                          ),
+                        ]),
+                      ],
+                      if (tx['txFee'] != null) ...[
+                        p(classes: 'text-xs text-zinc-500 mt-1', [
+                          Component.text('Base Gig Price: ${formatCurrency((tx['baseAmount'] as num).toDouble())}'),
+                        ]),
+                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
+                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
+                          Component.text(
+                            'Transaction Fee (7%): + ${formatCurrency((tx['txFee'] as num).toDouble())}',
+                          ),
+                        ]),
+                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
+                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
+                          Component.text(
+                            'Convenience Fee (3%): + ${formatCurrency((tx['convFee'] as num).toDouble())}',
                           ),
                         ]),
                       ],

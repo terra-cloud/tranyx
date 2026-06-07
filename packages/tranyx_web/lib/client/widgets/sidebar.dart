@@ -50,7 +50,15 @@ class SidebarComponent extends StatelessComponent {
     final inactiveCls = s.isDark
         ? 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
         : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900';
-    final showBadge = (tab == AppTab.jobs && s.jobsHasUpdates) || (tab == AppTab.transit && s.transitHasUpdates);
+    final hasUnreadChats = (tab == AppTab.jobs && s.hasUnreadJobChats) || (tab == AppTab.transit && s.hasUnreadRentalChats);
+    final showBadge = (tab == AppTab.jobs && s.jobsHasUpdates) || (tab == AppTab.transit && s.transitHasUpdates) || hasUnreadChats;
+
+    int unreadCount = 0;
+    if (tab == AppTab.jobs) {
+      unreadCount = s.unreadJobChatsCount;
+    } else if (tab == AppTab.transit) {
+      unreadCount = s.unreadRentalChatsCount;
+    }
 
     return button(
       classes: 'w-full flex justify-center p-4 rounded-2xl transition-all ${isActive ? activeCls : inactiveCls}',
@@ -59,7 +67,13 @@ class SidebarComponent extends StatelessComponent {
       [
         div(classes: 'relative', [
           lIcon(iconName, cls: 'w-6 h-6'),
-          if (showBadge)
+          if (unreadCount > 0)
+            div(
+              [Component.text('$unreadCount')],
+              classes:
+                  'absolute -top-2 -right-2 flex items-center justify-center min-w-[16px] h-4 px-1.5 rounded-full bg-red-500 text-white text-[8px] font-black border border-white dark:border-zinc-900 animate-pulse',
+            )
+          else if (showBadge)
             div([], classes: 'absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 border border-white dark:border-zinc-900 animate-pulse'),
         ]),
       ],
