@@ -38,6 +38,10 @@ jobs:
           flutter pub global activate jaspr_cli
           echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
 
+      - name: Generate Env Config
+        if: steps.filter.outputs.code == 'true'
+        run: dart run shared:generate_env
+
       - name: Build Jaspr Web
         if: steps.filter.outputs.code == 'true'
         working-directory: packages/tranyx_web
