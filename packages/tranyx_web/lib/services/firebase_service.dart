@@ -3090,7 +3090,7 @@ class GeminiService {
     const String model = '@cf/meta/llama-3.2-3b-instruct';
 
     final directUrl = 'https://api.cloudflare.com/client/v4/accounts/$accountId/ai/run/$model';
-    final url = 'https://corsproxy.io/?url=${Uri.encodeComponent(directUrl)}';
+    final url = 'https://proxy.corsfix.com/?url=${Uri.encodeComponent(directUrl)}';
 
     final messages = <Map<String, String>>[];
     if (systemPrompt != null) {
@@ -3225,7 +3225,7 @@ class GeminiService {
     const String model = '@cf/meta/llama-3.2-3b-instruct';
 
     final directUrl = 'https://api.cloudflare.com/client/v4/accounts/$accountId/ai/run/$model';
-    final url = 'https://corsproxy.io/?url=${Uri.encodeComponent(directUrl)}';
+    final url = 'https://proxy.corsfix.com/?url=${Uri.encodeComponent(directUrl)}';
 
     final systemPrompt = 'You are Nyx, the official AI support assistant for the Tranyx platform—a localized service bridging and asset rental platform for the Philippine market.\n\n'
         'TRANYX SYSTEM WORKFLOWS & USER STEPS:\n'
