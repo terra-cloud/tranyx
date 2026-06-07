@@ -86,3 +86,6 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Generated environment variables
+packages/shared/lib/src/env.g.dart
