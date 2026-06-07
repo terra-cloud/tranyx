@@ -29,6 +29,10 @@ migrate_working_dir/
 # is commented out by default.
 #.vscode/
 
-# Ignore dotenv variables
+# dotenv environment variables file
 .env
-web/.env
+
+# Generated Dart files
+*.g.dart
+**/*.g.dart
+

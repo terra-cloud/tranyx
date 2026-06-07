@@ -44,6 +44,10 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Ignore dotenv variables
+# dotenv environment variables file
 .env
-assets/.env
+
+# Generated Dart files
+*.g.dart
+**/*.g.dart
+

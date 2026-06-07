@@ -83,9 +83,12 @@ node_modules/
 
 # dotenv environment variables file
 .env
+web/.env
+assets/.env
 
 # dataconnect generated files
 .dataconnect
 
-# Generated environment variables
-packages/shared/lib/src/env.g.dart
+# Generated Dart files
+*.g.dart
+**/*.g.dart
