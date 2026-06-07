@@ -25,6 +25,41 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _isThinking = false;
+  double? _supportTokens;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSupportTokens();
+  }
+
+  Future<void> _loadSupportTokens() async {
+    final profile = ref.read(userProfileProvider).value;
+    if (profile == null) return;
+    final uid = profile.uid;
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final data = userDoc.data();
+      if (data != null && data.containsKey('supportTokensAvailable')) {
+        final double savedTokens = (data['supportTokensAvailable'] as num).toDouble();
+        final int savedTime = (data['supportLastRequestedTimestamp'] as num).toInt();
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final elapsedMs = now - savedTime;
+        final recovered = elapsedMs / 3600000.0;
+        if (mounted) {
+          setState(() {
+            _supportTokens = (savedTokens + recovered).clamp(0.0, 5.0);
+          });
+        }
+        return;
+      }
+    } catch (_) {}
+    if (mounted) {
+      setState(() {
+        _supportTokens = 5.0;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -98,49 +133,58 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
     }
 
     // Quota Rate Limiting: 5 tokens max, recovering 1 token/hour (3,600,000 ms)
-    try {
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-      final data = userDoc.data();
-      final now = DateTime.now().millisecondsSinceEpoch;
+    // Only check and decrement tokens for a new conversation session (the first user message)
+    if (_messages.length == 2) {
+      try {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+        final data = userDoc.data();
+        final now = DateTime.now().millisecondsSinceEpoch;
 
-      double tokensAvailable = 5.0;
-      int lastRequestedTimestamp = now;
+        double tokensAvailable = 5.0;
+        int lastRequestedTimestamp = now;
 
-      if (data != null && data.containsKey('supportTokensAvailable')) {
-        final double savedTokens = (data['supportTokensAvailable'] as num).toDouble();
-        final int savedTime = (data['supportLastRequestedTimestamp'] as num).toInt();
+        if (data != null && data.containsKey('supportTokensAvailable')) {
+          final double savedTokens = (data['supportTokensAvailable'] as num).toDouble();
+          final int savedTime = (data['supportLastRequestedTimestamp'] as num).toInt();
 
-        final elapsedMs = now - savedTime;
-        final recovered = elapsedMs / 3600000.0;
-        tokensAvailable = (savedTokens + recovered).clamp(0.0, 5.0);
-        lastRequestedTimestamp = now;
-      }
+          final elapsedMs = now - savedTime;
+          final recovered = elapsedMs / 3600000.0;
+          tokensAvailable = (savedTokens + recovered).clamp(0.0, 5.0);
+          lastRequestedTimestamp = now;
+        }
 
-      if (tokensAvailable < 1.0) {
-        final timeNeededMs = (1.0 - tokensAvailable) * 3600000.0;
-        final minutesLeft = (timeNeededMs / 60000.0).ceil();
+        if (tokensAvailable < 1.0) {
+          final timeNeededMs = (1.0 - tokensAvailable) * 3600000.0;
+          final minutesLeft = (timeNeededMs / 60000.0).ceil();
+          if (mounted) {
+            setState(() {
+              _messages.add({
+                'role': 'assistant',
+                'content': 'You have run out of free support questions. A new free question token will recover in $minutesLeft minutes. Other services like title, description, and cover note generation remain unlimited!'
+              });
+              _isThinking = false;
+            });
+            _scrollToBottom();
+          }
+          return;
+        }
+
+        // Decrement token and update Firestore
+        tokensAvailable -= 1.0;
+        await FirebaseFirestore.instance.collection('users').doc(uid).update({
+          'supportTokensAvailable': tokensAvailable,
+          'supportLastRequestedTimestamp': lastRequestedTimestamp,
+        });
+
         if (mounted) {
           setState(() {
-            _messages.add({
-              'role': 'assistant',
-              'content': 'You have run out of free support questions. A new free question token will recover in $minutesLeft minutes. Other services like title, description, and cover note generation remain unlimited!'
-            });
-            _isThinking = false;
+            _supportTokens = tokensAvailable;
           });
-          _scrollToBottom();
         }
-        return;
+      } catch (e) {
+        // If Firestore quota check fails, log it and allow request to fail gracefully or proceed.
+        // We proceed to avoid blocking the user if Firestore has transient issues.
       }
-
-      // Decrement token and update Firestore
-      tokensAvailable -= 1.0;
-      await FirebaseFirestore.instance.collection('users').doc(uid).update({
-        'supportTokensAvailable': tokensAvailable,
-        'supportLastRequestedTimestamp': lastRequestedTimestamp,
-      });
-    } catch (e) {
-      // If Firestore quota check fails, log it and allow request to fail gracefully or proceed.
-      // We proceed to avoid blocking the user if Firestore has transient issues.
     }
 
     // Prepare history to send to Cloudflare (exclude the system prompt which is appended inside the service)
@@ -213,7 +257,9 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        "AI Assistant • Online",
+                        _supportTokens != null
+                            ? "AI Assistant • Online • Tokens: ${_supportTokens! % 1 == 0 ? _supportTokens!.toInt() : _supportTokens!.toStringAsFixed(1)}/5"
+                            : "AI Assistant • Online",
                         style: TextStyle(
                           fontSize: 12,
                           color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,

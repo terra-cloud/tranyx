@@ -29,9 +29,9 @@ jaspr:
   #   dart run jaspr:jaspr build --dart-define=ENV=prod
 
 scripts:
-  serve-dev: dart run jaspr:jaspr serve --dart-define=ENV=dev --dart-define-from-file=../../.env
-  serve-uat: dart run jaspr:jaspr serve --dart-define=ENV=uat --dart-define-from-file=../../.env
-  serve-prod: dart run jaspr:jaspr serve --dart-define=ENV=prod --dart-define-from-file=../../.env
-  build-dev: dart run jaspr:jaspr build --dart-define=ENV=dev --dart-define-from-file=../../.env
-  build-uat: dart run jaspr:jaspr build --dart-define=ENV=uat --dart-define-from-file=../../.env
-  build-prod: dart run jaspr:jaspr build --dart-define=ENV=prod --dart-define-from-file=../../.env
+  serve-dev: dart run jaspr:jaspr serve --dart-define=ENV=dev
+  serve-uat: dart run jaspr:jaspr serve --dart-define=ENV=uat
+  serve-prod: dart run jaspr:jaspr serve --dart-define=ENV=prod
+  build-dev: dart run jaspr:jaspr build --dart-define=ENV=dev
+  build-uat: dart run jaspr:jaspr build --dart-define=ENV=uat
+  build-prod: dart run jaspr:jaspr build --dart-define=ENV=prod

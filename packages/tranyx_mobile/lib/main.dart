@@ -4,6 +4,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:shared/shared.dart';
+
 import 'app.dart';
 import 'firebase_options_dev.dart' as dev;
 import 'firebase_options_prod.dart' as prod;
@@ -12,6 +15,14 @@ import 'flavors.dart';
 
 FutureOr<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load environment variables from assets
+  try {
+    final envContent = await rootBundle.loadString('assets/.env');
+    Env.load(envContent);
+  } catch (e) {
+    debugPrint('Failed to load assets/.env: $e');
+  }
 
   // Initialize flavor
   const flavorString = String.fromEnvironment('FLAVOR');

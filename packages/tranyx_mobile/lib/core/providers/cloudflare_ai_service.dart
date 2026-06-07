@@ -162,6 +162,7 @@ class CloudflareAIService {
             '- Rely strictly on the Tranyx system workflows and user steps listed above. If you do not know the answer based on these, politely state that you cannot answer.\n'
             '- AVOID UNRELATED QUESTIONS: If the user asks about anything unrelated to Tranyx (e.g., general knowledge, math, coding, or other topics outside the platform), you MUST politely decline to answer (e.g., "I can only help you with questions about the Tranyx platform."). Do not provide answers for unrelated topics.\n'
             '- SATISFACTION CHECK: Always end your response by politely asking the user if there is anything else they need help with (e.g., "Is there anything else I can help you with?", "May iba pa ba akong maitutulong sa iyo?"). Respond using the language/dialect the user is using.\n'
+            '- USER SUPPORT LIMITS: Users have support chat rate limits (5 free support tokens maximum, with 1 token recovering every hour). Keep this in mind, and if the user asks about support limits or why they might be blocked, politely explain these rules (5 free tokens max, recovering 1 token/hour).\n'
             '- Converse fluently in English, Tagalog, and Waray-Waray. Respond in the same language/dialect the user uses.',
       },
       ...conversationHistory,
