@@ -254,12 +254,6 @@
       "languageVersion": "3.8"
     },
     {
-      "name": "firebase_ai",
-      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/firebase_ai-2.3.0",
-      "packageUri": "lib/",
-      "languageVersion": "3.2"
-    },
-    {
       "name": "firebase_analytics",
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/firebase_analytics-11.6.0",
       "packageUri": "lib/",
@@ -274,24 +268,6 @@
     {
       "name": "firebase_analytics_web",
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/firebase_analytics_web-0.5.10+16",
-      "packageUri": "lib/",
-      "languageVersion": "3.4"
-    },
-    {
-      "name": "firebase_app_check",
-      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/firebase_app_check-0.3.2+10",
-      "packageUri": "lib/",
-      "languageVersion": "3.2"
-    },
-    {
-      "name": "firebase_app_check_platform_interface",
-      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/firebase_app_check_platform_interface-0.1.1+10",
-      "packageUri": "lib/",
-      "languageVersion": "3.2"
-    },
-    {
-      "name": "firebase_app_check_web",
-      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/firebase_app_check_web-0.2.0+14",
       "packageUri": "lib/",
       "languageVersion": "3.4"
     },

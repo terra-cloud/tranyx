@@ -1499,6 +1499,38 @@ class _HelpSupportState extends State<_HelpSupport> {
   ];
   String currentChatInput = '';
   bool isAiTyping = false;
+  double? supportTokens;
+
+  @override
+  void initState() {
+    super.initState();
+    loadSupportTokens();
+  }
+
+  Future<void> loadSupportTokens() async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token != null && uid != null) {
+      try {
+        final firestore = FirestoreService(token, component.state.handleTokenRefresh);
+        final userDoc = await firestore.getDocument('users/$uid');
+        if (userDoc != null && userDoc.containsKey('supportTokensAvailable')) {
+          final double savedTokens = (userDoc['supportTokensAvailable'] as num).toDouble();
+          final int savedTime = (userDoc['supportLastRequestedTimestamp'] as num).toInt();
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final elapsedMs = now - savedTime;
+          final recovered = elapsedMs / 3600000.0;
+          setState(() {
+            supportTokens = (savedTokens + recovered).clamp(0.0, 5.0);
+          });
+          return;
+        }
+      } catch (_) {}
+    }
+    setState(() {
+      supportTokens = 5.0;
+    });
+  }
 
   List<Map<String, String>> get faqData {
     final type = component.state.accountType;
@@ -1625,9 +1657,110 @@ class _HelpSupportState extends State<_HelpSupport> {
       isAiTyping = true;
     });
 
+    // Check for satisfaction / termination keywords
+    final cleanText = text.toLowerCase().trim();
+    final terminationKeywords = [
+      'thank you', 'thanks', 'thank u', 'no more questions', 'no more question', 
+      'no questions', "i'm good", 'im good', 'satisfied', 'all good', 'that is all', 
+      'thats all', "that's all", 'nothing else', 'no need',
+      'salamat', 'maraming salamat', 'wala na', 'ok na', 'okay na', 'ayos na', 
+      'sapat na', 'walang anuman',
+      'damo nga salamat', 'waray na', 'igo na', 'tolda na'
+    ];
+    final isTerminating = terminationKeywords.any((k) => cleanText.contains(k) || cleanText == k);
+
+    if (isTerminating) {
+      String partingMsg = "You're welcome! Glad I could help. Terminating the support session now. Have a great day!";
+      if (cleanText.contains('damo') || cleanText.contains('waray na') || cleanText.contains('igo na')) {
+        partingMsg = 'Waray anuman! Malipayon ako nga nakabulig. Awtomatiko ko na nga tatapuson ini nga chat. Maopay nga adlaw!';
+      } else if (cleanText.contains('salamat') || cleanText.contains('wala na') || cleanText.contains('ok na') || cleanText.contains('okay na') || cleanText.contains('ayos na')) {
+        partingMsg = 'Walang anuman! Masaya akong makatolong. Awtomatiko ko nang tatapusin ang chat na ito. Magandang araw!';
+      }
+
+      setState(() {
+        isAiTyping = false;
+        chatMessages.add({
+          'isUser': false,
+          'text': partingMsg,
+          'time': 'Just now',
+        });
+      });
+
+      // Terminate after 2 seconds
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          setState(() {
+            showChat = false;
+          });
+        }
+      });
+      return;
+    }
+
+    // Only check and decrement tokens for a new conversation session (the first user message)
+    if (chatMessages.length == 2) {
+      final token = SessionStorage.idToken;
+      final uid = SessionStorage.uid;
+      if (token != null && uid != null) {
+        try {
+          final firestore = FirestoreService(token, component.state.handleTokenRefresh);
+          final userDoc = await firestore.getDocument('users/$uid');
+          final now = DateTime.now().millisecondsSinceEpoch;
+
+          double tokensAvailable = 5.0;
+          int lastRequestedTimestamp = now;
+
+          if (userDoc != null && userDoc.containsKey('supportTokensAvailable')) {
+            final double savedTokens = (userDoc['supportTokensAvailable'] as num).toDouble();
+            final int savedTime = (userDoc['supportLastRequestedTimestamp'] as num).toInt();
+
+            final elapsedMs = now - savedTime;
+            final recovered = elapsedMs / 3600000.0;
+            tokensAvailable = (savedTokens + recovered).clamp(0.0, 5.0);
+            lastRequestedTimestamp = now;
+          }
+
+          if (tokensAvailable < 1.0) {
+            final timeNeededMs = (1.0 - tokensAvailable) * 3600000.0;
+            final minutesLeft = (timeNeededMs / 60000.0).ceil();
+            setState(() {
+              isAiTyping = false;
+              chatMessages.add({
+                'isUser': false,
+                'text': 'You have run out of free support questions. A new free question token will recover in $minutesLeft minutes. Other services like title, description, and cover note generation remain unlimited!',
+                'time': 'Just now',
+              });
+            });
+            return;
+          }
+
+          // Decrement token and update Firestore
+          tokensAvailable -= 1.0;
+          await firestore.setDocument('users/$uid', {
+            'supportTokensAvailable': tokensAvailable,
+            'supportLastRequestedTimestamp': lastRequestedTimestamp,
+          });
+
+          setState(() {
+            supportTokens = tokensAvailable;
+          });
+        } catch (e) {
+          // Fallback: Proceed if Firestore quota check fails, to ensure resilience.
+        }
+      }
+    }
+
+    // Prepare history to send to Cloudflare (exclude the greeting)
+    final history = chatMessages.sublist(1).map((m) {
+      return {
+        'role': m['isUser'] == true ? 'user' : 'assistant',
+        'content': m['text'] as String,
+      };
+    }).toList();
+
     try {
       final gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken);
-      final response = await gemini.askSupportQuestion(text);
+      final response = await gemini.askSupportQuestion(history);
 
       setState(() {
         isAiTyping = false;
@@ -1730,7 +1863,9 @@ class _HelpSupportState extends State<_HelpSupport> {
                     ]),
                     p(classes: 'text-xs text-emerald-400 font-bold flex items-center gap-1.5', [
                       span(classes: 'w-2 h-2 rounded-full bg-emerald-400 animate-ping', []),
-                      Component.text('Online Now'),
+                      Component.text(supportTokens != null
+                          ? 'Online Now • Tokens: ${supportTokens! % 1 == 0 ? supportTokens!.toInt() : supportTokens!.toStringAsFixed(1)}/5'
+                          : 'Online Now'),
                     ]),
                   ]),
                 ]),
@@ -1918,7 +2053,20 @@ class _HelpSupportState extends State<_HelpSupport> {
             classes:
                 'py-6 px-4 rounded-[2rem] border transition-all text-center flex flex-col items-center justify-center gap-3 '
                 '${isDark ? "bg-zinc-900/60 border-zinc-800 hover:bg-zinc-800 hover:border-indigo-500/50" : "bg-white border-zinc-200 shadow-sm hover:shadow-md hover:border-indigo-400"}',
-            events: {'click': (_) => setState(() => showChat = true)},
+            events: {
+              'click': (_) {
+                loadSupportTokens();
+                setState(() {
+                  showChat = true;
+                  chatMessages.clear();
+                  chatMessages.add({
+                    'isUser': false,
+                    'text': 'Hi! I am Nyx, your Tranyx AI support agent. How can I help you today?',
+                    'time': 'Just now',
+                  });
+                });
+              }
+            },
             [
               div(
                 classes: 'w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400',
