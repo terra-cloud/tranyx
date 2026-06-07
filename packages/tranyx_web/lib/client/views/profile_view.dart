@@ -1697,8 +1697,12 @@ class _HelpSupportState extends State<_HelpSupport> {
       return;
     }
 
-    // Only check and decrement tokens for a new conversation session (the first user message)
-    if (chatMessages.length == 2) {
+    // Only check tokens for a new conversation session (the first user message)
+    double? tokensToUpdate;
+    int? timestampToUpdate;
+    final isNewConversation = (chatMessages.length == 2);
+
+    if (isNewConversation) {
       final token = SessionStorage.idToken;
       final uid = SessionStorage.uid;
       if (token != null && uid != null) {
@@ -1734,16 +1738,9 @@ class _HelpSupportState extends State<_HelpSupport> {
             return;
           }
 
-          // Decrement token and update Firestore
-          tokensAvailable -= 1.0;
-          await firestore.setDocument('users/$uid', {
-            'supportTokensAvailable': tokensAvailable,
-            'supportLastRequestedTimestamp': lastRequestedTimestamp,
-          });
-
-          setState(() {
-            supportTokens = tokensAvailable;
-          });
+          // Keep track of the checked values, but don't save yet!
+          tokensToUpdate = tokensAvailable - 1.0;
+          timestampToUpdate = lastRequestedTimestamp;
         } catch (e) {
           // Fallback: Proceed if Firestore quota check fails, to ensure resilience.
         }
@@ -1761,6 +1758,27 @@ class _HelpSupportState extends State<_HelpSupport> {
     try {
       final gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken);
       final response = await gemini.askSupportQuestion(history);
+
+      // Successfully connected to server AI and got response!
+      // Now decrement token if this was a new conversation.
+      if (isNewConversation && tokensToUpdate != null && timestampToUpdate != null) {
+        final token = SessionStorage.idToken;
+        final uid = SessionStorage.uid;
+        if (token != null && uid != null) {
+          try {
+            final firestore = FirestoreService(token, component.state.handleTokenRefresh);
+            await firestore.setDocument('users/$uid', {
+              'supportTokensAvailable': tokensToUpdate,
+              'supportLastRequestedTimestamp': timestampToUpdate,
+            });
+            setState(() {
+              supportTokens = tokensToUpdate;
+            });
+          } catch (_) {
+            // Silently ignore or fallback
+          }
+        }
+      }
 
       setState(() {
         isAiTyping = false;

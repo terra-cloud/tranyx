@@ -18,7 +18,7 @@ class CloudflareAIService {
     final directUrl =
         'https://api.cloudflare.com/client/v4/accounts/$accountId/ai/run/$model';
     if (kIsWeb) {
-      return 'https://proxy.corsfix.com/?url=${Uri.encodeComponent(directUrl)}';
+      return 'https://corsproxy.io/?url=${Uri.encodeComponent(directUrl)}';
     }
     return directUrl;
   }
