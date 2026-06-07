@@ -40,6 +40,9 @@ jobs:
       - name: Generate Env Config
         if: steps.filter.outputs.code == 'true'
         run: dart run shared:generate_env
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
       - name: Build Jaspr Web
         if: steps.filter.outputs.code == 'true'
