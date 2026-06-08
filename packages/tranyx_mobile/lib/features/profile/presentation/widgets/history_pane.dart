@@ -5,7 +5,14 @@ import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
+import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
+import 'package:tranyx_mobile/features/jobs/models/job.dart';
 import 'package:intl/intl.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+final userTransactionsProvider = StreamProvider.family<List<Map<String, dynamic>>, String>((ref, uid) {
+  return ref.watch(transitRepositoryProvider).getUserTransactions(uid);
+});
 
 class HistoryPane extends ConsumerStatefulWidget {
   final VoidCallback onBack;
@@ -23,10 +30,24 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
 
   String _roleFilter = 'all'; // 'all', 'renter', 'host'
   String _kindFilter = 'all'; // 'all', 'vehicle', 'property'
+  
+  String _activeTab = 'earnings';
+  bool _tabsInitialized = false;
+  String _activeFilter = 'daily'; // 'daily', 'weekly', 'monthly', 'yearly'
 
   final Map<String, double> _pendingStars = {};
   final Set<String> _submittingRating = {};
   final Set<String> _ratedThisSession = {};
+
+  void _initTabs(UserProfile profile) {
+    if (_tabsInitialized) return;
+    if (profile.accountType == AccountType.employer) {
+      _activeTab = 'purchases';
+    } else {
+      _activeTab = 'earnings';
+    }
+    _tabsInitialized = true;
+  }
 
   @override
   void initState() {

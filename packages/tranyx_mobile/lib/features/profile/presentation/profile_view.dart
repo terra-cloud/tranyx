@@ -608,7 +608,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
             const SizedBox(height: 12),
             buildProfileMenu(Icons.security, "Trust & Verification", 'trust'),
             const SizedBox(height: 12),
-            buildProfileMenu(Icons.history, "Rental History", 'history'),
+            buildProfileMenu(Icons.history, "History & Earnings", 'history'),
             const SizedBox(height: 12),
             buildProfileMenu(Icons.help_outline, "Help & Support", 'support'),
             if (!widget.isTablet) ...[

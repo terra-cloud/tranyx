@@ -31,6 +31,7 @@ graph TD
 | 2026-06-04 00:29 | **E2E Integration** | `test/job_lifecycle_integration_test.dart` | Rerun after wrapping cleanup in safe try-catch blocks to ignore immutable transaction record deletions. | **PASSED** (All validation checks green) |  
 | 2026-06-04 00:43 | **CI/CD Config** | `.github/workflows/*` | Added paths-filter logic using `dorny/paths-filter@v3` to skip setup, build, and deploy steps when only markdown files are modified. | **UPDATED & VERIFIED** |
 | 2026-06-08 09:23 | **Unit & Integration** | `packages/tranyx_mobile/test/*` | Collection synchronization & lifecycle flow tests for `transit_repository` and `job_repository` on mobile. | **PASSED** (11/11 tests) |
+| 2026-06-08 10:41 | **UI Bug & Build Fix** | `packages/tranyx_mobile/lib/core/theme/ui_helpers.dart` | Fixed iOS obsoleted `ALAsset` build issues and resolved 'Obscured fields cannot be multiline' crash. | **PASSED** (11/11 tests) |
 
 ---
 

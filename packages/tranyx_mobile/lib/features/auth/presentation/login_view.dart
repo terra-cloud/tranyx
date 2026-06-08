@@ -105,6 +105,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
             "Email address",
             isDarkMode,
             controller: _emailController,
+            keyboardType: TextInputType.emailAddress,
           ),
           const SizedBox(height: 16),
           UIHelpers.buildTextField(
@@ -113,6 +114,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
             isDarkMode,
             isPassword: true,
             controller: _passwordController,
+            keyboardType: TextInputType.visiblePassword,
           ),
           const SizedBox(height: 32),
           UIHelpers.buildPrimaryButton("Log In", _handleLogin, isDarkMode),

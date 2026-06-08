@@ -7,6 +7,9 @@ import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/core/utils/enums.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
+import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
+import 'package:tranyx_mobile/features/profile/providers/profile_provider.dart';
+import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_list_view.dart';
 import 'package:tranyx_mobile/features/navigation/providers/navigation_provider.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/categories_bottom_sheet.dart';
 
@@ -324,6 +327,9 @@ class HomeView extends ConsumerWidget {
           const SizedBox(height: 24),
         ],
 
+        _buildQuickStatsBar(context, ref, isDarkMode, currentViewMode, isTablet),
+        const SizedBox(height: 24),
+
         if (isTablet)
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -389,6 +395,208 @@ class HomeView extends ConsumerWidget {
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildQuickStatsBar(
+    BuildContext context,
+    WidgetRef ref,
+    bool isDarkMode,
+    AccountType currentViewMode,
+    bool isTablet,
+  ) {
+    final profile = ref.watch(userProfileProvider).value;
+    final myJobs = ref.watch(myJobsProvider).value ?? [];
+
+    final tyxBal = profile?.tyxBalance ?? 0.0;
+    final jobsDone = profile?.jobsDone ?? 0;
+    final totalEarned = profile?.totalEarned ?? 0.0;
+    final rating = profile?.rating ?? 5.0;
+
+    final postedCount = myJobs.length;
+    final activeHires = myJobs.where((j) => j.status == 'In Progress').length;
+
+    final isNyxian = currentViewMode == AccountType.nyxian;
+
+    final int crossAxisCount = isTablet ? 4 : 2;
+    final double childAspectRatio = isTablet ? 1.5 : 1.35;
+
+    Widget buildStatCard({
+      required String title,
+      required String value,
+      required String subtitle,
+      required IconData icon,
+      required Color iconColor,
+      required VoidCallback onTap,
+    }) {
+      return GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      title.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                        color: isDarkMode
+                            ? AppColors.darkTextMuted
+                            : AppColors.lightTextMuted,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Icon(icon, color: iconColor, size: 16),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
+                  color: iconColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return GridView.count(
+      crossAxisCount: crossAxisCount,
+      childAspectRatio: childAspectRatio,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      children: [
+        if (isNyxian) ...[
+          // Wallet Balance
+          buildStatCard(
+            title: "Balance",
+            value: "₱ ${tyxBal.toStringAsFixed(2)}",
+            subtitle: "Top-up Tyx",
+            icon: LucideIcons.wallet,
+            iconColor: AppColors.indigo,
+            onTap: () {
+              ref.read(activeTabProvider.notifier).state = 'profile';
+              ref.read(profileViewProvider.notifier).state = 'payment';
+            },
+          ),
+          // Completed Gigs
+          buildStatCard(
+            title: "Gigs Done",
+            value: "$jobsDone",
+            subtitle: "View Profile",
+            icon: Icons.check_circle_outline,
+            iconColor: AppColors.purple,
+            onTap: () {
+              ref.read(activeTabProvider.notifier).state = 'profile';
+              ref.read(profileViewProvider.notifier).state = 'main';
+            },
+          ),
+          // Total Earned
+          buildStatCard(
+            title: "Total Earned",
+            value: "₱ ${totalEarned.toStringAsFixed(0)}",
+            subtitle: "View Earnings",
+            icon: Icons.trending_up,
+            iconColor: AppColors.green,
+            onTap: () {
+              ref.read(activeTabProvider.notifier).state = 'profile';
+              ref.read(profileViewProvider.notifier).state = 'history';
+            },
+          ),
+          // Rating
+          buildStatCard(
+            title: "Trust Rating",
+            value: rating.toStringAsFixed(1),
+            subtitle: "View Reviews",
+            icon: Icons.star_outline,
+            iconColor: AppColors.amber,
+            onTap: () {
+              ref.read(activeTabProvider.notifier).state = 'profile';
+              ref.read(profileViewProvider.notifier).state = 'trust';
+            },
+          ),
+        ] else ...[
+          // Wallet Balance
+          buildStatCard(
+            title: "Balance",
+            value: "₱ ${tyxBal.toStringAsFixed(2)}",
+            subtitle: "Top-up Tyx",
+            icon: LucideIcons.wallet,
+            iconColor: AppColors.indigo,
+            onTap: () {
+              ref.read(activeTabProvider.notifier).state = 'profile';
+              ref.read(profileViewProvider.notifier).state = 'payment';
+            },
+          ),
+          // Posted Gigs
+          buildStatCard(
+            title: "Gigs Posted",
+            value: "$postedCount",
+            subtitle: "Manage Gigs",
+            icon: Icons.business_center_outlined,
+            iconColor: AppColors.purple,
+            onTap: () {
+              ref.read(activeTabProvider.notifier).state = 'jobs';
+              ref.read(jobListTabProvider.notifier).state = 1;
+            },
+          ),
+          // Active Hires
+          buildStatCard(
+            title: "Active Gigs",
+            value: "$activeHires",
+            subtitle: "View Workers",
+            icon: Icons.people_outline,
+            iconColor: AppColors.green,
+            onTap: () {
+              ref.read(activeTabProvider.notifier).state = 'jobs';
+              ref.read(jobListTabProvider.notifier).state = 1;
+            },
+          ),
+          // Rating
+          buildStatCard(
+            title: "Trust Rating",
+            value: rating.toStringAsFixed(1),
+            subtitle: "View Reviews",
+            icon: Icons.star_outline,
+            iconColor: AppColors.amber,
+            onTap: () {
+              ref.read(activeTabProvider.notifier).state = 'profile';
+              ref.read(profileViewProvider.notifier).state = 'trust';
+            },
+          ),
+        ],
       ],
     );
   }

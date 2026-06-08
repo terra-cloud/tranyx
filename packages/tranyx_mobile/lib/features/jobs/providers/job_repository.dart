@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
@@ -21,6 +22,19 @@ class JobRepository {
     return _firestore
         .collection('jobs')
         .where('creatorId', isEqualTo: uid)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => Job.fromMap(doc.data(), doc.id))
+              .toList(),
+        );
+  }
+
+  Stream<List<Job>> getGigsAccepted(String uid) {
+    return _firestore
+        .collection('jobs')
+        .where('acceptedApplicantId', isEqualTo: uid)
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map(
@@ -180,21 +194,21 @@ class JobRepository {
           .get();
 
       for (var doc in appliedJobsQuery.docs) {
-        final data = doc.data();
-        final List<dynamic> recentPhotos = data['recentApplicantPhotos'] ?? [];
-        if (recentPhotos.contains(oldPhotoUrl)) {
-          final updatedPhotos = recentPhotos
-              .map((p) => p == oldPhotoUrl ? newPhotoUrl : p)
-              .toList();
-          batch.update(doc.reference, {'recentApplicantPhotos': updatedPhotos});
+        final List<dynamic> photos = List<dynamic>.from(
+          doc.data()['recentApplicantPhotos'] ?? [],
+        );
+        final idx = photos.indexOf(oldPhotoUrl);
+        if (idx != -1) {
+          photos[idx] = newPhotoUrl;
+          batch.update(doc.reference, {'recentApplicantPhotos': photos});
         }
       }
     }
 
-    // 4. Update questions asked by this user (Collection Group)
+    // 4. Update authorPhotoUrl in job questions asked by this user (Collection Group)
     final questionsQuery = await _firestore
         .collectionGroup('questions')
-        .where('authorId', isEqualTo: uid)
+        .where('authorUid', isEqualTo: uid)
         .get();
 
     for (var doc in questionsQuery.docs) {
@@ -212,7 +226,48 @@ final jobRepositoryProvider = Provider<JobRepository>((ref) {
 final myJobsProvider = StreamProvider<List<Job>>((ref) {
   final user = ref.watch(userProvider);
   if (user == null) return Stream.value([]);
-  return ref.watch(jobRepositoryProvider).getMyJobs(user.uid);
+  
+  final repo = ref.watch(jobRepositoryProvider);
+  final stream1 = repo.getMyJobs(user.uid);
+  final stream2 = repo.getGigsAccepted(user.uid);
+
+  final controller = StreamController<List<Job>>();
+  List<Job> latest1 = [];
+  List<Job> latest2 = [];
+
+  void update() {
+    if (controller.isClosed) return;
+    final combined = <Job>{...latest1, ...latest2}.toList();
+    combined.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    controller.add(combined);
+  }
+
+  final sub1 = stream1.listen(
+    (data) {
+      latest1 = data;
+      update();
+    },
+    onError: (err) {
+      if (!controller.isClosed) controller.addError(err);
+    },
+  );
+
+  final sub2 = stream2.listen(
+    (data) {
+      latest2 = data;
+      update();
+    },
+    onError: (err) {
+      if (!controller.isClosed) controller.addError(err);
+    },
+  );
+
+  controller.onCancel = () {
+    sub1.cancel();
+    sub2.cancel();
+  };
+
+  return controller.stream;
 });
 
 final availableJobsProvider = StreamProvider<List<Job>>((ref) {
