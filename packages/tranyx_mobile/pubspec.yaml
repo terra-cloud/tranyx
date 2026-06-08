@@ -29,6 +29,7 @@ environment:
 # versions available, run `flutter pub outdated`.
 dependencies:
   cloud_firestore: any
+  cloud_firestore_platform_interface: ^8.0.2
   cloud_functions: any
 
   # The following adds the Cupertino Icons font to your application.

@@ -651,38 +651,144 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                   ),
                 ]),
               ],
+
+              Builder(
+                builder: (context) {
+                  final monthlyRate = double.tryParse(_priceMonthly) ?? 0.0;
+                  final weeklyRate = double.tryParse(_priceWeekly) ?? 0.0;
+                  final dailyRate = double.tryParse(_priceDaily) ?? 0.0;
+                  final depositAmt = double.tryParse(_securityDepositAmount) ?? 0.0;
+                  final advanceAmt = double.tryParse(_advanceAmount) ?? 0.0;
+
+                  // Listing Fee (1.5% of Monthly)
+                  final listingFee = monthlyRate * 0.015;
+
+                  // Commission (5% deducted from rent)
+                  final commissionMonthly = monthlyRate * 0.05;
+                  final payoutMonthly = monthlyRate - commissionMonthly;
+
+                  final commissionWeekly = weeklyRate * 0.05;
+                  final payoutWeekly = weeklyRate - commissionWeekly;
+
+                  final commissionDaily = dailyRate * 0.05;
+                  final payoutDaily = dailyRate - commissionDaily;
+
+                  if (monthlyRate <= 0) return div([]);
+
+                  return div(
+                    classes: 'mt-6 p-5 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900/50" : "border-zinc-200 bg-zinc-50"} space-y-3.5',
+                    [
+                      p(classes: 'text-xs font-bold text-indigo-400 uppercase tracking-wider', [Component.text('Listing Payment & Earnings Breakdown')]),
+                      div(classes: 'space-y-2.5', [
+                        // Rates
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                          span([Component.text('Monthly Rent (Base):')]),
+                          span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
+                            Component.text('₱ ${monthlyRate.toStringAsFixed(2)}')
+                          ]),
+                        ]),
+                        if (weeklyRate > 0)
+                          div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                            span([Component.text('Weekly Rent: ₱${weeklyRate.toStringAsFixed(2)}')]),
+                            span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
+                              Component.text('Payout: ₱${payoutWeekly.toStringAsFixed(2)} (Net)')
+                            ]),
+                          ]),
+                        if (dailyRate > 0)
+                          div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                            span([Component.text('Daily Rent: ₱${dailyRate.toStringAsFixed(2)}')]),
+                            span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
+                              Component.text('Payout: ₱${payoutDaily.toStringAsFixed(2)} (Net)')
+                            ]),
+                          ]),
+                        if (depositAmt > 0)
+                          div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                            span([Component.text('Security Deposit (Refundable):')]),
+                            span(classes: 'font-semibold text-green-500', [
+                              Component.text('₱ ${depositAmt.toStringAsFixed(2)}')
+                            ]),
+                          ]),
+                        if (advanceAmt > 0)
+                          div(classes: 'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800 pb-2" : "border-zinc-200 pb-2"}', [
+                            span([Component.text('Advance Rent Payment:')]),
+                            span(classes: 'font-semibold text-green-500', [
+                              Component.text('₱ ${advanceAmt.toStringAsFixed(2)}')
+                            ]),
+                          ]),
+
+                        // Commission & Earnings summary
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                          span([Component.text('Host Commission (5%):')]),
+                          span(classes: 'font-semibold text-amber-500', [
+                            Component.text('- ₱ ${commissionMonthly.toStringAsFixed(2)}')
+                          ]),
+                        ]),
+                        div(classes: 'flex justify-between items-center pt-1.5', [
+                          span(classes: 'text-xs font-semibold text-indigo-400', [Component.text('Est. Monthly Net Payout:')]),
+                          span(classes: 'text-base font-bold text-green-500', [
+                            Component.text('₱ ${payoutMonthly.toStringAsFixed(2)}')
+                          ]),
+                        ]),
+
+                        // Separator
+                        div(classes: 'border-t ${isDark ? "border-zinc-800" : "border-zinc-200"} my-2', []),
+
+                        // Listing anti-spam fee
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                          span([Component.text('Anti-Spam Listing Fee (1.5% of Monthly):')]),
+                          span(classes: 'font-semibold text-purple-400', [
+                            Component.text('${listingFee.toStringAsFixed(2)} TYX')
+                          ]),
+                        ]),
+                      ]),
+                      p(classes: 'text-[10px] text-zinc-500 leading-normal', [
+                        Component.text(
+                          'Notice: A listing fee of ${listingFee.toStringAsFixed(2)} TYX will be charged to your wallet now to host the property. Standard platform commission of 5% is only charged on rent payouts.',
+                        ),
+                      ]),
+                    ],
+                  );
+                },
+              ),
             ],
           ]),
 
           // Footer
-          div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between', [
-            if (_step > 1)
-              button(
-                classes:
-                    'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
-                events: {'click': (e) => setState(() => _step--)},
-                [Component.text('Back')],
-              )
-            else
-              div([]),
+          div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex flex-col gap-4', [
+            if (_error != null)
+              div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-semibold flex items-center gap-2 animate-fade-in', [
+                lIcon('alert-circle', cls: 'w-5 h-5 flex-shrink-0 text-red-500'),
+                span([Component.text(_error!)]),
+              ]),
+            div(classes: 'flex items-center justify-between', [
+              if (_step > 1)
+                button(
+                  classes:
+                      'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
+                  events: {'click': (e) => setState(() => _step--)},
+                  [Component.text('Back')],
+                )
+              else
+                div([]),
 
-            if (_step < 3)
-              button(
-                classes:
-                    'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
-                events: {'click': (e) => _handleNext()},
-                [Component.text('Next')],
-              )
-            else
-              button(
-                classes:
-                    'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 cursor-pointer',
-                events: {'click': (e) => _submit()},
-                [
-                  if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                  Component.text(_isSubmitting ? 'Listing...' : 'List Property'),
-                ],
-              ),
+              if (_step < 3)
+                button(
+                  classes:
+                      'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
+                  events: {'click': (e) => _handleNext()},
+                  [Component.text('Next')],
+                )
+              else
+                button(
+                  classes:
+                      'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 cursor-pointer',
+                  events: {'click': (e) => _submit()},
+                  [
+                    if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                    Component.text(_isSubmitting ? 'Listing...' : 'List Property'),
+                  ],
+                ),
+            ]),
           ]),
         ],
       ),

@@ -2388,6 +2388,10 @@ class _CreateJob extends StatelessComponent {
           ),
       ]),
 
+      if (step == 1) _step1(s, isDark),
+      if (step == 2) _step2(s, isDark),
+      if (step == 3) _step3(s, isDark),
+
       if (s.postJobError != null)
         div(
           classes:
@@ -2397,10 +2401,6 @@ class _CreateJob extends StatelessComponent {
             span([Component.text(s.postJobError!)]),
           ],
         ),
-
-      if (step == 1) _step1(s, isDark),
-      if (step == 2) _step2(s, isDark),
-      if (step == 3) _step3(s, isDark),
 
       button(
         classes:
