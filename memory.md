@@ -30,6 +30,7 @@ graph TD
 | 2026-06-04 00:28 | **E2E Integration** | `test/job_lifecycle_integration_test.dart` | Full E2E transaction flow (open job -> apply -> accept/escrow -> complete/payout -> verify wallets). | **FAILED** (Cleanup Permission Denied on transactions) |
 | 2026-06-04 00:29 | **E2E Integration** | `test/job_lifecycle_integration_test.dart` | Rerun after wrapping cleanup in safe try-catch blocks to ignore immutable transaction record deletions. | **PASSED** (All validation checks green) |  
 | 2026-06-04 00:43 | **CI/CD Config** | `.github/workflows/*` | Added paths-filter logic using `dorny/paths-filter@v3` to skip setup, build, and deploy steps when only markdown files are modified. | **UPDATED & VERIFIED** |
+| 2026-06-08 09:23 | **Unit & Integration** | `packages/tranyx_mobile/test/*` | Collection synchronization & lifecycle flow tests for `transit_repository` and `job_repository` on mobile. | **PASSED** (11/11 tests) |
 
 ---
 

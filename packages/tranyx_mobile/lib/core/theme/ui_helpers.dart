@@ -13,6 +13,7 @@ class UIHelpers {
     Function(String)? onSubmitted,
     List<dynamic>? inputFormatters,
     TextInputType? keyboardType,
+    int? maxLines,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -25,6 +26,7 @@ class UIHelpers {
         borderRadius: BorderRadius.circular(20),
       ),
       child: TextField(
+        maxLines: maxLines,
         controller: controller,
         onChanged: onChanged,
         onSubmitted: onSubmitted,

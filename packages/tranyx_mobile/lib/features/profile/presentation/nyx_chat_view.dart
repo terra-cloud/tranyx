@@ -133,8 +133,12 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
     }
 
     // Quota Rate Limiting: 5 tokens max, recovering 1 token/hour (3,600,000 ms)
-    // Only check and decrement tokens for a new conversation session (the first user message)
-    if (_messages.length == 2) {
+    // Only check tokens for a new conversation session (the first user message)
+    double? tokensToUpdate;
+    int? timestampToUpdate;
+    final isNewConversation = (_messages.length == 2);
+
+    if (isNewConversation) {
       try {
         final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
         final data = userDoc.data();
@@ -169,18 +173,9 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
           return;
         }
 
-        // Decrement token and update Firestore
-        tokensAvailable -= 1.0;
-        await FirebaseFirestore.instance.collection('users').doc(uid).update({
-          'supportTokensAvailable': tokensAvailable,
-          'supportLastRequestedTimestamp': lastRequestedTimestamp,
-        });
-
-        if (mounted) {
-          setState(() {
-            _supportTokens = tokensAvailable;
-          });
-        }
+        // Keep track of the checked values, but don't save yet!
+        tokensToUpdate = tokensAvailable - 1.0;
+        timestampToUpdate = lastRequestedTimestamp;
       } catch (e) {
         // If Firestore quota check fails, log it and allow request to fail gracefully or proceed.
         // We proceed to avoid blocking the user if Firestore has transient issues.
@@ -193,6 +188,24 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
     try {
       final aiService = ref.read(aiServiceProvider);
       final response = await aiService.getChatResponse(history);
+
+      // Successfully connected to server AI and got response!
+      // Now decrement token if this was a new conversation.
+      if (isNewConversation && tokensToUpdate != null && timestampToUpdate != null) {
+        try {
+          await FirebaseFirestore.instance.collection('users').doc(uid).update({
+            'supportTokensAvailable': tokensToUpdate,
+            'supportLastRequestedTimestamp': timestampToUpdate,
+          });
+          if (mounted) {
+            setState(() {
+              _supportTokens = tokensToUpdate;
+            });
+          }
+        } catch (_) {
+          // Silently ignore or fallback
+        }
+      }
 
       if (mounted) {
         setState(() {

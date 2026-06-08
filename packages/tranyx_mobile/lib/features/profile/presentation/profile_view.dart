@@ -10,6 +10,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:tranyx_mobile/core/utils/image_utils.dart';
 import 'package:tranyx_mobile/core/providers/image_upload_provider.dart';
 import 'package:tranyx_mobile/features/profile/presentation/nyx_chat_view.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/payment_pane.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/trust_pane.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane.dart';
 
 class ProfileView extends ConsumerStatefulWidget {
   final bool isTablet;
@@ -605,6 +608,8 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
             const SizedBox(height: 12),
             buildProfileMenu(Icons.security, "Trust & Verification", 'trust'),
             const SizedBox(height: 12),
+            buildProfileMenu(Icons.history, "Rental History", 'history'),
+            const SizedBox(height: 12),
             buildProfileMenu(Icons.help_outline, "Help & Support", 'support'),
             if (!widget.isTablet) ...[
               const SizedBox(height: 24),
@@ -921,6 +926,18 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
           );
         } else if (profileView == 'support') {
           rightPane = NyxChatView(
+            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
+          );
+        } else if (profileView == 'payment') {
+          rightPane = PaymentPane(
+            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
+          );
+        } else if (profileView == 'trust') {
+          rightPane = TrustPane(
+            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
+          );
+        } else if (profileView == 'history') {
+          rightPane = HistoryPane(
             onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
           );
         } else {
