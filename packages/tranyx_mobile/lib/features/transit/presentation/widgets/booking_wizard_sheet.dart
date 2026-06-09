@@ -306,27 +306,66 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                       Row(
                         children: [
                           Expanded(
-                            child: RadioListTile<String>(
-                              title: const Text(
-                                'Self Pickup',
-                                style: TextStyle(fontSize: 12),
+                            child: GestureDetector(
+                              onTap: () => setState(() => _rentalType = 'pickup'),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: _rentalType == 'pickup'
+                                      ? AppColors.indigo
+                                      : (isDarkMode ? AppColors.darkCard : AppColors.lightCard),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: _rentalType == 'pickup'
+                                        ? AppColors.indigo
+                                        : (isDarkMode ? AppColors.darkBorder : AppColors.lightBorder),
+                                  ),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    'Self Pickup',
+                                    style: TextStyle(
+                                      color: _rentalType == 'pickup'
+                                          ? Colors.white
+                                          : (isDarkMode ? AppColors.darkText : AppColors.lightText),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
                               ),
-                              value: 'pickup',
-                              groupValue: _rentalType,
-                              onChanged: (val) =>
-                                  setState(() => _rentalType = val!),
                             ),
                           ),
+                          const SizedBox(width: 12),
                           Expanded(
-                            child: RadioListTile<String>(
-                              title: const Text(
-                                'Doorstep',
-                                style: TextStyle(fontSize: 12),
+                            child: GestureDetector(
+                              onTap: () => setState(() => _rentalType = 'delivery'),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: _rentalType == 'delivery'
+                                      ? AppColors.indigo
+                                      : (isDarkMode ? AppColors.darkCard : AppColors.lightCard),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: _rentalType == 'delivery'
+                                        ? AppColors.indigo
+                                        : (isDarkMode ? AppColors.darkBorder : AppColors.lightBorder),
+                                  ),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    'Doorstep',
+                                    style: TextStyle(
+                                      color: _rentalType == 'delivery'
+                                          ? Colors.white
+                                          : (isDarkMode ? AppColors.darkText : AppColors.lightText),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
                               ),
-                              value: 'delivery',
-                              groupValue: _rentalType,
-                              onChanged: (val) =>
-                                  setState(() => _rentalType = val!),
                             ),
                           ),
                         ],

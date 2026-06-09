@@ -38,7 +38,8 @@ class _SignaturePadDialogState extends ConsumerState<SignaturePadDialog> {
       hash = text.codeUnitAt(i) + ((hash << 5) - hash);
     }
     final hex = hash.abs().toRadixString(16).padLeft(8, '0');
-    return '0x${hex}f34c2b9a7d8e9f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3'.substring(0, 66);
+    return '0x${hex}f34c2b9a7d8e9f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3'
+        .substring(0, 66);
   }
 
   @override
@@ -57,12 +58,19 @@ class _SignaturePadDialogState extends ConsumerState<SignaturePadDialog> {
             children: [
               Text(
                 widget.title,
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 12),
               const Text(
                 'CONTRACT TERMS & CONDITIONS',
-                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                ),
               ),
               const SizedBox(height: 8),
               Container(
@@ -73,7 +81,9 @@ class _SignaturePadDialogState extends ConsumerState<SignaturePadDialog> {
                   color: isDarkMode ? Colors.black26 : Colors.grey[100],
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+                    color: isDarkMode
+                        ? AppColors.darkBorder
+                        : AppColors.lightBorder,
                   ),
                 ),
                 child: SingleChildScrollView(
@@ -81,7 +91,9 @@ class _SignaturePadDialogState extends ConsumerState<SignaturePadDialog> {
                     widget.terms,
                     style: TextStyle(
                       fontSize: 12,
-                      color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                      color: isDarkMode
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
                     ),
                   ),
                 ),
@@ -96,7 +108,11 @@ class _SignaturePadDialogState extends ConsumerState<SignaturePadDialog> {
               const SizedBox(height: 16),
               const Text(
                 'DRAW SIGNATURE ON CANVAS',
-                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                ),
               ),
               const SizedBox(height: 8),
               Container(
@@ -106,7 +122,9 @@ class _SignaturePadDialogState extends ConsumerState<SignaturePadDialog> {
                   color: isDarkMode ? Colors.black38 : Colors.white,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+                    color: isDarkMode
+                        ? AppColors.darkBorder
+                        : AppColors.lightBorder,
                     width: 1.5,
                   ),
                 ),
@@ -114,7 +132,7 @@ class _SignaturePadDialogState extends ConsumerState<SignaturePadDialog> {
                   onPanUpdate: (details) {
                     setState(() {
                       final box = context.findRenderObject() as RenderBox;
-                      final point = box.globalToLocal(details.globalPosition);
+                      box.globalToLocal(details.globalPosition);
                       // Adjust offset for local bounds of the container
                       _points.add(details.localPosition);
                       _hasCanvasDraw = true;
@@ -136,7 +154,10 @@ class _SignaturePadDialogState extends ConsumerState<SignaturePadDialog> {
                 alignment: Alignment.centerRight,
                 child: TextButton.icon(
                   icon: const Icon(Icons.clear, size: 16),
-                  label: const Text('Clear Canvas', style: TextStyle(fontSize: 12)),
+                  label: const Text(
+                    'Clear Canvas',
+                    style: TextStyle(fontSize: 12),
+                  ),
                   onPressed: () {
                     setState(() {
                       _points.clear();
@@ -153,7 +174,9 @@ class _SignaturePadDialogState extends ConsumerState<SignaturePadDialog> {
                       onPressed: () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                       child: const Text('Cancel'),
                     ),
@@ -165,13 +188,19 @@ class _SignaturePadDialogState extends ConsumerState<SignaturePadDialog> {
                         final name = _nameController.text.trim();
                         if (name.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Please type your name to sign')),
+                            const SnackBar(
+                              content: Text('Please type your name to sign'),
+                            ),
                           );
                           return;
                         }
                         if (!_hasCanvasDraw) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Please draw your signature on the canvas')),
+                            const SnackBar(
+                              content: Text(
+                                'Please draw your signature on the canvas',
+                              ),
+                            ),
                           );
                           return;
                         }
@@ -185,7 +214,9 @@ class _SignaturePadDialogState extends ConsumerState<SignaturePadDialog> {
                         foregroundColor: Colors.white,
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                       child: const Text('Sign Contract'),
                     ),

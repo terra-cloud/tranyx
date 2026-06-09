@@ -366,9 +366,9 @@ class JobsViewComponent extends StatelessComponent {
       }).toList();
 
       // Sort: latest to oldest
-      jobs.sort((a, b) {
-        final aTime = a['createdAt'] as int? ?? 0;
-        final bTime = b['createdAt'] as int? ?? 0;
+      jobs.sort((jobA, jobB) {
+        final aTime = jobA['createdAt'] as int? ?? 0;
+        final bTime = jobB['createdAt'] as int? ?? 0;
         return bTime.compareTo(aTime);
       });
     }
@@ -407,9 +407,9 @@ class JobsViewComponent extends StatelessComponent {
     }
 
     // Sort all final listings from latest to oldest
-    result.sort((a, b) {
-      final aTime = a['createdAt'] as int? ?? 0;
-      final bTime = b['createdAt'] as int? ?? 0;
+    result.sort((jobA, jobB) {
+      final aTime = jobA['createdAt'] as int? ?? 0;
+      final bTime = jobB['createdAt'] as int? ?? 0;
       return bTime.compareTo(aTime);
     });
 

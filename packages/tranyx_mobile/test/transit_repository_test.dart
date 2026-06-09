@@ -380,6 +380,114 @@ void main() {
       expect(firestore.collectionQueries, contains('property_history'));
     });
 
+    test('Verify rental extension request, approval, and rejection flows', () async {
+      // 1. Setup mock states
+      firestore.db['users/host123'] = {
+        'name': 'Host User',
+        'email': 'host@tranyx.com',
+        'accountType': 'nyxian',
+        'tyxBalance': 1000.0,
+      };
+      firestore.db['users/renter123'] = {
+        'name': 'Renter User',
+        'email': 'renter@tranyx.com',
+        'accountType': 'employer',
+        'tyxBalance': 5000.0,
+      };
+      firestore.db['rentals/rental123'] = {
+        'id': 'rental123',
+        'hostId': 'host123',
+        'hostName': 'Host User',
+        'priceDaily': 2000.0,
+        'brand': 'Toyota',
+        'model': 'Vios',
+        'year': 2021,
+        'status': 'Active',
+        'endDate': 100000000,
+        'totalCost': 2000.0,
+      };
+      firestore.db['rental_escrows/rental123'] = {
+        'rentalId': 'rental123',
+        'amount': 2000.0,
+        'status': 'Held',
+      };
+
+      // 2. Renter requests an extension: 12 hours for 1000 TYXBIT
+      await repo.createExtensionRequest(
+        rentalId: 'rental123',
+        renteeId: 'renter123',
+        extendHours: 12,
+        fee: 1000.0,
+      );
+
+      // Verify renter balance is debited by 1000
+      final renter = await repo.getUser('renter123');
+      expect(renter!.tyxBalance, equals(5000.0 - 1000.0));
+
+      // Verify rental_extensions has the pending request
+      final extDocs = await firestore.collection('rental_extensions').get();
+      expect(extDocs.docs.length, equals(1));
+      final extId = extDocs.docs.first.id;
+      final extData = extDocs.docs.first.data();
+      expect(extData['status'], equals('Pending'));
+      expect(extData['extendHours'], equals(12));
+      expect(extData['fee'], equals(1000.0));
+
+      // Verify rental_extension_escrows has the held fee
+      final extEscrowDocs = await firestore.collection('rental_extension_escrows').get();
+      expect(extEscrowDocs.docs.length, equals(1));
+      expect(extEscrowDocs.docs.first.data()['amount'], equals(1000.0));
+      expect(extEscrowDocs.docs.first.data()['status'], equals('Held'));
+
+      // 3. Host approves the extension request
+      await repo.approveExtension(extId);
+
+      // Verify extension is approved
+      final approvedExt = await firestore.collection('rental_extensions').doc(extId).get();
+      expect(approvedExt.data()!['status'], equals('Approved'));
+
+      // Verify extension escrow merged into main rental escrow
+      final mainEscrow = await firestore.collection('rental_escrows').doc('rental123').get();
+      expect(mainEscrow.data()!['amount'], equals(2000.0 + 1000.0));
+
+      // Verify extension escrow is deleted
+      final extEscrowDeleted = await firestore.collection('rental_extension_escrows').doc(extId).get();
+      expect(extEscrowDeleted.exists, isFalse);
+
+      // Verify rental totalCost and endDate are updated
+      final updatedRental = await firestore.collection('rentals').doc('rental123').get();
+      expect(updatedRental.data()!['totalCost'], equals(2000.0 + 1000.0));
+      expect(updatedRental.data()!['endDate'], equals(100000000 + (12 * 3600 * 1000)));
+
+      // 4. Test Rejection flow on another extension
+      // Reset renter balance to 5000.0
+      await repo.updateTyxBalance('renter123', 5000.0);
+      await repo.createExtensionRequest(
+        rentalId: 'rental123',
+        renteeId: 'renter123',
+        extendHours: 24,
+        fee: 2000.0,
+      );
+
+      final extDocs2 = await firestore.collection('rental_extensions').get();
+      final extId2 = extDocs2.docs.firstWhere((doc) => doc.data()['status'] == 'Pending').id;
+
+      // Reject the extension
+      await repo.rejectExtension(extId2);
+
+      // Verify extension is rejected
+      final rejectedExt = await firestore.collection('rental_extensions').doc(extId2).get();
+      expect(rejectedExt.data()!['status'], equals('Rejected'));
+
+      // Verify renter is refunded (5000 - 2000 + 2000 = 5000)
+      final renterRefunded = await repo.getUser('renter123');
+      expect(renterRefunded!.tyxBalance, equals(5000.0));
+
+      // Verify extension escrow is deleted
+      final extEscrowDeleted2 = await firestore.collection('rental_extension_escrows').doc(extId2).get();
+      expect(extEscrowDeleted2.exists, isFalse);
+    });
+
     test('Verify KYC submission collections', () async {
       firestore.db['users/user123'] = {
         'name': 'KYC User',

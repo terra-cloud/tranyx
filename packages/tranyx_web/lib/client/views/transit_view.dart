@@ -95,10 +95,11 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         onChange: (v) => s.setState(() {
           if (v == 'rent') {
             s.transitMode = TransitMode.rent;
-          } else if (v == 'host')
+          } else if (v == 'host') {
             s.transitMode = TransitMode.host;
-          else
+          } else {
             s.transitMode = TransitMode.history;
+          }
         }),
       ),
 
@@ -155,13 +156,13 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       }).toList();
 
       // Sort by distance (closest first)
-      availableRentals.sort((a, b) {
-        final aLat = (a['pickupLat'] as num?)?.toDouble() ?? 14.5995;
-        final aLng = (a['pickupLng'] as num?)?.toDouble() ?? 120.9842;
+      availableRentals.sort((rentalA, rentalB) {
+        final aLat = (rentalA['pickupLat'] as num?)?.toDouble() ?? 14.5995;
+        final aLng = (rentalA['pickupLng'] as num?)?.toDouble() ?? 120.9842;
         final aDist = calculateDistance(s.userLatitude, s.userLongitude, aLat, aLng);
 
-        final bLat = (b['pickupLat'] as num?)?.toDouble() ?? 14.5995;
-        final bLng = (b['pickupLng'] as num?)?.toDouble() ?? 120.9842;
+        final bLat = (rentalB['pickupLat'] as num?)?.toDouble() ?? 14.5995;
+        final bLng = (rentalB['pickupLng'] as num?)?.toDouble() ?? 120.9842;
         final bDist = calculateDistance(s.userLatitude, s.userLongitude, bLat, bLng);
 
         return aDist.compareTo(bDist);
@@ -202,51 +203,51 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     } else {
       // 🏢 PROPERTIES RENT MODE
       final activeLeases = s.realtimeProperties
-          .where((p) => p.renteeId == currentUid && p.status != 'Available' && p.status != 'Completed')
+          .where((prop) => prop.renteeId == currentUid && prop.status != 'Available' && prop.status != 'Completed')
           .toList();
 
-      final availableProperties = s.realtimeProperties.where((p) {
-        if (p.status != 'Available') return false;
-        if (p.hostId == currentUid) return false;
+      final availableProperties = s.realtimeProperties.where((prop) {
+        if (prop.status != 'Available') return false;
+        if (prop.hostId == currentUid) return false;
 
         if (_searchQuery.isNotEmpty) {
           final query = _searchQuery.toLowerCase();
-          if (!p.title.toLowerCase().contains(query) &&
-              !p.description.toLowerCase().contains(query) &&
-              !p.address.toLowerCase().contains(query)) {
+          if (!prop.title.toLowerCase().contains(query) &&
+              !prop.description.toLowerCase().contains(query) &&
+              !prop.address.toLowerCase().contains(query)) {
             return false;
           }
         }
 
-        if (_selectedCategory != null && p.category != _selectedCategory) return false;
-        if (_selectedType != null && p.type != _selectedType) return false;
+        if (_selectedCategory != null && prop.category != _selectedCategory) return false;
+        if (_selectedType != null && prop.type != _selectedType) return false;
 
-        final double distKm = calculateDistance(s.userLatitude, s.userLongitude, p.latitude, p.longitude);
+        final double distKm = calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude);
         if (s.geofenceRadius < 999.0 && distKm > s.geofenceRadius) return false;
 
         // Apply Rent Option / Duration filter
-        if (_selectedDurationFilter == 'daily' && p.priceDaily <= 0 && p.priceMonthly <= 0) return false;
-        if (_selectedDurationFilter == 'weekly' && p.priceWeekly <= 0 && p.priceMonthly <= 0) return false;
-        if (_selectedDurationFilter == 'monthly' && p.priceMonthly <= 0 && p.priceDaily <= 0) return false;
-        if (_selectedDurationFilter == 'yearly' && p.priceMonthly <= 0) return false;
+        if (_selectedDurationFilter == 'daily' && prop.priceDaily <= 0 && prop.priceMonthly <= 0) return false;
+        if (_selectedDurationFilter == 'weekly' && prop.priceWeekly <= 0 && prop.priceMonthly <= 0) return false;
+        if (_selectedDurationFilter == 'monthly' && prop.priceMonthly <= 0 && prop.priceDaily <= 0) return false;
+        if (_selectedDurationFilter == 'yearly' && prop.priceMonthly <= 0) return false;
 
         // Apply Custom Max Price filter
         if (_maxPrice != null) {
           double? priceToCheck;
           if (_selectedDurationFilter == 'daily') {
-            priceToCheck = p.priceDaily > 0 ? p.priceDaily : p.priceMonthly;
+            priceToCheck = prop.priceDaily > 0 ? prop.priceDaily : prop.priceMonthly;
           } else if (_selectedDurationFilter == 'weekly') {
-            priceToCheck = p.priceWeekly > 0 ? p.priceWeekly : p.priceMonthly;
+            priceToCheck = prop.priceWeekly > 0 ? prop.priceWeekly : prop.priceMonthly;
           } else if (_selectedDurationFilter == 'yearly') {
-            priceToCheck = p.priceMonthly > 0 ? p.priceMonthly * 12 : null;
+            priceToCheck = prop.priceMonthly > 0 ? prop.priceMonthly * 12 : null;
           } else if (_selectedDurationFilter == 'monthly') {
-            priceToCheck = p.priceMonthly > 0 ? p.priceMonthly : p.priceDaily;
+            priceToCheck = prop.priceMonthly > 0 ? prop.priceMonthly : prop.priceDaily;
           } else {
             // 'any' filter: check if any of the offered rates is under maxPrice
             bool matchesAny = false;
-            if (p.priceDaily > 0 && p.priceDaily <= _maxPrice!) matchesAny = true;
-            if (p.priceWeekly > 0 && p.priceWeekly <= _maxPrice!) matchesAny = true;
-            if (p.priceMonthly > 0 && p.priceMonthly <= _maxPrice!) matchesAny = true;
+            if (prop.priceDaily > 0 && prop.priceDaily <= _maxPrice!) matchesAny = true;
+            if (prop.priceWeekly > 0 && prop.priceWeekly <= _maxPrice!) matchesAny = true;
+            if (prop.priceMonthly > 0 && prop.priceMonthly <= _maxPrice!) matchesAny = true;
             if (!matchesAny) return false;
           }
 
@@ -257,9 +258,9 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       }).toList();
 
       // Sort by distance (closest first)
-      availableProperties.sort((a, b) {
-        final aDist = calculateDistance(s.userLatitude, s.userLongitude, a.latitude, a.longitude);
-        final bDist = calculateDistance(s.userLatitude, s.userLongitude, b.latitude, b.longitude);
+      availableProperties.sort((propA, propB) {
+        final aDist = calculateDistance(s.userLatitude, s.userLongitude, propA.latitude, propA.longitude);
+        final bDist = calculateDistance(s.userLatitude, s.userLongitude, propB.latitude, propB.longitude);
         return aDist.compareTo(bDist);
       });
 
@@ -343,7 +344,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       ]);
     } else {
       // 🏢 PROPERTIES HOST MODE
-      final myProperties = s.realtimeProperties.where((p) => p.hostId == currentUid).toList();
+      final myProperties = s.realtimeProperties.where((prop) => prop.hostId == currentUid).toList();
 
       return div(classes: 'space-y-6', [
         if (myProperties.isEmpty)

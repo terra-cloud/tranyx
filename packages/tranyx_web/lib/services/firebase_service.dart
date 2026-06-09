@@ -1414,6 +1414,9 @@ class FirestoreService {
       'uid': rental.hostId,
       'type': 'payment',
       'amount': hostPayout,
+      'baseAmount': cost,
+      'commissionFee': commission,
+      'commissionLabel': 'Platform Commission (5%)',
       'title': 'Rental Earnings Payout',
       'desc':
           'Payout for rental ${rental.brand} ${rental.model} (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
@@ -2829,6 +2832,9 @@ class FirestoreService {
       'uid': property.hostId,
       'type': 'payment',
       'amount': hostPayout,
+      'baseAmount': cost,
+      'commissionFee': commission,
+      'commissionLabel': 'Platform Commission (5%)',
       'title': 'Property Rental Payout',
       'desc':
           'Earnings payout for "${property.title}" (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',

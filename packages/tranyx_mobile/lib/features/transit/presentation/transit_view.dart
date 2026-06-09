@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared/shared.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
-import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/utils/geo_helper.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_provider.dart';
@@ -932,11 +931,9 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                       color: isDarkMode
                                           ? AppColors.darkBorder
                                           : AppColors.lightBg,
-                                      child:
-                                          (item.frontPhotoUrl != null &&
-                                              item.frontPhotoUrl!.isNotEmpty)
+                                      child: (item.frontPhotoUrl.isNotEmpty)
                                           ? Image.network(
-                                              item.frontPhotoUrl!,
+                                              item.frontPhotoUrl,
                                               fit: BoxFit.cover,
                                             )
                                           : const Icon(
@@ -1323,12 +1320,9 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                                 ? AppColors.darkBorder
                                                 : AppColors.lightBg,
                                             child:
-                                                (item.frontPhotoUrl != null &&
-                                                    item
-                                                        .frontPhotoUrl!
-                                                        .isNotEmpty)
+                                                (item.frontPhotoUrl.isNotEmpty)
                                                 ? Image.network(
-                                                    item.frontPhotoUrl!,
+                                                    item.frontPhotoUrl,
                                                     fit: BoxFit.cover,
                                                   )
                                                 : const Icon(

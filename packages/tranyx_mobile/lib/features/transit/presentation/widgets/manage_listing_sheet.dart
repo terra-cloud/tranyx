@@ -206,6 +206,7 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
       await repo.updateVehicleGpsTracker(id, _gpsController.text.trim());
 
       ref.invalidate(realtimeRentalsProvider);
+      if (!mounted) return;
       setState(() {
         _isProcessing = false;
         _isEditingGps = false;

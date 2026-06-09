@@ -2495,7 +2495,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the rentee -> purchases
         if (applicantId == uid) {
-          final alreadyAdded = pTrans.any((p) => p['timestamp'] == createdAtMs && p['title'] == title);
+          final alreadyAdded = pTrans.any((tx) => tx['timestamp'] == createdAtMs && tx['title'] == title);
           if (!alreadyAdded) {
             final bookingFee = price * 0.03;
             pTrans.add({
@@ -2570,7 +2570,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the rentee -> purchases
         if (applicantId == uid) {
-          final alreadyAdded = pTrans.any((p) => p['timestamp'] == createdAtMs && p['title'] == title);
+          final alreadyAdded = pTrans.any((tx) => tx['timestamp'] == createdAtMs && tx['title'] == title);
           if (!alreadyAdded) {
             final bookingFee = price * 0.03;
             pTrans.add({
@@ -2966,7 +2966,7 @@ class _HistoryViewState extends State<_HistoryView> {
                         p(classes: 'text-xs text-amber-500/80 mt-0.5', [
                           lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
                           Component.text(
-                            'Platform Commission (3%): − ${formatCurrency((tx['commissionFee'] as num).toDouble())}',
+                            '${tx['commissionLabel'] ?? "Platform Commission (3%)"}: − ${formatCurrency((tx['commissionFee'] as num).toDouble())}',
                           ),
                         ]),
                       ],
