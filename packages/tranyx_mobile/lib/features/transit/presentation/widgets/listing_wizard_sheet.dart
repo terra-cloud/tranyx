@@ -1122,11 +1122,11 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     const Text(
-                                      'Host Commission (5%)',
+                                      'Host Commission (3%)',
                                       style: TextStyle(fontSize: 13, color: Colors.grey),
                                     ),
                                     Text(
-                                      '- ₱ ${((double.tryParse(_priceMonthlyController.text) ?? 0.0) * 0.05).toStringAsFixed(2)}',
+                                      '- ₱ ${((double.tryParse(_priceMonthlyController.text) ?? 0.0) * 0.03).toStringAsFixed(2)}',
                                       style: const TextStyle(fontSize: 13, color: Colors.amber),
                                     ),
                                   ],
@@ -1140,7 +1140,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                       style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                                     ),
                                     Text(
-                                      '₱ ${((double.tryParse(_priceMonthlyController.text) ?? 0.0) * 0.95).toStringAsFixed(2)}',
+                                      '₱ ${((double.tryParse(_priceMonthlyController.text) ?? 0.0) * 0.97).toStringAsFixed(2)}',
                                       style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green),
                                     ),
                                   ],
@@ -1326,7 +1326,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   }
 
   Widget _buildPayoutRow(String label, double amount) {
-    final commission = amount * 0.05;
+    final commission = amount * 0.03;
     final payout = amount - commission;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -1338,7 +1338,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
             children: [
               Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
               Text(
-                'Rate: ₱ ${amount.toStringAsFixed(2)} | Comm (5%): - ₱ ${commission.toStringAsFixed(2)}',
+                'Rate: ₱ ${amount.toStringAsFixed(2)} | Comm (3%): - ₱ ${commission.toStringAsFixed(2)}',
                 style: const TextStyle(fontSize: 11, color: Colors.grey),
               ),
             ],

@@ -383,8 +383,11 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
     final listingFee = priceDaily * 0.015;
 
     final hireWithDriver = item['hireWithDriver'] as bool? ?? false;
-    final driverDailyPrice = (item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0;
-    final multInt = multiplier is num ? multiplier.toInt() : (int.tryParse(multiplier.toString()) ?? 0);
+    final driverDailyPrice =
+        (item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0;
+    final multInt = multiplier is num
+        ? multiplier.toInt()
+        : (int.tryParse(multiplier.toString()) ?? 0);
     final driverFee = hireWithDriver ? (driverDailyPrice * multInt) : 0.0;
     final baseRentalCost = totalCost - driverFee;
 
@@ -535,7 +538,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
+                    Text(
                       driverFee > 0 ? 'Base Vehicle Rental' : 'Base Cost',
                       style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),

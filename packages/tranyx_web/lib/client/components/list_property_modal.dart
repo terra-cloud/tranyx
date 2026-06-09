@@ -663,14 +663,14 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                   // Listing Fee (1.5% of Monthly)
                   final listingFee = monthlyRate * 0.015;
 
-                  // Commission (5% deducted from rent)
-                  final commissionMonthly = monthlyRate * 0.05;
+                  // Commission (3% deducted from rent)
+                  final commissionMonthly = monthlyRate * 0.03;
                   final payoutMonthly = monthlyRate - commissionMonthly;
 
-                  final commissionWeekly = weeklyRate * 0.05;
+                  final commissionWeekly = weeklyRate * 0.03;
                   final payoutWeekly = weeklyRate - commissionWeekly;
 
-                  final commissionDaily = dailyRate * 0.05;
+                  final commissionDaily = dailyRate * 0.03;
                   final payoutDaily = dailyRate - commissionDaily;
 
                   if (monthlyRate <= 0) return div([]);
@@ -718,7 +718,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
 
                         // Commission & Earnings summary
                         div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
-                          span([Component.text('Host Commission (5%):')]),
+                          span([Component.text('Host Commission (3%):')]),
                           span(classes: 'font-semibold text-amber-500', [
                             Component.text('- ₱ ${commissionMonthly.toStringAsFixed(2)}')
                           ]),
@@ -743,7 +743,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                       ]),
                       p(classes: 'text-[10px] text-zinc-500 leading-normal', [
                         Component.text(
-                          'Notice: A listing fee of ${listingFee.toStringAsFixed(2)} TYX will be charged to your wallet now to host the property. Standard platform commission of 5% is only charged on rent payouts.',
+                          'Notice: A listing fee of ${listingFee.toStringAsFixed(2)} TYX will be charged to your wallet now to host the property. Standard platform commission of 3% is only charged on rent payouts.',
                         ),
                       ]),
                     ],
