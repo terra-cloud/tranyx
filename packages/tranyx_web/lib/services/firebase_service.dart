@@ -1401,7 +1401,7 @@ class FirestoreService {
     }
 
     final cost = rental.totalCost ?? 0.0;
-    final commission = cost * 0.05;
+    final commission = cost * 0.03;
     final hostPayout = cost - commission;
 
     // Release payout to host
@@ -1414,9 +1414,12 @@ class FirestoreService {
       'uid': rental.hostId,
       'type': 'payment',
       'amount': hostPayout,
+      'baseAmount': cost,
+      'commissionFee': commission,
+      'commissionLabel': 'Platform Commission (3%)',
       'title': 'Rental Earnings Payout',
       'desc':
-          'Payout for rental ${rental.brand} ${rental.model} (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+          'Payout for rental ${rental.brand} ${rental.model} (3% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -2816,7 +2819,7 @@ class FirestoreService {
     }
 
     final cost = property.totalCost ?? 0.0;
-    final commission = cost * 0.05;
+    final commission = cost * 0.03;
     final hostPayout = cost - commission;
 
     // Release payout
@@ -2829,9 +2832,12 @@ class FirestoreService {
       'uid': property.hostId,
       'type': 'payment',
       'amount': hostPayout,
+      'baseAmount': cost,
+      'commissionFee': commission,
+      'commissionLabel': 'Platform Commission (3%)',
       'title': 'Property Rental Payout',
       'desc':
-          'Earnings payout for "${property.title}" (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+          'Earnings payout for "${property.title}" (3% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };

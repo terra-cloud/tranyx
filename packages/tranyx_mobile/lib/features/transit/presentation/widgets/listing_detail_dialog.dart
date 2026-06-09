@@ -140,7 +140,6 @@ class _ListingDetailDialogState extends ConsumerState<ListingDetailDialog> {
     final id = widget.item['id'] as String? ?? '';
     final brand = widget.item['brand'] as String? ?? '';
     final model = widget.item['model'] as String? ?? '';
-    final year = widget.item['year']?.toString() ?? '';
     final title = widget.item['title'] as String? ?? '$brand $model';
     final desc = widget.item['description'] as String? ?? '';
     final hostId = widget.item['hostId'] as String? ?? '';

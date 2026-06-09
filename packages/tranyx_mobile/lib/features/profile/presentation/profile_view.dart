@@ -13,6 +13,7 @@ import 'package:tranyx_mobile/features/profile/presentation/nyx_chat_view.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/payment_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/trust_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/reviews_pane.dart';
 
 class ProfileView extends ConsumerStatefulWidget {
   final bool isTablet;
@@ -610,6 +611,8 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
             const SizedBox(height: 12),
             buildProfileMenu(Icons.history, "History & Earnings", 'history'),
             const SizedBox(height: 12),
+            buildProfileMenu(Icons.star_outline, "Ratings & Reviews", 'reviews'),
+            const SizedBox(height: 12),
             buildProfileMenu(Icons.help_outline, "Help & Support", 'support'),
             if (!widget.isTablet) ...[
               const SizedBox(height: 24),
@@ -938,6 +941,10 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
           );
         } else if (profileView == 'history') {
           rightPane = HistoryPane(
+            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
+          );
+        } else if (profileView == 'reviews') {
+          rightPane = ReviewsPane(
             onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
           );
         } else {

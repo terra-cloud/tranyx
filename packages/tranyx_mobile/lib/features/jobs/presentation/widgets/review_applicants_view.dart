@@ -4,15 +4,23 @@ import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/core/utils/num_extension.dart';
+import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
 import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_sub_header.dart';
 
-class ReviewApplicantsView extends ConsumerWidget {
+class ReviewApplicantsView extends ConsumerStatefulWidget {
   const ReviewApplicantsView({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ReviewApplicantsView> createState() => _ReviewApplicantsViewState();
+}
+
+class _ReviewApplicantsViewState extends ConsumerState<ReviewApplicantsView> {
+  String? _hiringApplicantId;
+
+  @override
+  Widget build(BuildContext context) {
     final isDarkMode = ref.watch(themeModeProvider);
     final selectedJob = ref.watch(selectedJobProvider);
 
@@ -63,6 +71,8 @@ class ReviewApplicantsView extends ConsumerWidget {
               return Column(
                 children: applications.map((applicant) {
                   final isCounter = applicant.isCounterOffer;
+                  final isHiringThisOne = _hiringApplicantId == applicant.applicantUid;
+
                   return Container(
                     margin: const EdgeInsets.only(bottom: 16),
                     padding: const EdgeInsets.all(20),
@@ -98,21 +108,10 @@ class ReviewApplicantsView extends ConsumerWidget {
                                         width: 2,
                                       ),
                                       image: DecorationImage(
-                                        image:
-                                            (applicant.applicantPhotoUrl !=
-                                                    null &&
-                                                applicant
-                                                    .applicantPhotoUrl!
-                                                    .isNotEmpty)
-                                            ? NetworkImage(
-                                                    applicant
-                                                        .applicantPhotoUrl!,
-                                                  )
-                                                  as ImageProvider
-                                            : const AssetImage(
-                                                    'assets/images/default-avatar.jpg',
-                                                  )
-                                                  as ImageProvider,
+                                        image: (applicant.applicantPhotoUrl != null &&
+                                                applicant.applicantPhotoUrl!.isNotEmpty)
+                                            ? NetworkImage(applicant.applicantPhotoUrl!) as ImageProvider
+                                            : const AssetImage('assets/images/default-avatar.jpg') as ImageProvider,
                                         fit: BoxFit.cover,
                                       ),
                                     ),
@@ -120,8 +119,7 @@ class ReviewApplicantsView extends ConsumerWidget {
                                   const SizedBox(width: 16),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           applicant.applicantName,
@@ -231,13 +229,51 @@ class ReviewApplicantsView extends ConsumerWidget {
                         Row(
                           children: [
                             Expanded(
-                              child: UIHelpers.buildPrimaryButton(
-                                "Accept Nyxian",
-                                () =>
-                                    ref.read(jobsViewProvider.notifier).state =
-                                        'success', // Or 'hire' success view
-                                isDarkMode,
-                              ),
+                              child: isHiringThisOne
+                                  ? const Center(
+                                      child: Padding(
+                                        padding: EdgeInsets.symmetric(vertical: 8.0),
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                    )
+                                  : UIHelpers.buildPrimaryButton(
+                                      "Accept Nyxian",
+                                      () async {
+                                        final userProfile = ref.read(userProfileProvider).value;
+                                        if (userProfile == null) return;
+
+                                        setState(() {
+                                          _hiringApplicantId = applicant.applicantUid;
+                                        });
+
+                                        try {
+                                          await ref.read(jobRepositoryProvider).acceptApplicant(
+                                            jobId: selectedJob.id,
+                                            application: applicant,
+                                            employerUid: userProfile.uid,
+                                          );
+
+                                          ref.invalidate(userProfileProvider);
+                                          ref.read(jobsViewProvider.notifier).state = 'success';
+                                        } catch (e) {
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text("Error: ${e.toString().replaceAll("Exception: ", "")}"),
+                                                backgroundColor: Colors.red,
+                                              ),
+                                            );
+                                          }
+                                        } finally {
+                                          if (mounted) {
+                                            setState(() {
+                                              _hiringApplicantId = null;
+                                            });
+                                          }
+                                        }
+                                      },
+                                      isDarkMode,
+                                    ),
                             ),
                             const SizedBox(width: 12),
                             Container(

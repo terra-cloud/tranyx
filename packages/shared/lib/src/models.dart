@@ -277,6 +277,11 @@ class Job {
   final double? destinationLat;
   final double? destinationLng;
   final bool hasTracker;
+  final String? acceptedApplicantId;
+  final String? completionCode;
+  final String? receiptUrl;
+  final bool employerRated;
+  final bool nyxianRated;
 
   const Job({
     required this.id,
@@ -309,6 +314,11 @@ class Job {
     this.destinationLat,
     this.destinationLng,
     this.hasTracker = false,
+    this.acceptedApplicantId,
+    this.completionCode,
+    this.receiptUrl,
+    this.employerRated = false,
+    this.nyxianRated = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -342,6 +352,11 @@ class Job {
       'destinationLat': destinationLat,
       'destinationLng': destinationLng,
       'hasTracker': hasTracker,
+      'acceptedApplicantId': acceptedApplicantId,
+      'completionCode': completionCode,
+      'receiptUrl': receiptUrl,
+      'employerRated': employerRated,
+      'nyxianRated': nyxianRated,
     };
   }
 
@@ -390,6 +405,11 @@ class Job {
       destinationLat: (map['destinationLat'] as num?)?.toDouble(),
       destinationLng: (map['destinationLng'] as num?)?.toDouble(),
       hasTracker: map['hasTracker'] ?? false,
+      acceptedApplicantId: map['acceptedApplicantId'] as String?,
+      completionCode: map['completionCode']?.toString(),
+      receiptUrl: map['receiptUrl'] as String?,
+      employerRated: map['employerRated'] ?? false,
+      nyxianRated: map['nyxianRated'] ?? false,
     );
   }
 
@@ -424,6 +444,11 @@ class Job {
     double? destinationLat,
     double? destinationLng,
     bool? hasTracker,
+    String? acceptedApplicantId,
+    String? completionCode,
+    String? receiptUrl,
+    bool? employerRated,
+    bool? nyxianRated,
   }) {
     return Job(
       id: id ?? this.id,
@@ -457,6 +482,11 @@ class Job {
       destinationLat: destinationLat ?? this.destinationLat,
       destinationLng: destinationLng ?? this.destinationLng,
       hasTracker: hasTracker ?? this.hasTracker,
+      acceptedApplicantId: acceptedApplicantId ?? this.acceptedApplicantId,
+      completionCode: completionCode ?? this.completionCode,
+      receiptUrl: receiptUrl ?? this.receiptUrl,
+      employerRated: employerRated ?? this.employerRated,
+      nyxianRated: nyxianRated ?? this.nyxianRated,
     );
   }
 }

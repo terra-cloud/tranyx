@@ -463,7 +463,7 @@ class TransitRepository {
     if (escrowDoc.data()!['status'] != 'Held') throw Exception('Escrow is not in Held status.');
 
     final cost = rental.totalCost ?? 0.0;
-    final commission = cost * 0.05;
+    final commission = cost * 0.03;
     final hostPayout = cost - commission;
 
     await updateTyxBalance(rental.hostId, host.tyxBalance + hostPayout);
@@ -473,8 +473,11 @@ class TransitRepository {
       'uid': rental.hostId,
       'type': 'payment',
       'amount': hostPayout,
+      'baseAmount': cost,
+      'commissionFee': commission,
+      'commissionLabel': 'Platform Commission (3%)',
       'title': 'Rental Earnings Payout',
-      'desc': 'Payout for rental ${rental.brand} ${rental.model} (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+      'desc': 'Payout for rental ${rental.brand} ${rental.model} (3% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
@@ -837,7 +840,7 @@ class TransitRepository {
     if (escrowDoc.data()!['status'] != 'Held') throw Exception('Escrow is not in Held status.');
 
     final cost = property.totalCost ?? 0.0;
-    final commission = cost * 0.05;
+    final commission = cost * 0.03;
     final hostPayout = cost - commission;
 
     await updateTyxBalance(property.hostId, host.tyxBalance + hostPayout);
@@ -847,8 +850,11 @@ class TransitRepository {
       'uid': property.hostId,
       'type': 'payment',
       'amount': hostPayout,
+      'baseAmount': cost,
+      'commissionFee': commission,
+      'commissionLabel': 'Platform Commission (3%)',
       'title': 'Property Rental Payout',
-      'desc': 'Earnings payout for "${property.title}" (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+      'desc': 'Earnings payout for "${property.title}" (3% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
@@ -969,7 +975,6 @@ class TransitRepository {
     required String rentalId,
   }) async {
     // Save to actual rental history doc that it's rated
-    final historyCol = role == 'host' ? 'rental_history' : 'property_history'; // wait, role of who is being rated
     // Wait, the web firebase service does:
     // final ratedFieldKey = '${role}RatedBy_$callerUid';
     // Let's verify how it writes to history or user rating
@@ -1084,6 +1089,75 @@ class TransitRepository {
     });
   }
 
+  Future<void> createExtensionRequest({
+    required String rentalId,
+    required String renteeId,
+    required int extendHours,
+    required double fee,
+  }) async {
+    final rentee = await getUser(renteeId);
+    if (rentee == null) throw Exception('Renter profile not found.');
+
+    if (rentee.tyxBalance < fee) {
+      throw Exception(
+        'Insufficient balance. Required: ${fee.toStringAsFixed(2)} TYXBIT, but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+      );
+    }
+
+    // Deduct balance
+    await updateTyxBalance(renteeId, rentee.tyxBalance - fee);
+
+    // Save transaction
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    await _firestore.collection('transactions').doc(txId).set({
+      'uid': renteeId,
+      'type': 'payment',
+      'amount': fee,
+      'title': 'Rental Extension Request',
+      'desc': 'Requested extension of $extendHours hour(s) for vehicle rental.',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    // Save extension request document
+    final extensionId = 'ext_${DateTime.now().microsecondsSinceEpoch}';
+    await _firestore.collection('rental_extensions').doc(extensionId).set({
+      'id': extensionId,
+      'rentalId': rentalId,
+      'renteeId': renteeId,
+      'extendHours': extendHours,
+      'fee': fee,
+      'status': 'Pending',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    // Save extension escrow document
+    await _firestore.collection('rental_extension_escrows').doc(extensionId).set({
+      'extensionId': extensionId,
+      'rentalId': rentalId,
+      'renteeId': renteeId,
+      'amount': fee,
+      'status': 'Held',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    // Notify Host
+    final rentalDoc = await _firestore.collection('rentals').doc(rentalId).get();
+    if (rentalDoc.exists) {
+      final rentalData = rentalDoc.data()!;
+      final hostId = rentalData['hostId'] as String?;
+      final brand = rentalData['brand'] ?? '';
+      final model = rentalData['model'] ?? '';
+      if (hostId != null) {
+        await createNotification(
+          uid: hostId,
+          title: 'Extension Request Received',
+          message: 'Renter requested a $extendHours-hour extension for $brand $model.',
+        );
+      }
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getPendingExtensionsForVehicle(String rentalId) async {
     final snap = await _firestore
         .collection('rental_extensions')
@@ -1167,6 +1241,15 @@ class TransitRepository {
     // 3. Delete extension escrow
     await _firestore.collection('rental_extension_escrows').doc(extensionId).delete();
   }
+
+  Stream<List<Map<String, dynamic>>> getEscrowHoldbacks(String uid) {
+    return _firestore
+        .collection('escrow_holdbacks')
+        .where('nyxianId', isEqualTo: uid)
+        .where('status', isEqualTo: 'held')
+        .snapshots()
+        .map((snap) => snap.docs.map((doc) => doc.data()..['id'] = doc.id).toList());
+  }
 }
 
 final transitRepositoryProvider = Provider<TransitRepository>((ref) {
@@ -1211,3 +1294,10 @@ final userTransactionsProvider = StreamProvider<List<Map<String, dynamic>>>((ref
   if (user == null) return Stream.value([]);
   return ref.watch(transitRepositoryProvider).getUserTransactions(user.uid);
 });
+
+final escrowHoldbacksProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
+  final user = ref.watch(userProvider);
+  if (user == null) return Stream.value([]);
+  return ref.watch(transitRepositoryProvider).getEscrowHoldbacks(user.uid);
+});
+

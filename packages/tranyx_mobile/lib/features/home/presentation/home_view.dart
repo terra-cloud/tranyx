@@ -544,7 +544,7 @@ class HomeView extends ConsumerWidget {
             iconColor: AppColors.amber,
             onTap: () {
               ref.read(activeTabProvider.notifier).state = 'profile';
-              ref.read(profileViewProvider.notifier).state = 'trust';
+              ref.read(profileViewProvider.notifier).state = 'reviews';
             },
           ),
         ] else ...[
@@ -593,7 +593,7 @@ class HomeView extends ConsumerWidget {
             iconColor: AppColors.amber,
             onTap: () {
               ref.read(activeTabProvider.notifier).state = 'profile';
-              ref.read(profileViewProvider.notifier).state = 'trust';
+              ref.read(profileViewProvider.notifier).state = 'reviews';
             },
           ),
         ],

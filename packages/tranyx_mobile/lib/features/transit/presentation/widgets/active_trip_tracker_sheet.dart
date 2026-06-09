@@ -32,6 +32,7 @@ class _ActiveTripTrackerSheetState
   double _trackingLng = 120.9842;
   double _speed = 0.0;
   bool _isProcessing = false;
+  int _extendHours = 1;
 
   @override
   void initState() {
@@ -663,6 +664,316 @@ class _ActiveTripTrackerSheetState
                       ),
                     ],
                     const SizedBox(height: 32),
+
+                    if (!widget.isProperty && (status == 'Active' || status == 'Ongoing')) ...[
+                      StreamBuilder<QuerySnapshot>(
+                        stream: ref.watch(firestoreProvider)
+                            .collection('rental_extensions')
+                            .where('rentalId', isEqualTo: id)
+                            .where('status', isEqualTo: 'Pending')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          final hasPending = snapshot.hasData && snapshot.data!.docs.isNotEmpty;
+                          final pendingDocs = hasPending ? snapshot.data!.docs : [];
+
+                          if (!isHost) {
+                            if (hasPending) {
+                              final extData = pendingDocs.first.data() as Map<String, dynamic>;
+                              final hours = extData['extendHours'];
+                              final fee = extData['fee'];
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 24),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.withValues(alpha: 0.1),
+                                  border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Row(
+                                      children: [
+                                        Icon(Icons.hourglass_empty, color: Colors.orange, size: 18),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'EXTENSION REQUEST PENDING',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 11,
+                                            color: Colors.orange,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'You requested to extend the rental by $hours hours for ₱ ${fee.toStringAsFixed(0)} TYXBIT.',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    const Text(
+                                      'Awaiting host approval. Funds are currently locked in escrow.',
+                                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            } else {
+                              final extensionRatePerHour = (widget.item['extensionRatePerHour'] as num?)?.toDouble() ?? 200.0;
+                              final fee = _extendHours * extensionRatePerHour;
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 24),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+                                  border: Border.all(
+                                    color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+                                  ),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'REQUEST RENTAL EXTENSION',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              '₱ ${extensionRatePerHour.toStringAsFixed(0)}/hour',
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 15,
+                                              ),
+                                            ),
+                                            const Text(
+                                              'Extension Rate',
+                                              style: TextStyle(fontSize: 10, color: Colors.grey),
+                                            ),
+                                          ],
+                                        ),
+                                        Row(
+                                          children: [
+                                            IconButton(
+                                              icon: const Icon(Icons.remove_circle_outline),
+                                              onPressed: _extendHours > 1
+                                                  ? () => setState(() => _extendHours--)
+                                                  : null,
+                                            ),
+                                            Text(
+                                              '$_extendHours hr${_extendHours > 1 ? "s" : ""}',
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(Icons.add_circle_outline),
+                                              onPressed: () => setState(() => _extendHours++),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    const Divider(height: 20),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        const Text(
+                                          'Extension escrow fee:',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                        Text(
+                                          '₱ ${fee.toStringAsFixed(0)} TYXBIT',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: AppColors.indigo,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _isProcessing
+                                        ? const Center(child: CircularProgressIndicator())
+                                        : SizedBox(
+                                            width: double.infinity,
+                                            child: UIHelpers.buildPrimaryButton(
+                                              'Submit Extension Request',
+                                              () async {
+                                                setState(() => _isProcessing = true);
+                                                try {
+                                                  await ref.read(transitRepositoryProvider).createExtensionRequest(
+                                                    rentalId: id,
+                                                    renteeId: userProfile.uid,
+                                                    extendHours: _extendHours,
+                                                    fee: fee,
+                                                  );
+                                                  ref.invalidate(realtimeRentalsProvider);
+                                                  if (mounted) {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text('Extension request submitted!'),
+                                                        backgroundColor: Colors.green,
+                                                      ),
+                                                    );
+                                                  }
+                                                } catch (e) {
+                                                  if (mounted) {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      SnackBar(
+                                                        content: Text('Failed: $e'),
+                                                        backgroundColor: Colors.red,
+                                                      ),
+                                                    );
+                                                  }
+                                                } finally {
+                                                  setState(() => _isProcessing = false);
+                                                }
+                                              },
+                                              isDarkMode,
+                                            ),
+                                          ),
+                                  ],
+                                ),
+                              );
+                            }
+                          }
+
+                          if (isHost && hasPending) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'PENDING EXTENSION REQUESTS',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ...pendingDocs.map((doc) {
+                                  final extData = doc.data() as Map<String, dynamic>;
+                                  final extId = doc.id;
+                                  final hours = extData['extendHours'];
+                                  final fee = extData['fee'];
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 16),
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+                                      border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Renter requests extension of $hours hours.',
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Escrow payout: ₱ ${fee.toStringAsFixed(0)} TYXBIT (will release upon completion).',
+                                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        _isProcessing
+                                            ? const Center(child: CircularProgressIndicator())
+                                            : Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: OutlinedButton(
+                                                      style: OutlinedButton.styleFrom(
+                                                        side: const BorderSide(color: Colors.red),
+                                                        foregroundColor: Colors.red,
+                                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                                      ),
+                                                      onPressed: () async {
+                                                        setState(() => _isProcessing = true);
+                                                        try {
+                                                          await ref.read(transitRepositoryProvider).rejectExtension(extId);
+                                                          ref.invalidate(realtimeRentalsProvider);
+                                                          if (mounted) {
+                                                            ScaffoldMessenger.of(context).showSnackBar(
+                                                              const SnackBar(
+                                                                content: Text('Extension request rejected.'),
+                                                              ),
+                                                            );
+                                                          }
+                                                        } catch (e) {
+                                                          if (mounted) {
+                                                            ScaffoldMessenger.of(context).showSnackBar(
+                                                              SnackBar(content: Text('Error: $e')),
+                                                            );
+                                                          }
+                                                        } finally {
+                                                          setState(() => _isProcessing = false);
+                                                        }
+                                                      },
+                                                      child: const Text('Reject'),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 12),
+                                                  Expanded(
+                                                    child: ElevatedButton(
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: AppColors.indigo,
+                                                        foregroundColor: Colors.white,
+                                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                                      ),
+                                                      onPressed: () async {
+                                                        setState(() => _isProcessing = true);
+                                                        try {
+                                                          await ref.read(transitRepositoryProvider).approveExtension(extId);
+                                                          ref.invalidate(realtimeRentalsProvider);
+                                                          if (mounted) {
+                                                            ScaffoldMessenger.of(context).showSnackBar(
+                                                              const SnackBar(
+                                                                content: Text('Extension request approved!'),
+                                                                backgroundColor: Colors.green,
+                                                              ),
+                                                            );
+                                                          }
+                                                        } catch (e) {
+                                                          if (mounted) {
+                                                            ScaffoldMessenger.of(context).showSnackBar(
+                                                              SnackBar(content: Text('Error: $e')),
+                                                            );
+                                                          }
+                                                        } finally {
+                                                          setState(() => _isProcessing = false);
+                                                        }
+                                                      },
+                                                      child: const Text('Approve'),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                      ],
+                                    ),
+                                  );
+                                }),
+                                const SizedBox(height: 16),
+                              ],
+                            );
+                          }
+
+                          return const SizedBox.shrink();
+                        },
+                      ),
+                    ],
 
                     // Chat Counterpart Button
                     if (widget.item['allowChat'] == true) ...[

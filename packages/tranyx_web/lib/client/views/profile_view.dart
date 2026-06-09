@@ -2373,7 +2373,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the host -> earnings
         if (creatorId == uid) {
-          final payout = price * 0.95; // 5% host commission fee deducted
+          final payout = price * 0.97; // 3% host commission fee deducted
           earningsSum += payout;
           gigsCount++;
           eTrans.add({
@@ -2382,8 +2382,8 @@ class _HistoryViewState extends State<_HistoryView> {
             'date': _formatDate(createdAtMs),
             'amount': payout,
             'baseAmount': price,
-            'commissionFee': price * 0.05,
-            'commissionLabel': 'Platform Commission (5%)',
+            'commissionFee': price * 0.03,
+            'commissionLabel': 'Platform Commission (3%)',
             'status': 'Released',
             'timestamp': createdAtMs,
           });
@@ -2446,7 +2446,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the host -> earnings
         if (creatorId == uid) {
-          final payout = price * 0.95; // 5% host commission fee deducted
+          final payout = price * 0.97; // 3% host commission fee deducted
           earningsSum += payout;
           gigsCount++;
 
@@ -2458,8 +2458,8 @@ class _HistoryViewState extends State<_HistoryView> {
               'date': _formatDate(createdAtMs),
               'amount': payout,
               'baseAmount': price,
-              'commissionFee': price * 0.05,
-              'commissionLabel': 'Platform Commission (5%)',
+              'commissionFee': price * 0.03,
+              'commissionLabel': 'Platform Commission (3%)',
               'status': 'Released',
               'timestamp': createdAtMs,
             });
@@ -2495,7 +2495,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the rentee -> purchases
         if (applicantId == uid) {
-          final alreadyAdded = pTrans.any((p) => p['timestamp'] == createdAtMs && p['title'] == title);
+          final alreadyAdded = pTrans.any((tx) => tx['timestamp'] == createdAtMs && tx['title'] == title);
           if (!alreadyAdded) {
             final bookingFee = price * 0.03;
             pTrans.add({
@@ -2521,7 +2521,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the host -> earnings
         if (creatorId == uid) {
-          final payout = price * 0.95; // 5% host commission fee deducted
+          final payout = price * 0.97; // 3% host commission fee deducted
           earningsSum += payout;
           gigsCount++;
 
@@ -2533,8 +2533,8 @@ class _HistoryViewState extends State<_HistoryView> {
               'date': _formatDate(createdAtMs),
               'amount': payout,
               'baseAmount': price,
-              'commissionFee': price * 0.05,
-              'commissionLabel': 'Platform Commission (5%)',
+              'commissionFee': price * 0.03,
+              'commissionLabel': 'Platform Commission (3%)',
               'status': 'Released',
               'timestamp': createdAtMs,
             });
@@ -2570,7 +2570,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the rentee -> purchases
         if (applicantId == uid) {
-          final alreadyAdded = pTrans.any((p) => p['timestamp'] == createdAtMs && p['title'] == title);
+          final alreadyAdded = pTrans.any((tx) => tx['timestamp'] == createdAtMs && tx['title'] == title);
           if (!alreadyAdded) {
             final bookingFee = price * 0.03;
             pTrans.add({
@@ -2966,7 +2966,7 @@ class _HistoryViewState extends State<_HistoryView> {
                         p(classes: 'text-xs text-amber-500/80 mt-0.5', [
                           lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
                           Component.text(
-                            'Platform Commission (3%): − ${formatCurrency((tx['commissionFee'] as num).toDouble())}',
+                            '${tx['commissionLabel'] ?? "Platform Commission (3%)"}: − ${formatCurrency((tx['commissionFee'] as num).toDouble())}',
                           ),
                         ]),
                       ],

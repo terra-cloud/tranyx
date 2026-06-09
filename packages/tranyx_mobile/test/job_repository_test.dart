@@ -184,5 +184,248 @@ void main() {
       expect(firestore.collectionQueries, contains('applications'));
       expect(firestore.collectionQueries, contains('questions'));
     });
+
+    test('Verify completeJob releases escrow and processes correct payouts & fees', () async {
+      // 1. Setup initial DB state
+      firestore.db['users/employer123'] = {
+        'uid': 'employer123',
+        'name': 'Test Employer',
+        'tyxBalance': 5000.0,
+      };
+
+      firestore.db['users/nyxian123'] = {
+        'uid': 'nyxian123',
+        'name': 'Test Nyxian',
+        'tyxBalance': 1000.0,
+        'jobsDone': 0,
+        'totalEarned': 0.0,
+        'completedGigsCount': 0,
+      };
+
+      firestore.db['jobs/job123'] = {
+        'id': 'job123',
+        'title': 'Plumbing job',
+        'status': 'In Progress',
+        'pricingValue': 2000.0,
+        'acceptedApplicantId': 'nyxian123',
+        'creatorId': 'employer123',
+        'hasTracker': false,
+        'completionCode': '123456',
+      };
+
+      firestore.db['escrow/job123'] = {
+        'amount': 2000.0,
+        'employerId': 'employer123',
+        'status': 'held',
+      };
+
+      // 2. Complete job (worker enters the code '123456')
+      await repo.completeJob(
+        jobId: 'job123',
+        verificationCodeEntered: '123456',
+        currentUserUid: 'nyxian123', // worker triggers verification
+        currentUserName: 'Test Nyxian',
+      );
+
+      // 3. Assertions
+      // Verify job status is Completed
+      final jobDoc = await firestore.collection('jobs').doc('job123').get();
+      expect(jobDoc.data()!['status'], equals('Completed'));
+
+      // Verify escrow document is deleted
+      final escrowDoc = await firestore.collection('escrow').doc('job123').get();
+      expect(escrowDoc.exists, isFalse);
+
+      // Verify Nyxian balance and stats
+      // 3% Platform fee = 60. Payout = 2000 - 60 = 1940. New balance = 1000 + 1940 = 2940.
+      final nyxDoc = await firestore.collection('users').doc('nyxian123').get();
+      expect(nyxDoc.data()!['tyxBalance'], equals(2940.0));
+      expect(nyxDoc.data()!['jobsDone'], equals(1));
+      expect(nyxDoc.data()!['totalEarned'], equals(1940.0));
+      expect(nyxDoc.data()!['completedGigsCount'], equals(1));
+
+      // Verify Employer balance
+      // 7% tx + 3% conv = 10% total fees = 200. New balance = 5000 - 200 = 4800.
+      final empDoc = await firestore.collection('users').doc('employer123').get();
+      expect(empDoc.data()!['tyxBalance'], equals(4800.0));
+
+      // Verify Platform Fees
+      // Total company income = 3% commission (60) + 7% tx (140) + 3% conv (60) = 260.
+      final feeDoc = await firestore.collection('platform_fees').doc('job123').get();
+      expect(feeDoc.exists, isTrue);
+      expect(feeDoc.data()!['amount'], equals(260.0));
+      expect(feeDoc.data()!['commissionFee'], equals(60.0));
+      expect(feeDoc.data()!['transactionFee'], equals(140.0));
+      expect(feeDoc.data()!['convenienceFee'], equals(60.0));
+      expect(feeDoc.data()!['employerFees'], equals(200.0));
+      expect(feeDoc.data()!['nyxianFee'], equals(60.0));
+
+      // Verify Transactions logged
+      final payoutTx = await firestore.collection('transactions').doc('payout_nyx_job123').get();
+      expect(payoutTx.exists, isTrue);
+      expect(payoutTx.data()!['amount'], equals(1940.0));
+      expect(payoutTx.data()!['type'], equals('payout'));
+
+      final feeTx = await firestore.collection('transactions').doc('fees_emp_job123').get();
+      expect(feeTx.exists, isTrue);
+      expect(feeTx.data()!['amount'], equals(200.0));
+      expect(feeTx.data()!['type'], equals('fee_deduction'));
+    });
+
+    test('Verify submitJobRating updates rating, review subcollection, and job rated fields', () async {
+      // 1. Setup initial DB state
+      firestore.db['users/nyxian123'] = {
+        'uid': 'nyxian123',
+        'name': 'Test Nyxian',
+        'rating': 4.0,
+        'ratingCount': 1,
+      };
+
+      firestore.db['jobs/job123'] = {
+        'id': 'job123',
+        'title': 'Plumbing job',
+        'status': 'Completed',
+        'employerRated': false,
+        'nyxianRated': false,
+      };
+
+      // 2. Submit rating (employer rates worker with 5 stars)
+      await repo.submitJobRating(
+        jobId: 'job123',
+        targetId: 'nyxian123',
+        reviewerUid: 'employer123',
+        reviewerName: 'Test Employer',
+        score: 5,
+        comment: 'Great work!',
+        currentViewMode: AccountType.employer,
+      );
+
+      // 3. Assertions
+      // New rating = ((4.0 * 1) + 5) / 2 = 4.5
+      final nyxDoc = await firestore.collection('users').doc('nyxian123').get();
+      expect(nyxDoc.data()!['rating'], equals(4.5));
+      expect(nyxDoc.data()!['ratingCount'], equals(2));
+
+      // Verify review subcollection record
+      final reviewDoc = await firestore
+          .collection('users')
+          .doc('nyxian123')
+          .collection('reviews')
+          .doc('job123')
+          .get();
+      expect(reviewDoc.exists, isTrue);
+      expect(reviewDoc.data()!['score'], equals(5));
+      expect(reviewDoc.data()!['comment'], equals('Great work!'));
+      expect(reviewDoc.data()!['reviewerId'], equals('employer123'));
+
+      // Verify job doc updated
+      final jobDoc = await firestore.collection('jobs').doc('job123').get();
+      expect(jobDoc.data()!['employerRated'], isTrue);
+      expect(jobDoc.data()!['nyxianRated'], isFalse);
+    });
+
+    test('Verify cancelJob handles 100% refund when early cancellation', () async {
+      // 1. Setup initial DB state
+      firestore.db['users/employer123'] = {
+        'uid': 'employer123',
+        'name': 'Test Employer',
+        'tyxBalance': 5000.0,
+      };
+
+      firestore.db['users/nyxian123'] = {
+        'uid': 'nyxian123',
+        'name': 'Test Nyxian',
+        'tyxBalance': 1000.0,
+      };
+
+      firestore.db['jobs/job123'] = {
+        'id': 'job123',
+        'creatorId': 'employer123',
+        'acceptedApplicantId': 'nyxian123',
+        'status': 'In Progress',
+        'hasTracker': true,
+      };
+
+      firestore.db['escrow/job123'] = {
+        'amount': 2000.0,
+        'employerId': 'employer123',
+        'status': 'held',
+      };
+
+      // 2. Cancel job
+      await repo.cancelJob(
+        jobId: 'job123',
+        currentUserUid: 'employer123',
+      );
+
+      // 3. Assertions
+      // Verify job status is Cancelled
+      final jobDoc = await firestore.collection('jobs').doc('job123').get();
+      expect(jobDoc.data()!['status'], equals('Cancelled'));
+
+      // Verify escrow document is deleted
+      final escrowDoc = await firestore.collection('escrow').doc('job123').get();
+      expect(escrowDoc.exists, isFalse);
+
+      // Verify Employer balance has been refunded full 2000
+      final empDoc = await firestore.collection('users').doc('employer123').get();
+      expect(empDoc.data()!['tyxBalance'], equals(7000.0));
+
+      // Verify Nyxian balance remains the same
+      final nyxDoc = await firestore.collection('users').doc('nyxian123').get();
+      expect(nyxDoc.data()!['tyxBalance'], equals(1000.0));
+    });
+
+    test('Verify cancelJob handles 20 Tyxbits worker compensation when late cancellation', () async {
+      // 1. Setup initial DB state
+      firestore.db['users/employer123'] = {
+        'uid': 'employer123',
+        'name': 'Test Employer',
+        'tyxBalance': 5000.0,
+      };
+
+      firestore.db['users/nyxian123'] = {
+        'uid': 'nyxian123',
+        'name': 'Test Nyxian',
+        'tyxBalance': 1000.0,
+      };
+
+      firestore.db['jobs/job123'] = {
+        'id': 'job123',
+        'creatorId': 'employer123',
+        'acceptedApplicantId': 'nyxian123',
+        'status': 'arrived_pickup', // reached first point
+        'hasTracker': true,
+      };
+
+      firestore.db['escrow/job123'] = {
+        'amount': 2000.0,
+        'employerId': 'employer123',
+        'status': 'held',
+      };
+
+      // 2. Cancel job
+      await repo.cancelJob(
+        jobId: 'job123',
+        currentUserUid: 'employer123',
+      );
+
+      // 3. Assertions
+      // Verify job status is Cancelled
+      final jobDoc = await firestore.collection('jobs').doc('job123').get();
+      expect(jobDoc.data()!['status'], equals('Cancelled'));
+
+      // Verify escrow document is deleted
+      final escrowDoc = await firestore.collection('escrow').doc('job123').get();
+      expect(escrowDoc.exists, isFalse);
+
+      // Verify Nyxian balance has been credited 20 tyxbits compensation
+      final nyxDoc = await firestore.collection('users').doc('nyxian123').get();
+      expect(nyxDoc.data()!['tyxBalance'], equals(1020.0));
+
+      // Verify Employer balance has been refunded 2000 - 20 = 1980
+      final empDoc = await firestore.collection('users').doc('employer123').get();
+      expect(empDoc.data()!['tyxBalance'], equals(6980.0));
+    });
   });
 }
