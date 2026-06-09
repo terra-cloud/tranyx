@@ -2384,6 +2384,7 @@ class _HistoryViewState extends State<_HistoryView> {
             'baseAmount': price,
             'commissionFee': price * 0.03,
             'commissionLabel': 'Platform Commission (3%)',
+            'listingFee': rental.priceDaily * 0.015,
             'status': 'Released',
             'timestamp': createdAtMs,
           });
@@ -2460,6 +2461,7 @@ class _HistoryViewState extends State<_HistoryView> {
               'baseAmount': price,
               'commissionFee': price * 0.03,
               'commissionLabel': 'Platform Commission (3%)',
+              'listingFee': rental.priceDaily * 0.015,
               'status': 'Released',
               'timestamp': createdAtMs,
             });
@@ -2535,6 +2537,7 @@ class _HistoryViewState extends State<_HistoryView> {
               'baseAmount': price,
               'commissionFee': price * 0.03,
               'commissionLabel': 'Platform Commission (3%)',
+              'listingFee': rental.priceMonthly * 0.015,
               'status': 'Released',
               'timestamp': createdAtMs,
             });
@@ -2599,6 +2602,15 @@ class _HistoryViewState extends State<_HistoryView> {
           'date': _formatDate(createdAt),
           'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
           'method': tx['method'] ?? 'Unknown',
+          'timestamp': createdAt ?? 0,
+        });
+      } else if (type == 'listing_fee') {
+        pTrans.add({
+          'title': tx['title'] ?? 'Listing Fee',
+          'desc': tx['desc'] ?? 'Platform Listing Fee',
+          'date': _formatDate(createdAt),
+          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
+          'status': 'Successful',
           'timestamp': createdAt ?? 0,
         });
       }
@@ -2969,6 +2981,13 @@ class _HistoryViewState extends State<_HistoryView> {
                             '${tx['commissionLabel'] ?? "Platform Commission (3%)"}: − ${formatCurrency((tx['commissionFee'] as num).toDouble())}',
                           ),
                         ]),
+                        if (tx['listingFee'] != null)
+                          p(classes: 'text-xs text-red-400 mt-0.5', [
+                            lIcon('tag', cls: 'w-3 h-3 inline mr-0.5'),
+                            Component.text(
+                              'Listing Fee (1.5% paid upfront): − ${formatCurrency((tx['listingFee'] as num).toDouble())}',
+                            ),
+                          ]),
                       ],
                     ]),
                   ]),

@@ -1327,14 +1327,25 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Base Budget',
-                        style: TextStyle(fontSize: 11, color: Colors.grey),
-                      ),
-                      Text(
-                        '₱ ${baseAmount.toStringAsFixed(2)}',
-                        style: const TextStyle(fontSize: 11),
-                      ),
+                      if (tx['kind'] == 'listing_fee') ...[
+                        const Text(
+                          'Listing Fee (1.5%)',
+                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                        Text(
+                          '₱ ${amount.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ] else ...[
+                        const Text(
+                          'Base Budget',
+                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                        Text(
+                          '₱ ${baseAmount.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ],
                     ],
                   ),
                   if (tx['txFee'] != null) ...[
@@ -1939,6 +1950,16 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
           'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
           'method': tx['method'] ?? 'Unknown',
           'timestamp': createdAtMs,
+        });
+      } else if (type == 'listing_fee') {
+        pTrans.add({
+          'title': tx['title'] ?? 'Listing Fee',
+          'desc': tx['desc'] ?? 'Platform Listing Fee',
+          'date': _formatDate(createdAtMs),
+          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
+          'status': 'Successful',
+          'timestamp': createdAtMs,
+          'kind': 'listing_fee',
         });
       }
     }
