@@ -374,10 +374,19 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
 
     final bookingFee =
         (item['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03);
-    final commission = totalCost * 0.05;
+    final commission = totalCost * 0.03;
     final finalPaid = myRole == 'host'
         ? (totalCost - commission)
         : (totalCost + bookingFee);
+
+    final priceDaily = (item['priceDaily'] as num?)?.toDouble() ?? 0.0;
+    final listingFee = priceDaily * 0.015;
+
+    final hireWithDriver = item['hireWithDriver'] as bool? ?? false;
+    final driverDailyPrice = (item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0;
+    final multInt = multiplier is num ? multiplier.toInt() : (int.tryParse(multiplier.toString()) ?? 0);
+    final driverFee = hireWithDriver ? (driverDailyPrice * multInt) : 0.0;
+    final baseRentalCost = totalCost - driverFee;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -527,22 +536,38 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      'Base Cost',
-                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                      driverFee > 0 ? 'Base Vehicle Rental' : 'Base Cost',
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                     Text(
-                      '₱ ${totalCost.toStringAsFixed(2)}',
+                      '₱ ${(driverFee > 0 ? baseRentalCost : totalCost).toStringAsFixed(2)}',
                       style: const TextStyle(fontSize: 11),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
+                if (driverFee > 0) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Driver Services Fee',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                      Text(
+                        '₱ ${driverFee.toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                ],
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
                       myRole == 'host'
-                          ? 'Platform Commission (5%)'
+                          ? 'Platform Commission (3%)'
                           : 'Booking Fee (3%)',
                       style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
@@ -555,6 +580,23 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 4),
+                if (myRole == 'host') ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Listing Fee (1.5% paid upfront)',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                      Text(
+                        '− ₱ ${listingFee.toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 11, color: Colors.red),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                ],
                 const Divider(height: 16),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -645,10 +687,12 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
 
     final bookingFee =
         (item['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03);
-    final commission = totalCost * 0.05;
+    final commission = totalCost * 0.03;
     final finalPaid = myRole == 'host'
         ? (totalCost - commission)
         : (totalCost + bookingFee);
+
+    final listingFee = priceMonthly * 0.015;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -814,7 +858,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                   children: [
                     Text(
                       myRole == 'host'
-                          ? 'Platform Commission (5%)'
+                          ? 'Platform Commission (3%)'
                           : 'Booking Fee (3%)',
                       style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
@@ -827,6 +871,23 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 4),
+                if (myRole == 'host') ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Listing Fee (1.5% paid upfront)',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                      Text(
+                        '− ₱ ${listingFee.toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 11, color: Colors.red),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                ],
                 const Divider(height: 16),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1785,7 +1846,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
 
       if (hostId == userProfile.uid) {
         // Earnings
-        final platformFee = price * 0.05;
+        final platformFee = price * 0.03;
         final payout = price - platformFee;
         gigsCount++;
 
@@ -1802,7 +1863,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
             'amount': payout,
             'baseAmount': price,
             'commissionFee': platformFee,
-            'commissionLabel': 'Platform Commission (5%)',
+            'commissionLabel': 'Platform Commission (3%)',
             'status': 'Released',
             'timestamp': createdAtMs,
             'kind': kind,

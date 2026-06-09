@@ -2373,7 +2373,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the host -> earnings
         if (creatorId == uid) {
-          final payout = price * 0.95; // 5% host commission fee deducted
+          final payout = price * 0.97; // 3% host commission fee deducted
           earningsSum += payout;
           gigsCount++;
           eTrans.add({
@@ -2382,8 +2382,8 @@ class _HistoryViewState extends State<_HistoryView> {
             'date': _formatDate(createdAtMs),
             'amount': payout,
             'baseAmount': price,
-            'commissionFee': price * 0.05,
-            'commissionLabel': 'Platform Commission (5%)',
+            'commissionFee': price * 0.03,
+            'commissionLabel': 'Platform Commission (3%)',
             'status': 'Released',
             'timestamp': createdAtMs,
           });
@@ -2446,7 +2446,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the host -> earnings
         if (creatorId == uid) {
-          final payout = price * 0.95; // 5% host commission fee deducted
+          final payout = price * 0.97; // 3% host commission fee deducted
           earningsSum += payout;
           gigsCount++;
 
@@ -2458,8 +2458,8 @@ class _HistoryViewState extends State<_HistoryView> {
               'date': _formatDate(createdAtMs),
               'amount': payout,
               'baseAmount': price,
-              'commissionFee': price * 0.05,
-              'commissionLabel': 'Platform Commission (5%)',
+              'commissionFee': price * 0.03,
+              'commissionLabel': 'Platform Commission (3%)',
               'status': 'Released',
               'timestamp': createdAtMs,
             });
@@ -2521,7 +2521,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the host -> earnings
         if (creatorId == uid) {
-          final payout = price * 0.95; // 5% host commission fee deducted
+          final payout = price * 0.97; // 3% host commission fee deducted
           earningsSum += payout;
           gigsCount++;
 
@@ -2533,8 +2533,8 @@ class _HistoryViewState extends State<_HistoryView> {
               'date': _formatDate(createdAtMs),
               'amount': payout,
               'baseAmount': price,
-              'commissionFee': price * 0.05,
-              'commissionLabel': 'Platform Commission (5%)',
+              'commissionFee': price * 0.03,
+              'commissionLabel': 'Platform Commission (3%)',
               'status': 'Released',
               'timestamp': createdAtMs,
             });

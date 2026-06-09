@@ -1508,6 +1508,15 @@ class _RentalHistoryViewState extends State<_RentalHistoryView> {
     final endDate = (item['endDate'] as num?)?.toInt();
     final completedAt = (item['completedAt'] as num?)?.toInt();
 
+    final priceDaily = (item['priceDaily'] as num?)?.toDouble() ?? 0.0;
+    final listingFee = priceDaily * 0.015;
+
+    final hireWithDriver = item['hireWithDriver'] as bool? ?? false;
+    final driverDailyPrice = (item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0;
+    final multInt = multiplier is num ? multiplier.toInt() : (int.tryParse(multiplier.toString()) ?? 0);
+    final driverFee = hireWithDriver ? (driverDailyPrice * multInt) : 0.0;
+    final baseRentalCost = totalCost - driverFee;
+
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
 
     return div(classes: 'p-5 rounded-2xl border $cardCls space-y-1', [
@@ -1586,23 +1595,39 @@ class _RentalHistoryViewState extends State<_RentalHistoryView> {
       if (totalCost > 0)
         div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"} flex flex-col gap-1.5', [
           p(classes: 'text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-0.5', [Component.text('Payment Breakdown')]),
-          div(classes: 'flex justify-between items-center text-xs', [
-            span(classes: isDark ? "text-zinc-400" : "text-zinc-500", [Component.text(myRole == 'host' ? 'Rental Cost:' : 'Base Cost:')]),
-            span(classes: 'font-medium', [Component.text('₱${totalCost.toStringAsFixed(2)}')]),
-          ]),
+          if (driverFee > 0) ...[
+            div(classes: 'flex justify-between items-center text-xs', [
+              span(classes: isDark ? "text-zinc-400" : "text-zinc-500", [Component.text('Base Vehicle Rental:')]),
+              span(classes: 'font-medium', [Component.text('₱${baseRentalCost.toStringAsFixed(2)}')]),
+            ]),
+            div(classes: 'flex justify-between items-center text-xs', [
+              span(classes: isDark ? "text-zinc-400" : "text-zinc-500", [Component.text('Driver Services Fee:')]),
+              span(classes: 'font-medium', [Component.text('₱${driverFee.toStringAsFixed(2)}')]),
+            ]),
+          ] else ...[
+            div(classes: 'flex justify-between items-center text-xs', [
+              span(classes: isDark ? "text-zinc-400" : "text-zinc-500", [Component.text(myRole == 'host' ? 'Rental Cost:' : 'Base Cost:')]),
+              span(classes: 'font-medium', [Component.text('₱${totalCost.toStringAsFixed(2)}')]),
+            ]),
+          ],
           if (myRole == 'renter')
             div(classes: 'flex justify-between items-center text-xs', [
               span(classes: 'text-orange-400', [Component.text('Booking Fee (3%):')]),
               span(classes: 'text-orange-400 font-medium', [Component.text('₱${((item['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03)).toStringAsFixed(2)}')]),
             ]),
-          if (myRole == 'host')
+          if (myRole == 'host') ...[
             div(classes: 'flex justify-between items-center text-xs', [
-              span(classes: 'text-orange-400', [Component.text('Platform Commission (5%):')]),
-              span(classes: 'text-orange-400 font-medium', [Component.text('- ₱${(totalCost * 0.05).toStringAsFixed(2)}')]),
+              span(classes: 'text-orange-400', [Component.text('Platform Commission (3%):')]),
+              span(classes: 'text-orange-400 font-medium', [Component.text('- ₱${(totalCost * 0.03).toStringAsFixed(2)}')]),
             ]),
+            div(classes: 'flex justify-between items-center text-xs', [
+              span(classes: 'text-red-400', [Component.text('Listing Fee (1.5% paid upfront):')]),
+              span(classes: 'text-red-400 font-medium', [Component.text('- ₱${listingFee.toStringAsFixed(2)}')]),
+            ]),
+          ],
           div(classes: 'flex justify-between items-center text-xs pt-1 border-t ${isDark ? "border-zinc-800/50" : "border-zinc-100"}', [
             span(classes: 'font-bold ${myRole == 'host' ? "text-green-400" : (isDark ? "text-white" : "text-zinc-900")}', [Component.text(myRole == 'host' ? 'Net Earnings:' : 'Total Paid:')]),
-            span(classes: 'font-black ${myRole == 'host' ? "text-green-400" : (isDark ? "text-white" : "text-zinc-900")}', [Component.text('₱${(myRole == 'host' ? (totalCost * 0.95) : (totalCost + ((item['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03)))).toStringAsFixed(2)}')]),
+            span(classes: 'font-black ${myRole == 'host' ? "text-green-400" : (isDark ? "text-white" : "text-zinc-900")}', [Component.text('₱${(myRole == 'host' ? (totalCost * 0.97) : (totalCost + ((item['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03)))).toStringAsFixed(2)}')]),
           ]),
         ]),
     ]);
@@ -1717,27 +1742,37 @@ class _RentalHistoryViewState extends State<_RentalHistoryView> {
 
       // Payment Breakdown
       if (totalCost > 0)
-        div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"} flex flex-col gap-1.5', [
-          p(classes: 'text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-0.5', [Component.text('Payment Breakdown')]),
-          div(classes: 'flex justify-between items-center text-xs', [
-            span(classes: isDark ? "text-zinc-400" : "text-zinc-500", [Component.text(myRole == 'host' ? 'Rental Cost:' : 'Base Cost:')]),
-            span(classes: 'font-medium', [Component.text('₱${totalCost.toStringAsFixed(2)}')]),
-          ]),
-          if (myRole == 'renter')
-            div(classes: 'flex justify-between items-center text-xs', [
-              span(classes: 'text-orange-400', [Component.text('Booking Fee (3%):')]),
-              span(classes: 'text-orange-400 font-medium', [Component.text('₱${((item['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03)).toStringAsFixed(2)}')]),
-            ]),
-          if (myRole == 'host')
-            div(classes: 'flex justify-between items-center text-xs', [
-              span(classes: 'text-orange-400', [Component.text('Platform Commission (5%):')]),
-              span(classes: 'text-orange-400 font-medium', [Component.text('- ₱${(totalCost * 0.05).toStringAsFixed(2)}')]),
-            ]),
-          div(classes: 'flex justify-between items-center text-xs pt-1 border-t ${isDark ? "border-zinc-800/50" : "border-zinc-100"}', [
-            span(classes: 'font-bold ${myRole == 'host' ? "text-green-400" : (isDark ? "text-white" : "text-zinc-900")}', [Component.text(myRole == 'host' ? 'Net Earnings:' : 'Total Paid:')]),
-            span(classes: 'font-black ${myRole == 'host' ? "text-green-400" : (isDark ? "text-white" : "text-zinc-900")}', [Component.text('₱${(myRole == 'host' ? (totalCost * 0.95) : (totalCost + ((item['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03)))).toStringAsFixed(2)}')]),
-          ]),
-        ]),
+        Builder(
+          builder: (context) {
+            final listingFee = priceMonthly * 0.015;
+            return div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"} flex flex-col gap-1.5', [
+              p(classes: 'text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-0.5', [Component.text('Payment Breakdown')]),
+              div(classes: 'flex justify-between items-center text-xs', [
+                span(classes: isDark ? "text-zinc-400" : "text-zinc-500", [Component.text(myRole == 'host' ? 'Rental Cost:' : 'Base Cost:')]),
+                span(classes: 'font-medium', [Component.text('₱${totalCost.toStringAsFixed(2)}')]),
+              ]),
+              if (myRole == 'renter')
+                div(classes: 'flex justify-between items-center text-xs', [
+                  span(classes: 'text-orange-400', [Component.text('Booking Fee (3%):')]),
+                  span(classes: 'text-orange-400 font-medium', [Component.text('₱${((item['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03)).toStringAsFixed(2)}')]),
+                ]),
+              if (myRole == 'host') ...[
+                div(classes: 'flex justify-between items-center text-xs', [
+                  span(classes: 'text-orange-400', [Component.text('Platform Commission (3%):')]),
+                  span(classes: 'text-orange-400 font-medium', [Component.text('- ₱${(totalCost * 0.03).toStringAsFixed(2)}')]),
+                ]),
+                div(classes: 'flex justify-between items-center text-xs', [
+                  span(classes: 'text-red-400', [Component.text('Listing Fee (1.5% paid upfront):')]),
+                  span(classes: 'text-red-400 font-medium', [Component.text('- ₱${listingFee.toStringAsFixed(2)}')]),
+                ]),
+              ],
+              div(classes: 'flex justify-between items-center text-xs pt-1 border-t ${isDark ? "border-zinc-800/50" : "border-zinc-100"}', [
+                span(classes: 'font-bold ${myRole == 'host' ? "text-green-400" : (isDark ? "text-white" : "text-zinc-900")}', [Component.text(myRole == 'host' ? 'Net Earnings:' : 'Total Paid:')]),
+                span(classes: 'font-black ${myRole == 'host' ? "text-green-400" : (isDark ? "text-white" : "text-zinc-900")}', [Component.text('₱${(myRole == 'host' ? (totalCost * 0.97) : (totalCost + ((item['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03)))).toStringAsFixed(2)}')]),
+              ]),
+            ]);
+          },
+        ),
     ]);
   }
 

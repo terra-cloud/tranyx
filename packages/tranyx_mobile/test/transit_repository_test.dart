@@ -215,13 +215,13 @@ void main() {
       final rentalDocAfterSigning = await firestore.collection('rentals').doc('rental123').get();
       expect(rentalDocAfterSigning.data()!['status'], equals('Booked'));
 
-      // 4. Complete Rental & release escrow (5% platform commission deducted)
-      // hostPayout = 2000 - (2000 * 0.05) = 1900.0
+      // 4. Complete Rental & release escrow (3% platform commission deducted)
+      // hostPayout = 2000 - (2000 * 0.03) = 1940.0
       await repo.completeRental('rental123');
 
       // Verify host received payout
       final host = await repo.getUser('host123');
-      expect(host!.tyxBalance, equals(1000.0 + 1900.0));
+      expect(host!.tyxBalance, equals(1000.0 + 1940.0));
 
       // Verify escrow is marked Released
       final escrowDocCompleted = await firestore.collection('rental_escrows').doc('rental123').get();
@@ -323,12 +323,12 @@ void main() {
         'status': 'Held',
       };
 
-      // 4. Complete Property lease (Platform commission = 5% of 10000 = 500, payout = 9500)
+      // 4. Complete Property lease (Platform commission = 3% of 10000 = 300, payout = 9700)
       await repo.completePropertyRental(propertyId);
 
       // Verify host wallet has payout
       final hostFinal = await repo.getUser('host123');
-      expect(hostFinal!.tyxBalance, equals((1000.0 - 150.0) + 9500.0));
+      expect(hostFinal!.tyxBalance, equals((1000.0 - 150.0) + 9700.0));
 
       // Verify property_history doc created
       final histDocs = await firestore.collection('property_history').get();
