@@ -784,17 +784,17 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                   // Listing Fee (1.5% of Daily Rate)
                   final listingFee = dailyRate * 0.015;
 
-                  // Standard Platform commission fee: 5% deducted from payout
-                  final commissionDaily = dailyRate * 0.05;
+                  // Standard Platform commission fee: 3% deducted from payout
+                  final commissionDaily = dailyRate * 0.03;
                   final payoutDaily = dailyRate - commissionDaily;
 
-                  final commission12h = rate12h * 0.05;
+                  final commission12h = rate12h * 0.03;
                   final payout12h = rate12h - commission12h;
 
-                  final commissionWeekly = weeklyRate * 0.05;
+                  final commissionWeekly = weeklyRate * 0.03;
                   final payoutWeekly = weeklyRate - commissionWeekly;
 
-                  final commissionMonthly = monthlyRate * 0.05;
+                  final commissionMonthly = monthlyRate * 0.03;
                   final payoutMonthly = monthlyRate - commissionMonthly;
 
                   if (dailyRate <= 0 && rate12h <= 0 && weeklyRate <= 0 && monthlyRate <= 0) {
@@ -811,28 +811,28 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                             span([Component.text('12-Hour Rental: ₱${rate12h.toStringAsFixed(2)}')]),
                             span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                              Component.text('Payout: ₱${payout12h.toStringAsFixed(2)} (Net of 5% fee)')
+                              Component.text('Payout: ₱${payout12h.toStringAsFixed(2)} (Net of 3% platform commission)')
                             ]),
                           ]),
                         if (dailyRate > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                             span([Component.text('Daily Rental: ₱${dailyRate.toStringAsFixed(2)}')]),
                             span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                              Component.text('Payout: ₱${payoutDaily.toStringAsFixed(2)} (Net of 5% fee)')
+                              Component.text('Payout: ₱${payoutDaily.toStringAsFixed(2)} (Net of 3% platform commission)')
                             ]),
                           ]),
                         if (weeklyRate > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                             span([Component.text('Weekly Rental: ₱${weeklyRate.toStringAsFixed(2)}')]),
                             span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                              Component.text('Payout: ₱${payoutWeekly.toStringAsFixed(2)} (Net of 5% fee)')
+                              Component.text('Payout: ₱${payoutWeekly.toStringAsFixed(2)} (Net of 3% platform commission)')
                             ]),
                           ]),
                         if (monthlyRate > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                             span([Component.text('Monthly Rental: ₱${monthlyRate.toStringAsFixed(2)}')]),
                             span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                              Component.text('Payout: ₱${payoutMonthly.toStringAsFixed(2)} (Net of 5% fee)')
+                              Component.text('Payout: ₱${payoutMonthly.toStringAsFixed(2)} (Net of 3% platform commission)')
                             ]),
                           ]),
                         // Separator
@@ -847,7 +847,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                       ]),
                       p(classes: 'text-[10px] text-zinc-500 leading-normal', [
                         Component.text(
-                          'Notice: A listing fee of ${listingFee.toStringAsFixed(2)} TYX will be charged to your wallet now. A platform service fee of 5% is only deducted from your earnings upon successful rental completion.',
+                          'Notice: A listing fee of ${listingFee.toStringAsFixed(2)} TYX will be charged to your wallet now. A platform service fee of 3% is only deducted from your earnings upon successful rental completion.',
                         ),
                       ]),
                     ],

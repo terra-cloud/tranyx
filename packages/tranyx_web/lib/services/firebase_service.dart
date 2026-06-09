@@ -1382,7 +1382,7 @@ class FirestoreService {
     });
   }
 
-  /// Complete rental (releases escrow to host, minus 5% platform commission, saves to history, resets listing to Available)
+  /// Complete rental (releases escrow to host, minus 3% platform commission, saves to history, resets listing to Available)
   Future<void> completeRental(String rentalId) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
@@ -2801,7 +2801,7 @@ class FirestoreService {
     }
   }
 
-  /// Complete property rental (releases escrow to host minus 5% commission, archives to history, sets status to Completed)
+  /// Complete property rental (releases escrow to host minus 3% commission, archives to history, sets status to Completed)
   Future<void> completePropertyRental(String propertyId) async {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
