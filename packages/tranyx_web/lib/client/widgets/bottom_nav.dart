@@ -31,7 +31,15 @@ class BottomNavComponent extends StatelessComponent {
     final isActive = s.activeTab == tab;
     final activeTxt = 'text-indigo-500';
     final inactiveTxt = isDark ? 'text-zinc-500' : 'text-zinc-400';
-    final showBadge = (tab == AppTab.jobs && s.jobsHasUpdates) || (tab == AppTab.transit && s.transitHasUpdates);
+    final hasUnreadChats = (tab == AppTab.jobs && s.hasUnreadJobChats) || (tab == AppTab.transit && s.hasUnreadRentalChats);
+    final showBadge = (tab == AppTab.jobs && s.jobsHasUpdates) || (tab == AppTab.transit && s.transitHasUpdates) || hasUnreadChats;
+
+    int unreadCount = 0;
+    if (tab == AppTab.jobs) {
+      unreadCount = s.unreadJobChatsCount;
+    } else if (tab == AppTab.transit) {
+      unreadCount = s.unreadRentalChatsCount;
+    }
 
     return button(
       classes:
@@ -42,8 +50,14 @@ class BottomNavComponent extends StatelessComponent {
           lIcon(icon, cls: 'w-5 h-5'),
           if (isActive)
             div([], classes: 'absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-indigo-500'),
-          if (showBadge)
-            div([], classes: 'absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 border border-white dark:border-zinc-950 animate-pulse'),
+          if (unreadCount > 0)
+            div(
+              [Component.text('$unreadCount')],
+              classes:
+                  'absolute -top-2 -right-2 flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[8px] font-black border border-white dark:border-zinc-950 animate-pulse',
+            )
+          else if (showBadge)
+            div([], classes: 'absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 border border-white dark:border-zinc-955 animate-pulse'),
         ]),
         span(classes: 'text-[10px] font-semibold', [Component.text(label)]),
       ],

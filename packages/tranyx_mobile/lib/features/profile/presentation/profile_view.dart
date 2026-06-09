@@ -9,6 +9,7 @@ import 'package:tranyx_mobile/features/profile/providers/profile_provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:tranyx_mobile/core/utils/image_utils.dart';
 import 'package:tranyx_mobile/core/providers/image_upload_provider.dart';
+import 'package:tranyx_mobile/features/profile/presentation/nyx_chat_view.dart';
 
 class ProfileView extends ConsumerStatefulWidget {
   final bool isTablet;
@@ -917,6 +918,10 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                       ),
               ],
             ),
+          );
+        } else if (profileView == 'support') {
+          rightPane = NyxChatView(
+            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
           );
         } else {
           rightPane = Center(

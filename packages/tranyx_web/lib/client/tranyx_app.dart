@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:jaspr/dom.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'package:web/web.dart' as web;
 import 'package:tranyx_web/services/web_interop.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -38,6 +39,7 @@ import '../client/components/property_qa_modal.dart';
 import '../client/components/sign_contract_modal.dart';
 import '../client/components/kyc_id_modal.dart';
 import '../client/components/kyc_bg_modal.dart';
+import '../client/widgets/session_expired_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -133,6 +135,7 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Wallet reconnect modal ──────────────────────────────────
   bool showWalletReconnectPrompt = false;
   String? pendingReconnectWalletKey;
+  bool showSessionExpiredModal = false;
 
   // ── Jobs state ──────────────────────────────────────────────
   List<Map<String, dynamic>> myJobs = [];
@@ -241,6 +244,7 @@ class TranyxAppState extends State<TranyxApp> {
 
   // Job Completion State
   bool showCompletionScanner = false;
+  bool showEmployerFeePopup = false;
   String completionScanInput = '';
   bool isCompletingJob = false;
   bool isGeneratingCode = false;
@@ -267,6 +271,8 @@ class TranyxAppState extends State<TranyxApp> {
   Map<String, dynamic>? employerProfileData;
 
   // ── Wallet ──────────────────────────────────────────────────
+  bool showWalletSelectionModal = false;
+  String? selectedWalletType;
   WalletState walletState = WalletState.disconnected;
   String walletAddress = '';
   double walletBalance = 0.0;
@@ -293,6 +299,7 @@ class TranyxAppState extends State<TranyxApp> {
   bool isUploadingChatPhoto = false;
   bool isUploadingCertificate = false;
   Map<String, dynamic>? acceptedApplicantProfile;
+  Map<String, dynamic>? selectedJobCreatorProfile;
   List<Map<String, double>> offlineLocationBuffer = [];
   bool hasInspectionHoldback = false;
 
@@ -328,7 +335,7 @@ class TranyxAppState extends State<TranyxApp> {
       final isCreator = j['creatorId'] == uid;
       if (!isCreator) return false;
       final s = (j['status'] as String?)?.toLowerCase();
-      final isTerminal = s == 'completed' || s == 'done' || s == 'complete' || s == 'cancelled' || s == 'closed';
+      final isTerminal = s == 'completed' || s == 'complete' || s == 'cancelled' || s == 'closed';
       return !isTerminal;
     }).length;
 
@@ -343,7 +350,7 @@ class TranyxAppState extends State<TranyxApp> {
         final isCreator = j['creatorId'] == uid;
         if (!isCreator) return false;
         final s = (j['status'] as String?)?.toLowerCase();
-        final isTerminal = s == 'completed' || s == 'done' || s == 'complete' || s == 'cancelled' || s == 'closed';
+        final isTerminal = s == 'completed' || s == 'complete' || s == 'cancelled' || s == 'closed';
         return !isTerminal;
       });
     } catch (_) {
@@ -351,7 +358,23 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  void triggerSessionExpired() {
+    if (showSessionExpiredModal) return;
+    setState(() {
+      showSessionExpiredModal = true;
+    });
+  }
+
   void showAppToast(String title, String message) {
+    final lowerTitle = title.toLowerCase();
+    final lowerMsg = message.toLowerCase();
+    if (lowerTitle.contains('401') || lowerTitle.contains('not logged in') ||
+        lowerMsg.contains('401') || lowerMsg.contains('not logged in') ||
+        lowerMsg.contains('id-token-expired')) {
+      triggerSessionExpired();
+      return;
+    }
+
     setState(() {
       latestToastNotification = {
         'id': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -369,6 +392,8 @@ class TranyxAppState extends State<TranyxApp> {
       jobsView = JobsView.list;
       selectedJob = null;
       selectedJobData = null;
+      selectedJobCreatorProfile = null;
+      acceptedApplicantProfile = null;
       showDeleteConfirm = false;
       _stopSelectedJobRealtime();
     });
@@ -386,7 +411,21 @@ class TranyxAppState extends State<TranyxApp> {
             if (selectedJobData != null && selectedJobData!['id'] == fresh['id']) {
               selectedJobData = {...selectedJobData!, ...fresh};
 
-              final title = fresh['title'] as String? ?? selectedJob?.title ?? '';
+              final catName = (fresh['category'] as String? ?? selectedJobData?['category'] as String? ?? '').toLowerCase();
+              final cat = JobCategory.values.firstWhere(
+                (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
+                orElse: () => JobCategory.others,
+              );
+              hasTracker = fresh['hasTracker'] == true || fresh['hasTracker'] == 'true' || selectedJobData?['hasTracker'] == true || selectedJobData?['hasTracker'] == 'true' || cat.hasTracker;
+
+              var title = fresh['title'] as String? ?? selectedJob?.title ?? '';
+              if (title.isEmpty || title == 'Untitled') {
+                final category = fresh['category'] as String? ?? selectedJobData?['category'] as String? ?? '';
+                final categoryLabel = fresh['categoryLabel'] as String? ?? selectedJobData?['categoryLabel'] as String? ?? '';
+                final nameToNormalize = categoryLabel.isNotEmpty ? categoryLabel : category;
+                title = nameToNormalize.isNotEmpty ? normalizeCategoryName(nameToNormalize) : 'Untitled Gig';
+              }
+
               final rate = fresh['pricingValue'] != null
                   ? '₱ ${(fresh['pricingValue'] as num).toStringAsFixed(0)}'
                   : selectedJob?.rate ?? '';
@@ -433,6 +472,9 @@ class TranyxAppState extends State<TranyxApp> {
   @override
   void initState() {
     super.initState();
+    onSessionExpiredGlobal = () {
+      triggerSessionExpired();
+    };
     _initGemini();
     // Load any pending QR details from SessionStorage
     pendingQrJobId = SessionStorage.pendingQrJobId;
@@ -454,7 +496,7 @@ class TranyxAppState extends State<TranyxApp> {
     if (SessionStorage.hasSession) {
       _restoreSession();
     } else {
-      handleQrVerificationParams();
+      _checkGoogleRedirectResult();
     }
   }
 
@@ -495,6 +537,12 @@ class TranyxAppState extends State<TranyxApp> {
 
     // Load full profile from Firestore
     await loadUserProfile();
+    if (userProfile == null) {
+      setState(() {
+        activeTab = AppTab.profile;
+        profileView = ProfileView.personal;
+      });
+    }
     // Load jobs for current tab
     await loadJobs();
     await loadTransactions();
@@ -510,6 +558,85 @@ class TranyxAppState extends State<TranyxApp> {
     if (pendingQrJobId != null && pendingQrCode != null) {
       await executePendingQrVerification();
     }
+  }
+
+  Future<void> _checkGoogleRedirectResult() async {
+    try {
+      final configMap = {
+        'apiKey': currentFirebaseConfig.apiKey,
+        'authDomain': currentFirebaseConfig.authDomain,
+        'projectId': currentFirebaseConfig.projectId,
+        'storageBucket': currentFirebaseConfig.storageBucket,
+        'messagingSenderId': currentFirebaseConfig.messagingSenderId,
+        'appId': currentFirebaseConfig.appId,
+      };
+
+      final googleJsonStr = await checkRedirectResultJs(configMap);
+      if (googleJsonStr != null) {
+        setState(() {
+          isAuthLoading = true;
+          authError = null;
+        });
+
+        final Map<String, dynamic> googleData = jsonDecode(googleJsonStr);
+        final authResult = AuthResult(
+          uid: googleData['uid'],
+          idToken: googleData['idToken'],
+          refreshToken: googleData['refreshToken'],
+          email: googleData['email'],
+          displayName: googleData['displayName'],
+          photoUrl: googleData['photoUrl'],
+        );
+
+        SessionStorage.save(authResult);
+
+        var profile = await FirestoreService(authResult.idToken, _handleTokenRefresh).getUser(authResult.uid);
+
+        if (profile == null) {
+          setState(() {
+            pendingGoogleAuthResult = authResult;
+            authView = AuthView.registerPath;
+            isAuthLoading = false;
+          });
+        } else {
+          final type = profile.accountType;
+          SessionStorage.saveProfile(
+            name: profile.name,
+            email: profile.email,
+            accountType: type.name,
+          );
+          await _restoreSession();
+          setState(() {
+            isAuthLoading = false;
+          });
+        }
+      } else {
+        handleQrVerificationParams();
+      }
+    } catch (e) {
+      print("checkGoogleRedirectResult error: $e");
+      handleQrVerificationParams();
+    }
+  }
+
+  int getUnreadChatCount(String chatId) {
+    return notifications.where((n) => n['type'] == 'chat' && n['chatId'] == chatId).length;
+  }
+
+  bool get hasUnreadJobChats {
+    return notifications.any((n) => n['type'] == 'chat' && !n['chatId'].toString().startsWith('rental_') && !n['chatId'].toString().startsWith('property_'));
+  }
+
+  bool get hasUnreadRentalChats {
+    return notifications.any((n) => n['type'] == 'chat' && (n['chatId'].toString().startsWith('rental_') || n['chatId'].toString().startsWith('property_')));
+  }
+
+  int get unreadJobChatsCount {
+    return notifications.where((n) => n['type'] == 'chat' && !n['chatId'].toString().startsWith('rental_') && !n['chatId'].toString().startsWith('property_')).length;
+  }
+
+  int get unreadRentalChatsCount {
+    return notifications.where((n) => n['type'] == 'chat' && (n['chatId'].toString().startsWith('rental_') || n['chatId'].toString().startsWith('property_'))).length;
   }
 
   void _startListeningNotifications() {
@@ -533,8 +660,21 @@ class TranyxAppState extends State<TranyxApp> {
           // Filter out read notifications locally
           final unreadNotifs = parsed.where((n) => n['isRead'] != true).toList();
 
+          // Automatically mark notifications read if they belong to the current open chat
+          final List<Map<String, dynamic>> finalUnreadNotifs = [];
+          for (final notif in unreadNotifs) {
+            if (notif['type'] == 'chat' && notif['chatId'] == currentChatId) {
+              final id = notif['id'] as String?;
+              if (id != null) {
+                markNotificationReadJs(id);
+              }
+            } else {
+              finalUnreadNotifs.add(notif);
+            }
+          }
+
           // Identify if there are new notifications that we didn't have before
-          final newNotifs = unreadNotifs
+          final newNotifs = finalUnreadNotifs
               .where((n) => !notifications.any((existing) => existing['id'] == n['id']))
               .toList();
           if (newNotifs.isNotEmpty) {
@@ -568,12 +708,24 @@ class TranyxAppState extends State<TranyxApp> {
               }
             });
           }
-          notifications = unreadNotifs;
+          notifications = finalUnreadNotifs;
+          _updateDocumentTitle();
         });
       } catch (e) {
         print('Error parsing notifications: $e');
       }
     });
+  }
+
+  void _updateDocumentTitle() {
+    try {
+      final unreadCount = notifications.where((n) => n['type'] == 'chat').length;
+      if (unreadCount > 0) {
+        web.document.title = '($unreadCount) Tranyx Web';
+      } else {
+        web.document.title = 'Tranyx — Decentralized Freelance Gig Marketplace';
+      }
+    } catch (_) {}
   }
 
   void _startListeningJobs() {
@@ -724,6 +876,7 @@ class TranyxAppState extends State<TranyxApp> {
       setState(() {
         renterPendingRequests = list;
       });
+      await _loadRenterPendingPropertyRequests();
     } catch (e) {
       print('Error loading renter pending requests: $e');
     }
@@ -760,6 +913,7 @@ class TranyxAppState extends State<TranyxApp> {
           hybridToggle = accountType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
         });
       }
+      initializeProfileEditing();
       await loadKycSubmission();
       await loadHoldbacks();
     } catch (_) {}
@@ -979,12 +1133,18 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       final Map<String, dynamic> googleData = jsonDecode(googleJsonStr);
+      if (googleData['redirecting'] == true) {
+        setState(() {
+          isAuthLoading = true;
+        });
+        return;
+      }
       final authResult = AuthResult(
-        uid: googleData['uid'],
-        idToken: googleData['idToken'],
-        refreshToken: googleData['refreshToken'],
-        email: googleData['email'],
-        displayName: googleData['displayName'],
+        uid: googleData['uid'] ?? '',
+        idToken: googleData['idToken'] ?? '',
+        refreshToken: googleData['refreshToken'] ?? '',
+        email: googleData['email'] ?? '',
+        displayName: googleData['displayName'] ?? '',
         photoUrl: googleData['photoUrl'],
       );
 
@@ -1117,119 +1277,11 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   Future<void> handlePhantomSignIn() async {
-    if (!isPhantomInstalled()) {
-      setState(() {
-        authError = 'Phantom Wallet is not installed. Please visit phantom.app to install it.';
-      });
-      return;
-    }
-
     setState(() {
-      isAuthLoading = true;
-      authError = null;
+      showWalletSelectionModal = true;
     });
-
-    try {
-      final publicKey = await connectPhantomWallet();
-      if (publicKey == null) {
-        setState(() {
-          authError = 'Wallet connection was rejected or failed.';
-          isAuthLoading = false;
-        });
-        return;
-      }
-
-      // Check if this wallet is linked to an existing account
-      final linkData = await FirestoreService().getWalletLink(publicKey);
-
-      if (linkData != null) {
-        final existingUid = linkData['uid'] as String?;
-        final refreshToken = linkData['refreshToken'] as String?;
-
-        if (refreshToken != null) {
-          try {
-            final authService = FirebaseAuthService();
-            final newIdToken = await authService.refreshIdToken(refreshToken);
-            final userData = await authService.getUserData(newIdToken);
-
-            final authResult = AuthResult(
-              uid: existingUid!,
-              idToken: newIdToken,
-              refreshToken: refreshToken,
-              email: userData['email'] as String?,
-              displayName: userData['displayName'] as String?,
-            );
-
-            SessionStorage.save(authResult);
-
-            // Load user profile from Firestore to get account type
-            final profile = await FirestoreService(authResult.idToken, _handleTokenRefresh).getUser(authResult.uid);
-            final type = profile?.accountType ?? AccountType.employer;
-
-            SessionStorage.saveProfile(
-              name: profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User'),
-              email: authResult.email ?? '',
-              accountType: type.name,
-            );
-
-            setState(() {
-              isAuthenticated = true;
-              accountType = type;
-              hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-              userName = profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User');
-              userEmail = authResult.email ?? '';
-              userProfile = profile;
-              isAuthLoading = false;
-              authView = AuthView.login;
-            });
-
-            _initGemini();
-            await loadJobs();
-            await loadTransactions();
-            _startListeningNotifications();
-            _startListeningJobs();
-            _startListeningRentals();
-            _startListeningProperties();
-            unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
-
-            if (pendingQrJobId != null && pendingQrCode != null) {
-              await executePendingQrVerification();
-            }
-            return;
-          } catch (e) {
-            // Token refresh failed, fallback to manual login
-            setState(() {
-              isAuthLoading = false;
-              authError = '🦊 Wallet recognized but session expired. Please sign in with email & password.';
-              pendingWalletPublicKey = publicKey;
-            });
-            return;
-          }
-        } else {
-          // Legacy or no refresh token stored — fallback to prompt
-          setState(() {
-            isAuthLoading = false;
-            authError = '🦊 Wallet recognized! Please sign in with your email & password to continue.';
-            pendingWalletPublicKey = publicKey;
-          });
-          return;
-        }
-      } else {
-        // New user — redirect to register with wallet pre-linked
-        setState(() {
-          isAuthLoading = false;
-          authError = null;
-          pendingWalletPublicKey = publicKey;
-          authView = AuthView.registerPath;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        authError = 'Phantom connection error: ${e.toString()}';
-        isAuthLoading = false;
-      });
-    }
   }
+
 
   void handleLogout() {
     SessionStorage.clear();
@@ -1249,7 +1301,9 @@ class TranyxAppState extends State<TranyxApp> {
       sessionPostedJobs = [];
       availableJobs = [];
       authError = null;
+      notifications = [];
     });
+    _updateDocumentTitle();
   }
 
   // ── Job actions ─────────────────────────────────────────────
@@ -1555,16 +1609,17 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     try {
-      // 1. Ensure Phantom is connected and obtain the active user's public key
-      if (!isPhantomInstalled()) {
-        throw 'Phantom Wallet is not installed. Please install the browser extension.';
+      // 1. Ensure Solana wallet is connected and obtain the active user's public key
+      final activeWalletType = selectedWalletType ?? 'phantom';
+      if (!isSolanaWalletInstalled(activeWalletType)) {
+        throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
       var fromPubKey = userProfile?.walletPublicKey;
       if (fromPubKey == null || fromPubKey.trim().isEmpty) {
-        fromPubKey = await connectPhantomWallet();
+        fromPubKey = await connectSolanaWallet(activeWalletType);
         if (fromPubKey == null) {
-          throw 'Failed to connect Phantom Wallet. Please approve the connection.';
+          throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
         }
         // Link wallet address to user doc
         await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, fromPubKey);
@@ -1603,7 +1658,7 @@ class TranyxAppState extends State<TranyxApp> {
         await svc.createOrUpdate('transactions/deposit_sol_$signature', {
           'uid': uid,
           'title': 'Wallet Top-Up (SOL)',
-          'desc': 'Crypto deposit of ${amountInSol.toStringAsFixed(4)} SOL via Phantom',
+          'desc': 'Crypto deposit of ${amountInSol.toStringAsFixed(4)} SOL via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}',
           'amount': depositAmount,
           'status': 'Successful',
           'method': 'Solana',
@@ -1643,11 +1698,12 @@ class TranyxAppState extends State<TranyxApp> {
           renteePhotoUrl: userProfile!.photoUrl,
           durationType: data['durationType'] as String,
           multiplier: data['multiplier'] as int,
-          totalCost: data['totalCost'] as double,
+          totalCost: (data['totalCost'] as num).toDouble(),
           contractType: data['contractType'] as String,
           contractTerms: data['contractTerms'] as String,
           startDate: data['startDate'] as int,
           endDate: data['endDate'] as int,
+          licenseNumber: data['licenseNumber'] as String? ?? '',
         );
       } else if (pendingVehicleBookingData != null) {
         final data = pendingVehicleBookingData!;
@@ -1660,12 +1716,12 @@ class TranyxAppState extends State<TranyxApp> {
           durationType: data['durationType'] as String,
           multiplier: data['multiplier'] as int,
           licenseNumber: data['licenseNumber'] as String,
-          totalCost: data['totalCost'] as double,
+          totalCost: (data['totalCost'] as num).toDouble(),
           hireWithDriver: data['hireWithDriver'] as bool,
           rentalType: data['rentalType'] as String,
           deliveryAddress: data['deliveryAddress'] as String?,
-          deliveryLat: data['deliveryLat'] as double?,
-          deliveryLng: data['deliveryLng'] as double?,
+          deliveryLat: data['deliveryLat'] == null ? null : (data['deliveryLat'] as num).toDouble(),
+          deliveryLng: data['deliveryLng'] == null ? null : (data['deliveryLng'] as num).toDouble(),
           startDate: data['startDate'] as int,
           endDate: data['endDate'] as int,
         );
@@ -1693,15 +1749,16 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     try {
-      if (!isPhantomInstalled()) {
-        throw 'Phantom Wallet is not installed. Please install the browser extension.';
+      final activeWalletType = selectedWalletType ?? 'phantom';
+      if (!isSolanaWalletInstalled(activeWalletType)) {
+        throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
       var fromPubKey = userProfile?.walletPublicKey;
       if (fromPubKey == null || fromPubKey.trim().isEmpty) {
-        fromPubKey = await connectPhantomWallet();
+        fromPubKey = await connectSolanaWallet(activeWalletType);
         if (fromPubKey == null) {
-          throw 'Failed to connect Phantom Wallet. Please approve the connection.';
+          throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
         }
         await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, fromPubKey);
       }
@@ -1751,7 +1808,7 @@ class TranyxAppState extends State<TranyxApp> {
         await svc.createOrUpdate('transactions/deposit_usdt_$signature', {
           'uid': uid,
           'title': 'Wallet Top-Up (USDT)',
-          'desc': 'Crypto deposit of ${amountInUsdt.toStringAsFixed(2)} USDT via Phantom',
+          'desc': 'Crypto deposit of ${amountInUsdt.toStringAsFixed(2)} USDT via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}',
           'amount': phpEquivalent,
           'status': 'Successful',
           'method': 'Solana/USDT',
@@ -1787,11 +1844,12 @@ class TranyxAppState extends State<TranyxApp> {
           renteePhotoUrl: userProfile!.photoUrl,
           durationType: data['durationType'] as String,
           multiplier: data['multiplier'] as int,
-          totalCost: data['totalCost'] as double,
+          totalCost: (data['totalCost'] as num).toDouble(),
           contractType: data['contractType'] as String,
           contractTerms: data['contractTerms'] as String,
           startDate: data['startDate'] as int,
           endDate: data['endDate'] as int,
+          licenseNumber: data['licenseNumber'] as String? ?? '',
         );
       } else if (pendingVehicleBookingData != null) {
         final data = pendingVehicleBookingData!;
@@ -1804,12 +1862,12 @@ class TranyxAppState extends State<TranyxApp> {
           durationType: data['durationType'] as String,
           multiplier: data['multiplier'] as int,
           licenseNumber: data['licenseNumber'] as String,
-          totalCost: data['totalCost'] as double,
+          totalCost: (data['totalCost'] as num).toDouble(),
           hireWithDriver: data['hireWithDriver'] as bool,
           rentalType: data['rentalType'] as String,
           deliveryAddress: data['deliveryAddress'] as String?,
-          deliveryLat: data['deliveryLat'] as double?,
-          deliveryLng: data['deliveryLng'] as double?,
+          deliveryLat: data['deliveryLat'] == null ? null : (data['deliveryLat'] as num).toDouble(),
+          deliveryLng: data['deliveryLng'] == null ? null : (data['deliveryLng'] as num).toDouble(),
           startDate: data['startDate'] as int,
           endDate: data['endDate'] as int,
         );
@@ -1991,11 +2049,12 @@ class TranyxAppState extends State<TranyxApp> {
               renteePhotoUrl: userProfile!.photoUrl,
               durationType: data['durationType'] as String,
               multiplier: data['multiplier'] as int,
-              totalCost: data['totalCost'] as double,
+              totalCost: (data['totalCost'] as num).toDouble(),
               contractType: data['contractType'] as String,
               contractTerms: data['contractTerms'] as String,
               startDate: data['startDate'] as int,
               endDate: data['endDate'] as int,
+              licenseNumber: data['licenseNumber'] as String? ?? '',
             );
           } else if (pendingVehicleBookingData != null) {
             final data = pendingVehicleBookingData!;
@@ -2008,12 +2067,12 @@ class TranyxAppState extends State<TranyxApp> {
               durationType: data['durationType'] as String,
               multiplier: data['multiplier'] as int,
               licenseNumber: data['licenseNumber'] as String,
-              totalCost: data['totalCost'] as double,
+              totalCost: (data['totalCost'] as num).toDouble(),
               hireWithDriver: data['hireWithDriver'] as bool,
               rentalType: data['rentalType'] as String,
               deliveryAddress: data['deliveryAddress'] as String?,
-              deliveryLat: data['deliveryLat'] as double?,
-              deliveryLng: data['deliveryLng'] as double?,
+              deliveryLat: data['deliveryLat'] == null ? null : (data['deliveryLat'] as num).toDouble(),
+              deliveryLng: data['deliveryLng'] == null ? null : (data['deliveryLng'] as num).toDouble(),
               startDate: data['startDate'] as int,
               endDate: data['endDate'] as int,
             );
@@ -2139,7 +2198,14 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   Future<void> selectJobAndLoadDetails(Map<String, dynamic> jobMap) async {
-    final title = jobMap['title'] as String? ?? '';
+    var title = jobMap['title'] as String? ?? '';
+    if (title.isEmpty || title == 'Untitled') {
+      final category = jobMap['category'] as String? ?? '';
+      final categoryLabel = jobMap['categoryLabel'] as String? ?? '';
+      final nameToNormalize = categoryLabel.isNotEmpty ? categoryLabel : category;
+      title = nameToNormalize.isNotEmpty ? normalizeCategoryName(nameToNormalize) : 'Untitled Gig';
+    }
+
     final rate = '₱ ${(jobMap['pricingValue'] as num?)?.toStringAsFixed(0) ?? '0'}';
     final urgency = jobMap['dateRequirement'] as String? ?? 'Flexible';
     final status = jobMap['status'] as String? ?? 'Open';
@@ -2192,6 +2258,30 @@ class TranyxAppState extends State<TranyxApp> {
     } else {
       setState(() {
         acceptedApplicantProfile = null;
+      });
+    }
+
+    final creatorId = jobMap['creatorId'] as String?;
+    if (creatorId != null && creatorId.isNotEmpty) {
+      try {
+        final token = SessionStorage.idToken;
+        if (token != null) {
+          final doc = await FirestoreService(token, _handleTokenRefresh).getDocument('users/$creatorId');
+          setState(() {
+            selectedJobCreatorProfile = doc;
+            if (selectedJobData != null && doc != null) {
+              selectedJobData = {
+                ...selectedJobData!,
+                'creatorName': doc['name'] as String? ?? doc['displayName'] as String? ?? selectedJobData!['creatorName'] ?? 'Employer',
+                'creatorPhotoUrl': doc['photoUrl'] as String? ?? selectedJobData!['creatorPhotoUrl'] ?? '',
+              };
+            }
+          });
+        }
+      } catch (_) {}
+    } else {
+      setState(() {
+        selectedJobCreatorProfile = null;
       });
     }
 
@@ -2363,6 +2453,15 @@ class TranyxAppState extends State<TranyxApp> {
       chatPiiBlocked = false;
       chatDisintermediationBlocked = false;
     });
+
+    // Clear unread notifications for this chat
+    final notifsToRead = notifications.where((n) => n['type'] == 'chat' && n['chatId'] == chatId).toList();
+    for (final notif in notifsToRead) {
+      final notifId = notif['id'] as String?;
+      if (notifId != null) {
+        markNotificationReadJs(notifId);
+      }
+    }
     listenToChatJs(chatId, (String jsonStr) {
       try {
         final raw = jsonDecode(jsonStr) as List<dynamic>;
@@ -2701,8 +2800,8 @@ class TranyxAppState extends State<TranyxApp> {
       final jobDoc = await svc.getDocument('jobs/${job['id']}');
 
       if (jobDoc != null) {
-        final correctCode = jobDoc['completionCode'] as String?;
-        if (completionScanInput.trim() != correctCode) {
+        final correctCode = jobDoc['completionCode']?.toString() ?? jobDoc['verificationCode']?.toString();
+        if (completionScanInput.trim() != correctCode?.trim()) {
           throw 'Invalid completion code. Please try again.';
         }
 
@@ -2717,7 +2816,7 @@ class TranyxAppState extends State<TranyxApp> {
           );
         }
 
-        // Deduct 3% fee
+        // Deduct 3% platform commission fee from Nyxian payout
         final platformFee = price * 0.03;
         final nyxianPayout = price - platformFee;
 
@@ -2725,38 +2824,40 @@ class TranyxAppState extends State<TranyxApp> {
         final holdbackAmount = hasHoldback ? price * 0.10 : 0.0;
         final immediatePayout = nyxianPayout - holdbackAmount;
 
-        // Add to Nyxian Wallet (Payout + 2% Rebate)
+        // Add to Nyxian Wallet (Payout only, NO rebate)
         if (nyxianId != null) {
-          final nyxDoc = await svc.getDocument('users/$nyxianId');
-          if (nyxDoc != null) {
-            final currentNyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            final currentJobsDone = nyxDoc['jobsDone'] as int? ?? 0;
-            final currentEarned = (nyxDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
-            final gigsCount = (nyxDoc['completedGigsCount'] as int?) ?? 0;
-            final newGigsCount = gigsCount + 1;
-            final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
-            final rebateAmount = price * 0.02;
+          final txNyxDoc = await svc.getDocument('transactions/payout_nyx_${job['id']}');
+          if (txNyxDoc == null) {
+            final nyxDoc = await svc.getDocument('users/$nyxianId');
+            if (nyxDoc != null) {
+              final currentNyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final currentJobsDone = nyxDoc['jobsDone'] as int? ?? 0;
+              final currentEarned = (nyxDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
+              final gigsCount = (nyxDoc['completedGigsCount'] as int?) ?? 0;
+              final newGigsCount = gigsCount + 1;
+              final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
 
-            await svc.createOrUpdate('users/$nyxianId', {
-              ...nyxDoc,
-              'tyxBalance': currentNyxBal + immediatePayout + rebateAmount,
-              'jobsDone': currentJobsDone + 1,
-              'totalEarned': currentEarned + immediatePayout,
-              'completedGigsCount': newGigsCount,
-              'repeatHireRate': repeatHireRate,
-            });
+              await svc.createOrUpdate('users/$nyxianId', {
+                ...nyxDoc,
+                'tyxBalance': currentNyxBal + immediatePayout,
+                'jobsDone': currentJobsDone + 1,
+                'totalEarned': currentEarned + immediatePayout,
+                'completedGigsCount': newGigsCount,
+                'repeatHireRate': repeatHireRate,
+              });
 
-            // Log rebate transaction for Nyxian
-            await svc.createOrUpdate('transactions/rebate_nyx_${job['id']}', {
-              'uid': nyxianId,
-              'title': 'TYXBIT Loyalty Rebate (2%)',
-              'desc': 'Rebate for completing job ${job['id']}',
-              'amount': rebateAmount,
-              'status': 'Successful',
-              'method': 'Tranyx Reward',
-              'createdAt': DateTime.now().millisecondsSinceEpoch,
-              'type': 'rebate',
-            });
+              // Log payout transaction for Nyxian
+              await svc.createOrUpdate('transactions/payout_nyx_${job['id']}', {
+                'uid': nyxianId,
+                'title': 'Gig Payout Released',
+                'desc': 'Payout for completing job ${job['id']} (3% commission deducted)',
+                'amount': immediatePayout,
+                'status': 'Successful',
+                'method': 'Tranyx Wallet',
+                'createdAt': DateTime.now().millisecondsSinceEpoch,
+                'type': 'payout',
+              });
+            }
           }
         }
 
@@ -2773,36 +2874,50 @@ class TranyxAppState extends State<TranyxApp> {
           });
         }
 
-        // Credit Employer Wallet (2% Rebate)
+        // Deduct fees from Employer Wallet (7% Transaction Fee + 3% Convenience Fee = 10%)
         final employerId = jobDoc['creatorId'] as String?;
         if (employerId != null) {
-          final empDoc = await svc.getDocument('users/$employerId');
-          if (empDoc != null) {
-            final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            final rebateAmount = price * 0.02;
-            await svc.createOrUpdate('users/$employerId', {
-              ...empDoc,
-              'tyxBalance': currentBal + rebateAmount,
-            });
+          final txEmpDoc = await svc.getDocument('transactions/fees_emp_${job['id']}');
+          if (txEmpDoc == null) {
+            final empDoc = await svc.getDocument('users/$employerId');
+            if (empDoc != null) {
+              final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final txFee = price * 0.07;
+              final convFee = price * 0.03;
+              final totalFees = txFee + convFee;
+              await svc.createOrUpdate('users/$employerId', {
+                ...empDoc,
+                'tyxBalance': currentBal - totalFees,
+              });
 
-            // Log rebate transaction for Employer
-            await svc.createOrUpdate('transactions/rebate_emp_${job['id']}', {
-              'uid': employerId,
-              'title': 'TYXBIT Loyalty Rebate (2%)',
-              'desc': 'Rebate for completing job ${job['id']}',
-              'amount': rebateAmount,
-              'status': 'Successful',
-              'method': 'Tranyx Reward',
-              'createdAt': DateTime.now().millisecondsSinceEpoch,
-              'type': 'rebate',
-            });
+              // Log fee deduction transaction for Employer
+              await svc.createOrUpdate('transactions/fees_emp_${job['id']}', {
+                'uid': employerId,
+                'title': 'Job Completion Fees (10%)',
+                'desc': '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job ${job['id']}',
+                'amount': totalFees,
+                'status': 'Successful',
+                'method': 'Tranyx Wallet',
+                'createdAt': DateTime.now().millisecondsSinceEpoch,
+                'type': 'fee_deduction',
+              });
+            }
           }
         }
 
-        // Record platform fee
+        // Record all platform fees and company income (total 13% of base price)
+        final txFee = price * 0.07;
+        final convFee = price * 0.03;
+        final totalCompanyIncome = platformFee + txFee + convFee;
         await svc.createOrUpdate('platform_fees/${job['id']}', {
           'jobId': job['id'],
-          'amount': platformFee,
+          'amount': totalCompanyIncome,
+          'commissionFee': platformFee, // 3% from Nyxian
+          'transactionFee': txFee, // 7% from Employer
+          'convenienceFee': convFee, // 3% from Employer
+          'employerFees': txFee + convFee, // 10% total from Employer
+          'nyxianFee': platformFee, // 3% total from Nyxian
+          'totalFees': totalCompanyIncome, // 13% total Company Funds
           'timestamp': DateTime.now().millisecondsSinceEpoch,
         });
 
@@ -2815,9 +2930,10 @@ class TranyxAppState extends State<TranyxApp> {
           'status': 'Completed',
         });
 
+        final isCreator = jobDoc['creatorId'] == uid;
         String? targetId;
         String? targetName;
-        if (currentViewMode == AccountType.employer) {
+        if (isCreator) {
           targetId = nyxianId;
           if (nyxianId != null) {
             final targetDoc = await svc.getDocument('users/$nyxianId');
@@ -2835,18 +2951,23 @@ class TranyxAppState extends State<TranyxApp> {
           isCompletingJob = false;
           showCompletionScanner = false;
           completionScanInput = '';
-          final rebateAmount = price * 0.02;
+          if (isCreator) {
+            showEmployerFeePopup = true;
+          }
           final hasHoldback = jobDoc['hasInspectionHoldback'] as bool? ?? false;
           final holdbackAmount = hasHoldback ? price * 0.10 : 0.0;
           final immediatePayout = nyxianPayout - holdbackAmount;
           if (nyxianId == uid && userProfile != null) {
             userProfile = userProfile!.copyWith(
-              tyxBalance: userProfile!.tyxBalance + immediatePayout + rebateAmount,
+              tyxBalance: userProfile!.tyxBalance + immediatePayout,
               totalEarned: userProfile!.totalEarned + immediatePayout,
             );
           } else if (jobDoc['creatorId'] == uid && userProfile != null) {
+            final txFee = price * 0.07;
+            final convFee = price * 0.03;
+            final totalFees = txFee + convFee;
             userProfile = userProfile!.copyWith(
-              tyxBalance: userProfile!.tyxBalance + rebateAmount,
+              tyxBalance: userProfile!.tyxBalance - totalFees,
             );
           }
           if (targetId != null) {
@@ -2889,6 +3010,7 @@ class TranyxAppState extends State<TranyxApp> {
         isCompletingJob = false;
         profileSaveError = e.toString();
       });
+      showAppToast('Verification Error', e.toString());
     }
   }
 
@@ -2951,15 +3073,31 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       // Check verification/completion code
-      final correctCode = jobDoc['completionCode'] as String? ?? jobDoc['verificationCode'] as String?;
+      final correctCode = jobDoc['completionCode']?.toString() ?? jobDoc['verificationCode']?.toString();
       if (code.trim() != correctCode?.trim()) {
         throw 'Invalid or expired verification code.';
       }
 
-      // Check if logged user is the correct Nyxian
+      // Check if logged user is authorized to verify completion based on hasTracker
+      final catName = (jobDoc['category'] as String? ?? '').toLowerCase();
+      final cat = JobCategory.values.firstWhere(
+        (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
+        orElse: () => JobCategory.others,
+      );
+      final hasTracker =
+          jobDoc['hasTracker'] == true || jobDoc['hasTracker'] == 'true' || cat.hasTracker;
+
       final nyxianId = jobDoc['acceptedApplicantId'] as String? ?? jobDoc['nyxianId'] as String?;
-      if (nyxianId != uid) {
-        throw 'Verification failed: You are not the assigned Nyxian for this job.';
+      final employerId = jobDoc['creatorId'] as String?;
+
+      if (hasTracker) {
+        if (employerId != uid) {
+          throw 'Verification failed: You are not the Employer for this job.';
+        }
+      } else {
+        if (nyxianId != uid) {
+          throw 'Verification failed: You are not the assigned Nyxian for this job.';
+        }
       }
 
       // Release payment from escrow and credit the Nyxian
@@ -2978,77 +3116,94 @@ class TranyxAppState extends State<TranyxApp> {
         await svc.createOrUpdate('escrow_holdbacks/$jobId', {
           'jobId': jobId,
           'amount': holdbackAmount,
-          'nyxianId': uid,
-          'employerId': jobDoc['creatorId'],
+          'nyxianId': nyxianId,
+          'employerId': employerId,
           'status': 'held',
           'createdAt': DateTime.now().millisecondsSinceEpoch,
           'releaseAt': DateTime.now().add(const Duration(hours: 48)).millisecondsSinceEpoch,
         });
       }
 
-      // 2. Add to Nyxian Wallet (Payout + 2% Rebate)
-      final nyxDoc = await svc.getDocument('users/$uid');
-      if (nyxDoc != null) {
-        final currentNyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-        final currentJobsDone = nyxDoc['jobsDone'] as int? ?? 0;
-        final currentEarned = (nyxDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
-        final gigsCount = (nyxDoc['completedGigsCount'] as int?) ?? 0;
-        final newGigsCount = gigsCount + 1;
-        final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
-        final rebateAmount = price * 0.02;
+      // 2. Add to Nyxian Wallet (Payout only, NO rebate)
+      final txNyxDoc = await svc.getDocument('transactions/payout_nyx_$jobId');
+      if (txNyxDoc == null) {
+        if (nyxianId != null) {
+          final nyxDoc = await svc.getDocument('users/$nyxianId');
+          if (nyxDoc != null) {
+            final currentNyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            final currentJobsDone = nyxDoc['jobsDone'] as int? ?? 0;
+            final currentEarned = (nyxDoc['totalEarned'] as num?)?.toDouble() ?? 0.0;
+            final gigsCount = (nyxDoc['completedGigsCount'] as int?) ?? 0;
+            final newGigsCount = gigsCount + 1;
+            final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
 
-        await svc.createOrUpdate('users/$uid', {
-          ...nyxDoc,
-          'tyxBalance': currentNyxBal + immediatePayout + rebateAmount,
-          'jobsDone': currentJobsDone + 1,
-          'totalEarned': currentEarned + immediatePayout,
-          'completedGigsCount': newGigsCount,
-          'repeatHireRate': repeatHireRate,
-        });
+            await svc.createOrUpdate('users/$nyxianId', {
+              ...nyxDoc,
+              'tyxBalance': currentNyxBal + immediatePayout,
+              'jobsDone': currentJobsDone + 1,
+              'totalEarned': currentEarned + immediatePayout,
+              'completedGigsCount': newGigsCount,
+              'repeatHireRate': repeatHireRate,
+            });
 
-        // Log rebate transaction for Nyxian
-        await svc.createOrUpdate('transactions/rebate_nyx_$jobId', {
-          'uid': uid,
-          'title': 'TYXBIT Loyalty Rebate (2%)',
-          'desc': 'Rebate for completing job $jobId',
-          'amount': rebateAmount,
-          'status': 'Successful',
-          'method': 'Tranyx Reward',
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-          'type': 'rebate',
-        });
-      }
-
-      // 2.1 Credit Employer Wallet (2% Rebate)
-      final employerId = jobDoc['creatorId'] as String?;
-      if (employerId != null) {
-        final empDoc = await svc.getDocument('users/$employerId');
-        if (empDoc != null) {
-          final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-          final rebateAmount = price * 0.02;
-          await svc.createOrUpdate('users/$employerId', {
-            ...empDoc,
-            'tyxBalance': currentBal + rebateAmount,
-          });
-
-          // Log rebate transaction for Employer
-          await svc.createOrUpdate('transactions/rebate_emp_$jobId', {
-            'uid': employerId,
-            'title': 'TYXBIT Loyalty Rebate (2%)',
-            'desc': 'Rebate for completing job $jobId',
-            'amount': rebateAmount,
-            'status': 'Successful',
-            'method': 'Tranyx Reward',
-            'createdAt': DateTime.now().millisecondsSinceEpoch,
-            'type': 'rebate',
-          });
+            // Log payout transaction for Nyxian
+            await svc.createOrUpdate('transactions/payout_nyx_$jobId', {
+              'uid': nyxianId,
+              'title': 'Gig Payout Released',
+              'desc': 'Payout for completing job $jobId (3% commission deducted)',
+              'amount': immediatePayout,
+              'status': 'Successful',
+              'method': 'Tranyx Wallet',
+              'createdAt': DateTime.now().millisecondsSinceEpoch,
+              'type': 'payout',
+            });
+          }
         }
       }
 
-      // 3. Record platform fee
+      // 2.1 Deduct fees from Employer Wallet (7% Transaction Fee + 3% Convenience Fee = 10%)
+      if (employerId != null) {
+        final txEmpDoc = await svc.getDocument('transactions/fees_emp_$jobId');
+        if (txEmpDoc == null) {
+          final empDoc = await svc.getDocument('users/$employerId');
+          if (empDoc != null) {
+            final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            final txFee = price * 0.07;
+            final convFee = price * 0.03;
+            final totalFees = txFee + convFee;
+            await svc.createOrUpdate('users/$employerId', {
+              ...empDoc,
+              'tyxBalance': currentBal - totalFees,
+            });
+
+            // Log fee deduction transaction for Employer
+            await svc.createOrUpdate('transactions/fees_emp_$jobId', {
+              'uid': employerId,
+              'title': 'Job Completion Fees (10%)',
+              'desc': '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId',
+              'amount': totalFees,
+              'status': 'Successful',
+              'method': 'Tranyx Wallet',
+              'createdAt': DateTime.now().millisecondsSinceEpoch,
+              'type': 'fee_deduction',
+            });
+          }
+        }
+      }
+
+      // 3. Record all platform fees and company income (total 13% of base price)
+      final txFee = price * 0.07;
+      final convFee = price * 0.03;
+      final totalCompanyIncome = platformFee + txFee + convFee;
       await svc.createOrUpdate('platform_fees/$jobId', {
         'jobId': jobId,
-        'amount': platformFee,
+        'amount': totalCompanyIncome,
+        'commissionFee': platformFee, // 3% from Nyxian
+        'transactionFee': txFee, // 7% from Employer
+        'convenienceFee': convFee, // 3% from Employer
+        'employerFees': txFee + convFee, // 10% total from Employer
+        'nyxianFee': platformFee, // 3% total from Nyxian
+        'totalFees': totalCompanyIncome, // 13% total Company Funds
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
 
@@ -3062,25 +3217,19 @@ class TranyxAppState extends State<TranyxApp> {
       setState(() {
         pendingQrJobId = null;
         pendingQrCode = null;
-        if (userProfile != null) {
-          final rebateAmount = price * 0.02;
-          userProfile = userProfile!.copyWith(
-            tyxBalance: userProfile!.tyxBalance + immediatePayout + rebateAmount,
-            totalEarned: userProfile!.totalEarned + immediatePayout,
-          );
-        }
       });
       SessionStorage.pendingQrJobId = null;
       SessionStorage.pendingQrCode = null;
 
       showAppToast('Payment Released! 🎉', '₱ ${nyxianPayout.toStringAsFixed(2)} has been credited to your wallet.');
 
-      // Send a notification to the Employer (creatorId) about job completion to trigger rating popup
-      if (employerId != null) {
-        final prefix = employerId.length > 5 ? employerId.substring(0, 5) : employerId;
+      // Send a notification to the other party about job completion to trigger rating popup
+      final targetUser = (uid == employerId) ? nyxianId : employerId;
+      if (targetUser != null) {
+        final prefix = targetUser.length > 5 ? targetUser.substring(0, 5) : targetUser;
         final docId = 'notif_${DateTime.now().millisecondsSinceEpoch}_$prefix';
         await svc.createOrUpdate('notifications/$docId', {
-          'uid': employerId,
+          'uid': targetUser,
           'title': 'Gig Completed 🎉',
           'message': '${userProfile?.name ?? "Someone"} has completed "${jobDoc['title']}". Click to rate them.',
           'type': 'job_completed',
@@ -3096,16 +3245,21 @@ class TranyxAppState extends State<TranyxApp> {
       await loadUserProfile();
       await loadJobs();
 
-      // Show details & rating popup for the employer
+      // Show details & rating popup for the scanning user
       final updatedJob = await svc.getDocument('jobs/$jobId');
       if (updatedJob != null) {
         setState(() {
           selectedJobData = {'id': jobId, ...updatedJob};
-          final employerId = updatedJob['creatorId'] as String?;
-          if (employerId != null) {
+          final isCreator = updatedJob['creatorId'] == uid;
+          final ratingTarget = isCreator ? nyxianId : employerId;
+          final ratingName = isCreator
+              ? (updatedJob['acceptedApplicantName'] as String? ?? 'Nyxian')
+              : (updatedJob['creatorName'] as String? ?? 'Employer');
+
+          if (ratingTarget != null) {
             showRatingPopup = true;
-            ratingTargetId = employerId;
-            ratingTargetName = updatedJob['creatorName'] as String? ?? 'Employer';
+            ratingTargetId = ratingTarget;
+            ratingTargetName = ratingName;
             ratingScore = 0;
             ratingComment = '';
           }
@@ -3162,11 +3316,23 @@ class TranyxAppState extends State<TranyxApp> {
         if (jId != null) {
           final jobDoc = await svc.getDocument('jobs/$jId');
           if (jobDoc != null) {
+            final isEmployerRole = currentViewMode == AccountType.employer;
+            final isNyxianRole = currentViewMode == AccountType.nyxian;
+            
             await svc.createOrUpdate('jobs/$jId', {
               ...jobDoc,
-              if (accountType == AccountType.employer) 'employerRated': true,
-              if (accountType == AccountType.nyxian) 'nyxianRated': true,
+              if (isEmployerRole) 'employerRated': true,
+              if (isNyxianRole) 'nyxianRated': true,
             });
+
+            // Update local state immediately so UI refreshes without reopening job details
+            if (selectedJobData != null && selectedJobData!['id'] == jId) {
+              selectedJobData = {
+                ...selectedJobData!,
+                if (isEmployerRole) 'employerRated': true,
+                if (isNyxianRole) 'nyxianRated': true,
+              };
+            }
           }
         }
       }
@@ -3642,7 +3808,19 @@ class TranyxAppState extends State<TranyxApp> {
 
   void initializeProfileEditing() {
     final profile = userProfile;
-    if (profile == null) return;
+    if (profile == null) {
+      editName = SessionStorage.displayName ?? userName;
+      editEmail = SessionStorage.email ?? userEmail;
+      editPhone = '';
+      editTaxId = '';
+      editHeadline = '';
+      editHourlyRate = '';
+      editSkills = [];
+      editBusinessName = '';
+      editIndustry = '';
+      profileSaveError = null;
+      return;
+    }
     editName = profile.name;
     editEmail = profile.email;
     editPhone = getDisplayPhone(profile.phoneNumber);
@@ -3689,7 +3867,9 @@ class TranyxAppState extends State<TranyxApp> {
 
   bool get hasPersonalInfoChanges {
     final profile = userProfile;
-    if (profile == null) return false;
+    if (profile == null) {
+      return editName.trim().isNotEmpty && editEmail.trim().isNotEmpty;
+    }
 
     final cleanEditPhone = editPhone.replaceAll(RegExp(r'\D'), '');
     final cleanProfilePhone = (profile.phoneNumber ?? '').replaceAll(RegExp(r'\D'), '');
@@ -3720,7 +3900,14 @@ class TranyxAppState extends State<TranyxApp> {
 
   bool get hasProfessionalInfoChanges {
     final profile = userProfile;
-    if (profile == null) return false;
+    if (profile == null) {
+      return editHeadline.trim().isNotEmpty ||
+          editHourlyRate.trim().isNotEmpty ||
+          editSkills.isNotEmpty ||
+          editBusinessName.trim().isNotEmpty ||
+          editIndustry.trim().isNotEmpty ||
+          editTaxId.trim().isNotEmpty;
+    }
     final skillsChanged = !_listsEqual(editSkills, profile.skills ?? []);
     final cleanEditTax = editTaxId.replaceAll(RegExp(r'\D'), '');
     final cleanProfileTax = (profile.taxId ?? '').replaceAll(RegExp(r'\D'), '');
@@ -4029,24 +4216,36 @@ class TranyxAppState extends State<TranyxApp> {
       profileSaveError = null;
     });
     try {
-      final existing = userProfile;
-      if (existing == null) return;
+      final uid = SessionStorage.uid;
+      if (uid == null) return;
 
       final formattedEditPhone = editPhone.trim().isNotEmpty ? '+63 ${editPhone.trim()}' : null;
 
-      final updated = existing.copyWith(
-        name: editName.trim().isNotEmpty ? editName.trim() : null,
-        email: editEmail.trim().isNotEmpty ? editEmail.trim() : null,
-        phoneNumber: formattedEditPhone,
-        taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
-      );
+      final existing = userProfile;
+      final UserProfile updated;
+      if (existing == null) {
+        updated = UserProfile(
+          uid: uid,
+          name: editName.trim().isNotEmpty ? editName.trim() : (SessionStorage.displayName ?? 'User'),
+          email: editEmail.trim().isNotEmpty ? editEmail.trim() : (SessionStorage.email ?? ''),
+          accountType: accountType,
+          phoneNumber: formattedEditPhone,
+          taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
+          createdAt: DateTime.now(),
+        );
+      } else {
+        updated = existing.copyWith(
+          name: editName.trim().isNotEmpty ? editName.trim() : null,
+          email: editEmail.trim().isNotEmpty ? editEmail.trim() : null,
+          phoneNumber: formattedEditPhone,
+          taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
+        );
+      }
+
       await handleSaveProfile(updated);
       setState(() {
         isSavingProfile = false;
-        editName = '';
-        editEmail = '';
-        editPhone = '';
-        editTaxId = '';
+        initializeProfileEditing();
       });
     } catch (e) {
       setState(() {
@@ -4063,27 +4262,41 @@ class TranyxAppState extends State<TranyxApp> {
       profileSaveError = null;
     });
     try {
-      final existing = userProfile;
-      if (existing == null) return;
+      final uid = SessionStorage.uid;
+      if (uid == null) return;
       final skills = editSkills;
-      final updated = existing.copyWith(
-        businessName: editBusinessName.trim().isNotEmpty ? editBusinessName.trim() : '',
-        industry: editIndustry.trim().isNotEmpty ? editIndustry.trim() : '',
-        taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
-        headline: editHeadline.trim().isNotEmpty ? editHeadline.trim() : '',
-        hourlyRate: editHourlyRate.trim().isNotEmpty ? (double.tryParse(editHourlyRate) ?? existing.hourlyRate) : 0.0,
-        skills: skills,
-      );
+
+      final existing = userProfile;
+      final UserProfile updated;
+      if (existing == null) {
+        updated = UserProfile(
+          uid: uid,
+          name: SessionStorage.displayName ?? userName,
+          email: SessionStorage.email ?? userEmail,
+          accountType: accountType,
+          taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
+          headline: editHeadline.trim().isNotEmpty ? editHeadline.trim() : '',
+          hourlyRate: editHourlyRate.trim().isNotEmpty ? (double.tryParse(editHourlyRate) ?? 0.0) : 0.0,
+          skills: skills,
+          businessName: editBusinessName.trim().isNotEmpty ? editBusinessName.trim() : '',
+          industry: editIndustry.trim().isNotEmpty ? editIndustry.trim() : '',
+          createdAt: DateTime.now(),
+        );
+      } else {
+        updated = existing.copyWith(
+          businessName: editBusinessName.trim().isNotEmpty ? editBusinessName.trim() : '',
+          industry: editIndustry.trim().isNotEmpty ? editIndustry.trim() : '',
+          taxId: editTaxId.trim().isNotEmpty ? editTaxId.trim() : '',
+          headline: editHeadline.trim().isNotEmpty ? editHeadline.trim() : '',
+          hourlyRate: editHourlyRate.trim().isNotEmpty ? (double.tryParse(editHourlyRate) ?? existing.hourlyRate) : 0.0,
+          skills: skills,
+        );
+      }
+
       await handleSaveProfile(updated);
       setState(() {
         isSavingProfile = false;
-        editSkills = [];
-        newSkillInput = '';
-        editHeadline = '';
-        editHourlyRate = '';
-        editBusinessName = '';
-        editIndustry = '';
-        editTaxId = '';
+        initializeProfileEditing();
       });
     } catch (e) {
       setState(() {
@@ -4108,6 +4321,15 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Navigation ──────────────────────────────────────────────
 
   void switchTab(AppTab tab) {
+    if (userProfile == null) {
+      showAppToast('Profile Incomplete', 'Please complete and save your profile details first to unlock all features.');
+      setState(() {
+        activeTab = AppTab.profile;
+        profileView = ProfileView.personal;
+        initializeProfileEditing();
+      });
+      return;
+    }
     setState(() {
       activeTab = tab;
       if (tab != AppTab.profile) profileView = ProfileView.main;
@@ -4158,57 +4380,9 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Wallet ──────────────────────────────────────────────────
 
   Future<void> handleConnectWallet() async {
-    if (!isPhantomInstalled()) {
-      setState(() => walletState = WalletState.disconnected);
-      return;
-    }
-    setState(() => walletState = WalletState.connecting);
-    try {
-      final publicKey = await connectPhantomWallet();
-      if (publicKey == null) {
-        setState(() => walletState = WalletState.disconnected);
-        return;
-      }
-      
-      final ethAddrVal = await connectEthereumWallet();
-      final suiAddrVal = await connectSuiWallet();
-
-      final balance = await getSolanaBalance(publicKey) ?? 0.0;
-      final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
-      final short = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
-
-      double ethBalVal = 0.0;
-      if (ethAddrVal != null) {
-        ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
-      }
-
-      double suiBalVal = 0.0;
-      if (suiAddrVal != null) {
-        suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
-      }
-
-      // Persist wallet link to Firestore if user is logged in
-      final token = SessionStorage.idToken;
-      final uid = SessionStorage.uid;
-      if (token != null && uid != null) {
-        try {
-          await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, publicKey);
-        } catch (_) {}
-      }
-
-      setState(() {
-        walletAddress = short;
-        walletBalance = balance;
-        walletCollectibles = collectibles;
-        ethAddress = ethAddrVal ?? '';
-        suiAddress = suiAddrVal ?? '';
-        ethBalance = ethBalVal;
-        suiBalance = suiBalVal;
-        walletState = WalletState.connected;
-      });
-    } catch (_) {
-      setState(() => walletState = WalletState.disconnected);
-    }
+    setState(() {
+      showWalletSelectionModal = true;
+    });
   }
 
   Future<void> handleRefreshBalance() async {
@@ -4216,8 +4390,9 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() => isRefreshingBalance = true);
     try {
       String? publicKey = userProfile?.walletPublicKey;
-      if (publicKey == null && isPhantomInstalled()) {
-        publicKey = await getPhantomPublicKeyIfConnected();
+      final activeWalletType = selectedWalletType ?? 'phantom';
+      if (publicKey == null && isSolanaWalletInstalled(activeWalletType)) {
+        publicKey = await getSolanaPublicKeyIfConnected(activeWalletType);
       }
 
       final ethAddrVal = await getEthereumAddressIfConnected();
@@ -4252,44 +4427,50 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() => isRefreshingBalance = false);
   }
 
-  /// Called after login — auto-connects to the linked wallet to fetch balance.
   Future<void> autoConnectPhantomIfLinked(String? profileWalletKey) async {
     try {
-      if (profileWalletKey != null && isPhantomInstalled()) {
-        final activeKey = await getPhantomPublicKeyIfConnected();
-        if (activeKey != null && activeKey == profileWalletKey) {
-          final balance = await getSolanaBalance(profileWalletKey) ?? 0.0;
-          final collectibles = await getSolanaTokenCollectibles(profileWalletKey) ?? [];
-          final short =
-              '${profileWalletKey.substring(0, 4)}...${profileWalletKey.substring(profileWalletKey.length - 4)}';
+      if (profileWalletKey != null) {
+        final savedType = web.window.localStorage.getItem('selectedSolanaWallet');
+        final typesToCheck = savedType != null ? [savedType] : ['phantom', 'solflare', 'backpack', 'trust'];
 
-          final ethAddrVal = await getEthereumAddressIfConnected();
-          final suiAddrVal = await getSuiAddressIfConnected();
+        for (final type in typesToCheck) {
+          if (isSolanaWalletInstalled(type)) {
+            final activeKey = await getSolanaPublicKeyIfConnected(type);
+            if (activeKey != null && activeKey == profileWalletKey) {
+              final balance = await getSolanaBalance(profileWalletKey) ?? 0.0;
+              final collectibles = await getSolanaTokenCollectibles(profileWalletKey) ?? [];
+              final short =
+                  '${profileWalletKey.substring(0, 4)}...${profileWalletKey.substring(profileWalletKey.length - 4)}';
 
-          double ethBalVal = 0.0;
-          if (ethAddrVal != null) {
-            ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+              final ethAddrVal = await getEthereumAddressIfConnected();
+              final suiAddrVal = await getSuiAddressIfConnected();
+
+              double ethBalVal = 0.0;
+              if (ethAddrVal != null) {
+                ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+              }
+
+              double suiBalVal = 0.0;
+              if (suiAddrVal != null) {
+                suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
+              }
+
+              setState(() {
+                selectedWalletType = type;
+                walletAddress = short;
+                walletBalance = balance;
+                walletCollectibles = collectibles;
+                ethAddress = ethAddrVal ?? '';
+                suiAddress = suiAddrVal ?? '';
+                ethBalance = ethBalVal;
+                suiBalance = suiBalVal;
+                walletState = WalletState.connected;
+              });
+              return;
+            }
           }
-
-          double suiBalVal = 0.0;
-          if (suiAddrVal != null) {
-            suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
-          }
-
-          setState(() {
-            walletAddress = short;
-            walletBalance = balance;
-            walletCollectibles = collectibles;
-            ethAddress = ethAddrVal ?? '';
-            suiAddress = suiAddrVal ?? '';
-            ethBalance = ethBalVal;
-            suiBalance = suiBalVal;
-            walletState = WalletState.connected;
-          });
-          return;
         }
 
-        // If not silently connected, ask the user if they want to reconnect
         setState(() {
           showWalletReconnectPrompt = true;
           pendingReconnectWalletKey = profileWalletKey;
@@ -4297,40 +4478,235 @@ class TranyxAppState extends State<TranyxApp> {
         return;
       }
 
-      // If no linked wallet on profile, try to see if Phantom is already trusted in browser
-      if (isPhantomInstalled()) {
-        final publicKey = await getPhantomPublicKeyIfConnected();
-        if (publicKey != null) {
-          final balance = await getSolanaBalance(publicKey) ?? 0.0;
-          final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
-          final short = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
+      final types = ['phantom', 'solflare', 'backpack', 'trust'];
+      for (final type in types) {
+        if (isSolanaWalletInstalled(type)) {
+          final publicKey = await getSolanaPublicKeyIfConnected(type);
+          if (publicKey != null) {
+            final balance = await getSolanaBalance(publicKey) ?? 0.0;
+            final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
+            final short = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
 
-          final ethAddrVal = await getEthereumAddressIfConnected();
-          final suiAddrVal = await getSuiAddressIfConnected();
+            final ethAddrVal = await getEthereumAddressIfConnected();
+            final suiAddrVal = await getSuiAddressIfConnected();
 
-          double ethBalVal = 0.0;
-          if (ethAddrVal != null) {
-            ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+            double ethBalVal = 0.0;
+            if (ethAddrVal != null) {
+              ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+            }
+
+            double suiBalVal = 0.0;
+            if (suiAddrVal != null) {
+              suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
+            }
+
+            setState(() {
+              selectedWalletType = type;
+              walletAddress = short;
+              walletBalance = balance;
+              walletCollectibles = collectibles;
+              ethAddress = ethAddrVal ?? '';
+              suiAddress = suiAddrVal ?? '';
+              ethBalance = ethBalVal;
+              suiBalance = suiBalVal;
+              walletState = WalletState.connected;
+            });
+            return;
           }
-
-          double suiBalVal = 0.0;
-          if (suiAddrVal != null) {
-            suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
-          }
-
-          setState(() {
-            walletAddress = short;
-            walletBalance = balance;
-            walletCollectibles = collectibles;
-            ethAddress = ethAddrVal ?? '';
-            suiAddress = suiAddrVal ?? '';
-            ethBalance = ethBalVal;
-            suiBalance = suiBalVal;
-            walletState = WalletState.connected;
-          });
         }
       }
     } catch (_) {}
+  }
+
+  Future<void> handleSelectSolanaWallet(String type) async {
+    setState(() {
+      showWalletSelectionModal = false;
+      selectedWalletType = type;
+    });
+
+    if (!isSolanaWalletInstalled(type)) {
+      final friendlyName = type.substring(0, 1).toUpperCase() + type.substring(1);
+      if (!isAuthenticated) {
+        setState(() {
+          authError = '$friendlyName Wallet is not installed. Please install it to continue.';
+        });
+      } else {
+        setState(() => walletState = WalletState.disconnected);
+      }
+      return;
+    }
+
+    if (!isAuthenticated) {
+      setState(() {
+        isAuthLoading = true;
+        authError = null;
+      });
+
+      try {
+        final publicKey = await connectSolanaWallet(type);
+        if (publicKey == null) {
+          setState(() {
+            authError = 'Wallet connection was rejected or failed.';
+            isAuthLoading = false;
+          });
+          return;
+        }
+
+        final linkData = await FirestoreService().getWalletLink(publicKey);
+
+        if (linkData != null) {
+          final existingUid = linkData['uid'] as String?;
+          final refreshToken = linkData['refreshToken'] as String?;
+
+          if (refreshToken != null) {
+            try {
+              final authService = FirebaseAuthService();
+              final newIdToken = await authService.refreshIdToken(refreshToken);
+              final userData = await authService.getUserData(newIdToken);
+
+              final authResult = AuthResult(
+                uid: existingUid!,
+                idToken: newIdToken,
+                refreshToken: refreshToken,
+                email: userData['email'] as String?,
+                displayName: userData['displayName'] as String?,
+              );
+
+              SessionStorage.save(authResult);
+
+              final profile = await FirestoreService(authResult.idToken, _handleTokenRefresh).getUser(authResult.uid);
+              final profileType = profile?.accountType ?? AccountType.employer;
+
+              SessionStorage.saveProfile(
+                name: profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User'),
+                email: authResult.email ?? '',
+                accountType: profileType.name,
+              );
+
+              setState(() {
+                userEmail = authResult.email ?? '';
+                userProfile = profile;
+                isAuthenticated = true;
+                accountType = profileType;
+                hybridToggle = profileType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+                userName = profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User');
+                isAuthLoading = false;
+                walletAddress = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
+                walletState = WalletState.connected;
+              });
+
+              _initGemini();
+              await loadJobs();
+              await loadTransactions();
+              _startListeningNotifications();
+              _startListeningJobs();
+              _startListeningRentals();
+              _startListeningProperties();
+
+              final balance = await getSolanaBalance(publicKey) ?? 0.0;
+              final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
+              setState(() {
+                walletBalance = balance;
+                walletCollectibles = collectibles;
+              });
+
+              if (pendingQrJobId != null && pendingQrCode != null) {
+                await executePendingQrVerification();
+              }
+              return;
+            } catch (e) {
+              setState(() {
+                isAuthLoading = false;
+                authError = 'Wallet recognized but session expired. Please sign in with email & password.';
+                pendingWalletPublicKey = publicKey;
+              });
+              return;
+            }
+          } else {
+            setState(() {
+              isAuthLoading = false;
+              authError = 'Wallet recognized! Please sign in with your email & password to continue.';
+              pendingWalletPublicKey = publicKey;
+            });
+            return;
+          }
+        } else {
+          setState(() {
+            isAuthLoading = false;
+            authError = null;
+            pendingWalletPublicKey = publicKey;
+            authView = AuthView.registerPath;
+          });
+        }
+      } catch (e) {
+        setState(() {
+          authError = 'Wallet connection error: ${e.toString()}';
+          isAuthLoading = false;
+        });
+      }
+    } else {
+      setState(() => walletState = WalletState.connecting);
+      try {
+        final publicKey = await connectSolanaWallet(type);
+        if (publicKey == null) {
+          setState(() => walletState = WalletState.disconnected);
+          return;
+        }
+
+        final ethAddrVal = await connectEthereumWallet();
+        final suiAddrVal = await connectSuiWallet();
+
+        final balance = await getSolanaBalance(publicKey) ?? 0.0;
+        final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
+        final short = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
+
+        double ethBalVal = 0.0;
+        if (ethAddrVal != null) {
+          ethBalVal = await getEthereumBalance(ethAddrVal) ?? 0.0;
+        }
+
+        double suiBalVal = 0.0;
+        if (suiAddrVal != null) {
+          suiBalVal = await getSuiBalance(suiAddrVal) ?? 0.0;
+        }
+
+        final token = SessionStorage.idToken;
+        final currentUid = SessionStorage.uid;
+        if (token != null && currentUid != null) {
+          try {
+            await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(currentUid, publicKey);
+          } catch (_) {}
+        }
+
+        setState(() {
+          walletAddress = short;
+          walletBalance = balance;
+          walletCollectibles = collectibles;
+          ethAddress = ethAddrVal ?? '';
+          suiAddress = suiAddrVal ?? '';
+          ethBalance = ethBalVal;
+          suiBalance = suiBalVal;
+          walletState = WalletState.connected;
+        });
+      } catch (_) {
+        setState(() => walletState = WalletState.disconnected);
+      }
+    }
+  }
+
+  void handleDisconnectWallet() {
+    setState(() {
+      walletState = WalletState.disconnected;
+      walletAddress = '';
+      walletBalance = 0.0;
+      walletCollectibles = [];
+      ethAddress = '';
+      suiAddress = '';
+      ethBalance = 0.0;
+      suiBalance = 0.0;
+      selectedWalletType = null;
+      showWalletSelectionModal = false;
+    });
   }
 
   // ── Helpers ─────────────────────────────────────────────────
@@ -4544,15 +4920,224 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  Component _buildUserProfileModal(bool isDark) {
+    return div(classes: 'fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
+      div(
+        classes:
+            'w-full max-w-md p-6 rounded-3xl ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"} shadow-2xl animate-fade-up flex flex-col relative',
+        [
+          button(
+            classes: 'absolute top-4 right-4 p-2 rounded-full hover:bg-zinc-500/20 transition-colors',
+            events: {'click': (_) => setState(() => showEmployerProfileModal = false)},
+            [lIcon('x', cls: 'w-5 h-5 ${isDark ? "text-zinc-400" : "text-zinc-600"}')],
+          ),
+
+          if (isLoadingEmployerProfile)
+            div(classes: 'py-12 flex justify-center', [
+              lIcon('loader-2', cls: 'w-8 h-8 animate-spin text-indigo-500'),
+            ])
+          else if (employerProfileData != null)
+            Builder(
+              builder: (context) {
+                final emp = employerProfileData!;
+                final name = emp['name'] as String? ?? emp['displayName'] as String? ?? 'Unknown';
+                final rating = (emp['rating'] as num?)?.toDouble() ?? 0.0;
+                final about = emp['about'] as String? ?? emp['headline'] as String? ?? 'No description provided.';
+                final phone = emp['phoneNumber'] as String? ?? emp['mobileNumber'] as String? ?? 'Not provided';
+                final photo = emp['photoUrl'] as String? ?? emp['profile_photo'] as String? ?? '';
+
+                final businessName = emp['businessName'] as String? ?? '';
+                final industry = emp['industry'] as String? ?? '';
+                final hasBusinessInfo = businessName.isNotEmpty && industry.isNotEmpty;
+
+                final isEmail = emp['emailVerified'] == true;
+                final isPhone = emp['phoneVerified'] == true;
+                final isId = emp['idVerified'] == true;
+                final isBg = emp['bgChecked'] == true;
+                final vLevel = emp['verificationLevel'] as int? ?? 0;
+
+                return div(classes: 'flex flex-col', [
+                  div(classes: 'flex items-center gap-4 mb-6 mt-2', [
+                    div(
+                      classes:
+                          'w-16 h-16 rounded-full flex items-center justify-center bg-indigo-600 flex-shrink-0 overflow-hidden relative',
+                      [
+                        if (photo.isNotEmpty)
+                          img(src: photo, classes: 'w-full h-full object-cover')
+                        else
+                          span(classes: 'text-2xl font-bold text-white', [
+                            Component.text(name.isNotEmpty ? name[0].toUpperCase() : '?'),
+                          ]),
+                      ],
+                    ),
+                    div(classes: 'flex-1 min-w-0', [
+                      h3(
+                        classes:
+                            'text-xl font-bold truncate leading-tight ${isDark ? "text-white" : "text-zinc-800"}',
+                        [
+                          Component.text(
+                            hasBusinessInfo ? businessName : name,
+                          ),
+                        ],
+                      ),
+                      if (hasBusinessInfo)
+                        p(classes: 'text-xs text-indigo-400 font-semibold mb-1 truncate', [
+                          Component.text('Industry: $industry'),
+                        ]),
+                      if (hasBusinessInfo)
+                        p(classes: 'text-[11px] ${isDark ? "text-zinc-400" : "text-zinc-500"} mb-1.5', [
+                          Component.text('Contact Person: $name'),
+                        ]),
+                      div(classes: 'flex items-center gap-2 mt-1', [
+                        div(
+                          classes:
+                              'flex items-center gap-1 text-sm font-semibold ${isDark ? "text-zinc-400" : "text-zinc-650"} mr-2',
+                          [
+                            lIcon('star', cls: 'w-4 h-4 text-yellow-500 fill-current'),
+                            Component.text(rating.toStringAsFixed(1)),
+                          ],
+                        ),
+                        // Verification Badge
+                        div(
+                          classes:
+                              'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold '
+                              '${vLevel == 2
+                                  ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                                  : vLevel == 1
+                                  ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                                  : "bg-zinc-500/10 text-zinc-400 border border-zinc-500/20"}',
+                          [
+                            lIcon(vLevel > 0 ? 'shield-check' : 'shield-alert', cls: 'w-3 h-3'),
+                            Component.text(
+                              vLevel == 2
+                                  ? 'Fully Verified'
+                                  : vLevel == 1
+                                  ? 'Basic Verified'
+                                  : 'Unverified',
+                            ),
+                          ],
+                        ),
+                      ]),
+                    ]),
+                  ]),
+
+                  div(classes: 'space-y-4 mb-2', [
+                    div([
+                      p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-1', [
+                        Component.text('About'),
+                      ]),
+                      p(classes: 'text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"}', [Component.text(about)]),
+                    ]),
+                    div([
+                      p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-1', [
+                        Component.text('Contact'),
+                      ]),
+                      p(classes: 'text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"} flex items-center gap-2', [
+                        lIcon('phone', cls: 'w-4 h-4 opacity-70'),
+                        Component.text(phone),
+                      ]),
+                    ]),
+
+                    // Trust & Verification Status Dashboard summary
+                    div([
+                      p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-2', [
+                        Component.text('Verification Levels'),
+                      ]),
+                      div(
+                        classes:
+                            'p-3.5 rounded-2xl border ${isDark ? "bg-zinc-950 border-zinc-800" : "bg-zinc-50 border-zinc-200"} flex items-center justify-around gap-2 text-center',
+                        [
+                          div(classes: 'flex flex-col items-center gap-1', [
+                            div(
+                              classes:
+                                  'p-1.5 rounded-lg ${isEmail ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+                              [
+                                lIcon('mail', cls: 'w-4 h-4'),
+                              ],
+                            ),
+                            p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                              Component.text('Email'),
+                            ]),
+                          ]),
+                          div(classes: 'flex flex-col items-center gap-1', [
+                            div(
+                              classes:
+                                  'p-1.5 rounded-lg ${isPhone ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+                              [
+                                lIcon('phone', cls: 'w-4 h-4'),
+                              ],
+                            ),
+                            p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                              Component.text('Phone'),
+                            ]),
+                          ]),
+                          div(classes: 'flex flex-col items-center gap-1', [
+                            div(
+                              classes:
+                                  'p-1.5 rounded-lg ${isId ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+                              [
+                                lIcon('file-text', cls: 'w-4 h-4'),
+                              ],
+                            ),
+                            p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                              Component.text('ID'),
+                            ]),
+                          ]),
+                          div(classes: 'flex flex-col items-center gap-1', [
+                            div(
+                              classes:
+                                  'p-1.5 rounded-lg ${isBg ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
+                              [
+                                lIcon('shield-check', cls: 'w-4 h-4'),
+                              ],
+                            ),
+                            p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                              Component.text('Background'),
+                            ]),
+                          ]),
+                        ],
+                      ),
+                    ]),
+
+                    if (emp['skills'] != null && (emp['skills'] as List).isNotEmpty)
+                      div([
+                        p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-2', [
+                          Component.text('Preferred Skills'),
+                        ]),
+                        div(classes: 'flex flex-wrap gap-2', [
+                          for (final skill in emp['skills'] as List)
+                            span(
+                              classes:
+                                  'px-2 py-1 rounded-md text-xs font-medium border ${isDark ? "border-zinc-700 bg-zinc-800 text-zinc-300" : "border-zinc-200 bg-zinc-100 text-zinc-700"}',
+                              [
+                                Component.text(skill.toString()),
+                              ],
+                            ),
+                        ]),
+                      ]),
+                  ]),
+                ]);
+              },
+            )
+          else
+            div(classes: 'py-12 flex justify-center text-red-500 text-sm font-semibold', [
+              Component.text('Failed to load profile.'),
+            ]),
+        ],
+      ),
+    ]);
+  }
+
   @override
   Component build(BuildContext context) {
     final darkBg = isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900';
 
     if (!isAuthenticated) {
-      return div(classes: 'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12', [
+      return div(classes: 'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12 relative', [
         div(classes: 'w-full max-w-md p-6', [
           AuthViewComponent(state: this),
         ]),
+        if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
       ]);
     }
 
@@ -4728,6 +5313,12 @@ class TranyxAppState extends State<TranyxApp> {
           },
         ),
 
+      // Session Expired modal overlay
+      if (showSessionExpiredModal) SessionExpiredModalComponent(state: this),
+
+      // Wallet Selection modal overlay
+      if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
+
       // Payment modal overlay
       if (showDepositModal) PaymentModalComponent(state: this),
 
@@ -4768,6 +5359,9 @@ class TranyxAppState extends State<TranyxApp> {
             ),
           ],
         ),
+
+      // User Profile modal overlay
+      if (showEmployerProfileModal) _buildUserProfileModal(isDark),
     ]);
   }
 }
@@ -4967,6 +5561,157 @@ class SmsVerificationModalComponent extends StatelessComponent {
                 ),
               ]),
             ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class WalletSelectionModalComponent extends StatelessComponent {
+  final TranyxAppState state;
+  const WalletSelectionModalComponent({required this.state, super.key});
+
+  @override
+  Component build(BuildContext context) {
+    final s = state;
+    final isDark = s.isDark;
+
+    final wallets = [
+      {'id': 'phantom', 'name': 'Phantom', 'url': 'https://phantom.app/download'},
+      {'id': 'solflare', 'name': 'Solflare', 'url': 'https://solflare.com/download'},
+      {'id': 'trust', 'name': 'Trust Wallet', 'url': 'https://trustwallet.com/download'},
+      {'id': 'backpack', 'name': 'Backpack', 'url': 'https://backpack.app/download'},
+    ];
+
+    Component getWalletIcon(String id, {String size = 'w-6 h-6'}) {
+      if (id == 'phantom') return img(src: '/images/PhantomWallet.png', classes: '$size object-contain rounded-md');
+      if (id == 'solflare') return img(src: '/images/Solflare.png', classes: '$size object-contain rounded-md');
+      if (id == 'trust') return img(src: '/images/TrustWallet.jpeg', classes: '$size object-contain rounded-md');
+      if (id == 'backpack') return img(src: '/images/BackPack.png', classes: '$size object-contain rounded-md');
+      return lIcon('wallet', cls: '$size text-white');
+    }
+
+    return div(
+      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
+      [
+        div(
+          classes:
+              'w-full max-w-md rounded-3xl border p-6 relative overflow-hidden transition-all duration-300 '
+              '${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-800 shadow-2xl"}',
+          [
+            // Top accent color flare
+            div(
+              [],
+              classes:
+                  'absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-purple-500 via-indigo-500 to-blue-500',
+            ),
+
+            // Close button
+            button(
+              classes:
+                  'absolute top-4 right-4 p-2 rounded-full transition-colors cursor-pointer '
+                  '${isDark ? "hover:bg-zinc-800 text-zinc-400 hover:text-white" : "hover:bg-zinc-100 text-zinc-500 hover:text-zinc-800"}',
+              events: {
+                'click': (_) => s.setState(() {
+                  s.showWalletSelectionModal = false;
+                }),
+              },
+              [lIcon('x', cls: 'w-4 h-4')],
+            ),
+
+            div(classes: 'flex flex-col space-y-4 pt-2', [
+              div(classes: 'text-center', [
+                h3(classes: 'text-xl font-black tracking-tight', [Component.text('Connect a Wallet')]),
+                p(
+                  classes: 'text-xs mt-2 leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-500"}',
+                  [
+                    Component.text(
+                      'Select a Solana wallet from the list below to access your SOL and SPL tokens.',
+                    ),
+                  ],
+                ),
+              ]),
+
+              div(classes: 'space-y-2.5 pt-2', [
+                for (final w in wallets) () {
+                  final id = w['id']!;
+                  final name = w['name']!;
+                  final url = w['url']!;
+                  final isInstalled = isSolanaWalletInstalled(id);
+                  final isCurrentlyConnected = s.walletState == WalletState.connected && s.selectedWalletType == id;
+
+                  final statusText = isCurrentlyConnected
+                      ? 'Connected'
+                      : (isInstalled ? 'Detected' : 'Not Installed');
+                  final badgeClasses = isCurrentlyConnected
+                      ? 'bg-emerald-500/10 text-emerald-400'
+                      : (isInstalled ? 'bg-indigo-500/10 text-indigo-400' : 'bg-zinc-500/10 text-zinc-400');
+                  final dotClasses = isCurrentlyConnected
+                      ? 'bg-emerald-400'
+                      : (isInstalled ? 'bg-indigo-400' : 'bg-zinc-400');
+
+                  return div(
+                    classes:
+                        'w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all '
+                        '${isDark ? "bg-zinc-950/40 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900/60" : "bg-zinc-50/50 border-zinc-200/80 hover:border-zinc-300 hover:bg-zinc-50"}',
+                    [
+                      div(classes: 'flex items-center gap-3.5', [
+                        div(
+                          classes: 'p-2.5 rounded-xl ${isDark ? "bg-zinc-900" : "bg-white border border-zinc-150"} flex items-center justify-center',
+                          [getWalletIcon(id, size: 'w-6 h-6')],
+                        ),
+                        div([
+                          p(classes: 'font-bold text-sm tracking-tight', [Component.text(name)]),
+                          span(
+                            classes: 'inline-flex items-center gap-1 text-[10px] font-bold mt-1 px-2 py-0.5 rounded-md '
+                                '$badgeClasses',
+                            [
+                              span(
+                                classes: 'w-1.5 h-1.5 rounded-full $dotClasses',
+                                [],
+                              ),
+                              Component.text(statusText),
+                            ],
+                          ),
+                        ]),
+                      ]),
+
+                      if (isInstalled)
+                        if (isCurrentlyConnected)
+                          button(
+                            classes:
+                                'px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-500 hover:bg-red-600 transition-colors border-0 cursor-pointer shadow-md shadow-red-500/10',
+                            events: {
+                              'click': (_) => s.handleDisconnectWallet(),
+                            },
+                            [Component.text('Disconnect')],
+                          )
+                        else
+                          button(
+                            classes:
+                                'px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-500 hover:bg-indigo-600 transition-colors border-0 cursor-pointer shadow-md shadow-indigo-500/10',
+                            events: {
+                              'click': (_) => s.handleSelectSolanaWallet(id),
+                            },
+                            [Component.text('Connect')],
+                          )
+                      else
+                        a(
+                          href: url,
+                          classes:
+                              'px-4 py-2 rounded-xl text-xs font-bold text-zinc-400 border border-zinc-700 hover:text-white hover:bg-zinc-800 transition-all text-center no-underline cursor-pointer',
+                          target: Target.blank,
+                          attributes: const {
+                            'rel': 'noopener noreferrer',
+                          },
+                          [Component.text('Install')],
+                        ),
+                    ],
+                  );
+                }(),
+              ]),
+            ]),
           ],
         ),
       ],

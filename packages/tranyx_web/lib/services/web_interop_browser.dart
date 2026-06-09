@@ -6,44 +6,52 @@ import 'dart:typed_data';
 import 'dart:async';
 import 'dart:js_interop';
 
-// ── Phantom Wallet ────────────────────────────────────────────────────────────
+// ── Solana Wallet ────────────────────────────────────────────────────────────
 
-JSObject? _getPhantom() {
+Future<String?> connectSolanaWallet(String type) async {
   try {
-    final p = web.window.getProperty<JSObject?>('phantom'.toJS);
-    return p?.getProperty<JSObject?>('solana'.toJS);
+    final res = await web.window.callMethod<JSPromise>('connectSolanaWallet'.toJS, type.toJS).toDart;
+    return (res as JSString).toDart;
   } catch (_) {
     return null;
   }
 }
 
-Future<String?> connectPhantomWallet() async {
-  final sol = _getPhantom();
-  if (sol == null) return null;
+Future<String?> getSolanaPublicKeyIfConnected(String type) async {
   try {
-    final res = await sol.callMethod<JSPromise>('connect'.toJS).toDart;
-    final pk = (res as JSObject).getProperty<JSObject>('publicKey'.toJS);
-    return pk.callMethod<JSString>('toBase58'.toJS).toDart;
+    final res = await web.window.callMethod<JSPromise>('getSolanaPublicKeyIfConnected'.toJS, type.toJS).toDart;
+    if (res == null) return null;
+    return (res as JSString).toDart;
   } catch (_) {
     return null;
   }
 }
 
-bool isPhantomInstalled() => _getPhantom() != null;
-
-Future<String?> getPhantomPublicKeyIfConnected() async {
-  final sol = _getPhantom();
-  if (sol == null) return null;
+bool isSolanaWalletInstalled(String type) {
   try {
-    final opts = JSObject();
-    opts.setProperty('onlyIfTrusted'.toJS, true.toJS);
-    final res = await sol.callMethod<JSPromise>('connect'.toJS, opts).toDart;
-    final pk = (res as JSObject).getProperty<JSObject>('publicKey'.toJS);
-    return pk.callMethod<JSString>('toBase58'.toJS).toDart;
+    final res = web.window.callMethod<JSBoolean>('isSolanaWalletInstalled'.toJS, type.toJS);
+    return res.toDart;
   } catch (_) {
-    return null;
+    return false;
   }
 }
+
+List<String> getDetectedSolanaWallets() {
+  try {
+    final arr = web.window.callMethod<JSArray<JSString>>('getDetectedSolanaWallets'.toJS);
+    return arr.toDart.map((jsStr) => jsStr.toDart).toList();
+  } catch (_) {
+    return [];
+  }
+}
+
+// ── Legacy Phantom Compatibility ──────────────────────────────────────────────
+
+Future<String?> connectPhantomWallet() async => connectSolanaWallet('phantom');
+
+bool isPhantomInstalled() => isSolanaWalletInstalled('phantom');
+
+Future<String?> getPhantomPublicKeyIfConnected() async => getSolanaPublicKeyIfConnected('phantom');
 
 // ── Google Sign In ────────────────────────────────────────────────────────────
 
@@ -54,6 +62,22 @@ Future<String?> signInWithGoogleJs(Map<String, String> config) async {
       jsConfig.setProperty(e.key.toJS, e.value.toJS);
     }
     final res = await web.window.callMethod<JSPromise>('signInWithGoogle'.toJS, jsConfig).toDart;
+    return (res as JSString).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<String?> checkRedirectResultJs(Map<String, String> config) async {
+  try {
+    final jsConfig = JSObject();
+    for (final e in config.entries) {
+      jsConfig.setProperty(e.key.toJS, e.value.toJS);
+    }
+    final promise = web.window.callMethod<JSPromise?>('checkRedirectResultJs'.toJS, jsConfig);
+    if (promise == null) return null;
+    final res = await promise.toDart;
+    if (res == null) return null;
     return (res as JSString).toDart;
   } catch (_) {
     return null;

@@ -147,9 +147,7 @@ class CategoryModalComponentState extends State<CategoryModalComponent> {
                               }
 
                               // Set tracker requirement based on category
-                              // Groups 5 (Delivery) and 6 (Moving) require tracking, plus Towing (402)
-                              final needsTracker = (cat.id >= 500 && cat.id < 700) || cat.id == 402;
-                              s.hasTracker = needsTracker;
+                              s.hasTracker = cat.hasTracker;
 
                               // Reset location data when category changes to avoid stale points
                               s.pickupLat = null;

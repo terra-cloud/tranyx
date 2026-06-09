@@ -19,6 +19,7 @@ dev_dependencies:
   dart_style: ^3.1.7
   jaspr_builder: ^0.23.1
   lints: ^6.0.0
+  test: ^1.25.8
 
 jaspr:
   mode: client
@@ -28,9 +29,9 @@ jaspr:
   #   dart run jaspr:jaspr build --dart-define=ENV=prod
 
 scripts:
-  serve-dev: dart run jaspr:jaspr serve --dart-define=ENV=dev
-  serve-uat: dart run jaspr:jaspr serve --dart-define=ENV=uat
-  serve-prod: dart run jaspr:jaspr serve --dart-define=ENV=prod
-  build-dev: dart run jaspr:jaspr build --dart-define=ENV=dev
-  build-uat: dart run jaspr:jaspr build --dart-define=ENV=uat
-  build-prod: dart run jaspr:jaspr build --dart-define=ENV=prod
+  serve-dev: dart run shared:generate_env && dart run jaspr:jaspr serve --dart-define=ENV=dev
+  serve-uat: dart run shared:generate_env && dart run jaspr:jaspr serve --dart-define=ENV=uat
+  serve-prod: dart run shared:generate_env && dart run jaspr:jaspr serve --dart-define=ENV=prod
+  build-dev: dart run shared:generate_env && dart run jaspr:jaspr build --dart-define=ENV=dev
+  build-uat: dart run shared:generate_env && dart run jaspr:jaspr build --dart-define=ENV=uat
+  build-prod: dart run shared:generate_env && dart run jaspr:jaspr build --dart-define=ENV=prod

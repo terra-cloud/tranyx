@@ -100,6 +100,93 @@ Component phantomSvgIcon({String size = 'w-5 h-5'}) {
   );
 }
 
+/// A high-fidelity inline SVG Solflare Wallet icon.
+Component solflareSvgIcon({String size = 'w-5 h-5'}) {
+  return svg(
+    classes: size,
+    attributes: {
+      'viewBox': '0 0 24 24',
+      'fill': 'none',
+      'xmlns': 'http://www.w3.org/2000/svg',
+    },
+    [
+      path(
+        attributes: {
+          'd': 'M12 2L14.85 8.15L21 11L14.85 13.85L12 20L9.15 13.85L3 11L9.15 8.15L12 2Z',
+          'fill': '#FC8024',
+        },
+        [],
+      ),
+    ],
+  );
+}
+
+/// A high-fidelity inline SVG Trust Wallet icon.
+Component trustSvgIcon({String size = 'w-5 h-5'}) {
+  return svg(
+    classes: size,
+    attributes: {
+      'viewBox': '0 0 24 24',
+      'fill': 'none',
+      'xmlns': 'http://www.w3.org/2000/svg',
+    },
+    [
+      path(
+        attributes: {
+          'd': 'M12 2L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-3zm0 18c-3.75-1.04-6.5-5.18-6.5-9.5V6.43l6.5-2.17 6.5 2.17V10.5c0 4.32-2.75 8.46-6.5 9.5z',
+          'fill': '#3375BB',
+        },
+        [],
+      ),
+      path(
+        attributes: {
+          'd': 'M12 5.5l-4.5 1.5v3.5c0 2.8 1.8 5.5 4.5 6.5 2.7-1 4.5-3.7 4.5-6.5v-3.5L12 5.5z',
+          'fill': '#3375BB',
+        },
+        [],
+      ),
+    ],
+  );
+}
+
+/// A high-fidelity inline SVG Backpack Wallet icon.
+Component backpackSvgIcon({String size = 'w-5 h-5'}) {
+  return svg(
+    classes: size,
+    attributes: {
+      'viewBox': '0 0 24 24',
+      'fill': 'none',
+      'xmlns': 'http://www.w3.org/2000/svg',
+    },
+    [
+      path(
+        attributes: {
+          'd': 'M4 8c0-2.209 1.791-4 4-4h8c2.209 0 4 1.791 4 4v10c0 2.209-1.791 4-4 4H8c-2.209 0-4-1.791-4-4V8z',
+          'stroke': '#E33E3F',
+          'stroke-width': '2',
+        },
+        [],
+      ),
+      path(
+        attributes: {
+          'd': 'M9 4V2.5c0-.828.672-1.5 1.5-1.5h3c.828 0 1.5.672 1.5 1.5V4',
+          'stroke': '#E33E3F',
+          'stroke-width': '2',
+        },
+        [],
+      ),
+      path(
+        attributes: {
+          'd': 'M4 11h16M8 15h8M12 11v4',
+          'stroke': '#E33E3F',
+          'stroke-width': '2',
+        },
+        [],
+      ),
+    ],
+  );
+}
+
 /// Styled text input field with optional label and leading icon.
 Component inputField({
   String label = '',

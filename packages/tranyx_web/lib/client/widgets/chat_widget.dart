@@ -57,7 +57,7 @@ class _ChatWidgetState extends State<ChatWidget> {
           'fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm',
       events: {
         'click': (e) {
-          final target = (e as web.Event).target;
+          final target = (e).target;
           final self = e.currentTarget;
           if (target == self) s.closeChat();
         },
@@ -282,10 +282,9 @@ class _ChatWidgetState extends State<ChatWidget> {
               if (photoUrl != null && photoUrl.isNotEmpty)
                 img(
                   src: photoUrl,
-                  classes: 'max-w-full rounded-xl max-h-48 object-cover cursor-zoom-in hover:opacity-95 transition-opacity',
-                  events: {
-                    'click': (_) => component.state.showFullScreenPhoto(photoUrl)
-                  },
+                  classes:
+                      'max-w-full rounded-xl max-h-48 object-cover cursor-zoom-in hover:opacity-95 transition-opacity',
+                  events: {'click': (_) => component.state.showFullScreenPhoto(photoUrl)},
                 )
               else
                 p(classes: 'text-sm leading-relaxed', [Component.text(text)]),

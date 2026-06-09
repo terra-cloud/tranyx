@@ -116,7 +116,7 @@ Future<void> initMap(
   final old = window.getProperty<JSObject?>(mapKey);
   if (old != null) {
     try {
-      old.callMethod<JSAny>('remove'.toJS);
+      old.callMethod<JSAny?>('remove'.toJS);
     } catch (_) {}
     window.setProperty(mapKey, null);
   }
@@ -172,7 +172,7 @@ Future<void> initMap(
 void onMapClick(String elementId, void Function(double lat, double lng) onTap) {
   final m = _map(elementId);
   if (m == null) return;
-  m.callMethod<JSAny>(
+  m.callMethod<JSAny?>(
     'on'.toJS,
     'click'.toJS,
     ((JSObject e) {
@@ -198,15 +198,15 @@ void setMarker(
   final existing = window.getProperty<JSObject?>(storeKey);
 
   if (existing != null) {
-    existing.callMethod<JSAny>('setLngLat'.toJS, [lng.toJS, lat.toJS].toJS);
+    existing.callMethod<JSAny?>('setLngLat'.toJS, [lng.toJS, lat.toJS].toJS);
     if (popupText != null) {
       final popup = existing.callMethod<JSObject?>('getPopup'.toJS);
       if (popup != null) {
-        popup.callMethod<JSAny>('setHTML'.toJS, popupText.toJS);
+        popup.callMethod<JSAny?>('setHTML'.toJS, popupText.toJS);
       } else {
         final newPopup = window.callMethod<JSObject>('_createPopup'.toJS);
-        newPopup.callMethod<JSAny>('setHTML'.toJS, popupText.toJS);
-        existing.callMethod<JSAny>('setPopup'.toJS, newPopup);
+        newPopup.callMethod<JSAny?>('setHTML'.toJS, popupText.toJS);
+        existing.callMethod<JSAny?>('setPopup'.toJS, newPopup);
       }
     }
   } else {
@@ -215,13 +215,13 @@ void setMarker(
 
     if (popupText != null) {
       final popup = window.callMethod<JSObject>('_createPopup'.toJS);
-      popup.callMethod<JSAny>('setHTML'.toJS, popupText.toJS);
+      popup.callMethod<JSAny?>('setHTML'.toJS, popupText.toJS);
       marker.callMethod<JSObject>('setPopup'.toJS, popup);
-      marker.callMethod<JSAny>('addTo'.toJS, m);
+      marker.callMethod<JSAny?>('addTo'.toJS, m);
       // Toggle to open the popup immediately
-      marker.callMethod<JSAny>('togglePopup'.toJS);
+      marker.callMethod<JSAny?>('togglePopup'.toJS);
     } else {
-      marker.callMethod<JSAny>('addTo'.toJS, m);
+      marker.callMethod<JSAny?>('addTo'.toJS, m);
     }
 
     window.setProperty(storeKey, marker);
@@ -232,7 +232,7 @@ void removeMarker(String elementId, String markerId) {
   final storeKey = '__lmarker_${elementId}_$markerId'.toJS;
   final existing = window.getProperty<JSObject?>(storeKey);
   if (existing != null) {
-    existing.callMethod<JSAny>('remove'.toJS);
+    existing.callMethod<JSAny?>('remove'.toJS);
     window.setProperty(storeKey, null);
   }
 }
@@ -248,10 +248,10 @@ void drawRoute(String elementId, List<List<double>> points, String color) {
       final sourceId = existing.getProperty<JSString>('sourceId'.toJS);
       final layerId = existing.getProperty<JSString>('layerId'.toJS);
       if (m.callMethod<JSBoolean>('getLayer'.toJS, layerId).toDart) {
-        m.callMethod<JSAny>('removeLayer'.toJS, layerId);
+        m.callMethod<JSAny?>('removeLayer'.toJS, layerId);
       }
       if (m.callMethod<JSBoolean>('getSource'.toJS, sourceId).toDart) {
-        m.callMethod<JSAny>('removeSource'.toJS, sourceId);
+        m.callMethod<JSAny?>('removeSource'.toJS, sourceId);
       }
     } catch (_) {}
     window.setProperty(routeKey, null);
@@ -275,7 +275,7 @@ void drawRoute(String elementId, List<List<double>> points, String color) {
   final srcOpts = JSObject();
   srcOpts.setProperty('type'.toJS, 'geojson'.toJS);
   srcOpts.setProperty('data'.toJS, geojson);
-  m.callMethod<JSAny>('addSource'.toJS, sourceId.toJS, srcOpts);
+  m.callMethod<JSAny?>('addSource'.toJS, sourceId.toJS, srcOpts);
 
   final paintOpts = JSObject();
   paintOpts.setProperty('line-color'.toJS, color.toJS);
@@ -293,7 +293,7 @@ void drawRoute(String elementId, List<List<double>> points, String color) {
   layerOpts.setProperty('paint'.toJS, paintOpts);
   layerOpts.setProperty('layout'.toJS, layoutOpts);
 
-  m.callMethod<JSAny>('addLayer'.toJS, layerOpts);
+  m.callMethod<JSAny?>('addLayer'.toJS, layerOpts);
 
   final routeTracker = JSObject();
   routeTracker.setProperty('sourceId'.toJS, sourceId.toJS);
@@ -303,11 +303,11 @@ void drawRoute(String elementId, List<List<double>> points, String color) {
   // Fit bounds
   final bounds = window.callMethod<JSObject>('_createLngLatBounds'.toJS);
   for (final p in points) {
-    bounds.callMethod<JSAny>('extend'.toJS, [p[1].toJS, p[0].toJS].toJS);
+    bounds.callMethod<JSAny?>('extend'.toJS, [p[1].toJS, p[0].toJS].toJS);
   }
   final fitOpts = JSObject();
   fitOpts.setProperty('padding'.toJS, 40.toJS);
-  m.callMethod<JSAny>('fitBounds'.toJS, bounds, fitOpts);
+  m.callMethod<JSAny?>('fitBounds'.toJS, bounds, fitOpts);
 }
 
 Future<Map<String, dynamic>?> drawOSRMRoute(
@@ -366,7 +366,7 @@ void panTo(String elementId, double lat, double lng, {double? bearing, double? p
   }
   opts.setProperty('duration'.toJS, 1000.toJS); // 1s smooth camera glide
 
-  m.callMethod<JSAny>('easeTo'.toJS, opts);
+  m.callMethod<JSAny?>('easeTo'.toJS, opts);
 }
 
 ({double lat, double lng})? getMapCenter(String elementId) {
@@ -380,7 +380,7 @@ void panTo(String elementId, double lat, double lng, {double? bearing, double? p
 }
 
 void invalidateMapSize(String elementId) {
-  _map(elementId)?.callMethod<JSAny>('resize'.toJS);
+  _map(elementId)?.callMethod<JSAny?>('resize'.toJS);
 }
 
 void destroyMap(String elementId) {
@@ -395,16 +395,16 @@ void destroyMap(String elementId) {
       final sourceId = route.getProperty<JSString>('sourceId'.toJS);
       final layerId = route.getProperty<JSString>('layerId'.toJS);
       if (m.callMethod<JSBoolean>('getLayer'.toJS, layerId).toDart) {
-        m.callMethod<JSAny>('removeLayer'.toJS, layerId);
+        m.callMethod<JSAny?>('removeLayer'.toJS, layerId);
       }
       if (m.callMethod<JSBoolean>('getSource'.toJS, sourceId).toDart) {
-        m.callMethod<JSAny>('removeSource'.toJS, sourceId);
+        m.callMethod<JSAny?>('removeSource'.toJS, sourceId);
       }
     } catch (_) {}
     window.setProperty(routeKey, null);
   }
 
-  m.callMethod<JSAny>('remove'.toJS);
+  m.callMethod<JSAny?>('remove'.toJS);
   window.setProperty('__lmap_$elementId'.toJS, null);
 }
 
@@ -419,10 +419,10 @@ void clearRoute(String elementId) {
       final sourceId = route.getProperty<JSString>('sourceId'.toJS);
       final layerId = route.getProperty<JSString>('layerId'.toJS);
       if (m.callMethod<JSBoolean>('getLayer'.toJS, layerId).toDart) {
-        m.callMethod<JSAny>('removeLayer'.toJS, layerId);
+        m.callMethod<JSAny?>('removeLayer'.toJS, layerId);
       }
       if (m.callMethod<JSBoolean>('getSource'.toJS, sourceId).toDart) {
-        m.callMethod<JSAny>('removeSource'.toJS, sourceId);
+        m.callMethod<JSAny?>('removeSource'.toJS, sourceId);
       }
     } catch (_) {}
     window.setProperty(routeKey, null);
@@ -478,28 +478,28 @@ void setupMapInteractionListener(
   final m = _map(elementId);
   if (m == null) return;
 
-  m.callMethod<JSAny>(
+  m.callMethod<JSAny?>(
     'on'.toJS,
     'dragstart'.toJS,
     (() {
       onInteractionStart();
     }).toJS,
   );
-  m.callMethod<JSAny>(
+  m.callMethod<JSAny?>(
     'on'.toJS,
     'zoomstart'.toJS,
     (() {
       onInteractionStart();
     }).toJS,
   );
-  m.callMethod<JSAny>(
+  m.callMethod<JSAny?>(
     'on'.toJS,
     'dragend'.toJS,
     (() {
       onInteractionEnd();
     }).toJS,
   );
-  m.callMethod<JSAny>(
+  m.callMethod<JSAny?>(
     'on'.toJS,
     'zoomend'.toJS,
     (() {

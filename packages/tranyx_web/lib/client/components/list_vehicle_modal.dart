@@ -62,8 +62,8 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
   bool _showPreview = false;
 
   // Images
-  List<String> _imageUrls = ['', '', '']; // Requires interior, front, back
-  List<bool> _isUploadingImage = [false, false, false];
+  final List<String> _imageUrls = ['', '', '']; // Requires interior, front, back
+  final List<bool> _isUploadingImage = [false, false, false];
 
   bool _isSubmitting = false;
   String? _error;
@@ -135,7 +135,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
 
     try {
       final hostId = component.appState.userProfile?.uid;
-      if (hostId == null) throw Exception('Not logged in');
+      if (hostId == null) throw FirebaseException('Not logged in', 403);
 
       final user = component.appState.userProfile;
       if (user == null) throw Exception('User profile not loaded.');
@@ -443,7 +443,8 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                     placeholder: 'e.g. TFL-2024-XXXXX',
                   ),
                   p(
-                    classes: 'text-[11px] text-zinc-500 italic mt-2 pt-2 border-t ${isDark ? "border-zinc-800/60" : "border-zinc-200"}',
+                    classes:
+                        'text-[11px] text-zinc-500 italic mt-2 pt-2 border-t ${isDark ? "border-zinc-800/60" : "border-zinc-200"}',
                     [
                       Component.text(
                         'Note: Real-time vehicle tracking functions only when the active renter is logged into the app on their device with location permissions enabled.',
@@ -586,7 +587,9 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
               // Step 3: Photos & Contracts
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Photos & Legal')]),
               p(classes: 'text-sm mb-4 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                Component.text('Tranyx requires 3 photos: Interior, Front, and Back. You can also upload additional photos.'),
+                Component.text(
+                  'Tranyx requires 3 photos: Interior, Front, and Back. You can also upload additional photos.',
+                ),
               ]),
               div(classes: 'space-y-4 mb-6', [
                 div(classes: 'grid grid-cols-3 gap-3', [
@@ -595,10 +598,10 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                       i == 0
                           ? 'Interior'
                           : i == 1
-                              ? 'Front'
-                              : i == 2
-                                  ? 'Back'
-                                  : 'Extra Photo ${i - 2}',
+                          ? 'Front'
+                          : i == 2
+                          ? 'Back'
+                          : 'Extra Photo ${i - 2}',
                       _imageUrls[i],
                       i,
                       isDark,
@@ -643,60 +646,63 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
               ]),
 
               if (_contractType == 'Tranyx Standard') ...[
-                div(classes: 'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50', [
-                  div(classes: 'flex items-center justify-between mb-2', [
-                    div(classes: 'flex items-center gap-3', [
-                      lIcon('file-text', cls: 'w-5 h-5 text-blue-500'),
-                      h4(classes: 'font-bold', [Component.text('Tranyx Rental Contract')]),
-                    ]),
-                    button(
-                      classes: 'text-xs text-blue-500 hover:underline',
-                      events: {'click': (_) => setState(() => _showPreview = !_showPreview)},
-                      [Component.text(_showPreview ? 'Hide Preview' : 'View Contract')],
-                    ),
-                  ]),
-                  p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"} mb-2', [
-                    Component.text(
-                      'By proceeding, you agree to our standard P2P Rental Agreement underwritten by our partner legal firm.',
-                    ),
-                  ]),
-                  if (_showPreview)
-                    ContractViewerComponent(
-                      vehicleRental: VehicleRental(
-                        id: '',
-                        hostId: '',
-                        hostName: component.appState.userProfile?.name ?? 'Owner',
-                        brand: _brand,
-                        model: _model,
-                        year: int.tryParse(_year) ?? 2022,
-                        plateNumber: _plateNumber,
-                        type: _selectedType,
-                        vehicleValue: 0,
-                        ltoCrNumber: 'PENDING',
-                        ltoOrNumber: 'PENDING',
-                        insuranceProvider: 'N/A',
-                        insurancePolicyNumber: 'N/A',
-                        contractType: 'Tranyx Standard',
-                        contractTerms: '',
-                        price12h: double.tryParse(_price12h) ?? 0,
-                        priceDaily: double.tryParse(_priceDaily) ?? 0,
-                        priceWeekly: double.tryParse(_priceWeekly) ?? 0,
-                        priceMonthly: double.tryParse(_priceMonthly) ?? 0,
-                        extensionRatePerHour: double.tryParse(_extensionPenaltyPerHour) ?? 0,
-                        latePenaltyRatePerHour: double.tryParse(_extensionPenaltyPerHour) ?? 0,
-                        status: 'Available',
-                        fuelType: _fuelType,
-                        transmission: _transmission,
-                        pickupAddress: _pickupAddress.isNotEmpty ? _pickupAddress : component.appState.pickupAddress,
-                        pickupLat: _pickupLat ?? component.appState.pickupLat ?? 0.0,
-                        pickupLng: _pickupLng ?? component.appState.pickupLng ?? 0.0,
-                        createdAt: DateTime.now(),
-                        interiorPhotoUrl: '',
-                        frontPhotoUrl: '',
-                        backPhotoUrl: '',
+                div(
+                  classes: 'p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50',
+                  [
+                    div(classes: 'flex items-center justify-between mb-2', [
+                      div(classes: 'flex items-center gap-3', [
+                        lIcon('file-text', cls: 'w-5 h-5 text-blue-500'),
+                        h4(classes: 'font-bold', [Component.text('Tranyx Rental Contract')]),
+                      ]),
+                      button(
+                        classes: 'text-xs text-blue-500 hover:underline',
+                        events: {'click': (_) => setState(() => _showPreview = !_showPreview)},
+                        [Component.text(_showPreview ? 'Hide Preview' : 'View Contract')],
                       ),
-                    ),
-                ]),
+                    ]),
+                    p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"} mb-2', [
+                      Component.text(
+                        'By proceeding, you agree to our standard P2P Rental Agreement underwritten by our partner legal firm.',
+                      ),
+                    ]),
+                    if (_showPreview)
+                      ContractViewerComponent(
+                        vehicleRental: VehicleRental(
+                          id: '',
+                          hostId: '',
+                          hostName: component.appState.userProfile?.name ?? 'Owner',
+                          brand: _brand,
+                          model: _model,
+                          year: int.tryParse(_year) ?? 2022,
+                          plateNumber: _plateNumber,
+                          type: _selectedType,
+                          vehicleValue: 0,
+                          ltoCrNumber: 'PENDING',
+                          ltoOrNumber: 'PENDING',
+                          insuranceProvider: 'N/A',
+                          insurancePolicyNumber: 'N/A',
+                          contractType: 'Tranyx Standard',
+                          contractTerms: '',
+                          price12h: double.tryParse(_price12h) ?? 0,
+                          priceDaily: double.tryParse(_priceDaily) ?? 0,
+                          priceWeekly: double.tryParse(_priceWeekly) ?? 0,
+                          priceMonthly: double.tryParse(_priceMonthly) ?? 0,
+                          extensionRatePerHour: double.tryParse(_extensionPenaltyPerHour) ?? 0,
+                          latePenaltyRatePerHour: double.tryParse(_extensionPenaltyPerHour) ?? 0,
+                          status: 'Available',
+                          fuelType: _fuelType,
+                          transmission: _transmission,
+                          pickupAddress: _pickupAddress.isNotEmpty ? _pickupAddress : component.appState.pickupAddress,
+                          pickupLat: _pickupLat ?? component.appState.pickupLat ?? 0.0,
+                          pickupLng: _pickupLng ?? component.appState.pickupLng ?? 0.0,
+                          createdAt: DateTime.now(),
+                          interiorPhotoUrl: '',
+                          frontPhotoUrl: '',
+                          backPhotoUrl: '',
+                        ),
+                      ),
+                  ],
+                ),
               ] else ...[
                 div(classes: 'mt-4', [
                   label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
@@ -732,7 +738,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                               final targetObj = e.target as JSObject?;
                               if (targetObj != null && targetObj.hasProperty('files'.toJS).toDart) {
                                 final filesObj = targetObj.getProperty<JSObject>('files'.toJS);
-                                if (filesObj != null && filesObj.hasProperty('length'.toJS).toDart) {
+                                if (filesObj.hasProperty('length'.toJS).toDart) {
                                   final len = (filesObj.getProperty('length'.toJS) as JSNumber).toDartInt;
                                   if (len > 0) {
                                     final file = filesObj.callMethod<JSObject?>('item'.toJS, 0.toJS);
@@ -820,11 +826,11 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
         classes:
             'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
         type: type,
-        attributes: {'value': value, if (placeholder != null) 'placeholder': placeholder},
+        attributes: {'value': value, 'placeholder': ?placeholder},
         events: {
           'input': (e) {
             onChange(getInputValue(e.target));
-          }
+          },
         },
       ),
     ]);
@@ -850,7 +856,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
         events: {
           'change': (e) {
             onChange(getInputValue(e.target));
-          }
+          },
         },
         [
           option(value: '', selected: selectedValue.isEmpty, [Component.text(placeholder)]),
@@ -947,7 +953,8 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
     final showRemove = index >= 3;
 
     return div(
-      classes: 'relative aspect-video rounded-2xl overflow-hidden border border-dashed ${isDark ? "border-zinc-800 bg-zinc-900/30" : "border-zinc-200 bg-zinc-50/50"}',
+      classes:
+          'relative aspect-video rounded-2xl overflow-hidden border border-dashed ${isDark ? "border-zinc-800 bg-zinc-900/30" : "border-zinc-200 bg-zinc-50/50"}',
       [
         label(
           classes:
