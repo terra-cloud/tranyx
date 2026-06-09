@@ -6,6 +6,7 @@ import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane.dart' as hp;
 
 class ListingWizardSheet extends ConsumerStatefulWidget {
   final bool isProperty;
@@ -361,6 +362,8 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
       ref.invalidate(userProfileProvider);
       ref.invalidate(realtimeRentalsProvider);
       ref.invalidate(realtimePropertiesProvider);
+      ref.invalidate(userTransactionsProvider);
+      ref.invalidate(hp.userTransactionsProvider(userProfile.uid));
 
       if (mounted) {
         Navigator.pop(context);

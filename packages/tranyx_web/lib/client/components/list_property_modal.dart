@@ -169,6 +169,10 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
       // Create property listing
       await component.appState.firestore.createPropertyRental(property);
 
+      // Reload profile & transactions to display balance deduction and transaction log promptly
+      await component.appState.loadUserProfile();
+      await component.appState.loadTransactions();
+
       // Close modal
       component.appState.setState(() {
         component.appState.showListPropertyModal = false;

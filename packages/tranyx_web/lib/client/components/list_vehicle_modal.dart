@@ -189,6 +189,10 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
       }
       await component.appState.firestore.createRentalFromMap(rentalData);
 
+      // Reload profile & transactions to display balance deduction and transaction log promptly
+      await component.appState.loadUserProfile();
+      await component.appState.loadTransactions();
+
       // Close modal
       component.appState.setState(() {
         component.appState.showListVehicleModal = false;

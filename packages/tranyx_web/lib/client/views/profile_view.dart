@@ -2685,11 +2685,15 @@ class _HistoryViewState extends State<_HistoryView> {
   @override
   void didUpdateComponent(_HistoryView oldComponent) {
     super.didUpdateComponent(oldComponent);
-    if (oldComponent.state.myJobs != component.state.myJobs ||
+    final profileTransitioned = oldComponent.state.userProfile == null && component.state.userProfile != null;
+    if (profileTransitioned ||
+        oldComponent.state.myJobs != component.state.myJobs ||
         oldComponent.state.userTransactions != component.state.userTransactions ||
         oldComponent.state.realtimeRentals != component.state.realtimeRentals) {
       _loadRentalHistory();
-      component.state.loadUserProfile();
+      if (!profileTransitioned) {
+        component.state.loadUserProfile();
+      }
     }
   }
 

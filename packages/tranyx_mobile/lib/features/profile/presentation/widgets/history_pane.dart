@@ -42,18 +42,18 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
     _loadHistory();
   }
 
-  Future<void> _loadHistory() async {
-    final profile = ref.read(userProfileProvider).value;
-    if (profile == null) {
+  Future<void> _loadHistory([UserProfile? profile]) async {
+    final activeProfile = profile ?? ref.read(userProfileProvider).value;
+    if (activeProfile == null) {
       return;
     }
 
     try {
       final repo = ref.read(transitRepositoryProvider);
-      final items = await repo.getMyRentalHistory(profile.uid);
+      final items = await repo.getMyRentalHistory(activeProfile.uid);
 
       for (final item in items) {
-        final counterpartUid = _counterpartyUid(item, profile.uid);
+        final counterpartUid = _counterpartyUid(item, activeProfile.uid);
         if (counterpartUid != null &&
             !_counterpartyCache.containsKey(counterpartUid)) {
           _counterpartyCache[counterpartUid] = await repo.getUser(
@@ -1676,6 +1676,13 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<AsyncValue<UserProfile?>>(userProfileProvider, (prev, next) {
+      final profile = next.value;
+      if (profile != null && prev?.value == null) {
+        _loadHistory(profile);
+      }
+    });
+
     final isDarkMode = ref.watch(themeModeProvider);
     final userProfile = ref.watch(userProfileProvider).value;
 
