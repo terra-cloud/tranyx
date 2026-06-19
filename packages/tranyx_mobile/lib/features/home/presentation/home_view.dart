@@ -8,6 +8,7 @@ import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/core/utils/enums.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
 import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
+import 'package:tranyx_mobile/features/jobs/models/job.dart';
 import 'package:tranyx_mobile/features/profile/providers/profile_provider.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_list_view.dart';
 import 'package:tranyx_mobile/features/navigation/providers/navigation_provider.dart';
@@ -21,7 +22,8 @@ class HomeView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDarkMode = ref.watch(themeModeProvider);
-    final accountType = ref.watch(accountTypeProvider);
+    final profile = ref.watch(userProfileProvider).value;
+    final accountType = profile?.accountType ?? ref.watch(accountTypeProvider);
     final hybridToggle = ref.watch(hybridToggleProvider);
     final currentViewMode = ref.watch(currentViewModeProvider);
 
@@ -97,7 +99,11 @@ class HomeView extends ConsumerWidget {
                   color: AppColors.indigo.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(category.iconData, color: AppColors.indigo, size: 24),
+                child: Icon(
+                  category.iconData,
+                  color: AppColors.indigo,
+                  size: 24,
+                ),
               ),
               const SizedBox(height: 12),
               Text(
@@ -149,146 +155,203 @@ class HomeView extends ConsumerWidget {
       ],
     );
 
-    Widget ongoingWidget = Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: isDarkMode
-            ? (currentViewMode == AccountType.employer
-                  ? AppColors.blue.withValues(alpha: 0.1)
-                  : AppColors.green.withValues(alpha: 0.1))
-            : (currentViewMode == AccountType.employer
-                  ? AppColors.blue.withValues(alpha: 0.05)
-                  : AppColors.green.withValues(alpha: 0.05)),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: currentViewMode == AccountType.employer
-              ? AppColors.blue.withValues(alpha: 0.3)
-              : AppColors.green.withValues(alpha: 0.3),
-          width: 2,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    final user = ref.watch(userProvider);
+    final myJobs = ref.watch(myJobsProvider).value ?? [];
+    Job? activeJob;
+    if (user != null) {
+      for (final job in myJobs) {
+        if (job.status == 'In Progress') {
+          if (currentViewMode == AccountType.employer &&
+              job.creatorId == user.uid) {
+            activeJob = job;
+            break;
+          } else if (currentViewMode == AccountType.nyxian &&
+              job.acceptedApplicantId == user.uid) {
+            activeJob = job;
+            break;
+          }
+        }
+      }
+    }
+
+    Widget? ongoingWidget;
+    if (activeJob != null) {
+      final duration = DateTime.now().difference(activeJob.createdAt);
+      final hours = duration.inHours;
+      final minutes = duration.inMinutes.remainder(60);
+      final timeStr = hours > 0
+          ? "${hours}h ${minutes}m ago"
+          : "${minutes}m ago";
+
+      ongoingWidget = GestureDetector(
+        onTap: () {
+          ref.read(selectedJobProvider.notifier).state = activeJob;
+          ref.read(jobsViewProvider.notifier).state = 'details';
+          ref.read(activeTabProvider.notifier).state = 'jobs';
+        },
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: isDarkMode
+                ? (currentViewMode == AccountType.employer
+                      ? AppColors.blue.withValues(alpha: 0.1)
+                      : AppColors.green.withValues(alpha: 0.1))
+                : (currentViewMode == AccountType.employer
+                      ? AppColors.blue.withValues(alpha: 0.05)
+                      : AppColors.green.withValues(alpha: 0.05)),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: currentViewMode == AccountType.employer
+                  ? AppColors.blue.withValues(alpha: 0.3)
+                  : AppColors.green.withValues(alpha: 0.3),
+              width: 2,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: currentViewMode == AccountType.employer
-                          ? AppColors.blue
-                          : AppColors.green,
-                      shape: BoxShape.circle,
-                    ),
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: currentViewMode == AccountType.employer
+                              ? AppColors.blue
+                              : AppColors.green,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        currentViewMode == AccountType.employer
+                            ? "ONGOING JOB"
+                            : "CURRENT GIG",
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.0,
+                          color: currentViewMode == AccountType.employer
+                              ? AppColors.blue
+                              : AppColors.green,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
                   Text(
-                    currentViewMode == AccountType.employer
-                        ? "ONGOING JOB"
-                        : "CURRENT GIG",
+                    timeStr,
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      letterSpacing: 1.0,
-                      color: currentViewMode == AccountType.employer
-                          ? AppColors.blue
-                          : AppColors.green,
+                      color: isDarkMode
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 16),
+              Text(
+                activeJob.title,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                ),
+              ),
+              const SizedBox(height: 4),
               Text(
                 currentViewMode == AccountType.employer
-                    ? "Started 1h ago"
-                    : "01:24:05",
+                    ? activeJob.description
+                    : (activeJob.address ?? "No address specified"),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
                   color: isDarkMode
                       ? AppColors.darkTextMuted
                       : AppColors.lightTextMuted,
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            currentViewMode == AccountType.employer
-                ? "Emergency Plumber"
-                : "Backyard Fence Repair",
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: isDarkMode ? AppColors.darkText : AppColors.lightText,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            currentViewMode == AccountType.employer
-                ? "Alex (Nyxian) is currently working on this task."
-                : "1280 Silicon Ave",
-            style: TextStyle(
-              fontSize: 14,
-              color: isDarkMode
-                  ? AppColors.darkTextMuted
-                  : AppColors.lightTextMuted,
-            ),
-          ),
-          const SizedBox(height: 24),
-          currentViewMode == AccountType.employer
-              ? Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {},
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.blue.withValues(
-                            alpha: 0.2,
+              const SizedBox(height: 24),
+              currentViewMode == AccountType.employer
+                  ? Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              ref.read(selectedJobProvider.notifier).state =
+                                  activeJob;
+                              ref.read(jobsViewProvider.notifier).state =
+                                  'details';
+                              ref.read(activeTabProvider.notifier).state =
+                                  'jobs';
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.blue.withValues(
+                                alpha: 0.2,
+                              ),
+                              foregroundColor: AppColors.blue,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text("View Details"),
                           ),
-                          foregroundColor: AppColors.blue,
-                          elevation: 0,
+                        ),
+                        const SizedBox(width: 12),
+                        GestureDetector(
+                          onTap: () {
+                            ref.read(selectedJobProvider.notifier).state =
+                                activeJob;
+                            ref.read(jobsViewProvider.notifier).state =
+                                'details';
+                            ref.read(activeTabProvider.notifier).state = 'jobs';
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: isDarkMode
+                                  ? AppColors.darkBorder
+                                  : Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(Icons.message, size: 20),
+                          ),
+                        ),
+                      ],
+                    )
+                  : SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          ref.read(selectedJobProvider.notifier).state =
+                              activeJob;
+                          ref.read(jobsViewProvider.notifier).state = 'details';
+                          ref.read(activeTabProvider.notifier).state = 'jobs';
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.green,
+                          foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: const Text("View Details"),
+                        child: const Text(
+                          "Complete Gig",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: isDarkMode ? AppColors.darkBorder : Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(Icons.message, size: 20),
-                    ),
-                  ],
-                )
-              : SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {},
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.green,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Text(
-                      "Complete Gig",
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-        ],
-      ),
-    );
+            ],
+          ),
+        ),
+      );
+    }
 
     return Column(
       children: [
@@ -327,21 +390,31 @@ class HomeView extends ConsumerWidget {
           const SizedBox(height: 24),
         ],
 
-        _buildQuickStatsBar(context, ref, isDarkMode, currentViewMode, isTablet),
+        _buildQuickStatsBar(
+          context,
+          ref,
+          isDarkMode,
+          currentViewMode,
+          isTablet,
+        ),
         const SizedBox(height: 24),
 
-        if (isTablet)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(flex: 2, child: searchBlock),
-              const SizedBox(width: 32),
-              Expanded(flex: 1, child: ongoingWidget),
-            ],
-          )
-        else ...[
-          ongoingWidget,
-          const SizedBox(height: 32),
+        if (ongoingWidget != null) ...[
+          if (isTablet)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 2, child: searchBlock),
+                const SizedBox(width: 32),
+                Expanded(flex: 1, child: ongoingWidget),
+              ],
+            )
+          else ...[
+            ongoingWidget,
+            const SizedBox(height: 32),
+            searchBlock,
+          ],
+        ] else ...[
           searchBlock,
         ],
 
@@ -491,6 +564,7 @@ class HomeView extends ConsumerWidget {
     }
 
     return GridView.count(
+      padding: const EdgeInsets.all(0),
       crossAxisCount: crossAxisCount,
       childAspectRatio: childAspectRatio,
       shrinkWrap: true,

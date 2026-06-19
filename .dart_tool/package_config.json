@@ -44,6 +44,12 @@
       "languageVersion": "3.4"
     },
     {
+      "name": "base_x",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/base_x-2.0.1",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
       "name": "bazel_worker",
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/bazel_worker-1.1.5",
       "packageUri": "lib/",
@@ -54,6 +60,12 @@
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/boolean_selector-2.1.2",
       "packageUri": "lib/",
       "languageVersion": "3.1"
+    },
+    {
+      "name": "bs58",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/bs58-1.0.2",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
     },
     {
       "name": "build",
@@ -192,6 +204,12 @@
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/crypto-3.0.7",
       "packageUri": "lib/",
       "languageVersion": "3.4"
+    },
+    {
+      "name": "cryptography",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/cryptography-2.9.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.3"
     },
     {
       "name": "csslib",
@@ -338,6 +356,12 @@
       "languageVersion": "3.10"
     },
     {
+      "name": "flutter_driver",
+      "rootUri": "file:///Users/zeuscajurao/flutter/packages/flutter_driver",
+      "packageUri": "lib/",
+      "languageVersion": "3.10"
+    },
+    {
       "name": "flutter_flavorizr",
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/flutter_flavorizr-2.4.2",
       "packageUri": "lib/",
@@ -456,6 +480,12 @@
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/frontend_server_client-4.0.0",
       "packageUri": "lib/",
       "languageVersion": "3.0"
+    },
+    {
+      "name": "fuchsia_remote_debug_protocol",
+      "rootUri": "file:///Users/zeuscajurao/flutter/packages/fuchsia_remote_debug_protocol",
+      "packageUri": "lib/",
+      "languageVersion": "3.10"
     },
     {
       "name": "glob",
@@ -624,6 +654,12 @@
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/image_picker_windows-0.2.2",
       "packageUri": "lib/",
       "languageVersion": "3.6"
+    },
+    {
+      "name": "integration_test",
+      "rootUri": "file:///Users/zeuscajurao/flutter/packages/integration_test",
+      "packageUri": "lib/",
+      "languageVersion": "3.10"
     },
     {
       "name": "intl",
@@ -848,6 +884,12 @@
       "languageVersion": "3.8"
     },
     {
+      "name": "pinenacl",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/pinenacl-0.6.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
+    },
+    {
       "name": "platform",
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/platform-3.1.6",
       "packageUri": "lib/",
@@ -870,6 +912,12 @@
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/posix-6.5.0",
       "packageUri": "lib/",
       "languageVersion": "3.0"
+    },
+    {
+      "name": "process",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/process-5.0.5",
+      "packageUri": "lib/",
+      "languageVersion": "3.5"
     },
     {
       "name": "protobuf",
@@ -1016,6 +1064,12 @@
       "languageVersion": "3.1"
     },
     {
+      "name": "sync_http",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/sync_http-0.3.1",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
       "name": "term_glyph",
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/term_glyph-1.2.2",
       "packageUri": "lib/",
@@ -1058,6 +1112,54 @@
       "languageVersion": "3.4"
     },
     {
+      "name": "url_launcher",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/url_launcher-6.3.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
+    },
+    {
+      "name": "url_launcher_android",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/url_launcher_android-6.3.32",
+      "packageUri": "lib/",
+      "languageVersion": "3.12"
+    },
+    {
+      "name": "url_launcher_ios",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/url_launcher_ios-6.4.1",
+      "packageUri": "lib/",
+      "languageVersion": "3.10"
+    },
+    {
+      "name": "url_launcher_linux",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/url_launcher_linux-3.2.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.8"
+    },
+    {
+      "name": "url_launcher_macos",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/url_launcher_macos-3.2.5",
+      "packageUri": "lib/",
+      "languageVersion": "3.9"
+    },
+    {
+      "name": "url_launcher_platform_interface",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/url_launcher_platform_interface-2.3.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.1"
+    },
+    {
+      "name": "url_launcher_web",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/url_launcher_web-2.4.3",
+      "packageUri": "lib/",
+      "languageVersion": "3.10"
+    },
+    {
+      "name": "url_launcher_windows",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/url_launcher_windows-3.1.5",
+      "packageUri": "lib/",
+      "languageVersion": "3.8"
+    },
+    {
       "name": "uuid",
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/uuid-4.5.3",
       "packageUri": "lib/",
@@ -1098,6 +1200,12 @@
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/web_socket_channel-3.0.3",
       "packageUri": "lib/",
       "languageVersion": "3.3"
+    },
+    {
+      "name": "webdriver",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/webdriver-3.1.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.1"
     },
     {
       "name": "webkit_inspection_protocol",

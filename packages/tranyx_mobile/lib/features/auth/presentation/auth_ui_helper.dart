@@ -98,21 +98,27 @@ class AuthUiHelper {
     required String subtitle,
     required bool isDarkMode,
     IconData? icon,
+    bool showLogo = true,
   }) {
     return Column(
       children: [
-        if (icon != null) ...[
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [AppColors.indigo, AppColors.purple],
+        if (showLogo) ...[
+          Image.asset(
+            'assets/images/logo.png',
+            height: 72,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) => Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [AppColors.indigo, AppColors.purple],
+                ),
+                borderRadius: BorderRadius.circular(24),
               ),
-              borderRadius: BorderRadius.circular(24),
+              child: Icon(icon ?? Icons.widgets, color: Colors.white, size: 48),
             ),
-            child: Icon(icon, color: Colors.white, size: 48),
           ),
-          const SizedBox(height: 40),
+          const SizedBox(height: 32),
         ],
         Text(
           title,

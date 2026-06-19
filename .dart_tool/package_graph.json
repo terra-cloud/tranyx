@@ -27,9 +27,11 @@
       "name": "tranyx_mobile",
       "version": "1.0.0+1",
       "dependencies": [
+        "bs58",
         "cloud_firestore",
         "cloud_firestore_platform_interface",
         "cloud_functions",
+        "cryptography",
         "cupertino_icons",
         "firebase_analytics",
         "firebase_auth",
@@ -50,15 +52,18 @@
         "path",
         "path_provider",
         "permission_handler",
+        "pinenacl",
         "riverpod_annotation",
-        "shared"
+        "shared",
+        "url_launcher"
       ],
       "devDependencies": [
         "build_runner",
         "flutter_flavorizr",
         "flutter_lints",
         "flutter_native_splash",
-        "flutter_test"
+        "flutter_test",
+        "integration_test"
       ]
     },
     {
@@ -256,6 +261,17 @@
       ]
     },
     {
+      "name": "integration_test",
+      "version": "0.0.0",
+      "dependencies": [
+        "flutter",
+        "flutter_driver",
+        "flutter_test",
+        "path",
+        "vm_service"
+      ]
+    },
+    {
       "name": "flutter_test",
       "version": "0.0.0",
       "dependencies": [
@@ -316,12 +332,31 @@
       ]
     },
     {
+      "name": "url_launcher",
+      "version": "6.3.2",
+      "dependencies": [
+        "flutter",
+        "url_launcher_android",
+        "url_launcher_ios",
+        "url_launcher_linux",
+        "url_launcher_macos",
+        "url_launcher_platform_interface",
+        "url_launcher_web",
+        "url_launcher_windows"
+      ]
+    },
+    {
       "name": "riverpod_annotation",
       "version": "4.0.2",
       "dependencies": [
         "meta",
         "riverpod"
       ]
+    },
+    {
+      "name": "pinenacl",
+      "version": "0.6.0",
+      "dependencies": []
     },
     {
       "name": "permission_handler",
@@ -524,6 +559,17 @@
       "dependencies": []
     },
     {
+      "name": "cryptography",
+      "version": "2.9.0",
+      "dependencies": [
+        "collection",
+        "crypto",
+        "ffi",
+        "meta",
+        "typed_data"
+      ]
+    },
+    {
       "name": "cloud_functions",
       "version": "6.3.2",
       "dependencies": [
@@ -557,6 +603,13 @@
         "firebase_core_platform_interface",
         "flutter",
         "meta"
+      ]
+    },
+    {
+      "name": "bs58",
+      "version": "1.0.2",
+      "dependencies": [
+        "base_x"
       ]
     },
     {
@@ -1046,6 +1099,26 @@
       ]
     },
     {
+      "name": "vm_service",
+      "version": "15.2.0",
+      "dependencies": []
+    },
+    {
+      "name": "flutter_driver",
+      "version": "0.0.0",
+      "dependencies": [
+        "file",
+        "flutter",
+        "flutter_test",
+        "fuchsia_remote_debug_protocol",
+        "matcher",
+        "meta",
+        "path",
+        "vm_service",
+        "webdriver"
+      ]
+    },
+    {
       "name": "leak_tracker_flutter_testing",
       "version": "3.0.10",
       "dependencies": [
@@ -1134,6 +1207,65 @@
         "json_annotation",
         "source_span",
         "yaml"
+      ]
+    },
+    {
+      "name": "url_launcher_windows",
+      "version": "3.1.5",
+      "dependencies": [
+        "flutter",
+        "url_launcher_platform_interface"
+      ]
+    },
+    {
+      "name": "url_launcher_web",
+      "version": "2.4.3",
+      "dependencies": [
+        "flutter",
+        "flutter_web_plugins",
+        "url_launcher_platform_interface",
+        "web"
+      ]
+    },
+    {
+      "name": "url_launcher_platform_interface",
+      "version": "2.3.2",
+      "dependencies": [
+        "flutter",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "url_launcher_macos",
+      "version": "3.2.5",
+      "dependencies": [
+        "flutter",
+        "url_launcher_platform_interface"
+      ]
+    },
+    {
+      "name": "url_launcher_linux",
+      "version": "3.2.2",
+      "dependencies": [
+        "flutter",
+        "url_launcher_platform_interface"
+      ]
+    },
+    {
+      "name": "url_launcher_ios",
+      "version": "6.4.1",
+      "dependencies": [
+        "flutter",
+        "url_launcher_platform_interface"
+      ]
+    },
+    {
+      "name": "url_launcher_android",
+      "version": "6.3.32",
+      "dependencies": [
+        "flutter",
+        "meta",
+        "url_launcher_platform_interface"
       ]
     },
     {
@@ -1576,6 +1708,11 @@
       ]
     },
     {
+      "name": "ffi",
+      "version": "2.2.0",
+      "dependencies": []
+    },
+    {
       "name": "cloud_functions_web",
       "version": "5.1.8",
       "dependencies": [
@@ -1629,6 +1766,11 @@
       ]
     },
     {
+      "name": "base_x",
+      "version": "2.0.1",
+      "dependencies": []
+    },
+    {
       "name": "string_scanner",
       "version": "1.4.1",
       "dependencies": [
@@ -1641,11 +1783,6 @@
       "dependencies": [
         "web"
       ]
-    },
-    {
-      "name": "vm_service",
-      "version": "15.2.0",
-      "dependencies": []
     },
     {
       "name": "source_map_stack_trace",
@@ -1727,6 +1864,25 @@
       ]
     },
     {
+      "name": "webdriver",
+      "version": "3.1.0",
+      "dependencies": [
+        "matcher",
+        "path",
+        "stack_trace",
+        "sync_http"
+      ]
+    },
+    {
+      "name": "fuchsia_remote_debug_protocol",
+      "version": "0.0.0",
+      "dependencies": [
+        "meta",
+        "process",
+        "vm_service"
+      ]
+    },
+    {
       "name": "leak_tracker_testing",
       "version": "3.0.2",
       "dependencies": [
@@ -1760,11 +1916,6 @@
       "dependencies": [
         "ffi"
       ]
-    },
-    {
-      "name": "ffi",
-      "version": "2.2.0",
-      "dependencies": []
     },
     {
       "name": "platform",
@@ -1871,6 +2022,20 @@
       "dependencies": [
         "meta",
         "web"
+      ]
+    },
+    {
+      "name": "sync_http",
+      "version": "0.3.1",
+      "dependencies": []
+    },
+    {
+      "name": "process",
+      "version": "5.0.5",
+      "dependencies": [
+        "file",
+        "path",
+        "platform"
       ]
     },
     {

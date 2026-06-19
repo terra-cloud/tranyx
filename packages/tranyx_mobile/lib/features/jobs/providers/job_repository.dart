@@ -65,6 +65,18 @@ class JobRepository {
         );
   }
 
+  Stream<List<Job>> getAppliedJobs(String uid) {
+    return _firestore
+        .collection('jobs')
+        .where('applicantUids', arrayContains: uid)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => Job.fromMap(doc.data(), doc.id))
+              .toList(),
+        );
+  }
+
   Future<void> applyToJob(JobApplication application) async {
     final jobRef = _firestore.collection('jobs').doc(application.jobId);
     final applicationRef = jobRef
@@ -639,6 +651,12 @@ final myJobsProvider = StreamProvider<List<Job>>((ref) {
 final availableJobsProvider = StreamProvider<List<Job>>((ref) {
   final currentViewMode = ref.watch(currentViewModeProvider);
   return ref.watch(jobRepositoryProvider).getAvailableJobs(currentViewMode);
+});
+
+final appliedJobsProvider = StreamProvider<List<Job>>((ref) {
+  final user = ref.watch(userProvider);
+  if (user == null) return Stream.value([]);
+  return ref.watch(jobRepositoryProvider).getAppliedJobs(user.uid);
 });
 
 final jobApplicationsProvider =

@@ -14,6 +14,7 @@ import 'package:tranyx_mobile/features/profile/presentation/widgets/payment_pane
 import 'package:tranyx_mobile/features/profile/presentation/widgets/trust_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/reviews_pane.dart';
+import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 
 class ProfileView extends ConsumerStatefulWidget {
   final bool isTablet;
@@ -296,10 +297,11 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = ref.watch(themeModeProvider);
-    final accountType = ref.watch(accountTypeProvider);
+    final userProfileAsync = ref.watch(userProfileProvider);
+    final profile = userProfileAsync.value;
+    final AccountType accountType = profile?.accountType ?? ref.watch(accountTypeProvider);
     final profileView = ref.watch(profileViewProvider);
     final user = ref.watch(userProvider);
-    final userProfileAsync = ref.watch(userProfileProvider);
 
     return userProfileAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -311,7 +313,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
 
         final displayName =
             profile?.name ?? user?.displayName ?? user?.email ?? "Alex Mercer";
-        final currentAccountType = profile?.accountType ?? accountType;
+        final AccountType currentAccountType = profile?.accountType ?? accountType;
 
         Widget buildTestBtn(
           String label,
@@ -489,17 +491,10 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                     onTap: _isUploadingImage ? null : _showImageSourceSheet,
                     child: Stack(
                       children: [
-                        CircleAvatar(
+                        UserAvatar(
+                          name: displayName,
+                          photoUrl: profile?.photoUrl,
                           radius: 32,
-                          backgroundImage:
-                              (profile?.photoUrl != null &&
-                                  profile!.photoUrl!.isNotEmpty)
-                              ? NetworkImage(profile.photoUrl!)
-                                    as ImageProvider
-                              : const AssetImage(
-                                      'assets/images/default-avatar.jpg',
-                                    )
-                                    as ImageProvider,
                           backgroundColor: isDarkMode
                               ? AppColors.darkBg
                               : AppColors.lightCard,
@@ -928,8 +923,13 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
             ),
           );
         } else if (profileView == 'support') {
-          rightPane = NyxChatView(
-            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
+          final screenHeight = MediaQuery.of(context).size.height;
+          final availableHeight = screenHeight - (widget.isTablet ? 200 : 300);
+          rightPane = SizedBox(
+            height: availableHeight,
+            child: NyxChatView(
+              onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
+            ),
           );
         } else if (profileView == 'payment') {
           rightPane = PaymentPane(

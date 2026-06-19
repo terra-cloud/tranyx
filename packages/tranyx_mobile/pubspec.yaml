@@ -28,12 +28,14 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  bs58: ^1.0.2
   cloud_firestore: any
   cloud_firestore_platform_interface: ^8.0.2
   cloud_functions: any
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
+  cryptography: ^2.9.0
   cupertino_icons: ^1.0.8
   firebase_analytics: any
   firebase_auth: any
@@ -55,14 +57,18 @@ dependencies:
   path: ^1.9.1
   path_provider: ^2.1.5
   permission_handler: ^12.0.1
+  pinenacl: ^0.6.0
   riverpod_annotation: ^4.0.2
   shared: any
+  url_launcher: ^6.3.2
 dev_dependencies:
   build_runner: ^2.15.0
   flutter_flavorizr: ^2.4.2
   flutter_lints: ^6.0.0
   flutter_native_splash: ^2.4.7
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   
 

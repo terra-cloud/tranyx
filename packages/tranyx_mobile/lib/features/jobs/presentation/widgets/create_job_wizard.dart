@@ -8,6 +8,7 @@ import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/core/providers/ai_provider.dart';
 import 'package:tranyx_mobile/core/utils/enums.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
+import 'package:shared/shared.dart';
 import 'package:tranyx_mobile/features/jobs/models/job.dart';
 import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
@@ -957,7 +958,11 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                 });
 
                 final isFormValid = _formKey.currentState!.validate();
-                if (isFormValid && selectedCategory != null) {
+                final titleText = _titleController.text.trim();
+                final descText = _descController.text.trim();
+                final hasProfanity = checkProfanity(titleText) || checkProfanity(descText);
+
+                if (isFormValid && selectedCategory != null && !hasProfanity) {
                   setState(() {
                     _validationErrorMessage = null;
                   });
@@ -968,10 +973,14 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                     if (selectedCategory == null) errors.add("Select a category");
                     if (_titleController.text.isEmpty) errors.add("Job title is required");
                     if (_descController.text.isEmpty) errors.add("Description is required");
+                    if (hasProfanity) {
+                      errors.add("Your job title or description contains inappropriate language");
+                    }
                     _validationErrorMessage = "Please correct the following:\n• " + errors.join("\n• ");
                   });
                 }
               }, isDarkMode),
+
             ] else if (currentStep == 2) ...[
               // Work Location Type
               Text(

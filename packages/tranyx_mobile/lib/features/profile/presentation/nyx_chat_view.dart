@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/ai_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
@@ -18,8 +17,9 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
   final List<Map<String, String>> _messages = [
     {
       'role': 'assistant',
-      'content': "Kumusta! I'm Nyx, your Tranyx AI support assistant. How can I help you today? I can guide you through our standard gigs escrow flow, delivery tracker checkpoints, or platform features. I can speak English, Tagalog, and Waray-Waray!"
-    }
+      'content':
+          "Kumusta! I'm Nyx, your Tranyx AI support assistant. How can I help you today? I can guide you through our standard gigs escrow flow, delivery tracker checkpoints, or platform features. I can speak English, Tagalog, and Waray-Waray!",
+    },
   ];
 
   final TextEditingController _messageController = TextEditingController();
@@ -30,19 +30,27 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
   @override
   void initState() {
     super.initState();
-    _loadSupportTokens();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadSupportTokens();
+    });
   }
 
   Future<void> _loadSupportTokens() async {
-    final profile = ref.read(userProfileProvider).value;
+    final profile = await ref.read(userProfileProvider.future);
     if (profile == null) return;
     final uid = profile.uid;
     try {
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final userDoc = await ref
+          .read(firestoreProvider)
+          .collection('users')
+          .doc(uid)
+          .get();
       final data = userDoc.data();
       if (data != null && data.containsKey('supportTokensAvailable')) {
-        final double savedTokens = (data['supportTokensAvailable'] as num).toDouble();
-        final int savedTime = (data['supportLastRequestedTimestamp'] as num).toInt();
+        final double savedTokens = (data['supportTokensAvailable'] as num)
+            .toDouble();
+        final int savedTime = (data['supportLastRequestedTimestamp'] as num)
+            .toInt();
         final now = DateTime.now().millisecondsSinceEpoch;
         final elapsedMs = now - savedTime;
         final recovered = elapsedMs / 3600000.0;
@@ -98,21 +106,53 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
     // Check for satisfaction / termination keywords
     final cleanText = text.toLowerCase().trim();
     final terminationKeywords = [
-      'thank you', 'thanks', 'thank u', 'no more questions', 'no more question', 
-      'no questions', "i'm good", 'im good', 'satisfied', 'all good', 'that is all', 
-      'thats all', "that's all", 'nothing else', 'no need',
-      'salamat', 'maraming salamat', 'wala na', 'ok na', 'okay na', 'ayos na', 
-      'sapat na', 'walang anuman',
-      'damo nga salamat', 'waray na', 'igo na', 'tolda na'
+      'thank you',
+      'thanks',
+      'thank u',
+      'no more questions',
+      'no more question',
+      'no questions',
+      "i'm good",
+      'im good',
+      'satisfied',
+      'all good',
+      'that is all',
+      'thats all',
+      "that's all",
+      'nothing else',
+      'no need',
+      'salamat',
+      'maraming salamat',
+      'wala na',
+      'ok na',
+      'okay na',
+      'ayos na',
+      'sapat na',
+      'walang anuman',
+      'damo nga salamat',
+      'waray na',
+      'igo na',
+      'tolda na',
     ];
-    final isTerminating = terminationKeywords.any((k) => cleanText.contains(k) || cleanText == k);
+    final isTerminating = terminationKeywords.any(
+      (k) => cleanText.contains(k) || cleanText == k,
+    );
 
     if (isTerminating) {
-      String partingMsg = "You're welcome! Glad I could help. Terminating the support session now. Have a great day!";
-      if (cleanText.contains('damo') || cleanText.contains('waray na') || cleanText.contains('igo na')) {
-        partingMsg = 'Waray anuman! Malipayon ako nga nakabulig. Awtomatiko ko na nga tatapuson ini nga chat. Maopay nga adlaw!';
-      } else if (cleanText.contains('salamat') || cleanText.contains('wala na') || cleanText.contains('ok na') || cleanText.contains('okay na') || cleanText.contains('ayos na')) {
-        partingMsg = 'Walang anuman! Masaya akong makatutulong. Awtomatiko ko nang tatapusin ang chat na ito. Magandang araw!';
+      String partingMsg =
+          "You're welcome! Glad I could help. Terminating the support session now. Have a great day!";
+      if (cleanText.contains('damo') ||
+          cleanText.contains('waray na') ||
+          cleanText.contains('igo na')) {
+        partingMsg =
+            'Waray anuman! Malipayon ako nga nakabulig. Awtomatiko ko na nga tatapuson ini nga chat. Maopay nga adlaw!';
+      } else if (cleanText.contains('salamat') ||
+          cleanText.contains('wala na') ||
+          cleanText.contains('ok na') ||
+          cleanText.contains('okay na') ||
+          cleanText.contains('ayos na')) {
+        partingMsg =
+            'Walang anuman! Masaya akong makatutulong. Awtomatiko ko nang tatapusin ang chat na ito. Magandang araw!';
       }
 
       if (mounted) {
@@ -140,7 +180,11 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
 
     if (isNewConversation) {
       try {
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+        final userDoc = await ref
+            .read(firestoreProvider)
+            .collection('users')
+            .doc(uid)
+            .get();
         final data = userDoc.data();
         final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -148,8 +192,10 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
         int lastRequestedTimestamp = now;
 
         if (data != null && data.containsKey('supportTokensAvailable')) {
-          final double savedTokens = (data['supportTokensAvailable'] as num).toDouble();
-          final int savedTime = (data['supportLastRequestedTimestamp'] as num).toInt();
+          final double savedTokens = (data['supportTokensAvailable'] as num)
+              .toDouble();
+          final int savedTime = (data['supportLastRequestedTimestamp'] as num)
+              .toInt();
 
           final elapsedMs = now - savedTime;
           final recovered = elapsedMs / 3600000.0;
@@ -164,7 +210,8 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
             setState(() {
               _messages.add({
                 'role': 'assistant',
-                'content': 'You have run out of free support questions. A new free question token will recover in $minutesLeft minutes. Other services like title, description, and cover note generation remain unlimited!'
+                'content':
+                    'You have run out of free support questions. A new free question token will recover in $minutesLeft minutes. Other services like title, description, and cover note generation remain unlimited!',
               });
               _isThinking = false;
             });
@@ -191,12 +238,18 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
 
       // Successfully connected to server AI and got response!
       // Now decrement token if this was a new conversation.
-      if (isNewConversation && tokensToUpdate != null && timestampToUpdate != null) {
+      if (isNewConversation &&
+          tokensToUpdate != null &&
+          timestampToUpdate != null) {
         try {
-          await FirebaseFirestore.instance.collection('users').doc(uid).update({
-            'supportTokensAvailable': tokensToUpdate,
-            'supportLastRequestedTimestamp': timestampToUpdate,
-          });
+          await ref
+              .read(firestoreProvider)
+              .collection('users')
+              .doc(uid)
+              .update({
+                'supportTokensAvailable': tokensToUpdate,
+                'supportLastRequestedTimestamp': timestampToUpdate,
+              });
           if (mounted) {
             setState(() {
               _supportTokens = tokensToUpdate;
@@ -219,7 +272,8 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
         setState(() {
           _messages.add({
             'role': 'assistant',
-            'content': "Sorry, I had trouble connecting. Please check if your Cloudflare Account ID is configured correctly in the app."
+            'content':
+                "Sorry, I had trouble connecting. Please check if your Cloudflare Account ID is configured correctly in the app.",
           });
           _isThinking = false;
         });
@@ -255,7 +309,9 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
-                      color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                      color: isDarkMode
+                          ? AppColors.darkText
+                          : AppColors.lightText,
                     ),
                   ),
                   Row(
@@ -275,7 +331,9 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
                             : "AI Assistant • Online",
                         style: TextStyle(
                           fontSize: 12,
-                          color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                          color: isDarkMode
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
                         ),
                       ),
                     ],
@@ -294,7 +352,9 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
               color: isDarkMode ? AppColors.darkCard : Colors.white,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
-                color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+                color: isDarkMode
+                    ? AppColors.darkBorder
+                    : AppColors.lightBorder,
               ),
             ),
             child: Column(
@@ -307,7 +367,9 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
                       final msg = _messages[index];
                       final isUser = msg['role'] == 'user';
                       return Align(
-                        alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                        alignment: isUser
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
                         child: Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(16),
@@ -318,8 +380,8 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
                             color: isUser
                                 ? AppColors.indigo
                                 : (isDarkMode
-                                    ? AppColors.darkBorder
-                                    : Colors.grey[200]),
+                                      ? AppColors.darkBorder
+                                      : Colors.grey[200]),
                             borderRadius: BorderRadius.only(
                               topLeft: const Radius.circular(16),
                               topRight: const Radius.circular(16),
@@ -332,7 +394,9 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
                             style: TextStyle(
                               color: isUser
                                   ? Colors.white
-                                  : (isDarkMode ? Colors.white : Colors.black87),
+                                  : (isDarkMode
+                                        ? Colors.white
+                                        : Colors.black87),
                               fontSize: 14,
                             ),
                           ),
@@ -360,7 +424,9 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
                           style: TextStyle(
                             fontSize: 12,
                             fontStyle: FontStyle.italic,
-                            color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                            color: isDarkMode
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted,
                           ),
                         ),
                       ],
@@ -375,19 +441,25 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         decoration: BoxDecoration(
-                          color: isDarkMode ? AppColors.darkBg : Colors.grey[100],
+                          color: isDarkMode
+                              ? AppColors.darkBg
+                              : Colors.grey[100],
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: TextField(
                           controller: _messageController,
                           style: TextStyle(
-                            color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                            color: isDarkMode
+                                ? AppColors.darkText
+                                : AppColors.lightText,
                             fontSize: 14,
                           ),
                           decoration: InputDecoration(
                             hintText: "Ask Nyx a question...",
                             hintStyle: TextStyle(
-                              color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                              color: isDarkMode
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
                             ),
                             border: InputBorder.none,
                           ),

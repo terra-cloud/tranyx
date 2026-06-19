@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +15,7 @@ import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_cards.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_sub_header.dart';
+import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:tranyx_mobile/core/providers/image_upload_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -606,9 +608,11 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
         final urgencyColor = _urgencyColor(activeJob);
 
         return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -677,17 +681,10 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                           // Creator chip
                           Row(
                             children: [
-                              CircleAvatar(
+                              UserAvatar(
+                                name: activeJob.creatorName,
+                                photoUrl: activeJob.creatorPhotoUrl,
                                 radius: 12,
-                                backgroundImage:
-                                    (activeJob.creatorPhotoUrl != null &&
-                                        activeJob.creatorPhotoUrl!.isNotEmpty)
-                                    ? NetworkImage(activeJob.creatorPhotoUrl!)
-                                          as ImageProvider
-                                    : const AssetImage(
-                                            'assets/images/default-avatar.jpg',
-                                          )
-                                          as ImageProvider,
                                 backgroundColor: AppColors.indigo.withValues(
                                   alpha: 0.1,
                                 ),
@@ -952,21 +949,10 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            CircleAvatar(
+                                            UserAvatar(
+                                              name: q.authorName,
+                                              photoUrl: q.authorPhotoUrl,
                                               radius: 16,
-                                              backgroundImage:
-                                                  (q.authorPhotoUrl != null &&
-                                                      q
-                                                          .authorPhotoUrl!
-                                                          .isNotEmpty)
-                                                  ? NetworkImage(
-                                                          q.authorPhotoUrl!,
-                                                        )
-                                                        as ImageProvider
-                                                  : const AssetImage(
-                                                          'assets/images/default-avatar.jpg',
-                                                        )
-                                                        as ImageProvider,
                                               backgroundColor: isDarkMode
                                                   ? AppColors.darkBorder
                                                   : AppColors.lightBorder,
@@ -1456,12 +1442,11 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                 ),
               ),
             ),
-
-            // ── Action Buttons (Sticky at bottom) ────────────────────────────────
+            // ── Action Buttons ──────────────────────────────────────────────
+            const SizedBox(height: 16),
             Container(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+              padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
               decoration: BoxDecoration(
-                color: isDarkMode ? AppColors.darkBg : AppColors.lightBg,
                 border: Border(
                   top: BorderSide(
                     color: isDarkMode
@@ -1669,6 +1654,8 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                         ),
                       ),
                       const SizedBox(height: 8),
+                      const MockQrCode(data: 'tranyx_standard_completion_code'),
+                      const SizedBox(height: 16),
                       Text(
                         job.completionCode!,
                         style: TextStyle(
@@ -2205,6 +2192,8 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                       ),
                     ),
                     const SizedBox(height: 8),
+                    const MockQrCode(data: 'tranyx_delivery_completion_code'),
+                    const SizedBox(height: 16),
                     Text(
                       job.completionCode!,
                       style: TextStyle(
@@ -2439,14 +2428,17 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: effectiveColor),
+          Icon(icon, size: 20, color: effectiveColor),
           const SizedBox(width: 5),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: effectiveColor,
+          Flexible(
+            fit: FlexFit.loose,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: effectiveColor,
+              ),
             ),
           ),
         ],
@@ -2595,4 +2587,142 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
       ),
     );
   }
+}
+
+class MockQrCode extends StatelessWidget {
+  final String data;
+  final double size;
+  final Color color;
+
+  const MockQrCode({
+    super.key,
+    required this.data,
+    this.size = 180,
+    this.color = Colors.black,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: size,
+        height: size,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: CustomPaint(
+          painter: QrCustomPainter(data: data, color: color),
+        ),
+      ),
+    );
+  }
+}
+
+class QrCustomPainter extends CustomPainter {
+  final String data;
+  final Color color;
+
+  QrCustomPainter({required this.data, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    // Draw finder patterns (3 corner squares)
+    _drawFinderPattern(canvas, const Offset(0, 0), size.width * 0.25, paint);
+    _drawFinderPattern(
+      canvas,
+      Offset(size.width * 0.75, 0),
+      size.width * 0.25,
+      paint,
+    );
+    _drawFinderPattern(
+      canvas,
+      Offset(0, size.height * 0.75),
+      size.width * 0.25,
+      paint,
+    );
+
+    // Draw mock tiny data blocks
+    final int rows = 18;
+    final double blockW = size.width / rows;
+    final double blockH = size.height / rows;
+
+    // A deterministic random generator based on the data string hash
+    final seed = data.hashCode;
+    final random = math.Random(seed);
+
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < rows; c++) {
+        // Skip finder pattern zones
+        if (r < 6 && c < 6) continue;
+        if (r < 6 && c >= rows - 6) continue;
+        if (r >= rows - 6 && c < 6) continue;
+
+        // Skip some spaces to look like a real QR code (about 50% density)
+        if (random.nextBool()) {
+          canvas.drawRect(
+            Rect.fromLTWH(
+              c * blockW + 1,
+              r * blockH + 1,
+              blockW - 2,
+              blockH - 2,
+            ),
+            paint,
+          );
+        }
+      }
+    }
+  }
+
+  void _drawFinderPattern(
+    Canvas canvas,
+    Offset offset,
+    double size,
+    Paint paint,
+  ) {
+    // Outer square
+    canvas.drawRect(Rect.fromLTWH(offset.dx, offset.dy, size, size), paint);
+    // Inner white space
+    final whitePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    final double innerOffset = size * 0.15;
+    final double innerSize = size * 0.7;
+    canvas.drawRect(
+      Rect.fromLTWH(
+        offset.dx + innerOffset,
+        offset.dy + innerOffset,
+        innerSize,
+        innerSize,
+      ),
+      whitePaint,
+    );
+    // Center solid square
+    final double centerOffset = size * 0.3;
+    final double centerSize = size * 0.4;
+    canvas.drawRect(
+      Rect.fromLTWH(
+        offset.dx + centerOffset,
+        offset.dy + centerOffset,
+        centerSize,
+        centerSize,
+      ),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

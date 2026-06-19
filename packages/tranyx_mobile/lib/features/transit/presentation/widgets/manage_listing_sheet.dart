@@ -5,6 +5,7 @@ import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:intl/intl.dart';
+import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 
 class ManageListingSheet extends ConsumerStatefulWidget {
   final Map<String, dynamic> item;
@@ -702,16 +703,18 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                           children: [
                             Row(
                               children: [
-                                CircleAvatar(
-                                  radius: 20,
-                                  backgroundColor: AppColors.purple.withValues(
-                                    alpha: 0.1,
-                                  ),
-                                  child: const Icon(
-                                    Icons.person,
-                                    color: AppColors.purple,
-                                  ),
-                                ),
+                                 UserAvatar(
+                                   name: widget.item['renteeName'] as String?,
+                                   photoUrl: widget.item['renteePhotoUrl'] as String?,
+                                   radius: 20,
+                                   backgroundColor: AppColors.purple.withValues(
+                                     alpha: 0.1,
+                                   ),
+                                   textStyle: const TextStyle(
+                                     color: AppColors.purple,
+                                     fontWeight: FontWeight.bold,
+                                   ),
+                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(

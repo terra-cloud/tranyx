@@ -28,10 +28,10 @@ class FirebaseConfig {
     this.measurementId,
   });
 
-  factory FirebaseConfig.fromShared(SharedFirebaseOptions options) {
+  factory FirebaseConfig.fromShared(SharedFirebaseOptions options, {String? authDomainOverride}) {
     return FirebaseConfig(
       apiKey: options.apiKey,
-      authDomain: '${options.projectId}.firebaseapp.com',
+      authDomain: authDomainOverride ?? '${options.projectId}.firebaseapp.com',
       projectId: options.projectId,
       storageBucket: options.storageBucket,
       messagingSenderId: options.messagingSenderId,
@@ -47,15 +47,19 @@ FirebaseConfig _getEnvironmentConfig() {
   const env = String.fromEnvironment('ENV', defaultValue: 'dev');
 
   SharedFirebaseOptions options;
+  String authDomain;
   if (env == 'prod') {
     options = DefaultFirebaseConfig.prodWeb;
+    authDomain = 'tranyx.app';
   } else if (env == 'uat') {
     options = DefaultFirebaseConfig.uatWeb;
+    authDomain = 'uat.tranyx.app';
   } else {
     options = DefaultFirebaseConfig.devWeb;
+    authDomain = 'dev.tranyx.app';
   }
 
-  return FirebaseConfig.fromShared(options);
+  return FirebaseConfig.fromShared(options, authDomainOverride: authDomain);
 }
 
 final currentFirebaseConfig = _getEnvironmentConfig();

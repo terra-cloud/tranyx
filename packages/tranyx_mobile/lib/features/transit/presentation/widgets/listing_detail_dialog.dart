@@ -6,6 +6,7 @@ import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/core/utils/geo_helper.dart';
+import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 
 class ListingDetailDialog extends ConsumerStatefulWidget {
   final Map<String, dynamic> item;
@@ -514,20 +515,10 @@ class _ListingDetailDialogState extends ConsumerState<ListingDetailDialog> {
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        CircleAvatar(
+                        UserAvatar(
+                          name: hostName,
+                          photoUrl: widget.item['hostPhotoUrl'] as String?,
                           radius: 20,
-                          backgroundImage:
-                              (widget.item['hostPhotoUrl'] != null &&
-                                  (widget.item['hostPhotoUrl'] as String)
-                                      .isNotEmpty)
-                              ? NetworkImage(
-                                      widget.item['hostPhotoUrl'] as String,
-                                    )
-                                    as ImageProvider
-                              : const AssetImage(
-                                      'assets/images/default-avatar.jpg',
-                                    )
-                                    as ImageProvider,
                         ),
                         const SizedBox(width: 12),
                         Column(
@@ -619,15 +610,10 @@ class _ListingDetailDialogState extends ConsumerState<ListingDetailDialog> {
                                 children: [
                                   Row(
                                     children: [
-                                      CircleAvatar(
+                                      UserAvatar(
+                                        name: qName,
+                                        photoUrl: qPhoto,
                                         radius: 12,
-                                        backgroundImage: qPhoto.isNotEmpty
-                                            ? NetworkImage(qPhoto)
-                                                  as ImageProvider
-                                            : const AssetImage(
-                                                    'assets/images/default-avatar.jpg',
-                                                  )
-                                                  as ImageProvider,
                                       ),
                                       const SizedBox(width: 8),
                                       Text(

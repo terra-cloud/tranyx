@@ -8,6 +8,7 @@ import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
 import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_sub_header.dart';
+import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 
 class ReviewApplicantsView extends ConsumerStatefulWidget {
   const ReviewApplicantsView({super.key});
@@ -96,24 +97,15 @@ class _ReviewApplicantsViewState extends ConsumerState<ReviewApplicantsView> {
                             Expanded(
                               child: Row(
                                 children: [
-                                  Container(
-                                    width: 48,
-                                    height: 48,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: isDarkMode
-                                            ? AppColors.darkBorder
-                                            : AppColors.lightBg,
-                                        width: 2,
-                                      ),
-                                      image: DecorationImage(
-                                        image: (applicant.applicantPhotoUrl != null &&
-                                                applicant.applicantPhotoUrl!.isNotEmpty)
-                                            ? NetworkImage(applicant.applicantPhotoUrl!) as ImageProvider
-                                            : const AssetImage('assets/images/default-avatar.jpg') as ImageProvider,
-                                        fit: BoxFit.cover,
-                                      ),
+                                  UserAvatar(
+                                    name: applicant.applicantName,
+                                    photoUrl: applicant.applicantPhotoUrl,
+                                    radius: 24,
+                                    border: Border.all(
+                                      color: isDarkMode
+                                          ? AppColors.darkBorder
+                                          : AppColors.lightBg,
+                                      width: 2,
                                     ),
                                   ),
                                   const SizedBox(width: 16),

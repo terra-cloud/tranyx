@@ -145,24 +145,38 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   bool _validateStep1(ScrollController scrollController) {
     setState(() => _error = null);
     if (widget.isProperty) {
-      if (_titleController.text.trim().isEmpty) {
+      final title = _titleController.text.trim();
+      final desc = _descriptionController.text.trim();
+      if (title.isEmpty) {
         setState(() => _error = 'Please enter a property title');
         _scrollToTop(scrollController);
         return false;
       }
-      if (_descriptionController.text.trim().isEmpty) {
+      if (desc.isEmpty) {
         setState(() => _error = 'Please enter a property description');
         _scrollToTop(scrollController);
         return false;
       }
+      if (checkProfanity(title) || checkProfanity(desc)) {
+        setState(() => _error = 'Your title or description contains inappropriate language. Please review and try again.');
+        _scrollToTop(scrollController);
+        return false;
+      }
     } else {
-      if (_brandController.text.trim().isEmpty) {
+      final brand = _brandController.text.trim();
+      final model = _modelController.text.trim();
+      if (brand.isEmpty) {
         setState(() => _error = 'Please enter vehicle brand');
         _scrollToTop(scrollController);
         return false;
       }
-      if (_modelController.text.trim().isEmpty) {
+      if (model.isEmpty) {
         setState(() => _error = 'Please enter vehicle model');
+        _scrollToTop(scrollController);
+        return false;
+      }
+      if (checkProfanity(brand) || checkProfanity(model)) {
+        setState(() => _error = 'Your vehicle brand or model contains inappropriate language. Please review and try again.');
         _scrollToTop(scrollController);
         return false;
       }
@@ -237,7 +251,17 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
       return;
     }
 
+    if (_contractType == 'Custom Contract' && checkProfanity(_customTermsController.text.trim())) {
+      setState(() {
+        _isProcessing = false;
+        _error = 'Your custom terms contain inappropriate language. Please review and try again.';
+      });
+      _scrollToTop(scrollController);
+      return;
+    }
+
     final fee = _listingFee;
+
     if (userProfile.tyxBalance < fee) {
       setState(() {
         _isProcessing = false;

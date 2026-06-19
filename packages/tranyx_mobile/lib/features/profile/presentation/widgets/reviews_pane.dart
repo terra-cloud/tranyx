@@ -4,6 +4,7 @@ import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:intl/intl.dart';
+import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 
 final userReviewsProvider =
     FutureProvider.family<List<Map<String, dynamic>>, String>((ref, uid) async {
@@ -80,7 +81,8 @@ class _ReviewsPaneState extends ConsumerState<ReviewsPane> {
         const SizedBox(height: 24),
 
         reviewsAsync.when(
-          loading: () => const Expanded(
+          loading: () => const Padding(
+            padding: EdgeInsets.symmetric(vertical: 32),
             child: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -92,7 +94,8 @@ class _ReviewsPaneState extends ConsumerState<ReviewsPane> {
               ),
             ),
           ),
-          error: (err, stack) => Expanded(
+          error: (err, stack) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32),
             child: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -114,14 +117,9 @@ class _ReviewsPaneState extends ConsumerState<ReviewsPane> {
           data: (reviews) {
             final count = reviews.length;
 
-            return Expanded(
-              child: RefreshIndicator(
-                onRefresh: () async {
-                  ref.invalidate(userReviewsProvider(uid));
-                },
-                child: ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: [
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                     // Summary Card
                     Container(
                       padding: const EdgeInsets.all(24),
@@ -336,19 +334,10 @@ class _ReviewsPaneState extends ConsumerState<ReviewsPane> {
                               children: [
                                 Row(
                                   children: [
-                                    CircleAvatar(
+                                    UserAvatar(
+                                      name: reviewerName,
+                                      photoUrl: r['reviewerPhotoUrl'] as String?,
                                       radius: 20,
-                                      backgroundColor: AppColors.indigo
-                                          .withValues(alpha: 0.1),
-                                      child: Text(
-                                        reviewerName.isNotEmpty
-                                            ? reviewerName[0].toUpperCase()
-                                            : 'A',
-                                        style: const TextStyle(
-                                          color: AppColors.indigo,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
                                     ),
                                     const SizedBox(width: 12),
                                     Expanded(
@@ -411,11 +400,9 @@ class _ReviewsPaneState extends ConsumerState<ReviewsPane> {
                         },
                       ),
                   ],
-                ),
-              ),
-            );
-          },
-        ),
+                );
+              },
+            ),
       ],
     );
   }

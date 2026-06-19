@@ -24,14 +24,28 @@ class CustomFieldValueFactory extends FieldValueFactoryPlatform {
 
   @override
   dynamic serverTimestamp() => CustomFieldValueDelegate('serverTimestamp');
+
+  @override
+  dynamic delete() => CustomFieldValueDelegate('delete');
+
+  @override
+  dynamic arrayUnion(List<dynamic> elements) => CustomFieldValueDelegate('arrayUnion', elements);
+
+  @override
+  dynamic arrayRemove(List<dynamic> elements) => CustomFieldValueDelegate('arrayRemove', elements);
 }
 
 class FakeFirebaseFirestore extends Fake implements FirebaseFirestore {
   final Map<String, Map<String, dynamic>> db;
+  final StreamController<String> _updateController = StreamController<String>.broadcast();
 
   FakeFirebaseFirestore([Map<String, Map<String, dynamic>>? initialDb])
     : db = initialDb ?? {} {
     FieldValueFactoryPlatform.instance = CustomFieldValueFactory();
+  }
+
+  void notifyUpdate(String path) {
+    _updateController.add(path);
   }
 
   final List<String> collectionQueries = [];
@@ -94,6 +108,7 @@ class FakeCollectionReference extends Fake
     final docId = 'doc_${DateTime.now().microsecondsSinceEpoch}';
     final fullPath = '$path/$docId';
     firestore.db[fullPath] = Map<String, dynamic>.from(data);
+    firestore.notifyUpdate(fullPath);
     return FakeDocumentReference(firestore, fullPath);
   }
 
@@ -112,10 +127,23 @@ class FakeCollectionReference extends Fake
           docSnaps.add(FakeQueryDocumentSnapshot(firestore, key, val));
         }
       });
-      controller.add(FakeQuerySnapshot(docSnaps));
+      if (!controller.isClosed) {
+        controller.add(FakeQuerySnapshot(docSnaps));
+      }
     }
 
     emit();
+    final subscription = firestore._updateController.stream.listen((updatedPath) {
+      if (updatedPath.startsWith('$path/') &&
+          updatedPath.substring(path.length + 1).split('/').length == 1) {
+        emit();
+      }
+    });
+
+    controller.onCancel = () {
+      subscription.cancel();
+    };
+
     return controller.stream;
   }
 
@@ -192,6 +220,30 @@ class FakeDocumentReference extends Fake
   }
 
   @override
+  Stream<DocumentSnapshot<Map<String, dynamic>>> snapshots({
+    bool includeMetadataChanges = false,
+    ListenSource source = ListenSource.defaultSource,
+  }) {
+    final controller = StreamController<DocumentSnapshot<Map<String, dynamic>>>();
+    void emit() {
+      final data = firestore.db[path];
+      if (!controller.isClosed) {
+        controller.add(FakeDocumentSnapshot(firestore, path, data));
+      }
+    }
+    emit();
+    final subscription = firestore._updateController.stream.listen((updatedPath) {
+      if (updatedPath == path) {
+        emit();
+      }
+    });
+    controller.onCancel = () {
+      subscription.cancel();
+    };
+    return controller.stream;
+  }
+
+  @override
   Future<void> set(Map<String, dynamic> data, [SetOptions? options]) async {
     if (options != null && options.merge == true) {
       final existing = firestore.db[path] ?? {};
@@ -199,6 +251,7 @@ class FakeDocumentReference extends Fake
     } else {
       firestore.db[path] = _resolveFieldValues({}, data);
     }
+    firestore.notifyUpdate(path);
   }
 
   @override
@@ -213,11 +266,13 @@ class FakeDocumentReference extends Fake
     }
     final mapData = Map<String, dynamic>.from(data);
     firestore.db[path] = _resolveFieldValues(existing, mapData);
+    firestore.notifyUpdate(path);
   }
 
   @override
   Future<void> delete() async {
     firestore.db.remove(path);
+    firestore.notifyUpdate(path);
   }
 }
 
@@ -315,10 +370,30 @@ class FakeQuery extends Fake implements Query<Map<String, dynamic>> {
 
     void emit() async {
       final res = await get();
-      controller.add(res);
+      if (!controller.isClosed) {
+        controller.add(res);
+      }
     }
 
     emit();
+    final subscription = firestore._updateController.stream.listen((updatedPath) {
+      if (isGroup) {
+        final parts = updatedPath.split('/');
+        if (parts.length >= 2 && parts[parts.length - 2] == path) {
+          emit();
+        }
+      } else {
+        if (updatedPath.startsWith('$path/') &&
+            updatedPath.substring(path.length + 1).split('/').length == 1) {
+          emit();
+        }
+      }
+    });
+
+    controller.onCancel = () {
+      subscription.cancel();
+    };
+
     return controller.stream;
   }
 
@@ -389,6 +464,7 @@ class FakeTransaction extends Fake implements Transaction {
     } else {
       firestore.db[ref.path] = _resolveFieldValues({}, mapData);
     }
+    firestore.notifyUpdate(ref.path);
     return this;
   }
 
@@ -401,6 +477,7 @@ class FakeTransaction extends Fake implements Transaction {
     final mapData = Map<String, dynamic>.from(data);
     final existing = firestore.db[ref.path] ?? {};
     firestore.db[ref.path] = _resolveFieldValues(existing, mapData);
+    firestore.notifyUpdate(ref.path);
     return this;
   }
 
@@ -408,6 +485,7 @@ class FakeTransaction extends Fake implements Transaction {
   Transaction delete(DocumentReference documentReference) {
     final ref = documentReference as FakeDocumentReference;
     firestore.db.remove(ref.path);
+    firestore.notifyUpdate(ref.path);
     return this;
   }
 }
@@ -425,6 +503,31 @@ class FakeWriteBatch extends Fake implements WriteBatch {
     operations.add(() {
       final existing = firestore.db[ref.path] ?? {};
       firestore.db[ref.path] = _resolveFieldValues(existing, mapData);
+      firestore.notifyUpdate(ref.path);
+    });
+  }
+
+  @override
+  void set<T>(DocumentReference<T> documentReference, T data, [SetOptions? options]) {
+    final ref = documentReference as FakeDocumentReference;
+    final mapData = data as Map<String, dynamic>;
+    operations.add(() {
+      if (options != null && options.merge == true) {
+        final existing = firestore.db[ref.path] ?? {};
+        firestore.db[ref.path] = _resolveFieldValues(existing, mapData);
+      } else {
+        firestore.db[ref.path] = _resolveFieldValues({}, mapData);
+      }
+      firestore.notifyUpdate(ref.path);
+    });
+  }
+
+  @override
+  void delete(DocumentReference documentReference) {
+    final ref = documentReference as FakeDocumentReference;
+    operations.add(() {
+      firestore.db.remove(ref.path);
+      firestore.notifyUpdate(ref.path);
     });
   }
 
@@ -454,6 +557,28 @@ Map<String, dynamic> _resolveFieldValues(
         result[key] = currentVal + incVal;
       } else if (valStr.contains('serverTimestamp')) {
         result[key] = DateTime.now().millisecondsSinceEpoch;
+      } else if (valStr.contains('delete')) {
+        result.remove(key);
+      } else if (valStr.contains('arrayUnion')) {
+        final currentList = List<dynamic>.from(result[key] as List? ?? []);
+        final dynamic dynVal = val;
+        try {
+          final added = dynVal.value as List<dynamic>? ?? [];
+          for (final item in added) {
+            if (!currentList.contains(item)) {
+              currentList.add(item);
+            }
+          }
+        } catch (_) {}
+        result[key] = currentList;
+      } else if (valStr.contains('arrayRemove')) {
+        final currentList = List<dynamic>.from(result[key] as List? ?? []);
+        final dynamic dynVal = val;
+        try {
+          final removed = dynVal.value as List<dynamic>? ?? [];
+          currentList.removeWhere((item) => removed.contains(item));
+        } catch (_) {}
+        result[key] = currentList;
       }
     } else {
       result[key] = val;

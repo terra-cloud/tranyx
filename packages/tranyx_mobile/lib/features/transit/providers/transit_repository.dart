@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:math' show min;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared/shared.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 
@@ -1063,6 +1065,83 @@ class TransitRepository {
       'method': method,
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
+  }
+
+  Future<Map<String, dynamic>> createXenditInvoice({
+    required String uid,
+    required double amount,
+    required String userName,
+  }) async {
+    const apiKey = 'xnd_development_6en2scIVPSVNYySuAtoeoHL7NTZ0xl5tMfMsHbkJT3e2HnI7fyFxkC1LkDD3A';
+    final basicAuth = base64Encode(utf8.encode('$apiKey:'));
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+    final response = await http.post(
+      Uri.parse('https://api.xendit.co/v2/invoices'),
+      headers: {
+        'Authorization': 'Basic $basicAuth',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'external_id': 'topup_${uid}_$timestamp',
+        'amount': amount.round(),
+        'payer_email': userName.isNotEmpty
+            ? '${userName.replaceAll(' ', '').toLowerCase()}@example.com'
+            : 'user@example.com',
+        'description': 'Tyxbit Top-up for $userName',
+      }),
+    );
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final data = jsonDecode(response.body);
+      return {
+        'id': data['id'] as String,
+        'invoice_url': data['invoice_url'] as String,
+      };
+    } else {
+      throw Exception('Xendit Invoice Creation Failed: ${response.statusCode}');
+    }
+  }
+
+  Future<bool> verifyXenditPayment({
+    required String uid,
+    required String invoiceId,
+    required double amount,
+  }) async {
+    const apiKey = 'xnd_development_6en2scIVPSVNYySuAtoeoHL7NTZ0xl5tMfMsHbkJT3e2HnI7fyFxkC1LkDD3A';
+    final basicAuth = base64Encode(utf8.encode('$apiKey:'));
+
+    final checkRes = await http.get(
+      Uri.parse('https://api.xendit.co/v2/invoices/$invoiceId'),
+      headers: {'Authorization': 'Basic $basicAuth'},
+    );
+
+    if (checkRes.statusCode == 200) {
+      final checkData = jsonDecode(checkRes.body);
+      final status = checkData['status'];
+      if (status == 'PAID' || status == 'SETTLED') {
+        // Credit balance
+        final user = await getUser(uid);
+        if (user != null) {
+          final newBal = user.tyxBalance + amount;
+          await updateTyxBalance(uid, newBal);
+
+          // Save transaction
+          final txId = 'deposit_$invoiceId';
+          await _firestore.collection('transactions').doc(txId).set({
+            'uid': uid,
+            'type': 'deposit',
+            'amount': amount,
+            'title': 'Wallet Top-Up',
+            'desc': 'Fiat deposit via Xendit',
+            'method': 'Xendit',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+          });
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   Future<List<Map<String, dynamic>>> getPendingRequestsForVehicle(String rentalId) async {

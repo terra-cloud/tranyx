@@ -7,6 +7,7 @@ import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:intl/intl.dart';
+import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 
 final userTransactionsProvider =
     StreamProvider.family<List<Map<String, dynamic>>, String>((ref, uid) {
@@ -313,12 +314,10 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CircleAvatar(
+              UserAvatar(
+                name: name,
+                photoUrl: photo,
                 radius: 20,
-                backgroundImage: hasPhoto
-                    ? NetworkImage(photo) as ImageProvider
-                    : const AssetImage('assets/images/default-avatar.jpg')
-                          as ImageProvider,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1511,8 +1510,11 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 12,
             children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1524,7 +1526,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                   Text(
                     "Nyxian revenue stream visualization",
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 13,
                       color: isDarkMode
                           ? AppColors.darkTextMuted
                           : AppColors.lightTextMuted,
@@ -1539,43 +1541,48 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 padding: const EdgeInsets.all(2),
-                child: Row(
-                  children: ['daily', 'weekly', 'monthly', 'yearly'].map((
-                    filter,
-                  ) {
-                    final isSelected = _activeFilter == filter;
-                    return GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _activeFilter = filter;
-                          _selectedBarIndex = -1;
-                        });
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.indigo
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          filter.substring(0, 1).toUpperCase() +
-                              filter.substring(1),
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: ['daily', 'weekly', 'monthly', 'yearly'].map((
+                      filter,
+                    ) {
+                      final isSelected = _activeFilter == filter;
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _activeFilter = filter;
+                            _selectedBarIndex = -1;
+                          });
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
                             color: isSelected
-                                ? Colors.white
-                                : (isDarkMode ? Colors.grey : Colors.grey[700]),
+                                ? AppColors.indigo
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Text(
+                            filter.substring(0, 1).toUpperCase() +
+                                filter.substring(1),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: isSelected
+                                  ? Colors.white
+                                  : (isDarkMode
+                                        ? Colors.grey
+                                        : Colors.grey[700]),
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  }).toList(),
+                      );
+                    }).toList(),
+                  ),
                 ),
               ),
             ],
@@ -1650,16 +1657,19 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        Text(
-                          label,
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: isHovered
-                                ? AppColors.indigo
-                                : (isDarkMode
-                                      ? AppColors.darkTextMuted
-                                      : AppColors.lightTextMuted),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            label,
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: isHovered
+                                  ? AppColors.indigo
+                                  : (isDarkMode
+                                        ? AppColors.darkTextMuted
+                                        : AppColors.lightTextMuted),
+                            ),
                           ),
                         ),
                       ],
@@ -2117,8 +2127,9 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                   alignment: Alignment.center,
                   child: Text(
                     "Earnings & Analytics",
+                    textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 14,
                       fontWeight: FontWeight.bold,
                       color: _activeTab == 'earnings'
                           ? AppColors.indigo
@@ -2148,8 +2159,9 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                   alignment: Alignment.center,
                   child: Text(
                     "Purchases & Spending",
+                    textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 14,
                       fontWeight: FontWeight.bold,
                       color: _activeTab == 'purchases'
                           ? AppColors.indigo
@@ -2179,8 +2191,9 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                   alignment: Alignment.center,
                   child: Text(
                     "Added Funds",
+                    textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 14,
                       fontWeight: FontWeight.bold,
                       color: _activeTab == 'deposits'
                           ? AppColors.indigo
@@ -2196,141 +2209,141 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
         ),
         const SizedBox(height: 16),
 
-        Expanded(
-          child: ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              if (_activeTab == 'earnings') ...[
-                _buildRevenueChart(activeData, maxVal, isDarkMode),
-                const SizedBox(height: 16),
-                _buildAggregatesSummary(
-                  totalEarnedInFilter,
-                  activeBalance,
-                  hasDynamicEarnings ? gigsCount : 4,
-                  escrowHoldbacks,
-                  isDarkMode,
+        ListView(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.zero,
+          children: [
+            if (_activeTab == 'earnings') ...[
+              _buildRevenueChart(activeData, maxVal, isDarkMode),
+              const SizedBox(height: 16),
+              _buildAggregatesSummary(
+                totalEarnedInFilter,
+                activeBalance,
+                hasDynamicEarnings ? gigsCount : 4,
+                escrowHoldbacks,
+                isDarkMode,
+              ),
+              const SizedBox(height: 24),
+              // Category Filter chips
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _buildFilterChip(
+                      'All Types',
+                      'all',
+                      _kindFilter,
+                      (v) => setState(() => _kindFilter = v),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildFilterChip(
+                      'Gigs',
+                      'gig',
+                      _kindFilter,
+                      (v) => setState(() => _kindFilter = v),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildFilterChip(
+                      'Vehicles',
+                      'vehicle',
+                      _kindFilter,
+                      (v) => setState(() => _kindFilter = v),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildFilterChip(
+                      'Properties',
+                      'property',
+                      _kindFilter,
+                      (v) => setState(() => _kindFilter = v),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 24),
-                // Category Filter chips
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _buildFilterChip(
-                        'All Types',
-                        'all',
-                        _kindFilter,
-                        (v) => setState(() => _kindFilter = v),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        'Gigs',
-                        'gig',
-                        _kindFilter,
-                        (v) => setState(() => _kindFilter = v),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        'Vehicles',
-                        'vehicle',
-                        _kindFilter,
-                        (v) => setState(() => _kindFilter = v),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        'Properties',
-                        'property',
-                        _kindFilter,
-                        (v) => setState(() => _kindFilter = v),
-                      ),
-                    ],
-                  ),
+              ),
+              const SizedBox(height: 16),
+              if (filteredEarnings.isEmpty)
+                _buildEmptyState(isDarkMode, "No earnings records found")
+              else
+                ...filteredEarnings.map((tx) {
+                  final kind = tx['kind'];
+                  if (kind == 'vehicle') {
+                    return _buildVehicleHistoryCard(
+                      tx['item'],
+                      userProfile.uid,
+                    );
+                  } else if (kind == 'property') {
+                    return _buildPropertyHistoryCard(
+                      tx['item'],
+                      userProfile.uid,
+                    );
+                  } else {
+                    return _buildGigHistoryCard(tx, true, isDarkMode);
+                  }
+                }),
+            ] else if (_activeTab == 'purchases') ...[
+              // Category Filter chips
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _buildFilterChip(
+                      'All Types',
+                      'all',
+                      _kindFilter,
+                      (v) => setState(() => _kindFilter = v),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildFilterChip(
+                      'Gigs',
+                      'gig',
+                      _kindFilter,
+                      (v) => setState(() => _kindFilter = v),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildFilterChip(
+                      'Vehicles',
+                      'vehicle',
+                      _kindFilter,
+                      (v) => setState(() => _kindFilter = v),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildFilterChip(
+                      'Properties',
+                      'property',
+                      _kindFilter,
+                      (v) => setState(() => _kindFilter = v),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                if (filteredEarnings.isEmpty)
-                  _buildEmptyState(isDarkMode, "No earnings records found")
-                else
-                  ...filteredEarnings.map((tx) {
-                    final kind = tx['kind'];
-                    if (kind == 'vehicle') {
-                      return _buildVehicleHistoryCard(
-                        tx['item'],
-                        userProfile.uid,
-                      );
-                    } else if (kind == 'property') {
-                      return _buildPropertyHistoryCard(
-                        tx['item'],
-                        userProfile.uid,
-                      );
-                    } else {
-                      return _buildGigHistoryCard(tx, true, isDarkMode);
-                    }
-                  }),
-              ] else if (_activeTab == 'purchases') ...[
-                // Category Filter chips
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _buildFilterChip(
-                        'All Types',
-                        'all',
-                        _kindFilter,
-                        (v) => setState(() => _kindFilter = v),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        'Gigs',
-                        'gig',
-                        _kindFilter,
-                        (v) => setState(() => _kindFilter = v),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        'Vehicles',
-                        'vehicle',
-                        _kindFilter,
-                        (v) => setState(() => _kindFilter = v),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        'Properties',
-                        'property',
-                        _kindFilter,
-                        (v) => setState(() => _kindFilter = v),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (filteredPurchases.isEmpty)
-                  _buildEmptyState(isDarkMode, "No purchases found")
-                else
-                  ...filteredPurchases.map((tx) {
-                    final kind = tx['kind'];
-                    if (kind == 'vehicle') {
-                      return _buildVehicleHistoryCard(
-                        tx['item'],
-                        userProfile.uid,
-                      );
-                    } else if (kind == 'property') {
-                      return _buildPropertyHistoryCard(
-                        tx['item'],
-                        userProfile.uid,
-                      );
-                    } else {
-                      return _buildGigHistoryCard(tx, false, isDarkMode);
-                    }
-                  }),
-              ] else ...[
-                if (dTrans.isEmpty)
-                  _buildEmptyState(isDarkMode, "No deposits recorded")
-                else
-                  ...dTrans.map((tx) => _buildTopUpHistoryCard(tx, isDarkMode)),
-              ],
-              const SizedBox(height: 40),
+              ),
+              const SizedBox(height: 16),
+              if (filteredPurchases.isEmpty)
+                _buildEmptyState(isDarkMode, "No purchases found")
+              else
+                ...filteredPurchases.map((tx) {
+                  final kind = tx['kind'];
+                  if (kind == 'vehicle') {
+                    return _buildVehicleHistoryCard(
+                      tx['item'],
+                      userProfile.uid,
+                    );
+                  } else if (kind == 'property') {
+                    return _buildPropertyHistoryCard(
+                      tx['item'],
+                      userProfile.uid,
+                    );
+                  } else {
+                    return _buildGigHistoryCard(tx, false, isDarkMode);
+                  }
+                }),
+            ] else ...[
+              if (dTrans.isEmpty)
+                _buildEmptyState(isDarkMode, "No deposits recorded")
+              else
+                ...dTrans.map((tx) => _buildTopUpHistoryCard(tx, isDarkMode)),
             ],
-          ),
+            const SizedBox(height: 40),
+          ],
         ),
       ],
     );
