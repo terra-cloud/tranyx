@@ -189,6 +189,10 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
       }
       await component.appState.firestore.createRentalFromMap(rentalData);
 
+      // Reload profile & transactions to display balance deduction and transaction log promptly
+      await component.appState.loadUserProfile();
+      await component.appState.loadTransactions();
+
       // Close modal
       component.appState.setState(() {
         component.appState.showListVehicleModal = false;
@@ -773,37 +777,125 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                   ]),
                 ]),
               ],
+
+              Builder(
+                builder: (context) {
+                  final dailyRate = double.tryParse(_priceDaily) ?? 0.0;
+                  final weeklyRate = double.tryParse(_priceWeekly) ?? 0.0;
+                  final monthlyRate = double.tryParse(_priceMonthly) ?? 0.0;
+                  final rate12h = double.tryParse(_price12h) ?? 0.0;
+
+                  // Listing Fee (1.5% of Daily Rate)
+                  final listingFee = dailyRate * 0.015;
+
+                  // Standard Platform commission fee: 3% deducted from payout
+                  final commissionDaily = dailyRate * 0.03;
+                  final payoutDaily = dailyRate - commissionDaily;
+
+                  final commission12h = rate12h * 0.03;
+                  final payout12h = rate12h - commission12h;
+
+                  final commissionWeekly = weeklyRate * 0.03;
+                  final payoutWeekly = weeklyRate - commissionWeekly;
+
+                  final commissionMonthly = monthlyRate * 0.03;
+                  final payoutMonthly = monthlyRate - commissionMonthly;
+
+                  if (dailyRate <= 0 && rate12h <= 0 && weeklyRate <= 0 && monthlyRate <= 0) {
+                    return div([]);
+                  }
+
+                  return div(
+                    classes: 'mt-6 p-5 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900/50" : "border-zinc-200 bg-zinc-50"} space-y-3.5',
+                    [
+                      p(classes: 'text-xs font-bold text-indigo-400 uppercase tracking-wider', [Component.text('Listing Payment & Earnings Breakdown')]),
+                      div(classes: 'space-y-2.5', [
+                        // Rates & Earnings
+                        if (rate12h > 0)
+                          div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                            span([Component.text('12-Hour Rental: ₱${rate12h.toStringAsFixed(2)}')]),
+                            span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
+                              Component.text('Payout: ₱${payout12h.toStringAsFixed(2)} (Net of 3% platform commission)')
+                            ]),
+                          ]),
+                        if (dailyRate > 0)
+                          div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                            span([Component.text('Daily Rental: ₱${dailyRate.toStringAsFixed(2)}')]),
+                            span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
+                              Component.text('Payout: ₱${payoutDaily.toStringAsFixed(2)} (Net of 3% platform commission)')
+                            ]),
+                          ]),
+                        if (weeklyRate > 0)
+                          div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                            span([Component.text('Weekly Rental: ₱${weeklyRate.toStringAsFixed(2)}')]),
+                            span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
+                              Component.text('Payout: ₱${payoutWeekly.toStringAsFixed(2)} (Net of 3% platform commission)')
+                            ]),
+                          ]),
+                        if (monthlyRate > 0)
+                          div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                            span([Component.text('Monthly Rental: ₱${monthlyRate.toStringAsFixed(2)}')]),
+                            span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
+                              Component.text('Payout: ₱${payoutMonthly.toStringAsFixed(2)} (Net of 3% platform commission)')
+                            ]),
+                          ]),
+                        // Separator
+                        div(classes: 'border-t ${isDark ? "border-zinc-800" : "border-zinc-200"} my-2', []),
+                        // Listing anti-spam fee
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                          span([Component.text('Anti-Spam Listing Fee (1.5% of Daily):')]),
+                          span(classes: 'font-semibold text-purple-400', [
+                            Component.text('${listingFee.toStringAsFixed(2)} TYX')
+                          ]),
+                        ]),
+                      ]),
+                      p(classes: 'text-[10px] text-zinc-500 leading-normal', [
+                        Component.text(
+                          'Notice: A listing fee of ${listingFee.toStringAsFixed(2)} TYX will be charged to your wallet now. A platform service fee of 3% is only deducted from your earnings upon successful rental completion.',
+                        ),
+                      ]),
+                    ],
+                  );
+                },
+              ),
             ],
           ]),
 
           // Footer
-          div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between', [
-            if (_step > 1)
-              button(
-                classes:
-                    'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
-                events: {'click': (e) => setState(() => _step--)},
-                [Component.text('Back')],
-              )
-            else
-              div([]),
+          div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex flex-col gap-4', [
+            if (_error != null)
+              div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-semibold flex items-center gap-2 animate-fade-in', [
+                lIcon('alert-circle', cls: 'w-5 h-5 flex-shrink-0 text-red-500'),
+                span([Component.text(_error!)]),
+              ]),
+            div(classes: 'flex items-center justify-between', [
+              if (_step > 1)
+                button(
+                  classes:
+                      'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
+                  events: {'click': (e) => setState(() => _step--)},
+                  [Component.text('Back')],
+                )
+              else
+                div([]),
 
-            if (_step < 3)
-              button(
-                classes: 'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity',
-                events: {'click': (e) => _handleNext()},
-                [Component.text('Next')],
-              )
-            else
-              button(
-                classes:
-                    'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2',
-                events: {'click': (e) => _submit()},
-                [
-                  if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                  Component.text(_isSubmitting ? 'Listing...' : 'List Vehicle'),
-                ],
-              ),
+              if (_step < 3)
+                button(
+                  classes: 'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
+                  events: {'click': (e) => _handleNext()},
+                  [Component.text('Next')],
+                )
+              else
+                button(
+                  classes:
+                      'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 cursor-pointer',
+                  events: {'click': (e) => _submit()},
+                  [
+                    if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                    Component.text(_isSubmitting ? 'Listing...' : 'List Vehicle'),
+                  ],
+                ),
+            ]),
           ]),
         ],
       ),

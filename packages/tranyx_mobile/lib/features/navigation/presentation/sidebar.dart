@@ -24,40 +24,62 @@ class Sidebar extends ConsumerWidget {
           ),
         ),
       ),
-      child: Column(
-        children: [
-          const SizedBox(height: 32),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [AppColors.indigo, AppColors.purple],
-              ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const SizedBox(height: 32),
+            ClipRRect(
               borderRadius: BorderRadius.circular(16),
+              child: Image.asset(
+                'assets/images/logo.png',
+                width: 52,
+                height: 52,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [AppColors.indigo, AppColors.purple],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.widgets,
+                    color: Colors.white,
+                    size: 28,
+                  ),
+                ),
+              ),
             ),
-            child: const Icon(Icons.widgets, color: Colors.white, size: 28),
-          ),
-          const SizedBox(height: 48),
-          const _SidebarItem(icon: Icons.home_filled, tabKey: 'home'),
-          const SizedBox(height: 16),
-          const _SidebarItem(icon: Icons.work, tabKey: 'jobs'),
-          const SizedBox(height: 16),
-          const _SidebarItem(icon: Icons.directions_car, tabKey: 'transit'),
-          const SizedBox(height: 16),
-          const _SidebarItem(icon: Icons.person, tabKey: 'profile'),
-          const Spacer(),
-          IconButton(
-            onPressed: () {
-              ref.read(authControllerProvider).signOut();
-              ref.read(authViewProvider.notifier).state = 'login';
-              ref.read(activeTabProvider.notifier).state = 'home';
-            },
-            icon: const Icon(Icons.logout, color: AppColors.red),
-            tooltip: "Log Out",
-            padding: const EdgeInsets.all(16),
-          ),
-          const SizedBox(height: 24),
-        ],
+            Column(
+              children: [
+                const SizedBox(height: 48),
+                const _SidebarItem(icon: Icons.home_filled, tabKey: 'home'),
+                const SizedBox(height: 16),
+                const _SidebarItem(icon: Icons.work, tabKey: 'jobs'),
+                const SizedBox(height: 16),
+                const _SidebarItem(
+                  icon: Icons.directions_car,
+                  tabKey: 'transit',
+                ),
+                const SizedBox(height: 16),
+                const _SidebarItem(icon: Icons.person, tabKey: 'profile'),
+              ],
+            ),
+            IconButton(
+              onPressed: () {
+                ref.read(authControllerProvider).signOut();
+                ref.read(authViewProvider.notifier).state = 'login';
+                ref.read(activeTabProvider.notifier).state = 'home';
+              },
+              icon: const Icon(Icons.logout, color: AppColors.red),
+              tooltip: "Log Out",
+              padding: const EdgeInsets.all(16),
+            ),
+            const SizedBox(height: 24),
+          ],
+        ),
       ),
     );
   }

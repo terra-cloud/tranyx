@@ -4,6 +4,437 @@ import 'package:tranyx_mobile/core/utils/num_extension.dart';
 import 'package:tranyx_mobile/core/utils/string_extension.dart';
 import 'package:tranyx_mobile/features/jobs/models/job.dart';
 import 'package:intl/intl.dart';
+import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
+
+/// ─── Completed Gig Card – Employer View ───────────────────────────────────
+/// Shows: Base Gig Price + Transaction Fee (7%) + Convenience Fee (3%) = Total Paid
+class JobCompletedEmployerCard extends StatelessWidget {
+  final Job job;
+  final VoidCallback onClick;
+  final bool isDarkMode;
+
+  const JobCompletedEmployerCard({
+    super.key,
+    required this.job,
+    required this.onClick,
+    required this.isDarkMode,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final base = job.pricingValue;
+    final txFee = base * 0.07;
+    final convFee = base * 0.03;
+    final totalPaid = base + txFee + convFee;
+    final isCompleted = job.status == 'Completed';
+    final statusColor = isCompleted ? Colors.green : Colors.grey;
+    final completedDate = DateFormat('MMM d, yyyy').format(job.createdAt);
+
+    return GestureDetector(
+      onTap: onClick,
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Header row
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.check_circle_outline,
+                    color: Colors.green,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        job.title.capitalize(),
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: isDarkMode
+                              ? AppColors.darkText
+                              : AppColors.lightText,
+                        ),
+                      ),
+                      Text(
+                        '${job.category.name.capitalize()} • $completedDate',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isDarkMode
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    job.status.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: statusColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            // ── Payment breakdown
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isDarkMode ? Colors.black26 : Colors.grey[50],
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                children: [
+                  _breakdownRow(
+                    'Base Gig Price',
+                    '₱ ${base.toStringAsFixed(2)}',
+                    isDarkMode,
+                  ),
+                  const SizedBox(height: 6),
+                  _breakdownRow(
+                    'Transaction Fee (7%)',
+                    '+ ₱ ${txFee.toStringAsFixed(2)}',
+                    isDarkMode,
+                    valueColor: Colors.amber[700],
+                  ),
+                  const SizedBox(height: 6),
+                  _breakdownRow(
+                    'Convenience Fee (3%)',
+                    '+ ₱ ${convFee.toStringAsFixed(2)}',
+                    isDarkMode,
+                    valueColor: Colors.amber[700],
+                  ),
+                  const Divider(height: 16),
+                  _breakdownRow(
+                    'Total Paid',
+                    '₱ ${totalPaid.toStringAsFixed(2)}',
+                    isDarkMode,
+                    isBold: true,
+                    valueColor: AppColors.indigo,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            // ── Footer
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                if (job.acceptedApplicantId != null)
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.person_outline,
+                        size: 14,
+                        color: isDarkMode
+                            ? AppColors.darkTextMuted
+                            : AppColors.lightTextMuted,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Nyxian hired',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isDarkMode
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  const SizedBox.shrink(),
+                GestureDetector(
+                  onTap: onClick,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isDarkMode ? Colors.white12 : Colors.grey[200],
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      'Details',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isDarkMode
+                            ? AppColors.darkText
+                            : AppColors.lightText,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// ─── Completed Gig Card – Nyxian View ────────────────────────────────────
+/// Shows: Base Payout − Platform Commission (3%) = Net Earnings
+class JobCompletedNyxianCard extends StatelessWidget {
+  final Job job;
+  final VoidCallback onClick;
+  final bool isDarkMode;
+
+  const JobCompletedNyxianCard({
+    super.key,
+    required this.job,
+    required this.onClick,
+    required this.isDarkMode,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final base = job.pricingValue;
+    final commission = base * 0.03;
+    final netPayout = base - commission;
+    final completedDate = DateFormat('MMM d, yyyy').format(job.createdAt);
+
+    return GestureDetector(
+      onTap: onClick,
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Header row
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.payments_outlined,
+                    color: Colors.green,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        job.title.capitalize(),
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: isDarkMode
+                              ? AppColors.darkText
+                              : AppColors.lightText,
+                        ),
+                      ),
+                      Text(
+                        '${job.category.name.capitalize()} • $completedDate',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isDarkMode
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text(
+                    'COMPLETED',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            // ── Payment breakdown
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isDarkMode ? Colors.black26 : Colors.grey[50],
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                children: [
+                  _breakdownRow(
+                    'Base Payout',
+                    '₱ ${base.toStringAsFixed(2)}',
+                    isDarkMode,
+                  ),
+                  const SizedBox(height: 6),
+                  _breakdownRow(
+                    'Platform Commission (3%)',
+                    '− ₱ ${commission.toStringAsFixed(2)}',
+                    isDarkMode,
+                    valueColor: Colors.red,
+                  ),
+                  const Divider(height: 16),
+                  _breakdownRow(
+                    'Net Earnings',
+                    '₱ ${netPayout.toStringAsFixed(2)}',
+                    isDarkMode,
+                    isBold: true,
+                    valueColor: Colors.green,
+                  ),
+                ],
+              ),
+            ),
+            // ── Location / Type chips row
+            Row(
+              spacing: 10,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Row(
+                    spacing: 5,
+                    children: [
+                      Icon(
+                        job.locationType.toLowerCase() == 'remote'
+                            ? Icons.wifi
+                            : Icons.location_on_outlined,
+                        size: 13,
+                        color: isDarkMode
+                            ? AppColors.darkTextMuted
+                            : AppColors.lightTextMuted,
+                      ),
+                      Expanded(
+                        child: Text(
+                          job.locationType.toLowerCase() == 'remote'
+                              ? 'Remote'
+                              : (job.address ?? 'On-site'),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDarkMode
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                GestureDetector(
+                  onTap: onClick,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isDarkMode ? Colors.white12 : Colors.grey[200],
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      'Details',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isDarkMode
+                            ? AppColors.darkText
+                            : AppColors.lightText,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shared breakdown row helper
+Widget _breakdownRow(
+  String label,
+  String value,
+  bool isDarkMode, {
+  Color? valueColor,
+  bool isBold = false,
+}) {
+  return Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+          fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      Text(
+        value,
+        style: TextStyle(
+          fontSize: isBold ? 13 : 11,
+          fontWeight: isBold ? FontWeight.w900 : FontWeight.w500,
+          color:
+              valueColor ??
+              (isDarkMode ? AppColors.darkText : AppColors.lightText),
+        ),
+      ),
+    ],
+  );
+}
 
 class AvatarStack extends StatelessWidget {
   final List<String> photos;
@@ -34,12 +465,10 @@ class AvatarStack extends StatelessWidget {
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 2),
               ),
-              child: CircleAvatar(
+              child: UserAvatar(
+                name: '?',
+                photoUrl: visiblePhotos[index],
                 radius: size / 2,
-                backgroundImage: (visiblePhotos[index].isNotEmpty)
-                    ? NetworkImage(visiblePhotos[index]) as ImageProvider
-                    : const AssetImage('assets/images/default-avatar.jpg')
-                          as ImageProvider,
                 backgroundColor: AppColors.indigo.withValues(alpha: 0.1),
               ),
             ),
