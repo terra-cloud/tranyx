@@ -2410,7 +2410,7 @@ class TranyxAppState extends State<TranyxApp> {
       if (parts.length >= 2) {
         final propertyId = parts[1];
         final prop = realtimeProperties.firstWhere(
-          (p) => p.id == propertyId,
+          (item) => item.id == propertyId,
           orElse: () => PropertyRental(
             id: '',
             hostId: '',

@@ -30,6 +30,7 @@
             <key>CFBundleURLSchemes</key>
             <array>
                 <string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
+                <string>tranyx</string>
             </array>
         </dict>
     </array>
@@ -83,5 +84,12 @@
     <string>Tranyx needs access to your photo library to allow you to choose and upload a profile photo.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Tranyx needs access to your microphone for video profile verification.</string>
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+      <string>phantom</string>
+      <string>solflare</string>
+      <string>backpack</string>
+      <string>trust</string>
+    </array>
   </dict>
 </plist>

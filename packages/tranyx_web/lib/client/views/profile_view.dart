@@ -56,20 +56,7 @@ class _ProfileMenu extends StatelessComponent {
     final isDark = s.isDark;
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
 
-    final String historyLabel;
-    switch (s.accountType) {
-      case AccountType.employer:
-        historyLabel = 'Purchase History';
-        break;
-      case AccountType.nyxian:
-        final hasRentals = s.realtimeRentals.any((r) => r['renteeId'] == s.userProfile?.uid);
-        final hasPayments = s.userTransactions.any((tx) => tx['type'] == 'payment');
-        historyLabel = (hasRentals || hasPayments) ? 'History & Earnings' : 'Earning History';
-        break;
-      case AccountType.hybrid:
-        historyLabel = 'History & Earnings';
-        break;
-    }
+    final String historyLabel = 'History & Earnings';
 
     final items = [
       (ProfileView.personal, 'user', 'Personal Information'),
@@ -2318,6 +2305,7 @@ class _HistoryViewState extends State<_HistoryView> {
             'amount': payout,
             'baseAmount': price,
             'commissionFee': price * 0.03,
+            'commissionLabel': 'Platform Commission (3%)',
             'status': 'Released',
             'timestamp': createdAt ?? 0,
           });
@@ -2385,7 +2373,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the host -> earnings
         if (creatorId == uid) {
-          final payout = price * 0.95; // 5% host commission fee deducted
+          final payout = price * 0.97; // 3% host commission fee deducted
           earningsSum += payout;
           gigsCount++;
           eTrans.add({
@@ -2393,6 +2381,10 @@ class _HistoryViewState extends State<_HistoryView> {
             'desc': 'Completed vehicle rental',
             'date': _formatDate(createdAtMs),
             'amount': payout,
+            'baseAmount': price,
+            'commissionFee': price * 0.03,
+            'commissionLabel': 'Platform Commission (3%)',
+            'listingFee': rental.priceDaily * 0.015,
             'status': 'Released',
             'timestamp': createdAtMs,
           });
@@ -2442,76 +2434,159 @@ class _HistoryViewState extends State<_HistoryView> {
       }
     }
 
-    // Process DB Vehicle Rentals
+    // Process DB Rental History (both Vehicles and Properties)
     for (final rentalMap in _dbRentalHistory) {
-      final rental = VehicleRental.fromMap(rentalMap, rentalMap['id'] ?? '');
-      final creatorId = rental.hostId;
-      final applicantId = rental.renteeId;
-      final title = '${rental.year} ${rental.brand} ${rental.model}';
-      final price = rental.totalCost ?? 0.0;
-      final createdAtMs = rental.createdAt.millisecondsSinceEpoch;
+      final kind = rentalMap['rentalKind'] as String? ?? 'vehicle';
+      if (kind == 'vehicle') {
+        final rental = VehicleRental.fromMap(rentalMap, rentalMap['id'] ?? '');
+        final creatorId = rental.hostId;
+        final applicantId = rental.renteeId;
+        final title = '${rental.year} ${rental.brand} ${rental.model}';
+        final price = rental.totalCost ?? 0.0;
+        final createdAtMs = rental.createdAt.millisecondsSinceEpoch;
 
-      // If the user was the host -> earnings
-      if (creatorId == uid) {
-        final payout = price * 0.95; // 5% host commission fee deducted
-        earningsSum += payout;
-        gigsCount++;
+        // If the user was the host -> earnings
+        if (creatorId == uid) {
+          final payout = price * 0.97; // 3% host commission fee deducted
+          earningsSum += payout;
+          gigsCount++;
 
-        final alreadyAdded = eTrans.any((e) => e['timestamp'] == createdAtMs && e['title'] == title);
-        if (!alreadyAdded) {
-          eTrans.add({
-            'title': title,
-            'desc': 'Completed vehicle rental',
-            'date': _formatDate(createdAtMs),
-            'amount': payout,
-            'status': 'Released',
-            'timestamp': createdAtMs,
-          });
+          final alreadyAdded = eTrans.any((e) => e['timestamp'] == createdAtMs && e['title'] == title);
+          if (!alreadyAdded) {
+            eTrans.add({
+              'title': title,
+              'desc': 'Completed vehicle rental',
+              'date': _formatDate(createdAtMs),
+              'amount': payout,
+              'baseAmount': price,
+              'commissionFee': price * 0.03,
+              'commissionLabel': 'Platform Commission (3%)',
+              'listingFee': rental.priceDaily * 0.015,
+              'status': 'Released',
+              'timestamp': createdAtMs,
+            });
 
-          // Aggregate for graphs
-          final dt = rental.createdAt;
-          // Daily (only for current calendar week)
-          if (createdAtMs >= currentWeekMondayMs && createdAtMs < currentWeekSundayEndMs) {
-            final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-            final dayName = days[dt.weekday - 1];
-            dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+            // Aggregate for graphs
+            final dt = rental.createdAt;
+            // Daily (only for current calendar week)
+            if (createdAtMs >= currentWeekMondayMs && createdAtMs < currentWeekSundayEndMs) {
+              final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+              final dayName = days[dt.weekday - 1];
+              dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+            }
+
+            // Weekly (only for current calendar month)
+            if (createdAtMs >= currentMonthStartMs && createdAtMs < currentMonthEndMs) {
+              final wNum = ((dt.day - 1) ~/ 7) + 1;
+              final wName = 'Week ${wNum > 4 ? 4 : wNum}';
+              weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+            }
+
+            // Monthly (only for current calendar year)
+            if (createdAtMs >= currentYearStartMs && createdAtMs < currentYearEndMs) {
+              final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+              final mName = months[dt.month - 1];
+              monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+            }
+
+            // Yearly (all-time)
+            final yName = dt.year.toString();
+            yearlyAgg[yName] = (yearlyAgg[yName] ?? 0.0) + payout;
           }
-
-          // Weekly (only for current calendar month)
-          if (createdAtMs >= currentMonthStartMs && createdAtMs < currentMonthEndMs) {
-            final wNum = ((dt.day - 1) ~/ 7) + 1;
-            final wName = 'Week ${wNum > 4 ? 4 : wNum}';
-            weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
-          }
-
-          // Monthly (only for current calendar year)
-          if (createdAtMs >= currentYearStartMs && createdAtMs < currentYearEndMs) {
-            final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            final mName = months[dt.month - 1];
-            monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
-          }
-
-          // Yearly (all-time)
-          final yName = dt.year.toString();
-          yearlyAgg[yName] = (yearlyAgg[yName] ?? 0.0) + payout;
         }
-      }
 
-      // If the user was the rentee -> purchases
-      if (applicantId == uid) {
-        final alreadyAdded = pTrans.any((p) => p['timestamp'] == createdAtMs && p['title'] == title);
-        if (!alreadyAdded) {
-          final bookingFee = price * 0.03;
-          pTrans.add({
-            'title': title,
-            'desc': 'Vehicle rental payment',
-            'date': _formatDate(createdAtMs),
-            'amount': price + bookingFee,
-            'baseAmount': price,
-            'bookingFee': bookingFee,
-            'status': 'Successful',
-            'timestamp': createdAtMs,
-          });
+        // If the user was the rentee -> purchases
+        if (applicantId == uid) {
+          final alreadyAdded = pTrans.any((tx) => tx['timestamp'] == createdAtMs && tx['title'] == title);
+          if (!alreadyAdded) {
+            final bookingFee = price * 0.03;
+            pTrans.add({
+              'title': title,
+              'desc': 'Vehicle rental payment',
+              'date': _formatDate(createdAtMs),
+              'amount': price + bookingFee,
+              'baseAmount': price,
+              'bookingFee': bookingFee,
+              'status': 'Successful',
+              'timestamp': createdAtMs,
+            });
+          }
+        }
+      } else {
+        // Property rental
+        final rental = PropertyRental.fromMap(rentalMap, rentalMap['id'] ?? '');
+        final creatorId = rental.hostId;
+        final applicantId = rental.renteeId;
+        final title = rental.title;
+        final price = rental.totalCost ?? 0.0;
+        final createdAtMs = rental.createdAt.millisecondsSinceEpoch;
+
+        // If the user was the host -> earnings
+        if (creatorId == uid) {
+          final payout = price * 0.97; // 3% host commission fee deducted
+          earningsSum += payout;
+          gigsCount++;
+
+          final alreadyAdded = eTrans.any((e) => e['timestamp'] == createdAtMs && e['title'] == title);
+          if (!alreadyAdded) {
+            eTrans.add({
+              'title': title,
+              'desc': 'Completed property rental',
+              'date': _formatDate(createdAtMs),
+              'amount': payout,
+              'baseAmount': price,
+              'commissionFee': price * 0.03,
+              'commissionLabel': 'Platform Commission (3%)',
+              'listingFee': rental.priceMonthly * 0.015,
+              'status': 'Released',
+              'timestamp': createdAtMs,
+            });
+
+            // Aggregate for graphs
+            final dt = rental.createdAt;
+            // Daily (only for current calendar week)
+            if (createdAtMs >= currentWeekMondayMs && createdAtMs < currentWeekSundayEndMs) {
+              final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+              final dayName = days[dt.weekday - 1];
+              dailyAgg[dayName] = (dailyAgg[dayName] ?? 0.0) + payout;
+            }
+
+            // Weekly (only for current calendar month)
+            if (createdAtMs >= currentMonthStartMs && createdAtMs < currentMonthEndMs) {
+              final wNum = ((dt.day - 1) ~/ 7) + 1;
+              final wName = 'Week ${wNum > 4 ? 4 : wNum}';
+              weeklyAgg[wName] = (weeklyAgg[wName] ?? 0.0) + payout;
+            }
+
+            // Monthly (only for current calendar year)
+            if (createdAtMs >= currentYearStartMs && createdAtMs < currentYearEndMs) {
+              final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+              final mName = months[dt.month - 1];
+              monthlyAgg[mName] = (monthlyAgg[mName] ?? 0.0) + payout;
+            }
+
+            // Yearly (all-time)
+            final yName = dt.year.toString();
+            yearlyAgg[yName] = (yearlyAgg[yName] ?? 0.0) + payout;
+          }
+        }
+
+        // If the user was the rentee -> purchases
+        if (applicantId == uid) {
+          final alreadyAdded = pTrans.any((tx) => tx['timestamp'] == createdAtMs && tx['title'] == title);
+          if (!alreadyAdded) {
+            final bookingFee = price * 0.03;
+            pTrans.add({
+              'title': title,
+              'desc': 'Property rental payment',
+              'date': _formatDate(createdAtMs),
+              'amount': price + bookingFee,
+              'baseAmount': price,
+              'bookingFee': bookingFee,
+              'status': 'Successful',
+              'timestamp': createdAtMs,
+            });
+          }
         }
       }
     }
@@ -2527,6 +2602,15 @@ class _HistoryViewState extends State<_HistoryView> {
           'date': _formatDate(createdAt),
           'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
           'method': tx['method'] ?? 'Unknown',
+          'timestamp': createdAt ?? 0,
+        });
+      } else if (type == 'listing_fee') {
+        pTrans.add({
+          'title': tx['title'] ?? 'Listing Fee',
+          'desc': tx['desc'] ?? 'Platform Listing Fee',
+          'date': _formatDate(createdAt),
+          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
+          'status': 'Successful',
           'timestamp': createdAt ?? 0,
         });
       }
@@ -2601,11 +2685,15 @@ class _HistoryViewState extends State<_HistoryView> {
   @override
   void didUpdateComponent(_HistoryView oldComponent) {
     super.didUpdateComponent(oldComponent);
-    if (oldComponent.state.myJobs != component.state.myJobs ||
+    final profileTransitioned = oldComponent.state.userProfile == null && component.state.userProfile != null;
+    if (profileTransitioned ||
+        oldComponent.state.myJobs != component.state.myJobs ||
         oldComponent.state.userTransactions != component.state.userTransactions ||
         oldComponent.state.realtimeRentals != component.state.realtimeRentals) {
       _loadRentalHistory();
-      component.state.loadUserProfile();
+      if (!profileTransitioned) {
+        component.state.loadUserProfile();
+      }
     }
   }
 
@@ -2801,10 +2889,10 @@ class _HistoryViewState extends State<_HistoryView> {
             ]),
             div([
               span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
-                Component.text('Completed Jobs'),
+                Component.text('Completed Gigs & Rentals'),
               ]),
               p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text('$completedGigsCount Gigs'),
+                Component.text('$completedGigsCount Total'),
               ]),
             ]),
           ]),
@@ -2864,7 +2952,7 @@ class _HistoryViewState extends State<_HistoryView> {
 
         div(classes: 'space-y-3', [
           p(classes: 'text-xs font-black uppercase tracking-[0.2em] opacity-60', [
-            Component.text('Completed Gig Payouts'),
+            Component.text('Completed Gig & Rental Payouts'),
           ]),
           div(
             classes:
@@ -2894,9 +2982,16 @@ class _HistoryViewState extends State<_HistoryView> {
                         p(classes: 'text-xs text-amber-500/80 mt-0.5', [
                           lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
                           Component.text(
-                            'Platform Commission (3%): − ${formatCurrency((tx['commissionFee'] as num).toDouble())}',
+                            '${tx['commissionLabel'] ?? "Platform Commission (3%)"}: − ${formatCurrency((tx['commissionFee'] as num).toDouble())}',
                           ),
                         ]),
+                        if (tx['listingFee'] != null)
+                          p(classes: 'text-xs text-red-400 mt-0.5', [
+                            lIcon('tag', cls: 'w-3 h-3 inline mr-0.5'),
+                            Component.text(
+                              'Listing Fee (1.5% paid upfront): − ${formatCurrency((tx['listingFee'] as num).toDouble())}',
+                            ),
+                          ]),
                       ],
                     ]),
                   ]),

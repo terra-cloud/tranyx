@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,8 +11,18 @@ import 'firebase_options_prod.dart' as prod;
 import 'firebase_options_uat.dart' as uat;
 import 'flavors.dart';
 
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // If using other firebase services, initialize Firebase first.
+  await Firebase.initializeApp();
+  debugPrint("Handling background message: ${message.messageId}");
+}
+
 FutureOr<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Register background message handler
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   // Initialize flavor
   const flavorString = String.fromEnvironment('FLAVOR');

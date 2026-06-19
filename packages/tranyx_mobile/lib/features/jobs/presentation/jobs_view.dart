@@ -93,18 +93,21 @@ class _JobsViewState extends ConsumerState<JobsView> {
     }
 
     if (widget.isTablet) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(flex: 1, child: listPane),
-          const SizedBox(width: 32),
-          Container(
-            width: 1,
-            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
-          ),
-          const SizedBox(width: 32),
-          Expanded(flex: 2, child: rightPane),
-        ],
+      return SizedBox(
+        height: MediaQuery.sizeOf(context).height - 180,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 1, child: listPane),
+            const SizedBox(width: 32),
+            Container(
+              width: 1,
+              color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+            ),
+            const SizedBox(width: 32),
+            Expanded(flex: 2, child: rightPane),
+          ],
+        ),
       );
     } else {
       return SizedBox(

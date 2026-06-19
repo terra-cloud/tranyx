@@ -8,7 +8,7 @@ import 'package:web/web.dart';
 
 // ── MapLibre loader ────────────────────────────────────────────────────────────
 
-/// Waits until `window.maplibregl` is available (MapLibre loaded from the page <head>).
+/// Waits until `window.maplibregl` is available (MapLibre loaded from the page `<head>`).
 Future<void> ensureMapLibreLoaded() async {
   // Fast path — MapLibre already loaded on window
   final existing = window.getProperty<JSAny?>('maplibregl'.toJS);

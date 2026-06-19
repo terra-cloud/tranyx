@@ -28,10 +28,10 @@ class FirebaseConfig {
     this.measurementId,
   });
 
-  factory FirebaseConfig.fromShared(SharedFirebaseOptions options) {
+  factory FirebaseConfig.fromShared(SharedFirebaseOptions options, {String? authDomainOverride}) {
     return FirebaseConfig(
       apiKey: options.apiKey,
-      authDomain: '${options.projectId}.firebaseapp.com',
+      authDomain: authDomainOverride ?? '${options.projectId}.firebaseapp.com',
       projectId: options.projectId,
       storageBucket: options.storageBucket,
       messagingSenderId: options.messagingSenderId,
@@ -47,15 +47,19 @@ FirebaseConfig _getEnvironmentConfig() {
   const env = String.fromEnvironment('ENV', defaultValue: 'dev');
 
   SharedFirebaseOptions options;
+  String authDomain;
   if (env == 'prod') {
     options = DefaultFirebaseConfig.prodWeb;
+    authDomain = 'tranyx.app';
   } else if (env == 'uat') {
     options = DefaultFirebaseConfig.uatWeb;
+    authDomain = 'uat.tranyx.app';
   } else {
     options = DefaultFirebaseConfig.devWeb;
+    authDomain = 'dev.tranyx.app';
   }
 
-  return FirebaseConfig.fromShared(options);
+  return FirebaseConfig.fromShared(options, authDomainOverride: authDomain);
 }
 
 final currentFirebaseConfig = _getEnvironmentConfig();
@@ -1382,7 +1386,7 @@ class FirestoreService {
     });
   }
 
-  /// Complete rental (releases escrow to host, minus 5% platform commission, saves to history, resets listing to Available)
+  /// Complete rental (releases escrow to host, minus 3% platform commission, saves to history, resets listing to Available)
   Future<void> completeRental(String rentalId) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
@@ -1401,7 +1405,7 @@ class FirestoreService {
     }
 
     final cost = rental.totalCost ?? 0.0;
-    final commission = cost * 0.05;
+    final commission = cost * 0.03;
     final hostPayout = cost - commission;
 
     // Release payout to host
@@ -1414,9 +1418,12 @@ class FirestoreService {
       'uid': rental.hostId,
       'type': 'payment',
       'amount': hostPayout,
+      'baseAmount': cost,
+      'commissionFee': commission,
+      'commissionLabel': 'Platform Commission (3%)',
       'title': 'Rental Earnings Payout',
       'desc':
-          'Payout for rental ${rental.brand} ${rental.model} (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+          'Payout for rental ${rental.brand} ${rental.model} (3% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -2798,7 +2805,7 @@ class FirestoreService {
     }
   }
 
-  /// Complete property rental (releases escrow to host minus 5% commission, archives to history, sets status to Completed)
+  /// Complete property rental (releases escrow to host minus 3% commission, archives to history, sets status to Completed)
   Future<void> completePropertyRental(String propertyId) async {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
@@ -2816,7 +2823,7 @@ class FirestoreService {
     }
 
     final cost = property.totalCost ?? 0.0;
-    final commission = cost * 0.05;
+    final commission = cost * 0.03;
     final hostPayout = cost - commission;
 
     // Release payout
@@ -2829,9 +2836,12 @@ class FirestoreService {
       'uid': property.hostId,
       'type': 'payment',
       'amount': hostPayout,
+      'baseAmount': cost,
+      'commissionFee': commission,
+      'commissionLabel': 'Platform Commission (3%)',
       'title': 'Property Rental Payout',
       'desc':
-          'Earnings payout for "${property.title}" (5% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+          'Earnings payout for "${property.title}" (3% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };

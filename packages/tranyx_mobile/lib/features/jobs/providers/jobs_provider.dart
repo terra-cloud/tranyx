@@ -47,3 +47,8 @@ final workLocationTypeProvider = StateProvider<String>(
 ); // On-site, Remote
 final jobLandmarkProvider = StateProvider<String>((ref) => '');
 final jobAddressProvider = StateProvider<String>((ref) => '');
+
+final jobActiveFilterProvider = StateProvider<String>((ref) => 'All');
+final jobGeofenceRadiusProvider = StateProvider<double>((ref) => 9999.0);
+final jobIncludeRemoteJobsProvider = StateProvider<bool>((ref) => true);
+

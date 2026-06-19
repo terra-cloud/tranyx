@@ -14,6 +14,7 @@ import 'package:tranyx_mobile/features/transit/presentation/transit_view.dart';
 import 'package:tranyx_mobile/features/profile/presentation/profile_view.dart';
 import 'package:tranyx_mobile/features/auth/presentation/register_complete_profile_view.dart';
 import 'package:tranyx_mobile/core/providers/ui_providers.dart';
+import 'package:tranyx_mobile/core/providers/fcm_provider.dart';
 
 class MainWrapper extends ConsumerStatefulWidget {
   const MainWrapper({super.key});
@@ -47,6 +48,12 @@ class _MainWrapperState extends ConsumerState<MainWrapper> {
   }
 
   @override
+  void dispose() {
+    ref.read(fcmProvider).dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDarkMode = ref.watch(themeModeProvider);
     final isAuthenticated = ref.watch(authStateProvider);
@@ -76,6 +83,14 @@ class _MainWrapperState extends ConsumerState<MainWrapper> {
               if (profile == null) {
                 return const RegisterCompleteProfileView();
               }
+
+              // Initialize FCM once profile is available
+              Future.microtask(() {
+                if (context.mounted) {
+                  ref.read(fcmProvider).initialize(context);
+                }
+              });
+
 
               Widget activeContent;
               switch (activeTab) {

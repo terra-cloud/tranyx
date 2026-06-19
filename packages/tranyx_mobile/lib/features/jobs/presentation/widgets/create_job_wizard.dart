@@ -8,6 +8,7 @@ import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/core/providers/ai_provider.dart';
 import 'package:tranyx_mobile/core/utils/enums.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
+import 'package:shared/shared.dart';
 import 'package:tranyx_mobile/features/jobs/models/job.dart';
 import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
@@ -29,6 +30,36 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
 
   bool _showCategoryError = false;
   bool _showDateError = false;
+  String? _validationErrorMessage;
+
+  Widget _buildErrorWidget(String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.red.withValues(alpha: 0.1),
+        border: Border.all(color: AppColors.red.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, color: AppColors.red, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: AppColors.red,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -458,6 +489,9 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                     ),
                   ),
                   onPressed: () {
+                    setState(() {
+                      _validationErrorMessage = null;
+                    });
                     if (currentStep > 1) {
                       ref.read(createJobStepProvider.notifier).state--;
                     } else {
@@ -914,16 +948,39 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
               const SizedBox(height: 24),
               _buildEmploymentAndSchedule(isDarkMode),
               const SizedBox(height: 32),
+              if (_validationErrorMessage != null && currentStep == 1) ...[
+                _buildErrorWidget(_validationErrorMessage!),
+                const SizedBox(height: 16),
+              ],
               UIHelpers.buildPrimaryButton("Next Step: Location", () {
                 setState(() {
                   _showCategoryError = selectedCategory == null;
                 });
 
-                if (_formKey.currentState!.validate() &&
-                    selectedCategory != null) {
+                final isFormValid = _formKey.currentState!.validate();
+                final titleText = _titleController.text.trim();
+                final descText = _descController.text.trim();
+                final hasProfanity = checkProfanity(titleText) || checkProfanity(descText);
+
+                if (isFormValid && selectedCategory != null && !hasProfanity) {
+                  setState(() {
+                    _validationErrorMessage = null;
+                  });
                   ref.read(createJobStepProvider.notifier).state = 2;
+                } else {
+                  setState(() {
+                    List<String> errors = [];
+                    if (selectedCategory == null) errors.add("Select a category");
+                    if (_titleController.text.isEmpty) errors.add("Job title is required");
+                    if (_descController.text.isEmpty) errors.add("Description is required");
+                    if (hasProfanity) {
+                      errors.add("Your job title or description contains inappropriate language");
+                    }
+                    _validationErrorMessage = "Please correct the following:\n• " + errors.join("\n• ");
+                  });
                 }
               }, isDarkMode),
+
             ] else if (currentStep == 2) ...[
               // Work Location Type
               Text(
@@ -1139,14 +1196,34 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                   ),
                 ),
               const SizedBox(height: 32),
+              if (_validationErrorMessage != null && currentStep == 2) ...[
+                _buildErrorWidget(_validationErrorMessage!),
+                const SizedBox(height: 16),
+              ],
               UIHelpers.buildPrimaryButton(
                 "Next Step: Pricing",
-                () => ref.read(createJobStepProvider.notifier).state = 3,
+                () {
+                  final jobAddress = ref.read(jobAddressProvider);
+                  if (workLocationType == 'On-site' && jobAddress.isEmpty) {
+                    setState(() {
+                      _validationErrorMessage = "Please select or search for an address";
+                    });
+                  } else {
+                    setState(() {
+                      _validationErrorMessage = null;
+                    });
+                    ref.read(createJobStepProvider.notifier).state = 3;
+                  }
+                },
                 isDarkMode,
               ),
             ] else if (currentStep == 3) ...[
               buildPricingSection(isDarkMode),
               const SizedBox(height: 32),
+              if (_validationErrorMessage != null && currentStep == 3) ...[
+                _buildErrorWidget(_validationErrorMessage!),
+                const SizedBox(height: 16),
+              ],
               UIHelpers.buildPrimaryButton("Post Job Listing", () async {
                 final jobDate = ref.read(jobDateProvider);
                 final dateReq = ref.read(dateRequirementProvider);
@@ -1155,7 +1232,11 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                   _showDateError = dateReq != 'Flexible' && jobDate == null;
                 });
 
-                if (_formKey.currentState!.validate() && !_showDateError) {
+                final isFormValid = _formKey.currentState!.validate();
+                if (isFormValid && !_showDateError) {
+                  setState(() {
+                    _validationErrorMessage = null;
+                  });
                   final userProfile = ref.read(userProfileProvider).value;
                   final currentViewMode = ref.read(currentViewModeProvider);
 
@@ -1215,6 +1296,13 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                       ),
                     );
                   }
+                } else {
+                  setState(() {
+                    List<String> errors = [];
+                    if (!isFormValid) errors.add("Total budget must be greater than ₱0");
+                    if (_showDateError) errors.add("Please select a job date");
+                    _validationErrorMessage = "Please correct the following:\n• " + errors.join("\n• ");
+                  });
                 }
               }, isDarkMode),
             ],
