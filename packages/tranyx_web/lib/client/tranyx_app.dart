@@ -234,7 +234,7 @@ class TranyxAppState extends State<TranyxApp> {
   bool showDepositModal = false;
   double depositAmount = 0.0;
   bool isDepositing = false;
-  String selectedPaymentMethod = 'xendit';
+  String selectedPaymentMethod = const String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod' ? 'solana' : 'xendit';
   String selectedSolanaCurrency = 'SOL'; // 'SOL' or 'USDT'
   double solToPhpRate = 8500.0;
   double usdToPhpRate = 57.0; // fallback USD-PHP rate for USDT
@@ -472,6 +472,7 @@ class TranyxAppState extends State<TranyxApp> {
   @override
   void initState() {
     super.initState();
+    _handleMobileRedirect();
     onSessionExpiredGlobal = () {
       triggerSessionExpired();
     };
@@ -497,6 +498,48 @@ class TranyxAppState extends State<TranyxApp> {
       _restoreSession();
     } else {
       _checkGoogleRedirectResult();
+    }
+  }
+
+  void _handleMobileRedirect() {
+    final path = web.window.location.pathname;
+    if (path == '/' || path == '') {
+      final userAgent = web.window.navigator.userAgent.toLowerCase();
+      final isIOS = userAgent.contains('iphone') || userAgent.contains('ipad') || userAgent.contains('ipod');
+      final isAndroid = userAgent.contains('android');
+
+      if (isIOS) {
+        const env = String.fromEnvironment('ENV', defaultValue: 'dev');
+        String appStoreUrl;
+        if (env == 'prod') {
+          appStoreUrl = 'https://apps.apple.com/app/tranyx/id6470000000';
+        } else if (env == 'uat') {
+          appStoreUrl = 'https://apps.apple.com/app/tranyx-uat/id6470000002';
+        } else {
+          appStoreUrl = 'https://apps.apple.com/app/tranyx-dev/id6470000001';
+        }
+        web.window.location.replace(appStoreUrl);
+      } else if (isAndroid) {
+        final isSaga = userAgent.contains('saga') || userAgent.contains('solana');
+        const env = String.fromEnvironment('ENV', defaultValue: 'dev');
+        String appId = 'com.terraph.tranyx';
+        if (env == 'uat') {
+          appId = 'com.terraph.tranyx.uat';
+        } else if (env == 'dev') {
+          appId = 'com.terraph.tranyx.dev';
+        }
+
+        if (isSaga) {
+          // Open in Solana dApp Store
+          web.window.location.replace('dappstore://details?id=$appId');
+          // Set a fallback timeout to play store in case the protocol scheme fails
+          Future.delayed(const Duration(milliseconds: 1500), () {
+            web.window.location.replace('https://play.google.com/store/apps/details?id=$appId');
+          });
+        } else {
+          web.window.location.replace('https://play.google.com/store/apps/details?id=$appId');
+        }
+      }
     }
   }
 

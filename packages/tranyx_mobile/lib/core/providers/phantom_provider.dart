@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:pinenacl/x25519.dart';
 import 'package:bs58/bs58.dart';
+import 'package:tranyx_mobile/flavors.dart';
 
 // Stores the session private key generated for a connection request
 final phantomSessionPrivateKeyProvider = StateProvider<Uint8List?>(
@@ -36,8 +37,20 @@ class PhantomService {
 
     final localPubB58 = base58.encode(localPublicKey.asTypedList);
 
-    // Phantom universal link for v1 connect
-    final redirectLink = 'tranyx://onConnect';
+    // Compute universal redirect link dynamically based on F.appFlavor
+    final String domain;
+    switch (F.appFlavor) {
+      case Flavor.dev:
+        domain = 'dev.tranyx.app';
+        break;
+      case Flavor.uat:
+        domain = 'uat.tranyx.app';
+        break;
+      case Flavor.production:
+        domain = 'tranyx.app';
+        break;
+    }
+    final redirectLink = 'https://$domain/onConnect';
 
     final queryParams = {
       'dapp_encryption_public_key': localPubB58,
@@ -50,17 +63,17 @@ class PhantomService {
     String baseScheme;
     switch (walletType) {
       case 'solflare':
-        baseScheme = 'solflare://ul/v1/connect';
+        baseScheme = 'https://solflare.com/ul/v1/connect';
         break;
       case 'backpack':
-        baseScheme = 'backpack://ul/v1/connect'; // Or similar scheme
+        baseScheme = 'https://backpack.app/ul/v1/connect';
         break;
       case 'trust':
-        baseScheme = 'trust://ul/v1/connect';
+        baseScheme = 'https://trustwallet.com/ul/v1/connect';
         break;
       case 'phantom':
       default:
-        baseScheme = 'phantom://v1/connect';
+        baseScheme = 'https://phantom.app/ul/v1/connect';
         break;
     }
 

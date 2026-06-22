@@ -7,6 +7,8 @@ import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/features/auth/presentation/auth_ui_helper.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:tranyx_mobile/flavors.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class LoginView extends ConsumerStatefulWidget {
   const LoginView({super.key});
@@ -32,6 +34,29 @@ class _LoginViewState extends ConsumerState<LoginView> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
+  }
+
+  Future<void> _launchUrl(String path) async {
+    final String domain;
+    switch (F.appFlavor) {
+      case Flavor.dev:
+        domain = 'dev.tranyx.app';
+        break;
+      case Flavor.uat:
+        domain = 'uat.tranyx.app';
+        break;
+      case Flavor.production:
+        domain = 'tranyx.app';
+        break;
+    }
+    final url = Uri.parse('https://$domain$path');
+    try {
+      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+        _showError('Could not launch $url');
+      }
+    } catch (e) {
+      _showError('Could not launch $url: $e');
+    }
   }
 
   Future<void> _handleLogin() async {
@@ -146,6 +171,45 @@ class _LoginViewState extends ConsumerState<LoginView> {
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              GestureDetector(
+                onTap: () => _launchUrl('/terms-of-use'),
+                child: Text(
+                  "Terms of Use",
+                  style: TextStyle(
+                    color: isDarkMode ? Colors.white70 : AppColors.indigo,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.underline,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                "•",
+                style: TextStyle(
+                  color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: () => _launchUrl('/privacy-policy'),
+                child: Text(
+                  "Privacy Policy",
+                  style: TextStyle(
+                    color: isDarkMode ? Colors.white70 : AppColors.indigo,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.underline,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

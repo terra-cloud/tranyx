@@ -314,11 +314,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              UserAvatar(
-                name: name,
-                photoUrl: photo,
-                radius: 20,
-              ),
+              UserAvatar(name: name, photoUrl: photo, radius: 20),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -1992,61 +1988,23 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
       (a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int),
     );
 
-    // Fallback Mock Data for Chart if eTrans is empty (same as web)
-    final bool hasDynamicEarnings = eTrans.isNotEmpty;
     final List<Map<String, dynamic>> activeData;
-    if (hasDynamicEarnings) {
-      if (_activeFilter == 'daily') {
-        activeData = dailyAgg.entries
-            .map((e) => {'label': e.key, 'value': e.value})
-            .toList();
-      } else if (_activeFilter == 'weekly') {
-        activeData = weeklyAgg.entries
-            .map((e) => {'label': e.key, 'value': e.value})
-            .toList();
-      } else if (_activeFilter == 'monthly') {
-        activeData = monthlyAgg.entries
-            .map((e) => {'label': e.key, 'value': e.value})
-            .toList();
-      } else {
-        activeData = yearlyAgg.entries
-            .map((e) => {'label': e.key, 'value': e.value})
-            .toList();
-      }
+    if (_activeFilter == 'daily') {
+      activeData = dailyAgg.entries
+          .map((e) => {'label': e.key, 'value': e.value})
+          .toList();
+    } else if (_activeFilter == 'weekly') {
+      activeData = weeklyAgg.entries
+          .map((e) => {'label': e.key, 'value': e.value})
+          .toList();
+    } else if (_activeFilter == 'monthly') {
+      activeData = monthlyAgg.entries
+          .map((e) => {'label': e.key, 'value': e.value})
+          .toList();
     } else {
-      if (_activeFilter == 'daily') {
-        activeData = [
-          {'label': 'Mon', 'value': 1200.0},
-          {'label': 'Tue', 'value': 800.0},
-          {'label': 'Wed', 'value': 1500.0},
-          {'label': 'Thu', 'value': 2100.0},
-          {'label': 'Fri', 'value': 950.0},
-          {'label': 'Sat', 'value': 3000.0},
-          {'label': 'Sun', 'value': 2400.0},
-        ];
-      } else if (_activeFilter == 'weekly') {
-        activeData = [
-          {'label': 'Week 1', 'value': 8500.0},
-          {'label': 'Week 2', 'value': 12000.0},
-          {'label': 'Week 3', 'value': 9800.0},
-          {'label': 'Week 4', 'value': 15400.0},
-        ];
-      } else if (_activeFilter == 'monthly') {
-        activeData = [
-          {'label': 'Jan', 'value': 38000.0},
-          {'label': 'Feb', 'value': 45000.0},
-          {'label': 'Mar', 'value': 42000.0},
-          {'label': 'Apr', 'value': 58000.0},
-          {'label': 'May', 'value': 64000.0},
-          {'label': 'Jun', 'value': 72000.0},
-        ];
-      } else {
-        activeData = [
-          {'label': '2024', 'value': 450000.0},
-          {'label': '2025', 'value': 680000.0},
-          {'label': '2026', 'value': 320000.0},
-        ];
-      }
+      activeData = yearlyAgg.entries
+          .map((e) => {'label': e.key, 'value': e.value})
+          .toList();
     }
 
     double totalEarnedInFilter = 0.0;
@@ -2220,7 +2178,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
               _buildAggregatesSummary(
                 totalEarnedInFilter,
                 activeBalance,
-                hasDynamicEarnings ? gigsCount : 4,
+                gigsCount,
                 escrowHoldbacks,
                 isDarkMode,
               ),
