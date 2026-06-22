@@ -9,6 +9,7 @@ import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:tranyx_mobile/flavors.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 
 class LoginView extends ConsumerStatefulWidget {
   const LoginView({super.key});
@@ -148,6 +149,11 @@ class _LoginViewState extends ConsumerState<LoginView> {
             isDarkMode: isDarkMode,
             onPressed: _handleGoogleSignIn,
           ),
+          const SizedBox(height: 16),
+          AuthUiHelper.buildWalletButton(
+            isDarkMode: isDarkMode,
+            onPressed: _handleWalletSignIn,
+          ),
           const SizedBox(height: 24),
           RichText(
             text: TextSpan(
@@ -214,5 +220,129 @@ class _LoginViewState extends ConsumerState<LoginView> {
         ],
       ),
     );
+  }
+
+  void _handleWalletSignIn() {
+    final isDarkMode = ref.read(themeModeProvider);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isDarkMode ? AppColors.darkCard : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      builder: (context) {
+        return Consumer(
+          builder: (context, ref, _) {
+            final isDarkMode = ref.watch(themeModeProvider);
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Select a Wallet",
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Choose which Solana wallet application you want to continue with.",
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          _buildWalletOption('phantom', 'Phantom', 'assets/images/PhantomWallet.png'),
+                          _buildWalletOption('solflare', 'Solflare', 'assets/images/Solflare.png'),
+                          _buildWalletOption('backpack', 'Backpack', 'assets/images/BackPack.png'),
+                          _buildWalletOption('trust', 'Trust Wallet', 'assets/images/TrustWallet.jpeg'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildWalletOption(String id, String name, String assetPath) {
+    final isDarkMode = ref.watch(themeModeProvider);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isDarkMode ? AppColors.darkBg : AppColors.lightCard,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+        ),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.asset(
+            assetPath,
+            width: 40,
+            height: 40,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => Icon(
+              Icons.account_balance_wallet,
+              color: isDarkMode ? Colors.white : AppColors.lightText,
+            ),
+          ),
+        ),
+        title: Text(
+          name,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+          ),
+        ),
+        trailing: Icon(
+          Icons.chevron_right,
+          color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+        ),
+        onTap: () async {
+          Navigator.of(context).pop();
+          await _connectWallet(id);
+        },
+      ),
+    );
+  }
+
+  Future<void> _connectWallet(String walletId) async {
+    setState(() => _isLoading = true);
+    try {
+      final phantomService = ref.read(phantomServiceProvider);
+      final connectUri = await phantomService.generateConnectUri(walletType: walletId);
+      
+      debugPrint('Launching wallet deep link connect URI: $connectUri');
+      
+      final launched = await launchUrl(
+        connectUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        throw 'Could not launch wallet application. Make sure the wallet app is installed.';
+      }
+    } catch (e) {
+      _showError(e.toString());
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 }

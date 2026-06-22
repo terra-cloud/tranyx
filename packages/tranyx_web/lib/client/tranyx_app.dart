@@ -1011,7 +1011,11 @@ class TranyxAppState extends State<TranyxApp> {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
         try {
-          await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(result.uid, walletKey);
+          await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(
+            result.uid,
+            walletKey,
+            refreshToken: result.refreshToken,
+          );
         } catch (_) {}
       }
 
@@ -1110,7 +1114,11 @@ class TranyxAppState extends State<TranyxApp> {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
         try {
-          await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(result.uid, walletKey);
+          await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(
+            result.uid,
+            walletKey,
+            refreshToken: result.refreshToken,
+          );
         } catch (_) {}
       }
 
@@ -1227,7 +1235,11 @@ class TranyxAppState extends State<TranyxApp> {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
         try {
-          await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(authResult.uid, walletKey);
+          await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(
+            authResult.uid,
+            walletKey,
+            refreshToken: authResult.refreshToken,
+          );
         } catch (_) {}
       }
 
@@ -1295,7 +1307,11 @@ class TranyxAppState extends State<TranyxApp> {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
         try {
-          await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(authResult.uid, walletKey);
+          await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(
+            authResult.uid,
+            walletKey,
+            refreshToken: authResult.refreshToken,
+          );
         } catch (_) {}
       }
 
@@ -1664,8 +1680,11 @@ class TranyxAppState extends State<TranyxApp> {
         if (fromPubKey == null) {
           throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
         }
-        // Link wallet address to user doc
-        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, fromPubKey);
+        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
+          uid,
+          fromPubKey,
+          refreshToken: SessionStorage.refreshToken,
+        );
       }
 
       // 2. Platform target Solana address
@@ -1803,7 +1822,11 @@ class TranyxAppState extends State<TranyxApp> {
         if (fromPubKey == null) {
           throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
         }
-        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, fromPubKey);
+        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
+          uid,
+          fromPubKey,
+          refreshToken: SessionStorage.refreshToken,
+        );
       }
 
       const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
@@ -4717,7 +4740,11 @@ class TranyxAppState extends State<TranyxApp> {
         final currentUid = SessionStorage.uid;
         if (token != null && currentUid != null) {
           try {
-            await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(currentUid, publicKey);
+            await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
+              currentUid,
+              publicKey,
+              refreshToken: SessionStorage.refreshToken,
+            );
           } catch (_) {}
         }
 

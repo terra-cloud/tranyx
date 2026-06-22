@@ -285,7 +285,6 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
     final isDarkMode = ref.read(themeModeProvider);
     final name = profile?.name ?? 'Unknown User';
     final photo = profile?.photoUrl;
-    final hasPhoto = photo != null && photo.isNotEmpty;
 
     return Container(
       margin: const EdgeInsets.only(top: 16),

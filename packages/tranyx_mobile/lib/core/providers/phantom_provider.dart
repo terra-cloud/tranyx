@@ -14,6 +14,9 @@ final phantomSessionPrivateKeyProvider = StateProvider<Uint8List?>(
 // Stores the type of wallet currently being connected (e.g. phantom, solflare, backpack, trust)
 final connectingWalletTypeProvider = StateProvider<String?>((ref) => null);
 
+// Stores the pending wallet public key for new registration/linking
+final pendingWalletPublicKeyProvider = StateProvider<String?>((ref) => null);
+
 final phantomServiceProvider = Provider<PhantomService>((ref) {
   return PhantomService(ref);
 });
@@ -37,20 +40,9 @@ class PhantomService {
 
     final localPubB58 = base58.encode(localPublicKey.asTypedList);
 
-    // Compute universal redirect link dynamically based on F.appFlavor
-    final String domain;
-    switch (F.appFlavor) {
-      case Flavor.dev:
-        domain = 'dev.tranyx.app';
-        break;
-      case Flavor.uat:
-        domain = 'uat.tranyx.app';
-        break;
-      case Flavor.production:
-        domain = 'tranyx.app';
-        break;
-    }
-    final redirectLink = 'https://$domain/onConnect';
+    // Use custom scheme redirect so that the OS directly launches the app 
+    // without requiring Universal Link / App Link validation in development/emulators
+    final redirectLink = 'tranyx://onConnect';
 
     final queryParams = {
       'dapp_encryption_public_key': localPubB58,
