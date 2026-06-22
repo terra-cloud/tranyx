@@ -154,13 +154,49 @@ class AuthUiHelper {
       width: double.infinity,
       child: OutlinedButton.icon(
         onPressed: onPressed,
-        icon: Icon(
-          Icons.g_mobiledata,
-          size: 32,
-          color: isDarkMode ? Colors.white : Colors.black87,
+        icon: Image.asset(
+          'assets/icons/google.webp',
+          width: 24,
+          height: 24,
+          fit: BoxFit.contain,
         ),
         label: Text(
           "Continue with Google",
+          style: TextStyle(
+            fontSize: 16,
+            color: isDarkMode ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          side: BorderSide(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget buildWalletButton({
+    required bool isDarkMode,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Image.asset(
+          'assets/icons/solana.webp',
+          width: 24,
+          height: 24,
+          fit: BoxFit.contain,
+        ),
+        label: Text(
+          "Continue with Solana Wallet",
           style: TextStyle(
             fontSize: 16,
             color: isDarkMode ? Colors.white : Colors.black87,

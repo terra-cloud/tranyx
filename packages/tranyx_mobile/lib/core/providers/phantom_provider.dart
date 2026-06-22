@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:pinenacl/x25519.dart';
 import 'package:bs58/bs58.dart';
+import 'package:tranyx_mobile/flavors.dart';
 
 // Stores the session private key generated for a connection request
 final phantomSessionPrivateKeyProvider = StateProvider<Uint8List?>(
@@ -12,6 +13,9 @@ final phantomSessionPrivateKeyProvider = StateProvider<Uint8List?>(
 
 // Stores the type of wallet currently being connected (e.g. phantom, solflare, backpack, trust)
 final connectingWalletTypeProvider = StateProvider<String?>((ref) => null);
+
+// Stores the pending wallet public key for new registration/linking
+final pendingWalletPublicKeyProvider = StateProvider<String?>((ref) => null);
 
 final phantomServiceProvider = Provider<PhantomService>((ref) {
   return PhantomService(ref);
@@ -36,7 +40,8 @@ class PhantomService {
 
     final localPubB58 = base58.encode(localPublicKey.asTypedList);
 
-    // Phantom universal link for v1 connect
+    // Use custom scheme redirect so that the OS directly launches the app 
+    // without requiring Universal Link / App Link validation in development/emulators
     final redirectLink = 'tranyx://onConnect';
 
     final queryParams = {
@@ -50,17 +55,17 @@ class PhantomService {
     String baseScheme;
     switch (walletType) {
       case 'solflare':
-        baseScheme = 'solflare://ul/v1/connect';
+        baseScheme = 'https://solflare.com/ul/v1/connect';
         break;
       case 'backpack':
-        baseScheme = 'backpack://ul/v1/connect'; // Or similar scheme
+        baseScheme = 'https://backpack.app/ul/v1/connect';
         break;
       case 'trust':
-        baseScheme = 'trust://ul/v1/connect';
+        baseScheme = 'https://trustwallet.com/ul/v1/connect';
         break;
       case 'phantom':
       default:
-        baseScheme = 'phantom://v1/connect';
+        baseScheme = 'https://phantom.app/ul/v1/connect';
         break;
     }
 

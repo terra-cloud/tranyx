@@ -10,6 +10,9 @@ import 'package:tranyx_web/client/tranyx_app.dart' deferred as _tranyx_app;
 import 'package:tranyx_web/pages/about.dart' deferred as _about;
 import 'package:tranyx_web/pages/home.dart' deferred as _home;
 import 'package:tranyx_web/pages/post_job.dart' deferred as _post_job;
+import 'package:tranyx_web/pages/privacy_policy.dart'
+    deferred as _privacy_policy;
+import 'package:tranyx_web/pages/terms_of_use.dart' deferred as _terms_of_use;
 
 /// Default [ClientOptions] for use with your Jaspr project.
 ///
@@ -38,6 +41,14 @@ ClientOptions get defaultClientOptions => ClientOptions(
     'post_job': ClientLoader(
       (p) => _post_job.PostJobPage(),
       loader: _post_job.loadLibrary,
+    ),
+    'privacy_policy': ClientLoader(
+      (p) => _privacy_policy.PrivacyPolicy(),
+      loader: _privacy_policy.loadLibrary,
+    ),
+    'terms_of_use': ClientLoader(
+      (p) => _terms_of_use.TermsOfUse(),
+      loader: _terms_of_use.loadLibrary,
     ),
   },
 );

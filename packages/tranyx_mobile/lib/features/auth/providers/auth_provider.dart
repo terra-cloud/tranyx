@@ -1,11 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared/shared.dart';
 export 'package:shared/shared.dart' show AccountType, EmployerType, UserProfile;
 import 'package:tranyx_mobile/flavors.dart';
+import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
+import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 
 final firebaseAuthProvider = Provider<FirebaseAuth>((ref) {
   return FirebaseAuth.instance;
@@ -45,12 +48,15 @@ final userProfileProvider = FutureProvider<UserProfile?>((ref) async {
 class AuthController {
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
+  final Ref _ref;
   final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
 
-  AuthController(this._auth, this._firestore);
+  AuthController(this._auth, this._firestore, this._ref);
 
   Future<void> signInWithEmailAndPassword(String email, String password) async {
     await _auth.signInWithEmailAndPassword(email: email, password: password);
+    await SecureStorageHelper.savePassword(password);
+    await _linkPendingWallet(password);
   }
 
   Future<void> createUserWithEmailAndPassword({
@@ -67,6 +73,7 @@ class AuthController {
       email: email,
       password: password,
     );
+    await SecureStorageHelper.savePassword(password);
 
     final user = userCredential.user;
     if (user != null) {
@@ -77,13 +84,16 @@ class AuthController {
         name: displayName,
         email: email,
         accountType: accountType,
-        employerType: accountType == AccountType.employer ? (employerType ?? EmployerType.personal) : null,
+        employerType: accountType == AccountType.employer
+            ? (employerType ?? EmployerType.personal)
+            : null,
         businessName: businessName,
         businessPermit: businessPermit,
         createdAt: DateTime.now(),
       );
 
       await _firestore.collection('users').doc(user.uid).set(profile.toMap());
+      await _linkPendingWallet(password);
     }
   }
 
@@ -102,26 +112,59 @@ class AuthController {
     final userCredential = await _auth.signInWithCredential(credential);
 
     final user = userCredential.user;
-    if (user != null && pendingType != null) {
-      final doc = await _firestore.collection('users').doc(user.uid).get();
-      if (!doc.exists) {
-        // Only create profile automatically if it's Nyxian and we have a name
-        if (pendingType == AccountType.nyxian &&
-            user.displayName != null &&
-            user.displayName!.isNotEmpty) {
-          final profile = UserProfile(
-            uid: user.uid,
-            name: user.displayName!,
-            email: user.email ?? '',
-            photoUrl: user.photoURL,
-            accountType: pendingType,
-            createdAt: DateTime.now(),
-          );
-          await _firestore
-              .collection('users')
-              .doc(user.uid)
-              .set(profile.toMap());
+    if (user != null) {
+      if (pendingType != null) {
+        final doc = await _firestore.collection('users').doc(user.uid).get();
+        if (!doc.exists) {
+          // Only create profile automatically if it's Nyxian and we have a name
+          if (pendingType == AccountType.nyxian &&
+              user.displayName != null &&
+              user.displayName!.isNotEmpty) {
+            final profile = UserProfile(
+              uid: user.uid,
+              name: user.displayName!,
+              email: user.email ?? '',
+              photoUrl: user.photoURL,
+              accountType: pendingType,
+              createdAt: DateTime.now(),
+            );
+            await _firestore
+                .collection('users')
+                .doc(user.uid)
+                .set(profile.toMap());
+          }
         }
+      }
+      await _linkPendingWallet(null);
+    }
+  }
+
+  Future<void> _linkPendingWallet(String? password) async {
+    final pendingWalletKey = _ref.read(pendingWalletPublicKeyProvider);
+    if (pendingWalletKey != null) {
+      _ref.read(pendingWalletPublicKeyProvider.notifier).state = null;
+      try {
+        final user = _auth.currentUser;
+        if (user != null) {
+          final linkData = <String, dynamic>{
+            'uid': user.uid,
+            'email': user.email,
+            'linkedAt': DateTime.now().millisecondsSinceEpoch,
+          };
+          if (password != null) {
+            linkData['password'] = SecureStorageHelper.obfuscate(password);
+          }
+          await _firestore
+              .collection('walletLinks')
+              .doc(pendingWalletKey)
+              .set(linkData);
+          await _firestore.collection('users').doc(user.uid).update({
+            'walletPublicKey': pendingWalletKey,
+          });
+          _ref.invalidate(userProfileProvider);
+        }
+      } catch (e) {
+        debugPrint("Error linking pending wallet: $e");
       }
     }
   }
@@ -143,7 +186,9 @@ class AuthController {
       email: user.email ?? '',
       photoUrl: user.photoURL,
       accountType: accountType,
-      employerType: accountType == AccountType.employer ? (employerType ?? EmployerType.personal) : null,
+      employerType: accountType == AccountType.employer
+          ? (employerType ?? EmployerType.personal)
+          : null,
       businessName: businessName,
       businessPermit: businessPermit,
       createdAt: DateTime.now(),
@@ -155,6 +200,7 @@ class AuthController {
   Future<void> signOut() async {
     await _auth.signOut();
     await _googleSignIn.signOut();
+    await SecureStorageHelper.deletePassword();
   }
 
   Future<void> updateProfile(UserProfile profile) async {
@@ -169,9 +215,9 @@ final authControllerProvider = Provider<AuthController>((ref) {
   return AuthController(
     ref.watch(firebaseAuthProvider),
     ref.watch(firestoreProvider),
+    ref,
   );
 });
-
 
 final accountTypeProvider = StateProvider<AccountType>(
   (ref) => AccountType.employer,

@@ -172,5 +172,15 @@ service cloud.firestore {
     match /platform_fees/{feeId} {
       allow read, write: if isAuthenticated();
     }
+
+    // Collection Group rules
+    match /{path=**}/applications/{applicantId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /{path=**}/questions/{questionId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
   }
 }

@@ -2616,44 +2616,10 @@ class _HistoryViewState extends State<_HistoryView> {
       }
     }
 
-    // Check if we have any dynamic earnings; if yes, overwrite the static graph data!
-    final hasDynamicEarnings = eTrans.isNotEmpty;
-    if (hasDynamicEarnings) {
-      earningsData['daily'] = dailyAgg.entries.map((e) => {'label': e.key, 'value': e.value}).toList();
-      earningsData['weekly'] = weeklyAgg.entries.map((e) => {'label': e.key, 'value': e.value}).toList();
-      earningsData['monthly'] = monthlyAgg.entries.map((e) => {'label': e.key, 'value': e.value}).toList();
-      earningsData['yearly'] = yearlyAgg.entries.map((e) => {'label': e.key, 'value': e.value}).toList();
-    } else {
-      // Restore fallback default mock data so it's not completely blank
-      earningsData['daily'] = [
-        {'label': 'Mon', 'value': 1200.0},
-        {'label': 'Tue', 'value': 800.0},
-        {'label': 'Wed', 'value': 1500.0},
-        {'label': 'Thu', 'value': 2100.0},
-        {'label': 'Fri', 'value': 950.0},
-        {'label': 'Sat', 'value': 3000.0},
-        {'label': 'Sun', 'value': 2400.0},
-      ];
-      earningsData['weekly'] = [
-        {'label': 'Week 1', 'value': 8500.0},
-        {'label': 'Week 2', 'value': 12000.0},
-        {'label': 'Week 3', 'value': 9800.0},
-        {'label': 'Week 4', 'value': 15400.0},
-      ];
-      earningsData['monthly'] = [
-        {'label': 'Jan', 'value': 38000.0},
-        {'label': 'Feb', 'value': 45000.0},
-        {'label': 'Mar', 'value': 42000.0},
-        {'label': 'Apr', 'value': 58000.0},
-        {'label': 'May', 'value': 64000.0},
-        {'label': 'Jun', 'value': 72000.0},
-      ];
-      earningsData['yearly'] = [
-        {'label': '2024', 'value': 450000.0},
-        {'label': '2025', 'value': 680000.0},
-        {'label': '2026', 'value': 320000.0},
-      ];
-    }
+    earningsData['daily'] = dailyAgg.entries.map((e) => {'label': e.key, 'value': e.value}).toList();
+    earningsData['weekly'] = weeklyAgg.entries.map((e) => {'label': e.key, 'value': e.value}).toList();
+    earningsData['monthly'] = monthlyAgg.entries.map((e) => {'label': e.key, 'value': e.value}).toList();
+    earningsData['yearly'] = yearlyAgg.entries.map((e) => {'label': e.key, 'value': e.value}).toList();
 
     // Sort descending by timestamp (latest first)
     eTrans.sort((t1, t2) => (t2['timestamp'] as int).compareTo(t1['timestamp'] as int));
@@ -2664,8 +2630,8 @@ class _HistoryViewState extends State<_HistoryView> {
       earningsTransactions = eTrans;
       purchaseTransactions = pTrans;
       depositTransactions = dTrans;
-      totalEarningsSum = hasDynamicEarnings ? earningsSum : 19900.0;
-      completedGigsCount = hasDynamicEarnings ? gigsCount : 4;
+      totalEarningsSum = earningsSum;
+      completedGigsCount = gigsCount;
     });
   }
 
