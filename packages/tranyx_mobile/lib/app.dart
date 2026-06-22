@@ -4,13 +4,34 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/core/router/app_router.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
+import 'package:tranyx_mobile/core/services/deep_link_service.dart';
 import 'flavors.dart';
 
-class App extends ConsumerWidget {
+class App extends ConsumerStatefulWidget {
   const App({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<App> createState() => _AppState();
+}
+
+class _AppState extends ConsumerState<App> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final router = ref.read(routerProvider);
+      ref.read(deepLinkServiceProvider).initialize(router);
+    });
+  }
+
+  @override
+  void dispose() {
+    ref.read(deepLinkServiceProvider).dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
     final isDarkMode = ref.watch(themeModeProvider);
 

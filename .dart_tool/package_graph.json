@@ -27,6 +27,7 @@
       "name": "tranyx_mobile",
       "version": "1.0.0+1",
       "dependencies": [
+        "app_links",
         "bs58",
         "cloud_firestore",
         "cloud_firestore_platform_interface",
@@ -60,6 +61,7 @@
       "devDependencies": [
         "build_runner",
         "flutter_flavorizr",
+        "flutter_launcher_icons",
         "flutter_lints",
         "flutter_native_splash",
         "flutter_test",
@@ -311,6 +313,19 @@
       "version": "6.0.0",
       "dependencies": [
         "lints"
+      ]
+    },
+    {
+      "name": "flutter_launcher_icons",
+      "version": "0.14.4",
+      "dependencies": [
+        "args",
+        "checked_yaml",
+        "cli_util",
+        "image",
+        "json_annotation",
+        "path",
+        "yaml"
       ]
     },
     {
@@ -610,6 +625,16 @@
       "version": "1.0.2",
       "dependencies": [
         "base_x"
+      ]
+    },
+    {
+      "name": "app_links",
+      "version": "7.1.2",
+      "dependencies": [
+        "app_links_linux",
+        "app_links_platform_interface",
+        "app_links_web",
+        "flutter"
       ]
     },
     {
@@ -1187,6 +1212,23 @@
       ]
     },
     {
+      "name": "cli_util",
+      "version": "0.4.2",
+      "dependencies": [
+        "meta",
+        "path"
+      ]
+    },
+    {
+      "name": "checked_yaml",
+      "version": "2.0.4",
+      "dependencies": [
+        "json_annotation",
+        "source_span",
+        "yaml"
+      ]
+    },
+    {
       "name": "sprintf",
       "version": "7.0.0",
       "dependencies": []
@@ -1198,15 +1240,6 @@
         "ffi",
         "io",
         "win32"
-      ]
-    },
-    {
-      "name": "checked_yaml",
-      "version": "2.0.4",
-      "dependencies": [
-        "json_annotation",
-        "source_span",
-        "yaml"
       ]
     },
     {
@@ -1771,6 +1804,33 @@
       "dependencies": []
     },
     {
+      "name": "app_links_web",
+      "version": "1.0.4",
+      "dependencies": [
+        "app_links_platform_interface",
+        "flutter",
+        "flutter_web_plugins",
+        "web"
+      ]
+    },
+    {
+      "name": "app_links_platform_interface",
+      "version": "2.0.3",
+      "dependencies": [
+        "flutter",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "app_links_linux",
+      "version": "1.0.3",
+      "dependencies": [
+        "app_links_platform_interface",
+        "flutter",
+        "gtk"
+      ]
+    },
+    {
       "name": "string_scanner",
       "version": "1.4.1",
       "dependencies": [
@@ -2022,6 +2082,15 @@
       "dependencies": [
         "meta",
         "web"
+      ]
+    },
+    {
+      "name": "gtk",
+      "version": "2.2.0",
+      "dependencies": [
+        "ffi",
+        "flutter",
+        "meta"
       ]
     },
     {

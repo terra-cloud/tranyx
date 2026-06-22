@@ -5,6 +5,7 @@ import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/core/theme/color_extension.dart';
 import 'package:tranyx_mobile/features/auth/presentation/auth_ui_helper.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
+import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 
 class RegisterPathView extends ConsumerWidget {
   const RegisterPathView({super.key});
@@ -43,6 +44,39 @@ class RegisterPathView extends ConsumerWidget {
             title: "Join Tranyx",
             subtitle: "Choose your path to get started.",
             isDarkMode: isDarkMode,
+          ),
+          Consumer(
+            builder: (context, ref, _) {
+              final pendingWalletKey = ref.watch(pendingWalletPublicKeyProvider);
+              if (pendingWalletKey == null) return const SizedBox.shrink();
+              return Container(
+                margin: const EdgeInsets.only(top: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.indigo.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: AppColors.indigo.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.link, color: AppColors.indigo),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        "Wallet connected:\n${pendingWalletKey.substring(0, 6)}...${pendingWalletKey.substring(pendingWalletKey.length - 4)} (will be linked on sign up)",
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isDarkMode ? Colors.white : AppColors.lightText,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
           const SizedBox(height: 48),
           AuthUiHelper.buildPathCard(

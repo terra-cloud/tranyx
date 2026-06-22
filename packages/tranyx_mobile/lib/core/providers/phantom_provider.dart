@@ -1,10 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:pinenacl/x25519.dart';
 import 'package:bs58/bs58.dart';
-import 'package:tranyx_mobile/flavors.dart';
+import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 
 // Stores the session private key generated for a connection request
 final phantomSessionPrivateKeyProvider = StateProvider<Uint8List?>(
@@ -21,59 +22,141 @@ final phantomServiceProvider = Provider<PhantomService>((ref) {
   return PhantomService(ref);
 });
 
+class WalletInfo {
+  final String id;
+  final String name;
+  final String assetPath;
+
+  /// Native deep-link scheme used on Android/iOS (e.g. `phantom://v1/connect`).
+  /// This directly triggers the wallet app's connect flow without going through
+  /// a browser. Requires the wallet app to be installed.
+  final String nativeScheme;
+
+  /// Universal / HTTPS fallback link if native scheme is unavailable.
+  final String universalLink;
+
+  /// Play Store URL for the "not installed" case on Android.
+  final String androidStoreUrl;
+
+  /// App Store URL for the "not installed" case on iOS.
+  final String iosStoreUrl;
+
+  const WalletInfo({
+    required this.id,
+    required this.name,
+    required this.assetPath,
+    required this.nativeScheme,
+    required this.universalLink,
+    required this.androidStoreUrl,
+    required this.iosStoreUrl,
+  });
+}
+
+const kSupportedWallets = [
+  WalletInfo(
+    id: 'phantom',
+    name: 'Phantom',
+    assetPath: 'assets/images/PhantomWallet.png',
+    nativeScheme: 'phantom://v1/connect',
+    universalLink: 'https://phantom.app/ul/v1/connect',
+    androidStoreUrl:
+        'https://play.google.com/store/apps/details?id=app.phantom',
+    iosStoreUrl:
+        'https://apps.apple.com/app/phantom-solana-wallet/id1598432977',
+  ),
+  WalletInfo(
+    id: 'solflare',
+    name: 'Solflare',
+    assetPath: 'assets/images/Solflare.png',
+    nativeScheme: 'solflare://v1/connect',
+    universalLink: 'https://solflare.com/ul/v1/connect',
+    androidStoreUrl:
+        'https://play.google.com/store/apps/details?id=com.solflare.mobile',
+    iosStoreUrl:
+        'https://apps.apple.com/app/solflare-solana-wallet/id1580902717',
+  ),
+  WalletInfo(
+    id: 'backpack',
+    name: 'Backpack',
+    assetPath: 'assets/images/BackPack.png',
+    nativeScheme: 'backpack://v1/connect',
+    universalLink: 'https://backpack.app/ul/v1/connect',
+    androidStoreUrl:
+        'https://play.google.com/store/apps/details?id=app.backpack',
+    iosStoreUrl: 'https://apps.apple.com/app/backpack/id6443943843',
+  ),
+  WalletInfo(
+    id: 'trust',
+    name: 'Trust Wallet',
+    assetPath: 'assets/images/TrustWallet.jpeg',
+    nativeScheme: 'trustwallet://v1/connect',
+    universalLink: 'https://trustwallet.com/ul/v1/connect',
+    androidStoreUrl:
+        'https://play.google.com/store/apps/details?id=com.wallet.crypto.trustapp',
+    iosStoreUrl:
+        'https://apps.apple.com/app/trust-crypto-bitcoin-wallet/id1288339409',
+  ),
+];
+
 class PhantomService {
   final Ref _ref;
 
   PhantomService(this._ref);
 
   /// Generates an ephemeral key pair for the connection session,
-  /// saves the private key to the state provider, and returns the Phantom Connect URI.
+  /// saves the private key to the state provider, and returns the wallet connect URI.
+  ///
+  /// Uses the **native custom URI scheme** (e.g. `phantom://v1/connect`) so the
+  /// OS directly opens the wallet app's connect / authorize screen.
+  /// Universal links (https://) are not used because Android requires verified
+  /// App Links before they deep-link; otherwise they just open a browser.
   Future<Uri> generateConnectUri({required String walletType}) async {
-    // Generate session key pair
+    // Generate ephemeral session key pair
     final localPrivateKey = PrivateKey.generate();
     final localPublicKey = localPrivateKey.publicKey;
 
-    // Save private key bytes to the provider
+    // Persist private key to Riverpod state provider
     _ref.read(phantomSessionPrivateKeyProvider.notifier).state =
         localPrivateKey.asTypedList;
     _ref.read(connectingWalletTypeProvider.notifier).state = walletType;
 
+    // Also persist to secure storage so it survives potential app background termination
+    await SecureStorageHelper.savePhantomSessionKey(localPrivateKey.asTypedList);
+    await SecureStorageHelper.saveConnectingWalletType(walletType);
+
     final localPubB58 = base58.encode(localPublicKey.asTypedList);
 
-    // Use custom scheme redirect so that the OS directly launches the app 
-    // without requiring Universal Link / App Link validation in development/emulators
-    final redirectLink = 'tranyx://onConnect';
+    // The redirect_link must use our custom scheme so Android/iOS opens the app
+    const redirectLink = 'tranyx://onConnect';
 
     final queryParams = {
       'dapp_encryption_public_key': localPubB58,
-      'app_url': 'https://tranyx.com',
+      'app_url': 'https://tranyx.app',
       'redirect_link': redirectLink,
-      'cluster': 'devnet', // Target devnet for Tranyx local/dev testing
+      'cluster': 'mainnet-beta',
     };
 
-    // Determine deep link prefix based on wallet type
-    String baseScheme;
-    switch (walletType) {
-      case 'solflare':
-        baseScheme = 'https://solflare.com/ul/v1/connect';
-        break;
-      case 'backpack':
-        baseScheme = 'https://backpack.app/ul/v1/connect';
-        break;
-      case 'trust':
-        baseScheme = 'https://trustwallet.com/ul/v1/connect';
-        break;
-      case 'phantom':
-      default:
-        baseScheme = 'https://phantom.app/ul/v1/connect';
-        break;
-    }
+    final wallet = kSupportedWallets.firstWhere(
+      (w) => w.id == walletType,
+      orElse: () => kSupportedWallets.first,
+    );
 
-    // Try to construct standard deep link URL
-    return Uri.parse('$baseScheme?${Uri(queryParameters: queryParams).query}');
+    final baseUrl = wallet.nativeScheme;
+    final queryString = Uri(queryParameters: queryParams).query;
+    debugPrint('PhantomService: Launching $baseUrl?$queryString');
+    return Uri.parse('$baseUrl?$queryString');
   }
 
-  /// Decrypts the connect response query parameters using the saved session private key.
+  /// Returns the Play Store / App Store URL for the given wallet on this platform.
+  String storeUrlFor(String walletType) {
+    final wallet = kSupportedWallets.firstWhere(
+      (w) => w.id == walletType,
+      orElse: () => kSupportedWallets.first,
+    );
+    return Platform.isIOS ? wallet.iosStoreUrl : wallet.androidStoreUrl;
+  }
+
+  /// Decrypts the connect response parameters returned by the wallet app.
   Map<String, dynamic>? decryptConnectResponse({
     required String phantomPubB58,
     required String dataB58,

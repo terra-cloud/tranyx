@@ -11,6 +11,18 @@ import 'package:tranyx_mobile/flavors.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 
+/// Checks if a wallet app is installed by seeing if its native URI scheme
+/// can be resolved by the OS (requires queries entries in AndroidManifest).
+Future<bool> _isWalletInstalled(WalletInfo wallet) async {
+  // Use a minimal URI with just the scheme to test resolvability
+  final testUri = Uri.parse('${wallet.nativeScheme.split('://').first}://');
+  try {
+    return await canLaunchUrl(testUri);
+  } catch (_) {
+    return false;
+  }
+}
+
 class LoginView extends ConsumerStatefulWidget {
   const LoginView({super.key});
 
@@ -261,12 +273,13 @@ class _LoginViewState extends ConsumerState<LoginView> {
                     Flexible(
                       child: ListView(
                         shrinkWrap: true,
-                        children: [
-                          _buildWalletOption('phantom', 'Phantom', 'assets/images/PhantomWallet.png'),
-                          _buildWalletOption('solflare', 'Solflare', 'assets/images/Solflare.png'),
-                          _buildWalletOption('backpack', 'Backpack', 'assets/images/BackPack.png'),
-                          _buildWalletOption('trust', 'Trust Wallet', 'assets/images/TrustWallet.jpeg'),
-                        ],
+                        children: kSupportedWallets.map((wallet) {
+                          return _buildWalletOptionAsync(
+                            context: context,
+                            wallet: wallet,
+                            isDarkMode: isDarkMode,
+                          );
+                        }).toList(),
                       ),
                     ),
                   ],
@@ -279,48 +292,98 @@ class _LoginViewState extends ConsumerState<LoginView> {
     );
   }
 
-  Widget _buildWalletOption(String id, String name, String assetPath) {
-    final isDarkMode = ref.watch(themeModeProvider);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: isDarkMode ? AppColors.darkBg : AppColors.lightCard,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
-        ),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: Image.asset(
-            assetPath,
-            width: 40,
-            height: 40,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => Icon(
-              Icons.account_balance_wallet,
-              color: isDarkMode ? Colors.white : AppColors.lightText,
+  Widget _buildWalletOptionAsync({
+    required BuildContext context,
+    required WalletInfo wallet,
+    required bool isDarkMode,
+  }) {
+    return FutureBuilder<bool>(
+      future: _isWalletInstalled(wallet),
+      builder: (context, snapshot) {
+        final isInstalled = snapshot.data ?? false;
+        final isChecking = !snapshot.hasData;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: isDarkMode ? AppColors.darkBg : AppColors.lightCard,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
             ),
           ),
-        ),
-        title: Text(
-          name,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+          child: ListTile(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            leading: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.asset(
+                wallet.assetPath,
+                width: 40,
+                height: 40,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Icon(
+                  Icons.account_balance_wallet,
+                  color: isDarkMode ? Colors.white : AppColors.lightText,
+                ),
+              ),
+            ),
+            title: Text(
+              wallet.name,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+              ),
+            ),
+            subtitle: isChecking
+                ? null
+                : Text(
+                    isInstalled ? 'Tap to connect' : 'Not installed',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDarkMode
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                  ),
+            trailing: isChecking
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppColors.indigo,
+                    ),
+                  )
+                : Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isInstalled
+                          ? AppColors.indigo.withValues(alpha: 0.12)
+                          : Colors.orange.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      isInstalled ? 'Connect' : 'Install',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isInstalled ? AppColors.indigo : Colors.orange,
+                      ),
+                    ),
+                  ),
+            onTap: () async {
+              Navigator.of(context).pop();
+              if (isInstalled) {
+                await _connectWallet(wallet.id);
+              } else {
+                await _openStore(wallet.id);
+              }
+            },
           ),
-        ),
-        trailing: Icon(
-          Icons.chevron_right,
-          color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
-        ),
-        onTap: () async {
-          Navigator.of(context).pop();
-          await _connectWallet(id);
-        },
-      ),
+        );
+      },
     );
   }
 
@@ -328,21 +391,35 @@ class _LoginViewState extends ConsumerState<LoginView> {
     setState(() => _isLoading = true);
     try {
       final phantomService = ref.read(phantomServiceProvider);
-      final connectUri = await phantomService.generateConnectUri(walletType: walletId);
-      
-      debugPrint('Launching wallet deep link connect URI: $connectUri');
-      
+      final connectUri =
+          await phantomService.generateConnectUri(walletType: walletId);
+
+      debugPrint('Launching wallet connect URI: $connectUri');
+
       final launched = await launchUrl(
         connectUri,
         mode: LaunchMode.externalApplication,
       );
       if (!launched) {
-        throw 'Could not launch wallet application. Make sure the wallet app is installed.';
+        throw 'Could not launch $walletId. Make sure the wallet app is installed.';
       }
     } catch (e) {
       _showError(e.toString());
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _openStore(String walletId) async {
+    final phantomService = ref.read(phantomServiceProvider);
+    final storeUrl = phantomService.storeUrlFor(walletId);
+    final uri = Uri.parse(storeUrl);
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        _showError('Could not open store for $walletId');
+      }
+    } catch (e) {
+      _showError('Could not open store: $e');
     }
   }
 }

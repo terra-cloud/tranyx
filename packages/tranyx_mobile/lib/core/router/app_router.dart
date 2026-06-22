@@ -61,7 +61,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final queryParams = state.uri.queryParameters;
           final error = queryParams['errorMessage'] ?? queryParams['errorCode'];
-          final phantomPub = queryParams['phantom_encryption_public_key'];
+          final phantomPub = queryParams['phantom_encryption_public_key'] ??
+              queryParams['solflare_encryption_public_key'] ??
+              queryParams['trust_encryption_public_key'] ??
+              queryParams['backpack_encryption_public_key'] ??
+              queryParams['wallet_encryption_public_key'] ??
+              queryParams['encryption_public_key'];
           final data = queryParams['data'];
           final nonce = queryParams['nonce'];
 
@@ -72,13 +77,28 @@ final routerProvider = Provider<GoRouter>((ref) {
               NavigationNotifier.switchTab(ref, 'profile');
             }
 
-            final keyBytes = ref.read(phantomSessionPrivateKeyProvider);
-            final walletType =
-                ref.read(connectingWalletTypeProvider) ?? 'phantom';
+            // Retrieve keyBytes and walletType from RAM or fallback to SecureStorage
+            var keyBytes = ref.read(phantomSessionPrivateKeyProvider);
+            var walletType = ref.read(connectingWalletTypeProvider);
 
-            // Clear session key state
+            if (keyBytes == null) {
+              keyBytes = await SecureStorageHelper.getPhantomSessionKey();
+              debugPrint("Retrieved phantom session key from SecureStorage: ${keyBytes != null}");
+            }
+            if (walletType == null) {
+              walletType = await SecureStorageHelper.getConnectingWalletType();
+              debugPrint("Retrieved connecting wallet type from SecureStorage: $walletType");
+            }
+
+            walletType ??= 'phantom';
+
+            // Clear session key state in RAM
             ref.read(phantomSessionPrivateKeyProvider.notifier).state = null;
             ref.read(connectingWalletTypeProvider.notifier).state = null;
+
+            // Clear session key state in SecureStorage
+            await SecureStorageHelper.deletePhantomSessionKey();
+            await SecureStorageHelper.deleteConnectingWalletType();
 
             if (error != null) {
               debugPrint("Phantom connection error: $error");
