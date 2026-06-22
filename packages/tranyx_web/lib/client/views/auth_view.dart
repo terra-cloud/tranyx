@@ -1,5 +1,6 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
@@ -179,6 +180,20 @@ class _LoginScreenState extends State<_LoginScreen> {
             classes: 'font-semibold ${isDark ? "text-indigo-400" : "text-indigo-600"} hover:underline',
             events: {'click': (_) => s.setState(() => s.authView = AuthView.registerPath)},
             [Component.text('Get Started')],
+          ),
+        ]),
+
+        p(key: Key('terms-link-login'), classes: 'text-center text-xs mt-6 ${isDark ? "text-zinc-650" : "text-zinc-400"}', [
+          button(
+            classes: 'underline bg-transparent border-0 cursor-pointer text-zinc-450 hover:text-white transition-colors p-0 font-medium',
+            events: {'click': (_) => web.window.location.assign('/terms-of-use')},
+            [Component.text('Terms of Use')],
+          ),
+          Component.text('  •  '),
+          button(
+            classes: 'underline bg-transparent border-0 cursor-pointer text-zinc-450 hover:text-white transition-colors p-0 font-medium',
+            events: {'click': (_) => web.window.location.assign('/privacy-policy')},
+            [Component.text('Privacy Policy')],
           ),
         ]),
       ]),
@@ -493,11 +508,19 @@ class _RegisterDetailsScreenState extends State<_RegisterDetailsScreen> {
           ],
         ),
 
-        p(key: Key('terms-link'), classes: 'text-center text-xs mt-4 ${isDark ? "text-zinc-600" : "text-zinc-400"}', [
+        p(key: Key('terms-link'), classes: 'text-center text-xs mt-4 ${isDark ? "text-zinc-650" : "text-zinc-400"}', [
           Component.text('By creating an account you agree to our '),
-          button(classes: 'underline', events: {}, [Component.text('Terms of Service')]),
+          button(
+            classes: 'underline bg-transparent border-0 cursor-pointer text-zinc-450 hover:text-white transition-colors p-0 font-medium',
+            events: {'click': (_) => web.window.location.assign('/terms-of-use')},
+            [Component.text('Terms of Use')],
+          ),
           Component.text(' and '),
-          button(classes: 'underline', events: {}, [Component.text('Privacy Policy')]),
+          button(
+            classes: 'underline bg-transparent border-0 cursor-pointer text-zinc-450 hover:text-white transition-colors p-0 font-medium',
+            events: {'click': (_) => web.window.location.assign('/privacy-policy')},
+            [Component.text('Privacy Policy')],
+          ),
         ]),
       ]),
     ]);

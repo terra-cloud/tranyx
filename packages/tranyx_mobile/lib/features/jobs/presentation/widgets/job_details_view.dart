@@ -1654,7 +1654,7 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      const MockQrCode(data: 'tranyx_standard_completion_code'),
+                      MockQrCode(data: job.completionCode!),
                       const SizedBox(height: 16),
                       Text(
                         job.completionCode!,
@@ -2192,7 +2192,7 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const MockQrCode(data: 'tranyx_delivery_completion_code'),
+                    MockQrCode(data: job.completionCode!),
                     const SizedBox(height: 16),
                     Text(
                       job.completionCode!,

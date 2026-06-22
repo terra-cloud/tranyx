@@ -13,6 +13,8 @@ import 'package:tranyx_web/components/ui_helpers.dart';
 import 'package:tranyx_web/services/map_interop.dart';
 
 import '../state/app_state.dart';
+import '../pages/privacy_policy.dart';
+import '../pages/terms_of_use.dart';
 import '../client/views/auth_view.dart';
 import '../client/views/home_view.dart';
 import '../client/views/jobs_view.dart';
@@ -234,7 +236,7 @@ class TranyxAppState extends State<TranyxApp> {
   bool showDepositModal = false;
   double depositAmount = 0.0;
   bool isDepositing = false;
-  String selectedPaymentMethod = 'xendit';
+  String selectedPaymentMethod = const String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod' ? 'solana' : 'xendit';
   String selectedSolanaCurrency = 'SOL'; // 'SOL' or 'USDT'
   double solToPhpRate = 8500.0;
   double usdToPhpRate = 57.0; // fallback USD-PHP rate for USDT
@@ -472,6 +474,7 @@ class TranyxAppState extends State<TranyxApp> {
   @override
   void initState() {
     super.initState();
+    _handleMobileRedirect();
     onSessionExpiredGlobal = () {
       triggerSessionExpired();
     };
@@ -497,6 +500,48 @@ class TranyxAppState extends State<TranyxApp> {
       _restoreSession();
     } else {
       _checkGoogleRedirectResult();
+    }
+  }
+
+  void _handleMobileRedirect() {
+    final path = web.window.location.pathname;
+    if (path == '/' || path == '') {
+      final userAgent = web.window.navigator.userAgent.toLowerCase();
+      final isIOS = userAgent.contains('iphone') || userAgent.contains('ipad') || userAgent.contains('ipod');
+      final isAndroid = userAgent.contains('android');
+
+      if (isIOS) {
+        const env = String.fromEnvironment('ENV', defaultValue: 'dev');
+        String appStoreUrl;
+        if (env == 'prod') {
+          appStoreUrl = 'https://apps.apple.com/app/tranyx/id6470000000';
+        } else if (env == 'uat') {
+          appStoreUrl = 'https://apps.apple.com/app/tranyx-uat/id6470000002';
+        } else {
+          appStoreUrl = 'https://apps.apple.com/app/tranyx-dev/id6470000001';
+        }
+        web.window.location.replace(appStoreUrl);
+      } else if (isAndroid) {
+        final isSaga = userAgent.contains('saga') || userAgent.contains('solana');
+        const env = String.fromEnvironment('ENV', defaultValue: 'dev');
+        String appId = 'com.terraph.tranyx';
+        if (env == 'uat') {
+          appId = 'com.terraph.tranyx.uat';
+        } else if (env == 'dev') {
+          appId = 'com.terraph.tranyx.dev';
+        }
+
+        if (isSaga) {
+          // Open in Solana dApp Store
+          web.window.location.replace('dappstore://details?id=$appId');
+          // Set a fallback timeout to play store in case the protocol scheme fails
+          Future.delayed(const Duration(milliseconds: 1500), () {
+            web.window.location.replace('https://play.google.com/store/apps/details?id=$appId');
+          });
+        } else {
+          web.window.location.replace('https://play.google.com/store/apps/details?id=$appId');
+        }
+      }
     }
   }
 
@@ -968,7 +1013,11 @@ class TranyxAppState extends State<TranyxApp> {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
         try {
-          await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(result.uid, walletKey);
+          await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(
+            result.uid,
+            walletKey,
+            refreshToken: result.refreshToken,
+          );
         } catch (_) {}
       }
 
@@ -1067,7 +1116,11 @@ class TranyxAppState extends State<TranyxApp> {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
         try {
-          await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(result.uid, walletKey);
+          await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(
+            result.uid,
+            walletKey,
+            refreshToken: result.refreshToken,
+          );
         } catch (_) {}
       }
 
@@ -1184,7 +1237,11 @@ class TranyxAppState extends State<TranyxApp> {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
         try {
-          await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(authResult.uid, walletKey);
+          await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(
+            authResult.uid,
+            walletKey,
+            refreshToken: authResult.refreshToken,
+          );
         } catch (_) {}
       }
 
@@ -1252,7 +1309,11 @@ class TranyxAppState extends State<TranyxApp> {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
         try {
-          await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(authResult.uid, walletKey);
+          await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(
+            authResult.uid,
+            walletKey,
+            refreshToken: authResult.refreshToken,
+          );
         } catch (_) {}
       }
 
@@ -1621,8 +1682,11 @@ class TranyxAppState extends State<TranyxApp> {
         if (fromPubKey == null) {
           throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
         }
-        // Link wallet address to user doc
-        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, fromPubKey);
+        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
+          uid,
+          fromPubKey,
+          refreshToken: SessionStorage.refreshToken,
+        );
       }
 
       // 2. Platform target Solana address
@@ -1760,7 +1824,11 @@ class TranyxAppState extends State<TranyxApp> {
         if (fromPubKey == null) {
           throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
         }
-        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(uid, fromPubKey);
+        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
+          uid,
+          fromPubKey,
+          refreshToken: SessionStorage.refreshToken,
+        );
       }
 
       const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
@@ -4674,7 +4742,11 @@ class TranyxAppState extends State<TranyxApp> {
         final currentUid = SessionStorage.uid;
         if (token != null && currentUid != null) {
           try {
-            await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(currentUid, publicKey);
+            await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
+              currentUid,
+              publicKey,
+              refreshToken: SessionStorage.refreshToken,
+            );
           } catch (_) {}
         }
 
@@ -5130,6 +5202,14 @@ class TranyxAppState extends State<TranyxApp> {
 
   @override
   Component build(BuildContext context) {
+    final path = web.window.location.pathname;
+    if (path == '/privacy-policy') {
+      return const PrivacyPolicy();
+    }
+    if (path == '/terms-of-use') {
+      return const TermsOfUse();
+    }
+
     final darkBg = isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900';
 
     if (!isAuthenticated) {

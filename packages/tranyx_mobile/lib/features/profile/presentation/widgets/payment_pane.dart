@@ -10,6 +10,7 @@ import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
+import 'package:tranyx_mobile/flavors.dart';
 
 final rawUserDocProvider =
     StreamProvider.autoDispose<DocumentSnapshot<Map<String, dynamic>>?>((ref) {
@@ -691,26 +692,28 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
               const SizedBox(height: 24),
               Row(
                 children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.arrow_downward, size: 16),
-                      label: const Text(
-                        'Deposit',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      onPressed: () => _showDepositSheet(tyxBalance, uid),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white.withValues(alpha: 0.15),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                  if (F.appFlavor != Flavor.production) ...[
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.arrow_downward, size: 16),
+                        label: const Text(
+                          'Deposit',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        onPressed: () => _showDepositSheet(tyxBalance, uid),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white.withValues(alpha: 0.15),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
+                    const SizedBox(width: 12),
+                  ],
                   Expanded(
                     child: ElevatedButton.icon(
                       icon: const Icon(Icons.arrow_upward, size: 16),

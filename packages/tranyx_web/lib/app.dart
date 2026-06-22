@@ -6,6 +6,8 @@ import 'components/header.dart';
 import 'pages/about.dart';
 import 'pages/home.dart';
 import 'pages/post_job.dart';
+import 'pages/privacy_policy.dart';
+import 'pages/terms_of_use.dart';
 
 // The main component of your application.
 //
@@ -26,6 +28,8 @@ class App extends StatelessComponent {
           Route(path: '/', title: 'Home', builder: (context, state) => const Home()),
           Route(path: '/about', title: 'About', builder: (context, state) => const About()),
           Route(path: '/post-job', title: 'Post a Gig', builder: (context, state) => const PostJobPage()),
+          Route(path: '/privacy-policy', title: 'Privacy Policy', builder: (context, state) => const PrivacyPolicy()),
+          Route(path: '/terms-of-use', title: 'Terms of Use', builder: (context, state) => const TermsOfUse()),
         ],
       ),
     ]);

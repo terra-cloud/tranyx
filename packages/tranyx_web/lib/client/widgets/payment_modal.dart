@@ -110,35 +110,40 @@ class PaymentModalComponent extends StatelessComponent {
               ]),
 
               // Payment Method Selectors
-              div(classes: 'grid grid-cols-2 gap-3', [
-                button(
-                  classes:
-                      'p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 cursor-pointer border-0 outline-none '
-                      '${!isSolana ? "border-2 border-indigo-500 bg-indigo-500/5 text-indigo-400 font-extrabold" : (isDark ? "bg-zinc-800/40 border-zinc-800 text-zinc-400 hover:bg-zinc-800/60" : "bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100")}',
-                  events: {
-                    'click': (_) => s.setState(() => s.selectedPaymentMethod = 'xendit'),
-                  },
-                  [
-                    lIcon('credit-card', cls: 'w-6 h-6'),
-                    span(classes: 'text-xs', [Component.text('GCash / Card')]),
-                  ],
-                ),
-                button(
-                  classes:
-                      'p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 cursor-pointer border-0 outline-none '
-                      '${isSolana ? "border-2 border-[#512da8] bg-[#512da8]/5 text-indigo-400 font-extrabold" : (isDark ? "bg-zinc-800/40 border-zinc-800 text-zinc-400 hover:bg-zinc-800/60" : "bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100")}',
-                  events: {
-                    'click': (_) {
-                      s.setState(() => s.selectedPaymentMethod = 'solana');
-                      s.fetchSolToPhpRate();
+              div(
+                classes: const String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod' ? 'flex justify-center' : 'grid grid-cols-2 gap-3',
+                [
+                  if (const String.fromEnvironment('ENV', defaultValue: 'dev') != 'prod')
+                    button(
+                      classes:
+                          'p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 cursor-pointer border-0 outline-none '
+                          '${!isSolana ? "border-2 border-indigo-500 bg-indigo-500/5 text-indigo-400 font-extrabold" : (isDark ? "bg-zinc-800/40 border-zinc-800 text-zinc-400 hover:bg-zinc-800/60" : "bg-zinc-50 border-zinc-200 text-zinc-650 hover:bg-zinc-100")}',
+                      events: {
+                        'click': (_) => s.setState(() => s.selectedPaymentMethod = 'xendit'),
+                      },
+                      [
+                        lIcon('credit-card', cls: 'w-6 h-6'),
+                        span(classes: 'text-xs', [Component.text('GCash / Card')]),
+                      ],
+                    ),
+                  button(
+                    classes:
+                        'p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 cursor-pointer border-0 outline-none '
+                        '${const String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod' ? "w-full" : ""}'
+                        '${isSolana ? " border-2 border-[#512da8] bg-[#512da8]/5 text-indigo-400 font-extrabold" : (isDark ? " bg-zinc-800/40 border-zinc-800 text-zinc-400 hover:bg-zinc-800/60" : " bg-zinc-50 border-zinc-200 text-zinc-650 hover:bg-zinc-100")}',
+                    events: {
+                      'click': (_) {
+                        s.setState(() => s.selectedPaymentMethod = 'solana');
+                        s.fetchSolToPhpRate();
+                      },
                     },
-                  },
-                  [
-                    lIcon('zap', cls: 'w-6 h-6 text-[#512da8]'),
-                    span(classes: 'text-xs', [Component.text('Solana (SOL)')]),
-                  ],
-                ),
-              ]),
+                    [
+                      lIcon('zap', cls: 'w-6 h-6 text-[#512da8]'),
+                      span(classes: 'text-xs', [Component.text('Solana (SOL)')]),
+                    ],
+                  ),
+                ],
+              ),
 
               // Dynamic Payment Method Detail Card
               if (!isSolana) ...[
