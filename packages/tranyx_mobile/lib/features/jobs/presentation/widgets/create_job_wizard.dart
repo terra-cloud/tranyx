@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
@@ -9,7 +11,6 @@ import 'package:tranyx_mobile/core/providers/ai_provider.dart';
 import 'package:tranyx_mobile/core/utils/enums.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:shared/shared.dart';
-import 'package:tranyx_mobile/features/jobs/models/job.dart';
 import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
 
@@ -1076,7 +1077,18 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                 const SizedBox(height: 24),
                 GestureDetector(
                   onTap: () {
-                    // Address search logic placeholder
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (context) => _AddressSearchSheet(
+                        isDarkMode: isDarkMode,
+                        onAddressSelected: (address) {
+                          ref.read(jobAddressProvider.notifier).state = address;
+                          _addressController.text = address;
+                        },
+                      ),
+                    );
                   },
                   child: Container(
                     padding: const EdgeInsets.all(16),
@@ -1307,6 +1319,262 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
               }, isDarkMode),
             ],
             const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AddressSearchSheet extends StatefulWidget {
+  final bool isDarkMode;
+  final Function(String) onAddressSelected;
+
+  const _AddressSearchSheet({
+    required this.isDarkMode,
+    required this.onAddressSelected,
+  });
+
+  @override
+  State<_AddressSearchSheet> createState() => _AddressSearchSheetState();
+}
+
+class _AddressSearchSheetState extends State<_AddressSearchSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _performSearch(String query) async {
+    final trimmedQuery = query.trim();
+    if (trimmedQuery.isEmpty) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _searchResults = [];
+    });
+
+    try {
+      final response = await http.get(
+        Uri.parse('https://nominatim.openstreetmap.org/search?format=json&q=${Uri.encodeComponent(trimmedQuery)}&limit=5'),
+        headers: {'User-Agent': 'TranyxMobile/1.0 (contact@tranyx.com)'},
+      );
+
+      if (response.statusCode == 200) {
+        final List decoded = jsonDecode(response.body);
+        setState(() {
+          _searchResults = decoded.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+          _isLoading = false;
+          if (_searchResults.isEmpty) {
+            _errorMessage = "No locations found. Try a different search.";
+          }
+        });
+      } else {
+        setState(() {
+          _errorMessage = "Failed to load locations. Code: ${response.statusCode}";
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = "Connection error. Please check your internet connection.";
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDarkMode = widget.isDarkMode;
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.75,
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          children: [
+            // Handle
+            const SizedBox(height: 12),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: isDarkMode ? Colors.white24 : Colors.black12,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "Search Address",
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(LucideIcons.x),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Search Input Row
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: isDarkMode
+                            ? AppColors.darkBorder.withValues(alpha: 0.5)
+                            : Colors.grey[100],
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(LucideIcons.search, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _searchController,
+                              textInputAction: TextInputAction.search,
+                              onSubmitted: _performSearch,
+                              onChanged: (val) {
+                                setState(() {});
+                              },
+                              decoration: const InputDecoration(
+                                hintText: "Enter street, city, or business...",
+                                border: InputBorder.none,
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(vertical: 12),
+                              ),
+                              style: TextStyle(
+                                color: isDarkMode ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                          ),
+                          if (_searchController.text.isNotEmpty)
+                            GestureDetector(
+                              onTap: () {
+                                _searchController.clear();
+                                setState(() {
+                                  _searchResults = [];
+                                  _errorMessage = null;
+                                });
+                              },
+                              child: const Icon(LucideIcons.x, size: 18),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.indigo,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
+                    onPressed: _isLoading
+                        ? null
+                        : () => _performSearch(_searchController.text),
+                    child: const Text(
+                      "Search",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Loading indicator or results
+            if (_isLoading)
+              const Expanded(
+                child: Center(
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.indigo),
+                  ),
+                ),
+              )
+            else if (_errorMessage != null)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, size: 48, color: Colors.amber),
+                        const SizedBox(height: 16),
+                        Text(
+                          _errorMessage!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: isDarkMode ? Colors.white70 : Colors.black54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
+                  itemCount: _searchResults.length,
+                  separatorBuilder: (context, index) => Divider(
+                    color: isDarkMode ? AppColors.darkBorder : Colors.grey[200],
+                    height: 1,
+                  ),
+                  itemBuilder: (context, index) {
+                    final res = _searchResults[index];
+                    final displayName = res['display_name'] as String? ?? '';
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                      leading: const Icon(LucideIcons.mapPin, color: AppColors.indigo),
+                      title: Text(
+                        displayName,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isDarkMode ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      onTap: () {
+                        widget.onAddressSelected(displayName);
+                        Navigator.pop(context);
+                      },
+                    );
+                  },
+                ),
+              ),
           ],
         ),
       ),

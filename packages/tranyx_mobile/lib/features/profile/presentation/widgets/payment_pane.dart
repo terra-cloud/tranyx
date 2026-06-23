@@ -1,16 +1,19 @@
 import 'dart:math';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
-import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:async';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/flavors.dart';
+import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 
 final rawUserDocProvider =
     StreamProvider.autoDispose<DocumentSnapshot<Map<String, dynamic>>?>((ref) {
@@ -62,25 +65,6 @@ const List<WalletInfo> wallets = [
         'https://play.google.com/store/apps/details?id=com.solflare.mobile',
     image: 'assets/images/Solflare.png',
   ),
-  WalletInfo(
-    id: 'backpack',
-    name: 'Backpack',
-    scheme: 'backpack://',
-    iosStoreUrl: 'https://apps.apple.com/app/backpack-wallet/id6448764881',
-    androidStoreUrl:
-        'https://play.google.com/store/apps/details?id=co.backpack.wallet',
-    image: 'assets/images/BackPack.png',
-  ),
-  WalletInfo(
-    id: 'trust',
-    name: 'Trust Wallet',
-    scheme: 'trust://',
-    iosStoreUrl:
-        'https://apps.apple.com/app/trust-crypto-bitcoin-wallet/id1288339409',
-    androidStoreUrl:
-        'https://play.google.com/store/apps/details?id=com.wallet.crypto.trustapp',
-    image: 'assets/images/TrustWallet.jpeg',
-  ),
 ];
 
 class PaymentPane extends ConsumerStatefulWidget {
@@ -97,19 +81,106 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
   bool _isProcessing = false;
   Map<String, bool> _installedWallets = {};
 
+  // Deposit sheet state
+  String _selectedPaymentMethod = 'xendit'; // 'xendit' | 'solana'
+  String _selectedSolanaCurrency = 'SOL';   // 'SOL' | 'USDT'
+  double _solToPhpRate = 8000.0;
+  double _usdToPhpRate = 57.0;
+  double _solBalance = 0.0;
+  bool _isFetchingRate = false;
+
   @override
   void initState() {
     super.initState();
     _checkInstalledWallets();
+    _fetchRates();
+  }
+
+  Future<void> _fetchRates() async {
+    if (!mounted) return;
+    setState(() => _isFetchingRate = true);
+    try {
+      // Fetch SOL/PHP via CoinGecko (free, no key)
+      try {
+        await ref.read(phantomServiceProvider).fetchRecentBlockhash();
+      } catch (_) {}
+
+      final cgRes = await http.get(
+        Uri.parse(
+          'https://api.coingecko.com/api/v3/simple/price?ids=solana,tether&vs_currencies=php,usd',
+        ),
+      );
+      if (cgRes.statusCode == 200) {
+        final data = jsonDecode(cgRes.body) as Map<String, dynamic>;
+        final sol = (data['solana']?['php'] as num?)?.toDouble();
+        final usdt = (data['tether']?['php'] as num?)?.toDouble();
+        if (mounted) {
+          setState(() {
+            if (sol != null && sol > 0) _solToPhpRate = sol;
+            if (usdt != null && usdt > 0) _usdToPhpRate = usdt;
+          });
+        }
+      }
+    } catch (_) {
+      // Use fallback rates silently
+    } finally {
+      if (mounted) setState(() => _isFetchingRate = false);
+    }
+  }
+
+  Future<void> _fetchSolBalance(String pubkey) async {
+    try {
+      final rpcUrl = 'https://api.devnet.solana.com';
+      final res = await http.post(
+        Uri.parse(rpcUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'jsonrpc': '2.0',
+          'id': 1,
+          'method': 'getBalance',
+          'params': [pubkey],
+        }),
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final lamports = (data['result']?['value'] as num?)?.toDouble() ?? 0.0;
+        if (mounted) setState(() => _solBalance = lamports / 1e9);
+      }
+    } catch (_) {}
   }
 
   void _checkInstalledWallets() async {
     final Map<String, bool> status = {};
     for (final wallet in wallets) {
       bool installed = false;
-      try {
-        installed = await canLaunchUrl(Uri.parse(wallet.scheme));
-      } catch (_) {}
+      List<String> schemesToCheck = [wallet.scheme];
+
+      if (wallet.id == 'trust') {
+        schemesToCheck = [
+          'trust://wc',
+          'trustwallet://wc',
+          'trust://open_url',
+          'trustwallet://open_url',
+          'trust://',
+          'trustwallet://',
+        ];
+      } else if (wallet.id == 'phantom') {
+        schemesToCheck = ['phantom://', 'phantom://v1/connect'];
+      } else if (wallet.id == 'solflare') {
+        schemesToCheck = ['solflare://', 'solflare://v1/connect'];
+      } else if (wallet.id == 'backpack') {
+        schemesToCheck = ['backpack://', 'backpack://v1/connect'];
+      }
+
+      for (final scheme in schemesToCheck) {
+        try {
+          final uri = Uri.parse(scheme);
+          if (await canLaunchUrl(uri)) {
+            installed = true;
+            break;
+          }
+        } catch (_) {}
+      }
       status[wallet.id] = installed;
     }
     if (mounted) {
@@ -126,148 +197,874 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
   }
 
   void _showDepositSheet(double tyxBalance, String uid) {
+    final userProfile = ref.read(userProfileProvider).value;
+    final rawUserDoc = ref.read(rawUserDocProvider).value;
+    final hasWallet =
+        userProfile?.walletPublicKey != null &&
+        userProfile!.walletPublicKey!.isNotEmpty;
+    final connectedWalletType =
+        rawUserDoc?.data()?['connectedWalletType'] as String? ??
+        (hasWallet ? 'phantom' : null);
+
+    // Fetch SOL balance once sheet opens
+    if (hasWallet) {
+      _fetchSolBalance(userProfile.walletPublicKey!);
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Theme.of(sheetContext).cardColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Deposit Funds',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final isDarkMode = ref.read(themeModeProvider);
+            final phpAmount =
+                double.tryParse(_amountController.text.trim()) ?? 0.0;
+            final isSolana = _selectedPaymentMethod == 'solana';
+            final isSOL = _selectedSolanaCurrency == 'SOL';
+            final amountInSol =
+                phpAmount > 0 ? phpAmount / _solToPhpRate : 0.0;
+            final amountInUsdt =
+                phpAmount > 0 ? phpAmount / _usdToPhpRate : 0.0;
+
+            void onAmountChanged() => setSheetState(() {});
+            _amountController.removeListener(onAmountChanged);
+            _amountController.addListener(onAmountChanged);
+
+            final cardColor =
+                isDarkMode ? const Color(0xFF1A1A2E) : const Color(0xFFF8F8FC);
+            final borderColor = isDarkMode
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.07);
+
+            // ── Quick chip presets ────────────────────────────────────
+            Widget quickChips() {
+              final presets = [500, 1000, 2000, 5000, 10000];
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: presets.map((v) {
+                  final selected = phpAmount == v.toDouble();
+                  return GestureDetector(
+                    onTap: () {
+                      _amountController.text = v.toString();
+                      setSheetState(() {});
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? AppColors.indigo
+                            : (isDarkMode
+                                  ? Colors.white.withValues(alpha: 0.07)
+                                  : Colors.white),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: selected
+                              ? AppColors.indigo
+                              : borderColor,
+                        ),
+                        boxShadow: selected
+                            ? [
+                                BoxShadow(
+                                  color: AppColors.indigo.withValues(
+                                    alpha: 0.25,
+                                  ),
+                                  blurRadius: 8,
+                                ),
+                              ]
+                            : [],
+                      ),
+                      child: Text(
+                        '₱${v >= 1000 ? '${v ~/ 1000},000' : '$v'}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: selected ? Colors.white : null,
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              );
+            }
+
+            // ── Method selector card ──────────────────────────────────
+            Widget methodCard({
+              required String id,
+              required IconData icon,
+              required String label,
+              required Color accent,
+            }) {
+              final sel = _selectedPaymentMethod == id;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    setSheetState(() => _selectedPaymentMethod = id);
+                    setState(() => _selectedPaymentMethod = id);
+                    if (id == 'solana') _fetchRates();
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 16,
+                      horizontal: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: sel
+                          ? accent.withValues(alpha: 0.1)
+                          : cardColor,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: sel ? accent : borderColor,
+                        width: sel ? 2 : 1,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(icon, color: sel ? accent : Colors.grey, size: 26),
+                        const SizedBox(height: 6),
+                        Text(
+                          label,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: sel ? accent : Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(sheetContext),
+                ),
+              );
+            }
+
+            // ── SOL / USDT sub-toggle ─────────────────────────────────
+            Widget currencyToggle() {
+              return Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setSheetState(
+                        () => _selectedSolanaCurrency = 'SOL',
+                      ),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: isSOL
+                              ? const Color(0xFF512DA8)
+                              : cardColor,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isSOL
+                                ? const Color(0xFF512DA8)
+                                : borderColor,
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            '◎ SOL',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color:
+                                  isSOL ? Colors.white : Colors.grey,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setSheetState(
+                        () => _selectedSolanaCurrency = 'USDT',
+                      ),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: !isSOL
+                              ? const Color(0xFF059669)
+                              : cardColor,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: !isSOL
+                                ? const Color(0xFF059669)
+                                : borderColor,
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            '\$ USDT',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: !isSOL ? Colors.white : Colors.grey,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Enter PHP Amount to convert to TYXBIT (1 PHP = 1 TYXBIT)',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _amountController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
+              );
+            }
+
+            // ── Rate info card ────────────────────────────────────────
+            Widget rateCard() {
+              return Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: borderColor),
                 ),
-                decoration: InputDecoration(
-                  prefixText: '₱ ',
-                  hintText: '0.00',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (isSOL) ...[
+                      _rateRow(
+                        'Exchange Rate',
+                        _isFetchingRate
+                            ? 'Fetching...'
+                            : '1 SOL = ₱${_solToPhpRate.toStringAsFixed(2)}',
+                        isDarkMode,
+                        loading: _isFetchingRate,
+                      ),
+                      const SizedBox(height: 10),
+                      _rateRow(
+                        'Required SOL',
+                        '${amountInSol.toStringAsFixed(5)} SOL',
+                        isDarkMode,
+                        valueBold: true,
+                        valueColor: const Color(0xFF805AD5),
+                      ),
+                    ] else ...[
+                      _rateRow(
+                        'USDT Rate (Stablecoin)',
+                        '\$1 USDT ≈ ₱${_usdToPhpRate.toStringAsFixed(2)}',
+                        isDarkMode,
+                      ),
+                      const SizedBox(height: 10),
+                      _rateRow(
+                        'Required USDT',
+                        '\$${amountInUsdt.toStringAsFixed(2)} USDT',
+                        isDarkMode,
+                        valueBold: true,
+                        valueColor: const Color(0xFF059669),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 6,
+                          horizontal: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF059669).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: const Color(
+                              0xFF059669,
+                            ).withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'USDT is a stablecoin — zero volatility risk!',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF059669),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (hasWallet) ...[
+                      Divider(
+                        height: 20,
+                        color: borderColor,
+                      ),
+                      _rateRow(
+                        'Wallet Address',
+                        () {
+                          final addr =
+                              userProfile.walletPublicKey ?? '';
+                          return addr.length > 12
+                              ? '${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}'
+                              : addr;
+                        }(),
+                        isDarkMode,
+                        mono: true,
+                      ),
+                      const SizedBox(height: 6),
+                      _rateRow(
+                        'SOL Balance',
+                        '${_solBalance.toStringAsFixed(4)} SOL',
+                        isDarkMode,
+                        valueBold: true,
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            }
+
+            // ── Xendit info card ──────────────────────────────────────
+            Widget xenditCard() {
+              return Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Column(
+                  children: [
+                    _rateRow('Payment Processor', 'Xendit Gateway', isDarkMode),
+                    const SizedBox(height: 8),
+                    _rateRow(
+                      'Tyxbit Equivalent',
+                      '${phpAmount.toStringAsFixed(2)} Tyxbits',
+                      isDarkMode,
+                    ),
+                    _rateRow(
+                      'Processor Status',
+                      'Awaiting Checkout',
+                      isDarkMode,
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.92,
+                ),
+                decoration: BoxDecoration(
+                  color: isDarkMode
+                      ? const Color(0xFF12121C)
+                      : Colors.white,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(32),
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              _isProcessing
-                  ? const Center(child: CircularProgressIndicator())
-                  : UIHelpers.buildPrimaryButton(
-                      'Confirm Payment (Xendit)',
-                      () async {
-                        final val = _amountController.text.trim();
-                        final amount = double.tryParse(val);
-                        if (amount == null || amount <= 0) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Please enter a valid amount'),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ── Handle + Header ─────────────────────────────
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 16, 16, 0),
+                      child: Column(
+                        children: [
+                          Center(
+                            child: Container(
+                              width: 40,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
                             ),
-                          );
-                          return;
-                        }
-
-                        setState(() => _isProcessing = true);
-                        Navigator.pop(sheetContext);
-
-                        try {
-                          final userProfile = ref
-                              .read(userProfileProvider)
-                              .value;
-                          final userName = userProfile?.name ?? 'User';
-
-                          final res = await ref
-                              .read(transitRepositoryProvider)
-                              .createXenditInvoice(
-                                uid: uid,
-                                amount: amount,
-                                userName: userName,
-                              );
-
-                          final invoiceId = res['id'] as String;
-                          final invoiceUrl = res['invoice_url'] as String;
-
-                          // Save pending invoice details to Firestore
-                          await ref
-                              .read(firestoreProvider)
-                              .collection('users')
-                              .doc(uid)
-                              .update({
-                                'pendingXenditInvoiceId': invoiceId,
-                                'pendingXenditInvoiceAmount': amount,
-                                'pendingXenditInvoiceUrl': invoiceUrl,
-                              });
-
-                          _amountController.clear();
-
-                          // Launch checkout URL in browser
-                          try {
-                            final uri = Uri.parse(invoiceUrl);
-                            if (await canLaunchUrl(uri)) {
-                              await launchUrl(
-                                uri,
-                                mode: LaunchMode.externalApplication,
-                              );
-                            }
-                          } catch (urlErr) {
-                            debugPrint(
-                              'URL Launch error (expected in tests): $urlErr',
-                            );
-                          }
-
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Invoice created. Launching checkout for ₱ ${amount.toStringAsFixed(2)}',
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: AppColors.indigo.withValues(
+                                    alpha: 0.12,
+                                  ),
+                                  borderRadius: BorderRadius.circular(14),
                                 ),
-                                backgroundColor: Colors.indigo,
+                                child: const Icon(
+                                  Icons.account_balance_wallet_outlined,
+                                  color: AppColors.indigo,
+                                  size: 22,
+                                ),
                               ),
-                            );
-                          }
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Error creating invoice: $e'),
-                                backgroundColor: Colors.red,
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Top-up Tyxbit Balance',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      '1 PHP = 1 Tyxbit',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            );
-                          }
-                        } finally {
-                          setState(() => _isProcessing = false);
-                        }
-                      },
-                      ref.read(themeModeProvider),
+                              IconButton(
+                                icon: const Icon(Icons.close),
+                                onPressed: () => Navigator.pop(sheetContext),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
+
+                    // ── Scrollable body ──────────────────────────────
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Amount input
+                            TextField(
+                              controller: _amountController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                              decoration: InputDecoration(
+                                prefixText: '₱  ',
+                                prefixStyle: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.indigo,
+                                ),
+                                hintText: '0.00',
+                                hintStyle: TextStyle(
+                                  fontSize: 24,
+                                  color: AppColors.indigo.withValues(
+                                    alpha: 0.3,
+                                  ),
+                                ),
+                                enabledBorder: UnderlineInputBorder(
+                                  borderSide: BorderSide(
+                                    color: AppColors.indigo.withValues(
+                                      alpha: 0.3,
+                                    ),
+                                    width: 2,
+                                  ),
+                                ),
+                                focusedBorder: const UnderlineInputBorder(
+                                  borderSide: BorderSide(
+                                    color: AppColors.indigo,
+                                    width: 2,
+                                  ),
+                                ),
+                                border: InputBorder.none,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Center(
+                              child: Text(
+                                'Min ₱100 · Max ₱50,000 per transaction',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey.withValues(alpha: 0.7),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Quick chips
+                            Center(child: quickChips()),
+                            const SizedBox(height: 24),
+
+                            // Payment method selector
+                            Row(
+                              children: [
+                                methodCard(
+                                  id: 'xendit',
+                                  icon: Icons.credit_card_outlined,
+                                  label: 'GCash / Card',
+                                  accent: AppColors.indigo,
+                                ),
+                                const SizedBox(width: 12),
+                                methodCard(
+                                  id: 'solana',
+                                  icon: Icons.bolt,
+                                  label: 'Solana (SOL)',
+                                  accent: const Color(0xFF512DA8),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 20),
+
+                            // Dynamic content by method
+                            if (!isSolana) ...[
+                              xenditCard(),
+                              const SizedBox(height: 20),
+                              // Xendit CTA
+                              _isProcessing
+                                  ? const Center(
+                                      child: CircularProgressIndicator(),
+                                    )
+                                  : _buildXenditButton(
+                                      uid: uid,
+                                      phpAmount: phpAmount,
+                                      userProfile: userProfile,
+                                      sheetContext: sheetContext,
+                                    ),
+                            ] else ...[
+                              // SOL / USDT sub-toggle
+                              currencyToggle(),
+                              const SizedBox(height: 16),
+                              rateCard(),
+                              const SizedBox(height: 20),
+                              // Solana CTA
+                              _isProcessing
+                                  ? const Center(
+                                      child: CircularProgressIndicator(),
+                                    )
+                                  : _buildSolanaCTA(
+                                      uid: uid,
+                                      phpAmount: phpAmount,
+                                      userProfile: userProfile,
+                                      connectedWalletType: connectedWalletType,
+                                      hasWallet: hasWallet,
+                                      amountInSol: amountInSol,
+                                      amountInUsdt: amountInUsdt,
+                                      isSOL: isSOL,
+                                      sheetContext: sheetContext,
+                                    ),
+                            ],
+
+                            // Cancel
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: TextButton(
+                                onPressed: () => Navigator.pop(sheetContext),
+                                child: Text(
+                                  'Cancel',
+                                  style: TextStyle(
+                                    color: Colors.grey.withValues(alpha: 0.8),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // ── Footer ───────────────────────────────────────
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      color: Colors.grey.withValues(alpha: 0.05),
+                      width: double.infinity,
+                      child: Center(
+                        child: Text(
+                          isSolana
+                              ? 'POWERED BY SOLANA SECURE'
+                              : 'POWERED BY XENDIT & TRANYX SECURE',
+                          style: TextStyle(
+                            fontSize: 9,
+                            letterSpacing: 1.5,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _rateRow(
+    String label,
+    String value,
+    bool isDarkMode, {
+    bool valueBold = false,
+    Color? valueColor,
+    bool mono = false,
+    bool loading = false,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.withValues(alpha: 0.8),
+          ),
+        ),
+        loading
+            ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 1.5),
+              )
+            : Text(
+                value,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight:
+                      valueBold ? FontWeight.bold : FontWeight.w600,
+                  color: valueColor,
+                  fontFamily: mono ? 'monospace' : null,
+                ),
+              ),
+      ],
+    );
+  }
+
+  Widget _buildXenditButton({
+    required String uid,
+    required double phpAmount,
+    required dynamic userProfile,
+    required BuildContext sheetContext,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.indigo,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          elevation: 0,
+        ),
+        onPressed: phpAmount < 100
+            ? null
+            : () async {
+                if (phpAmount <= 0) return;
+                setState(() => _isProcessing = true);
+                Navigator.pop(sheetContext);
+                try {
+                  final userName = userProfile?.name ?? 'User';
+                  final res = await ref
+                      .read(transitRepositoryProvider)
+                      .createXenditInvoice(
+                        uid: uid,
+                        amount: phpAmount,
+                        userName: userName,
+                      );
+                  final invoiceId = res['id'] as String;
+                  final invoiceUrl = res['invoice_url'] as String;
+                  await ref
+                      .read(firestoreProvider)
+                      .collection('users')
+                      .doc(uid)
+                      .update({
+                        'pendingXenditInvoiceId': invoiceId,
+                        'pendingXenditInvoiceAmount': phpAmount,
+                        'pendingXenditInvoiceUrl': invoiceUrl,
+                      });
+                  _amountController.clear();
+                  try {
+                    final uri = Uri.parse(invoiceUrl);
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(
+                        uri,
+                        mode: LaunchMode.externalApplication,
+                      );
+                    }
+                  } catch (_) {}
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Invoice created. Launching checkout for ₱ ${phpAmount.toStringAsFixed(2)}',
+                        ),
+                        backgroundColor: Colors.indigo,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error creating invoice: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                } finally {
+                  setState(() => _isProcessing = false);
+                }
+              },
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.credit_card, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              phpAmount < 100
+                  ? 'Enter at least ₱100'
+                  : 'Pay ₱${phpAmount.toStringAsFixed(2)} with Xendit',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSolanaCTA({
+    required String uid,
+    required double phpAmount,
+    required dynamic userProfile,
+    required String? connectedWalletType,
+    required bool hasWallet,
+    required double amountInSol,
+    required double amountInUsdt,
+    required bool isSOL,
+    required BuildContext sheetContext,
+  }) {
+    if (!hasWallet || connectedWalletType == null) {
+      // No wallet connected — show connect prompt
+      return SizedBox(
+        width: double.infinity,
+        child: ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF512DA8),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            elevation: 0,
+          ),
+          onPressed: () {
+            Navigator.pop(sheetContext);
+            // Scroll down to wallet section
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Connect a Solana wallet below to deposit with SOL.',
+                ),
+                backgroundColor: Color(0xFF512DA8),
+              ),
+            );
+          },
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.account_balance_wallet_outlined, size: 18),
+              SizedBox(width: 8),
+              Text(
+                'Connect Solana Wallet',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ],
           ),
+        ),
+      );
+    }
+
+    if (isSOL && _solBalance < amountInSol && phpAmount > 0) {
+      // Insufficient SOL
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+        ),
+        child: Text(
+          'Insufficient SOL Balance\nNeed: ${amountInSol.toStringAsFixed(4)} SOL  ·  Have: ${_solBalance.toStringAsFixed(4)} SOL',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: Colors.red,
+          ),
+        ),
+      );
+    }
+
+    final label = isSOL
+        ? 'Pay ${amountInSol.toStringAsFixed(4)} SOL'
+        : 'Pay \$${amountInUsdt.toStringAsFixed(2)} USDT';
+    final btnColor =
+        isSOL ? const Color(0xFF512DA8) : const Color(0xFF059669);
+
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: phpAmount < 100 ? Colors.grey : btnColor,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          elevation: 0,
+        ),
+        onPressed: phpAmount < 100
+            ? null
+            : () async {
+                if (!isSOL) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'USDT deposits are web-only on mobile devices. Please select SOL or GCash/Card instead.',
+                      ),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+                Navigator.pop(sheetContext);
+                _amountController.clear();
+                await _handleSolanaDeposit(
+                  uid: uid,
+                  phpAmount: phpAmount,
+                  cryptoAmount: amountInSol,
+                  walletType: connectedWalletType,
+                  userPubkey: userProfile!.walletPublicKey!,
+                );
+              },
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(isSOL ? Icons.bolt : Icons.attach_money, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              phpAmount < 100 ? 'Enter at least ₱100' : label,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
         ),
       ),
     );
@@ -375,8 +1172,10 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     setState(() => _isProcessing = true);
     try {
       final phantomService = ref.read(phantomServiceProvider);
-      final connectUri = await phantomService.generateConnectUri(walletType: wallet.id);
-      
+      final connectUri = await phantomService.generateConnectUri(
+        walletType: wallet.id,
+      );
+
       debugPrint('Launching wallet deep link connect URI: $connectUri');
       final launched = await launchUrl(
         connectUri,
@@ -396,9 +1195,65 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         );
       }
     } finally {
-      setState(() => _isProcessing = false);
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
     }
   }
+
+  Future<void> _handleSolanaDeposit({
+    required String uid,
+    required double phpAmount,
+    required double cryptoAmount,
+    required String walletType,
+    required String userPubkey,
+  }) async {
+    setState(() => _isProcessing = true);
+
+    const String kSystemSolanaReceiverAddress =
+        '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
+
+    try {
+      // Phantom / Solflare: NaCl Encryption Deep-link redirect
+      // 1. Save pending state to SecureStorage
+      await SecureStorageHelper.savePendingDepositPhpAmount(phpAmount);
+      await SecureStorageHelper.savePendingDepositCryptoAmount(cryptoAmount);
+      await SecureStorageHelper.savePendingDepositCurrency('SOL');
+
+      // 2. Generate signing link
+      final phantomService = ref.read(phantomServiceProvider);
+      final signUri = await phantomService.generateSignTransactionUri(
+        walletType: walletType,
+        senderPubkey: userPubkey,
+        receiverPubkey: kSystemSolanaReceiverAddress,
+        amountInSol: cryptoAmount,
+      );
+
+      debugPrint('Launching wallet sign URI: $signUri');
+      final launched = await launchUrl(
+        signUri,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!launched) {
+        throw 'Could not launch wallet app. Make sure it is installed.';
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Solana Deposit failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
 
   void _handleDisconnectWallet(String uid, WalletInfo wallet) async {
     final confirmed = await showDialog<bool>(
@@ -833,11 +1688,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          pendingInvoiceId.substring(
-                                0,
-                                min(12, pendingInvoiceId.length),
-                              ) +
-                              '...',
+                          '${pendingInvoiceId.substring(0, min(12, pendingInvoiceId.length))}...',
                           style: const TextStyle(
                             fontSize: 12,
                             fontFamily: 'monospace',
@@ -978,7 +1829,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
                         color: isConnected
-                            ? Colors.purple.withOpacity(0.5)
+                            ? Colors.purple.withValues(alpha: 0.5)
                             : (isDarkMode ? Colors.white12 : Colors.black12),
                         width: 1,
                       ),
@@ -1171,7 +2022,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
             child: Center(child: CircularProgressIndicator()),
           ),
           error: (err, stack) {
-            print(err);
+            debugPrint('Transaction log error: $err');
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 32),
               child: Center(child: Text('Error: $err')),

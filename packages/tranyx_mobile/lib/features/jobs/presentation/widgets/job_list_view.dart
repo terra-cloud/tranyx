@@ -134,77 +134,102 @@ class JobListView extends ConsumerWidget {
     // • Expanded list — scrolls underneath the sticky header
     // Both parent contexts (SizedBox on mobile, Expanded→Row on tablet) provide
     // bounded height, so Expanded is valid here.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // ── Sticky header ──────────────────────────────────────────────────
-        _buildStickyHeader(
-          ref,
-          isDarkMode,
-          isEmployer,
-          activeTab,
-          currentViewMode,
-          isBrowseTab,
-        ),
-
-        // ── Tablet employer "Create" button ───────────────────────────────
-        if (isTablet && isEmployer) ...[
-          const SizedBox(height: 12),
-          UIHelpers.buildPrimaryButton(
-            '+ Create New Listing',
-            () => ref.read(jobsViewProvider.notifier).state = 'create',
+    // GestureDetector(
+    //               onTap:
+    //               child: Container(
+    //                 padding: const EdgeInsets.all(8),
+    //                 decoration: BoxDecoration(
+    //                   color: AppColors.indigo,
+    //                   borderRadius: BorderRadius.circular(12),
+    //                 ),
+    //                 child: const Icon(Icons.add, color: Colors.white, size: 20),
+    //               ),
+    //             ),
+    return Scaffold(
+      floatingActionButton: (!isTablet && isEmployer)
+          ? FloatingActionButton(
+              backgroundColor: AppColors.indigo,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadiusGeometry.circular(12),
+              ),
+              onPressed: () =>
+                  ref.read(jobsViewProvider.notifier).state = 'create',
+              child: const Icon(Icons.add, color: Colors.white, size: 20),
+            )
+          : null,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Sticky header ──────────────────────────────────────────────────
+          _buildStickyHeader(
+            context,
+            ref,
             isDarkMode,
-            isOutlined: true,
+            isEmployer,
+            activeTab,
+            currentViewMode,
+            isBrowseTab,
           ),
-          const SizedBox(height: 4),
-        ],
 
-        // ── Scrollable job list ────────────────────────────────────────────
-        Expanded(
-          child: jobsAsync.when(
-            data: (jobs) {
-              if (jobs.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.work_off_outlined,
-                        size: 48,
-                        color: Colors.grey.withValues(alpha: 0.5),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No jobs found',
-                        style: TextStyle(color: Colors.grey, fontSize: 16),
-                      ),
-                    ],
+          // ── Tablet employer "Create" button ───────────────────────────────
+          if (isTablet && isEmployer) ...[
+            const SizedBox(height: 12),
+            UIHelpers.buildPrimaryButton(
+              '+ Create New Listing',
+              () => ref.read(jobsViewProvider.notifier).state = 'create',
+              isDarkMode,
+              isOutlined: true,
+            ),
+            const SizedBox(height: 4),
+          ],
+
+          // ── Scrollable job list ────────────────────────────────────────────
+          Expanded(
+            child: jobsAsync.when(
+              data: (jobs) {
+                if (jobs.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.work_off_outlined,
+                          size: 48,
+                          color: Colors.grey.withValues(alpha: 0.5),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No jobs found',
+                          style: TextStyle(color: Colors.grey, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return ListView.separated(
+                  padding: const EdgeInsets.only(top: 4, bottom: 32),
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: jobs.length,
+                  separatorBuilder: (_, i) => const SizedBox(height: 16),
+                  itemBuilder: (context, index) => _buildJobCard(
+                    ref,
+                    jobs[index],
+                    isEmployer,
+                    activeTab,
+                    isDarkMode,
                   ),
                 );
-              }
-
-              return ListView.separated(
-                padding: const EdgeInsets.only(top: 4, bottom: 32),
-                physics: const BouncingScrollPhysics(),
-                itemCount: jobs.length,
-                separatorBuilder: (_, i) => const SizedBox(height: 16),
-                itemBuilder: (context, index) => _buildJobCard(
-                  ref,
-                  jobs[index],
-                  isEmployer,
-                  activeTab,
-                  isDarkMode,
-                ),
-              );
-            },
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (err, stack) {
-              debugPrint(err.toString());
-              return Center(child: Text('Error: $err'));
-            },
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (err, stack) {
+                debugPrint(err.toString());
+                return Center(child: Text('Error: $err'));
+              },
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -245,6 +270,7 @@ class JobListView extends ConsumerWidget {
 
   // ── Sticky header (tabs row + optional filter bar) ────────────────────────
   Widget _buildStickyHeader(
+    BuildContext context,
     WidgetRef ref,
     bool isDarkMode,
     bool isEmployer,
@@ -263,22 +289,7 @@ class JobListView extends ConsumerWidget {
           // Tabs row + mobile employer "+ create" button
           Row(
             children: [
-              _buildAnimatedTabs(ref, isDarkMode, currentViewMode),
-              if (!isTablet && isEmployer) ...[
-                const SizedBox(width: 12),
-                GestureDetector(
-                  onTap: () =>
-                      ref.read(jobsViewProvider.notifier).state = 'create',
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.indigo,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.add, color: Colors.white, size: 20),
-                  ),
-                ),
-              ],
+              _buildAnimatedTabs(context, ref, isDarkMode, currentViewMode),
             ],
           ),
           // Filters — only for Nyxian on Browse Gigs tab
@@ -293,6 +304,7 @@ class JobListView extends ConsumerWidget {
 
   // ── Animated pill tab bar ─────────────────────────────────────────────────
   Widget _buildAnimatedTabs(
+    BuildContext context,
     WidgetRef ref,
     bool isDarkMode,
     AccountType currentViewMode,
@@ -310,8 +322,8 @@ class JobListView extends ConsumerWidget {
         : 0.0;
 
     return Container(
-      height: 38,
-      width: 300,
+      height: 50,
+      width: MediaQuery.sizeOf(context).width - 48,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: isDarkMode ? AppColors.darkCard : Colors.grey[200],

@@ -8,6 +8,7 @@ import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/jobs/models/job.dart';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
+import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 
@@ -64,6 +65,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           final phantomPub = queryParams['phantom_encryption_public_key'] ??
               queryParams['solflare_encryption_public_key'] ??
               queryParams['trust_encryption_public_key'] ??
+              queryParams['trustwallet_encryption_public_key'] ??
               queryParams['backpack_encryption_public_key'] ??
               queryParams['wallet_encryption_public_key'] ??
               queryParams['encryption_public_key'];
@@ -96,12 +98,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             ref.read(phantomSessionPrivateKeyProvider.notifier).state = null;
             ref.read(connectingWalletTypeProvider.notifier).state = null;
 
-            // Clear session key state in SecureStorage
-            await SecureStorageHelper.deletePhantomSessionKey();
+            // Clear connecting wallet type in SecureStorage (keep persistent session key)
             await SecureStorageHelper.deleteConnectingWalletType();
 
             if (error != null) {
               debugPrint("Phantom connection error: $error");
+              await SecureStorageHelper.deletePhantomSessionKey();
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -157,6 +159,13 @@ final routerProvider = Provider<GoRouter>((ref) {
             }
 
             final userSolanaPublicKey = decrypted['public_key'] as String?;
+            final sessionToken = decrypted['session'] as String?;
+            if (sessionToken != null) {
+              await SecureStorageHelper.savePhantomSessionToken(sessionToken);
+            }
+            await SecureStorageHelper.savePhantomEncryptionPublicKey(phantomPub);
+            ref.invalidate(hasLocalSolanaSessionProvider);
+
             if (userSolanaPublicKey == null || userSolanaPublicKey.isEmpty) {
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -336,6 +345,384 @@ final routerProvider = Provider<GoRouter>((ref) {
                     ),
                   );
                 }
+              }
+            }
+          });
+
+          return const MainWrapper();
+        },
+      ),
+      GoRoute(
+        path: '/onSignAndSendTransaction',
+        name: 'on_sign_and_send_transaction',
+        builder: (context, state) {
+          final queryParams = state.uri.queryParameters;
+          final error = queryParams['errorMessage'] ?? queryParams['errorCode'];
+          final data = queryParams['data'];
+          final nonce = queryParams['nonce'];
+
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            final user = ref.read(userProvider);
+            if (user != null) {
+              NavigationNotifier.switchTab(ref, 'profile');
+            }
+
+            var keyBytes = ref.read(phantomSessionPrivateKeyProvider);
+            var walletType = ref.read(connectingWalletTypeProvider);
+
+            if (keyBytes == null) {
+              keyBytes = await SecureStorageHelper.getPhantomSessionKey();
+            }
+            if (walletType == null) {
+              walletType = await SecureStorageHelper.getConnectingWalletType();
+            }
+
+            walletType ??= 'phantom';
+
+            // Clear session key state in RAM
+            ref.read(phantomSessionPrivateKeyProvider.notifier).state = null;
+            ref.read(connectingWalletTypeProvider.notifier).state = null;
+
+            // Clear connecting wallet type in SecureStorage (keep persistent session key)
+            await SecureStorageHelper.deleteConnectingWalletType();
+
+            if (error != null) {
+              debugPrint("Transaction signing error: $error");
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Transaction cancelled or failed: $error'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            final savedPhantomPub = await SecureStorageHelper.getPhantomEncryptionPublicKey();
+
+            if (data == null || nonce == null || keyBytes == null || savedPhantomPub == null) {
+              debugPrint("Missing required deep link parameters or session key.");
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Transaction failed: Missing decryption parameters.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            // Decrypt response
+            final service = ref.read(phantomServiceProvider);
+            final decrypted = service.decryptConnectResponse(
+              phantomPubB58: savedPhantomPub,
+              dataB58: data,
+              nonceB58: nonce,
+              sessionPrivateKeyBytes: keyBytes,
+            );
+
+            if (decrypted == null) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to decrypt transaction signature response.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            final signature = decrypted['signature'] as String?;
+            if (signature == null || signature.isEmpty) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to retrieve transaction signature.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            // Successfully received transaction signature from wallet!
+            final phpAmount = await SecureStorageHelper.getPendingDepositPhpAmount();
+            final cryptoAmount = await SecureStorageHelper.getPendingDepositCryptoAmount();
+            final currency = await SecureStorageHelper.getPendingDepositCurrency();
+
+            // Clear pending deposit state
+            await SecureStorageHelper.deletePendingDepositPhpAmount();
+            await SecureStorageHelper.deletePendingDepositCryptoAmount();
+            await SecureStorageHelper.deletePendingDepositCurrency();
+
+            if (phpAmount == null || cryptoAmount == null || currency == null || user == null) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Transaction signature received, but pending deposit details were missing.'),
+                    backgroundColor: Colors.amber,
+                  ),
+                );
+              }
+              return;
+            }
+
+            try {
+              // Confirm & Update balance in Firestore and record the deposit transaction
+              final repo = ref.read(transitRepositoryProvider);
+              final userProfile = await repo.getUser(user.uid);
+              if (userProfile != null) {
+                final newBalance = userProfile.tyxBalance + phpAmount;
+                await repo.updateTyxBalance(user.uid, newBalance);
+
+                final txId = 'deposit_sol_$signature';
+                await ref.read(firestoreProvider).collection('transactions').doc(txId).set({
+                  'uid': user.uid,
+                  'type': 'deposit',
+                  'amount': phpAmount,
+                  'title': 'Wallet Top-Up ($currency)',
+                  'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} $currency via Solana',
+                  'method': 'Solana',
+                  'solanaTxSignature': signature,
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                });
+
+                ref.invalidate(userProfileProvider);
+                ref.invalidate(userTransactionsProvider);
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Successfully deposited ₱ ${phpAmount.toStringAsFixed(2)} via Solana ($currency)'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              }
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Error updating wallet balance: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+          });
+
+          return const MainWrapper();
+        },
+      ),
+      GoRoute(
+        path: '/onSignTransaction',
+        name: 'on_sign_transaction',
+        builder: (context, state) {
+          final queryParams = state.uri.queryParameters;
+          final error = queryParams['errorMessage'] ?? queryParams['errorCode'];
+          final data = queryParams['data'];
+          final nonce = queryParams['nonce'];
+
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            final user = ref.read(userProvider);
+            if (user != null) {
+              NavigationNotifier.switchTab(ref, 'profile');
+            }
+
+            var keyBytes = ref.read(phantomSessionPrivateKeyProvider);
+            var walletType = ref.read(connectingWalletTypeProvider);
+
+            if (keyBytes == null) {
+              keyBytes = await SecureStorageHelper.getPhantomSessionKey();
+            }
+            if (walletType == null) {
+              walletType = await SecureStorageHelper.getConnectingWalletType();
+            }
+
+            walletType ??= 'phantom';
+
+            // Clear session key state in RAM
+            ref.read(phantomSessionPrivateKeyProvider.notifier).state = null;
+            ref.read(connectingWalletTypeProvider.notifier).state = null;
+
+            // Clear connecting wallet type in SecureStorage (keep persistent session key)
+            await SecureStorageHelper.deleteConnectingWalletType();
+
+            if (error != null) {
+              debugPrint("Transaction signing error: $error");
+              final isSessionError = error.toString().contains('-32603') || error.toString().toLowerCase().contains('unexpected');
+              final displayMessage = isSessionError
+                  ? 'Transaction failed (Session expired or out of sync). Please disconnect and reconnect your wallet from the profile tab.'
+                  : 'Transaction cancelled or failed: $error';
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(displayMessage),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 5),
+                  ),
+                );
+              }
+              return;
+            }
+
+            final savedPhantomPub = await SecureStorageHelper.getPhantomEncryptionPublicKey();
+
+            if (data == null || nonce == null || keyBytes == null || savedPhantomPub == null) {
+              debugPrint("Missing required deep link parameters or session key.");
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Transaction failed: Missing decryption parameters.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            // Decrypt response
+            final service = ref.read(phantomServiceProvider);
+            final decrypted = service.decryptConnectResponse(
+              phantomPubB58: savedPhantomPub,
+              dataB58: data,
+              nonceB58: nonce,
+              sessionPrivateKeyBytes: keyBytes,
+            );
+
+            if (decrypted == null) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to decrypt transaction signature response.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            final base58Tx = decrypted['transaction'] as String?;
+            if (base58Tx == null || base58Tx.isEmpty) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to retrieve signed transaction from response.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            // Show a progress indicator/dialog while broadcasting the transaction
+            if (context.mounted) {
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (dialogContext) => const AlertDialog(
+                  content: Row(
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(width: 16),
+                      Expanded(
+                        child: Text(
+                          'Broadcasting transaction to Solana network...',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            String? signature;
+            try {
+              signature = await service.sendTransaction(base58Tx);
+            } catch (rpcErr) {
+              debugPrint("Solana RPC error broadcasting transaction: $rpcErr");
+              if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop(); // Close progress dialog
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('RPC Error sending transaction: $rpcErr'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            if (context.mounted) {
+              Navigator.of(context, rootNavigator: true).pop(); // Close progress dialog
+            }
+
+            // Successfully received transaction signature from wallet!
+            final phpAmount = await SecureStorageHelper.getPendingDepositPhpAmount();
+            final cryptoAmount = await SecureStorageHelper.getPendingDepositCryptoAmount();
+            final currency = await SecureStorageHelper.getPendingDepositCurrency();
+
+            // Clear pending deposit state
+            await SecureStorageHelper.deletePendingDepositPhpAmount();
+            await SecureStorageHelper.deletePendingDepositCryptoAmount();
+            await SecureStorageHelper.deletePendingDepositCurrency();
+
+            if (phpAmount == null || cryptoAmount == null || currency == null || user == null) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Transaction broadcasted, but pending deposit details were missing.'),
+                    backgroundColor: Colors.amber,
+                  ),
+                );
+              }
+              return;
+            }
+
+            try {
+              // Confirm & Update balance in Firestore and record the deposit transaction
+              final repo = ref.read(transitRepositoryProvider);
+              final userProfile = await repo.getUser(user.uid);
+              if (userProfile != null) {
+                final newBalance = userProfile.tyxBalance + phpAmount;
+                await repo.updateTyxBalance(user.uid, newBalance);
+
+                final txId = 'deposit_sol_$signature';
+                await ref.read(firestoreProvider).collection('transactions').doc(txId).set({
+                  'uid': user.uid,
+                  'type': 'deposit',
+                  'amount': phpAmount,
+                  'title': 'Wallet Top-Up ($currency)',
+                  'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} $currency via Solana',
+                  'method': 'Solana',
+                  'solanaTxSignature': signature,
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                });
+
+                ref.invalidate(userProfileProvider);
+                ref.invalidate(userTransactionsProvider);
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Successfully deposited ₱ ${phpAmount.toStringAsFixed(2)} via Solana ($currency)'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              }
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Error updating wallet balance: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
               }
             }
           });

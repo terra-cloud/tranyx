@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,10 +15,8 @@ import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 /// Checks if a wallet app is installed by seeing if its native URI scheme
 /// can be resolved by the OS (requires queries entries in AndroidManifest).
 Future<bool> _isWalletInstalled(WalletInfo wallet) async {
-  // Use a minimal URI with just the scheme to test resolvability
-  final testUri = Uri.parse('${wallet.nativeScheme.split('://').first}://');
   try {
-    return await canLaunchUrl(testUri);
+    return await canLaunchUrl(Uri.parse(wallet.nativeScheme));
   } catch (_) {
     return false;
   }
@@ -210,7 +209,9 @@ class _LoginViewState extends ConsumerState<LoginView> {
               Text(
                 "•",
                 style: TextStyle(
-                  color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                  color: isDarkMode
+                      ? AppColors.darkTextMuted
+                      : AppColors.lightTextMuted,
                   fontSize: 12,
                 ),
               ),
@@ -258,7 +259,9 @@ class _LoginViewState extends ConsumerState<LoginView> {
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
-                        color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                        color: isDarkMode
+                            ? AppColors.darkText
+                            : AppColors.lightText,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -266,7 +269,9 @@ class _LoginViewState extends ConsumerState<LoginView> {
                       "Choose which Solana wallet application you want to continue with.",
                       style: TextStyle(
                         fontSize: 14,
-                        color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                        color: isDarkMode
+                            ? AppColors.darkTextMuted
+                            : AppColors.lightTextMuted,
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -313,8 +318,10 @@ class _LoginViewState extends ConsumerState<LoginView> {
             ),
           ),
           child: ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 8,
+            ),
             leading: ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: Image.asset(
@@ -357,7 +364,9 @@ class _LoginViewState extends ConsumerState<LoginView> {
                   )
                 : Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: isInstalled
                           ? AppColors.indigo.withValues(alpha: 0.12)
@@ -391,8 +400,9 @@ class _LoginViewState extends ConsumerState<LoginView> {
     setState(() => _isLoading = true);
     try {
       final phantomService = ref.read(phantomServiceProvider);
-      final connectUri =
-          await phantomService.generateConnectUri(walletType: walletId);
+      final connectUri = await phantomService.generateConnectUri(
+        walletType: walletId,
+      );
 
       debugPrint('Launching wallet connect URI: $connectUri');
 

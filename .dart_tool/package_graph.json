@@ -56,6 +56,7 @@
         "pinenacl",
         "riverpod_annotation",
         "shared",
+        "solana_mobile_client",
         "url_launcher"
       ],
       "devDependencies": [
@@ -358,6 +359,16 @@
         "url_launcher_platform_interface",
         "url_launcher_web",
         "url_launcher_windows"
+      ]
+    },
+    {
+      "name": "solana_mobile_client",
+      "version": "0.1.2",
+      "dependencies": [
+        "flutter",
+        "freezed_annotation",
+        "json_annotation",
+        "plugin_platform_interface"
       ]
     },
     {
@@ -1302,6 +1313,22 @@
       ]
     },
     {
+      "name": "plugin_platform_interface",
+      "version": "2.1.8",
+      "dependencies": [
+        "meta"
+      ]
+    },
+    {
+      "name": "freezed_annotation",
+      "version": "2.4.4",
+      "dependencies": [
+        "collection",
+        "json_annotation",
+        "meta"
+      ]
+    },
+    {
       "name": "riverpod",
       "version": "3.2.1",
       "dependencies": [
@@ -1765,13 +1792,6 @@
         "flutter",
         "meta",
         "plugin_platform_interface"
-      ]
-    },
-    {
-      "name": "plugin_platform_interface",
-      "version": "2.1.8",
-      "dependencies": [
-        "meta"
       ]
     },
     {
