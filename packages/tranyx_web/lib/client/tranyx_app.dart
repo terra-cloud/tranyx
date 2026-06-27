@@ -4083,13 +4083,21 @@ class TranyxAppState extends State<TranyxApp> {
         isSendingSms = false;
       });
     } catch (e) {
-      // Gracefully switch to simulated playground mode with a beautiful OTP code!
-      final randomOtp = (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString();
-      setState(() {
-        simulatedSmsCode = randomOtp;
-        smsVerificationSessionInfo = 'simulated';
-        isSendingSms = false;
-      });
+      const isDevEnv = String.fromEnvironment('ENV', defaultValue: 'dev') == 'dev';
+      if (isDevEnv) {
+        // Gracefully switch to simulated playground mode with a beautiful OTP code!
+        final randomOtp = (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString();
+        setState(() {
+          simulatedSmsCode = randomOtp;
+          smsVerificationSessionInfo = 'simulated';
+          isSendingSms = false;
+        });
+      } else {
+        setState(() {
+          smsVerificationError = 'Failed to send SMS code: $e';
+          isSendingSms = false;
+        });
+      }
     }
   }
 
@@ -4111,7 +4119,8 @@ class TranyxAppState extends State<TranyxApp> {
 
     try {
       if (smsVerificationSessionInfo == 'simulated') {
-        if (code == simulatedSmsCode || code == '123456') {
+        const isDevEnv = String.fromEnvironment('ENV', defaultValue: 'dev') == 'dev';
+        if (isDevEnv && (code == simulatedSmsCode || code == '123456')) {
           // Success!
           final nextLevel = _calculateVerificationLevel(
             email: existing.emailVerified,

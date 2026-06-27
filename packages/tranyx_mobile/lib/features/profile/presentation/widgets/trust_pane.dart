@@ -5,6 +5,8 @@ import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:tranyx_mobile/flavors.dart';
 
 class TrustPane extends ConsumerStatefulWidget {
   final VoidCallback onBack;
@@ -109,89 +111,95 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
                         final val = _phoneController.text.trim();
                         if (val.isEmpty) return;
 
-                        setState(() => _isProcessing = true);
-                        Navigator.pop(context);
+                        if (F.appFlavor == Flavor.dev) {
+                          setState(() => _isProcessing = true);
+                          Navigator.pop(context);
 
-                        // Mock OTP Verification Flow
-                        final otpConfirmed = await showDialog<bool>(
-                          context: context,
-                          builder: (context) {
-                            final codeController = TextEditingController();
-                            return AlertDialog(
-                              title: const Text('Enter Verification Code'),
-                              content: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Text(
-                                    'We sent a verification code to your number. Enter "123456" to verify.',
-                                  ),
-                                  const SizedBox(height: 16),
-                                  TextField(
-                                    controller: codeController,
-                                    keyboardType: TextInputType.number,
-                                    decoration: const InputDecoration(
-                                      labelText: '6-Digit OTP',
-                                      hintText: '123456',
+                          // Mock OTP Verification Flow for Dev only
+                          final otpConfirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (context) {
+                              final codeController = TextEditingController();
+                              return AlertDialog(
+                                title: const Text('Enter Verification Code'),
+                                content: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text(
+                                      'We sent a verification code to your number. Enter "123456" to verify.',
                                     ),
+                                    const SizedBox(height: 16),
+                                    TextField(
+                                      controller: codeController,
+                                      keyboardType: TextInputType.number,
+                                      decoration: const InputDecoration(
+                                        labelText: '6-Digit OTP',
+                                        hintText: '123456',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      if (codeController.text.trim() ==
+                                          '123456') {
+                                        Navigator.pop(context, true);
+                                      } else {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Invalid code'),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                    child: const Text('Verify'),
                                   ),
                                 ],
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, false),
-                                  child: const Text('Cancel'),
-                                ),
-                                ElevatedButton(
-                                  onPressed: () {
-                                    if (codeController.text.trim() ==
-                                        '123456') {
-                                      Navigator.pop(context, true);
-                                    } else {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Invalid code'),
-                                        ),
-                                      );
-                                    }
-                                  },
-                                  child: const Text('Verify'),
-                                ),
-                              ],
-                            );
-                          },
-                        );
+                              );
+                            },
+                          );
 
-                        if (otpConfirmed == true) {
-                          try {
-                            await ref
-                                .read(firestoreProvider)
-                                .collection('users')
-                                .doc(uid)
-                                .update({
-                                  'phoneNumber': val,
-                                  'phoneVerified': true,
-                                });
-                            ref.invalidate(userProfileProvider);
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Phone number verified!'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Failed: $e')),
-                              );
+                          if (otpConfirmed == true) {
+                            try {
+                              await ref
+                                  .read(firestoreProvider)
+                                  .collection('users')
+                                  .doc(uid)
+                                  .update({
+                                    'phoneNumber': val,
+                                    'phoneVerified': true,
+                                  });
+                              ref.invalidate(userProfileProvider);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Phone number verified!'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Failed: $e')),
+                                );
+                              }
                             }
                           }
+                          setState(() => _isProcessing = false);
+                        } else {
+                          // Real OTP flow for UAT/Production
+                          Navigator.pop(context);
+                          await _sendRealSmsVerification(uid, val);
                         }
-                        setState(() => _isProcessing = false);
                       },
                       ref.read(themeModeProvider),
                     ),
@@ -200,6 +208,149 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
         ),
       ),
     );
+  }
+
+  Future<void> _sendRealSmsVerification(String uid, String phoneNumber) async {
+    setState(() => _isProcessing = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final localContext = context;
+    
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: phoneNumber,
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          // Auto-resolution on Android devices
+          try {
+            final user = FirebaseAuth.instance.currentUser;
+            if (user != null) {
+              await user.linkWithCredential(credential);
+            }
+            await ref.read(firestoreProvider).collection('users').doc(uid).update({
+              'phoneNumber': phoneNumber,
+              'phoneVerified': true,
+            });
+            ref.invalidate(userProfileProvider);
+            
+            messenger.showSnackBar(
+              const SnackBar(
+                content: Text('Phone number verified automatically!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          } catch (e) {
+            messenger.showSnackBar(
+              SnackBar(content: Text('Automatic verification failed: $e')),
+            );
+          } finally {
+            if (localContext.mounted) setState(() => _isProcessing = false);
+          }
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          if (localContext.mounted) {
+            setState(() => _isProcessing = false);
+          }
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(e.message ?? 'Verification failed'),
+              backgroundColor: AppColors.red,
+            ),
+          );
+        },
+        codeSent: (String verificationId, int? resendToken) async {
+          if (localContext.mounted) {
+            setState(() => _isProcessing = false);
+          }
+          
+          final codeController = TextEditingController();
+          if (!localContext.mounted) return;
+          final otpConfirmed = await showDialog<bool>(
+            context: localContext,
+            barrierDismissible: false,
+            builder: (context) {
+              return AlertDialog(
+                title: const Text('Verify Phone Number'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Enter the 6-digit code sent to $phoneNumber.'),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: codeController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: '6-Digit OTP',
+                        hintText: 'xxxxxx',
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Verify'),
+                  ),
+                ],
+              );
+            },
+          );
+          
+          if (otpConfirmed == true) {
+            final smsCode = codeController.text.trim();
+            if (smsCode.isEmpty) return;
+            
+            if (localContext.mounted) setState(() => _isProcessing = true);
+            try {
+              final credential = PhoneAuthProvider.credential(
+                verificationId: verificationId,
+                smsCode: smsCode,
+              );
+              
+              final user = FirebaseAuth.instance.currentUser;
+              if (user != null) {
+                await user.linkWithCredential(credential);
+              }
+              
+              await ref.read(firestoreProvider).collection('users').doc(uid).update({
+                'phoneNumber': phoneNumber,
+                'phoneVerified': true,
+              });
+              ref.invalidate(userProfileProvider);
+              
+              messenger.showSnackBar(
+                const SnackBar(
+                  content: Text('Phone number verified successfully!'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            } catch (e) {
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text('Failed to verify OTP: $e'),
+                  backgroundColor: AppColors.red,
+                ),
+              );
+            } finally {
+              if (localContext.mounted) setState(() => _isProcessing = false);
+            }
+          }
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {},
+      );
+    } catch (e) {
+      if (localContext.mounted) {
+        setState(() => _isProcessing = false);
+      }
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Failed to request verification: $e'),
+          backgroundColor: AppColors.red,
+        ),
+      );
+    }
   }
 
   void _showIdVerificationSheet(String uid) {

@@ -99,11 +99,15 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
       minChildSize: 0.5,
       maxChildSize: 0.95,
       builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+            ),
           child: Column(
             children: [
               // Pull bar
@@ -636,7 +640,8 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
               ),
             ],
           ),
-        );
+        ), // close Container
+        ); // close Padding
       },
     );
   }

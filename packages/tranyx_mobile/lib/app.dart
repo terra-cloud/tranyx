@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/core/router/app_router.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
-import 'package:tranyx_mobile/core/services/deep_link_service.dart';
+import 'package:tranyx_mobile/core/providers/biometric_provider.dart';
+import 'package:tranyx_mobile/core/widgets/biometric_lock_screen.dart';
+import 'package:tranyx_mobile/core/services/biometric_service.dart';
 import 'flavors.dart';
 
 class App extends ConsumerStatefulWidget {
@@ -14,20 +16,48 @@ class App extends ConsumerStatefulWidget {
   ConsumerState<App> createState() => _AppState();
 }
 
-class _AppState extends ConsumerState<App> {
+class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
+  bool _isLocked = false;
+  bool _isColdStart = true;
+  bool _wasPaused = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final router = ref.read(routerProvider);
-      ref.read(deepLinkServiceProvider).initialize(router);
+      // final router = ref.read(routerProvider);
+      // ref.read(deepLinkServiceProvider).initialize(router);
+      _isColdStart = false;
     });
   }
 
   @override
   void dispose() {
-    ref.read(deepLinkServiceProvider).dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    // ref.read(deepLinkServiceProvider).dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _wasPaused = true;
+    }
+
+    if (state == AppLifecycleState.resumed && !_isColdStart) {
+      if (_wasPaused && !_isLocked && !BiometricService.isAuthenticating) {
+        _wasPaused = false;
+        final biometricEnabled = ref.read(biometricEnabledProvider);
+        if (biometricEnabled) {
+          setState(() {
+            _isLocked = true;
+          });
+        }
+      } else {
+        _wasPaused = false;
+      }
+    }
   }
 
   @override
@@ -43,7 +73,23 @@ class _AppState extends ConsumerState<App> {
       darkTheme: _buildTheme(Brightness.dark, context),
       themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
       builder: (context, child) {
-        return _flavorBanner(child: child!, show: kDebugMode);
+        final withBanner = _flavorBanner(child: child!, show: kDebugMode);
+        if (_isLocked) {
+          return Stack(
+            children: [
+              withBanner,
+              BiometricLockScreen(
+                isDarkMode: isDarkMode,
+                onUnlocked: () {
+                  setState(() {
+                    _isLocked = false;
+                  });
+                },
+              ),
+            ],
+          );
+        }
+        return withBanner;
       },
     );
   }

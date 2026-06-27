@@ -1,12 +1,10 @@
 // ignore_for_file: subtype_of_sealed_class
 
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/providers/fcm_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
@@ -106,6 +104,7 @@ Future<void> simulateOnConnect({
   required ProviderContainer container,
   required FakeFirebaseAuth fakeAuth,
   required String solanaPublicKey,
+
   /// Called when a password prompt is needed — return the user's answer.
   Future<String?> Function(String email)? onPasswordPrompt,
 }) async {
@@ -122,19 +121,17 @@ Future<void> simulateOnConnect({
 
   if (user != null) {
     // ── Linked-wallet update path (user already logged in) ─────────────────
-    await firestore
-        .collection('users')
-        .doc(user.uid)
-        .update({
-          'walletPublicKey': solanaPublicKey,
-          'connectedWalletType': walletType,
-        });
+    await firestore.collection('users').doc(user.uid).update({
+      'walletPublicKey': solanaPublicKey,
+      'connectedWalletType': walletType,
+    });
 
     ref.invalidate(userProfileProvider);
 
     final password = await SecureStorageHelper.getPassword();
-    final obfuscatedPassword =
-        password != null ? SecureStorageHelper.obfuscate(password) : null;
+    final obfuscatedPassword = password != null
+        ? SecureStorageHelper.obfuscate(password)
+        : null;
 
     final linkData = <String, dynamic>{
       'uid': user.uid,
@@ -168,8 +165,7 @@ Future<void> simulateOnConnect({
     final obfuscatedPassword = linkData?['password'] as String?;
 
     if ((email == null || email.isEmpty) && uid != null) {
-      final userDoc =
-          await firestore.collection('users').doc(uid).get();
+      final userDoc = await firestore.collection('users').doc(uid).get();
       email = userDoc.data()?['email'] as String?;
     }
 
@@ -192,12 +188,9 @@ Future<void> simulateOnConnect({
           password: password,
         );
         await SecureStorageHelper.savePassword(password);
-        await firestore
-            .collection('walletLinks')
-            .doc(solanaPublicKey)
-            .update({
-              'password': SecureStorageHelper.obfuscate(password),
-            });
+        await firestore.collection('walletLinks').doc(solanaPublicKey).update({
+          'password': SecureStorageHelper.obfuscate(password),
+        });
       }
     }
   }
@@ -247,195 +240,204 @@ void main() {
 
   group('Solana Wallet Connect — Logic Tests', () {
     // ── Test 1 ───────────────────────────────────────────────────────────────
-    test('1. Logged-in user: links wallet and writes walletLinks entry', () async {
-      final fakeFirestore = FakeFirebaseFirestore();
-      final fakeAuth = FakeFirebaseAuth(
-        initialUser: MockUser(uid: 'user_123', email: 'test@tranyx.com'),
-      );
+    test(
+      '1. Logged-in user: links wallet and writes walletLinks entry',
+      () async {
+        final fakeFirestore = FakeFirebaseFirestore();
+        final fakeAuth = FakeFirebaseAuth(
+          initialUser: MockUser(uid: 'user_123', email: 'test@tranyx.com'),
+        );
 
-      // Seed user doc so update() doesn't throw "not found"
-      fakeFirestore.db['users/user_123'] = {
-        'uid': 'user_123',
-        'name': 'Test User',
-        'email': 'test@tranyx.com',
-        'accountType': 'employer',
-      };
+        // Seed user doc so update() doesn't throw "not found"
+        fakeFirestore.db['users/user_123'] = {
+          'uid': 'user_123',
+          'name': 'Test User',
+          'email': 'test@tranyx.com',
+          'accountType': 'employer',
+        };
 
-      // Pre-save a password so it gets obfuscated into walletLinks
-      await SecureStorageHelper.savePassword('password123');
+        // Pre-save a password so it gets obfuscated into walletLinks
+        await SecureStorageHelper.savePassword('password123');
 
-      final container = ProviderContainer(
-        overrides: [
-          firestoreProvider.overrideWithValue(fakeFirestore),
-          firebaseAuthProvider.overrideWithValue(fakeAuth),
-          fcmProvider.overrideWithValue(MockFirebaseMessagingService()),
-          phantomServiceProvider.overrideWithValue(
-            MockPhantomService(mockPublicKey: mockPublicKey),
-          ),
-          phantomSessionPrivateKeyProvider.overrideWith(
-            (ref) => Uint8List.fromList([1, 2, 3]),
-          ),
-          connectingWalletTypeProvider.overrideWith((ref) => 'phantom'),
-        ],
-      );
-      addTearDown(container.dispose);
+        final container = ProviderContainer(
+          overrides: [
+            firestoreProvider.overrideWithValue(fakeFirestore),
+            firebaseAuthProvider.overrideWithValue(fakeAuth),
+            fcmProvider.overrideWithValue(MockFirebaseMessagingService()),
+            phantomServiceProvider.overrideWithValue(
+              MockPhantomService(mockPublicKey: mockPublicKey),
+            ),
+            phantomSessionPrivateKeyProvider.overrideWith(
+              (ref) => Uint8List.fromList([1, 2, 3]),
+            ),
+            connectingWalletTypeProvider.overrideWith((ref) => 'phantom'),
+          ],
+        );
+        addTearDown(container.dispose);
 
-      await simulateOnConnect(
-        container: container,
-        fakeAuth: fakeAuth,
-        solanaPublicKey: mockPublicKey,
-      );
+        await simulateOnConnect(
+          container: container,
+          fakeAuth: fakeAuth,
+          solanaPublicKey: mockPublicKey,
+        );
 
-      // User doc updated
-      final userDoc = fakeFirestore.db['users/user_123'];
-      expect(userDoc, isNotNull);
-      expect(userDoc!['walletPublicKey'], equals(mockPublicKey));
+        // User doc updated
+        final userDoc = fakeFirestore.db['users/user_123'];
+        expect(userDoc, isNotNull);
+        expect(userDoc!['walletPublicKey'], equals(mockPublicKey));
 
-      // walletLinks written
-      final linkDoc = fakeFirestore.db['walletLinks/$mockPublicKey'];
-      expect(linkDoc, isNotNull);
-      expect(linkDoc!['uid'], equals('user_123'));
-      expect(linkDoc['email'], equals('test@tranyx.com'));
-      expect(
-        SecureStorageHelper.deobfuscate(linkDoc['password'] as String),
-        equals('password123'),
-      );
-    });
+        // walletLinks written
+        final linkDoc = fakeFirestore.db['walletLinks/$mockPublicKey'];
+        expect(linkDoc, isNotNull);
+        expect(linkDoc!['uid'], equals('user_123'));
+        expect(linkDoc['email'], equals('test@tranyx.com'));
+        expect(
+          SecureStorageHelper.deobfuscate(linkDoc['password'] as String),
+          equals('password123'),
+        );
+      },
+    );
 
     // ── Test 2 ───────────────────────────────────────────────────────────────
-    test('2. Not logged-in: auto signs in via obfuscated password in walletLinks', () async {
-      final fakeFirestore = FakeFirebaseFirestore();
-      final fakeAuth = FakeFirebaseAuth(initialUser: null);
+    test(
+      '2. Not logged-in: auto signs in via obfuscated password in walletLinks',
+      () async {
+        final fakeFirestore = FakeFirebaseFirestore();
+        final fakeAuth = FakeFirebaseAuth(initialUser: null);
 
-      // Seed wallet link with obfuscated password
-      fakeFirestore.db['walletLinks/$mockPublicKey'] = {
-        'uid': 'user_123',
-        'email': 'test@tranyx.com',
-        'password': SecureStorageHelper.obfuscate('password123'),
-        'linkedAt': DateTime.now().millisecondsSinceEpoch,
-      };
+        // Seed wallet link with obfuscated password
+        fakeFirestore.db['walletLinks/$mockPublicKey'] = {
+          'uid': 'user_123',
+          'email': 'test@tranyx.com',
+          'password': SecureStorageHelper.obfuscate('password123'),
+          'linkedAt': DateTime.now().millisecondsSinceEpoch,
+        };
 
-      final container = ProviderContainer(
-        overrides: [
-          firestoreProvider.overrideWithValue(fakeFirestore),
-          firebaseAuthProvider.overrideWithValue(fakeAuth),
-          fcmProvider.overrideWithValue(MockFirebaseMessagingService()),
-          phantomServiceProvider.overrideWithValue(
-            MockPhantomService(mockPublicKey: mockPublicKey),
-          ),
-          phantomSessionPrivateKeyProvider.overrideWith(
-            (ref) => Uint8List.fromList([1, 2, 3]),
-          ),
-          connectingWalletTypeProvider.overrideWith((ref) => 'phantom'),
-        ],
-      );
-      addTearDown(container.dispose);
+        final container = ProviderContainer(
+          overrides: [
+            firestoreProvider.overrideWithValue(fakeFirestore),
+            firebaseAuthProvider.overrideWithValue(fakeAuth),
+            fcmProvider.overrideWithValue(MockFirebaseMessagingService()),
+            phantomServiceProvider.overrideWithValue(
+              MockPhantomService(mockPublicKey: mockPublicKey),
+            ),
+            phantomSessionPrivateKeyProvider.overrideWith(
+              (ref) => Uint8List.fromList([1, 2, 3]),
+            ),
+            connectingWalletTypeProvider.overrideWith((ref) => 'phantom'),
+          ],
+        );
+        addTearDown(container.dispose);
 
-      await simulateOnConnect(
-        container: container,
-        fakeAuth: fakeAuth,
-        solanaPublicKey: mockPublicKey,
-      );
+        await simulateOnConnect(
+          container: container,
+          fakeAuth: fakeAuth,
+          solanaPublicKey: mockPublicKey,
+        );
 
-      expect(fakeAuth.currentUser, isNotNull);
-      expect(fakeAuth.currentUser!.email, equals('test@tranyx.com'));
-    });
+        expect(fakeAuth.currentUser, isNotNull);
+        expect(fakeAuth.currentUser!.email, equals('test@tranyx.com'));
+      },
+    );
 
     // ── Test 3 ───────────────────────────────────────────────────────────────
-    test('3. Not logged-in, no password in link: prompts & saves password, then signs in', () async {
-      final fakeFirestore = FakeFirebaseFirestore();
-      final fakeAuth = FakeFirebaseAuth(initialUser: null);
+    test(
+      '3. Not logged-in, no password in link: prompts & saves password, then signs in',
+      () async {
+        final fakeFirestore = FakeFirebaseFirestore();
+        final fakeAuth = FakeFirebaseAuth(initialUser: null);
 
-      // Link exists but WITHOUT a password (e.g. linked via web)
-      fakeFirestore.db['walletLinks/$mockPublicKey'] = {
-        'uid': 'user_123',
-        'email': 'test@tranyx.com',
-        'linkedAt': DateTime.now().millisecondsSinceEpoch,
-      };
+        // Link exists but WITHOUT a password (e.g. linked via web)
+        fakeFirestore.db['walletLinks/$mockPublicKey'] = {
+          'uid': 'user_123',
+          'email': 'test@tranyx.com',
+          'linkedAt': DateTime.now().millisecondsSinceEpoch,
+        };
 
-      final container = ProviderContainer(
-        overrides: [
-          firestoreProvider.overrideWithValue(fakeFirestore),
-          firebaseAuthProvider.overrideWithValue(fakeAuth),
-          fcmProvider.overrideWithValue(MockFirebaseMessagingService()),
-          phantomServiceProvider.overrideWithValue(
-            MockPhantomService(mockPublicKey: mockPublicKey),
-          ),
-          phantomSessionPrivateKeyProvider.overrideWith(
-            (ref) => Uint8List.fromList([1, 2, 3]),
-          ),
-          connectingWalletTypeProvider.overrideWith((ref) => 'phantom'),
-        ],
-      );
-      addTearDown(container.dispose);
+        final container = ProviderContainer(
+          overrides: [
+            firestoreProvider.overrideWithValue(fakeFirestore),
+            firebaseAuthProvider.overrideWithValue(fakeAuth),
+            fcmProvider.overrideWithValue(MockFirebaseMessagingService()),
+            phantomServiceProvider.overrideWithValue(
+              MockPhantomService(mockPublicKey: mockPublicKey),
+            ),
+            phantomSessionPrivateKeyProvider.overrideWith(
+              (ref) => Uint8List.fromList([1, 2, 3]),
+            ),
+            connectingWalletTypeProvider.overrideWith((ref) => 'phantom'),
+          ],
+        );
+        addTearDown(container.dispose);
 
-      await simulateOnConnect(
-        container: container,
-        fakeAuth: fakeAuth,
-        solanaPublicKey: mockPublicKey,
-        // Simulate user typing their password in the dialog
-        onPasswordPrompt: (_) async => 'password123',
-      );
+        await simulateOnConnect(
+          container: container,
+          fakeAuth: fakeAuth,
+          solanaPublicKey: mockPublicKey,
+          // Simulate user typing their password in the dialog
+          onPasswordPrompt: (_) async => 'password123',
+        );
 
-      // Signed in
-      expect(fakeAuth.currentUser, isNotNull);
-      expect(fakeAuth.currentUser!.email, equals('test@tranyx.com'));
+        // Signed in
+        expect(fakeAuth.currentUser, isNotNull);
+        expect(fakeAuth.currentUser!.email, equals('test@tranyx.com'));
 
-      // Password saved locally
-      final savedPassword = await SecureStorageHelper.getPassword();
-      expect(savedPassword, equals('password123'));
+        // Password saved locally
+        final savedPassword = await SecureStorageHelper.getPassword();
+        expect(savedPassword, equals('password123'));
 
-      // walletLinks updated with obfuscated password
-      final linkDoc = fakeFirestore.db['walletLinks/$mockPublicKey'];
-      expect(linkDoc, isNotNull);
-      expect(
-        SecureStorageHelper.deobfuscate(linkDoc!['password'] as String),
-        equals('password123'),
-      );
-    });
+        // walletLinks updated with obfuscated password
+        final linkDoc = fakeFirestore.db['walletLinks/$mockPublicKey'];
+        expect(linkDoc, isNotNull);
+        expect(
+          SecureStorageHelper.deobfuscate(linkDoc!['password'] as String),
+          equals('password123'),
+        );
+      },
+    );
 
     // ── Test 4 ───────────────────────────────────────────────────────────────
-    test('4. Not logged-in, unregistered wallet: sets register-path & pendingWalletPublicKey', () async {
-      final fakeFirestore = FakeFirebaseFirestore();
-      final fakeAuth = FakeFirebaseAuth(initialUser: null);
+    test(
+      '4. Not logged-in, unregistered wallet: sets register-path & pendingWalletPublicKey',
+      () async {
+        final fakeFirestore = FakeFirebaseFirestore();
+        final fakeAuth = FakeFirebaseAuth(initialUser: null);
 
-      // No walletLinks entry exists
-      final container = ProviderContainer(
-        overrides: [
-          firestoreProvider.overrideWithValue(fakeFirestore),
-          firebaseAuthProvider.overrideWithValue(fakeAuth),
-          fcmProvider.overrideWithValue(MockFirebaseMessagingService()),
-          phantomServiceProvider.overrideWithValue(
-            MockPhantomService(mockPublicKey: 'unregistered_wallet_key'),
-          ),
-          phantomSessionPrivateKeyProvider.overrideWith(
-            (ref) => Uint8List.fromList([1, 2, 3]),
-          ),
-          connectingWalletTypeProvider.overrideWith((ref) => 'phantom'),
-        ],
-      );
-      addTearDown(container.dispose);
+        // No walletLinks entry exists
+        final container = ProviderContainer(
+          overrides: [
+            firestoreProvider.overrideWithValue(fakeFirestore),
+            firebaseAuthProvider.overrideWithValue(fakeAuth),
+            fcmProvider.overrideWithValue(MockFirebaseMessagingService()),
+            phantomServiceProvider.overrideWithValue(
+              MockPhantomService(mockPublicKey: 'unregistered_wallet_key'),
+            ),
+            phantomSessionPrivateKeyProvider.overrideWith(
+              (ref) => Uint8List.fromList([1, 2, 3]),
+            ),
+            connectingWalletTypeProvider.overrideWith((ref) => 'phantom'),
+          ],
+        );
+        addTearDown(container.dispose);
 
-      await simulateOnConnect(
-        container: container,
-        fakeAuth: fakeAuth,
-        solanaPublicKey: 'unregistered_wallet_key',
-      );
+        await simulateOnConnect(
+          container: container,
+          fakeAuth: fakeAuth,
+          solanaPublicKey: 'unregistered_wallet_key',
+        );
 
-      // User stays logged out
-      expect(fakeAuth.currentUser, isNull);
+        // User stays logged out
+        expect(fakeAuth.currentUser, isNull);
 
-      // Auth view state -> register path
-      expect(
-        container.read(authViewProvider),
-        equals('register-path'),
-      );
+        // Auth view state -> register path
+        expect(container.read(authViewProvider), equals('register-path'));
 
-      // Pending public key set
-      expect(
-        container.read(pendingWalletPublicKeyProvider),
-        equals('unregistered_wallet_key'),
-      );
-    });
+        // Pending public key set
+        expect(
+          container.read(pendingWalletPublicKeyProvider),
+          equals('unregistered_wallet_key'),
+        );
+      },
+    );
   });
 }

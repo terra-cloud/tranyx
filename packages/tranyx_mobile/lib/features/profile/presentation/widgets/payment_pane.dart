@@ -12,6 +12,8 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
+import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
+import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/flavors.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 
@@ -65,6 +67,16 @@ const List<WalletInfo> wallets = [
         'https://play.google.com/store/apps/details?id=com.solflare.mobile',
     image: 'assets/images/Solflare.png',
   ),
+  WalletInfo(
+    id: 'trust',
+    name: 'Trust Wallet',
+    scheme: 'trust://',
+    iosStoreUrl:
+        'https://apps.apple.com/app/trust-crypto-bitcoin-wallet/id1288339409',
+    androidStoreUrl:
+        'https://play.google.com/store/apps/details?id=com.wallet.crypto.trustapp',
+    image: 'assets/images/TrustWallet.jpeg',
+  ),
 ];
 
 class PaymentPane extends ConsumerStatefulWidget {
@@ -81,19 +93,35 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
   bool _isProcessing = false;
   Map<String, bool> _installedWallets = {};
 
+  // Trust Wallet AppKit modal (kept alive for session requests)
+  ReownAppKitModal? _trustModal;
+
   // Deposit sheet state
   String _selectedPaymentMethod = 'xendit'; // 'xendit' | 'solana'
-  String _selectedSolanaCurrency = 'SOL';   // 'SOL' | 'USDT'
+  String _selectedSolanaCurrency = 'SOL'; // 'SOL' | 'USDT'
   double _solToPhpRate = 8000.0;
   double _usdToPhpRate = 57.0;
   double _solBalance = 0.0;
+  double _usdtBalance = 0.0;
   bool _isFetchingRate = false;
+
+  // Real-time SOL balance polling
+  Timer? _balancePollingTimer;
+  String? _lastPolledPubkey;
 
   @override
   void initState() {
     super.initState();
     _checkInstalledWallets();
     _fetchRates();
+  }
+
+  @override
+  void dispose() {
+    _trustModal?.dispose();
+    _stopBalancePolling();
+    _amountController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchRates() async {
@@ -130,8 +158,10 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
 
   Future<void> _fetchSolBalance(String pubkey) async {
     try {
-      final rpcUrl = 'https://api.devnet.solana.com';
-      final res = await http.post(
+      final rpcUrl = ref.read(phantomServiceProvider).rpcUrl;
+
+      // Fetch SOL balance
+      final solRes = await http.post(
         Uri.parse(rpcUrl),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -141,10 +171,38 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
           'params': [pubkey],
         }),
       );
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
+      if (solRes.statusCode == 200) {
+        final data = jsonDecode(solRes.body);
         final lamports = (data['result']?['value'] as num?)?.toDouble() ?? 0.0;
         if (mounted) setState(() => _solBalance = lamports / 1e9);
+      }
+
+      // Fetch USDT token balance via getTokenAccountsByOwner
+      final usdtMint = ref.read(phantomServiceProvider).usdtMintAddress;
+      final tokenRes = await http.post(
+        Uri.parse(rpcUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'jsonrpc': '2.0',
+          'id': 2,
+          'method': 'getTokenAccountsByOwner',
+          'params': [
+            pubkey,
+            {'mint': usdtMint},
+            {'encoding': 'jsonParsed'},
+          ],
+        }),
+      );
+      if (tokenRes.statusCode == 200) {
+        final tokenData = jsonDecode(tokenRes.body);
+        final accounts = tokenData['result']?['value'] as List<dynamic>? ?? [];
+        double totalUsdt = 0.0;
+        for (final account in accounts) {
+          final amount = account['account']?['data']?['parsed']?['info']
+              ?['tokenAmount']?['uiAmount'];
+          if (amount != null) totalUsdt += (amount as num).toDouble();
+        }
+        if (mounted) setState(() => _usdtBalance = totalUsdt);
       }
     } catch (_) {}
   }
@@ -167,7 +225,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       } else if (wallet.id == 'phantom') {
         schemesToCheck = ['phantom://', 'phantom://v1/connect'];
       } else if (wallet.id == 'solflare') {
-        schemesToCheck = ['solflare://', 'solflare://v1/connect'];
+        schemesToCheck = ['solflare://', 'solflare://ul/v1/connect', 'solflare://v1/connect'];
       } else if (wallet.id == 'backpack') {
         schemesToCheck = ['backpack://', 'backpack://v1/connect'];
       }
@@ -190,10 +248,27 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     }
   }
 
-  @override
-  void dispose() {
-    _amountController.dispose();
-    super.dispose();
+  /// Starts a periodic timer that refreshes the on-chain SOL balance every
+  /// 10 seconds. If a timer is already running for the same pubkey it is a
+  /// no-op; if the pubkey changed the old timer is cancelled first.
+  void _startBalancePolling(String pubkey) {
+    if (_lastPolledPubkey == pubkey && _balancePollingTimer?.isActive == true) {
+      return; // already polling for this key
+    }
+    _stopBalancePolling();
+    _lastPolledPubkey = pubkey;
+    // Fetch immediately, then every 10 s.
+    _fetchSolBalance(pubkey);
+    _balancePollingTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _fetchSolBalance(pubkey),
+    );
+  }
+
+  void _stopBalancePolling() {
+    _balancePollingTimer?.cancel();
+    _balancePollingTimer = null;
+    _lastPolledPubkey = null;
   }
 
   void _showDepositSheet(double tyxBalance, String uid) {
@@ -206,11 +281,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         rawUserDoc?.data()?['connectedWalletType'] as String? ??
         (hasWallet ? 'phantom' : null);
 
-    // Fetch SOL balance once sheet opens
-    if (hasWallet) {
-      _fetchSolBalance(userProfile.walletPublicKey!);
-    }
-
+    // Balance is kept up-to-date by the periodic timer started in build().
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -223,17 +294,18 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                 double.tryParse(_amountController.text.trim()) ?? 0.0;
             final isSolana = _selectedPaymentMethod == 'solana';
             final isSOL = _selectedSolanaCurrency == 'SOL';
-            final amountInSol =
-                phpAmount > 0 ? phpAmount / _solToPhpRate : 0.0;
-            final amountInUsdt =
-                phpAmount > 0 ? phpAmount / _usdToPhpRate : 0.0;
+            final amountInSol = phpAmount > 0 ? phpAmount / _solToPhpRate : 0.0;
+            final amountInUsdt = phpAmount > 0
+                ? phpAmount / _usdToPhpRate
+                : 0.0;
 
             void onAmountChanged() => setSheetState(() {});
             _amountController.removeListener(onAmountChanged);
             _amountController.addListener(onAmountChanged);
 
-            final cardColor =
-                isDarkMode ? const Color(0xFF1A1A2E) : const Color(0xFFF8F8FC);
+            final cardColor = isDarkMode
+                ? const Color(0xFF1A1A2E)
+                : const Color(0xFFF8F8FC);
             final borderColor = isDarkMode
                 ? Colors.white.withValues(alpha: 0.08)
                 : Colors.black.withValues(alpha: 0.07);
@@ -265,9 +337,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                   : Colors.white),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: selected
-                              ? AppColors.indigo
-                              : borderColor,
+                          color: selected ? AppColors.indigo : borderColor,
                         ),
                         boxShadow: selected
                             ? [
@@ -316,9 +386,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                       horizontal: 8,
                     ),
                     decoration: BoxDecoration(
-                      color: sel
-                          ? accent.withValues(alpha: 0.1)
-                          : cardColor,
+                      color: sel ? accent.withValues(alpha: 0.1) : cardColor,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
                         color: sel ? accent : borderColor,
@@ -352,16 +420,13 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                 children: [
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => setSheetState(
-                        () => _selectedSolanaCurrency = 'SOL',
-                      ),
+                      onTap: () =>
+                          setSheetState(() => _selectedSolanaCurrency = 'SOL'),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 160),
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         decoration: BoxDecoration(
-                          color: isSOL
-                              ? const Color(0xFF512DA8)
-                              : cardColor,
+                          color: isSOL ? const Color(0xFF512DA8) : cardColor,
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
                             color: isSOL
@@ -375,8 +440,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
-                              color:
-                                  isSOL ? Colors.white : Colors.grey,
+                              color: isSOL ? Colors.white : Colors.grey,
                             ),
                           ),
                         ),
@@ -386,16 +450,13 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => setSheetState(
-                        () => _selectedSolanaCurrency = 'USDT',
-                      ),
+                      onTap: () =>
+                          setSheetState(() => _selectedSolanaCurrency = 'USDT'),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 160),
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         decoration: BoxDecoration(
-                          color: !isSOL
-                              ? const Color(0xFF059669)
-                              : cardColor,
+                          color: !isSOL ? const Color(0xFF059669) : cardColor,
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
                             color: !isSOL
@@ -491,15 +552,11 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                       ),
                     ],
                     if (hasWallet) ...[
-                      Divider(
-                        height: 20,
-                        color: borderColor,
-                      ),
+                      Divider(height: 20, color: borderColor),
                       _rateRow(
                         'Wallet Address',
                         () {
-                          final addr =
-                              userProfile.walletPublicKey ?? '';
+                          final addr = userProfile.walletPublicKey ?? '';
                           return addr.length > 12
                               ? '${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}'
                               : addr;
@@ -508,12 +565,21 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                         mono: true,
                       ),
                       const SizedBox(height: 6),
-                      _rateRow(
-                        'SOL Balance',
-                        '${_solBalance.toStringAsFixed(4)} SOL',
-                        isDarkMode,
-                        valueBold: true,
-                      ),
+                      isSOL
+                          ? _rateRow(
+                              'SOL Balance',
+                              '${_solBalance.toStringAsFixed(4)} SOL',
+                              isDarkMode,
+                              valueBold: true,
+                              valueColor: const Color(0xFF805AD5),
+                            )
+                          : _rateRow(
+                              'USDT Balance',
+                              '\$${_usdtBalance.toStringAsFixed(2)} USDT',
+                              isDarkMode,
+                              valueBold: true,
+                              valueColor: const Color(0xFF059669),
+                            ),
                     ],
                   ],
                 ),
@@ -557,9 +623,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                   maxHeight: MediaQuery.of(ctx).size.height * 0.92,
                 ),
                 decoration: BoxDecoration(
-                  color: isDarkMode
-                      ? const Color(0xFF12121C)
-                      : Colors.white,
+                  color: isDarkMode ? const Color(0xFF12121C) : Colors.white,
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(32),
                   ),
@@ -643,8 +707,8 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                               controller: _amountController,
                               keyboardType:
                                   const TextInputType.numberWithOptions(
-                                decimal: true,
-                              ),
+                                    decimal: true,
+                                  ),
                               style: const TextStyle(
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
@@ -711,7 +775,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                 methodCard(
                                   id: 'solana',
                                   icon: Icons.bolt,
-                                  label: 'Solana (SOL)',
+                                  label: 'Solana Wallet',
                                   accent: const Color(0xFF512DA8),
                                 ),
                               ],
@@ -835,8 +899,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                 value,
                 style: TextStyle(
                   fontSize: 12,
-                  fontWeight:
-                      valueBold ? FontWeight.bold : FontWeight.w600,
+                  fontWeight: valueBold ? FontWeight.bold : FontWeight.w600,
                   color: valueColor,
                   fontFamily: mono ? 'monospace' : null,
                 ),
@@ -1016,8 +1079,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     final label = isSOL
         ? 'Pay ${amountInSol.toStringAsFixed(4)} SOL'
         : 'Pay \$${amountInUsdt.toStringAsFixed(2)} USDT';
-    final btnColor =
-        isSOL ? const Color(0xFF512DA8) : const Color(0xFF059669);
+    final btnColor = isSOL ? const Color(0xFF512DA8) : const Color(0xFF059669);
 
     return SizedBox(
       width: double.infinity,
@@ -1034,26 +1096,25 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         onPressed: phpAmount < 100
             ? null
             : () async {
-                if (!isSOL) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'USDT deposits are web-only on mobile devices. Please select SOL or GCash/Card instead.',
-                      ),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
-                  return;
-                }
                 Navigator.pop(sheetContext);
                 _amountController.clear();
-                await _handleSolanaDeposit(
-                  uid: uid,
-                  phpAmount: phpAmount,
-                  cryptoAmount: amountInSol,
-                  walletType: connectedWalletType,
-                  userPubkey: userProfile!.walletPublicKey!,
-                );
+                if (isSOL) {
+                  await _handleSolanaDeposit(
+                    uid: uid,
+                    phpAmount: phpAmount,
+                    cryptoAmount: amountInSol,
+                    walletType: connectedWalletType,
+                    userPubkey: userProfile!.walletPublicKey!,
+                  );
+                } else {
+                  await _handleUsdtDeposit(
+                    uid: uid,
+                    phpAmount: phpAmount,
+                    amountInUsdt: amountInUsdt,
+                    walletType: connectedWalletType,
+                    userPubkey: userProfile!.walletPublicKey!,
+                  );
+                }
               },
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1169,6 +1230,10 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
   }
 
   void _handleConnectWallet(String uid, WalletInfo wallet) async {
+    if (wallet.id == 'trust') {
+      await _handleConnectTrustWallet(uid);
+      return;
+    }
     setState(() => _isProcessing = true);
     try {
       final phantomService = ref.read(phantomServiceProvider);
@@ -1201,6 +1266,172 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     }
   }
 
+  /// Opens the Reown AppKit modal so the user can connect Trust Wallet
+  /// via WalletConnect v2. Phantom and Solflare are NOT affected.
+  Future<void> _handleConnectTrustWallet(String uid) async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+
+    // Dispose any stale modal first
+    _trustModal?.dispose();
+    _trustModal = null;
+
+    try {
+      const projectId = '52cb8eaaad34baed8dbe063b454b28f6';
+
+      final modal = await TrustWalletService.createModal(
+        context: context,
+        projectId: projectId,
+      );
+      _trustModal = modal;
+
+      // Listen for successful connection
+      modal.onModalConnect.subscribe((ModalConnect? event) async {
+        modal.onModalConnect.unsubscribeAll();
+
+        final address = modal.session?.getAddress(NetworkUtils.solana);
+        debugPrint('Trust Wallet connected! Address: $address');
+
+        if (address != null && address.isNotEmpty) {
+          final user = ref.read(userProvider);
+          if (user != null && mounted) {
+            try {
+              await ref
+                  .read(firestoreProvider)
+                  .collection('users')
+                  .doc(user.uid)
+                  .update({
+                    'walletPublicKey': address,
+                    'connectedWalletType': 'trust',
+                  });
+
+              // Write wallet link for cross-platform login support
+              final password = await SecureStorageHelper.getPassword();
+              final obfuscatedPassword = password != null
+                  ? SecureStorageHelper.obfuscate(password)
+                  : null;
+              final linkData = <String, dynamic>{
+                'uid': user.uid,
+                'email': user.email,
+                'linkedAt': DateTime.now().millisecondsSinceEpoch,
+              };
+              if (obfuscatedPassword != null) {
+                linkData['password'] = obfuscatedPassword;
+              }
+              await ref
+                  .read(firestoreProvider)
+                  .collection('walletLinks')
+                  .doc(address)
+                  .set(linkData);
+
+              ref.invalidate(userProfileProvider);
+
+              if (mounted) {
+                setState(() => _isProcessing = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Trust Wallet connected: $address'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            } catch (e) {
+              if (mounted) {
+                setState(() => _isProcessing = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Failed to save Trust Wallet address: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+          } else {
+            if (mounted) setState(() => _isProcessing = false);
+          }
+        } else {
+          if (mounted) setState(() => _isProcessing = false);
+        }
+      });
+
+      modal.onModalDisconnect.subscribe((_) {
+        modal.onModalDisconnect.unsubscribeAll();
+        if (mounted && _isProcessing) {
+          setState(() => _isProcessing = false);
+        }
+      });
+
+      // Generate the WC v2 connection URI from the initialized AppKit client
+      if (modal.appKit == null) {
+        throw Exception('Reown AppKit client not initialized.');
+      }
+      final connectResponse = await modal.appKit!.connect(
+        optionalNamespaces: modal.optionalNamespaces,
+      );
+
+      final wcUri = connectResponse.uri;
+      if (wcUri == null) {
+        throw Exception('Could not generate WalletConnect URI.');
+      }
+
+      final encodedUri = Uri.encodeComponent(wcUri.toString());
+      final schemes = [
+        'trust://wc?uri=$encodedUri',
+        'trustwallet://wc?uri=$encodedUri',
+        'https://link.trustwallet.com/wc?uri=$encodedUri',
+      ];
+
+      bool launched = false;
+      for (final scheme in schemes) {
+        try {
+          final uri = Uri.parse(scheme);
+          if (await canLaunchUrl(uri)) {
+            launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+            if (launched) {
+              debugPrint('Successfully launched Trust Wallet directly: $scheme');
+              break;
+            }
+          }
+        } catch (e) {
+          debugPrint('Error launching scheme $scheme: $e');
+        }
+      }
+
+      if (!launched) {
+        throw Exception('Could not launch Trust Wallet. Please make sure the app is installed.');
+      }
+
+      // Await connection in background, handle potential failure/rejection
+      connectResponse.session.future.then((sessionData) {
+        debugPrint('Direct Trust Wallet connection session settled.');
+      }).catchError((e) {
+        debugPrint('Direct Trust Wallet connection rejected or failed: $e');
+        modal.onModalConnect.unsubscribeAll();
+        if (mounted) {
+          setState(() => _isProcessing = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Trust Wallet connection failed or rejected.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      });
+    } catch (e) {
+      _trustModal?.dispose();
+      _trustModal = null;
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Trust Wallet connection failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _handleSolanaDeposit({
     required String uid,
     required double phpAmount,
@@ -1210,33 +1441,187 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
   }) async {
     setState(() => _isProcessing = true);
 
-    const String kSystemSolanaReceiverAddress =
-        '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
-
     try {
-      // Phantom / Solflare: NaCl Encryption Deep-link redirect
-      // 1. Save pending state to SecureStorage
-      await SecureStorageHelper.savePendingDepositPhpAmount(phpAmount);
-      await SecureStorageHelper.savePendingDepositCryptoAmount(cryptoAmount);
-      await SecureStorageHelper.savePendingDepositCurrency('SOL');
+      final firestore = ref.read(firestoreProvider);
 
-      // 2. Generate signing link
-      final phantomService = ref.read(phantomServiceProvider);
-      final signUri = await phantomService.generateSignTransactionUri(
-        walletType: walletType,
-        senderPubkey: userPubkey,
-        receiverPubkey: kSystemSolanaReceiverAddress,
-        amountInSol: cryptoAmount,
-      );
+      // Fetch treasury public key from Firestore config
+      final configDoc = await firestore
+          .collection('system_config')
+          .doc('treasury')
+          .get();
+      final treasuryPublicKey = configDoc.data()?['publicKey'] as String?;
 
-      debugPrint('Launching wallet sign URI: $signUri');
-      final launched = await launchUrl(
-        signUri,
-        mode: LaunchMode.externalApplication,
-      );
+      if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
+        throw Exception(
+          'Treasury wallet is not configured. Please contact support.',
+        );
+      }
 
-      if (!launched) {
-        throw 'Could not launch wallet app. Make sure it is installed.';
+      if (walletType == 'trust') {
+        // ── Trust Wallet: Reown AppKit v2 (WalletConnect v2) signing flow ─
+        await SecureStorageHelper.savePendingDepositPhpAmount(phpAmount);
+        await SecureStorageHelper.savePendingDepositCryptoAmount(cryptoAmount);
+        await SecureStorageHelper.savePendingDepositCurrency('SOL');
+
+        final modal = _trustModal;
+        if (modal == null || !modal.isConnected || modal.session == null) {
+          throw Exception(
+            'No active Trust Wallet session. Please reconnect your wallet first.',
+          );
+        }
+
+        // Build the unsigned transaction bytes
+        final phantomService = ref.read(phantomServiceProvider);
+        final blockhash = await phantomService.fetchRecentBlockhash();
+        final lamports = (cryptoAmount * 1e9).round();
+        final txBytes = phantomService.serializeTransferTransaction(
+          senderPubkey: userPubkey,
+          receiverPubkey: treasuryPublicKey,
+          blockhash: blockhash,
+          lamports: lamports,
+        );
+
+        // Encode as base64 for WalletConnect v2 Solana spec
+        final base64Tx = base64.encode(txBytes);
+        final chainId = TrustWalletService.getSolanaChainId();
+
+        // Send solana_signTransaction request to Trust Wallet via WC v2 relay
+        final requestFuture = modal.request(
+          topic: modal.session!.topic,
+          chainId: chainId,
+          request: SessionRequestParams(
+            method: 'solana_signTransaction',
+            params: {'transaction': base64Tx},
+          ),
+        );
+
+        // Immediately open Trust Wallet app so the user is prompted to sign the transaction
+        final schemes = [
+          'trust://',
+          'trustwallet://',
+        ];
+        bool launched = false;
+        for (final scheme in schemes) {
+          try {
+            final uri = Uri.parse(scheme);
+            if (await canLaunchUrl(uri)) {
+              launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+              if (launched) {
+                debugPrint('Successfully opened Trust Wallet for signing via: $scheme');
+                break;
+              }
+            }
+          } catch (_) {}
+        }
+        if (!launched) {
+          // Try standard universal redirect if deep link scheme didn't work
+          final redirectLink = modal.session?.peer?.metadata.redirect?.native;
+          if (redirectLink != null && redirectLink.isNotEmpty) {
+            try {
+              await launchUrl(Uri.parse(redirectLink), mode: LaunchMode.externalApplication);
+            } catch (_) {}
+          }
+        }
+
+        // Await signing response from Trust Wallet
+        final result = await requestFuture;
+
+        // Extract signature from response (WC v2 returns {"signature": "..."})
+        String txSignature;
+        if (result is Map) {
+          final sig =
+              result['signature'] as String? ??
+              result['transaction'] as String?;
+          if (sig == null || sig.isEmpty) {
+            throw Exception('Trust Wallet returned an empty signature.');
+          }
+          // sig is the base58 signature — broadcast directly
+          txSignature = await ref
+              .read(phantomServiceProvider)
+              .sendTransaction(sig);
+        } else if (result is String) {
+          txSignature = await ref
+              .read(phantomServiceProvider)
+              .sendTransaction(result);
+        } else {
+          throw Exception('Unexpected response from Trust Wallet: $result');
+        }
+
+        final confirmed = await ref
+            .read(phantomServiceProvider)
+            .confirmTransaction(txSignature);
+
+        if (!confirmed) {
+          throw Exception(
+            'Trust Wallet transaction broadcast but not confirmed. '
+            'Check: https://explorer.solana.com/tx/$txSignature',
+          );
+        }
+
+        // Clear pending deposit
+        await SecureStorageHelper.deletePendingDepositPhpAmount();
+        await SecureStorageHelper.deletePendingDepositCryptoAmount();
+        await SecureStorageHelper.deletePendingDepositCurrency();
+
+        // Update Firestore balance
+        final repo = ref.read(transitRepositoryProvider);
+        final userProfile = await repo.getUser(uid);
+        if (userProfile != null) {
+          final newBalance = userProfile.tyxBalance + phpAmount;
+          await repo.updateTyxBalance(uid, newBalance);
+
+          final txId = 'deposit_sol_$txSignature';
+          await firestore.collection('transactions').doc(txId).set({
+            'uid': uid,
+            'type': 'deposit',
+            'amount': phpAmount,
+            'title': 'Wallet Top-Up (SOL via Trust Wallet)',
+            'desc':
+                'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} SOL via Trust Wallet',
+            'method': 'Trust Wallet',
+            'solanaTxSignature': txSignature,
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+          });
+
+          ref.invalidate(userProfileProvider);
+          ref.invalidate(userTransactionsProvider);
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Successfully deposited ₱ ${phpAmount.toStringAsFixed(2)} via Trust Wallet',
+                ),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        }
+      } else {
+        // ── Phantom / Solflare: NaCl Encryption Deep-link redirect ──────
+        // 1. Save pending state to SecureStorage
+        await SecureStorageHelper.savePendingDepositPhpAmount(phpAmount);
+        await SecureStorageHelper.savePendingDepositCryptoAmount(cryptoAmount);
+        await SecureStorageHelper.savePendingDepositCurrency('SOL');
+
+        // 2. Generate signing link
+        final phantomService = ref.read(phantomServiceProvider);
+        final signUri = await phantomService.generateSignTransactionUri(
+          walletType: walletType,
+          senderPubkey: userPubkey,
+          receiverPubkey: treasuryPublicKey,
+          amountInSol: cryptoAmount,
+        );
+
+        debugPrint('Launching wallet sign URI: $signUri');
+        final launched = await launchUrl(
+          signUri,
+          mode: LaunchMode.externalApplication,
+        );
+
+        if (!launched) {
+          throw 'Could not launch wallet app. Make sure it is installed.';
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -1254,8 +1639,212 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     }
   }
 
+  /// Handles a USDT (SPL token) deposit for all supported wallets:
+  /// - Phantom / Solflare: NaCl encrypted deep-link → `/onSignTransaction`
+  /// - Trust Wallet: WalletConnect v2 `solana_signTransaction` with base64 SPL tx
+  ///
+  /// The `/onSignTransaction` route in app_router.dart already reads
+  /// `pendingCurrency` from SecureStorage, so USDT credits flow through
+  /// the same Firestore balance update path as SOL — no router changes needed.
+  Future<void> _handleUsdtDeposit({
+    required String uid,
+    required double phpAmount,
+    required double amountInUsdt,
+    required String walletType,
+    required String userPubkey,
+  }) async {
+    setState(() => _isProcessing = true);
+
+    try {
+      final firestore = ref.read(firestoreProvider);
+
+      // Fetch treasury public key from Firestore config
+      final configDoc = await firestore
+          .collection('system_config')
+          .doc('treasury')
+          .get();
+      final treasuryPublicKey = configDoc.data()?['publicKey'] as String?;
+
+      if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
+        throw Exception(
+          'Treasury wallet is not configured. Please contact support.',
+        );
+      }
+
+      final phantomService = ref.read(phantomServiceProvider);
+
+      if (walletType == 'trust') {
+        // ── Trust Wallet: Reown AppKit v2 (WalletConnect v2) signing flow ──
+        await SecureStorageHelper.savePendingDepositPhpAmount(phpAmount);
+        await SecureStorageHelper.savePendingDepositCryptoAmount(amountInUsdt);
+        await SecureStorageHelper.savePendingDepositCurrency('USDT');
+
+        final modal = _trustModal;
+        if (modal == null || !modal.isConnected || modal.session == null) {
+          throw Exception(
+            'No active Trust Wallet session. Please reconnect your wallet first.',
+          );
+        }
+
+        // Build unsigned SPL token transfer transaction bytes
+        final blockhash = await phantomService.fetchRecentBlockhash();
+        final microUnits = (amountInUsdt * 1e6).round();
+        final txBytes = await phantomService.serializeTokenTransferTransaction(
+          senderPubkey: userPubkey,
+          receiverPubkey: treasuryPublicKey,
+          mintPubkey: phantomService.usdtMintAddress,
+          blockhash: blockhash,
+          microUnits: microUnits,
+        );
+
+        // Encode as base64 for WalletConnect v2 Solana spec
+        final base64Tx = base64.encode(txBytes);
+        final chainId = TrustWalletService.getSolanaChainId();
+
+        // Send solana_signTransaction request to Trust Wallet
+        final requestFuture = modal.request(
+          topic: modal.session!.topic,
+          chainId: chainId,
+          request: SessionRequestParams(
+            method: 'solana_signTransaction',
+            params: {'transaction': base64Tx},
+          ),
+        );
+
+        // Immediately open Trust Wallet app for signing
+        final schemes = ['trust://', 'trustwallet://'];
+        bool launched = false;
+        for (final scheme in schemes) {
+          try {
+            final uri = Uri.parse(scheme);
+            if (await canLaunchUrl(uri)) {
+              launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+              if (launched) break;
+            }
+          } catch (_) {}
+        }
+        if (!launched) {
+          final redirectLink = modal.session?.peer?.metadata.redirect?.native;
+          if (redirectLink != null && redirectLink.isNotEmpty) {
+            try {
+              await launchUrl(Uri.parse(redirectLink), mode: LaunchMode.externalApplication);
+            } catch (_) {}
+          }
+        }
+
+        // Await signing response from Trust Wallet
+        final result = await requestFuture;
+
+        // Extract signed transaction or signature and broadcast
+        String txSignature;
+        if (result is Map) {
+          final sig =
+              result['signature'] as String? ??
+              result['transaction'] as String?;
+          if (sig == null || sig.isEmpty) {
+            throw Exception('Trust Wallet returned an empty signature.');
+          }
+          txSignature = await phantomService.sendTransaction(sig);
+        } else if (result is String) {
+          txSignature = await phantomService.sendTransaction(result);
+        } else {
+          throw Exception('Unexpected response from Trust Wallet: $result');
+        }
+
+        final confirmed = await phantomService.confirmTransaction(txSignature);
+        if (!confirmed) {
+          throw Exception(
+            'USDT transaction broadcast but not confirmed. '
+            'Check: https://explorer.solana.com/tx/$txSignature',
+          );
+        }
+
+        // Clear pending deposit
+        await SecureStorageHelper.deletePendingDepositPhpAmount();
+        await SecureStorageHelper.deletePendingDepositCryptoAmount();
+        await SecureStorageHelper.deletePendingDepositCurrency();
+
+        // Update Firestore balance
+        final repo = ref.read(transitRepositoryProvider);
+        final userProfile = await repo.getUser(uid);
+        if (userProfile != null) {
+          final newBalance = userProfile.tyxBalance + phpAmount;
+          await repo.updateTyxBalance(uid, newBalance);
+
+          final txId = 'deposit_usdt_$txSignature';
+          await firestore.collection('transactions').doc(txId).set({
+            'uid': uid,
+            'type': 'deposit',
+            'amount': phpAmount,
+            'title': 'Wallet Top-Up (USDT via Trust Wallet)',
+            'desc':
+                'Crypto deposit of \$${amountInUsdt.toStringAsFixed(2)} USDT via Trust Wallet',
+            'method': 'Trust Wallet',
+            'solanaTxSignature': txSignature,
+            'currency': 'USDT',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+          });
+
+          ref.invalidate(userProfileProvider);
+          ref.invalidate(userTransactionsProvider);
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Successfully deposited ₱ ${phpAmount.toStringAsFixed(2)} via USDT (Trust Wallet)',
+                ),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        }
+      } else {
+        // ── Phantom / Solflare: NaCl Encrypted deep-link ────────────────
+        // 1. Save pending state to SecureStorage
+        await SecureStorageHelper.savePendingDepositPhpAmount(phpAmount);
+        await SecureStorageHelper.savePendingDepositCryptoAmount(amountInUsdt);
+        await SecureStorageHelper.savePendingDepositCurrency('USDT');
+
+        // 2. Generate USDT sign URI and launch wallet
+        final signUri = await phantomService.generateSignTokenTransferUri(
+          walletType: walletType,
+          senderPubkey: userPubkey,
+          receiverPubkey: treasuryPublicKey,
+          amountInUsdt: amountInUsdt,
+        );
+
+        debugPrint('Launching USDT sign URI: $signUri');
+        final launched = await launchUrl(
+          signUri,
+          mode: LaunchMode.externalApplication,
+        );
+
+        if (!launched) {
+          throw 'Could not launch wallet app. Make sure it is installed.';
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('USDT Deposit failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
 
   void _handleDisconnectWallet(String uid, WalletInfo wallet) async {
+    if (wallet.id == 'trust') {
+      await _handleDisconnectTrustWallet(uid);
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1306,6 +1895,72 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     }
   }
 
+  /// Disconnects Trust Wallet and clears its WalletConnect session from storage.
+  Future<void> _handleDisconnectTrustWallet(String uid) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Disconnect Trust Wallet'),
+        content: const Text(
+          'Are you sure you want to disconnect your Trust Wallet?\n\nThis will clear the WalletConnect session.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Disconnect'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() => _isProcessing = true);
+      try {
+        // Disconnect and dispose AppKit modal session
+        if (_trustModal?.isConnected == true) {
+          await _trustModal!.disconnect();
+        }
+        _trustModal?.dispose();
+        _trustModal = null;
+
+        // Clear any legacy Trust Wallet keys from SecureStorage
+        await SecureStorageHelper.deleteTrustWalletAddress();
+        await SecureStorageHelper.deleteTrustWalletTopic();
+        await SecureStorageHelper.deleteTrustWalletKey();
+
+        // Clear wallet from Firestore
+        await ref.read(firestoreProvider).collection('users').doc(uid).update({
+          'walletPublicKey': null,
+          'connectedWalletType': null,
+        });
+
+        ref.invalidate(userProfileProvider);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Trust Wallet disconnected.'),
+              backgroundColor: Colors.blue,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Failed to disconnect: $e')));
+        }
+      } finally {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
   void _handleWithdraw(double tyxBalance, String uid) async {
     final userProfile = ref.read(userProfileProvider).value;
     if (userProfile == null) return;
@@ -1330,67 +1985,591 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       return;
     }
 
-    final confirmed = await showDialog<bool>(
+    final double feeRate = 0.02;
+    final feePhp = tyxBalance * feeRate;
+    final netPhp = tyxBalance - feePhp;
+
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Withdrawal'),
-        content: Text(
-          'Are you sure you want to withdraw your entire balance of ₱ ${tyxBalance.toStringAsFixed(2)} to your connected Solana wallet?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Withdraw'),
-          ),
-        ],
-      ),
-    );
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        String selectedCoin = 'SOL';
+        bool isWithdrawing = false;
 
-    if (confirmed == true) {
-      setState(() => _isProcessing = true);
-      try {
-        // Mock withdraw by setting balance to 0 and writing transaction
-        await ref.read(transitRepositoryProvider).updateTyxBalance(uid, 0);
-        final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-        await ref
-            .read(firestoreProvider)
-            .collection('transactions')
-            .doc(txId)
-            .set({
-              'uid': uid,
-              'type': 'withdraw',
-              'amount': tyxBalance,
-              'title': 'Earnings Withdrawn',
-              'desc': 'Withdrew all earnings payout to Solana Wallet address',
-              'method': 'Tranyx Wallet',
-              'createdAt': DateTime.now().millisecondsSinceEpoch,
-            });
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final isDarkMode = ref.read(themeModeProvider);
+            final cardColor = isDarkMode
+                ? const Color(0xFF1A1A2E)
+                : const Color(0xFFF8F8FC);
+            final borderColor = isDarkMode
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.07);
 
-        ref.invalidate(userProfileProvider);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Withdrawal successful! Payout sent to Solana wallet.',
+            final rateSol = _solToPhpRate > 0 ? _solToPhpRate : 8000.0;
+            final rateUsdt = _usdToPhpRate > 0 ? _usdToPhpRate : 57.0;
+
+            final solAmount = netPhp / rateSol;
+            final feeSolAmount = feePhp / rateSol;
+
+            final usdtAmount = netPhp / rateUsdt;
+            final feeUsdtAmount = feePhp / rateUsdt;
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
               ),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Withdrawal failed: $e')));
-        }
-      } finally {
-        setState(() => _isProcessing = false);
-      }
-    }
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.92,
+                ),
+                decoration: BoxDecoration(
+                  color: isDarkMode ? const Color(0xFF12121C) : Colors.white,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(32),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Handle + Header
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 16, 16, 0),
+                      child: Column(
+                        children: [
+                          Center(
+                            child: Container(
+                              width: 40,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withValues(
+                                    alpha: 0.12,
+                                  ),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: const Icon(
+                                  Icons.account_balance_wallet_outlined,
+                                  color: Colors.blue,
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Withdraw Earnings',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Choose payout cryptocurrency',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close),
+                                onPressed: () => Navigator.pop(sheetContext),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const Divider(height: 24, thickness: 1),
+
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Current Balance Display
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: cardColor,
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(color: borderColor),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'WITHDRAWABLE BALANCE',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDarkMode ? Colors.white60 : Colors.black54,
+                                      letterSpacing: 1.0,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        '₱ ${tyxBalance.toStringAsFixed(2)}',
+                                        style: const TextStyle(
+                                          fontSize: 32,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Wallet: ${userProfile.walletPublicKey!.substring(0, 8)}...${userProfile.walletPublicKey!.substring(userProfile.walletPublicKey!.length - 8)}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            const SizedBox(height: 24),
+                            const Text(
+                              'Select Payout Asset',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+
+                            // Option SOL
+                            InkWell(
+                              onTap: () {
+                                if (!isWithdrawing) {
+                                  setSheetState(() => selectedCoin = 'SOL');
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(20),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 160),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: selectedCoin == 'SOL'
+                                      ? AppColors.indigo.withValues(alpha: isDarkMode ? 0.15 : 0.05)
+                                      : cardColor,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: selectedCoin == 'SOL'
+                                        ? AppColors.indigo
+                                        : borderColor,
+                                    width: selectedCoin == 'SOL' ? 2 : 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.bolt,
+                                      color: Colors.purple,
+                                      size: 32,
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'Solana (SOL)',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          Text(
+                                            '1 SOL ≈ ₱${rateSol.toStringAsFixed(2)}',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          '${solAmount.toStringAsFixed(6)} SOL',
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.purple,
+                                          ),
+                                        ),
+                                        const Text(
+                                          'Est. Payout',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 12),
+
+                            // Option USDT
+                            InkWell(
+                              onTap: () {
+                                if (!isWithdrawing) {
+                                  setSheetState(() => selectedCoin = 'USDT');
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(20),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 160),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: selectedCoin == 'USDT'
+                                      ? AppColors.indigo.withValues(alpha: isDarkMode ? 0.15 : 0.05)
+                                      : cardColor,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: selectedCoin == 'USDT'
+                                        ? AppColors.indigo
+                                        : borderColor,
+                                    width: selectedCoin == 'USDT' ? 2 : 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.monetization_on,
+                                      color: Colors.teal,
+                                      size: 32,
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'Tether (USDT)',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          Text(
+                                            '1 USDT ≈ ₱${rateUsdt.toStringAsFixed(2)}',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          '${usdtAmount.toStringAsFixed(2)} USDT',
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.teal,
+                                          ),
+                                        ),
+                                        const Text(
+                                          'Est. Payout',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            // Fee Breakdown
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: isDarkMode
+                                    ? Colors.white.withValues(alpha: 0.03)
+                                    : Colors.black.withValues(alpha: 0.02),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text(
+                                        'Gross Balance',
+                                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                                      ),
+                                      Text(
+                                        '₱ ${tyxBalance.toStringAsFixed(2)}',
+                                        style: TextStyle(
+                                          color: isDarkMode ? Colors.white : Colors.black,
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text(
+                                        'Platform Fee (2%)',
+                                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                                      ),
+                                      Text(
+                                        '₱ ${feePhp.toStringAsFixed(2)}',
+                                        style: const TextStyle(
+                                          color: Colors.redAccent,
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const Divider(height: 16),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text(
+                                        'Net Received Value',
+                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                      ),
+                                      Text(
+                                        '₱ ${netPhp.toStringAsFixed(2)}',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.indigo,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            // CTA Button
+                            isWithdrawing
+                                ? const Center(
+                                    child: CircularProgressIndicator(),
+                                  )
+                                : SizedBox(
+                                    width: double.infinity,
+                                    height: 52,
+                                    child: ElevatedButton(
+                                      onPressed: () async {
+                                        setSheetState(() => isWithdrawing = true);
+                                        try {
+                                          final firestore = ref.read(firestoreProvider);
+                                          final phantomService = ref.read(phantomServiceProvider);
+
+                                          // 1. Fetch treasury private key
+                                          final configDoc = await firestore
+                                              .collection('system_config')
+                                              .doc('treasury')
+                                              .get();
+                                          final treasuryPrivKey =
+                                              configDoc.data()?['privateKeyBase58'] as String?;
+                                          if (treasuryPrivKey == null || treasuryPrivKey.isEmpty) {
+                                            throw Exception(
+                                              'Treasury wallet is not configured. Please contact support.',
+                                            );
+                                          }
+
+                                          String txSignature = '';
+
+                                          if (selectedCoin == 'SOL') {
+                                            final lamports = (solAmount * 1e9).round();
+                                            if (lamports <= 0) {
+                                              throw Exception('Withdrawal amount too small to process on-chain.');
+                                            }
+
+                                            // 2. Sign & broadcast Treasury -> User SOL
+                                            txSignature = await phantomService.signAndBroadcastTransfer(
+                                              treasuryPrivKeyBase58: treasuryPrivKey,
+                                              recipientPubkey: userProfile.walletPublicKey!,
+                                              lamports: lamports,
+                                            );
+                                          } else {
+                                            // selectedCoin == 'USDT'
+                                            if (usdtAmount <= 0) {
+                                              throw Exception('Withdrawal amount too small to process on-chain.');
+                                            }
+
+                                            // 2. Sign & broadcast Treasury -> User USDT
+                                            txSignature = await phantomService.signAndBroadcastTokenTransfer(
+                                              treasuryPrivKeyBase58: treasuryPrivKey,
+                                              recipientPubkey: userProfile.walletPublicKey!,
+                                              amountInUsdt: usdtAmount,
+                                            );
+                                          }
+
+                                          // 3. Confirm transaction
+                                          final txConfirmed = await phantomService.confirmTransaction(txSignature);
+                                          if (!txConfirmed) {
+                                            throw Exception(
+                                              'Transaction was broadcast but could not be confirmed. '
+                                              'Check explorer: https://explorer.solana.com/tx/$txSignature',
+                                            );
+                                          }
+
+                                          // 4. Deduct tyxBalance
+                                          await ref.read(transitRepositoryProvider).updateTyxBalance(uid, 0);
+
+                                          // 5. Save history
+                                          final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+                                          await firestore.collection('transactions').doc(txId).set({
+                                            'uid': uid,
+                                            'type': 'withdraw',
+                                            'amount': tyxBalance,
+                                            'feeAmount': feePhp,
+                                            'netAmount': netPhp,
+                                            if (selectedCoin == 'SOL') ...{
+                                              'solAmount': solAmount,
+                                              'feeSolAmount': feeSolAmount,
+                                              'lamports': (solAmount * 1e9).round(),
+                                            } else ...{
+                                              'usdtAmount': usdtAmount,
+                                              'feeUsdtAmount': feeUsdtAmount,
+                                              'microUnits': (usdtAmount * 1e6).round(),
+                                            },
+                                            'title': 'Earnings Withdrawn',
+                                            'desc': selectedCoin == 'SOL'
+                                                ? 'Withdrew ₱${netPhp.toStringAsFixed(2)} (${solAmount.toStringAsFixed(6)} SOL) '
+                                                    'after 2% fee of ₱${feePhp.toStringAsFixed(2)} (${feeSolAmount.toStringAsFixed(6)} SOL) '
+                                                    'to ${userProfile.walletPublicKey}'
+                                                : 'Withdrew ₱${netPhp.toStringAsFixed(2)} (${usdtAmount.toStringAsFixed(2)} USDT) '
+                                                    'after 2% fee of ₱${feePhp.toStringAsFixed(2)} (${feeUsdtAmount.toStringAsFixed(2)} USDT) '
+                                                    'to ${userProfile.walletPublicKey}',
+                                            'method': selectedCoin,
+                                            'solanaTxSignature': txSignature,
+                                            'createdAt': DateTime.now().millisecondsSinceEpoch,
+                                          });
+
+                                          // 6. Record withdrawal request
+                                          final requestId = 'withdraw_${DateTime.now().microsecondsSinceEpoch}';
+                                          await firestore.collection('withdrawalRequests').doc(requestId).set({
+                                            'uid': uid,
+                                            'userName': userProfile.name,
+                                            'amount': tyxBalance,
+                                            'feeAmount': feePhp,
+                                            'netAmount': netPhp,
+                                            if (selectedCoin == 'SOL') 'solAmount': solAmount else 'usdtAmount': usdtAmount,
+                                            'status': 'Completed',
+                                            'createdAt': DateTime.now().millisecondsSinceEpoch,
+                                            'method': selectedCoin,
+                                            'walletPublicKey': userProfile.walletPublicKey,
+                                            'solanaTxSignature': txSignature,
+                                          });
+
+                                          // 7. Record fee
+                                          final feeId = 'fee_$txId';
+                                          await firestore.collection('platform_fees').doc(feeId).set({
+                                            'withdrawalId': requestId,
+                                            'txId': txId,
+                                            'uid': uid,
+                                            'amount': feePhp,
+                                            if (selectedCoin == 'SOL') 'solAmount': feeSolAmount else 'usdtAmount': feeUsdtAmount,
+                                            'feeType': 'withdrawal',
+                                            'rate': selectedCoin == 'SOL' ? rateSol : rateUsdt,
+                                            'timestamp': DateTime.now().millisecondsSinceEpoch,
+                                          });
+
+                                          ref.invalidate(userProfileProvider);
+                                          if (sheetContext.mounted) {
+                                            Navigator.pop(sheetContext);
+                                          }
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  '✅ Withdrawal successful! '
+                                                  '${selectedCoin == 'SOL' ? '${solAmount.toStringAsFixed(6)} SOL' : '${usdtAmount.toStringAsFixed(2)} USDT'} sent to your wallet.\n'
+                                                  'Tx: ${txSignature.substring(0, 12)}…',
+                                                ),
+                                                backgroundColor: Colors.green,
+                                              ),
+                                            );
+                                          }
+                                        } catch (e, s) {
+                                          debugPrint("Withdrawal error: $e $s");
+                                          setSheetState(() => isWithdrawing = false);
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text('Withdrawal failed: $e')),
+                                            );
+                                          }
+                                        }
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppColors.indigo,
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                        elevation: 0,
+                                      ),
+                                      child: Text(
+                                        'Withdraw to ${selectedCoin == 'SOL' ? 'SOL' : 'USDT'}',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -1400,8 +2579,32 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     final transactionsAsync = ref.watch(userTransactionsProvider);
     final rawUserDocAsync = ref.watch(rawUserDocProvider);
 
+    // ── Real-time SOL balance: start / stop polling whenever the wallet
+    //    connection state changes (pubkey appears, changes, or is removed).
+    ref.listen<AsyncValue>(userProfileProvider, (_, next) {
+      final profile = next.value;
+      final pubkey = (profile as dynamic)?.walletPublicKey as String?;
+      if (pubkey != null && pubkey.isNotEmpty) {
+        _startBalancePolling(pubkey);
+      } else {
+        _stopBalancePolling();
+        if (mounted) {
+          setState(() {
+            _solBalance = 0.0;
+            _usdtBalance = 0.0;
+          });
+        }
+      }
+    });
+
     if (userProfile == null) {
       return const Center(child: CircularProgressIndicator());
+    }
+
+    // Kick off polling on first build if a wallet is already connected.
+    final currentPubkey = userProfile.walletPublicKey;
+    if (currentPubkey != null && currentPubkey.isNotEmpty) {
+      _startBalancePolling(currentPubkey);
     }
 
     final rawUserDoc = rawUserDocAsync.value;

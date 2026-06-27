@@ -14,6 +14,7 @@ import 'package:tranyx_mobile/features/profile/presentation/widgets/payment_pane
 import 'package:tranyx_mobile/features/profile/presentation/widgets/trust_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/reviews_pane.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/security_pane.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 
 class ProfileView extends ConsumerStatefulWidget {
@@ -622,6 +623,8 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
               'reviews',
             ),
             const SizedBox(height: 12),
+            buildProfileMenu(Icons.lock_outline, "Security Settings", 'security'),
+            const SizedBox(height: 12),
             buildProfileMenu(Icons.help_outline, "Help & Support", 'support'),
             if (!widget.isTablet) ...[
               const SizedBox(height: 24),
@@ -960,6 +963,10 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
           );
         } else if (profileView == 'reviews') {
           rightPane = ReviewsPane(
+            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
+          );
+        } else if (profileView == 'security') {
+          rightPane = SecurityPane(
             onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
           );
         } else {

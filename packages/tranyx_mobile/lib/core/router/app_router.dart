@@ -200,9 +200,13 @@ final routerProvider = Provider<GoRouter>((ref) {
                     ? SecureStorageHelper.obfuscate(password)
                     : null;
 
+                final providers = user.providerData.map((p) => p.providerId).toList();
+                final provider = providers.contains('google.com') ? 'google.com' : 'password';
+
                 final linkData = <String, dynamic>{
                   'uid': user.uid,
                   'email': user.email,
+                  'provider': provider,
                   'linkedAt': DateTime.now().millisecondsSinceEpoch,
                 };
                 if (obfuscatedPassword != null) {
@@ -298,40 +302,179 @@ final routerProvider = Provider<GoRouter>((ref) {
                     );
                   }
                 } else {
-                  // Prompt user to enter their password to link/authorize this device
-                  if (context.mounted) {
-                    final password = await _showPasswordPromptDialog(
-                      context,
-                      email,
-                      isDarkMode,
-                    );
-                    if (password != null && password.isNotEmpty) {
-                      await ref
-                          .read(firebaseAuthProvider)
-                          .signInWithEmailAndPassword(
-                            email: email,
-                            password: password,
-                          );
+                  final provider = linkData?['provider'] as String?;
 
-                      // Save password locally and update Firestore walletLinks with obfuscated password
-                      await SecureStorageHelper.savePassword(password);
-                      await ref
-                          .read(firestoreProvider)
-                          .collection('walletLinks')
-                          .doc(userSolanaPublicKey)
-                          .update({
-                            'password': SecureStorageHelper.obfuscate(password),
-                          });
-
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Logged in successfully and authorized device!',
+                  if (provider == 'google.com') {
+                    // Google Sign-In Required
+                    if (context.mounted) {
+                      final proceed = await showDialog<bool>(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (ctx) {
+                          return AlertDialog(
+                            backgroundColor: isDarkMode ? AppColors.darkCard : Colors.white,
+                            title: Text(
+                              'Google Sign-In Required',
+                              style: TextStyle(
+                                color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                              ),
                             ),
-                            backgroundColor: Colors.green,
-                          ),
+                            content: Text(
+                              'This wallet is linked to the Google account $email. Please sign in with Google to authorize this device.',
+                              style: TextStyle(
+                                color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(false),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.of(ctx).pop(true),
+                                child: const Text('Sign in with Google'),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                      if (proceed == true) {
+                        await ref.read(authControllerProvider).signInWithGoogle();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Logged in successfully via Solana wallet!',
+                              ),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      }
+                    }
+                  } else if (provider == 'password') {
+                    // Prompt user to enter their password to link/authorize this device
+                    if (context.mounted) {
+                      final password = await _showPasswordPromptDialog(
+                        context,
+                        email,
+                        isDarkMode,
+                      );
+                      if (password != null && password.isNotEmpty) {
+                        await ref
+                            .read(firebaseAuthProvider)
+                            .signInWithEmailAndPassword(
+                              email: email,
+                              password: password,
+                            );
+
+                        // Save password locally and update Firestore walletLinks with obfuscated password
+                        await SecureStorageHelper.savePassword(password);
+                        await ref
+                            .read(firestoreProvider)
+                            .collection('walletLinks')
+                            .doc(userSolanaPublicKey)
+                            .update({
+                              'password': SecureStorageHelper.obfuscate(password),
+                            });
+
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Logged in successfully and authorized device!',
+                              ),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      }
+                    }
+                  } else {
+                    // Legacy case (provider is null) — show choice dialog
+                    if (context.mounted) {
+                      final choice = await showDialog<String>(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (ctx) {
+                          return AlertDialog(
+                            backgroundColor: isDarkMode ? AppColors.darkCard : Colors.white,
+                            title: Text(
+                              'Authorize Device',
+                              style: TextStyle(
+                                color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                              ),
+                            ),
+                            content: Text(
+                              'This wallet is linked to the email $email. Please choose how you want to authorize this device.',
+                              style: TextStyle(
+                                color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop('cancel'),
+                                child: const Text('Cancel'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop('password'),
+                                child: const Text('Use Password'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.of(ctx).pop('google'),
+                                child: const Text('Sign in with Google'),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+
+                      if (choice == 'google') {
+                        await ref.read(authControllerProvider).signInWithGoogle();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Logged in successfully via Solana wallet!',
+                              ),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      } else if (choice == 'password') {
+                        final password = await _showPasswordPromptDialog(
+                          context,
+                          email,
+                          isDarkMode,
                         );
+                        if (password != null && password.isNotEmpty) {
+                          await ref
+                              .read(firebaseAuthProvider)
+                              .signInWithEmailAndPassword(
+                                email: email,
+                                password: password,
+                              );
+
+                          await SecureStorageHelper.savePassword(password);
+                          await ref
+                              .read(firestoreProvider)
+                              .collection('walletLinks')
+                              .doc(userSolanaPublicKey)
+                              .update({
+                                'password': SecureStorageHelper.obfuscate(password),
+                              });
+
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Logged in successfully and authorized device!',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          }
+                        }
                       }
                     }
                   }
@@ -441,6 +584,50 @@ final routerProvider = Provider<GoRouter>((ref) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Failed to retrieve transaction signature.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            // Show a progress indicator/dialog while verifying the transaction
+            if (context.mounted) {
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (dialogContext) => const AlertDialog(
+                  content: Row(
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(width: 16),
+                      Expanded(
+                        child: Text(
+                          'Verifying transaction on Solana network...',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            try {
+              final confirmed = await service.confirmTransaction(signature);
+              if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop(); // Close progress dialog
+              }
+              if (!confirmed) {
+                throw Exception('Transaction confirmation timed out. Please check your wallet.');
+              }
+            } catch (rpcErr) {
+              debugPrint("Solana RPC error verifying transaction: $rpcErr");
+              if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop(); // Close progress dialog
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Transaction verification failed: $rpcErr'),
                     backgroundColor: Colors.red,
                   ),
                 );
@@ -618,7 +805,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               return;
             }
 
-            // Show a progress indicator/dialog while broadcasting the transaction
+            // Show a progress indicator/dialog while broadcasting and verifying the transaction
             if (context.mounted) {
               showDialog(
                 context: context,
@@ -630,7 +817,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                       SizedBox(width: 16),
                       Expanded(
                         child: Text(
-                          'Broadcasting transaction to Solana network...',
+                          'Broadcasting and verifying transaction on Solana network...',
                           style: TextStyle(fontSize: 14),
                         ),
                       ),
@@ -643,13 +830,17 @@ final routerProvider = Provider<GoRouter>((ref) {
             String? signature;
             try {
               signature = await service.sendTransaction(base58Tx);
+              final confirmed = await service.confirmTransaction(signature);
+              if (!confirmed) {
+                throw Exception('Transaction confirmation timed out. Please check your wallet.');
+              }
             } catch (rpcErr) {
               debugPrint("Solana RPC error broadcasting transaction: $rpcErr");
               if (context.mounted) {
                 Navigator.of(context, rootNavigator: true).pop(); // Close progress dialog
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('RPC Error sending transaction: $rpcErr'),
+                    content: Text('Transaction verification failed: $rpcErr'),
                     backgroundColor: Colors.red,
                   ),
                 );

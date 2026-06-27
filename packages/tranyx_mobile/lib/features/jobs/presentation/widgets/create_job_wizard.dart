@@ -472,9 +472,23 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
     final workLocationType = ref.watch(workLocationTypeProvider);
     final jobAddress = ref.watch(jobAddressProvider);
 
-    return Form(
-      key: _formKey,
-      child: SingleChildScrollView(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        setState(() {
+          _validationErrorMessage = null;
+        });
+        if (currentStep > 1) {
+          ref.read(createJobStepProvider.notifier).state--;
+        } else {
+          ref.read(jobsViewProvider.notifier).state = 'list';
+          resetCreateJobState();
+        }
+      },
+      child: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1322,8 +1336,9 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 class _AddressSearchSheet extends StatefulWidget {

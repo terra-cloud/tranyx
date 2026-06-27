@@ -93,5 +93,7 @@
 		</array>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<key>NSFaceIDUsageDescription</key>
+		<string>Tranyx uses Face ID to lock the app for your security.</string>
 	</dict>
 </plist>

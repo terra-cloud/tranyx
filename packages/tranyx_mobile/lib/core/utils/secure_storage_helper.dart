@@ -179,4 +179,15 @@ class SecureStorageHelper {
   static Future<void> deleteMwaAuthToken() async {
     await _storage.delete(key: 'mwa_auth_token');
   }
+
+  static const _biometricKey = 'biometric_lock_enabled';
+
+  static Future<void> saveBiometricEnabled(bool value) async {
+    await _storage.write(key: _biometricKey, value: value.toString());
+  }
+
+  static Future<bool> getBiometricEnabled() async {
+    final val = await _storage.read(key: _biometricKey);
+    return val == 'true';
+  }
 }
