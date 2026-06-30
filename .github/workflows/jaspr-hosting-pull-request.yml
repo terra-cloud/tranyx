@@ -1,5 +1,8 @@
 name: Deploy Jaspr to Firebase Hosting on PR
-on: pull_request
+on:
+  pull_request:
+    paths:
+      - 'packages/tranyx_web/**'
 permissions:
   checks: write
   contents: read
@@ -17,8 +20,7 @@ jobs:
         with:
           filters: |
             code:
-              - '**'
-              - '!**/*.md'
+              - 'packages/tranyx_web/**'
 
       - name: Setup Flutter
         if: steps.filter.outputs.code == 'true'

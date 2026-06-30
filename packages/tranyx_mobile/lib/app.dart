@@ -7,6 +7,7 @@ import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/biometric_provider.dart';
 import 'package:tranyx_mobile/core/widgets/biometric_lock_screen.dart';
 import 'package:tranyx_mobile/core/services/biometric_service.dart';
+import 'package:tranyx_mobile/core/services/deep_link_service.dart';
 import 'flavors.dart';
 
 class App extends ConsumerStatefulWidget {
@@ -26,8 +27,8 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // final router = ref.read(routerProvider);
-      // ref.read(deepLinkServiceProvider).initialize(router);
+      final router = ref.read(routerProvider);
+      ref.read(deepLinkServiceProvider).initialize(router);
       _isColdStart = false;
     });
   }
@@ -35,7 +36,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    // ref.read(deepLinkServiceProvider).dispose();
+    ref.read(deepLinkServiceProvider).dispose();
     super.dispose();
   }
 

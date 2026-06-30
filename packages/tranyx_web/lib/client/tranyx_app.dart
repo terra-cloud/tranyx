@@ -3,6 +3,8 @@ import 'package:http/http.dart' as http;
 import 'package:jaspr/dom.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'package:web/web.dart' as web;
 import 'package:tranyx_web/services/web_interop.dart';
 import 'package:jaspr/jaspr.dart';
@@ -236,7 +238,9 @@ class TranyxAppState extends State<TranyxApp> {
   bool showDepositModal = false;
   double depositAmount = 0.0;
   bool isDepositing = false;
-  String selectedPaymentMethod = const String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod' ? 'solana' : 'xendit';
+  String selectedPaymentMethod = const String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod'
+      ? 'solana'
+      : 'xendit';
   String selectedSolanaCurrency = 'SOL'; // 'SOL' or 'USDT'
   double solToPhpRate = 8500.0;
   double usdToPhpRate = 57.0; // fallback USD-PHP rate for USDT
@@ -370,8 +374,10 @@ class TranyxAppState extends State<TranyxApp> {
   void showAppToast(String title, String message) {
     final lowerTitle = title.toLowerCase();
     final lowerMsg = message.toLowerCase();
-    if (lowerTitle.contains('401') || lowerTitle.contains('not logged in') ||
-        lowerMsg.contains('401') || lowerMsg.contains('not logged in') ||
+    if (lowerTitle.contains('401') ||
+        lowerTitle.contains('not logged in') ||
+        lowerMsg.contains('401') ||
+        lowerMsg.contains('not logged in') ||
         lowerMsg.contains('id-token-expired')) {
       triggerSessionExpired();
       return;
@@ -413,17 +419,24 @@ class TranyxAppState extends State<TranyxApp> {
             if (selectedJobData != null && selectedJobData!['id'] == fresh['id']) {
               selectedJobData = {...selectedJobData!, ...fresh};
 
-              final catName = (fresh['category'] as String? ?? selectedJobData?['category'] as String? ?? '').toLowerCase();
+              final catName = (fresh['category'] as String? ?? selectedJobData?['category'] as String? ?? '')
+                  .toLowerCase();
               final cat = JobCategory.values.firstWhere(
                 (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
                 orElse: () => JobCategory.others,
               );
-              hasTracker = fresh['hasTracker'] == true || fresh['hasTracker'] == 'true' || selectedJobData?['hasTracker'] == true || selectedJobData?['hasTracker'] == 'true' || cat.hasTracker;
+              hasTracker =
+                  fresh['hasTracker'] == true ||
+                  fresh['hasTracker'] == 'true' ||
+                  selectedJobData?['hasTracker'] == true ||
+                  selectedJobData?['hasTracker'] == 'true' ||
+                  cat.hasTracker;
 
               var title = fresh['title'] as String? ?? selectedJob?.title ?? '';
               if (title.isEmpty || title == 'Untitled') {
                 final category = fresh['category'] as String? ?? selectedJobData?['category'] as String? ?? '';
-                final categoryLabel = fresh['categoryLabel'] as String? ?? selectedJobData?['categoryLabel'] as String? ?? '';
+                final categoryLabel =
+                    fresh['categoryLabel'] as String? ?? selectedJobData?['categoryLabel'] as String? ?? '';
                 final nameToNormalize = categoryLabel.isNotEmpty ? categoryLabel : category;
                 title = nameToNormalize.isNotEmpty ? normalizeCategoryName(nameToNormalize) : 'Untitled Gig';
               }
@@ -479,6 +492,27 @@ class TranyxAppState extends State<TranyxApp> {
       triggerSessionExpired();
     };
     _initGemini();
+
+    try {
+      web.window.addEventListener(
+        'solanaWalletAccountChanged',
+        (web.Event event) {
+          final customEvent = event as web.CustomEvent;
+          final detail = customEvent.detail as JSObject;
+          final publicKey = (detail.getProperty<JSString>('publicKey'.toJS)).toDart;
+          final walletType = (detail.getProperty<JSString>('walletType'.toJS)).toDart;
+          _handleSolanaAccountChanged(publicKey, walletType);
+        }.toJS,
+      );
+
+      web.window.addEventListener(
+        'solanaWalletDisconnected',
+        (web.Event event) {
+          _handleSolanaWalletDisconnected();
+        }.toJS,
+      );
+    } catch (_) {}
+
     // Load any pending QR details from SessionStorage
     pendingQrJobId = SessionStorage.pendingQrJobId;
     pendingQrCode = SessionStorage.pendingQrCode;
@@ -520,7 +554,13 @@ class TranyxAppState extends State<TranyxApp> {
         } else {
           appStoreUrl = 'https://apps.apple.com/app/tranyx-dev/id6470000001';
         }
-        web.window.location.replace(appStoreUrl);
+
+        // Try launching the custom scheme first
+        web.window.location.replace('tranyx://');
+        // Fallback to App Store if not installed
+        Future.delayed(const Duration(milliseconds: 2000), () {
+          web.window.location.replace(appStoreUrl);
+        });
       } else if (isAndroid) {
         final isSaga = userAgent.contains('saga') || userAgent.contains('solana');
         const env = String.fromEnvironment('ENV', defaultValue: 'dev');
@@ -531,22 +571,30 @@ class TranyxAppState extends State<TranyxApp> {
           appId = 'com.terraph.tranyx.dev';
         }
 
+        final playStoreUrl = 'https://play.google.com/store/apps/details?id=$appId';
+        final intentUrl =
+            'intent://#Intent;scheme=tranyx;package=$appId;S.browser_fallback_url=${Uri.encodeComponent(playStoreUrl)};end';
+
         if (isSaga) {
           // Open in Solana dApp Store
           web.window.location.replace('dappstore://details?id=$appId');
           // Set a fallback timeout to play store in case the protocol scheme fails
           Future.delayed(const Duration(milliseconds: 1500), () {
-            web.window.location.replace('https://play.google.com/store/apps/details?id=$appId');
+            web.window.location.replace(intentUrl);
           });
         } else {
-          web.window.location.replace('https://play.google.com/store/apps/details?id=$appId');
+          web.window.location.replace(intentUrl);
         }
       }
     }
   }
 
   void _initGemini() {
-    _gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken, onTokenRefresh: _handleTokenRefresh);
+    _gemini = GeminiService(
+      currentFirebaseConfig,
+      idToken: SessionStorage.idToken,
+      onTokenRefresh: _handleTokenRefresh,
+    );
   }
 
   void _initUserLocation() async {
@@ -669,19 +717,41 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   bool get hasUnreadJobChats {
-    return notifications.any((n) => n['type'] == 'chat' && !n['chatId'].toString().startsWith('rental_') && !n['chatId'].toString().startsWith('property_'));
+    return notifications.any(
+      (n) =>
+          n['type'] == 'chat' &&
+          !n['chatId'].toString().startsWith('rental_') &&
+          !n['chatId'].toString().startsWith('property_'),
+    );
   }
 
   bool get hasUnreadRentalChats {
-    return notifications.any((n) => n['type'] == 'chat' && (n['chatId'].toString().startsWith('rental_') || n['chatId'].toString().startsWith('property_')));
+    return notifications.any(
+      (n) =>
+          n['type'] == 'chat' &&
+          (n['chatId'].toString().startsWith('rental_') || n['chatId'].toString().startsWith('property_')),
+    );
   }
 
   int get unreadJobChatsCount {
-    return notifications.where((n) => n['type'] == 'chat' && !n['chatId'].toString().startsWith('rental_') && !n['chatId'].toString().startsWith('property_')).length;
+    return notifications
+        .where(
+          (n) =>
+              n['type'] == 'chat' &&
+              !n['chatId'].toString().startsWith('rental_') &&
+              !n['chatId'].toString().startsWith('property_'),
+        )
+        .length;
   }
 
   int get unreadRentalChatsCount {
-    return notifications.where((n) => n['type'] == 'chat' && (n['chatId'].toString().startsWith('rental_') || n['chatId'].toString().startsWith('property_'))).length;
+    return notifications
+        .where(
+          (n) =>
+              n['type'] == 'chat' &&
+              (n['chatId'].toString().startsWith('rental_') || n['chatId'].toString().startsWith('property_')),
+        )
+        .length;
   }
 
   void _startListeningNotifications() {
@@ -941,7 +1011,6 @@ class TranyxAppState extends State<TranyxApp> {
       print('Error loading host pending requests: $e');
     }
   }
-
 
   Future<void> loadUserProfile() async {
     final uid = SessionStorage.uid;
@@ -1343,7 +1412,6 @@ class TranyxAppState extends State<TranyxApp> {
     });
   }
 
-
   void handleLogout() {
     SessionStorage.clear();
     stopListeningToJobsJs();
@@ -1456,8 +1524,28 @@ class TranyxAppState extends State<TranyxApp> {
     if (text.isEmpty) return false;
     final cleanText = text.toLowerCase();
     final bannedWords = const [
-      'putang ina', 'tangina', 'gago', 'tarantado', 'kupal', 'puki', 'kiki', 'puta', 'pota', 'bobo', 'pakyu', 'ulol', 'salsal',
-      'fuck', 'shit', 'asshole', 'bitch', 'bastard', 'cunt', 'pussy', 'dick', 'cock'
+      'putang ina',
+      'tangina',
+      'gago',
+      'tarantado',
+      'kupal',
+      'puki',
+      'kiki',
+      'puta',
+      'pota',
+      'bobo',
+      'pakyu',
+      'ulol',
+      'salsal',
+      'fuck',
+      'shit',
+      'asshole',
+      'bitch',
+      'bastard',
+      'cunt',
+      'pussy',
+      'dick',
+      'cock',
     ];
     for (final word in bannedWords) {
       if (cleanText.contains(word)) {
@@ -1722,7 +1810,8 @@ class TranyxAppState extends State<TranyxApp> {
         await svc.createOrUpdate('transactions/deposit_sol_$signature', {
           'uid': uid,
           'title': 'Wallet Top-Up (SOL)',
-          'desc': 'Crypto deposit of ${amountInSol.toStringAsFixed(4)} SOL via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}',
+          'desc':
+              'Crypto deposit of ${amountInSol.toStringAsFixed(4)} SOL via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}',
           'amount': depositAmount,
           'status': 'Successful',
           'method': 'Solana',
@@ -1876,7 +1965,8 @@ class TranyxAppState extends State<TranyxApp> {
         await svc.createOrUpdate('transactions/deposit_usdt_$signature', {
           'uid': uid,
           'title': 'Wallet Top-Up (USDT)',
-          'desc': 'Crypto deposit of ${amountInUsdt.toStringAsFixed(2)} USDT via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}',
+          'desc':
+              'Crypto deposit of ${amountInUsdt.toStringAsFixed(2)} USDT via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}',
           'amount': phpEquivalent,
           'status': 'Successful',
           'method': 'Solana/USDT',
@@ -2202,7 +2292,10 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     if (hasActiveVehicleRentals || hasActivePropertyRentals) {
-      setState(() => profileSaveError = 'Withdrawals are disabled while you have active/ongoing rentals to ensure potential extensions, late returns, or security fees are covered.');
+      setState(
+        () => profileSaveError =
+            'Withdrawals are disabled while you have active/ongoing rentals to ensure potential extensions, late returns, or security fees are covered.',
+      );
       return;
     }
 
@@ -2212,32 +2305,62 @@ class TranyxAppState extends State<TranyxApp> {
       return;
     }
 
-    setState(() => isSavingProfile = true);
+    final walletKey = userProfile?.walletPublicKey;
+    if (walletKey == null || walletKey.isEmpty) {
+      setState(() => profileSaveError = 'Please connect your Solana wallet in the Payment tab first.');
+      return;
+    }
+
+    setState(() {
+      isSavingProfile = true;
+      profileSaveError = null;
+    });
 
     try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final message =
+          'Authorize withdrawal of ${tyxBal.toStringAsFixed(2)} Tyxbits from Tranyx account $uid to wallet $walletKey at $timestamp';
+
+      final activeWalletType = selectedWalletType ?? 'phantom';
+
+      var activePublicKey = await getSolanaPublicKeyIfConnected(activeWalletType);
+      if (activePublicKey == null || activePublicKey != walletKey) {
+        activePublicKey = await connectSolanaWallet(activeWalletType);
+      }
+
+      if (activePublicKey != walletKey) {
+        throw 'Connected wallet address ($activePublicKey) does not match profile address ($walletKey).';
+      }
+
+      final signature = await signSolanaMessage(walletKey, message);
+      if (signature == null || signature.isEmpty) {
+        throw 'Signature request rejected or failed.';
+      }
+
       final svc = FirestoreService(token, _handleTokenRefresh);
 
-      // Create withdrawal request record
-      await svc.createOrUpdate('withdrawalRequests', {
+      // Create withdrawal request record with signature
+      await svc.createOrUpdate('withdrawalRequests/withdraw_$timestamp', {
         'uid': uid,
         'userName': userName,
         'amount': tyxBal,
         'status': 'Pending',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-        'method': 'Bank/Gcash',
+        'createdAt': timestamp,
+        'method': 'Solana',
+        'walletPublicKey': walletKey,
+        'signature': signature,
+        'message': message,
       });
-
-      // Optionally deduct balance immediately or wait for approval
-      // For this MVP, we'll wait for back-office approval before deducting.
 
       setState(() {
         isSavingProfile = false;
-        profileSaveError = 'Withdrawal request sent! Our back office will process it within 24 hours.';
+        profileSaveError = 'Withdrawal request authorized and sent! Our back office will process it within 24 hours.';
       });
+      showAppToast('Withdrawal Requested', 'Authorized with signature: ${signature.substring(0, 8)}...');
     } catch (e) {
       setState(() {
         isSavingProfile = false;
-        profileSaveError = 'Failed to send request: $e';
+        profileSaveError = e.toString();
       });
     }
   }
@@ -2252,7 +2375,11 @@ class TranyxAppState extends State<TranyxApp> {
       final files = await readFilesFromEvent(eventTarget);
       for (final file in files) {
         if (jobImageUrls.length >= 5) break;
-        final url = await ImgBBService(currentFirebaseConfig, idToken: token, onTokenRefresh: _handleTokenRefresh).uploadImageBytes(file.bytes, file.name);
+        final url = await ImgBBService(
+          currentFirebaseConfig,
+          idToken: token,
+          onTokenRefresh: _handleTokenRefresh,
+        ).uploadImageBytes(file.bytes, file.name);
         if (url != null) {
           setState(() => jobImageUrls.add(url));
         }
@@ -2340,7 +2467,11 @@ class TranyxAppState extends State<TranyxApp> {
             if (selectedJobData != null && doc != null) {
               selectedJobData = {
                 ...selectedJobData!,
-                'creatorName': doc['name'] as String? ?? doc['displayName'] as String? ?? selectedJobData!['creatorName'] ?? 'Employer',
+                'creatorName':
+                    doc['name'] as String? ??
+                    doc['displayName'] as String? ??
+                    selectedJobData!['creatorName'] ??
+                    'Employer',
                 'creatorPhotoUrl': doc['photoUrl'] as String? ?? selectedJobData!['creatorPhotoUrl'] ?? '',
               };
             }
@@ -2962,7 +3093,8 @@ class TranyxAppState extends State<TranyxApp> {
               await svc.createOrUpdate('transactions/fees_emp_${job['id']}', {
                 'uid': employerId,
                 'title': 'Job Completion Fees (10%)',
-                'desc': '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job ${job['id']}',
+                'desc':
+                    '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job ${job['id']}',
                 'amount': totalFees,
                 'status': 'Successful',
                 'method': 'Tranyx Wallet',
@@ -3152,8 +3284,7 @@ class TranyxAppState extends State<TranyxApp> {
         (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
         orElse: () => JobCategory.others,
       );
-      final hasTracker =
-          jobDoc['hasTracker'] == true || jobDoc['hasTracker'] == 'true' || cat.hasTracker;
+      final hasTracker = jobDoc['hasTracker'] == true || jobDoc['hasTracker'] == 'true' || cat.hasTracker;
 
       final nyxianId = jobDoc['acceptedApplicantId'] as String? ?? jobDoc['nyxianId'] as String?;
       final employerId = jobDoc['creatorId'] as String?;
@@ -3248,7 +3379,8 @@ class TranyxAppState extends State<TranyxApp> {
             await svc.createOrUpdate('transactions/fees_emp_$jobId', {
               'uid': employerId,
               'title': 'Job Completion Fees (10%)',
-              'desc': '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId',
+              'desc':
+                  '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId',
               'amount': totalFees,
               'status': 'Successful',
               'method': 'Tranyx Wallet',
@@ -3386,7 +3518,7 @@ class TranyxAppState extends State<TranyxApp> {
           if (jobDoc != null) {
             final isEmployerRole = currentViewMode == AccountType.employer;
             final isNyxianRole = currentViewMode == AccountType.nyxian;
-            
+
             await svc.createOrUpdate('jobs/$jId', {
               ...jobDoc,
               if (isEmployerRole) 'employerRated': true,
@@ -3676,7 +3808,11 @@ class TranyxAppState extends State<TranyxApp> {
       final files = await readFilesFromEvent(eventTarget);
       if (files.isNotEmpty) {
         final file = files.first;
-        final url = await ImgBBService(currentFirebaseConfig, idToken: token, onTokenRefresh: _handleTokenRefresh).uploadImageBytes(file.bytes, file.name);
+        final url = await ImgBBService(
+          currentFirebaseConfig,
+          idToken: token,
+          onTokenRefresh: _handleTokenRefresh,
+        ).uploadImageBytes(file.bytes, file.name);
         if (url != null) {
           setState(() => receiptPhotoUrl = url);
         }
@@ -4448,7 +4584,8 @@ class TranyxAppState extends State<TranyxApp> {
 
   bool get transitHasUpdates {
     if (!isAuthenticated) return false;
-    final renterHasUpdates = renterPendingRequests.any((r) => r['status'] != 'Pending') ||
+    final renterHasUpdates =
+        renterPendingRequests.any((r) => r['status'] != 'Pending') ||
         propertyRenterPendingRequests.any((r) => r['status'] != 'Pending');
     final hostHasUpdates = hostPendingRequests.isNotEmpty || propertyHostPendingRequests.isNotEmpty;
     return renterHasUpdates || hostHasUpdates;
@@ -4775,7 +4912,12 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
-  void handleDisconnectWallet() {
+  void handleDisconnectWallet() async {
+    final type = selectedWalletType ?? 'phantom';
+    try {
+      await disconnectSolanaWallet(type);
+    } catch (_) {}
+
     setState(() {
       walletState = WalletState.disconnected;
       walletAddress = '';
@@ -4787,7 +4929,372 @@ class TranyxAppState extends State<TranyxApp> {
       suiBalance = 0.0;
       selectedWalletType = null;
       showWalletSelectionModal = false;
+
+      // 1:1 Identity cleanup
+      isAuthenticated = false;
+      userProfile = null;
+      myJobs = [];
+      sessionPostedJobs = [];
+      realtimeEmployerJobs = [];
+      realtimeNyxianJobs = [];
+      availableJobs = [];
+      appliedJobs = [];
+      renterPendingRequests = [];
+      hostPendingRequests = [];
+      notifications = [];
+      chatMessages = [];
+      currentChatId = '';
+      showChat = false;
+      showDepositModal = false;
+      isDepositing = false;
+      postJobError = null;
+      selectedJobData = null;
+      selectedJob = null;
+      ongoingJob = null;
     });
+
+    _stopSelectedJobRealtime();
+    stopListeningToJobsJs();
+    stopListeningToRentalsJs();
+    stopListeningToPropertiesJs();
+
+    SessionStorage.clear();
+    showAppToast('Wallet Disconnected', 'Logged out because active wallet was disconnected.');
+  }
+
+  Future<void> _handleSolanaAccountChanged(String newPublicKey, String type) async {
+    // 1. Wipe active dashboard states & cancel pending states
+    setState(() {
+      walletState = WalletState.connecting;
+      walletAddress = '';
+      walletBalance = 0.0;
+      walletCollectibles = [];
+      userProfile = null;
+      myJobs = [];
+      sessionPostedJobs = [];
+      realtimeEmployerJobs = [];
+      realtimeNyxianJobs = [];
+      availableJobs = [];
+      appliedJobs = [];
+      renterPendingRequests = [];
+      hostPendingRequests = [];
+      notifications = [];
+      chatMessages = [];
+      currentChatId = '';
+      showChat = false;
+      showDepositModal = false;
+      isDepositing = false;
+      postJobError = null;
+      selectedJobData = null;
+      selectedJob = null;
+      ongoingJob = null;
+    });
+
+    _stopSelectedJobRealtime();
+    stopListeningToJobsJs();
+    stopListeningToRentalsJs();
+    stopListeningToPropertiesJs();
+
+    // 2. Fetch the wallet link in Firestore
+    try {
+      final linkData = await FirestoreService().getWalletLink(newPublicKey);
+      if (linkData != null) {
+        final existingUid = linkData['uid'] as String?;
+        final refreshToken = linkData['refreshToken'] as String?;
+        if (refreshToken != null) {
+          final authService = FirebaseAuthService();
+          final newIdToken = await authService.refreshIdToken(refreshToken);
+          final userData = await authService.getUserData(newIdToken);
+          final authResult = AuthResult(
+            uid: existingUid!,
+            idToken: newIdToken,
+            refreshToken: refreshToken,
+            email: userData['email'] as String?,
+            displayName: userData['displayName'] as String?,
+          );
+
+          SessionStorage.save(authResult);
+
+          final profile = await FirestoreService(authResult.idToken, _handleTokenRefresh).getUser(authResult.uid);
+          final profileType = profile?.accountType ?? AccountType.employer;
+
+          SessionStorage.saveProfile(
+            name: profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User'),
+            email: authResult.email ?? '',
+            accountType: profileType.name,
+          );
+
+          setState(() {
+            isAuthenticated = true;
+            userEmail = authResult.email ?? '';
+            userProfile = profile;
+            accountType = profileType;
+            hybridToggle = profileType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+            userName = profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User');
+            walletAddress = '${newPublicKey.substring(0, 4)}...${newPublicKey.substring(newPublicKey.length - 4)}';
+            walletState = WalletState.connected;
+            selectedWalletType = type;
+          });
+
+          _initGemini();
+          await loadJobs();
+          await loadTransactions();
+          _startListeningNotifications();
+          _startListeningJobs();
+          _startListeningRentals();
+          _startListeningProperties();
+
+          final balance = await getSolanaBalance(newPublicKey) ?? 0.0;
+          final collectibles = await getSolanaTokenCollectibles(newPublicKey) ?? [];
+          setState(() {
+            walletBalance = balance;
+            walletCollectibles = collectibles;
+          });
+
+          showAppToast('Account Switched', 'Successfully switched to wallet account: $walletAddress');
+          return;
+        }
+      }
+
+      // If no link found, sign out of current session and go to registration flow
+      await signOutJs();
+      SessionStorage.clear();
+      setState(() {
+        isAuthenticated = false;
+        pendingWalletPublicKey = newPublicKey;
+        selectedWalletType = type;
+        walletState = WalletState.disconnected;
+        authView = AuthView.registerPath;
+        authError = 'No linked account found for this wallet. Please register or sign in to link it.';
+      });
+      showAppToast('Wallet Connected', 'Please sign in or register to link this wallet.');
+    } catch (e) {
+      setState(() {
+        authError = 'Error switching wallet account: ${e.toString()}';
+        walletState = WalletState.disconnected;
+      });
+      showAppToast('Error', 'Failed to switch wallet account.');
+    }
+  }
+
+  void _handleSolanaWalletDisconnected() {
+    setState(() {
+      walletState = WalletState.disconnected;
+      walletAddress = '';
+      walletBalance = 0.0;
+      walletCollectibles = [];
+      ethAddress = '';
+      suiAddress = '';
+      ethBalance = 0.0;
+      suiBalance = 0.0;
+      selectedWalletType = null;
+      showWalletSelectionModal = false;
+
+      // 1:1 Identity cleanup
+      isAuthenticated = false;
+      userProfile = null;
+      myJobs = [];
+      sessionPostedJobs = [];
+      realtimeEmployerJobs = [];
+      realtimeNyxianJobs = [];
+      availableJobs = [];
+      appliedJobs = [];
+      renterPendingRequests = [];
+      hostPendingRequests = [];
+      notifications = [];
+      chatMessages = [];
+      currentChatId = '';
+      showChat = false;
+      showDepositModal = false;
+      isDepositing = false;
+      postJobError = null;
+      selectedJobData = null;
+      selectedJob = null;
+      ongoingJob = null;
+    });
+
+    _stopSelectedJobRealtime();
+    stopListeningToJobsJs();
+    stopListeningToRentalsJs();
+    stopListeningToPropertiesJs();
+
+    SessionStorage.clear();
+    showAppToast('Wallet Disconnected', 'Logged out because active wallet was disconnected.');
+  }
+
+  Future<void> linkSolanaWallet(String type) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+
+    setState(() {
+      isSavingProfile = true;
+      profileSaveError = null;
+    });
+
+    try {
+      final publicKey = await connectSolanaWallet(type);
+      if (publicKey == null) {
+        throw 'Failed to connect Solana Wallet. Please approve the connection request.';
+      }
+
+      // Check if wallet is already linked to another account
+      final linkData = await FirestoreService().getWalletLink(publicKey);
+      if (linkData != null) {
+        final existingUid = linkData['uid'] as String?;
+        if (existingUid != null && existingUid != uid) {
+          throw 'This Solana wallet is already linked to another user account.';
+        }
+      }
+
+      await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
+        uid,
+        publicKey,
+        refreshToken: SessionStorage.refreshToken,
+      );
+
+      // Refresh local profile
+      await loadUserProfile();
+
+      setState(() {
+        isSavingProfile = false;
+        selectedWalletType = type;
+      });
+      showAppToast('Wallet Linked', 'Successfully linked your Solana wallet ($type).');
+    } catch (e) {
+      setState(() {
+        isSavingProfile = false;
+        profileSaveError = e.toString();
+      });
+      showAppToast('Failed to Link', e.toString());
+    }
+  }
+
+  Future<void> unlinkSolanaWallet() async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+
+    final walletKey = userProfile?.walletPublicKey;
+    if (walletKey == null || walletKey.isEmpty) return;
+
+    setState(() {
+      isSavingProfile = true;
+      profileSaveError = null;
+    });
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+
+      // Delete the wallet link document
+      await svc.deleteDocument('walletLinks/$walletKey');
+
+      // Clear walletPublicKey on users document
+      await svc.setDocument('users/$uid', {'walletPublicKey': ''});
+
+      // Refresh local profile
+      await loadUserProfile();
+
+      setState(() {
+        isSavingProfile = false;
+        selectedWalletType = null;
+        walletAddress = '';
+        walletBalance = 0.0;
+        walletCollectibles = [];
+      });
+      showAppToast('Wallet Unlinked', 'Solana wallet was successfully unlinked.');
+    } catch (e) {
+      setState(() {
+        isSavingProfile = false;
+        profileSaveError = e.toString();
+      });
+      showAppToast('Failed to Unlink', e.toString());
+    }
+  }
+
+  Future<void> handleLinkGoogleAccount() async {
+    setState(() {
+      isSavingProfile = true;
+      profileSaveError = null;
+    });
+
+    try {
+      final configMap = {
+        'apiKey': currentFirebaseConfig.apiKey,
+        'authDomain': currentFirebaseConfig.authDomain,
+        'projectId': currentFirebaseConfig.projectId,
+        'storageBucket': currentFirebaseConfig.storageBucket,
+        'messagingSenderId': currentFirebaseConfig.messagingSenderId,
+        'appId': currentFirebaseConfig.appId,
+      };
+
+      final googleJsonStr = await linkGoogleAccountJs(configMap);
+      if (googleJsonStr == null) {
+        throw 'Google account linking was cancelled or failed.';
+      }
+
+      final Map<String, dynamic> googleData = jsonDecode(googleJsonStr);
+      final email = googleData['email'] as String?;
+      final uid = SessionStorage.uid;
+
+      if (uid != null && email != null) {
+        final svc = FirestoreService(SessionStorage.idToken!, _handleTokenRefresh);
+        await svc.setDocument('users/$uid', {'googleEmail': email});
+        await loadUserProfile();
+      }
+
+      setState(() {
+        isSavingProfile = false;
+      });
+      showAppToast('Account Linked', 'Google account linked successfully!');
+    } catch (e) {
+      setState(() {
+        isSavingProfile = false;
+        profileSaveError = e.toString();
+      });
+      showAppToast('Failed to Link', e.toString());
+    }
+  }
+
+  Future<void> handleUnlinkGoogleAccount() async {
+    setState(() {
+      isSavingProfile = true;
+      profileSaveError = null;
+    });
+
+    try {
+      final configMap = {
+        'apiKey': currentFirebaseConfig.apiKey,
+        'authDomain': currentFirebaseConfig.authDomain,
+        'projectId': currentFirebaseConfig.projectId,
+        'storageBucket': currentFirebaseConfig.storageBucket,
+        'messagingSenderId': currentFirebaseConfig.messagingSenderId,
+        'appId': currentFirebaseConfig.appId,
+      };
+
+      final googleJsonStr = await unlinkGoogleAccountJs(configMap);
+      if (googleJsonStr == null) {
+        throw 'Google account unlinking failed.';
+      }
+
+      final uid = SessionStorage.uid;
+      if (uid != null) {
+        final svc = FirestoreService(SessionStorage.idToken!, _handleTokenRefresh);
+        await svc.setDocument('users/$uid', {'googleEmail': ''});
+        await loadUserProfile();
+      }
+
+      setState(() {
+        isSavingProfile = false;
+      });
+      showAppToast('Account Unlinked', 'Google account unlinked successfully.');
+    } catch (e) {
+      setState(() {
+        isSavingProfile = false;
+        profileSaveError = e.toString();
+      });
+      showAppToast('Failed to Unlink', e.toString());
+    }
   }
 
   // ── Helpers ─────────────────────────────────────────────────
@@ -4870,7 +5377,9 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Check if any holdbacks are ready to release client-side
       final nowMs = DateTime.now().millisecondsSinceEpoch;
-      final toRelease = list.where((item) => (item['releaseAt'] as int? ?? 0) <= nowMs && item['status'] == 'held').toList();
+      final toRelease = list
+          .where((item) => (item['releaseAt'] as int? ?? 0) <= nowMs && item['status'] == 'held')
+          .toList();
 
       if (toRelease.isNotEmpty && isNyxian) {
         final userDoc = await svc.getDocument('users/$uid');
@@ -4923,7 +5432,7 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() => isLoadingKyc = true);
     try {
       final dbSvc = FirestoreService(token, _handleTokenRefresh);
-      
+
       // Get existing doc if any to merge
       final existingDoc = await dbSvc.getKycSubmission(uid) ?? {};
       final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -4942,7 +5451,7 @@ class TranyxAppState extends State<TranyxApp> {
           'backUrl': backUrl,
           'selfieUrl': selfieUrl,
           'submittedAt': nowMs,
-        }
+        },
       };
 
       await dbSvc.saveKycSubmission(uid, updatedDoc);
@@ -4969,7 +5478,7 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() => isLoadingKyc = true);
     try {
       final dbSvc = FirestoreService(token, _handleTokenRefresh);
-      
+
       // Get existing doc if any to merge
       final existingDoc = await dbSvc.getKycSubmission(uid) ?? {};
       final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -4987,7 +5496,7 @@ class TranyxAppState extends State<TranyxApp> {
           'expiryDate': expiryDate,
           'documentUrl': documentUrl,
           'submittedAt': nowMs,
-        }
+        },
       };
 
       await dbSvc.saveKycSubmission(uid, updatedDoc);
@@ -5053,8 +5562,7 @@ class TranyxAppState extends State<TranyxApp> {
                     ),
                     div(classes: 'flex-1 min-w-0', [
                       h3(
-                        classes:
-                            'text-xl font-bold truncate leading-tight ${isDark ? "text-white" : "text-zinc-800"}',
+                        classes: 'text-xl font-bold truncate leading-tight ${isDark ? "text-white" : "text-zinc-800"}',
                         [
                           Component.text(
                             hasBusinessInfo ? businessName : name,
@@ -5222,12 +5730,15 @@ class TranyxAppState extends State<TranyxApp> {
     final darkBg = isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900';
 
     if (!isAuthenticated) {
-      return div(classes: 'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12 relative', [
-        div(classes: 'w-full max-w-md p-6', [
-          AuthViewComponent(state: this),
-        ]),
-        if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
-      ]);
+      return div(
+        classes: 'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12 relative',
+        [
+          div(classes: 'w-full max-w-md p-6', [
+            AuthViewComponent(state: this),
+          ]),
+          if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
+        ],
+      );
     }
 
     return div(classes: 'flex h-screen w-full overflow-hidden $darkBg font-sans', [
@@ -5360,11 +5871,16 @@ class TranyxAppState extends State<TranyxApp> {
       if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this, key: const ValueKey('rental-tracker-map')),
 
       // Manage Vehicle modal overlay
-      if (showManageVehicleModal) ManageVehicleModalComponent(appState: this, key: const ValueKey('manage-vehicle-modal')),
+      if (showManageVehicleModal)
+        ManageVehicleModalComponent(appState: this, key: const ValueKey('manage-vehicle-modal')),
 
       // Public Vehicle Q&A modal overlay
       if (showVehicleQaModal && selectedRentalData != null)
-        VehicleQaModalComponent(appState: this, rentalId: selectedRentalData!['id'], key: const ValueKey('vehicle-qa-modal')),
+        VehicleQaModalComponent(
+          appState: this,
+          rentalId: selectedRentalData!['id'],
+          key: const ValueKey('vehicle-qa-modal'),
+        ),
 
       // List Property modal overlay
       if (showListPropertyModal) ListPropertyModalComponent(appState: this, key: const ValueKey('list-property-modal')),
@@ -5373,7 +5889,8 @@ class TranyxAppState extends State<TranyxApp> {
       if (showBookPropertyModal) BookPropertyModalComponent(appState: this, key: const ValueKey('book-property-modal')),
 
       // Manage Property modal overlay
-      if (showManagePropertyModal) ManagePropertyModalComponent(appState: this, key: const ValueKey('manage-property-modal')),
+      if (showManagePropertyModal)
+        ManagePropertyModalComponent(appState: this, key: const ValueKey('manage-property-modal')),
 
       // Public Property Q&A modal overlay
       if (showPropertyQaModal) PropertyQaModalComponent(appState: this, key: const ValueKey('property-qa-modal')),
@@ -5433,17 +5950,20 @@ class TranyxAppState extends State<TranyxApp> {
       // Fullscreen Photo Modal Overlay
       if (fullScreenPhotoUrl != null)
         div(
-          classes: 'fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in cursor-zoom-out',
+          classes:
+              'fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in cursor-zoom-out',
           events: {'click': (_) => setState(() => fullScreenPhotoUrl = null)},
           [
             button(
-              classes: 'absolute top-6 right-6 p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer border-0',
+              classes:
+                  'absolute top-6 right-6 p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer border-0',
               events: {'click': (_) => setState(() => fullScreenPhotoUrl = null)},
               [lIcon('x', cls: 'w-6 h-6')],
             ),
             img(
               src: fullScreenPhotoUrl!,
-              classes: 'max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl transition-all scale-100 cursor-default',
+              classes:
+                  'max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl transition-all scale-100 cursor-default',
               events: {'click': (e) => e.stopPropagation()},
             ),
           ],
@@ -5723,82 +6243,85 @@ class WalletSelectionModalComponent extends StatelessComponent {
               ]),
 
               div(classes: 'space-y-2.5 pt-2', [
-                for (final w in wallets) () {
-                  final id = w['id']!;
-                  final name = w['name']!;
-                  final url = w['url']!;
-                  final isInstalled = isSolanaWalletInstalled(id);
-                  final isCurrentlyConnected = s.walletState == WalletState.connected && s.selectedWalletType == id;
+                for (final w in wallets)
+                  () {
+                    final id = w['id']!;
+                    final name = w['name']!;
+                    final url = w['url']!;
+                    final isInstalled = isSolanaWalletInstalled(id);
+                    final isCurrentlyConnected = s.walletState == WalletState.connected && s.selectedWalletType == id;
 
-                  final statusText = isCurrentlyConnected
-                      ? 'Connected'
-                      : (isInstalled ? 'Detected' : 'Not Installed');
-                  final badgeClasses = isCurrentlyConnected
-                      ? 'bg-emerald-500/10 text-emerald-400'
-                      : (isInstalled ? 'bg-indigo-500/10 text-indigo-400' : 'bg-zinc-500/10 text-zinc-400');
-                  final dotClasses = isCurrentlyConnected
-                      ? 'bg-emerald-400'
-                      : (isInstalled ? 'bg-indigo-400' : 'bg-zinc-400');
+                    final statusText = isCurrentlyConnected
+                        ? 'Connected'
+                        : (isInstalled ? 'Detected' : 'Not Installed');
+                    final badgeClasses = isCurrentlyConnected
+                        ? 'bg-emerald-500/10 text-emerald-400'
+                        : (isInstalled ? 'bg-indigo-500/10 text-indigo-400' : 'bg-zinc-500/10 text-zinc-400');
+                    final dotClasses = isCurrentlyConnected
+                        ? 'bg-emerald-400'
+                        : (isInstalled ? 'bg-indigo-400' : 'bg-zinc-400');
 
-                  return div(
-                    classes:
-                        'w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all '
-                        '${isDark ? "bg-zinc-950/40 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900/60" : "bg-zinc-50/50 border-zinc-200/80 hover:border-zinc-300 hover:bg-zinc-50"}',
-                    [
-                      div(classes: 'flex items-center gap-3.5', [
-                        div(
-                          classes: 'p-2.5 rounded-xl ${isDark ? "bg-zinc-900" : "bg-white border border-zinc-150"} flex items-center justify-center',
-                          [getWalletIcon(id, size: 'w-6 h-6')],
-                        ),
-                        div([
-                          p(classes: 'font-bold text-sm tracking-tight', [Component.text(name)]),
-                          span(
-                            classes: 'inline-flex items-center gap-1 text-[10px] font-bold mt-1 px-2 py-0.5 rounded-md '
-                                '$badgeClasses',
-                            [
-                              span(
-                                classes: 'w-1.5 h-1.5 rounded-full $dotClasses',
-                                [],
-                              ),
-                              Component.text(statusText),
-                            ],
+                    return div(
+                      classes:
+                          'w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all '
+                          '${isDark ? "bg-zinc-950/40 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900/60" : "bg-zinc-50/50 border-zinc-200/80 hover:border-zinc-300 hover:bg-zinc-50"}',
+                      [
+                        div(classes: 'flex items-center gap-3.5', [
+                          div(
+                            classes:
+                                'p-2.5 rounded-xl ${isDark ? "bg-zinc-900" : "bg-white border border-zinc-150"} flex items-center justify-center',
+                            [getWalletIcon(id, size: 'w-6 h-6')],
                           ),
+                          div([
+                            p(classes: 'font-bold text-sm tracking-tight', [Component.text(name)]),
+                            span(
+                              classes:
+                                  'inline-flex items-center gap-1 text-[10px] font-bold mt-1 px-2 py-0.5 rounded-md '
+                                  '$badgeClasses',
+                              [
+                                span(
+                                  classes: 'w-1.5 h-1.5 rounded-full $dotClasses',
+                                  [],
+                                ),
+                                Component.text(statusText),
+                              ],
+                            ),
+                          ]),
                         ]),
-                      ]),
 
-                      if (isInstalled)
-                        if (isCurrentlyConnected)
-                          button(
-                            classes:
-                                'px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-500 hover:bg-red-600 transition-colors border-0 cursor-pointer shadow-md shadow-red-500/10',
-                            events: {
-                              'click': (_) => s.handleDisconnectWallet(),
-                            },
-                            [Component.text('Disconnect')],
-                          )
+                        if (isInstalled)
+                          if (isCurrentlyConnected)
+                            button(
+                              classes:
+                                  'px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-500 hover:bg-red-600 transition-colors border-0 cursor-pointer shadow-md shadow-red-500/10',
+                              events: {
+                                'click': (_) => s.handleDisconnectWallet(),
+                              },
+                              [Component.text('Disconnect')],
+                            )
+                          else
+                            button(
+                              classes:
+                                  'px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-500 hover:bg-indigo-600 transition-colors border-0 cursor-pointer shadow-md shadow-indigo-500/10',
+                              events: {
+                                'click': (_) => s.handleSelectSolanaWallet(id),
+                              },
+                              [Component.text('Connect')],
+                            )
                         else
-                          button(
+                          a(
+                            href: url,
                             classes:
-                                'px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-500 hover:bg-indigo-600 transition-colors border-0 cursor-pointer shadow-md shadow-indigo-500/10',
-                            events: {
-                              'click': (_) => s.handleSelectSolanaWallet(id),
+                                'px-4 py-2 rounded-xl text-xs font-bold text-zinc-400 border border-zinc-700 hover:text-white hover:bg-zinc-800 transition-all text-center no-underline cursor-pointer',
+                            target: Target.blank,
+                            attributes: const {
+                              'rel': 'noopener noreferrer',
                             },
-                            [Component.text('Connect')],
-                          )
-                      else
-                        a(
-                          href: url,
-                          classes:
-                              'px-4 py-2 rounded-xl text-xs font-bold text-zinc-400 border border-zinc-700 hover:text-white hover:bg-zinc-800 transition-all text-center no-underline cursor-pointer',
-                          target: Target.blank,
-                          attributes: const {
-                            'rel': 'noopener noreferrer',
-                          },
-                          [Component.text('Install')],
-                        ),
-                    ],
-                  );
-                }(),
+                            [Component.text('Install')],
+                          ),
+                      ],
+                    );
+                  }(),
               ]),
             ]),
           ],

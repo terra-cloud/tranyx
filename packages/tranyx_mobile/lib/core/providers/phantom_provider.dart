@@ -629,6 +629,9 @@ class PhantomService {
       microUnits: microUnits,
     );
 
+    // Simulate before signing
+    await simulateTransaction(base58.encode(txBytes));
+
     // Load or generate persistent session key pair
     final savedKeyBytes = await SecureStorageHelper.getPhantomSessionKey();
     final PrivateKey localPrivateKey;
@@ -904,6 +907,9 @@ class PhantomService {
       lamports: lamports,
     );
 
+    // Simulate before signing
+    await simulateTransaction(base58.encode(txBytes));
+
     // 3. Load or generate persistent session key pair
     final savedKeyBytes = await SecureStorageHelper.getPhantomSessionKey();
     final PrivateKey localPrivateKey;
@@ -991,6 +997,42 @@ class PhantomService {
       'PhantomService: Launching transaction signing link: $baseUrl?$queryString',
     );
     return Uri.parse('$baseUrl?$queryString');
+  }
+
+  Future<void> simulateTransaction(String base58Tx) async {
+    final txBytes = base58.decode(base58Tx);
+    final base64Tx = base64.encode(txBytes);
+
+    final response = await http.post(
+      Uri.parse(rpcUrl),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'jsonrpc': '2.0',
+        'id': 1,
+        'method': 'simulateTransaction',
+        'params': [
+          base64Tx,
+          {'encoding': 'base64', 'sigVerify': false},
+        ],
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final value = data['result']?['value'];
+      if (value != null) {
+        final error = value['err'];
+        if (error != null) {
+          throw Exception('Transaction simulation failed: ${jsonEncode(error)}');
+        }
+        return;
+      }
+      final errorMsg = data['error']?['message'] as String?;
+      if (errorMsg != null) {
+        throw Exception(errorMsg);
+      }
+    }
+    throw Exception('Failed to simulate transaction on Solana RPC');
   }
 
   /// Sends a signed transaction in base58 to the Solana cluster via JSON-RPC.

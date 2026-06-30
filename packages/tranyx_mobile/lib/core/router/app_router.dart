@@ -11,6 +11,7 @@ import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 // Provides the GoRouter instance
 final routerProvider = Provider<GoRouter>((ref) {
@@ -182,62 +183,81 @@ final routerProvider = Provider<GoRouter>((ref) {
 
             final isDarkMode = ref.read(themeModeProvider);
 
+            bool isSwitching = false;
             if (user != null) {
-              try {
-                await ref
-                    .read(firestoreProvider)
-                    .collection('users')
-                    .doc(user.uid)
-                    .update({
-                      'walletPublicKey': userSolanaPublicKey,
-                      'connectedWalletType': walletType,
-                    });
-                ref.invalidate(userProfileProvider);
-
-                // Write link to walletLinks collection as well (for cross-platform login support)
-                final password = await SecureStorageHelper.getPassword();
-                final obfuscatedPassword = password != null
-                    ? SecureStorageHelper.obfuscate(password)
-                    : null;
-
-                final providers = user.providerData.map((p) => p.providerId).toList();
-                final provider = providers.contains('google.com') ? 'google.com' : 'password';
-
-                final linkData = <String, dynamic>{
-                  'uid': user.uid,
-                  'email': user.email,
-                  'provider': provider,
-                  'linkedAt': DateTime.now().millisecondsSinceEpoch,
-                };
-                if (obfuscatedPassword != null) {
-                  linkData['password'] = obfuscatedPassword;
-                }
-
-                await ref
-                    .read(firestoreProvider)
-                    .collection('walletLinks')
-                    .doc(userSolanaPublicKey)
-                    .set(linkData);
-
+              final currentProfile = ref.read(userProfileProvider).value;
+              if (currentProfile?.walletPublicKey != null &&
+                  currentProfile!.walletPublicKey!.isNotEmpty &&
+                  currentProfile.walletPublicKey != userSolanaPublicKey) {
+                isSwitching = true;
+                await ref.read(authControllerProvider).signOut();
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Wallet Connected: $userSolanaPublicKey'),
-                      backgroundColor: Colors.green,
+                    const SnackBar(
+                      content: Text('Wallet switched. Changing profile...'),
+                      backgroundColor: Colors.amber,
                     ),
                   );
                 }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to update wallet address: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+              } else {
+                try {
+                  await ref
+                      .read(firestoreProvider)
+                      .collection('users')
+                      .doc(user.uid)
+                      .update({
+                        'walletPublicKey': userSolanaPublicKey,
+                        'connectedWalletType': walletType,
+                      });
+                  ref.invalidate(userProfileProvider);
+
+                  // Write link to walletLinks collection as well (for cross-platform login support)
+                  final password = await SecureStorageHelper.getPassword();
+                  final obfuscatedPassword = password != null
+                      ? SecureStorageHelper.obfuscate(password)
+                      : null;
+
+                  final providers = user.providerData.map((p) => p.providerId).toList();
+                  final provider = providers.contains('google.com') ? 'google.com' : 'password';
+
+                  final linkData = <String, dynamic>{
+                    'uid': user.uid,
+                    'email': user.email,
+                    'provider': provider,
+                    'linkedAt': DateTime.now().millisecondsSinceEpoch,
+                  };
+                  if (obfuscatedPassword != null) {
+                    linkData['password'] = obfuscatedPassword;
+                  }
+
+                  await ref
+                      .read(firestoreProvider)
+                      .collection('walletLinks')
+                      .doc(userSolanaPublicKey)
+                      .set(linkData);
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Wallet Connected: $userSolanaPublicKey'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to update wallet address: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
                 }
               }
-            } else {
+            }
+            
+            if (user == null || isSwitching) {
               // Sign in with Solana Wallet
               try {
                 final walletLinkDoc = await ref
@@ -918,6 +938,141 @@ final routerProvider = Provider<GoRouter>((ref) {
             }
           });
 
+          return const MainWrapper();
+        },
+      ),
+      GoRoute(
+        path: '/payment-success',
+        name: 'payment_success',
+        builder: (context, state) {
+          final queryParams = state.uri.queryParameters;
+          final uid = queryParams['uid'];
+
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            // First switch tab to profile so the user is on the wallet page
+            NavigationNotifier.switchTab(ref, 'profile');
+
+            if (uid == null || uid.isEmpty) {
+              debugPrint("Payment success deep link triggered but UID is missing.");
+              return;
+            }
+
+            // Show verification dialog
+            if (context.mounted) {
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (dialogContext) => const AlertDialog(
+                  content: Row(
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(width: 16),
+                      Expanded(
+                        child: Text(
+                          'Verifying payment with Xendit...',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            try {
+              // Fetch user's pending invoice details from Firestore
+              final userDoc = await ref
+                  .read(firestoreProvider)
+                  .collection('users')
+                  .doc(uid)
+                  .get();
+
+              final invoiceId = userDoc.data()?['pendingXenditInvoiceId'] as String?;
+              final amount = (userDoc.data()?['pendingXenditInvoiceAmount'] as num?)?.toDouble();
+
+              if (invoiceId == null || amount == null) {
+                if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop(); // Close dialog
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('No pending Xendit invoice found.'),
+                      backgroundColor: Colors.amber,
+                    ),
+                  );
+                }
+                return;
+              }
+
+              final isPaid = await ref
+                  .read(transitRepositoryProvider)
+                  .verifyXenditPayment(uid: uid, invoiceId: invoiceId, amount: amount);
+
+              if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop(); // Close dialog
+              }
+
+              if (isPaid) {
+                // Clear pending invoice fields from Firestore
+                await ref.read(firestoreProvider).collection('users').doc(uid).update({
+                  'pendingXenditInvoiceId': FieldValue.delete(),
+                  'pendingXenditInvoiceAmount': FieldValue.delete(),
+                  'pendingXenditInvoiceUrl': FieldValue.delete(),
+                });
+                
+                ref.invalidate(userProfileProvider);
+                ref.invalidate(userTransactionsProvider);
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Payment Verified! Balance credited successfully.'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } else {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Invoice is still unpaid or pending.'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                }
+              }
+            } catch (e) {
+              debugPrint("Error verifying Xendit payment: $e");
+              if (context.mounted) {
+                // Safely close dialog if still open
+                if (Navigator.of(context, rootNavigator: true).canPop()) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Verification error: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+          });
+
+          return const MainWrapper();
+        },
+      ),
+      GoRoute(
+        path: '/payment-failure',
+        name: 'payment_failure',
+        builder: (context, state) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            NavigationNotifier.switchTab(ref, 'profile');
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Xendit payment was not completed.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          });
           return const MainWrapper();
         },
       ),

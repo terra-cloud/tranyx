@@ -27,6 +27,12 @@ Future<String?> getSolanaPublicKeyIfConnected(String type) async {
   }
 }
 
+Future<void> disconnectSolanaWallet(String type) async {
+  try {
+    await web.window.callMethod<JSPromise>('disconnectSolanaWallet'.toJS, type.toJS).toDart;
+  } catch (_) {}
+}
+
 bool isSolanaWalletInstalled(String type) {
   try {
     final res = web.window.callMethod<JSBoolean>('isSolanaWalletInstalled'.toJS, type.toJS);
@@ -62,6 +68,32 @@ Future<String?> signInWithGoogleJs(Map<String, String> config) async {
       jsConfig.setProperty(e.key.toJS, e.value.toJS);
     }
     final res = await web.window.callMethod<JSPromise>('signInWithGoogle'.toJS, jsConfig).toDart;
+    return (res as JSString).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<String?> linkGoogleAccountJs(Map<String, String> config) async {
+  try {
+    final jsConfig = JSObject();
+    for (final e in config.entries) {
+      jsConfig.setProperty(e.key.toJS, e.value.toJS);
+    }
+    final res = await web.window.callMethod<JSPromise>('linkGoogleAccount'.toJS, jsConfig).toDart;
+    return (res as JSString).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<String?> unlinkGoogleAccountJs(Map<String, String> config) async {
+  try {
+    final jsConfig = JSObject();
+    for (final e in config.entries) {
+      jsConfig.setProperty(e.key.toJS, e.value.toJS);
+    }
+    final res = await web.window.callMethod<JSPromise>('unlinkGoogleAccount'.toJS, jsConfig).toDart;
     return (res as JSString).toDart;
   } catch (_) {
     return null;
@@ -447,6 +479,20 @@ Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amo
     return (res as JSString).toDart;
   } catch (e) {
     print("sendUsdtPayment exception: $e");
+    rethrow;
+  }
+}
+
+Future<String?> signSolanaMessage(String fromAddress, String message) async {
+  try {
+    final res = await web.window.callMethod<JSPromise>(
+      'signSolanaMessage'.toJS,
+      fromAddress.toJS,
+      message.toJS,
+    ).toDart;
+    return (res as JSString).toDart;
+  } catch (e) {
+    print("signSolanaMessage exception: $e");
     rethrow;
   }
 }

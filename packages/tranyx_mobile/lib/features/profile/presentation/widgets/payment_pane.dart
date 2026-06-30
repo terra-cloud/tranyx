@@ -16,6 +16,7 @@ import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/flavors.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
+import 'package:bs58/bs58.dart';
 
 final rawUserDocProvider =
     StreamProvider.autoDispose<DocumentSnapshot<Map<String, dynamic>>?>((ref) {
@@ -958,7 +959,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                     if (await canLaunchUrl(uri)) {
                       await launchUrl(
                         uri,
-                        mode: LaunchMode.externalApplication,
+                        mode: LaunchMode.inAppBrowserView,
                       );
                     }
                   } catch (_) {}
@@ -1266,6 +1267,88 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     }
   }
 
+  Future<void> _handleMobileAccountChanged(String newAddress, String walletType) async {
+    setState(() {
+      _solBalance = 0.0;
+      _usdtBalance = 0.0;
+      _isProcessing = false;
+      _amountController.clear();
+    });
+
+    final user = ref.read(userProvider);
+    if (user != null) {
+      final currentProfile = ref.read(userProfileProvider).value;
+      if (currentProfile?.walletPublicKey != newAddress) {
+        await ref.read(authControllerProvider).signOut();
+        ref.invalidate(userProfileProvider);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Wallet account switched. Logged out.'),
+              backgroundColor: Colors.amber,
+            ),
+          );
+        }
+      }
+    }
+
+    try {
+      final walletLinkDoc = await ref
+          .read(firestoreProvider)
+          .collection('walletLinks')
+          .doc(newAddress)
+          .get();
+      if (walletLinkDoc.exists) {
+        final linkData = walletLinkDoc.data();
+        final email = linkData?['email'] as String?;
+        final obfuscatedPassword = linkData?['password'] as String?;
+        if (email != null && obfuscatedPassword != null && obfuscatedPassword.isNotEmpty) {
+          final password = SecureStorageHelper.deobfuscate(obfuscatedPassword);
+          await ref
+              .read(firebaseAuthProvider)
+              .signInWithEmailAndPassword(
+                email: email,
+                password: password,
+              );
+          ref.invalidate(userProfileProvider);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Switched to account linked with: $newAddress'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        }
+      } else {
+        ref.read(pendingWalletPublicKeyProvider.notifier).state = newAddress;
+        ref.read(authViewProvider.notifier).state = 'register-path';
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _handleMobileDisconnect() async {
+    setState(() {
+      _solBalance = 0.0;
+      _usdtBalance = 0.0;
+      _isProcessing = false;
+      _amountController.clear();
+    });
+
+    await ref.read(authControllerProvider).signOut();
+    ref.invalidate(userProfileProvider);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Wallet disconnected. Logged out.'),
+          backgroundColor: Colors.amber,
+        ),
+      );
+    }
+  }
+
   /// Opens the Reown AppKit modal so the user can connect Trust Wallet
   /// via WalletConnect v2. Phantom and Solflare are NOT affected.
   Future<void> _handleConnectTrustWallet(String uid) async {
@@ -1284,6 +1367,17 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         projectId: projectId,
       );
       _trustModal = modal;
+
+      modal.appKit?.onSessionUpdate.subscribe((SessionUpdate? args) async {
+        final address = modal.session?.getAddress(NetworkUtils.solana);
+        if (address != null && address.isNotEmpty) {
+          await _handleMobileAccountChanged(address, 'trust');
+        }
+      });
+
+      modal.appKit?.onSessionDelete.subscribe((SessionDelete? args) async {
+        await _handleMobileDisconnect();
+      });
 
       // Listen for successful connection
       modal.onModalConnect.subscribe((ModalConnect? event) async {
@@ -1480,6 +1574,9 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
           blockhash: blockhash,
           lamports: lamports,
         );
+
+        // Simulate before signing
+        await phantomService.simulateTransaction(base58.encode(txBytes));
 
         // Encode as base64 for WalletConnect v2 Solana spec
         final base64Tx = base64.encode(txBytes);
@@ -1696,6 +1793,9 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
           blockhash: blockhash,
           microUnits: microUnits,
         );
+
+        // Simulate before signing
+        await phantomService.simulateTransaction(base58.encode(txBytes));
 
         // Encode as base64 for WalletConnect v2 Solana spec
         final base64Tx = base64.encode(txBytes);
@@ -2921,7 +3021,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                             if (await canLaunchUrl(uri)) {
                               await launchUrl(
                                 uri,
-                                mode: LaunchMode.externalApplication,
+                                mode: LaunchMode.inAppBrowserView,
                               );
                             }
                           }
