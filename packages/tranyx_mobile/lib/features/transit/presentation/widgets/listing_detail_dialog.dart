@@ -272,7 +272,10 @@ class _ListingDetailDialogState extends ConsumerState<ListingDetailDialog> {
                             ? AppColors.darkBorder
                             : AppColors.lightBg,
                         child: hasPhoto
-                            ? Image.network(photoUrl, fit: BoxFit.cover)
+                            ? GestureDetector(
+                                onTap: () => UIHelpers.showFullScreenImage(context, photoUrl),
+                                child: Image.network(photoUrl, fit: BoxFit.cover),
+                              )
                             : Icon(
                                 widget.isProperty
                                     ? Icons.home

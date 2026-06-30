@@ -14,6 +14,7 @@ import 'package:tranyx_mobile/features/profile/presentation/widgets/payment_pane
 import 'package:tranyx_mobile/features/profile/presentation/widgets/trust_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/reviews_pane.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/security_pane.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 
 class ProfileView extends ConsumerStatefulWidget {
@@ -261,11 +262,21 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
         photoUrl: currentProfile.photoUrl,
         accountType: currentProfile.accountType,
         employerType: currentProfile.employerType,
-        businessName: currentProfile.accountType == AccountType.nyxian ? currentProfile.businessName : _companyNameController.text,
-        industry: currentProfile.accountType == AccountType.nyxian ? currentProfile.industry : _industryController.text,
-        taxId: currentProfile.accountType == AccountType.nyxian ? currentProfile.taxId : _taxIdController.text,
-        headline: currentProfile.accountType == AccountType.employer ? currentProfile.headline : _headlineController.text,
-        hourlyRate: currentProfile.accountType == AccountType.employer ? currentProfile.hourlyRate : (double.tryParse(_hourlyRateController.text) ?? 0),
+        businessName: currentProfile.accountType == AccountType.nyxian
+            ? currentProfile.businessName
+            : _companyNameController.text,
+        industry: currentProfile.accountType == AccountType.nyxian
+            ? currentProfile.industry
+            : _industryController.text,
+        taxId: currentProfile.accountType == AccountType.nyxian
+            ? currentProfile.taxId
+            : _taxIdController.text,
+        headline: currentProfile.accountType == AccountType.employer
+            ? currentProfile.headline
+            : _headlineController.text,
+        hourlyRate: currentProfile.accountType == AccountType.employer
+            ? currentProfile.hourlyRate
+            : (double.tryParse(_hourlyRateController.text) ?? 0),
         skills: currentProfile.skills,
         rating: currentProfile.rating,
         createdAt: currentProfile.createdAt,
@@ -299,7 +310,8 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
     final isDarkMode = ref.watch(themeModeProvider);
     final userProfileAsync = ref.watch(userProfileProvider);
     final profile = userProfileAsync.value;
-    final AccountType accountType = profile?.accountType ?? ref.watch(accountTypeProvider);
+    final AccountType accountType =
+        profile?.accountType ?? ref.watch(accountTypeProvider);
     final profileView = ref.watch(profileViewProvider);
     final user = ref.watch(userProvider);
 
@@ -313,7 +325,8 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
 
         final displayName =
             profile?.name ?? user?.displayName ?? user?.email ?? "Alex Mercer";
-        final AccountType currentAccountType = profile?.accountType ?? accountType;
+        final AccountType currentAccountType =
+            profile?.accountType ?? accountType;
 
         Widget buildTestBtn(
           String label,
@@ -495,9 +508,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                           name: displayName,
                           photoUrl: profile?.photoUrl,
                           radius: 32,
-                          backgroundColor: isDarkMode
-                              ? AppColors.darkBg
-                              : AppColors.lightCard,
+                          backgroundColor: AppColors.indigo,
                         ),
                         if (_isUploadingImage)
                           Container(
@@ -606,7 +617,13 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
             const SizedBox(height: 12),
             buildProfileMenu(Icons.history, "History & Earnings", 'history'),
             const SizedBox(height: 12),
-            buildProfileMenu(Icons.star_outline, "Ratings & Reviews", 'reviews'),
+            buildProfileMenu(
+              Icons.star_outline,
+              "Ratings & Reviews",
+              'reviews',
+            ),
+            const SizedBox(height: 12),
+            buildProfileMenu(Icons.lock_outline, "Security Settings", 'security'),
             const SizedBox(height: 12),
             buildProfileMenu(Icons.help_outline, "Help & Support", 'support'),
             if (!widget.isTablet) ...[
@@ -928,7 +945,8 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
           rightPane = SizedBox(
             height: availableHeight,
             child: NyxChatView(
-              onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
+              onBack: () =>
+                  ref.read(profileViewProvider.notifier).state = 'main',
             ),
           );
         } else if (profileView == 'payment') {
@@ -945,6 +963,10 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
           );
         } else if (profileView == 'reviews') {
           rightPane = ReviewsPane(
+            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
+          );
+        } else if (profileView == 'security') {
+          rightPane = SecurityPane(
             onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
           );
         } else {

@@ -230,6 +230,47 @@
       return !!getSolanaProvider(type);
     };
 
+    function setupSolanaWalletListeners(provider, type) {
+      if (!provider) return;
+      if (provider._hasTranyxListeners) return;
+      provider._hasTranyxListeners = true;
+
+      const handleAccountChanged = (publicKey) => {
+        if (publicKey) {
+          const pubKeyStr = publicKey.toString();
+          console.log("Wallet account changed to: " + pubKeyStr);
+          window.dispatchEvent(new CustomEvent('solanaWalletAccountChanged', { 
+            detail: { publicKey: pubKeyStr, walletType: type } 
+          }));
+        } else {
+          console.log("Wallet account disconnected via accountChanged");
+          window.dispatchEvent(new CustomEvent('solanaWalletDisconnected', { 
+            detail: { walletType: type } 
+          }));
+        }
+      };
+
+      const handleDisconnect = () => {
+        console.log("Wallet disconnected");
+        window.dispatchEvent(new CustomEvent('solanaWalletDisconnected', { 
+          detail: { walletType: type } 
+        }));
+      };
+
+      provider.on('accountChanged', handleAccountChanged);
+      provider.on('disconnect', handleDisconnect);
+
+      provider._removeTranyxListeners = () => {
+        try {
+          provider.off('accountChanged', handleAccountChanged);
+          provider.off('disconnect', handleDisconnect);
+        } catch (e) {
+          console.warn("Error removing wallet listeners:", e);
+        }
+        delete provider._hasTranyxListeners;
+      };
+    }
+
     window.connectSolanaWallet = async function (type) {
       const provider = getSolanaProvider(type);
       if (!provider) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
@@ -238,6 +279,7 @@
       const resp = await provider.connect();
       const pubKey = resp?.publicKey || provider.publicKey;
       if (!pubKey) throw new Error("Could not retrieve public key from " + type + " Wallet.");
+      setupSolanaWalletListeners(provider, type);
       return pubKey.toString();
     };
 
@@ -250,10 +292,29 @@
         if (!pubKey) return null;
         window.selectedSolanaWallet = type;
         localStorage.setItem('selectedSolanaWallet', type);
+        setupSolanaWalletListeners(provider, type);
         return pubKey.toString();
       } catch (e) {
         return null;
       }
+    };
+
+    window.disconnectSolanaWallet = async function (type) {
+      const provider = getSolanaProvider(type);
+      if (provider) {
+        if (typeof provider.disconnect === 'function') {
+          try {
+            await provider.disconnect();
+          } catch (e) {
+            console.warn("Wallet disconnect rejected:", e);
+          }
+        }
+        if (typeof provider._removeTranyxListeners === 'function') {
+          provider._removeTranyxListeners();
+        }
+      }
+      localStorage.removeItem('selectedSolanaWallet');
+      window.selectedSolanaWallet = null;
     };
 
     window.sendSolPayment = async function (fromAddress, toAddress, amountInSol, rpcUrl) {
@@ -272,7 +333,6 @@
           throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected.");
         }
 
-        // Establish connection to dynamic RPC URL
         let fallbackRpc = "https://api.testnet.solana.com";
         try {
           const hostname = window.location.hostname;
@@ -296,16 +356,21 @@
           })
         );
 
-        // Fetch recent blockhash
         const latestBlockHash = await connection.getLatestBlockhash("confirmed");
         transaction.recentBlockhash = latestBlockHash.blockhash;
         transaction.feePayer = fromPubkey;
 
-        // Sign and send transaction via selected provider
+        // Perform transaction simulation
+        console.log("Simulating SOL transfer...");
+        const simulation = await connection.simulateTransaction(transaction);
+        if (simulation.value.err) {
+          console.error("Simulation failed:", simulation.value.err);
+          throw new Error("Transaction simulation failed: " + JSON.stringify(simulation.value.err));
+        }
+
         const { signature } = await solana.signAndSendTransaction(transaction);
         console.log("Transaction sent. Signature:", signature);
 
-        // Wait for confirmation
         await connection.confirmTransaction({
           blockhash: latestBlockHash.blockhash,
           lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
@@ -320,13 +385,10 @@
       }
     };
 
-    // ── USDT SPL Token Transfer ────────────────────────────────────────────────
-    // USDT Mint on Mainnet: Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB
     window.sendUsdtPayment = async function (fromAddress, toAddress, amountInUsdt, rpcUrl, usdtMint) {
       console.log("sendUsdtPayment started", fromAddress, toAddress, amountInUsdt, rpcUrl, usdtMint);
       ensureBuffer();
       try {
-
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
         }
@@ -353,7 +415,6 @@
         const fromPubkey = new solanaWeb3.PublicKey(fromAddress);
         const toPubkey = new solanaWeb3.PublicKey(toAddress);
 
-        // Derive Associated Token Accounts
         const TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
         const ASSOCIATED_TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bS");
 
@@ -367,17 +428,15 @@
         const fromATA = findATA(fromPubkey, USDT_MINT);
         const toATA = findATA(toPubkey, USDT_MINT);
 
-        // Build transfer instruction manually (compatible with all web3.js versions)
         const keys = [
           { pubkey: fromATA, isSigner: false, isWritable: true },
           { pubkey: toATA, isSigner: false, isWritable: true },
           { pubkey: fromPubkey, isSigner: true, isWritable: false },
         ];
-        // SPL Token transfer instruction data: [3, amount_le_uint64]
         const data = new Uint8Array(9);
         const view = new DataView(data.buffer);
-        view.setUint8(0, 3); // Transfer instruction
-        view.setBigUint64(1, BigInt(amountInMicroUsdt), true); // amount in little endian
+        view.setUint8(0, 3);
+        view.setBigUint64(1, BigInt(amountInMicroUsdt), true);
 
         const transferInstruction = new solanaWeb3.TransactionInstruction({
           keys: keys,
@@ -387,7 +446,6 @@
 
         const transaction = new solanaWeb3.Transaction();
 
-        // Check if recipient's Associated Token Account (ATA) exists
         const toATAInfo = await connection.getAccountInfo(toATA);
         if (!toATAInfo) {
           console.log("Recipient ATA does not exist, appending createAssociatedTokenAccountInstruction...");
@@ -412,6 +470,14 @@
         transaction.recentBlockhash = latestBlockHash.blockhash;
         transaction.feePayer = fromPubkey;
 
+        // Perform transaction simulation
+        console.log("Simulating USDT transfer...");
+        const simulation = await connection.simulateTransaction(transaction);
+        if (simulation.value.err) {
+          console.error("USDT Simulation failed:", simulation.value.err);
+          throw new Error("USDT Transaction simulation failed: " + JSON.stringify(simulation.value.err));
+        }
+
         const { signature } = await solana.signAndSendTransaction(transaction);
         console.log("USDT Transaction sent. Signature:", signature);
 
@@ -426,6 +492,59 @@
       } catch (error) {
         console.error("sendUsdtPayment failed:", error);
         throw error;
+      }
+    };
+
+    window.signSolanaMessage = async function (fromAddress, message) {
+      console.log("signSolanaMessage started", fromAddress, message);
+      try {
+        const type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        const provider = getSolanaProvider(type);
+        if (!provider) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
+        if (!provider.publicKey) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected.");
+        if (provider.publicKey.toString() !== fromAddress) {
+          throw new Error("Active wallet public key does not match authorization address.");
+        }
+        const encodedMessage = new TextEncoder().encode(message);
+        const signedResult = await provider.signMessage(encodedMessage, "utf8");
+        // Convert Uint8Array signature to base58
+        const signatureBytes = signedResult.signature;
+        if (!signatureBytes) {
+          throw new Error("Could not retrieve signature bytes from signed result.");
+        }
+        // Base58 encode helper
+        const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+        function encodeBase58(buffer) {
+          let carry;
+          const digits = [0];
+          for (let i = 0; i < buffer.length; i++) {
+            for (let j = 0; j < digits.length; j++) {
+              digits[j] <<= 8;
+            }
+            digits[0] += buffer[i];
+            carry = 0;
+            for (let j = 0; j < digits.length; j++) {
+              digits[j] += carry;
+              carry = (digits[j] / 58) | 0;
+              digits[j] %= 58;
+            }
+            while (carry) {
+              digits.push(carry % 58);
+              carry = (carry / 58) | 0;
+            }
+          }
+          // deal with leading zeros
+          for (let i = 0; buffer[i] === 0 && i < buffer.length - 1; i++) {
+            digits.push(0);
+          }
+          return digits.reverse().map(digit => ALPHABET[digit]).join('');
+        }
+        const signatureB58 = encodeBase58(signatureBytes);
+        console.log("Message signed. Signature:", signatureB58);
+        return signatureB58;
+      } catch (e) {
+        console.error("signSolanaMessage failed:", e);
+        throw e;
       }
     };
 
@@ -579,6 +698,57 @@
           console.error("Redirect authentication failed:", redirectError);
           throw redirectError;
         }
+      }
+    };
+
+    window.linkGoogleAccount = async function (config) {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(config);
+      }
+      const user = firebase.auth().currentUser;
+      if (!user) {
+        throw new Error("No active Firebase session to link account to.");
+      }
+      const provider = new firebase.auth.GoogleAuthProvider();
+      try {
+        const result = await user.linkWithPopup(provider);
+        const idToken = await result.user.getIdToken();
+        return JSON.stringify({
+          uid: result.user.uid,
+          idToken: idToken,
+          refreshToken: result.user.refreshToken,
+          email: result.user.email,
+          displayName: result.user.displayName,
+          photoUrl: result.user.photoURL
+        });
+      } catch (error) {
+        console.error("linkGoogleAccount failed:", error);
+        throw error;
+      }
+    };
+
+    window.unlinkGoogleAccount = async function (config) {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(config);
+      }
+      const user = firebase.auth().currentUser;
+      if (!user) {
+        throw new Error("No active Firebase session to unlink.");
+      }
+      try {
+        const result = await user.unlink('google.com');
+        const idToken = await result.getIdToken();
+        return JSON.stringify({
+          uid: result.uid,
+          idToken: idToken,
+          refreshToken: result.refreshToken,
+          email: result.email,
+          displayName: result.displayName,
+          photoUrl: result.photoURL
+        });
+      } catch (error) {
+        console.error("unlinkGoogleAccount failed:", error);
+        throw error;
       }
     };
 

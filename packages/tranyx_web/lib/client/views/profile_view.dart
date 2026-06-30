@@ -1366,6 +1366,112 @@ class _TrustVerification extends StatelessComponent {
         ),
       ]),
 
+      // ── Linked Accounts Section ──────────────────────────────────
+      div(
+        classes: 'p-5 rounded-2xl border space-y-4 ${isDark ? "bg-zinc-900/40 border-zinc-800/80" : "bg-white border-zinc-200/60 shadow-sm"}',
+        [
+          div(classes: 'flex items-center gap-2 mb-2', [
+            div(
+              classes: 'p-2 rounded-xl bg-indigo-500/10',
+              [lIcon('link', cls: 'w-5 h-5 text-indigo-455')],
+            ),
+            div([
+              p(classes: 'font-bold text-sm ${isDark ? "text-white" : "text-zinc-800"}', [
+                Component.text('Linked Accounts'),
+              ]),
+              p(classes: 'text-[11px] ${isDark ? "text-zinc-500" : "text-zinc-550"}', [
+                Component.text('Manage connected wallets and third-party login providers'),
+              ]),
+            ]),
+          ]),
+
+          // Google Account Link
+          div(
+            classes: 'flex items-center justify-between p-3 rounded-xl ${isDark ? "bg-zinc-800/40 border border-zinc-800" : "bg-zinc-50 border border-zinc-200"}',
+            [
+              div(classes: 'flex items-center gap-3', [
+                lIcon('mail', cls: 'w-5 h-5 text-red-400'),
+                div([
+                  p(classes: 'text-xs font-bold ${isDark ? "text-white" : "text-zinc-800"}', [
+                    Component.text('Google Account'),
+                  ]),
+                  p(classes: 'text-[10px] ${isDark ? "text-zinc-500" : "text-zinc-550"}', [
+                    Component.text(
+                      (s.userProfile?.googleEmail ?? '').isNotEmpty
+                          ? 'Linked to: ${s.userProfile!.googleEmail}'
+                          : 'Not linked',
+                    ),
+                  ]),
+                ]),
+              ]),
+              if ((s.userProfile?.googleEmail ?? '').isNotEmpty)
+                button(
+                  classes: 'px-3 py-1 text-xs font-bold rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all border border-red-500/20',
+                  events: {'click': (_) => s.handleUnlinkGoogleAccount()},
+                  [Component.text('Unlink')],
+                )
+              else
+                button(
+                  classes: 'px-3 py-1 text-xs font-bold rounded-lg bg-indigo-650 text-white hover:bg-indigo-700 transition-all shadow-sm',
+                  events: {'click': (_) => s.handleLinkGoogleAccount()},
+                  [Component.text('Link Google')],
+                ),
+            ],
+          ),
+
+          // Solana Wallet Link
+          div(
+            classes: 'flex items-center justify-between p-3 rounded-xl ${isDark ? "bg-zinc-800/40 border border-zinc-800" : "bg-zinc-50 border border-zinc-200"}',
+            [
+              div(classes: 'flex items-center gap-3', [
+                lIcon('wallet', cls: 'w-5 h-5 text-purple-400'),
+                div([
+                  p(classes: 'text-xs font-bold ${isDark ? "text-white" : "text-zinc-800"}', [
+                    Component.text('Solana Wallet'),
+                  ]),
+                  p(classes: 'text-[10px] ${isDark ? "text-zinc-500" : "text-zinc-550"}', [
+                    Component.text(
+                      (s.userProfile?.walletPublicKey ?? '').isNotEmpty
+                          ? 'Linked: ${s.userProfile!.walletPublicKey!.substring(0, 6)}...${s.userProfile!.walletPublicKey!.substring(s.userProfile!.walletPublicKey!.length - 6)}'
+                          : 'Not linked',
+                    ),
+                  ]),
+                ]),
+              ]),
+              if ((s.userProfile?.walletPublicKey ?? '').isNotEmpty)
+                button(
+                  classes: 'px-3 py-1 text-xs font-bold rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all border border-red-500/20',
+                  events: {'click': (_) => s.unlinkSolanaWallet()},
+                  [Component.text('Unlink')],
+                )
+              else
+                div(classes: 'flex flex-wrap items-center gap-1.5', [
+                  button(
+                    classes: 'px-2.5 py-1 text-[10px] font-bold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-all shadow-sm',
+                    events: {'click': (_) => s.linkSolanaWallet('phantom')},
+                    [Component.text('Phantom')],
+                  ),
+                  button(
+                    classes: 'px-2.5 py-1 text-[10px] font-bold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-all shadow-sm',
+                    events: {'click': (_) => s.linkSolanaWallet('solflare')},
+                    [Component.text('Solflare')],
+                  ),
+                  button(
+                    classes: 'px-2.5 py-1 text-[10px] font-bold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-all shadow-sm',
+                    events: {'click': (_) => s.linkSolanaWallet('backpack')},
+                    [Component.text('Backpack')],
+                  ),
+                  button(
+                    classes: 'px-2.5 py-1 text-[10px] font-bold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-all shadow-sm',
+                    events: {'click': (_) => s.linkSolanaWallet('trust')},
+                    [Component.text('Trust')],
+                  ),
+                ]),
+            ],
+          ),
+        ],
+      ),
+
       // ── Skill Certifications ───────────────────────────────────────
       if (s.accountType == AccountType.nyxian || s.accountType == AccountType.hybrid)
         div(

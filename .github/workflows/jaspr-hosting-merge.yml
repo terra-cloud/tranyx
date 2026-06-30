@@ -5,6 +5,8 @@ on:
       - main
       - uat
       - develop
+    paths:
+      - 'packages/tranyx_web/**'
 
 jobs:
   build_and_deploy:
@@ -18,8 +20,7 @@ jobs:
         with:
           filters: |
             code:
-              - '**'
-              - '!**/*.md'
+              - 'packages/tranyx_web/**'
 
       - name: Setup Flutter
         if: steps.filter.outputs.code == 'true'

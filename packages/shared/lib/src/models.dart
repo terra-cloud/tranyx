@@ -53,6 +53,7 @@ class UserProfile {
   final double? hostRating;
   final DateTime? createdAt;
   final String? walletPublicKey;
+  final String? googleEmail;
   final double tyxBalance;
   final int jobsDone;
   final double totalEarned;
@@ -85,6 +86,7 @@ class UserProfile {
     this.hostRating,
     this.createdAt,
     this.walletPublicKey,
+    this.googleEmail,
     this.tyxBalance = 0.0,
     this.jobsDone = 0,
     this.totalEarned = 0.0,
@@ -130,6 +132,7 @@ class UserProfile {
           ? DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int)
           : null,
       walletPublicKey: map['walletPublicKey'] as String?,
+      googleEmail: map['googleEmail'] as String?,
       tyxBalance: (map['tyxBalance'] as num?)?.toDouble() ?? 0.0,
       jobsDone: map['jobsDone'] as int? ?? 0,
       totalEarned: (map['totalEarned'] as num?)?.toDouble() ?? 0.0,
@@ -166,6 +169,7 @@ class UserProfile {
     'hostRating': hostRating,
     'createdAt': createdAt?.millisecondsSinceEpoch,
     'walletPublicKey': walletPublicKey,
+    'googleEmail': googleEmail,
     'tyxBalance': tyxBalance,
     'jobsDone': jobsDone,
     'totalEarned': totalEarned,
@@ -198,6 +202,7 @@ class UserProfile {
     double? hostRating,
     DateTime? createdAt,
     String? walletPublicKey,
+    String? googleEmail,
     double? tyxBalance,
     int? jobsDone,
     double? totalEarned,
@@ -230,6 +235,7 @@ class UserProfile {
       hostRating: hostRating ?? this.hostRating,
       createdAt: createdAt ?? this.createdAt,
       walletPublicKey: walletPublicKey ?? this.walletPublicKey,
+      googleEmail: googleEmail ?? this.googleEmail,
       tyxBalance: tyxBalance ?? this.tyxBalance,
       jobsDone: jobsDone ?? this.jobsDone,
       totalEarned: totalEarned ?? this.totalEarned,

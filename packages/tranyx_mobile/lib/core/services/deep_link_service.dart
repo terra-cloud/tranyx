@@ -44,6 +44,10 @@ class DeepLinkService {
       String path = uri.path;
       if (uri.host == 'onConnect' || path == '/onConnect') {
         path = '/onConnect';
+      } else if (uri.host == 'onSignAndSendTransaction' || path == '/onSignAndSendTransaction') {
+        path = '/onSignAndSendTransaction';
+      } else if (uri.host == 'onSignTransaction' || path == '/onSignTransaction') {
+        path = '/onSignTransaction';
       } else if (uri.host.isNotEmpty && !path.startsWith('/')) {
         path = '/${uri.host}$path';
       }

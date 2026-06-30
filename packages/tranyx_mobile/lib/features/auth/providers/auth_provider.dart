@@ -146,9 +146,13 @@ class AuthController {
       try {
         final user = _auth.currentUser;
         if (user != null) {
+          final providers = user.providerData.map((p) => p.providerId).toList();
+          final provider = providers.contains('google.com') ? 'google.com' : 'password';
+
           final linkData = <String, dynamic>{
             'uid': user.uid,
             'email': user.email,
+            'provider': provider,
             'linkedAt': DateTime.now().millisecondsSinceEpoch,
           };
           if (password != null) {

@@ -1089,6 +1089,8 @@ class TransitRepository {
             ? '${userName.replaceAll(' ', '').toLowerCase()}@example.com'
             : 'user@example.com',
         'description': 'Tyxbit Top-up for $userName',
+        'success_redirect_url': 'tranyx://payment-success?uid=$uid',
+        'failure_redirect_url': 'tranyx://payment-failure?uid=$uid',
       }),
     );
 

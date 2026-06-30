@@ -83,6 +83,13 @@ service cloud.firestore {
       allow update, delete: if false; // Transactions should be immutable
     }
 
+    // Withdrawal Requests Collection
+    match /withdrawalRequests/{requestId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     // Notifications Collection
     match /notifications/{notifId} {
       allow read, update, delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
@@ -154,8 +161,16 @@ service cloud.firestore {
       allow write: if isAuthenticated();
     }
 
-    // Config Collection
+    // Config Collection (app-level public config)
     match /config/app_config {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // System Config Collection (treasury key and other backend-only config)
+    // Read: authenticated users only (needed for client-side treasury signing).
+    // Write: never from client — set values directly in Firebase Console.
+    match /system_config/{docId} {
       allow read: if isAuthenticated();
       allow write: if false;
     }

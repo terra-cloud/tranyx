@@ -142,6 +142,45 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
     });
   }
 
+  /// Validates a Philippine LTO plate number (standard or MV File format).
+  bool _isValidPhilippinePlate(String plate) {
+    final cleaned = plate.replaceAll(RegExp(r'[\s-]'), '').toUpperCase();
+    if (cleaned.isEmpty) return false;
+    // Standard LTO format: 1–5 letters + 1–5 digits (e.g. ABC-1234)
+    if (RegExp(r'^[A-Z]{1,5}\d{1,5}$').hasMatch(cleaned)) return true;
+    // MV File Number: 9–12 consecutive digits
+    if (RegExp(r'^\d{9,12}$').hasMatch(cleaned)) return true;
+    return false;
+  }
+
+  /// Auto-formats a plate number string as the user types.
+  String _formatPlateNumber(String val) {
+    final cleaned = val.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9\s-]'), '');
+    final digitsOnly = cleaned.replaceAll(RegExp(r'\D'), '');
+    final lettersDigitsOnly = cleaned.replaceAll(RegExp(r'[\s-]'), '');
+
+    if (lettersDigitsOnly.isEmpty) return '';
+
+    // MV File Number style (starts with digit)
+    if (RegExp(r'^\d').hasMatch(lettersDigitsOnly)) {
+      if (digitsOnly.length > 4) {
+        return '${digitsOnly.substring(0, 4)}-${digitsOnly.substring(4, digitsOnly.length > 11 ? 11 : digitsOnly.length)}';
+      }
+      return digitsOnly;
+    }
+
+    // Standard plate format (starts with letters)
+    final letterMatch = RegExp(r'^[A-Z]+').firstMatch(lettersDigitsOnly);
+    if (letterMatch != null) {
+      final letters = letterMatch.group(0)!;
+      final truncLetters = letters.substring(0, letters.length > 5 ? 5 : letters.length);
+      final digits = lettersDigitsOnly.substring(letters.length);
+      final truncDigits = digits.substring(0, digits.length > 5 ? 5 : digits.length);
+      return truncDigits.isNotEmpty ? '$truncLetters-$truncDigits' : truncLetters;
+    }
+    return cleaned;
+  }
+
   bool _validateStep1(ScrollController scrollController) {
     setState(() => _error = null);
     if (widget.isProperty) {
@@ -180,13 +219,13 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         _scrollToTop(scrollController);
         return false;
       }
-      if (int.tryParse(_yearController.text.trim()) == null) {
-        setState(() => _error = 'Please enter a valid year');
+      if (_yearController.text.trim().isEmpty) {
+        setState(() => _error = 'Please select a vehicle year');
         _scrollToTop(scrollController);
         return false;
       }
-      if (_plateController.text.trim().isEmpty) {
-        setState(() => _error = 'Please enter plate number');
+      if (!_isValidPhilippinePlate(_plateController.text)) {
+        setState(() => _error = 'Please enter a valid Philippine Plate Number (e.g. ABC-1234, MC-12345) or MV File Number.');
         _scrollToTop(scrollController);
         return false;
       }
@@ -418,12 +457,27 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return DraggableScrollableSheet(
-      initialChildSize: 0.85,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (context, scrollController) {
-        return Container(
+    return PopScope(
+      canPop: _step == 1 && !_isProcessing,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_isProcessing) return;
+        if (_step > 1) {
+          setState(() {
+            _step--;
+          });
+        }
+      },
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (context, scrollController) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Container(
           decoration: BoxDecoration(
             color: Theme.of(context).cardColor,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
@@ -474,8 +528,16 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
+                      icon: Icon(
+                        _step == 1 ? Icons.close : Icons.arrow_back_ios_new_rounded,
+                      ),
+                      onPressed: () {
+                        if (_step == 1) {
+                          Navigator.pop(context);
+                        } else {
+                          setState(() => _step--);
+                        }
+                      },
                     ),
                   ],
                 ),
@@ -685,6 +747,9 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                             if (val != null) {
                               setState(() {
                                 _selectedVehicleType = val;
+                                _brandController.text = '';
+                                _modelController.text = '';
+                                _yearController.text = '';
                               });
                             }
                           },
@@ -756,41 +821,124 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         ),
                         const SizedBox(height: 16),
 
-                        UIHelpers.buildTextField(
-                          Icons.directions_car,
-                          "Brand (e.g. Toyota)",
-                          isDarkMode,
-                          controller: _brandController,
+                        // ── Brand Dropdown ──────────────────────────────
+                        const Text(
+                          'BRAND',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: _brandController.text.isEmpty ? null : _brandController.text,
+                          decoration: InputDecoration(
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                            hintText: 'Select Brand',
+                          ),
+                          items: (VehicleSpecDatabase.modelsByTypeAndBrand[_selectedVehicleType]?.keys.toList() ?? [])
+                              .map((b) => DropdownMenuItem(value: b, child: Text(b)))
+                              .toList(),
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() {
+                                _brandController.text = val;
+                                _modelController.text = '';
+                                _yearController.text = '';
+                              });
+                            }
+                          },
                         ),
                         const SizedBox(height: 16),
-                        UIHelpers.buildTextField(
-                          Icons.car_rental,
-                          "Model (e.g. Vios)",
-                          isDarkMode,
-                          controller: _modelController,
+
+                        // ── Model Dropdown ──────────────────────────────
+                        const Text(
+                          'MODEL',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: _modelController.text.isEmpty ? null : _modelController.text,
+                          decoration: InputDecoration(
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                            hintText: _brandController.text.isEmpty ? 'Select Brand first' : 'Select Model',
+                          ),
+                          items: _brandController.text.isEmpty
+                              ? []
+                              : (VehicleSpecDatabase.modelsByTypeAndBrand[_selectedVehicleType]?[_brandController.text] ?? [])
+                                  .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                                  .toList(),
+                          onChanged: _brandController.text.isEmpty
+                              ? null
+                              : (val) {
+                                  if (val != null) {
+                                    setState(() {
+                                      _modelController.text = val;
+                                      _yearController.text = '';
+                                    });
+                                  }
+                                },
                         ),
                         const SizedBox(height: 16),
-                        UIHelpers.buildTextField(
-                          Icons.calendar_today,
-                          "Year (e.g. 2023)",
-                          isDarkMode,
-                          controller: _yearController,
-                          keyboardType: TextInputType.number,
+
+                        // ── Year Dropdown ───────────────────────────────
+                        const Text(
+                          'YEAR',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: _yearController.text.isEmpty ? null : _yearController.text,
+                          decoration: InputDecoration(
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                            hintText: _modelController.text.isEmpty ? 'Select Model first' : 'Select Year',
+                          ),
+                          items: _modelController.text.isEmpty
+                              ? []
+                              : VehicleSpecDatabase.getYearsForModel(_modelController.text)
+                                  .map((y) => DropdownMenuItem(value: y.toString(), child: Text(y.toString())))
+                                  .toList(),
+                          onChanged: _modelController.text.isEmpty
+                              ? null
+                              : (val) {
+                                  if (val != null) setState(() => _yearController.text = val);
+                                },
                         ),
                         const SizedBox(height: 16),
+
+                        // ── Plate Number (with auto-format) ─────────────
                         UIHelpers.buildTextField(
                           Icons.credit_card,
-                          "Plate Number",
+                          'Plate Number (e.g. ABC-1234)',
                           isDarkMode,
                           controller: _plateController,
+                          onChanged: (v) {
+                            final formatted = _formatPlateNumber(v);
+                            if (_plateController.text != formatted) {
+                              _plateController.value = _plateController.value.copyWith(
+                                text: formatted,
+                                selection: TextSelection.collapsed(offset: formatted.length),
+                              );
+                            }
+                          },
                         ),
                         const SizedBox(height: 16),
                         UIHelpers.buildTextField(
                           Icons.gps_fixed,
-                          "GPS Hardware Tracker ID (Optional)",
+                          'GPS Hardware Tracker ID (Optional)',
                           isDarkMode,
                           controller: _gpsTrackerController,
                         ),
+
                       ],
                     ] else if (_step == 2) ...[
                       // STEP 2: Pricing & Location
@@ -1327,10 +1475,12 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
               ),
             ],
           ),
-        );
+        ), // close Container
+        ); // close Padding
       },
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildBreakdownRow(String label, double amount, {bool isGreen = false}) {
     return Padding(
