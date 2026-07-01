@@ -11,6 +11,14 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    // Helper to check if the user is an admin or staff member
+    function isAdminOrStaff() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff' ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'support');
+    }
+
     // Users Collection
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
@@ -78,14 +86,14 @@ service cloud.firestore {
 
     // Transactions Collection
     match /transactions/{txId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.type == 'rebate' || resource.data.type == 'payout' || resource.data.type == 'fee_deduction');
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.type == 'rebate' || resource.data.type == 'payout' || resource.data.type == 'fee_deduction' || isAdminOrStaff());
       allow create: if isAuthenticated(); // To record listing fees, escrow payments, etc.
       allow update, delete: if false; // Transactions should be immutable
     }
 
     // Withdrawal Requests Collection
     match /withdrawalRequests/{requestId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid);
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
       allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
       allow update, delete: if false;
     }
@@ -134,8 +142,8 @@ service cloud.firestore {
 
     // KYC Submissions Collection
     match /kyc_submissions/{submissionId} {
-      allow read: if isAuthenticated() && (request.auth.uid == submissionId || resource.data.uid == request.auth.uid);
-      allow write: if isAuthenticated() && request.auth.uid == submissionId;
+      allow read: if isAuthenticated() && (request.auth.uid == submissionId || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow write: if isAuthenticated() && (request.auth.uid == submissionId || isAdminOrStaff());
     }
 
     // Escrow Collections
@@ -181,6 +189,11 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read, write: if isAuthenticated();
       }
+    }
+
+    // Support Tickets Collection
+    match /supportTickets/{ticketId} {
+      allow read, write: if isAuthenticated();
     }
 
     // Platform Fees Collection

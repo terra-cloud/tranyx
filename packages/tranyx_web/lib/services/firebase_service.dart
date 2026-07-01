@@ -580,6 +580,14 @@ class FirestoreService {
   // ── Wallet Links ───────────────────────────────────────────
   /// Stores a mapping from walletPublicKey -> uid in walletLinks collection.
   Future<void> linkWalletToUser(String uid, String walletPublicKey, {String? refreshToken}) async {
+    final existingLink = await getWalletLink(walletPublicKey);
+    if (existingLink != null) {
+      final existingUid = existingLink['uid'] as String?;
+      if (existingUid != null && existingUid != uid) {
+        throw Exception('This wallet is already linked to another account. Each wallet can only be connected to one account.');
+      }
+    }
+
     final data = <String, dynamic>{
       'uid': uid,
       'linkedAt': DateTime.now().millisecondsSinceEpoch,
