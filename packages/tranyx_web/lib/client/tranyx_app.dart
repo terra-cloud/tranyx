@@ -692,6 +692,13 @@ class TranyxAppState extends State<TranyxApp> {
             isAuthLoading = false;
           });
         } else {
+          if (profile.googleEmail == null || profile.googleEmail!.isEmpty) {
+            await FirestoreService(
+              authResult.idToken,
+              _handleTokenRefresh,
+            ).setDocument('users/${authResult.uid}', {'googleEmail': authResult.email});
+            profile = profile.copyWith(googleEmail: authResult.email);
+          }
           final type = profile.accountType;
           SessionStorage.saveProfile(
             name: profile.name,
@@ -1284,6 +1291,14 @@ class TranyxAppState extends State<TranyxApp> {
         return;
       }
 
+      if (profile.googleEmail == null || profile.googleEmail!.isEmpty) {
+        await FirestoreService(
+          authResult.idToken,
+          _handleTokenRefresh,
+        ).setDocument('users/${authResult.uid}', {'googleEmail': authResult.email});
+        profile = profile.copyWith(googleEmail: authResult.email);
+      }
+
       final type = profile.accountType;
       SessionStorage.saveProfile(
         name: profile.name,
@@ -1295,8 +1310,8 @@ class TranyxAppState extends State<TranyxApp> {
         isAuthenticated = true;
         accountType = type;
         hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-        userName = profile.name;
-        userEmail = profile.email;
+        userName = profile?.name ?? 'Tranyx User';
+        userEmail = profile?.email ?? 'unknown@tranyx.app';
         userProfile = profile;
         isAuthLoading = false;
         authView = AuthView.login;
@@ -1353,6 +1368,7 @@ class TranyxAppState extends State<TranyxApp> {
         employerType: type == AccountType.employer ? EmployerType.personal : null,
         createdAt: DateTime.now(),
         photoUrl: authResult.photoUrl,
+        googleEmail: authResult.email,
       );
 
       await FirestoreService(authResult.idToken, _handleTokenRefresh).saveUser(profile);

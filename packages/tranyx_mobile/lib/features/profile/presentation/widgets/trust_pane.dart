@@ -664,6 +664,30 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
           modal.onModalConnect.unsubscribeAll();
           final address = modal.session?.getAddress(NetworkUtils.solana);
           if (address != null && address.isNotEmpty) {
+            // ── 1:1 guard: check if this wallet is already owned by another user ──
+            final existingDoc = await ref
+                .read(firestoreProvider)
+                .collection('walletLinks')
+                .doc(address)
+                .get();
+
+            if (existingDoc.exists) {
+              final existingUid = existingDoc.data()?['uid'] as String?;
+              if (existingUid != null && existingUid != uid) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'This wallet is already linked to another account. Each wallet can only be connected to one account.',
+                      ),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+                return;
+              }
+            }
+
             await ref
                 .read(firestoreProvider)
                 .collection('users')
@@ -713,7 +737,12 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
   }
 
   Widget _buildLinkedAccountsSection(UserProfile userProfile, bool isDarkMode) {
-    final hasGoogle = (userProfile.googleEmail ?? '').isNotEmpty;
+    final firebaseUser = ref.watch(userProvider);
+    final hasGoogleProvider = firebaseUser?.providerData.any((p) => p.providerId == 'google.com') ?? false;
+    final hasGoogle = (userProfile.googleEmail ?? '').isNotEmpty || hasGoogleProvider;
+    final googleEmailStr = (userProfile.googleEmail ?? '').isNotEmpty
+        ? userProfile.googleEmail!
+        : (hasGoogleProvider ? (firebaseUser?.email ?? '') : '');
     final hasWallet = (userProfile.walletPublicKey ?? '').isNotEmpty;
 
     return Container(
@@ -745,7 +774,15 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
 
           Row(
             children: [
-              const Icon(Icons.mail_outline, color: Colors.redAccent, size: 20),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Image.asset(
+                  'assets/icons/google.webp',
+                  width: 22,
+                  height: 22,
+                  fit: BoxFit.contain,
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -759,7 +796,7 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
                       ),
                     ),
                     Text(
-                      hasGoogle ? userProfile.googleEmail! : 'Not linked',
+                      hasGoogle ? googleEmailStr : 'Not linked',
                       style: TextStyle(
                         fontSize: 11,
                         color: isDarkMode
@@ -802,10 +839,14 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
 
           Row(
             children: [
-              const Icon(
-                Icons.account_balance_wallet_outlined,
-                color: Colors.purpleAccent,
-                size: 20,
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Image.asset(
+                  'assets/icons/solana.webp',
+                  width: 22,
+                  height: 22,
+                  fit: BoxFit.contain,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(

@@ -201,6 +201,30 @@ final routerProvider = Provider<GoRouter>((ref) {
                 }
               } else {
                 try {
+                  // ── 1:1 guard: check if this wallet is already owned by another user ──
+                  final existingDoc = await ref
+                      .read(firestoreProvider)
+                      .collection('walletLinks')
+                      .doc(userSolanaPublicKey)
+                      .get();
+
+                  if (existingDoc.exists) {
+                    final existingUid = existingDoc.data()?['uid'] as String?;
+                    if (existingUid != null && existingUid != user.uid) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'This wallet is already linked to another account. Each wallet can only be connected to one account.',
+                            ),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                      return;
+                    }
+                  }
+
                   await ref
                       .read(firestoreProvider)
                       .collection('users')

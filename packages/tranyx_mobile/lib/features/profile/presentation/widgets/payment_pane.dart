@@ -1390,6 +1390,31 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
           final user = ref.read(userProvider);
           if (user != null && mounted) {
             try {
+              // ── 1:1 guard: check if this wallet is already owned by another user ──
+              final existingDoc = await ref
+                  .read(firestoreProvider)
+                  .collection('walletLinks')
+                  .doc(address)
+                  .get();
+
+              if (existingDoc.exists) {
+                final existingUid = existingDoc.data()?['uid'] as String?;
+                if (existingUid != null && existingUid != user.uid) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'This wallet is already linked to another account. Each wallet can only be connected to one account.',
+                        ),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    setState(() => _isProcessing = false);
+                  }
+                  return;
+                }
+              }
+
               await ref
                   .read(firestoreProvider)
                   .collection('users')
