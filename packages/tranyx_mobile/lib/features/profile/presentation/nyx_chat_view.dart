@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/ai_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
+
+enum SupportChatMode { menu, ai, agent }
 
 class NyxChatView extends ConsumerStatefulWidget {
   final VoidCallback onBack;
@@ -23,9 +26,11 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
   ];
 
   final TextEditingController _messageController = TextEditingController();
+  final TextEditingController _agentMessageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _isThinking = false;
   double? _supportTokens;
+  SupportChatMode _chatMode = SupportChatMode.menu;
 
   @override
   void initState() {
@@ -72,6 +77,7 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
   @override
   void dispose() {
     _messageController.dispose();
+    _agentMessageController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -282,10 +288,7 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
+  Widget _buildAiChat(BuildContext context, bool isDarkMode) {
     return Column(
       children: [
         // Header
@@ -298,7 +301,11 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
                   Icons.arrow_back,
                   color: isDarkMode ? AppColors.darkText : AppColors.lightText,
                 ),
-                onPressed: widget.onBack,
+                onPressed: () {
+                  setState(() {
+                    _chatMode = SupportChatMode.menu;
+                  });
+                },
               ),
               const SizedBox(width: 8),
               Column(
@@ -480,5 +487,482 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
         ),
       ],
     );
+  }
+
+  Widget _buildMenu(BuildContext context, bool isDarkMode) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16.0),
+          child: Row(
+            children: [
+              IconButton(
+                icon: Icon(
+                  Icons.arrow_back,
+                  color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                ),
+                onPressed: widget.onBack,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                "Help & Support",
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Menu Options List
+        Expanded(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              _buildMenuCard(
+                context: context,
+                isDarkMode: isDarkMode,
+                title: "Chat with Nyx AI",
+                description: "Get instant answers to platform rules, escrow, and delivery trackers.",
+                icon: Icons.chat_bubble_outline_rounded,
+                iconColor: AppColors.indigo,
+                onTap: () {
+                  setState(() {
+                    _chatMode = SupportChatMode.ai;
+                  });
+                },
+              ),
+              const SizedBox(height: 16),
+              _buildMenuCard(
+                context: context,
+                isDarkMode: isDarkMode,
+                title: "Chat with Agent",
+                description: "Connect directly to a live customer service representative.",
+                icon: Icons.support_agent_rounded,
+                iconColor: AppColors.green,
+                onTap: () {
+                  setState(() {
+                    _chatMode = SupportChatMode.agent;
+                  });
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMenuCard({
+    required BuildContext context,
+    required bool isDarkMode,
+    required String title,
+    required String description,
+    required IconData icon,
+    required Color iconColor,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      color: isDarkMode ? AppColors.darkCard : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(
+          color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+        ),
+      ),
+      elevation: 0,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(icon, color: iconColor, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAgentChat(BuildContext context, bool isDarkMode) {
+    final profile = ref.read(userProfileProvider).value;
+    if (profile == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final uid = profile.uid;
+
+    return Column(
+      children: [
+        // Header
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16.0),
+          child: Row(
+            children: [
+              IconButton(
+                icon: Icon(
+                  Icons.arrow_back,
+                  color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _chatMode = SupportChatMode.menu;
+                  });
+                },
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Chat with Agent",
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: isDarkMode
+                          ? AppColors.darkText
+                          : AppColors.lightText,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: AppColors.green,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        "Live Agent Support • Online Now",
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDarkMode
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        // Chat Box Area
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isDarkMode ? AppColors.darkCard : Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isDarkMode
+                    ? AppColors.darkBorder
+                    : AppColors.lightBorder,
+              ),
+            ),
+            child: Column(
+              children: [
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: ref
+                        .read(firestoreProvider)
+                        .collection('support_chats')
+                        .doc(uid)
+                        .collection('messages')
+                        .orderBy('createdAt', descending: false)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return Center(
+                          child: Text(
+                            "Error loading messages: ${snapshot.error}",
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        );
+                      }
+                      if (!snapshot.hasData) {
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            color: AppColors.indigo,
+                          ),
+                        );
+                      }
+
+                      final docs = snapshot.data!.docs;
+                      if (docs.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.support_agent_rounded,
+                                size: 48,
+                                color: Colors.grey,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                "No messages yet. Send a message to start.",
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: isDarkMode
+                                      ? AppColors.darkTextMuted
+                                      : AppColors.lightTextMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return ListView.builder(
+                        itemCount: docs.length,
+                        itemBuilder: (context, index) {
+                          final data = docs[index].data();
+                          final senderId = data['senderId'] ?? '';
+                          final rawSenderName = data['senderName'] ?? 'Support';
+                          final isStaffMsg = data['isStaff'] ?? data['isAgent'] ?? false;
+                          final content = data['content'] ?? '';
+                          final createdAt = data['createdAt'] ?? 0;
+                          final isUser = senderId == uid;
+                          // Mask agent identity for customer — always show generic label
+                          final senderName = (!isUser && (isStaffMsg || !isUser))
+                              ? 'Chat Support Agent'
+                              : rawSenderName;
+
+                          final timeStr = createdAt > 0
+                              ? DateTime.fromMillisecondsSinceEpoch(createdAt as int)
+                                  .toLocal()
+                                  .toString()
+                                  .substring(11, 16)
+                              : 'Just now';
+
+                          return Align(
+                            alignment: isUser
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Column(
+                              crossAxisAlignment: isUser
+                                  ? CrossAxisAlignment.end
+                                  : CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                      left: 8.0, right: 8.0, bottom: 4.0),
+                                  child: Text(
+                                    senderName,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDarkMode
+                                          ? AppColors.darkTextMuted
+                                          : AppColors.lightTextMuted,
+                                    ),
+                                  ),
+                                ),
+                                Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(16),
+                                  constraints: BoxConstraints(
+                                    maxWidth: MediaQuery.of(context).size.width * 0.7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isUser
+                                        ? AppColors.indigo
+                                        : (isDarkMode
+                                            ? AppColors.darkBorder
+                                            : Colors.grey[200]),
+                                    borderRadius: BorderRadius.only(
+                                      topLeft: const Radius.circular(16),
+                                      topRight: const Radius.circular(16),
+                                      bottomLeft: Radius.circular(isUser ? 16 : 0),
+                                      bottomRight: Radius.circular(isUser ? 0 : 16),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        content,
+                                        style: TextStyle(
+                                          color: isUser
+                                              ? Colors.white
+                                              : (isDarkMode
+                                                  ? Colors.white
+                                                  : Colors.black87),
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Align(
+                                        alignment: Alignment.bottomRight,
+                                        child: Text(
+                                          timeStr,
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            color: isUser
+                                                ? Colors.white70
+                                                : (isDarkMode
+                                                    ? Colors.white70
+                                                    : Colors.black54),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+
+                // Input Bar
+                const Divider(),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: isDarkMode
+                              ? AppColors.darkBg
+                              : Colors.grey[100],
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: TextField(
+                          controller: _agentMessageController,
+                          style: TextStyle(
+                            color: isDarkMode
+                                ? AppColors.darkText
+                                : AppColors.lightText,
+                            fontSize: 14,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: "Type message to agent...",
+                            hintStyle: TextStyle(
+                              color: isDarkMode
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
+                            ),
+                            border: InputBorder.none,
+                          ),
+                          onSubmitted: (_) {
+                            final text = _agentMessageController.text.trim();
+                            if (text.isNotEmpty) {
+                              _sendAgentMessage(text);
+                              _agentMessageController.clear();
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.send, color: AppColors.indigo),
+                      onPressed: () {
+                        final text = _agentMessageController.text.trim();
+                        if (text.isNotEmpty) {
+                          _sendAgentMessage(text);
+                          _agentMessageController.clear();
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _sendAgentMessage(String text) async {
+    if (text.trim().isEmpty) return;
+
+    final profile = ref.read(userProfileProvider).value;
+    if (profile == null) return;
+    final uid = profile.uid;
+    final name = profile.name;
+
+    final firestore = ref.read(firestoreProvider);
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Send message to subcollection
+    await firestore.collection('support_chats').doc(uid).collection('messages').add({
+      'senderId': uid,
+      'senderName': name,
+      'content': text,
+      'createdAt': now,
+    });
+
+    // Update parent chat document
+    await firestore.collection('support_chats').doc(uid).set({
+      'lastMessage': text,
+      'updatedAt': now,
+      'userIds': [uid],
+    }, SetOptions(merge: true));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    switch (_chatMode) {
+      case SupportChatMode.menu:
+        return _buildMenu(context, isDarkMode);
+      case SupportChatMode.ai:
+        return _buildAiChat(context, isDarkMode);
+      case SupportChatMode.agent:
+        return _buildAgentChat(context, isDarkMode);
+    }
   }
 }

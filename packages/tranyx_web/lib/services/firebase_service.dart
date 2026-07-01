@@ -980,6 +980,78 @@ class FirestoreService {
     await _patch(url, body, idToken, _refreshToken);
   }
 
+  // ── Agent Support Chat ─────────────────────────────────────
+  
+  Future<List<Map<String, dynamic>>> getAgentSupportChatMessages(String uid) async {
+    final url = '$_firestoreBase/support_chats/$uid/messages';
+    try {
+      final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
+      final docs = data['documents'] as List? ?? [];
+      final messages = docs.map((d) {
+        final doc = d as Map<String, dynamic>;
+        final id = _docId(doc);
+        return {..._fromFirestoreDoc(doc), 'id': id};
+      }).toList();
+
+      // Sort by createdAt ascending
+      messages.sort((a, b) => (a['createdAt'] as int? ?? 0).compareTo(b['createdAt'] as int? ?? 0));
+      return messages;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> sendAgentSupportChatMessage({
+    required String uid,
+    required String messageId,
+    required String senderId,
+    required String senderName,
+    required String content,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final messageData = {
+      'senderId': senderId,
+      'senderName': senderName,
+      'content': content,
+      'createdAt': now,
+    };
+
+    final url = '$_firestoreBase/support_chats/$uid/messages/$messageId';
+    final body = _toFirestoreFields(messageData);
+    await _patch(url, body, idToken, _refreshToken);
+
+    // Also update parent chat document
+    await createOrUpdate('support_chats/$uid', {
+      'lastMessage': content,
+      'updatedAt': now,
+      'userIds': [uid],
+    });
+  }
+
+  Future<void> initiateAgentSupportChat({
+    required String uid,
+    required String messageId,
+    required String senderId,
+    required String senderName,
+    required String content,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    // Set parent chat
+    await createOrUpdate('support_chats/$uid', {
+      'lastMessage': content,
+      'updatedAt': now,
+      'userIds': [uid],
+    });
+    // Add first message
+    await sendAgentSupportChatMessage(
+      uid: uid,
+      messageId: messageId,
+      senderId: senderId,
+      senderName: senderName,
+      content: content,
+    );
+  }
+
   // ── Questions ──────────────────────────────────────────────
 
   Future<String> addQuestion({

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:web/web.dart' as web;
@@ -1594,6 +1595,125 @@ class _HelpSupportState extends State<_HelpSupport> {
   bool isAiTyping = false;
   double? supportTokens;
 
+  // Agent Chat State
+  bool showAgentChat = false;
+  List<Map<String, dynamic>> agentChatMessages = [];
+  bool isLoadingAgentChat = false;
+  String currentAgentChatInput = '';
+  Timer? agentChatTimer;
+
+  void startAgentChatPolling() {
+    agentChatTimer?.cancel();
+    agentChatTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      if (!mounted || !showAgentChat) {
+        timer.cancel();
+        return;
+      }
+      loadAgentChatMessages(silent: true);
+    });
+  }
+
+  void stopAgentChatPolling() {
+    agentChatTimer?.cancel();
+    agentChatTimer = null;
+  }
+
+  Future<void> loadAgentChatMessages({bool silent = false}) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) return;
+
+    if (!silent) {
+      setState(() => isLoadingAgentChat = true);
+    }
+
+    try {
+      final firestore = FirestoreService(token, component.state.handleTokenRefresh);
+      final msgs = await firestore.getAgentSupportChatMessages(uid);
+      if (mounted) {
+        setState(() {
+          agentChatMessages = msgs.map((m) {
+            return {
+              'isUser': m['senderId'] == uid,
+              'text': m['content'] ?? '',
+              'senderName': m['senderName'] ?? 'Support',
+              'time': m['createdAt'] != null
+                  ? DateTime.fromMillisecondsSinceEpoch(m['createdAt'] as int)
+                      .toLocal()
+                      .toString()
+                      .substring(11, 16)
+                  : 'Just now',
+            };
+          }).toList();
+          if (agentChatMessages.isEmpty) {
+            agentChatMessages.add({
+              'isUser': false,
+              'text': 'Connecting you to a support agent... How can we help you today?',
+              'senderName': 'System',
+              'time': 'Just now',
+            });
+          }
+          if (!silent) {
+            isLoadingAgentChat = false;
+          }
+        });
+      }
+    } catch (_) {
+      if (mounted && !silent) {
+        setState(() => isLoadingAgentChat = false);
+      }
+    }
+  }
+
+  Future<void> sendAgentChatMessage() async {
+    final text = currentAgentChatInput.trim();
+    if (text.isEmpty) return;
+
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    final name = component.state.userName.isNotEmpty ? component.state.userName : 'User';
+    if (token == null || uid == null) return;
+
+    final messageId = 'MSG_${DateTime.now().millisecondsSinceEpoch}';
+
+    setState(() {
+      agentChatMessages.add({
+        'isUser': true,
+        'text': text,
+        'senderName': name,
+        'time': 'Just now',
+      });
+      currentAgentChatInput = '';
+    });
+
+    try {
+      final firestore = FirestoreService(token, component.state.handleTokenRefresh);
+      await firestore.sendAgentSupportChatMessage(
+        uid: uid,
+        messageId: messageId,
+        senderId: uid,
+        senderName: name,
+        content: text,
+      );
+      loadAgentChatMessages(silent: true);
+    } catch (e) {
+      setState(() {
+        agentChatMessages.add({
+          'isUser': false,
+          'text': 'Failed to send message: $e',
+          'senderName': 'System',
+          'time': 'Just now',
+        });
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    stopAgentChatPolling();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1950,7 +2070,128 @@ class _HelpSupportState extends State<_HelpSupport> {
         onBack: () => s.setState(() => s.profileView = ProfileView.main),
       ),
 
-      if (showChat) ...[
+      if (showAgentChat) ...[
+        // Agent Chat Box
+        div(
+          classes:
+              'w-full border rounded-[2rem] overflow-hidden flex flex-col transition-all duration-300 '
+              '${isDark ? "bg-zinc-950/80 border-zinc-800" : "bg-white border-zinc-200 shadow-xl"}',
+          [
+            // Chat Header
+            div(
+              classes:
+                  'px-6 py-4 border-b flex justify-between items-center '
+                  '${isDark ? "bg-zinc-900/40 border-zinc-800" : "bg-zinc-50 border-zinc-200"}',
+              [
+                div(classes: 'flex items-center gap-3', [
+                  div(
+                    classes: 'w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400',
+                    [lIcon('user', cls: 'w-5 h-5 text-emerald-400')],
+                  ),
+                  div([
+                    p(classes: 'font-extrabold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                      Component.text('Live Support Agent'),
+                    ]),
+                    p(classes: 'text-xs text-emerald-400 font-bold flex items-center gap-1.5', [
+                      span(classes: 'w-2 h-2 rounded-full bg-emerald-400 animate-ping', []),
+                      Component.text('Connected to Agent Support'),
+                    ]),
+                  ]),
+                ]),
+                button(
+                  classes:
+                      'p-2 rounded-full border transition-all '
+                      '${isDark ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white" : "bg-zinc-100 border-zinc-200 text-zinc-600 hover:text-zinc-800"}',
+                  events: {
+                    'click': (_) {
+                      stopAgentChatPolling();
+                      setState(() => showAgentChat = false);
+                    }
+                  },
+                  [lIcon('x', cls: 'w-4 h-4')],
+                ),
+              ],
+            ),
+
+            // Messages Container
+            div(
+              classes: 'p-6 h-[320px] overflow-y-auto space-y-4 ${isDark ? "bg-zinc-950/40" : "bg-zinc-50/50"}',
+              [
+                for (final msg in agentChatMessages)
+                  div(
+                    classes: 'flex flex-col ${msg['isUser'] == true ? "items-end" : "items-start"}',
+                    [
+                      div(
+                        classes: 'text-[10px] font-bold text-zinc-500 mb-1 px-1',
+                        [Component.text(msg['senderName'] as String)],
+                      ),
+                      div(
+                        classes:
+                            'max-w-[80%] px-4 py-3 rounded-2xl text-sm font-medium leading-relaxed '
+                            '${msg['isUser'] == true ? "bg-indigo-600 text-white rounded-tr-none" : (isDark ? "bg-zinc-900 text-zinc-200 border border-zinc-800 rounded-tl-none" : "bg-white text-zinc-800 border border-zinc-200 shadow-sm rounded-tl-none")}',
+                        [
+                          p([Component.text(msg['text'] as String)]),
+                        ],
+                      ),
+                      span(
+                        classes: 'text-[8px] text-zinc-400 mt-1 px-1',
+                        [Component.text(msg['time'] as String)],
+                      ),
+                    ],
+                  ),
+                if (isLoadingAgentChat)
+                  div(
+                    classes: 'flex justify-start',
+                    [
+                      div(
+                        classes:
+                            'px-4 py-3 rounded-2xl bg-zinc-900 text-zinc-400 border border-zinc-800 rounded-tl-none flex items-center gap-2',
+                        [
+                          lIcon('loader-2', cls: 'w-4 h-4 animate-spin text-emerald-400'),
+                          Component.text('Loading messages...'),
+                        ],
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+
+            // Input Row
+            div(
+              classes:
+                  'p-4 border-t flex gap-3 items-center '
+                  '${isDark ? "bg-zinc-900/20 border-zinc-800" : "bg-white border-zinc-200"}',
+              [
+                input<String>(
+                  classes:
+                      'flex-1 py-3 px-4 rounded-xl border outline-none text-sm transition-all '
+                      '${isDark ? "bg-zinc-950 border-zinc-800 text-white focus:border-indigo-500" : "bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-indigo-500"}',
+                  value: currentAgentChatInput,
+                  attributes: {
+                    'placeholder': 'Type message to live agent support...',
+                    'id': 'agent-chat-input',
+                    'name': 'agent_chat_message',
+                  },
+                  onInput: (v) => setState(() => currentAgentChatInput = v),
+                  events: {
+                    'keydown': (event) {
+                      if ((event as web.KeyboardEvent).key == 'Enter') {
+                        sendAgentChatMessage();
+                      }
+                    },
+                  },
+                ),
+                button(
+                  classes:
+                      'p-3 rounded-xl logo-gradient text-white hover:opacity-90 transition-opacity flex items-center justify-center',
+                  events: {'click': (_) => sendAgentChatMessage()},
+                  [lIcon('send', cls: 'w-5 h-5 text-white')],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ] else if (showChat) ...[
         // Support Chat Box
         div(
           classes:
@@ -2159,7 +2400,7 @@ class _HelpSupportState extends State<_HelpSupport> {
         ),
       ] else ...[
         // Default View Option Buttons
-        div(classes: 'grid grid-cols-2 gap-4', [
+        div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
           button(
             classes:
                 'py-6 px-4 rounded-[2rem] border transition-all text-center flex flex-col items-center justify-center gap-3 '
@@ -2189,6 +2430,36 @@ class _HelpSupportState extends State<_HelpSupport> {
                 ]),
                 p(classes: 'text-xs text-zinc-500 mt-1', [
                   Component.text('Instant dynamic answers'),
+                ]),
+              ]),
+            ],
+          ),
+          button(
+            classes:
+                'py-6 px-4 rounded-[2rem] border transition-all text-center flex flex-col items-center justify-center gap-3 '
+                '${isDark ? "bg-zinc-900/60 border-zinc-800 hover:bg-zinc-800 hover:border-emerald-500/50" : "bg-white border-zinc-200 shadow-sm hover:shadow-md hover:border-emerald-400"}',
+            events: {
+              'click': (_) {
+                setState(() {
+                  showAgentChat = true;
+                  showChat = false;
+                  showTicketForm = false;
+                });
+                loadAgentChatMessages();
+                startAgentChatPolling();
+              }
+            },
+            [
+              div(
+                classes: 'w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400',
+                [lIcon('user', cls: 'w-6 h-6')],
+              ),
+              div([
+                p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                  Component.text('Chat with Agent'),
+                ]),
+                p(classes: 'text-xs text-zinc-500 mt-1', [
+                  Component.text('Speak with actual support'),
                 ]),
               ]),
             ],

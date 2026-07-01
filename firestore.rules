@@ -22,9 +22,9 @@ service cloud.firestore {
     // Users Collection
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
-      allow create: if isOwner(userId);
+      allow create: if isOwner(userId) || isAdminOrStaff(); // Admins/staff can provision new accounts
       allow update: if isAuthenticated(); // Allowed for transaction/balance updates between users
-      allow delete: if isOwner(userId);
+      allow delete: if isOwner(userId) || isAdminOrStaff(); // Admins/staff can remove accounts
       
       // User Reviews subcollection
       match /reviews/{reviewId} {
@@ -185,6 +185,14 @@ service cloud.firestore {
 
     // Chats Collection
     match /chats/{chatId} {
+      allow read, write: if isAuthenticated();
+      match /messages/{messageId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    // Support Chats Collection
+    match /support_chats/{chatId} {
       allow read, write: if isAuthenticated();
       match /messages/{messageId} {
         allow read, write: if isAuthenticated();
