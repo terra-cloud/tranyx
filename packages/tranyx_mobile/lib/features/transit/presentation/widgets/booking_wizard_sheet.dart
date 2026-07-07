@@ -5,6 +5,7 @@ import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
+import 'package:shared/shared.dart';
 
 class BookingWizardSheet extends ConsumerStatefulWidget {
   final Map<String, dynamic> item;
@@ -23,6 +24,7 @@ class BookingWizardSheet extends ConsumerStatefulWidget {
 class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
   final _licenseController = TextEditingController();
   final _deliveryAddressController = TextEditingController();
+  final _promoController = TextEditingController();
 
   String _selectedDurationType = 'daily';
   int _multiplier = 1;
@@ -30,18 +32,199 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
   String _rentalType = 'pickup'; // 'pickup' or 'delivery'
 
   bool _isProcessing = false;
+  Promo? _appliedPromo;
+  String? _promoFeedback;
+  bool _isValidatingPromo = false;
 
   @override
   void initState() {
     super.initState();
     _selectedDurationType = widget.isProperty ? 'monthly' : 'daily';
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadAutoApplyPromo();
+    });
   }
 
   @override
   void dispose() {
     _licenseController.dispose();
     _deliveryAddressController.dispose();
+    _promoController.dispose();
     super.dispose();
+  }
+
+  void _loadAutoApplyPromo() async {
+    try {
+      final repo = ref.read(transitRepositoryProvider);
+      final activePromos = await repo.getAllActivePromos();
+      final user = ref.read(userProfileProvider).value;
+      if (user == null) return;
+
+      final now = DateTime.now();
+      final eligiblePromos = activePromos.where((promo) {
+        if (promo.applicableTo != 'rentals' && promo.applicableTo != 'both') return false;
+        if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) return false;
+        if (promo.maxUsers != null && promo.usedCount >= promo.maxUsers!) return false;
+        if (promo.isSingleUsePerUser && promo.usedBy.contains(user.uid)) return false;
+        if (promo.eligibleUserUids != null &&
+            promo.eligibleUserUids!.isNotEmpty &&
+            !promo.eligibleUserUids!.contains(user.uid)) return false;
+        if (promo.onlyForSubscribed && !user.isPremium) return false;
+        if (promo.onlyForHybrid && user.accountType != AccountType.hybrid) return false;
+        if (promo.applicableRoles.isNotEmpty && !promo.applicableRoles.contains('renter')) return false;
+        return true;
+      }).toList();
+
+      if (eligiblePromos.isEmpty) return;
+
+      final autoPromos = eligiblePromos.where((p) => p.isAutoApply).toList();
+      if (autoPromos.isEmpty) return;
+
+      final baseRate = _getRate(_selectedDurationType);
+      final double driverCost = _hireWithDriver
+          ? ((widget.item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0)
+          : 0.0;
+      final subtotal = widget.isProperty 
+          ? (baseRate * _multiplier)
+          : ((_multiplier * baseRate) + (_multiplier * driverCost));
+
+      Promo? bestPromo;
+      double bestDiscount = -1.0;
+
+      for (final p in autoPromos) {
+        double currentDiscount = 0.0;
+        if (p.discountType == 'percentage') {
+          currentDiscount = subtotal * (p.discountValue / 100.0);
+        } else {
+          currentDiscount = p.discountValue;
+        }
+        if (currentDiscount > bestDiscount) {
+          bestDiscount = currentDiscount;
+          bestPromo = p;
+        }
+      }
+
+      if (bestPromo != null && mounted) {
+        setState(() {
+          _appliedPromo = bestPromo;
+          _promoController.text = bestPromo!.code;
+          _promoFeedback = 'Auto-applied promo: ${bestPromo!.code}';
+        });
+      }
+    } catch (e) {
+      print('ERROR loading auto promo: $e');
+    }
+  }
+
+  void _applyManualPromo(String code) async {
+    final cleanCode = code.trim().toUpperCase();
+    if (cleanCode.isEmpty) {
+      setState(() {
+        _promoFeedback = 'Please enter a promo code.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isValidatingPromo = true;
+      _promoFeedback = null;
+    });
+
+    try {
+      final repo = ref.read(transitRepositoryProvider);
+      final promo = await repo.getPromo(cleanCode);
+      if (promo == null) {
+        setState(() {
+          _promoFeedback = 'Promo code not found.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+
+      final user = ref.read(userProfileProvider).value;
+      if (user == null) throw Exception('User profile not loaded');
+
+      final now = DateTime.now();
+      if (!promo.isActive) {
+        setState(() {
+          _promoFeedback = 'This promo code is inactive.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.applicableTo != 'rentals' && promo.applicableTo != 'both') {
+        setState(() {
+          _promoFeedback = 'This promo is not applicable to rentals.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) {
+        setState(() {
+          _promoFeedback = 'This promo code has expired.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.maxUsers != null && promo.usedCount >= promo.maxUsers!) {
+        setState(() {
+          _promoFeedback = 'This promo code has reached its maximum usage limit.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.isSingleUsePerUser && promo.usedBy.contains(user.uid)) {
+        setState(() {
+          _promoFeedback = 'You have already used this promo code.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.eligibleUserUids != null &&
+          promo.eligibleUserUids!.isNotEmpty &&
+          !promo.eligibleUserUids!.contains(user.uid)) {
+        setState(() {
+          _promoFeedback = 'You are not eligible for this promo code.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.onlyForSubscribed && !user.isPremium) {
+        setState(() {
+          _promoFeedback = 'This promo code is only for subscribed premium users.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.onlyForHybrid && user.accountType != AccountType.hybrid) {
+        setState(() {
+          _promoFeedback = 'This promo code is only for Hybrid PRO accounts.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.applicableRoles.isNotEmpty && !promo.applicableRoles.contains('renter')) {
+        setState(() {
+          _promoFeedback = 'This promo is not applicable for renters.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+
+      setState(() {
+        _appliedPromo = promo;
+        _promoFeedback = 'Promo code applied successfully!';
+      });
+    } catch (e) {
+      setState(() {
+        _promoFeedback = 'Failed to validate promo code: $e';
+        _appliedPromo = null;
+      });
+    } finally {
+      setState(() {
+        _isValidatingPromo = false;
+      });
+    }
   }
 
   double _getRate(String durationType) {
@@ -87,10 +270,22 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
         : 0.0;
 
     // Total calculation:
-    // If vehicle 12h, driver cost is halved or proportional; let's keep it simple: multiplier * baseRate + multiplier * driverCost
     final baseTotal = (_multiplier * baseRate) + (_multiplier * driverCost);
-    final bookingFee = baseTotal * 0.03;
-    final totalRequired = baseTotal + bookingFee;
+    
+    double discountAmount = 0.0;
+    if (_appliedPromo != null) {
+      final subtotalForDiscount = widget.isProperty 
+          ? (baseRate * _multiplier)
+          : baseTotal;
+      if (_appliedPromo!.discountType == 'percentage') {
+        discountAmount = subtotalForDiscount * (_appliedPromo!.discountValue / 100.0);
+      } else {
+        discountAmount = _appliedPromo!.discountValue;
+      }
+    }
+    final discountedBaseTotal = (baseTotal - discountAmount).clamp(0.0, 999999.0);
+    final bookingFee = discountedBaseTotal * 0.03;
+    final totalRequired = discountedBaseTotal + bookingFee;
     final balance = userProfile.tyxBalance;
     final hasEnoughBalance = balance >= totalRequired;
 
@@ -99,11 +294,15 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
       minChildSize: 0.5,
       maxChildSize: 0.95,
       builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+            ),
           child: Column(
             children: [
               // Pull bar
@@ -392,6 +591,55 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                       isDarkMode,
                       controller: _licenseController,
                     ),
+                    const SizedBox(height: 16),
+
+                    // Promo Code Section
+                    Row(
+                      children: [
+                        Expanded(
+                          child: UIHelpers.buildTextField(
+                            Icons.tag,
+                            "Enter Promo Code...",
+                            isDarkMode,
+                            controller: _promoController,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: _isValidatingPromo
+                              ? null
+                              : () => _applyManualPromo(_promoController.text),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.indigo,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          ),
+                          child: _isValidatingPromo
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text('Apply', style: TextStyle(color: Colors.white)),
+                        ),
+                      ],
+                    ),
+                    if (_promoFeedback != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _promoFeedback!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _appliedPromo != null ? Colors.green : Colors.red,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 24),
 
                     // Pricing breakdown
@@ -436,6 +684,22 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                 const Text('Personal Driver service fee'),
                                 Text(
                                   '₱ ${(_multiplier * driverCost).toStringAsFixed(2)}',
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (_appliedPromo != null) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Promo Discount (${_appliedPromo!.code})',
+                                  style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                                ),
+                                Text(
+                                  '- ₱ ${discountAmount.toStringAsFixed(2)}',
+                                  style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
                                 ),
                               ],
                             ),
@@ -550,46 +814,50 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                                 .add(Duration(days: daysToAdd))
                                                 .millisecondsSinceEpoch;
 
-                                      if (widget.isProperty) {
-                                        await repo.createPropertyBookingRequest(
-                                          propertyId: id,
-                                          renteeId: userProfile.uid,
-                                          renteeName: userProfile.name,
-                                          renteePhotoUrl:
-                                              userProfile.photoUrl ?? '',
-                                          durationType: _selectedDurationType,
-                                          multiplier: _multiplier,
-                                          totalCost: baseTotal,
-                                          contractType:
-                                              widget.item['contractType'] ??
-                                              'tranyx',
-                                          contractTerms:
-                                              widget.item['contractTerms'] ??
-                                              'Property Lease Terms',
-                                          startDate: start,
-                                          endDate: end,
-                                          licenseNumber: license,
-                                        );
-                                      } else {
-                                        await repo.createBookingRequest(
-                                          rentalId: id,
-                                          renteeId: userProfile.uid,
-                                          renteeName: userProfile.name,
-                                          renteePhotoUrl:
-                                              userProfile.photoUrl ?? '',
-                                          durationType: _selectedDurationType,
-                                          multiplier: _multiplier,
-                                          licenseNumber: license,
-                                          totalCost: baseTotal,
-                                          hireWithDriver: _hireWithDriver,
-                                          rentalType: _rentalType,
-                                          deliveryAddress:
-                                              _deliveryAddressController.text
-                                                  .trim(),
-                                          startDate: start,
-                                          endDate: end,
-                                        );
-                                      }
+                                       if (widget.isProperty) {
+                                         await repo.createPropertyBookingRequest(
+                                           propertyId: id,
+                                           renteeId: userProfile.uid,
+                                           renteeName: userProfile.name,
+                                           renteePhotoUrl:
+                                               userProfile.photoUrl ?? '',
+                                           durationType: _selectedDurationType,
+                                           multiplier: _multiplier,
+                                           totalCost: baseTotal,
+                                           contractType:
+                                               widget.item['contractType'] ??
+                                               'tranyx',
+                                           contractTerms:
+                                               widget.item['contractTerms'] ??
+                                               'Property Lease Terms',
+                                           startDate: start,
+                                           endDate: end,
+                                           licenseNumber: license,
+                                           promoCode: _appliedPromo?.code,
+                                           discountAmount: discountAmount,
+                                         );
+                                       } else {
+                                         await repo.createBookingRequest(
+                                           rentalId: id,
+                                           renteeId: userProfile.uid,
+                                           renteeName: userProfile.name,
+                                           renteePhotoUrl:
+                                               userProfile.photoUrl ?? '',
+                                           durationType: _selectedDurationType,
+                                           multiplier: _multiplier,
+                                           licenseNumber: license,
+                                           totalCost: baseTotal,
+                                           hireWithDriver: _hireWithDriver,
+                                           rentalType: _rentalType,
+                                           deliveryAddress:
+                                               _deliveryAddressController.text
+                                                   .trim(),
+                                           startDate: start,
+                                           endDate: end,
+                                           promoCode: _appliedPromo?.code,
+                                           discountAmount: discountAmount,
+                                         );
+                                       }
 
                                       // Invalidate providers to refresh lists in-place
                                       ref.invalidate(userProfileProvider);
@@ -636,7 +904,8 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
               ),
             ],
           ),
-        );
+        ), // close Container
+        ); // close Padding
       },
     );
   }

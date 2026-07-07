@@ -1,64 +1,40 @@
-import 'dart:io';
+// Run with: dart run scratch.dart
+// This generates a brand-new Solana keypair you can use as your treasury wallet.
+// The output gives you:
+//   - Public Key  → put this in kSystemSolanaReceiverAddress in payment_pane.dart
+//   - Private Key → put this ONLY in Firestore systemConfig/treasury.privateKeyBase58
+
+import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
+
+// Pure Dart Ed25519 key generation using the dart:math CSPRNG.
+// We use the same pinenacl approach the app already uses.
 
 void main() async {
-  final collections = [
-    'jobs',
-    'rentals',
-    'properties',
-    'transactions',
-    'notifications',
-    'escrow_holdbacks',
-    'rental_requests',
-    'rental_extensions',
-    'rental_history',
-    'property_requests',
-    'kyc_submissions',
-    'escrow',
-    'rental_escrows',
-    'rental_extension_escrows',
-    'property_escrows',
-    'walletLinks',
-    'chats',
-    'platform_fees',
-  ];
+  // pinenacl is a workspace dependency — run from the monorepo root.
+  // Since we can't import it in a plain script, we'll use the Solana CLI approach
+  // via node.js which is almost always available.
+  print('Run the following Node.js snippet to generate a keypair:');
+  print('');
+  print(r'''
+node -e "
+const { Keypair } = require('@solana/web3.js');
+const bs58 = require('bs58');
 
-  // The default active project
-  const project = 'tranyx-dev';
-  
-  print('=== TRANYX FIRESTORE CLEANUP SCRIPT ===');
-  print('Target Project: $project');
-  print('Collections to delete: ${collections.join(', ')}');
-  print('=======================================');
-  print('WARNING: This will recursively delete all data in the listed collections.');
-  stdout.write('Do you want to proceed? (y/N): ');
-  
-  final input = stdin.readLineSync()?.trim().toLowerCase();
-  if (input != 'y' && input != 'yes') {
-    print('Cleanup aborted.');
-    return;
-  }
+// Install deps first if needed:
+// npm install @solana/web3.js bs58
 
-  print('\nStarting deletion of ${collections.length} collections...');
-  
-  for (final col in collections) {
-    stdout.write('Deleting collection "$col" ... ');
-    final result = await Process.run('npx', [
-      'firebase-tools',
-      'firestore:delete',
-      '--project',
-      project,
-      '--recursive',
-      col,
-      '-f'
-    ]);
-    
-    if (result.exitCode == 0) {
-      print('✔ Done');
-    } else {
-      print('✘ Failed');
-      print('Error detail: ${result.stderr.toString().trim()}');
-    }
-  }
-  
-  print('\n=== Cleanup finished! ===');
+const kp = Keypair.generate();
+const privKeyBase58 = bs58.encode(kp.secretKey); // 64 bytes
+const pubKey = kp.publicKey.toBase58();
+
+console.log('=== NEW TREASURY KEYPAIR ===');
+console.log('Public Key  :', pubKey);
+console.log('Private Key (Base58, 64 bytes):', privKeyBase58);
+console.log('');
+console.log('→ Put the Public Key  in kSystemSolanaReceiverAddress in payment_pane.dart');
+console.log('→ Put the Private Key ONLY in Firestore: systemConfig/treasury.privateKeyBase58');
+"
+''');
 }

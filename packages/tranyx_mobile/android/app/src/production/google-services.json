@@ -14,6 +14,74 @@
       },
       "oauth_client": [
         {
+          "client_id": "174332525079-26anhf7r45fbtf9oihr5q9r79sadb544.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.terraph.tranyx",
+            "certificate_hash": "3937ce875813fd8be6facdd83b83fa2d3c89d616"
+          }
+        },
+        {
+          "client_id": "174332525079-8h1dgjhfud8tjglvnv1sdhhvhhjbv5ei.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.terraph.tranyx",
+            "certificate_hash": "d51fb42596e0e4548985af0a1d4bd92a4366a8d6"
+          }
+        },
+        {
+          "client_id": "174332525079-mp2edfucp3ob9it53oobtb8kmgp2hlbs.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC_1ifGkKWU1Sw_pm5ySF5aB3eN46UBySE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "174332525079-mp2edfucp3ob9it53oobtb8kmgp2hlbs.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "174332525079-ch59nh7tj9r95janu4pktknub35lafaf.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.tranyx.app"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:174332525079:android:295e6fc9fb3455618f7a52",
+        "android_client_info": {
+          "package_name": "com.tranyx.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "174332525079-7i5nmm6326ufifi6t66cjr9icmbnd6mq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.tranyx.app",
+            "certificate_hash": "3937ce875813fd8be6facdd83b83fa2d3c89d616"
+          }
+        },
+        {
+          "client_id": "174332525079-vi89r3v9sknv3kdc911mad4d9f3oevmg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.tranyx.app",
+            "certificate_hash": "d51fb42596e0e4548985af0a1d4bd92a4366a8d6"
+          }
+        },
+        {
           "client_id": "174332525079-mp2edfucp3ob9it53oobtb8kmgp2hlbs.apps.googleusercontent.com",
           "client_type": 3
         }

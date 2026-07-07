@@ -44,6 +44,7 @@ Future<List<WebFile>> readFilesFromEvent(dynamic event) async => [];
 
 Future<String?> connectSolanaWallet(String type) async => null;
 Future<String?> getSolanaPublicKeyIfConnected(String type) async => null;
+Future<void> disconnectSolanaWallet(String type) async {}
 bool isSolanaWalletInstalled(String type) => false;
 List<String> getDetectedSolanaWallets() => [];
 
@@ -65,9 +66,11 @@ Future<double?> getSuiBalance(String address) async => null;
 Future<String?> sendSolanaPayment(String fromAddress, String toAddress, double amountInSol) async => null;
 
 Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amountInUsdt, {String? usdtMint}) async => null;
+Future<String?> signSolanaMessage(String fromAddress, String message) async => null;
 
 Future<String?> signInWithGoogleJs(Map<String, String> config) async => null;
-
+Future<String?> linkGoogleAccountJs(Map<String, String> config) async => null;
+Future<String?> unlinkGoogleAccountJs(Map<String, String> config) async => null;
 Future<String?> checkRedirectResultJs(Map<String, String> config) async => null;
 
 Future<void> signInWithEmailAndPasswordJs(Map<String, String> config, String email, String password) async {}

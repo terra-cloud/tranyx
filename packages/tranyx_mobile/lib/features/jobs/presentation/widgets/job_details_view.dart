@@ -799,25 +799,28 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: Image.network(
-                          activeJob.receiptUrl!,
-                          width: double.infinity,
-                          height: 220,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              Container(
-                                height: 120,
-                                color: isDarkMode
-                                    ? Colors.grey[800]
-                                    : Colors.grey[200],
-                                child: const Center(
-                                  child: Text("Error loading receipt"),
-                                ),
-                              ),
-                        ),
-                      ),
+                       GestureDetector(
+                         onTap: () => UIHelpers.showFullScreenImage(context, activeJob.receiptUrl!),
+                         child: ClipRRect(
+                           borderRadius: BorderRadius.circular(16),
+                           child: Image.network(
+                             activeJob.receiptUrl!,
+                             width: double.infinity,
+                             height: 220,
+                             fit: BoxFit.cover,
+                             errorBuilder: (context, error, stackTrace) =>
+                                 Container(
+                                   height: 120,
+                                   color: isDarkMode
+                                       ? Colors.grey[800]
+                                       : Colors.grey[200],
+                                   child: const Center(
+                                     child: Text("Error loading receipt"),
+                                   ),
+                                 ),
+                           ),
+                         ),
+                       ),
                       const SizedBox(height: 24),
                     ],
 

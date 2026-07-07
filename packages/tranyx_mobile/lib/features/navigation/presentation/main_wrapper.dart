@@ -26,6 +26,19 @@ class MainWrapper extends ConsumerStatefulWidget {
 class _MainWrapperState extends ConsumerState<MainWrapper> {
   final GlobalKey _headerKey = GlobalKey();
   final GlobalKey _bottomNavKey = GlobalKey();
+  FirebaseMessagingService? _fcmService;
+
+  @override
+  void initState() {
+    super.initState();
+    // Cache the FCM service reference here so we can safely call dispose()
+    // on it later without touching `ref` (which is forbidden in dispose()).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _fcmService = ref.read(fcmProvider);
+      }
+    });
+  }
 
   void _updateHeights() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -49,9 +62,10 @@ class _MainWrapperState extends ConsumerState<MainWrapper> {
 
   @override
   void dispose() {
-    ref.read(fcmProvider).dispose();
+    _fcmService?.dispose();
     super.dispose();
   }
+
 
   @override
   Widget build(BuildContext context) {

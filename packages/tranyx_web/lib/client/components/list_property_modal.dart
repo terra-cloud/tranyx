@@ -546,21 +546,43 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                   for (int i = 0; i < _extraImageUrls.length; i++)
                     div(
                       classes:
-                          'relative aspect-video rounded-2xl overflow-hidden border ${isDark ? "border-zinc-800" : "border-zinc-200"}',
+                          'relative aspect-video rounded-2xl overflow-hidden border group ${isDark ? "border-zinc-800" : "border-zinc-200"}',
                       [
                         img(
                           src: _extraImageUrls[i],
                           classes: 'w-full h-full object-cover',
                         ),
-                        button(
+                        div(
                           classes:
-                              'absolute top-1 right-1 p-1 bg-red-500/80 hover:bg-red-600 text-white rounded-full transition-colors flex items-center justify-center cursor-pointer border-0 outline-none',
-                          events: {
-                            'click': (_) => setState(() {
-                              _extraImageUrls.removeAt(i);
-                            }),
-                          },
-                          [lIcon('trash-2', cls: 'w-3.5 h-3.5')],
+                              'absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3 z-10',
+                          [
+                            button(
+                              classes:
+                                  'p-1.5 rounded-full bg-white/20 hover:bg-white/40 text-white transition-colors cursor-pointer border-none outline-none',
+                              events: {
+                                'click': (e) {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  component.appState.showFullScreenPhoto(_extraImageUrls[i]);
+                                }
+                              },
+                              [lIcon('eye', cls: 'w-4 h-4')],
+                            ),
+                            button(
+                              classes:
+                                  'p-1.5 rounded-full bg-red-600/80 hover:bg-red-600 text-white transition-colors cursor-pointer border-none outline-none',
+                              events: {
+                                'click': (e) {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setState(() {
+                                    _extraImageUrls.removeAt(i);
+                                  });
+                                }
+                              },
+                              [lIcon('trash-2', cls: 'w-4 h-4')],
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -861,12 +883,10 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
 
   Component _photoUploadPlaceholder(String labelText, String currentUrl, int index, bool isDark) {
     final isUploading = _isUploadingImage[index];
-    return label(
+
+    return div(
       classes:
-          'relative aspect-video rounded-2xl border border-dashed flex flex-col items-center justify-center cursor-pointer overflow-hidden transition-colors ${isDark ? "border-zinc-800 hover:bg-zinc-800/50 bg-zinc-900/30" : "border-zinc-200 hover:bg-zinc-50 bg-zinc-50/50"}',
-      attributes: {
-        'for': 'file-input-prop-$index',
-      },
+          'relative aspect-video rounded-2xl overflow-hidden border border-dashed group ${isDark ? "border-zinc-800 bg-zinc-900/30" : "border-zinc-200 bg-zinc-50/50"}',
       [
         input(
           type: InputType.file,
@@ -883,23 +903,72 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
           },
         ),
 
-        if (currentUrl.isNotEmpty)
+        if (currentUrl.isNotEmpty) ...[
           img(
             src: currentUrl,
             classes: 'w-full h-full object-cover',
             attributes: {'alt': labelText},
-          )
-        else ...[
-          lIcon('camera', cls: 'w-6 h-6 mb-2 ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
-          p(classes: 'text-xs font-semibold ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-            Component.text(labelText),
-          ]),
+          ),
+          div(
+            classes:
+                'absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4 z-20',
+            [
+              button(
+                classes:
+                    'p-2 rounded-full bg-white/20 hover:bg-white/40 text-white transition-colors cursor-pointer border-none outline-none',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    component.appState.showFullScreenPhoto(currentUrl);
+                  }
+                },
+                [lIcon('eye', cls: 'w-5 h-5')],
+              ),
+              label(
+                classes:
+                    'p-2 rounded-full bg-white/20 hover:bg-white/40 text-white transition-colors cursor-pointer',
+                attributes: {
+                  'for': 'file-input-prop-$index',
+                },
+                [lIcon('edit-2', cls: 'w-5 h-5')],
+              ),
+              button(
+                classes:
+                    'p-2 rounded-full bg-red-600/80 hover:bg-red-600 text-white transition-colors cursor-pointer border-none outline-none',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setState(() {
+                      _imageUrls[index] = '';
+                    });
+                  }
+                },
+                [lIcon('trash-2', cls: 'w-5 h-5')],
+              ),
+            ],
+          ),
+        ] else ...[
+          label(
+            classes:
+                'w-full h-full flex flex-col items-center justify-center cursor-pointer transition-colors hover:opacity-90',
+            attributes: {
+              'for': 'file-input-prop-$index',
+            },
+            [
+              lIcon('camera', cls: 'w-6 h-6 mb-2 ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
+              p(classes: 'text-xs font-semibold ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                Component.text(labelText),
+              ]),
+            ],
+          ),
         ],
 
         if (isUploading)
           div(
             classes:
-                'absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white backdrop-blur-[2px] animate-fade-in',
+                'absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white backdrop-blur-[2px] z-30 animate-fade-in',
             [
               lIcon('loader', cls: 'w-6 h-6 animate-spin mb-2 text-purple-400'),
               p(classes: 'text-xs font-semibold', [Component.text('Uploading...')]),
