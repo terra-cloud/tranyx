@@ -15,6 +15,7 @@ import 'package:tranyx_mobile/features/profile/presentation/widgets/trust_pane.d
 import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/reviews_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/security_pane.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/rewards_pane.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 
 class ProfileView extends ConsumerStatefulWidget {
@@ -626,6 +627,8 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
             buildProfileMenu(Icons.lock_outline, "Security Settings", 'security'),
             const SizedBox(height: 12),
             buildProfileMenu(Icons.help_outline, "Help & Support", 'support'),
+            const SizedBox(height: 12),
+            buildProfileMenu(Icons.card_giftcard, "Terra Rewards", 'rewards'),
             if (!widget.isTablet) ...[
               const SizedBox(height: 24),
               buildProfileMenu(
@@ -967,6 +970,10 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
           );
         } else if (profileView == 'security') {
           rightPane = SecurityPane(
+            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
+          );
+        } else if (profileView == 'rewards') {
+          rightPane = RewardsPane(
             onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
           );
         } else {

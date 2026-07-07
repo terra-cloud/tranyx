@@ -42,6 +42,7 @@ class ProfileViewComponent extends StatelessComponent {
       ProfileView.support => _HelpSupport(state: s),
       ProfileView.history => _HistoryView(state: s),
       ProfileView.reviews => _ReviewsView(state: s),
+      ProfileView.rewards => _RewardsView(state: s),
     };
   }
 }
@@ -67,6 +68,7 @@ class _ProfileMenu extends StatelessComponent {
       (ProfileView.support, 'help-circle', 'Help & Support'),
       (ProfileView.history, 'activity', historyLabel),
       (ProfileView.reviews, 'star', 'Ratings & Reviews'),
+      (ProfileView.rewards, 'gift', 'Terra Rewards'),
     ];
 
     return div(classes: 'rounded-3xl border p-4 $cardCls', [
@@ -858,6 +860,66 @@ class _Payment extends StatelessComponent {
 
       // Phantom wallet section
       _phantomWallet(s, isDark),
+
+      // Profile Promo Section
+      div(
+        classes: 'p-6 rounded-[2rem] border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"} space-y-4',
+        [
+          p(classes: 'text-sm font-bold', [Component.text('Redeem Profile Promo Code')]),
+          p(classes: 'text-xs text-zinc-400', [
+            Component.text('Redeem a promo code directly to your profile. Applicable discounts (e.g. payout commission reductions) will be applied automatically.'),
+          ]),
+          if (s.userProfile?.activePromoCode != null)
+            div(classes: 'p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex justify-between items-center text-xs font-semibold text-emerald-500', [
+              div(classes: 'flex flex-col gap-1', [
+                span([Component.text('Active Profile Promo: ${s.userProfile!.activePromoCode}')]),
+                span([
+                  Component.text(s.userProfile!.activePromoDiscountType == 'percentage'
+                      ? '${s.userProfile!.activePromoDiscountValue?.toStringAsFixed(0) ?? "0"}% Off Payout Commission'
+                      : '₱ ${(s.userProfile!.activePromoDiscountValue ?? 0.0).toStringAsFixed(2)} Off Payout Commission')
+                ]),
+              ]),
+              button(
+                classes: 'ml-4 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-500 cursor-pointer border-0 outline-none text-[10px] uppercase font-black tracking-wider transition-all',
+                events: {
+                  'click': (e) {
+                    s.handleDisableProfilePromo(s.userProfile!.activePromoCode!);
+                  }
+                },
+                [Component.text('Disable')]
+              ),
+            ]),
+          div(classes: 'flex gap-2', [
+            input(
+              classes:
+                  'flex-1 p-3 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-indigo-500 transition-colors text-sm',
+              attributes: {'value': s.profilePromoCodeInput, 'placeholder': 'Enter profile promo code'},
+              events: {
+                'input': (e) {
+                  s.profilePromoCodeInput = getInputValue(e.target);
+                },
+              },
+            ),
+            button(
+              classes:
+                  'px-4 py-2 rounded-xl font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors cursor-pointer border-0 outline-none text-sm',
+              events: {
+                'click': (e) {
+                  s.handleRedeemProfilePromo(s.profilePromoCodeInput);
+                },
+              },
+              [
+                Component.text(s.isValidatingProfilePromo ? 'Redeeming...' : 'Redeem'),
+              ],
+            ),
+          ]),
+          if (s.profilePromoFeedback != null)
+            p(
+              classes: 'text-xs font-semibold ${s.profilePromoFeedback!.contains("successfully") ? "text-emerald-500" : "text-red-500"}',
+              [Component.text(s.profilePromoFeedback!)],
+            ),
+        ],
+      ),
 
       // Add payment method
       button(
@@ -3676,5 +3738,228 @@ class _ReviewsViewState extends State<_ReviewsView> {
           ]),
       ],
     ]);
+  }
+}
+
+class _RewardsView extends StatefulComponent {
+  final TranyxAppState state;
+  const _RewardsView({required this.state});
+
+  @override
+  State<_RewardsView> createState() => _RewardsViewState();
+}
+
+class _RewardsViewState extends State<_RewardsView> {
+  List<Map<String, dynamic>> pointsHistory = [];
+  bool isLoading = true;
+  String? errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRewardsData();
+  }
+
+  Future<void> _loadRewardsData() async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) {
+      setState(() {
+        isLoading = false;
+        errorMessage = 'Not logged in';
+      });
+      return;
+    }
+
+    setState(() {
+      isLoading = true;
+      errorMessage = null;
+    });
+
+    try {
+      final svc = FirestoreService(token, component.state.handleTokenRefresh);
+      // Automatically run verification to credit points if any quests are newly met
+      await svc.checkAndAwardOnboardingQuests(uid);
+
+      // Reload user profile to ensure state updates points in UI
+      final updatedProfile = await svc.getUser(uid);
+      if (updatedProfile != null) {
+        component.state.userProfile = updatedProfile;
+      }
+
+      // Fetch history
+      final history = await svc.getUserPointsHistory(uid);
+      setState(() {
+        pointsHistory = history;
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+        errorMessage = 'Failed to load rewards: $e';
+      });
+    }
+  }
+
+  @override
+  Component build(BuildContext context) {
+    final s = component.state;
+    final isDark = s.isDark;
+    final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+    final textCls = isDark ? 'text-zinc-100' : 'text-zinc-800';
+    final subTextCls = isDark ? 'text-zinc-400' : 'text-zinc-500';
+
+    final userPoints = s.userProfile?.terraPoints ?? 0;
+    final earnedList = s.userProfile?.earnedRewards ?? const [];
+
+    if (isLoading) {
+      return div(classes: 'flex flex-col items-center justify-center p-12 space-y-4', [
+        div(classes: 'animate-spin rounded-full h-10 w-10 border-t-2 border-indigo-650', []),
+        p(classes: 'text-sm $subTextCls', [Component.text('Loading rewards dashboard...')]),
+      ]);
+    }
+
+    if (errorMessage != null) {
+      return div(classes: 'p-6 text-center border border-red-500/20 rounded-2xl bg-red-500/10 text-red-500', [
+        p([Component.text(errorMessage!)]),
+        button(
+          onClick: _loadRewardsData,
+          classes: 'mt-3 px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-colors',
+          [Component.text('Try Again')]
+        ),
+      ]);
+    }
+
+    return div(classes: 'space-y-6', [
+      // Banner / Balance Section
+      div(
+        classes: 'relative overflow-hidden rounded-3xl p-6 md:p-8 bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-800 text-white shadow-xl',
+        [
+          // Decorative graphics
+          div(classes: 'absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl transform translate-x-20 -translate-y-20', []),
+          div(classes: 'absolute bottom-0 left-0 w-48 h-48 bg-purple-500/20 rounded-full blur-2xl transform -translate-x-10 translate-y-10', []),
+
+          div(classes: 'relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6', [
+            div(classes: 'space-y-2', [
+              span(classes: 'px-3 py-1 bg-white/15 backdrop-blur-md rounded-full text-xs font-black tracking-widest uppercase text-yellow-300 border border-white/10', [
+                Component.text('⭐ Terra Rewards Member'),
+              ]),
+              h2(classes: 'text-3xl font-extrabold tracking-tight', [Component.text('Your Terra Points')]),
+              p(classes: 'text-indigo-100 max-w-md text-sm', [
+                Component.text('Earn TP by using the Tranyx ecosystem for payments, services, and property rentals. Redeem points for perks and discounts!'),
+              ]),
+            ]),
+            div(classes: 'flex items-center gap-4 bg-white/10 backdrop-blur-md border border-white/20 p-4 md:p-6 rounded-2xl shadow-inner min-w-[200px]', [
+              div(classes: 'p-3 bg-yellow-400 rounded-2xl text-zinc-900 text-2xl font-bold flex items-center justify-center shadow-lg', [
+                Component.text('🪙'),
+              ]),
+              div(classes: 'flex flex-col', [
+                span(classes: 'text-3xl font-black tracking-tight text-yellow-300', [
+                  Component.text(userPoints.toString()),
+                ]),
+                span(classes: 'text-[11px] font-bold text-indigo-200 uppercase tracking-wider', [
+                  Component.text('TP Balance'),
+                ]),
+              ]),
+            ]),
+          ]),
+        ],
+      ),
+
+      // Main grid: Quests vs History
+      div(classes: 'grid grid-cols-1 lg:grid-cols-3 gap-6', [
+        // Quests List (2 cols)
+        div(classes: 'lg:col-span-2 space-y-6', [
+          // Onboarding Quests
+          _buildQuestSection('Onboarding Milestones', RewardQuest.quests.where((q) => q.category == 'Onboarding').toList(), earnedList, isDark, cardCls),
+
+          // Activity Quests
+          _buildQuestSection('Service Activities', RewardQuest.quests.where((q) => q.category == 'Services').toList(), earnedList, isDark, cardCls),
+
+          // Rental Quests
+          _buildQuestSection('Rental Activities', RewardQuest.quests.where((q) => q.category == 'Rental').toList(), earnedList, isDark, cardCls),
+        ]),
+
+        // History Ledger (1 col)
+        div(classes: 'space-y-4', [
+          h3(classes: 'text-lg font-bold $textCls px-1', [Component.text('Points History')]),
+          div(classes: 'rounded-2xl border p-4 $cardCls space-y-4 max-h-[600px] overflow-y-auto', [
+            if (pointsHistory.isEmpty)
+              div(classes: 'py-12 text-center text-sm $subTextCls', [
+                span(classes: 'text-3xl block mb-2', [Component.text('📜')]),
+                Component.text('No points transactions logged yet.'),
+              ])
+            else
+              for (final tx in pointsHistory)
+                div(classes: 'flex items-center justify-between border-b pb-3 last:border-b-0 last:pb-0 ${isDark ? "border-zinc-800/80" : "border-zinc-150"}', [
+                  div(classes: 'space-y-1', [
+                    p(classes: 'text-xs font-bold $textCls', [Component.text(tx['title'] ?? 'Points Reward')]),
+                    p(classes: 'text-[10px] $subTextCls', [
+                      Component.text(_formatTime(tx['createdAt'] as int?)),
+                    ]),
+                  ]),
+                  span(classes: 'px-2 py-0.5 bg-yellow-400/10 text-yellow-500 text-xs font-bold rounded-lg border border-yellow-400/20', [
+                    Component.text('+${tx['points']} TP'),
+                  ]),
+                ]),
+          ]),
+        ]),
+      ]),
+    ]);
+  }
+
+  Component _buildQuestSection(String title, List<RewardQuest> quests, List<String> earned, bool isDark, String cardCls) {
+    final textCls = isDark ? 'text-zinc-100' : 'text-zinc-800';
+    final subTextCls = isDark ? 'text-zinc-400' : 'text-zinc-500';
+
+    return div(classes: 'space-y-3', [
+      h3(classes: 'text-lg font-extrabold $textCls px-1', [Component.text(title)]),
+      div(classes: 'rounded-3xl border overflow-hidden $cardCls divide-y divide-zinc-200/50 dark:divide-zinc-800/50', [
+        for (final q in quests)
+          _buildQuestRow(q, earned.contains(q.id), isDark, subTextCls, textCls),
+      ]),
+    ]);
+  }
+
+  Component _buildQuestRow(RewardQuest q, bool isCompleted, bool isDark, String subTextCls, String textCls) {
+    return div(
+      classes: 'p-4 flex items-center justify-between gap-4 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/30',
+      [
+        div(classes: 'flex-1 space-y-1', [
+          div(classes: 'flex items-center gap-2', [
+            span(classes: 'text-sm font-bold $textCls', [Component.text(q.title)]),
+            if (q.limit == 'Once')
+              span(classes: 'px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[9px] font-black uppercase rounded tracking-wider border border-indigo-500/20', [
+                Component.text('Once'),
+              ])
+            else
+              span(classes: 'px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase rounded tracking-wider border border-emerald-500/20', [
+                Component.text('Repeatable'),
+              ]),
+          ]),
+          if (q.notes != null)
+            p(classes: 'text-xs $subTextCls', [Component.text(q.notes!)]),
+        ]),
+        div(classes: 'flex items-center gap-3 shrink-0', [
+          span(classes: 'text-xs font-bold text-yellow-500 flex items-center gap-1', [
+            Component.text('🪙 +${q.points} TP'),
+          ]),
+          if (isCompleted)
+            span(classes: 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-500/15 text-green-400 border border-green-500/20 shadow-sm', [
+              Component.text('✓ Completed'),
+            ])
+          else
+            span(classes: 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-zinc-500/15 text-zinc-400 border border-zinc-500/20 shadow-sm', [
+              Component.text('Pending'),
+            ]),
+        ]),
+      ]
+    );
+  }
+
+  String _formatTime(int? ts) {
+    if (ts == null) return 'Recent';
+    final dt = DateTime.fromMillisecondsSinceEpoch(ts);
+    return '${dt.month}/${dt.day}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 }

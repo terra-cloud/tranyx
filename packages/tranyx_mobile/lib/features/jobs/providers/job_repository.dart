@@ -12,10 +12,64 @@ class JobRepository {
   JobRepository(this._firestore);
 
   Future<void> createJob(Job job) async {
-    await _firestore
-        .collection('jobs')
-        .doc(job.id.isEmpty ? null : job.id)
-        .set(job.toMap());
+    final docId = job.id.isEmpty ? _firestore.collection('jobs').doc().id : job.id;
+    final jobDocRef = _firestore.collection('jobs').doc(docId);
+    final userRef = _firestore.collection('users').doc(job.creatorId);
+    final escrowRef = _firestore.collection('escrow').doc(docId);
+
+    await _firestore.runTransaction((transaction) async {
+      final userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw Exception('Employer profile not found.');
+      final userData = userSnap.data()!;
+
+      final double currentBal = (userData['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+      final double price = job.pricingValue;
+      final double discount = job.discountAmount ?? 0.0;
+      final double discountedPrice = (price - discount).clamp(0.0, 999999.0);
+
+      if (currentBal < discountedPrice) {
+        throw Exception('Insufficient balance. Please deposit at least ₱${(discountedPrice - currentBal).toStringAsFixed(2)} to post this job.');
+      }
+
+      // 1. Deduct balance
+      transaction.update(userRef, {
+        'tyxBalance': currentBal - discountedPrice,
+      });
+
+      // 2. Set job doc
+      transaction.set(jobDocRef, {
+        ...job.toMap(),
+        'id': docId,
+      });
+
+      // 3. Set escrow doc
+      transaction.set(escrowRef, {
+        'amount': discountedPrice,
+        'employerId': job.creatorId,
+        'status': 'held',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'hasInspectionHoldback': job.hasTracker, // On mobile, hasTracker matches inspection
+        if (job.hasTracker) 'holdbackAmount': price * 0.10,
+      });
+
+      // 4. Increment promo usage if any
+      final String? promoCode = job.promoCode;
+      if (promoCode != null && promoCode.trim().isNotEmpty) {
+        final promoRef = _firestore.collection('promos').doc(promoCode.trim().toUpperCase());
+        final promoSnap = await transaction.get(promoRef);
+        if (promoSnap.exists) {
+          final usedBy = List<String>.from(promoSnap.data()?['usedBy'] ?? []);
+          if (!usedBy.contains(job.creatorId)) {
+            usedBy.add(job.creatorId);
+          }
+          final usedCount = (promoSnap.data()?['usedCount'] as num? ?? 0).toInt() + 1;
+          transaction.update(promoRef, {
+            'usedBy': usedBy,
+            'usedCount': usedCount,
+          });
+        }
+      }
+    });
   }
 
   Stream<List<Job>> getMyJobs(String uid) {
@@ -278,9 +332,11 @@ class JobRepository {
       final now = DateTime.now().millisecondsSinceEpoch;
       final bool hasInspectionHoldback = jobData['hasInspectionHoldback'] as bool? ?? false;
       final holdbackAmount = hasInspectionHoldback ? finalPrice * 0.10 : 0.0;
+      final double discount = (jobData['discountAmount'] as num?)?.toDouble() ?? 0.0;
+      final double discountedPrice = (finalPrice - discount).clamp(0.0, 999999.0);
 
       transaction.set(escrowRef, {
-        'amount': finalPrice,
+        'amount': discountedPrice,
         'employerId': employerUid,
         'status': 'held',
         'createdAt': now,
@@ -344,12 +400,88 @@ class JobRepository {
 
       final double price = (jobData['pricingValue'] as num?)?.toDouble() ?? 0.0;
       final double platformFee = price * 0.03;
-      final double nyxianPayout = price - platformFee;
+      double actualPlatformFee = platformFee;
+
+      // 1. Fetch Nyxian to check for profile-based promo
+      double immediatePayout = 0.0;
+      double nyxianPayout = price - platformFee;
       final bool hasHoldback = jobData['hasInspectionHoldback'] as bool? ?? false;
       final double holdbackAmount = hasHoldback ? price * 0.10 : 0.0;
-      final double immediatePayout = nyxianPayout - holdbackAmount;
 
-      // 1. Delete escrow record
+      String? redeemedPromoCode;
+      if (nyxianId != null) {
+        final nyxRef = _firestore.collection('users').doc(nyxianId);
+        final nyxSnap = await transaction.get(nyxRef);
+        if (nyxSnap.exists) {
+          final nyxData = nyxSnap.data()!;
+          final double currentNyxBal = (nyxData['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+          final int currentJobsDone = nyxData['jobsDone'] as int? ?? 0;
+          final double currentEarned = (nyxData['totalEarned'] as num?)?.toDouble() ?? 0.0;
+          final int gigsCount = nyxData['completedGigsCount'] as int? ?? 0;
+          final int newGigsCount = gigsCount + 1;
+          final double repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
+
+          redeemedPromoCode = nyxData['activePromoCode'] as String?;
+          if (redeemedPromoCode != null) {
+            final double discountVal = (nyxData['activePromoDiscountValue'] as num?)?.toDouble() ?? 0.0;
+            final String discountType = nyxData['activePromoDiscountType'] as String? ?? 'flat';
+            double discountAmt = 0.0;
+            if (discountType == 'percentage') {
+              discountAmt = platformFee * (discountVal / 100.0);
+            } else {
+              discountAmt = discountVal;
+            }
+            actualPlatformFee = (platformFee - discountAmt).clamp(0.0, platformFee);
+          }
+
+          nyxianPayout = price - actualPlatformFee;
+          immediatePayout = nyxianPayout - holdbackAmount;
+
+          transaction.update(nyxRef, {
+            'tyxBalance': currentNyxBal + immediatePayout,
+            'jobsDone': currentJobsDone + 1,
+            'totalEarned': currentEarned + immediatePayout,
+            'completedGigsCount': newGigsCount,
+            'repeatHireRate': repeatHireRate,
+            if (redeemedPromoCode != null) 'activePromoCode': null,
+            if (redeemedPromoCode != null) 'activePromoDiscountType': null,
+            if (redeemedPromoCode != null) 'activePromoDiscountValue': null,
+          });
+
+          // Increment profile promo usage in transaction
+          if (redeemedPromoCode != null) {
+            final promoRef = _firestore.collection('promos').doc(redeemedPromoCode.trim().toUpperCase());
+            final promoSnap = await transaction.get(promoRef);
+            if (promoSnap.exists) {
+              final usedBy = List<String>.from(promoSnap.data()?['usedBy'] ?? []);
+              if (!usedBy.contains(nyxianId)) {
+                usedBy.add(nyxianId);
+              }
+              final usedCount = (promoSnap.data()?['usedCount'] as num? ?? 0).toInt() + 1;
+              transaction.update(promoRef, {
+                'usedBy': usedBy,
+                'usedCount': usedCount,
+              });
+            }
+          }
+        }
+
+        // Log payout transaction for Nyxian
+        final payoutTxRef = _firestore.collection('transactions').doc('payout_nyx_$jobId');
+        transaction.set(payoutTxRef, {
+          'uid': nyxianId,
+          'title': 'Gig Payout Released',
+          'desc': 'Payout for completing job $jobId (3% commission deducted' +
+              (redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : '') + ')',
+          'amount': immediatePayout,
+          'status': 'Successful',
+          'method': 'Tranyx Wallet',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+          'type': 'payout',
+        });
+      }
+
+      // 2. Delete escrow record
       transaction.delete(escrowRef);
 
       // 1.1 Create escrow holdback record if enabled
@@ -366,52 +498,19 @@ class JobRepository {
         });
       }
 
-      // 2. Add to Nyxian Wallet (Payout only, NO rebate)
-      if (nyxianId != null) {
-        final nyxRef = _firestore.collection('users').doc(nyxianId);
-        final nyxSnap = await transaction.get(nyxRef);
-        if (nyxSnap.exists) {
-          final nyxData = nyxSnap.data()!;
-          final double currentNyxBal = (nyxData['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-          final int currentJobsDone = nyxData['jobsDone'] as int? ?? 0;
-          final double currentEarned = (nyxData['totalEarned'] as num?)?.toDouble() ?? 0.0;
-          final int gigsCount = nyxData['completedGigsCount'] as int? ?? 0;
-          final int newGigsCount = gigsCount + 1;
-          final double repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
-
-          transaction.update(nyxRef, {
-            'tyxBalance': currentNyxBal + immediatePayout,
-            'jobsDone': currentJobsDone + 1,
-            'totalEarned': currentEarned + immediatePayout,
-            'completedGigsCount': newGigsCount,
-            'repeatHireRate': repeatHireRate,
-          });
-        }
-
-        // Log payout transaction for Nyxian
-        final payoutTxRef = _firestore.collection('transactions').doc('payout_nyx_$jobId');
-        transaction.set(payoutTxRef, {
-          'uid': nyxianId,
-          'title': 'Gig Payout Released',
-          'desc': 'Payout for completing job $jobId (3% commission deducted)',
-          'amount': immediatePayout,
-          'status': 'Successful',
-          'method': 'Tranyx Wallet',
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-          'type': 'payout',
-        });
-      }
-
       // 2.1 Deduct fees from Employer Wallet (7% Transaction Fee + 3% Convenience Fee = 10%)
+      final double discount = (jobData['discountAmount'] as num?)?.toDouble() ?? 0.0;
+      final double discountedPrice = (price - discount).clamp(0.0, 999999.0);
+      final double txFee = discountedPrice * 0.07;
+      final double convFee = discountedPrice * 0.03;
+      final double totalFees = txFee + convFee;
+
       if (employerId != null) {
         final empRef = _firestore.collection('users').doc(employerId);
         final empSnap = await transaction.get(empRef);
         if (empSnap.exists) {
           final empData = empSnap.data()!;
           final double currentBal = (empData['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-          final double txFee = price * 0.07;
-          final double convFee = price * 0.03;
-          final double totalFees = txFee + convFee;
 
           transaction.update(empRef, {
             'tyxBalance': currentBal - totalFees,
@@ -420,13 +519,11 @@ class JobRepository {
 
         // Log fee deduction transaction for Employer
         final feeTxRef = _firestore.collection('transactions').doc('fees_emp_$jobId');
-        final double txFee = price * 0.07;
-        final double convFee = price * 0.03;
-        final double totalFees = txFee + convFee;
         transaction.set(feeTxRef, {
           'uid': employerId,
           'title': 'Job Completion Fees (10%)',
-          'desc': '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId',
+          'desc': '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId' +
+              (discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''),
           'amount': totalFees,
           'status': 'Successful',
           'method': 'Tranyx Wallet',
@@ -436,18 +533,16 @@ class JobRepository {
       }
 
       // 3. Record all platform fees and company income (total 13% of base price)
-      final double txFee = price * 0.07;
-      final double convFee = price * 0.03;
-      final double totalCompanyIncome = platformFee + txFee + convFee;
+      final double totalCompanyIncome = actualPlatformFee + txFee + convFee;
       final platformFeesRef = _firestore.collection('platform_fees').doc(jobId);
       transaction.set(platformFeesRef, {
         'jobId': jobId,
         'amount': totalCompanyIncome,
-        'commissionFee': platformFee, // 3% from Nyxian
+        'commissionFee': actualPlatformFee, // 3% from Nyxian
         'transactionFee': txFee, // 7% from Employer
         'convenienceFee': convFee, // 3% from Employer
         'employerFees': txFee + convFee, // 10% total from Employer
-        'nyxianFee': platformFee, // 3% total from Nyxian
+        'nyxianFee': actualPlatformFee, // 3% total from Nyxian
         'totalFees': totalCompanyIncome, // 13% total Company Funds
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
@@ -593,6 +688,22 @@ class JobRepository {
       transaction.update(jobRef, {
         'status': 'Cancelled',
       });
+
+      // Decrement promo usage if any
+      final String? promoCode = jobData['promoCode'] as String?;
+      if (promoCode != null && promoCode.trim().isNotEmpty) {
+        final promoRef = _firestore.collection('promos').doc(promoCode.trim().toUpperCase());
+        final promoSnap = await transaction.get(promoRef);
+        if (promoSnap.exists) {
+          final usedBy = List<String>.from(promoSnap.data()?['usedBy'] ?? []);
+          usedBy.remove(employerId);
+          final usedCount = ((promoSnap.data()?['usedCount'] as num? ?? 1).toInt() - 1).clamp(0, 999999);
+          transaction.update(promoRef, {
+            'usedBy': usedBy,
+            'usedCount': usedCount,
+          });
+        }
+      }
     });
   }
 }

@@ -91,8 +91,12 @@ class PaymentPane extends ConsumerStatefulWidget {
 
 class _PaymentPaneState extends ConsumerState<PaymentPane> {
   final _amountController = TextEditingController();
+  final _promoRedeemController = TextEditingController();
   bool _isProcessing = false;
   Map<String, bool> _installedWallets = {};
+
+  String? _redeemFeedback;
+  bool _isRedeeming = false;
 
   // Trust Wallet AppKit modal (kept alive for session requests)
   ReownAppKitModal? _trustModal;
@@ -122,7 +126,178 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     _trustModal?.dispose();
     _stopBalancePolling();
     _amountController.dispose();
+    _promoRedeemController.dispose();
     super.dispose();
+  }
+
+  void _handleRedeemPromo(String code, String uid) async {
+    final cleanCode = code.trim().toUpperCase();
+    if (cleanCode.isEmpty) {
+      setState(() {
+        _redeemFeedback = 'Please enter a promo code.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isRedeeming = true;
+      _redeemFeedback = null;
+    });
+
+    try {
+      final repo = ref.read(transitRepositoryProvider);
+      final promo = await repo.getPromo(cleanCode);
+      if (promo == null) {
+        setState(() {
+          _redeemFeedback = 'Promo code not found.';
+        });
+        return;
+      }
+      if (!promo.isActive) {
+        setState(() {
+          _redeemFeedback = 'This promo code is inactive.';
+        });
+        return;
+      }
+      if (promo.expirationDate != null && promo.expirationDate!.isBefore(DateTime.now())) {
+        setState(() {
+          _redeemFeedback = 'This promo code has expired.';
+        });
+        return;
+      }
+      if (promo.maxUsers != null && promo.usedCount >= promo.maxUsers!) {
+        setState(() {
+          _redeemFeedback = 'This promo code has reached its usage limit.';
+        });
+        return;
+      }
+      if (promo.isSingleUsePerUser && promo.usedBy.contains(uid)) {
+        setState(() {
+          _redeemFeedback = 'You have already used this promo code.';
+        });
+        return;
+      }
+
+      // Check eligible user UIDs list
+      if (promo.eligibleUserUids != null &&
+          promo.eligibleUserUids!.isNotEmpty &&
+          !promo.eligibleUserUids!.contains(uid)) {
+        setState(() {
+          _redeemFeedback = 'You are not eligible for this promotion.';
+        });
+        return;
+      }
+
+      // Fetch user profile to check subscription status, hybrid status, and roles
+      final profile = ref.read(userProfileProvider).value;
+      if (profile != null) {
+        if (profile.disabledPromos.contains(cleanCode)) {
+          setState(() {
+            _redeemFeedback = 'You have disabled this promotion and cannot re-enable it.';
+          });
+          return;
+        }
+
+        // Checking subscribed-only requirement
+        if (promo.onlyForSubscribed && !profile.isPremium) {
+          setState(() {
+            _redeemFeedback = 'This promo code is only for premium subscribed accounts.';
+          });
+          return;
+        }
+
+        // Checking hybrid-only requirement
+        if (promo.onlyForHybrid && profile.accountType != AccountType.hybrid) {
+          setState(() {
+            _redeemFeedback = 'This promo code is only for hybrid accounts.';
+          });
+          return;
+        }
+
+        // Checking targeted roles requirement
+        if (promo.applicableRoles.isNotEmpty) {
+          final userRoles = <String>[];
+          if (profile.accountType == AccountType.employer) {
+            userRoles.addAll(['renter', 'employer']);
+          } else if (profile.accountType == AccountType.nyxian) {
+            userRoles.addAll(['host', 'nyxian']);
+          } else if (profile.accountType == AccountType.hybrid) {
+            userRoles.addAll(['renter', 'host', 'employer', 'nyxian']);
+          }
+
+          final hasMatchingRole = promo.applicableRoles.any((r) => userRoles.contains(r));
+          if (!hasMatchingRole) {
+            setState(() {
+              _redeemFeedback = 'You do not have the required role to use this promotion.';
+            });
+            return;
+          }
+        }
+      }
+
+      await repo.redeemPromoToProfile(uid, promo);
+      
+      // Invalidate profile to show active promo
+      ref.invalidate(userProfileProvider);
+
+      setState(() {
+        _redeemFeedback = 'Promo code redeemed successfully to profile!';
+        _promoRedeemController.clear();
+      });
+    } catch (e) {
+      setState(() {
+        _redeemFeedback = 'Failed to redeem: $e';
+      });
+    } finally {
+      setState(() {
+        _isRedeeming = false;
+      });
+    }
+  }
+
+  void _handleDisablePromo(BuildContext context, String code, String uid) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Disable Promo Code?'),
+        content: Text('Are you sure you want to disable the promo code "$code"? Once disabled, you will lose the discount and can never re-enable or redeem it again.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Disable'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() {
+      _isRedeeming = true;
+      _redeemFeedback = null;
+    });
+
+    try {
+      final repo = ref.read(transitRepositoryProvider);
+      await repo.disablePromoForUser(uid, code);
+      ref.invalidate(userProfileProvider);
+      setState(() {
+        _redeemFeedback = 'Promo code "$code" disabled permanently.';
+      });
+    } catch (e) {
+      setState(() {
+        _redeemFeedback = 'Failed to disable promo: $e';
+      });
+    } finally {
+      setState(() {
+        _isRedeeming = false;
+      });
+    }
   }
 
   Future<void> _fetchRates() async {
@@ -3120,6 +3295,175 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
             ),
           ),
         ],
+
+        // Redeem Promo Code Section
+        const SizedBox(height: 24),
+        const Text(
+          'Redeem Promo Code',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (userProfile.activePromoCode != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: Colors.green.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle_outline, color: Colors.green),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Active Promo Code: ${userProfile.activePromoCode}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: Colors.green,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Benefit: ${userProfile.activePromoDiscountType == 'percentage' ? '${userProfile.activePromoDiscountValue}% off platform commission' : '₱${userProfile.activePromoDiscountValue} off platform commission'}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.cancel_outlined, color: Colors.redAccent, size: 20),
+                        onPressed: () => _handleDisablePromo(
+                          context,
+                          userProfile.activePromoCode!,
+                          uid,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const Text(
+                'Enter a promo code to apply a discount to your next gig/booking transaction fee or payout commission.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _promoRedeemController,
+                      style: TextStyle(
+                        color: isDarkMode ? Colors.white : Colors.black,
+                        fontSize: 14,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'Enter code (e.g., SAVE50)...',
+                        hintStyle: const TextStyle(color: Colors.grey),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: isDarkMode
+                                ? AppColors.darkBorder
+                                : AppColors.lightBorder,
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: isDarkMode
+                                ? AppColors.darkBorder
+                                : AppColors.lightBorder,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppColors.indigo),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: _isRedeeming
+                        ? null
+                        : () => _handleRedeemPromo(
+                              _promoRedeemController.text,
+                              uid,
+                            ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.indigo,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: _isRedeeming
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            'Redeem',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+              if (_redeemFeedback != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _redeemFeedback!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _redeemFeedback!.contains('successfully')
+                        ? Colors.green
+                        : Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
 
         // Connected Solana Wallet Section
         const SizedBox(height: 24),

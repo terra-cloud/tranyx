@@ -158,6 +158,8 @@ class TransitRepository {
     double? deliveryLng,
     required int startDate,
     required int endDate,
+    String? promoCode,
+    double? discountAmount,
   }) async {
     final doc = await _firestore.collection('rentals').doc(rentalId).get();
     if (!doc.exists) throw Exception('Rental listing not found.');
@@ -168,8 +170,10 @@ class TransitRepository {
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
 
-    final bookingFee = totalCost * 0.03;
-    final totalRequired = totalCost + bookingFee;
+    final discount = discountAmount ?? 0.0;
+    final discountedTotalCost = (totalCost - discount).clamp(0.0, 999999.0);
+    final bookingFee = discountedTotalCost * 0.03;
+    final totalRequired = discountedTotalCost + bookingFee;
 
     if (rentee.tyxBalance < totalRequired) {
       throw Exception(
@@ -187,7 +191,8 @@ class TransitRepository {
       'type': 'payment',
       'amount': totalRequired,
       'title': 'Vehicle Booking Request',
-      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)',
+      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)' +
+          (promoCode != null ? ' (Promo $promoCode applied)' : ''),
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
@@ -219,6 +224,8 @@ class TransitRepository {
       'deliveryLng': deliveryLng,
       'startDate': startDate,
       'endDate': endDate,
+      if (promoCode != null) 'promoCode': promoCode,
+      if (promoCode != null) 'discountAmount': discount,
     });
 
     // Save request escrow
@@ -227,10 +234,15 @@ class TransitRepository {
       'rentalId': rentalId,
       'renteeId': renteeId,
       'hostId': rental.hostId,
-      'amount': totalCost,
+      'amount': discountedTotalCost,
       'status': 'Held',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
+
+    // Increment promo usage
+    if (promoCode != null && promoCode.trim().isNotEmpty) {
+      await incrementPromoUsage(promoCode, renteeId);
+    }
 
     // Notify host
     await createNotification(
@@ -497,6 +509,11 @@ class TransitRepository {
     };
     await _firestore.collection('rental_history').doc(historyId).set(historyDoc);
 
+    await awardPointsIfEligible(rental.hostId, 'host_complete_transaction');
+    if (rental.renteeId != null && rental.renteeId!.isNotEmpty) {
+      await awardPointsIfEligible(rental.renteeId!, 'client_complete_transaction');
+    }
+
     await _firestore.collection('rentals').doc(rentalId).update({
       'status': 'Available',
       'renteeId': '',
@@ -557,6 +574,7 @@ class TransitRepository {
     final docRef = _firestore.collection('properties').doc();
     final updatedProp = property.toMap()..['id'] = docRef.id;
     await docRef.set(updatedProp);
+    await awardPointsIfEligible(property.hostId, 'post_property');
     return docRef.id;
   }
 
@@ -602,6 +620,8 @@ class TransitRepository {
     required int startDate,
     required int endDate,
     String? licenseNumber,
+    String? promoCode,
+    double? discountAmount,
   }) async {
     final doc = await _firestore.collection('properties').doc(propertyId).get();
     if (!doc.exists) throw Exception('Property listing not found.');
@@ -612,8 +632,10 @@ class TransitRepository {
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
 
-    final bookingFee = totalCost * 0.03;
-    final totalRequired = totalCost + bookingFee;
+    final discount = discountAmount ?? 0.0;
+    final discountedTotalCost = (totalCost - discount).clamp(0.0, 999999.0);
+    final bookingFee = discountedTotalCost * 0.03;
+    final totalRequired = discountedTotalCost + bookingFee;
 
     if (rentee.tyxBalance < totalRequired) {
       throw Exception(
@@ -629,7 +651,8 @@ class TransitRepository {
       'type': 'payment',
       'amount': totalRequired,
       'title': 'Property Booking Request',
-      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)',
+      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)' +
+          (promoCode != null ? ' (Promo $promoCode applied)' : ''),
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
@@ -657,6 +680,8 @@ class TransitRepository {
       'startDate': startDate,
       'endDate': endDate,
       'licenseNumber': licenseNumber ?? '',
+      if (promoCode != null) 'promoCode': promoCode,
+      if (promoCode != null) 'discountAmount': discount,
     });
 
     await _firestore.collection('property_escrows').doc(requestId).set({
@@ -664,16 +689,23 @@ class TransitRepository {
       'propertyId': propertyId,
       'renteeId': renteeId,
       'hostId': property.hostId,
-      'amount': totalCost,
+      'amount': discountedTotalCost,
       'status': 'Held',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
+
+    // Increment promo usage
+    if (promoCode != null && promoCode.trim().isNotEmpty) {
+      await incrementPromoUsage(promoCode, renteeId);
+    }
 
     await createNotification(
       uid: property.hostId,
       title: 'Booking Request Received',
       message: '$renteeName wants to rent your property: "${property.title}".',
     );
+
+    await awardPointsIfEligible(renteeId, 'rent_property');
   }
 
   Future<void> approvePropertyBookingRequest(String requestId, String propertyId, bool allowChat) async {
@@ -874,6 +906,11 @@ class TransitRepository {
     };
     await _firestore.collection('property_history').doc(historyId).set(historyDoc);
 
+    await awardPointsIfEligible(property.hostId, 'host_complete_transaction');
+    if (property.renteeId != null && property.renteeId!.isNotEmpty) {
+      await awardPointsIfEligible(property.renteeId!, 'client_complete_transaction');
+    }
+
     await _firestore.collection('properties').doc(propertyId).update({
       'status': 'Completed',
     });
@@ -1036,6 +1073,92 @@ class TransitRepository {
     });
   }
 
+  // ─── Rewards & Quest system ──────────────────────────────────────────────
+  Future<void> awardPointsIfEligible(String uid, String questId) async {
+    try {
+      final quest = RewardQuest.quests.firstWhere((q) => q.id == questId);
+      final userDoc = await _firestore.collection('users').doc(uid).get();
+      if (!userDoc.exists) return;
+
+      final userData = userDoc.data()!;
+      final currentPoints = userData['terraPoints'] as int? ?? 0;
+      final earnedRewards = List<String>.from(userData['earnedRewards'] as List? ?? []);
+
+      if (quest.limit == 'Once' && earnedRewards.contains(questId)) {
+        return; // Already completed
+      }
+
+      // Update User Doc
+      final newRewards = List<String>.from(earnedRewards)..add(questId);
+      await _firestore.collection('users').doc(uid).update({
+        'terraPoints': currentPoints + quest.points,
+        'earnedRewards': newRewards,
+      });
+
+      // Log to points_history
+      final historyId = '${uid}_${questId}_${DateTime.now().millisecondsSinceEpoch}';
+      await _firestore.collection('points_history').doc(historyId).set({
+        'uid': uid,
+        'questId': questId,
+        'points': quest.points,
+        'title': quest.title,
+        'category': quest.category,
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      });
+      print('[Rewards] Awarded ${quest.points} TP to $uid for quest "$questId"');
+    } catch (e) {
+      print('[Rewards] Error awarding points: $e');
+    }
+  }
+
+  Stream<List<Map<String, dynamic>>> getUserPointsHistory(String uid) {
+    return _firestore
+        .collection('points_history')
+        .where('uid', isEqualTo: uid)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs.map((doc) => doc.data()..['id'] = doc.id).toList());
+  }
+
+  Future<void> checkAndAwardOnboardingQuests(String uid) async {
+    try {
+      final userDoc = await _firestore.collection('users').doc(uid).get();
+      if (!userDoc.exists) return;
+
+      final userMap = userDoc.data()!;
+      final earnedRewards = List<String>.from(userMap['earnedRewards'] as List? ?? []);
+
+      // 1. Register Account (Email verification completion)
+      if (userMap['emailVerified'] == true && !earnedRewards.contains('register_account')) {
+        await awardPointsIfEligible(uid, 'register_account');
+      }
+
+      // 2. Verify Account (Email + Phone verification completion)
+      if (userMap['emailVerified'] == true && userMap['phoneVerified'] == true && !earnedRewards.contains('verify_account')) {
+        await awardPointsIfEligible(uid, 'verify_account');
+      }
+
+      // 3. Complete Profile Trust (idVerified == true)
+      if (userMap['idVerified'] == true && !earnedRewards.contains('complete_profile_trust')) {
+        await awardPointsIfEligible(uid, 'complete_profile_trust');
+      }
+
+      // 4. Add Skills & Bio (skills is not empty/null or bio/headline is present)
+      final skillsList = userMap['skills'] as List?;
+      final hasHeadline = userMap['headline'] != null && (userMap['headline'] as String).isNotEmpty;
+      if (((skillsList != null && skillsList.isNotEmpty) || hasHeadline) && !earnedRewards.contains('add_skills_bio')) {
+        await awardPointsIfEligible(uid, 'add_skills_bio');
+      }
+
+      // 5. Connect Any Solana Wallet (walletPublicKey is not null/empty)
+      if (userMap['walletPublicKey'] != null && (userMap['walletPublicKey'] as String).isNotEmpty && !earnedRewards.contains('connect_solana_wallet')) {
+        await awardPointsIfEligible(uid, 'connect_solana_wallet');
+      }
+    } catch (e) {
+      print('checkAndAwardOnboardingQuests error: $e');
+    }
+  }
+
   // ─── Transaction Log ───────────────────────────────────────────────────
   Stream<List<Map<String, dynamic>>> getUserTransactions(String uid) {
     return _firestore
@@ -1065,6 +1188,8 @@ class TransitRepository {
       'method': method,
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
+
+    await awardPointsIfEligible(uid, 'deposit_any_amount');
   }
 
   Future<Map<String, dynamic>> createXenditInvoice({
@@ -1139,6 +1264,8 @@ class TransitRepository {
             'method': 'Xendit',
             'createdAt': DateTime.now().millisecondsSinceEpoch,
           });
+
+          await awardPointsIfEligible(uid, 'deposit_any_amount');
           return true;
         }
       }
@@ -1331,10 +1458,90 @@ class TransitRepository {
         .snapshots()
         .map((snap) => snap.docs.map((doc) => doc.data()..['id'] = doc.id).toList());
   }
+
+  Future<Promo?> getPromo(String code) async {
+    final doc = await _firestore.collection('promos').doc(code.trim().toUpperCase()).get();
+    if (!doc.exists) return null;
+    return Promo.fromMap(doc.data()!, doc.id);
+  }
+
+  Future<List<Promo>> getAllActivePromos() async {
+    final query = await _firestore
+        .collection('promos')
+        .where('isActive', isEqualTo: true)
+        .get();
+    return query.docs.map((doc) => Promo.fromMap(doc.data(), doc.id)).toList();
+  }
+
+  Future<void> incrementPromoUsage(String code, String userId) async {
+    final docRef = _firestore.collection('promos').doc(code.trim().toUpperCase());
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(docRef);
+      if (!snapshot.exists) return;
+      final usedBy = List<String>.from(snapshot.data()?['usedBy'] ?? []);
+      if (!usedBy.contains(userId)) {
+        usedBy.add(userId);
+      }
+      final usedCount = (snapshot.data()?['usedCount'] as num? ?? 0).toInt() + 1;
+      transaction.update(docRef, {
+        'usedBy': usedBy,
+        'usedCount': usedCount,
+      });
+    });
+  }
+
+  Future<void> decrementPromoUsage(String code, String userId) async {
+    final docRef = _firestore.collection('promos').doc(code.trim().toUpperCase());
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(docRef);
+      if (!snapshot.exists) return;
+      final usedBy = List<String>.from(snapshot.data()?['usedBy'] ?? []);
+      usedBy.remove(userId);
+      final usedCount = ((snapshot.data()?['usedCount'] as num? ?? 1).toInt() - 1).clamp(0, 999999);
+      transaction.update(docRef, {
+        'usedBy': usedBy,
+        'usedCount': usedCount,
+      });
+    });
+  }
+
+  Future<void> redeemPromoToProfile(String userId, Promo promo) async {
+    final userRef = _firestore.collection('users').doc(userId);
+    await userRef.update({
+      'activePromoCode': promo.code,
+      'activePromoDiscountType': promo.discountType,
+      'activePromoDiscountValue': promo.discountValue,
+    });
+  }
+
+  Future<void> disablePromoForUser(String userId, String promoCode) async {
+    final userRef = _firestore.collection('users').doc(userId);
+    await userRef.update({
+      'activePromoCode': null,
+      'activePromoDiscountType': null,
+      'activePromoDiscountValue': null,
+      'disabledPromos': FieldValue.arrayUnion([promoCode]),
+    });
+  }
+
+  Stream<List<NewsPost>> getActiveNewsPostsStream() {
+    return _firestore
+        .collection('news_posts')
+        .where('isActive', isEqualTo: true)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((doc) => NewsPost.fromMap(doc.data(), doc.id))
+            .toList());
+  }
 }
 
 final transitRepositoryProvider = Provider<TransitRepository>((ref) {
   return TransitRepository(ref.watch(firestoreProvider));
+});
+
+final activeNewsPostsProvider = StreamProvider<List<NewsPost>>((ref) {
+  return ref.watch(transitRepositoryProvider).getActiveNewsPostsStream();
 });
 
 // Streams
