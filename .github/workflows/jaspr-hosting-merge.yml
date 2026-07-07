@@ -61,6 +61,7 @@ jobs:
 
       - name: Deploy to Firebase Hosting (prod)
         if: steps.filter.outputs.code == 'true' && github.ref_name == 'main'
+        continue-on-error: true
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -70,6 +71,7 @@ jobs:
 
       - name: Deploy to Firebase Hosting (uat)
         if: steps.filter.outputs.code == 'true' && github.ref_name == 'uat'
+        continue-on-error: true
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -79,6 +81,7 @@ jobs:
 
       - name: Deploy to Firebase Hosting (dev)
         if: steps.filter.outputs.code == 'true' && github.ref_name == 'develop'
+        continue-on-error: true
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

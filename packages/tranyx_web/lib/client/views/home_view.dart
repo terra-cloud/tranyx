@@ -56,13 +56,153 @@ List<({JobCategoryGroup group, int count})> _computeTopGroups(
   return entries.take(limit).toList();
 }
 
-class HomeViewComponent extends StatelessComponent {
+class HomeViewComponent extends StatefulComponent {
   final TranyxAppState state;
   const HomeViewComponent({required this.state, super.key});
 
   @override
+  State<HomeViewComponent> createState() => HomeViewComponentState();
+}
+
+class HomeViewComponentState extends State<HomeViewComponent> {
+  String _homeTab = 'dashboard';
+  List<NewsPost>? _newsPosts;
+  bool _isLoadingNews = false;
+  String? _newsError;
+
+  // Redeem promo state
+  String _promoCodeInput = '';
+  bool _isRedeeming = false;
+  String? _redeemFeedback;
+  bool _redeemSuccess = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNews();
+  }
+
+  void _loadNews() async {
+    setState(() {
+      _isLoadingNews = true;
+      _newsError = null;
+    });
+    try {
+      final posts = await component.state.firestore.getAllActiveNewsPosts();
+      setState(() {
+        _newsPosts = posts;
+        _isLoadingNews = false;
+      });
+    } catch (e) {
+      setState(() {
+        _newsError = e.toString();
+        _isLoadingNews = false;
+      });
+    }
+  }
+
+  void _redeemPromo() async {
+    final code = _promoCodeInput.trim().toUpperCase();
+    if (code.isEmpty) return;
+
+    setState(() {
+      _isRedeeming = true;
+      _redeemFeedback = null;
+      _redeemSuccess = false;
+    });
+
+    try {
+      final user = component.state.userProfile;
+      if (user == null) throw Exception('User profile not loaded');
+
+      final errorMsg = await component.state.firestore.redeemPromoToProfile(code, user.uid);
+      if (errorMsg != null) {
+        setState(() {
+          _redeemFeedback = errorMsg;
+          _redeemSuccess = false;
+        });
+        return;
+      }
+
+      await component.state.loadUserProfile();
+
+      setState(() {
+        _redeemFeedback = 'Promo code "$code" applied successfully!';
+        _redeemSuccess = true;
+        _promoCodeInput = '';
+      });
+    } catch (e) {
+      setState(() {
+        _redeemFeedback = 'Failed to redeem promo: $e';
+        _redeemSuccess = false;
+      });
+    } finally {
+      setState(() {
+        _isRedeeming = false;
+      });
+    }
+  }
+
+  void _handleNewsPostAction(NewsPost post) async {
+    if (post.actionType == 'promo' && post.promoCode != null) {
+      setState(() {
+        _isRedeeming = true;
+        _redeemFeedback = null;
+        _redeemSuccess = false;
+      });
+      try {
+        final user = component.state.userProfile;
+        if (user == null) return;
+
+        final errorMsg = await component.state.firestore.redeemPromoToProfile(post.promoCode!, user.uid);
+        if (errorMsg != null) {
+          setState(() {
+            _redeemFeedback = errorMsg;
+            _redeemSuccess = false;
+            _homeTab = 'news';
+          });
+          return;
+        }
+
+        await component.state.loadUserProfile();
+        setState(() {
+          _redeemFeedback = 'Promo code "${post.promoCode}" applied successfully!';
+          _redeemSuccess = true;
+          _homeTab = 'news';
+        });
+      } catch (e) {
+        setState(() {
+          _redeemFeedback = 'Failed to apply promo: $e';
+          _redeemSuccess = false;
+          _homeTab = 'news';
+        });
+      } finally {
+        setState(() {
+          _isRedeeming = false;
+        });
+      }
+    } else if ((post.actionType == 'link' || post.actionType == 'promo') && post.actionUrl != null) {
+      final url = post.actionUrl!.trim();
+      if (url.startsWith('/') || url.startsWith('tranyx://')) {
+        final cleanPath = url.replaceAll('tranyx://', '/');
+        if (cleanPath.startsWith('/profile')) {
+          component.state.setState(() => component.state.activeTab = AppTab.profile);
+        } else if (cleanPath.startsWith('/transit')) {
+          component.state.setState(() => component.state.activeTab = AppTab.transit);
+        } else if (cleanPath.startsWith('/jobs')) {
+          component.state.setState(() => component.state.activeTab = AppTab.jobs);
+        } else {
+          component.state.setState(() => component.state.activeTab = AppTab.home);
+        }
+      } else {
+        web.window.open(url, '_blank');
+      }
+    }
+  }
+
+  @override
   Component build(BuildContext context) {
-    final s = state;
+    final s = component.state;
     final isDark = s.isDark;
     final isNyxian = s.currentViewMode == AccountType.nyxian;
     final isHybrid = s.accountType == AccountType.hybrid;
@@ -125,7 +265,175 @@ class HomeViewComponent extends StatelessComponent {
         ]),
       ]),
 
-      // ── Global Search Bar ─────────────────────────────────
+      // ── Home Tab Selector ─────────────────────────────────
+      div(classes: 'flex border-b ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+        button(
+          classes: 'px-6 py-3 font-semibold text-sm transition-all border-b-2 ${
+            _homeTab == 'dashboard'
+                ? 'border-indigo-500 text-indigo-400 font-bold'
+                : 'border-transparent ${isDark ? "text-zinc-500 hover:text-zinc-300" : "text-zinc-450 hover:text-zinc-650"}'
+          }',
+          events: {
+            'click': (_) => setState(() => _homeTab = 'dashboard')
+          },
+          [Component.text('Dashboard')]
+        ),
+        button(
+          classes: 'px-6 py-3 font-semibold text-sm transition-all border-b-2 ${
+            _homeTab == 'news'
+                ? 'border-indigo-500 text-indigo-400 font-bold'
+                : 'border-transparent ${isDark ? "text-zinc-500 hover:text-zinc-300" : "text-zinc-450 hover:text-zinc-650"}'
+          }',
+          events: {
+            'click': (_) => setState(() => _homeTab = 'news')
+          },
+          [Component.text('News & Promos')]
+        ),
+      ]),
+
+      if (_homeTab == 'news') ...[
+        // Promo redemption form
+        div(
+          classes:
+              'p-6 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"} space-y-4',
+          [
+            p(classes: 'text-lg font-bold ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+              Component.text('Have a Promo Code?'),
+            ]),
+            p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+              Component.text('Enter your promo code below to apply discounts to your account.'),
+            ]),
+            div(classes: 'flex gap-3', [
+              input(
+                classes:
+                    'px-4 py-3 rounded-xl border outline-none flex-1 text-sm ${isDark ? "bg-zinc-950 border-zinc-800 text-zinc-200 placeholder-zinc-600 focus:border-zinc-700" : "bg-zinc-50 border-zinc-200 text-zinc-800 placeholder-zinc-400 focus:border-zinc-300"}',
+                type: InputType.text,
+                attributes: {
+                  'placeholder': 'Enter Promo Code...',
+                  'value': _promoCodeInput,
+                },
+                events: {
+                  'input': (e) => _promoCodeInput = getInputValue(e.target),
+                },
+              ),
+              button(
+                classes:
+                    'px-6 py-3 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors flex items-center justify-center min-w-[100px]',
+                events: {
+                  'click': (_) => _redeemPromo()
+                },
+                [
+                  if (_isRedeeming)
+                    div(classes: 'w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin', [])
+                  else
+                    Component.text('Redeem'),
+                ],
+              ),
+            ]),
+            if (_redeemFeedback != null)
+              p(
+                classes: 'text-sm font-bold mt-2 ${_redeemSuccess ? "text-green-500" : "text-red-500"}',
+                [Component.text(_redeemFeedback!)],
+              ),
+          ],
+        ),
+
+        // Active News & Promos posts list
+        if (_isLoadingNews)
+          div(classes: 'flex justify-center py-12', [
+            div(classes: 'w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin', []),
+          ])
+        else if (_newsError != null)
+          div(classes: 'text-center text-red-500 py-12', [
+            Component.text('Error: $_newsError'),
+          ])
+        else if (_newsPosts == null || _newsPosts!.isEmpty)
+          div(classes: 'text-center py-16 space-y-4', [
+            div(classes: 'flex justify-center', [
+              lIcon('feed', cls: 'w-12 h-12 ${isDark ? "text-zinc-800" : "text-zinc-350"}'),
+            ]),
+            p(classes: 'text-sm font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+              Component.text('No news or promotions available at this time.'),
+            ]),
+          ])
+        else
+          div(
+            classes: 'grid grid-cols-1 md:grid-cols-2 gap-6',
+            [
+              for (final post in _newsPosts!)
+                div(
+                  classes:
+                      'rounded-2xl border overflow-hidden flex flex-col ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
+                  [
+                    if (post.imageUrl.isNotEmpty)
+                      div(
+                        classes: 'relative w-full aspect-video bg-zinc-950 overflow-hidden group',
+                        [
+                          img(
+                            src: post.imageUrl,
+                            classes: 'w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-300',
+                            events: {
+                              'click': (_) => _handleNewsPostAction(post),
+                            },
+                          ),
+                          if (post.buttonText != null &&
+                              post.buttonText!.isNotEmpty &&
+                              post.buttonX != null &&
+                              post.buttonY != null &&
+                              post.buttonWidth != null &&
+                              post.buttonHeight != null)
+                            button(
+                              classes:
+                                  'absolute font-bold transition-all shadow-lg flex items-center justify-center text-xs md:text-sm',
+                              attributes: {
+                                'style': 'left: ${post.buttonX}%; top: ${post.buttonY}%; width: ${post.buttonWidth}%; height: ${post.buttonHeight}%; box-sizing: border-box; '
+                                    'background-color: ${post.buttonBgColor ?? '#4f46e5'}; '
+                                    'color: ${post.buttonTextColor ?? '#ffffff'}; '
+                                    'border: ${post.buttonBorderWidth ?? 1}px solid ${post.buttonBorderColor ?? '#4f46e5'}; '
+                                    'border-radius: ${post.buttonBorderRadius ?? 8}px; '
+                                    'padding: ${post.buttonPaddingV ?? 8}px ${post.buttonPaddingH ?? 16}px;'
+                              },
+                              events: {
+                                'click': (_) => _handleNewsPostAction(post),
+                              },
+                              [Component.text(post.buttonText!)],
+                            ),
+                        ],
+                      ),
+
+                    div(classes: 'p-5 flex-1 flex flex-col justify-between space-y-4', [
+                      div(classes: 'space-y-3', [
+                        div(classes: 'flex items-center justify-between', [
+                          span(
+                            classes: 'px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide uppercase ${
+                              post.category == 'promo'
+                                  ? 'bg-green-500/10 text-green-400'
+                                  : post.category == 'news'
+                                      ? 'bg-indigo-500/10 text-indigo-400'
+                                      : post.category == 'announcement'
+                                          ? 'bg-amber-500/10 text-amber-400'
+                                          : 'bg-purple-500/10 text-purple-400'
+                            }',
+                            [Component.text(post.category)],
+                          ),
+                          span(classes: 'text-xs text-zinc-500', [
+                            Component.text(DateTime.now().difference(post.createdAt).inDays == 0 ? 'Today' : '${post.createdAt.month}/${post.createdAt.day}/${post.createdAt.year}'),
+                          ]),
+                        ]),
+                        h3(classes: 'text-lg font-bold text-zinc-200', [
+                          Component.text(post.title),
+                        ]),
+                        p(classes: 'text-sm text-zinc-450 leading-relaxed', [
+                          Component.text(post.content),
+                        ]),
+                      ]),
+                    ]),
+                  ],
+                ),
+            ],
+          ),
+      ] else ...[
+        // ── Global Search Bar ─────────────────────────────────
       div(
         classes:
             'flex items-center gap-3 p-4 rounded-2xl border transition-colors ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
@@ -195,6 +503,7 @@ class HomeViewComponent extends StatelessComponent {
           isDark: isDark,
           s: s,
         ),
+      ],
       ],
     ]);
   }

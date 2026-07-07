@@ -198,6 +198,12 @@ class TranyxAppState extends State<TranyxApp> {
   bool isUploadingImages = false;
   bool isPostingJob = false;
   String? postJobError;
+  String? jobPromoCode;
+  double jobDiscountAmount = 0.0;
+  String profilePromoCodeInput = '';
+  String? profilePromoFeedback;
+  bool isValidatingProfilePromo = false;
+
 
   // ── Nyxian sub-status (for tracked in-progress jobs) ─────────
   bool isUpdatingSubStatus = false;
@@ -1606,9 +1612,10 @@ class TranyxAppState extends State<TranyxApp> {
       if (userDoc == null) throw 'User profile not found';
 
       final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-      if (currentBal < price) {
+      final discountedPrice = (price - jobDiscountAmount).clamp(0.0, 999999.0);
+      if (currentBal < discountedPrice) {
         setState(() {
-          depositAmount = price - currentBal;
+          depositAmount = discountedPrice - currentBal;
           showDepositModal = true;
           isPostingJob = false;
         });
@@ -1618,11 +1625,11 @@ class TranyxAppState extends State<TranyxApp> {
       // 2. Sufficient balance: Deduct and Move to Escrow
       await svc.createOrUpdate('users/$uid', {
         ...userDoc,
-        'tyxBalance': currentBal - price,
+        'tyxBalance': currentBal - discountedPrice,
       });
 
       // Update local state balance
-      walletBalance = currentBal - price;
+      walletBalance = currentBal - discountedPrice;
       if (userProfile != null) {
         userProfile = userProfile!.copyWith(
           tyxBalance: walletBalance,
@@ -1662,6 +1669,8 @@ class TranyxAppState extends State<TranyxApp> {
         'applicantUids': <String>[],
         'hasTracker': hasTracker && locType == LocType.onsite,
         'hasInspectionHoldback': hasInspectionHoldback,
+        if (jobPromoCode != null) 'promoCode': jobPromoCode,
+        if (jobPromoCode != null) 'discountAmount': jobDiscountAmount,
       };
 
       // Create the job
@@ -1681,13 +1690,18 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Create escrow record with holdback metadata if chosen
       await svc.createOrUpdate('escrow/$jobId', {
-        'amount': price,
+        'amount': discountedPrice,
         'employerId': uid,
         'status': 'held',
         'createdAt': now.millisecondsSinceEpoch,
         'hasInspectionHoldback': hasInspectionHoldback,
         if (hasInspectionHoldback) 'holdbackAmount': price * 0.10,
       });
+
+      // Increment promo usage
+      if (jobPromoCode != null) {
+        await svc.incrementPromoUsage(jobPromoCode!, uid);
+      }
 
       // Add to sessionPostedJobs to display instantly on posting page
       sessionPostedJobs.insert(0, {
@@ -1873,6 +1887,8 @@ class TranyxAppState extends State<TranyxApp> {
           startDate: data['startDate'] as int,
           endDate: data['endDate'] as int,
           licenseNumber: data['licenseNumber'] as String? ?? '',
+          promoCode: data['promoCode'] as String?,
+          discountAmount: data['discountAmount'] == null ? null : (data['discountAmount'] as num).toDouble(),
         );
       } else if (pendingVehicleBookingData != null) {
         final data = pendingVehicleBookingData!;
@@ -1893,6 +1909,8 @@ class TranyxAppState extends State<TranyxApp> {
           deliveryLng: data['deliveryLng'] == null ? null : (data['deliveryLng'] as num).toDouble(),
           startDate: data['startDate'] as int,
           endDate: data['endDate'] as int,
+          promoCode: data['promoCode'] as String?,
+          discountAmount: data['discountAmount'] == null ? null : (data['discountAmount'] as num).toDouble(),
         );
         loadRenterPendingRequests();
       }
@@ -2024,6 +2042,8 @@ class TranyxAppState extends State<TranyxApp> {
           startDate: data['startDate'] as int,
           endDate: data['endDate'] as int,
           licenseNumber: data['licenseNumber'] as String? ?? '',
+          promoCode: data['promoCode'] as String?,
+          discountAmount: data['discountAmount'] == null ? null : (data['discountAmount'] as num).toDouble(),
         );
       } else if (pendingVehicleBookingData != null) {
         final data = pendingVehicleBookingData!;
@@ -2044,6 +2064,8 @@ class TranyxAppState extends State<TranyxApp> {
           deliveryLng: data['deliveryLng'] == null ? null : (data['deliveryLng'] as num).toDouble(),
           startDate: data['startDate'] as int,
           endDate: data['endDate'] as int,
+          promoCode: data['promoCode'] as String?,
+          discountAmount: data['discountAmount'] == null ? null : (data['discountAmount'] as num).toDouble(),
         );
         loadRenterPendingRequests();
       }
@@ -2229,6 +2251,8 @@ class TranyxAppState extends State<TranyxApp> {
               startDate: data['startDate'] as int,
               endDate: data['endDate'] as int,
               licenseNumber: data['licenseNumber'] as String? ?? '',
+              promoCode: data['promoCode'] as String?,
+              discountAmount: data['discountAmount'] == null ? null : (data['discountAmount'] as num).toDouble(),
             );
           } else if (pendingVehicleBookingData != null) {
             final data = pendingVehicleBookingData!;
@@ -2249,6 +2273,8 @@ class TranyxAppState extends State<TranyxApp> {
               deliveryLng: data['deliveryLng'] == null ? null : (data['deliveryLng'] as num).toDouble(),
               startDate: data['startDate'] as int,
               endDate: data['endDate'] as int,
+              promoCode: data['promoCode'] as String?,
+              discountAmount: data['discountAmount'] == null ? null : (data['discountAmount'] as num).toDouble(),
             );
             loadRenterPendingRequests();
           }
@@ -2943,6 +2969,8 @@ class TranyxAppState extends State<TranyxApp> {
         }
 
         await svc.createOrUpdate('jobs/$jobId', updates);
+        await svc.awardPointsIfEligible(SessionStorage.uid ?? '', 'hire_applicant');
+        await svc.awardPointsIfEligible(applicantUid, 'be_hired');
 
         final jobTitle = jobDoc['title'] as String? ?? 'Job';
         await svc.createNotification(
@@ -3318,7 +3346,28 @@ class TranyxAppState extends State<TranyxApp> {
       // Release payment from escrow and credit the Nyxian
       final price = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
       final platformFee = price * 0.03;
-      final nyxianPayout = price - platformFee;
+      double actualPlatformFee = platformFee;
+
+      String? redeemedPromoCode;
+      if (nyxianId != null) {
+        final nyxDoc = await svc.getDocument('users/$nyxianId');
+        if (nyxDoc != null) {
+          redeemedPromoCode = nyxDoc['activePromoCode'] as String?;
+          if (redeemedPromoCode != null) {
+            final discountVal = (nyxDoc['activePromoDiscountValue'] as num?)?.toDouble() ?? 0.0;
+            final discountType = nyxDoc['activePromoDiscountType'] as String? ?? 'flat';
+            double discountAmt = 0.0;
+            if (discountType == 'percentage') {
+              discountAmt = platformFee * (discountVal / 100.0);
+            } else {
+              discountAmt = discountVal;
+            }
+            actualPlatformFee = (platformFee - discountAmt).clamp(0.0, platformFee);
+          }
+        }
+      }
+
+      final nyxianPayout = price - actualPlatformFee;
       final hasHoldback = jobDoc['hasInspectionHoldback'] as bool? ?? false;
       final holdbackAmount = hasHoldback ? price * 0.10 : 0.0;
       final immediatePayout = nyxianPayout - holdbackAmount;
@@ -3359,13 +3408,22 @@ class TranyxAppState extends State<TranyxApp> {
               'totalEarned': currentEarned + immediatePayout,
               'completedGigsCount': newGigsCount,
               'repeatHireRate': repeatHireRate,
+              if (redeemedPromoCode != null) 'activePromoCode': null,
+              if (redeemedPromoCode != null) 'activePromoDiscountType': null,
+              if (redeemedPromoCode != null) 'activePromoDiscountValue': null,
             });
+
+            // Increment promo usage
+            if (redeemedPromoCode != null) {
+              await svc.incrementPromoUsage(redeemedPromoCode, nyxianId);
+            }
 
             // Log payout transaction for Nyxian
             await svc.createOrUpdate('transactions/payout_nyx_$jobId', {
               'uid': nyxianId,
               'title': 'Gig Payout Released',
-              'desc': 'Payout for completing job $jobId (3% commission deducted)',
+              'desc': 'Payout for completing job $jobId (3% commission deducted' +
+                  (redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : '') + ')',
               'amount': immediatePayout,
               'status': 'Successful',
               'method': 'Tranyx Wallet',
@@ -3383,8 +3441,10 @@ class TranyxAppState extends State<TranyxApp> {
           final empDoc = await svc.getDocument('users/$employerId');
           if (empDoc != null) {
             final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            final txFee = price * 0.07;
-            final convFee = price * 0.03;
+            final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+            final discountedPrice = (price - discount).clamp(0.0, 999999.0);
+            final txFee = discountedPrice * 0.07;
+            final convFee = discountedPrice * 0.03;
             final totalFees = txFee + convFee;
             await svc.createOrUpdate('users/$employerId', {
               ...empDoc,
@@ -3396,7 +3456,8 @@ class TranyxAppState extends State<TranyxApp> {
               'uid': employerId,
               'title': 'Job Completion Fees (10%)',
               'desc':
-                  '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId',
+                  '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId' +
+                  (discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''),
               'amount': totalFees,
               'status': 'Successful',
               'method': 'Tranyx Wallet',
@@ -3408,17 +3469,19 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       // 3. Record all platform fees and company income (total 13% of base price)
-      final txFee = price * 0.07;
-      final convFee = price * 0.03;
-      final totalCompanyIncome = platformFee + txFee + convFee;
+      final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+      final discountedPrice = (price - discount).clamp(0.0, 999999.0);
+      final txFee = discountedPrice * 0.07;
+      final convFee = discountedPrice * 0.03;
+      final totalCompanyIncome = actualPlatformFee + txFee + convFee;
       await svc.createOrUpdate('platform_fees/$jobId', {
         'jobId': jobId,
         'amount': totalCompanyIncome,
-        'commissionFee': platformFee, // 3% from Nyxian
+        'commissionFee': actualPlatformFee, // 3% from Nyxian
         'transactionFee': txFee, // 7% from Employer
         'convenienceFee': convFee, // 3% from Employer
         'employerFees': txFee + convFee, // 10% total from Employer
-        'nyxianFee': platformFee, // 3% total from Nyxian
+        'nyxianFee': actualPlatformFee, // 3% total from Nyxian
         'totalFees': totalCompanyIncome, // 13% total Company Funds
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
@@ -3428,6 +3491,13 @@ class TranyxAppState extends State<TranyxApp> {
         ...jobDoc,
         'status': 'Completed',
       });
+
+      if (employerId != null) {
+        await svc.awardPointsIfEligible(employerId, 'employer_complete_transaction');
+      }
+      if (nyxianId != null) {
+        await svc.awardPointsIfEligible(nyxianId, 'jobseeker_complete_transaction');
+      }
 
       // Update local state
       setState(() {
@@ -3679,6 +3749,157 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  void handleRedeemProfilePromo(String code) async {
+    final cleanCode = code.trim().toUpperCase();
+    if (cleanCode.isEmpty) {
+      setState(() {
+        profilePromoFeedback = 'Please enter a promo code.';
+      });
+      return;
+    }
+
+    setState(() {
+      isValidatingProfilePromo = true;
+      profilePromoFeedback = null;
+    });
+
+    try {
+      final token = SessionStorage.idToken;
+      final uid = SessionStorage.uid;
+      if (token == null || uid == null) throw Exception('User not logged in');
+
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      if (userProfile != null && userProfile!.disabledPromos.contains(cleanCode)) {
+        setState(() {
+          profilePromoFeedback = 'You have disabled this promotion and cannot re-enable it.';
+        });
+        return;
+      }
+
+      final promo = await svc.getPromo(cleanCode);
+      if (promo == null) {
+        setState(() {
+          profilePromoFeedback = 'Promo code not found.';
+        });
+        return;
+      }
+
+      final now = DateTime.now();
+      if (!promo.isActive) {
+        setState(() {
+          profilePromoFeedback = 'This promo code is inactive.';
+        });
+        return;
+      }
+      if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) {
+        setState(() {
+          profilePromoFeedback = 'This promo code has expired.';
+        });
+        return;
+      }
+      if (promo.maxUsers != null && promo.usedCount >= promo.maxUsers!) {
+        setState(() {
+          profilePromoFeedback = 'This promo code has reached its maximum usage limit.';
+        });
+        return;
+      }
+      if (promo.isSingleUsePerUser && promo.usedBy.contains(uid)) {
+        setState(() {
+          profilePromoFeedback = 'You have already used this promo code.';
+        });
+        return;
+      }
+      if (promo.eligibleUserUids != null &&
+          promo.eligibleUserUids!.isNotEmpty &&
+          !promo.eligibleUserUids!.contains(uid)) {
+        setState(() {
+          profilePromoFeedback = 'You are not eligible for this promo code.';
+        });
+        return;
+      }
+
+      if (userProfile == null) throw Exception('Profile not loaded');
+      if (promo.onlyForSubscribed && !userProfile!.isPremium) {
+        setState(() {
+          profilePromoFeedback = 'This promo code is only for subscribed premium users.';
+        });
+        return;
+      }
+      if (promo.onlyForHybrid && userProfile!.accountType != AccountType.hybrid) {
+        setState(() {
+          profilePromoFeedback = 'This promo code is only for Hybrid PRO accounts.';
+        });
+        return;
+      }
+
+      if (promo.applicableRoles.isNotEmpty) {
+        final userRoles = <String>[];
+        if (userProfile!.accountType == AccountType.employer) {
+          userRoles.addAll(['renter', 'employer']);
+        } else if (userProfile!.accountType == AccountType.nyxian) {
+          userRoles.addAll(['host', 'nyxian']);
+        } else if (userProfile!.accountType == AccountType.hybrid) {
+          userRoles.addAll(['renter', 'host', 'employer', 'nyxian']);
+        }
+        final roleMatched = promo.applicableRoles.any((r) => userRoles.contains(r));
+        if (!roleMatched) {
+          setState(() {
+            profilePromoFeedback = 'This promo is not applicable to your account role.';
+          });
+          return;
+        }
+      }
+
+      await svc.redeemPromoToProfile(promo.code, uid);
+      final updatedProfile = await svc.getUser(uid);
+      setState(() {
+        userProfile = updatedProfile;
+        profilePromoFeedback = 'Promo code "${promo.code}" redeemed successfully!';
+      });
+    } catch (e) {
+      setState(() {
+        profilePromoFeedback = 'Failed to redeem promo code: $e';
+      });
+    } finally {
+      setState(() {
+        isValidatingProfilePromo = false;
+      });
+    }
+  }
+
+  void handleDisableProfilePromo(String code) async {
+    final cleanCode = code.trim().toUpperCase();
+    final confirm = web.window.confirm('Are you sure you want to disable the promo code "$cleanCode"? Once disabled, you will lose the discount and can never re-enable or redeem it again.');
+    if (!confirm) return;
+
+    setState(() {
+      isValidatingProfilePromo = true;
+      profilePromoFeedback = null;
+    });
+
+    try {
+      final token = SessionStorage.idToken;
+      final uid = SessionStorage.uid;
+      if (token == null || uid == null) throw Exception('User not logged in');
+
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      await svc.disablePromoForUser(cleanCode, uid);
+      final updatedProfile = await svc.getUser(uid);
+      setState(() {
+        userProfile = updatedProfile;
+        profilePromoFeedback = 'Promo code "$cleanCode" disabled permanently.';
+      });
+    } catch (e) {
+      setState(() {
+        profilePromoFeedback = 'Failed to disable promo: $e';
+      });
+    } finally {
+      setState(() {
+        isValidatingProfilePromo = false;
+      });
+    }
+  }
+
   Future<void> handleDeletePosting(String jobId) async {
     final token = SessionStorage.idToken;
     final uid = SessionStorage.uid;
@@ -3726,6 +3947,12 @@ class TranyxAppState extends State<TranyxApp> {
           if (userProfile != null) {
             userProfile = userProfile!.copyWith(tyxBalance: newBal);
           }
+        }
+
+        // Revert promo usage
+        final promoCode = jobDoc['promoCode'] as String?;
+        if (promoCode != null) {
+          await svc.decrementPromoUsage(promoCode, uid);
         }
 
         // 3. Delete escrow document

@@ -625,6 +625,12 @@ class FirestoreService {
     );
     final docId = _docId(result);
     await setDocument('jobs/$docId', {'id': docId});
+
+    final creatorId = jobData['creatorId'] as String?;
+    if (creatorId != null) {
+      await awardPointsIfEligible(creatorId, 'post_first_service');
+    }
+
     return docId;
   }
 
@@ -888,6 +894,7 @@ class FirestoreService {
     };
     // Write application sub-document
     await createOrUpdate('jobs/$jobId/applications/$applicantUid', appData);
+    await awardPointsIfEligible(applicantUid, 'apply_first_job');
     // Update job applicantCount and applicantUids (best-effort, no transactions in REST)
     final jobDoc = await getDocument('jobs/$jobId');
     if (jobDoc != null) {
@@ -978,6 +985,78 @@ class FirestoreService {
     final url = '$_firestoreBase/jobs/$jobId/messages/$messageId';
     final body = _toFirestoreFields(messageData);
     await _patch(url, body, idToken, _refreshToken);
+  }
+
+  // ── Agent Support Chat ─────────────────────────────────────
+  
+  Future<List<Map<String, dynamic>>> getAgentSupportChatMessages(String uid) async {
+    final url = '$_firestoreBase/support_chats/$uid/messages';
+    try {
+      final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
+      final docs = data['documents'] as List? ?? [];
+      final messages = docs.map((d) {
+        final doc = d as Map<String, dynamic>;
+        final id = _docId(doc);
+        return {..._fromFirestoreDoc(doc), 'id': id};
+      }).toList();
+
+      // Sort by createdAt ascending
+      messages.sort((a, b) => (a['createdAt'] as int? ?? 0).compareTo(b['createdAt'] as int? ?? 0));
+      return messages;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> sendAgentSupportChatMessage({
+    required String uid,
+    required String messageId,
+    required String senderId,
+    required String senderName,
+    required String content,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final messageData = {
+      'senderId': senderId,
+      'senderName': senderName,
+      'content': content,
+      'createdAt': now,
+    };
+
+    final url = '$_firestoreBase/support_chats/$uid/messages/$messageId';
+    final body = _toFirestoreFields(messageData);
+    await _patch(url, body, idToken, _refreshToken);
+
+    // Also update parent chat document
+    await createOrUpdate('support_chats/$uid', {
+      'lastMessage': content,
+      'updatedAt': now,
+      'userIds': [uid],
+    });
+  }
+
+  Future<void> initiateAgentSupportChat({
+    required String uid,
+    required String messageId,
+    required String senderId,
+    required String senderName,
+    required String content,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    // Set parent chat
+    await createOrUpdate('support_chats/$uid', {
+      'lastMessage': content,
+      'updatedAt': now,
+      'userIds': [uid],
+    });
+    // Add first message
+    await sendAgentSupportChatMessage(
+      uid: uid,
+      messageId: messageId,
+      senderId: senderId,
+      senderName: senderName,
+      content: content,
+    );
   }
 
   // ── Questions ──────────────────────────────────────────────
@@ -1503,6 +1582,8 @@ class FirestoreService {
     double? deliveryLng,
     required int startDate,
     required int endDate,
+    String? promoCode,
+    double? discountAmount,
   }) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
@@ -1515,8 +1596,10 @@ class FirestoreService {
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
 
-    final bookingFee = totalCost * 0.03;
-    final totalRequired = totalCost + bookingFee;
+    final discount = discountAmount ?? 0.0;
+    final discountedCost = (totalCost - discount).clamp(0.0, 999999.0);
+    final bookingFee = discountedCost * 0.03;
+    final totalRequired = discountedCost + bookingFee;
 
     if (rentee.tyxBalance < totalRequired) {
       throw Exception(
@@ -1535,7 +1618,8 @@ class FirestoreService {
       'type': 'payment',
       'amount': totalRequired,
       'title': 'Vehicle Booking Request',
-      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)',
+      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)' +
+          (promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''),
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -1551,7 +1635,8 @@ class FirestoreService {
       'renteePhotoUrl': renteePhotoUrl ?? '',
       'durationType': durationType,
       'multiplier': multiplier,
-      'totalCost': totalCost,
+      'totalCost': discountedCost,
+      'originalCost': totalCost,
       'bookingFee': bookingFee,
       'signatureName': '', // Signature not signed yet
       'licenseNumber': licenseNumber,
@@ -1568,6 +1653,8 @@ class FirestoreService {
       'deliveryLng': deliveryLng,
       'startDate': startDate,
       'endDate': endDate,
+      if (promoCode != null) 'promoCode': promoCode,
+      if (promoCode != null) 'discountAmount': discount,
     };
     await setDocument('rental_requests/$requestId', requestDoc);
 
@@ -1577,11 +1664,16 @@ class FirestoreService {
       'rentalId': rentalId,
       'renteeId': renteeId,
       'hostId': rental.hostId,
-      'amount': totalCost,
+      'amount': discountedCost,
       'status': 'Held',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
     await setDocument('rental_escrows/$requestId', escrowDoc);
+
+    // Increment promo usage
+    if (promoCode != null) {
+      await incrementPromoUsage(promoCode, renteeId);
+    }
 
     // Notify host
     await createNotification(
@@ -1727,6 +1819,12 @@ class FirestoreService {
     // Set request status to Rejected
     await setDocument('rental_requests/$requestId', {'status': 'Rejected'});
 
+    // Revert promo usage
+    final promoCode = reqDoc['promoCode'] as String?;
+    if (promoCode != null) {
+      await decrementPromoUsage(promoCode, renteeId);
+    }
+
     // Refund rentee
     final rentee = await getUser(renteeId);
     if (rentee != null) {
@@ -1771,6 +1869,12 @@ class FirestoreService {
 
     // Set request status to Cancelled
     await setDocument('rental_requests/$requestId', {'status': 'Cancelled'});
+
+    // Revert promo usage
+    final promoCode = reqDoc['promoCode'] as String?;
+    if (promoCode != null) {
+      await decrementPromoUsage(promoCode, renteeId);
+    }
 
     // Refund rentee
     final rentee = await getUser(renteeId);
@@ -2100,6 +2204,13 @@ class FirestoreService {
     // Mark current request as Cancelled
     final currentRequestId = rentalDoc['currentRequestId'] as String?;
     if (currentRequestId != null) {
+      final reqDoc = await getDocument('rental_requests/$currentRequestId');
+      if (reqDoc != null) {
+        final promoCode = reqDoc['promoCode'] as String?;
+        if (promoCode != null) {
+          await decrementPromoUsage(promoCode, rental.renteeId!);
+        }
+      }
       await setDocument('rental_requests/$currentRequestId', {'status': 'Cancelled'});
     }
 
@@ -2556,6 +2667,8 @@ class FirestoreService {
     required int startDate,
     required int endDate,
     String? licenseNumber,
+    String? promoCode,
+    double? discountAmount,
   }) async {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
@@ -2568,8 +2681,10 @@ class FirestoreService {
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
 
-    final bookingFee = totalCost * 0.03;
-    final totalRequired = totalCost + bookingFee;
+    final discount = discountAmount ?? 0.0;
+    final discountedCost = (totalCost - discount).clamp(0.0, 999999.0);
+    final bookingFee = discountedCost * 0.03;
+    final totalRequired = discountedCost + bookingFee;
 
     if (rentee.tyxBalance < totalRequired) {
       throw Exception(
@@ -2588,7 +2703,8 @@ class FirestoreService {
       'type': 'payment',
       'amount': totalRequired,
       'title': 'Property Booking Request',
-      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)',
+      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)' +
+          (promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''),
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -2604,7 +2720,8 @@ class FirestoreService {
       'renteePhotoUrl': renteePhotoUrl ?? '',
       'durationType': durationType,
       'multiplier': multiplier,
-      'totalCost': totalCost,
+      'totalCost': discountedCost,
+      'originalCost': totalCost,
       'bookingFee': bookingFee,
       'signatureName': '', // unsigned
       'status': 'Pending',
@@ -2618,6 +2735,8 @@ class FirestoreService {
       'startDate': startDate,
       'endDate': endDate,
       'licenseNumber': licenseNumber ?? '',
+      if (promoCode != null) 'promoCode': promoCode,
+      if (promoCode != null) 'discountAmount': discount,
     };
     await setDocument('property_requests/$requestId', requestDoc);
 
@@ -2627,11 +2746,16 @@ class FirestoreService {
       'propertyId': propertyId,
       'renteeId': renteeId,
       'hostId': property.hostId,
-      'amount': totalCost,
+      'amount': discountedCost,
       'status': 'Held',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
     await setDocument('property_escrows/$requestId', escrowDoc);
+
+    // Increment promo usage
+    if (promoCode != null) {
+      await incrementPromoUsage(promoCode, renteeId);
+    }
 
     // Notify host
     await createNotification(
@@ -2740,6 +2864,13 @@ class FirestoreService {
     final refundAmount = totalCost + bookingFee;
 
     await setDocument('property_requests/$requestId', {'status': 'Rejected'});
+
+    // Revert promo usage
+    final promoCode = reqDoc['promoCode'] as String?;
+    if (promoCode != null) {
+      await decrementPromoUsage(promoCode, renteeId);
+    }
+
 
     final rentee = await getUser(renteeId);
     if (rentee != null) {
@@ -3093,6 +3224,343 @@ class FirestoreService {
       }
     }
     return list;
+  }
+
+  Future<Promo?> getPromo(String code) async {
+    final cleanCode = code.trim().toUpperCase();
+    if (cleanCode.isEmpty) return null;
+    final doc = await getDocument('promos/$cleanCode');
+    if (doc == null) return null;
+    return Promo.fromMap(doc, cleanCode);
+  }
+
+  Future<List<Promo>> getAllActivePromos() async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'promos'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'isActive'},
+            'op': 'EQUAL',
+            'value': {'booleanValue': true},
+          },
+        },
+      },
+    });
+
+    try {
+      final req = await http.post(Uri.parse(url), headers: headers, body: body);
+      if (req.statusCode >= 400) return [];
+
+      final results = jsonDecode(req.body) as List;
+      final list = <Promo>[];
+      for (final r in results) {
+        if (r is Map && r.containsKey('document')) {
+          final doc = r['document'] as Map<String, dynamic>;
+          final name = doc['name'] as String;
+          final docId = name.split('/').last;
+          final data = _fromFirestoreDoc(doc);
+          list.add(Promo.fromMap(data, docId));
+        }
+      }
+      return list;
+    } catch (e) {
+      print('ERROR: getAllActivePromos failed: $e');
+      return [];
+    }
+  }
+
+  Future<List<NewsPost>> getAllActiveNewsPosts() async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'news_posts'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'isActive'},
+            'op': 'EQUAL',
+            'value': {'booleanValue': true},
+          },
+        },
+        'orderBy': [
+          {
+            'field': {'fieldPath': 'createdAt'},
+            'direction': 'DESCENDING',
+          }
+        ],
+      },
+    });
+
+    try {
+      final req = await http.post(Uri.parse(url), headers: headers, body: body);
+      if (req.statusCode >= 400) return [];
+
+      final results = jsonDecode(req.body) as List;
+      final list = <NewsPost>[];
+      for (final r in results) {
+        if (r is Map && r.containsKey('document')) {
+          final doc = r['document'] as Map<String, dynamic>;
+          final name = doc['name'] as String;
+          final docId = name.split('/').last;
+          final data = _fromFirestoreDoc(doc);
+          list.add(NewsPost.fromMap(data, docId));
+        }
+      }
+      return list;
+    } catch (e) {
+      print('ERROR: getAllActiveNewsPosts failed: $e');
+      return [];
+    }
+  }
+
+  Future<void> incrementPromoUsage(String promoId, String userId) async {
+    final cleanCode = promoId.trim().toUpperCase();
+    final promoDoc = await getDocument('promos/$cleanCode');
+    if (promoDoc == null) return;
+
+    final usedBy = List<String>.from(promoDoc['usedBy'] ?? []);
+    if (!usedBy.contains(userId)) {
+      usedBy.add(userId);
+    }
+    final usedCount = (promoDoc['usedCount'] as num? ?? 0).toInt() + 1;
+
+    await setDocument('promos/$cleanCode', {
+      ...promoDoc,
+      'usedBy': usedBy,
+      'usedCount': usedCount,
+    });
+  }
+
+  Future<void> decrementPromoUsage(String promoId, String userId) async {
+    final cleanCode = promoId.trim().toUpperCase();
+    final promoDoc = await getDocument('promos/$cleanCode');
+    if (promoDoc == null) return;
+
+    final usedBy = List<String>.from(promoDoc['usedBy'] ?? []);
+    usedBy.remove(userId);
+    final usedCount = ((promoDoc['usedCount'] as num? ?? 0).toInt() - 1).clamp(0, 999999);
+
+    await setDocument('promos/$cleanCode', {
+      ...promoDoc,
+      'usedBy': usedBy,
+      'usedCount': usedCount,
+    });
+  }
+
+  Future<String?> redeemPromoToProfile(String code, String userId) async {
+    final cleanCode = code.trim().toUpperCase();
+    if (cleanCode.isEmpty) return 'Please enter a promo code.';
+
+    final promo = await getPromo(cleanCode);
+    if (promo == null) return 'Promo code not found.';
+
+    final userDoc = await getDocument('users/$userId');
+    if (userDoc == null) return 'User profile not found.';
+    final user = UserProfile.fromMap(userId, userDoc);
+
+    if (user.disabledPromos.contains(cleanCode)) {
+      return 'You have disabled this promotion and cannot re-enable it.';
+    }
+
+    final now = DateTime.now();
+    if (!promo.isActive) return 'This promo code is inactive.';
+    if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) {
+      return 'This promo code has expired.';
+    }
+    if (promo.maxUsers != null && promo.usedCount >= promo.maxUsers!) {
+      return 'This promo code has reached its maximum usage limit.';
+    }
+    if (promo.isSingleUsePerUser && promo.usedBy.contains(userId)) {
+      return 'You have already used this promo code.';
+    }
+    if (promo.eligibleUserUids != null &&
+        promo.eligibleUserUids!.isNotEmpty &&
+        !promo.eligibleUserUids!.contains(userId)) {
+      return 'You are not eligible for this promo code.';
+    }
+    if (promo.onlyForSubscribed && !user.isPremium) {
+      return 'This promo code is only for subscribed premium users.';
+    }
+    if (promo.onlyForHybrid && user.accountType != AccountType.hybrid) {
+      return 'This promo code is only for Hybrid PRO accounts.';
+    }
+
+    final roles = promo.applicableRoles;
+    if (roles.isNotEmpty) {
+      final userRoles = <String>[];
+      if (user.accountType == AccountType.employer) {
+        userRoles.addAll(['renter', 'employer']);
+      } else if (user.accountType == AccountType.nyxian) {
+        userRoles.addAll(['host', 'nyxian']);
+      } else if (user.accountType == AccountType.hybrid) {
+        userRoles.addAll(['renter', 'host', 'employer', 'nyxian']);
+      }
+      final hasMatchingRole = roles.any((r) => userRoles.contains(r));
+      if (!hasMatchingRole) {
+        return 'This promo code is not applicable for your account role.';
+      }
+    }
+
+    await setDocument('users/$userId', {
+      ...userDoc,
+      'activePromoCode': cleanCode,
+      'activePromoDiscountType': promo.discountType,
+      'activePromoDiscountValue': promo.discountValue,
+    });
+
+    return null;
+  }
+
+  Future<void> disablePromoForUser(String code, String userId) async {
+    final userDoc = await getDocument('users/$userId');
+    if (userDoc == null) return;
+    
+    final disabledPromos = List<String>.from(userDoc['disabledPromos'] ?? []);
+    if (!disabledPromos.contains(code)) {
+      disabledPromos.add(code);
+    }
+    
+    final updatedDoc = Map<String, dynamic>.from(userDoc);
+    updatedDoc['activePromoCode'] = null;
+    updatedDoc['activePromoDiscountType'] = null;
+    updatedDoc['activePromoDiscountValue'] = null;
+    updatedDoc['disabledPromos'] = disabledPromos;
+    
+    await setDocument('users/$userId', updatedDoc);
+  }
+
+  Future<void> awardPointsIfEligible(String uid, String questId) async {
+    try {
+      final quest = RewardQuest.quests.firstWhere((q) => q.id == questId);
+      final userDoc = await getDocument('users/$uid');
+      if (userDoc == null) return;
+
+      final currentPoints = userDoc['terraPoints'] as int? ?? 0;
+      final earnedRewards = List<String>.from(userDoc['earnedRewards'] as List? ?? []);
+
+      if (quest.limit == 'Once' && earnedRewards.contains(questId)) {
+        return; // Already completed
+      }
+
+      // Update User Doc
+      final newRewards = List<String>.from(earnedRewards)..add(questId);
+      final updatedUser = Map<String, dynamic>.from(userDoc)
+        ..['terraPoints'] = currentPoints + quest.points
+        ..['earnedRewards'] = newRewards;
+
+      await setDocument('users/$uid', updatedUser);
+
+      // Log to points_history
+      final historyId = '${uid}_${questId}_${DateTime.now().millisecondsSinceEpoch}';
+      await setDocument('points_history/$historyId', {
+        'uid': uid,
+        'questId': questId,
+        'points': quest.points,
+        'title': quest.title,
+        'category': quest.category,
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      });
+      print('[Rewards] Awarded ${quest.points} TP to $uid for quest "$questId"');
+    } catch (e) {
+      print('[Rewards] Error awarding points: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getUserPointsHistory(String uid) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'points_history'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'uid'},
+            'op': 'EQUAL',
+            'value': {'stringValue': uid},
+          },
+        },
+      }
+    });
+
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode >= 400) return [];
+
+      final List<dynamic> results = jsonDecode(req.body);
+      final list = <Map<String, dynamic>>[];
+      for (final res in results) {
+        if (res is Map<String, dynamic> && res.containsKey('document')) {
+          final doc = res['document'] as Map<String, dynamic>;
+          final id = (doc['name'] as String).split('/').last;
+          final parsed = _fromFirestoreDoc(doc);
+          list.add({...parsed, 'id': id});
+        }
+      }
+      // Sort descending by createdAt
+      list.sort((a, b) => (b['createdAt'] as int? ?? 0).compareTo(a['createdAt'] as int? ?? 0));
+      return list;
+    } catch (e) {
+      print('getUserPointsHistory error: $e');
+    }
+    return [];
+  }
+
+  Future<void> checkAndAwardOnboardingQuests(String uid) async {
+    try {
+      final userMap = await getDocument('users/$uid');
+      if (userMap == null) return;
+
+      final earnedRewards = List<String>.from(userMap['earnedRewards'] as List? ?? []);
+
+      // 1. Register Account (Email verification completion)
+      if (userMap['emailVerified'] == true && !earnedRewards.contains('register_account')) {
+        await awardPointsIfEligible(uid, 'register_account');
+      }
+
+      // 2. Verify Account (Email + Phone verification completion)
+      if (userMap['emailVerified'] == true && userMap['phoneVerified'] == true && !earnedRewards.contains('verify_account')) {
+        await awardPointsIfEligible(uid, 'verify_account');
+      }
+
+      // 3. Complete Profile Trust (idVerified == true)
+      if (userMap['idVerified'] == true && !earnedRewards.contains('complete_profile_trust')) {
+        await awardPointsIfEligible(uid, 'complete_profile_trust');
+      }
+
+      // 4. Add Skills & Bio (skills is not empty/null or bio/headline is present)
+      final skillsList = userMap['skills'] as List?;
+      final hasHeadline = userMap['headline'] != null && (userMap['headline'] as String).isNotEmpty;
+      if (((skillsList != null && skillsList.isNotEmpty) || hasHeadline) && !earnedRewards.contains('add_skills_bio')) {
+        await awardPointsIfEligible(uid, 'add_skills_bio');
+      }
+
+      // 5. Connect Any Solana Wallet (walletPublicKey is not null/empty)
+      if (userMap['walletPublicKey'] != null && (userMap['walletPublicKey'] as String).isNotEmpty && !earnedRewards.contains('connect_solana_wallet')) {
+        await awardPointsIfEligible(uid, 'connect_solana_wallet');
+      }
+    } catch (e) {
+      print('checkAndAwardOnboardingQuests error: $e');
+    }
   }
 }
 
