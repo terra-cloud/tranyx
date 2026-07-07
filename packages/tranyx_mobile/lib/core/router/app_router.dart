@@ -8,8 +8,10 @@ import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/jobs/models/job.dart';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
+import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 // Provides the GoRouter instance
 final routerProvider = Provider<GoRouter>((ref) {
@@ -61,7 +63,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final queryParams = state.uri.queryParameters;
           final error = queryParams['errorMessage'] ?? queryParams['errorCode'];
-          final phantomPub = queryParams['phantom_encryption_public_key'];
+          final phantomPub = queryParams['phantom_encryption_public_key'] ??
+              queryParams['solflare_encryption_public_key'] ??
+              queryParams['trust_encryption_public_key'] ??
+              queryParams['trustwallet_encryption_public_key'] ??
+              queryParams['backpack_encryption_public_key'] ??
+              queryParams['wallet_encryption_public_key'] ??
+              queryParams['encryption_public_key'];
           final data = queryParams['data'];
           final nonce = queryParams['nonce'];
 
@@ -72,16 +80,31 @@ final routerProvider = Provider<GoRouter>((ref) {
               NavigationNotifier.switchTab(ref, 'profile');
             }
 
-            final keyBytes = ref.read(phantomSessionPrivateKeyProvider);
-            final walletType =
-                ref.read(connectingWalletTypeProvider) ?? 'phantom';
+            // Retrieve keyBytes and walletType from RAM or fallback to SecureStorage
+            var keyBytes = ref.read(phantomSessionPrivateKeyProvider);
+            var walletType = ref.read(connectingWalletTypeProvider);
 
-            // Clear session key state
+            if (keyBytes == null) {
+              keyBytes = await SecureStorageHelper.getPhantomSessionKey();
+              debugPrint("Retrieved phantom session key from SecureStorage: ${keyBytes != null}");
+            }
+            if (walletType == null) {
+              walletType = await SecureStorageHelper.getConnectingWalletType();
+              debugPrint("Retrieved connecting wallet type from SecureStorage: $walletType");
+            }
+
+            walletType ??= 'phantom';
+
+            // Clear session key state in RAM
             ref.read(phantomSessionPrivateKeyProvider.notifier).state = null;
             ref.read(connectingWalletTypeProvider.notifier).state = null;
 
+            // Clear connecting wallet type in SecureStorage (keep persistent session key)
+            await SecureStorageHelper.deleteConnectingWalletType();
+
             if (error != null) {
               debugPrint("Phantom connection error: $error");
+              await SecureStorageHelper.deletePhantomSessionKey();
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -137,6 +160,13 @@ final routerProvider = Provider<GoRouter>((ref) {
             }
 
             final userSolanaPublicKey = decrypted['public_key'] as String?;
+            final sessionToken = decrypted['session'] as String?;
+            if (sessionToken != null) {
+              await SecureStorageHelper.savePhantomSessionToken(sessionToken);
+            }
+            await SecureStorageHelper.savePhantomEncryptionPublicKey(phantomPub);
+            ref.invalidate(hasLocalSolanaSessionProvider);
+
             if (userSolanaPublicKey == null || userSolanaPublicKey.isEmpty) {
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -153,58 +183,105 @@ final routerProvider = Provider<GoRouter>((ref) {
 
             final isDarkMode = ref.read(themeModeProvider);
 
+            bool isSwitching = false;
             if (user != null) {
-              try {
-                await ref
-                    .read(firestoreProvider)
-                    .collection('users')
-                    .doc(user.uid)
-                    .update({
-                      'walletPublicKey': userSolanaPublicKey,
-                      'connectedWalletType': walletType,
-                    });
-                ref.invalidate(userProfileProvider);
-
-                // Write link to walletLinks collection as well (for cross-platform login support)
-                final password = await SecureStorageHelper.getPassword();
-                final obfuscatedPassword = password != null
-                    ? SecureStorageHelper.obfuscate(password)
-                    : null;
-
-                final linkData = <String, dynamic>{
-                  'uid': user.uid,
-                  'email': user.email,
-                  'linkedAt': DateTime.now().millisecondsSinceEpoch,
-                };
-                if (obfuscatedPassword != null) {
-                  linkData['password'] = obfuscatedPassword;
-                }
-
-                await ref
-                    .read(firestoreProvider)
-                    .collection('walletLinks')
-                    .doc(userSolanaPublicKey)
-                    .set(linkData);
-
+              final currentProfile = ref.read(userProfileProvider).value;
+              if (currentProfile?.walletPublicKey != null &&
+                  currentProfile!.walletPublicKey!.isNotEmpty &&
+                  currentProfile.walletPublicKey != userSolanaPublicKey) {
+                isSwitching = true;
+                await ref.read(authControllerProvider).signOut();
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Wallet Connected: $userSolanaPublicKey'),
-                      backgroundColor: Colors.green,
+                    const SnackBar(
+                      content: Text('Wallet switched. Changing profile...'),
+                      backgroundColor: Colors.amber,
                     ),
                   );
                 }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to update wallet address: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+              } else {
+                try {
+                  // ── 1:1 guard: check if this wallet is already owned by another user ──
+                  final existingDoc = await ref
+                      .read(firestoreProvider)
+                      .collection('walletLinks')
+                      .doc(userSolanaPublicKey)
+                      .get();
+
+                  if (existingDoc.exists) {
+                    final existingUid = existingDoc.data()?['uid'] as String?;
+                    if (existingUid != null && existingUid != user.uid) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'This wallet is already linked to another account. Each wallet can only be connected to one account.',
+                            ),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                      return;
+                    }
+                  }
+
+                  await ref
+                      .read(firestoreProvider)
+                      .collection('users')
+                      .doc(user.uid)
+                      .update({
+                        'walletPublicKey': userSolanaPublicKey,
+                        'connectedWalletType': walletType,
+                      });
+                  ref.invalidate(userProfileProvider);
+
+                  // Write link to walletLinks collection as well (for cross-platform login support)
+                  final password = await SecureStorageHelper.getPassword();
+                  final obfuscatedPassword = password != null
+                      ? SecureStorageHelper.obfuscate(password)
+                      : null;
+
+                  final providers = user.providerData.map((p) => p.providerId).toList();
+                  final provider = providers.contains('google.com') ? 'google.com' : 'password';
+
+                  final linkData = <String, dynamic>{
+                    'uid': user.uid,
+                    'email': user.email,
+                    'provider': provider,
+                    'linkedAt': DateTime.now().millisecondsSinceEpoch,
+                  };
+                  if (obfuscatedPassword != null) {
+                    linkData['password'] = obfuscatedPassword;
+                  }
+
+                  await ref
+                      .read(firestoreProvider)
+                      .collection('walletLinks')
+                      .doc(userSolanaPublicKey)
+                      .set(linkData);
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Wallet Connected: $userSolanaPublicKey'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to update wallet address: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
                 }
               }
-            } else {
+            }
+            
+            if (user == null || isSwitching) {
               // Sign in with Solana Wallet
               try {
                 final walletLinkDoc = await ref
@@ -269,40 +346,179 @@ final routerProvider = Provider<GoRouter>((ref) {
                     );
                   }
                 } else {
-                  // Prompt user to enter their password to link/authorize this device
-                  if (context.mounted) {
-                    final password = await _showPasswordPromptDialog(
-                      context,
-                      email,
-                      isDarkMode,
-                    );
-                    if (password != null && password.isNotEmpty) {
-                      await ref
-                          .read(firebaseAuthProvider)
-                          .signInWithEmailAndPassword(
-                            email: email,
-                            password: password,
-                          );
+                  final provider = linkData?['provider'] as String?;
 
-                      // Save password locally and update Firestore walletLinks with obfuscated password
-                      await SecureStorageHelper.savePassword(password);
-                      await ref
-                          .read(firestoreProvider)
-                          .collection('walletLinks')
-                          .doc(userSolanaPublicKey)
-                          .update({
-                            'password': SecureStorageHelper.obfuscate(password),
-                          });
-
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Logged in successfully and authorized device!',
+                  if (provider == 'google.com') {
+                    // Google Sign-In Required
+                    if (context.mounted) {
+                      final proceed = await showDialog<bool>(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (ctx) {
+                          return AlertDialog(
+                            backgroundColor: isDarkMode ? AppColors.darkCard : Colors.white,
+                            title: Text(
+                              'Google Sign-In Required',
+                              style: TextStyle(
+                                color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                              ),
                             ),
-                            backgroundColor: Colors.green,
-                          ),
+                            content: Text(
+                              'This wallet is linked to the Google account $email. Please sign in with Google to authorize this device.',
+                              style: TextStyle(
+                                color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(false),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.of(ctx).pop(true),
+                                child: const Text('Sign in with Google'),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                      if (proceed == true) {
+                        await ref.read(authControllerProvider).signInWithGoogle();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Logged in successfully via Solana wallet!',
+                              ),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      }
+                    }
+                  } else if (provider == 'password') {
+                    // Prompt user to enter their password to link/authorize this device
+                    if (context.mounted) {
+                      final password = await _showPasswordPromptDialog(
+                        context,
+                        email,
+                        isDarkMode,
+                      );
+                      if (password != null && password.isNotEmpty) {
+                        await ref
+                            .read(firebaseAuthProvider)
+                            .signInWithEmailAndPassword(
+                              email: email,
+                              password: password,
+                            );
+
+                        // Save password locally and update Firestore walletLinks with obfuscated password
+                        await SecureStorageHelper.savePassword(password);
+                        await ref
+                            .read(firestoreProvider)
+                            .collection('walletLinks')
+                            .doc(userSolanaPublicKey)
+                            .update({
+                              'password': SecureStorageHelper.obfuscate(password),
+                            });
+
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Logged in successfully and authorized device!',
+                              ),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      }
+                    }
+                  } else {
+                    // Legacy case (provider is null) — show choice dialog
+                    if (context.mounted) {
+                      final choice = await showDialog<String>(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (ctx) {
+                          return AlertDialog(
+                            backgroundColor: isDarkMode ? AppColors.darkCard : Colors.white,
+                            title: Text(
+                              'Authorize Device',
+                              style: TextStyle(
+                                color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                              ),
+                            ),
+                            content: Text(
+                              'This wallet is linked to the email $email. Please choose how you want to authorize this device.',
+                              style: TextStyle(
+                                color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop('cancel'),
+                                child: const Text('Cancel'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop('password'),
+                                child: const Text('Use Password'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.of(ctx).pop('google'),
+                                child: const Text('Sign in with Google'),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+
+                      if (choice == 'google') {
+                        await ref.read(authControllerProvider).signInWithGoogle();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Logged in successfully via Solana wallet!',
+                              ),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      } else if (choice == 'password') {
+                        final password = await _showPasswordPromptDialog(
+                          context,
+                          email,
+                          isDarkMode,
                         );
+                        if (password != null && password.isNotEmpty) {
+                          await ref
+                              .read(firebaseAuthProvider)
+                              .signInWithEmailAndPassword(
+                                email: email,
+                                password: password,
+                              );
+
+                          await SecureStorageHelper.savePassword(password);
+                          await ref
+                              .read(firestoreProvider)
+                              .collection('walletLinks')
+                              .doc(userSolanaPublicKey)
+                              .update({
+                                'password': SecureStorageHelper.obfuscate(password),
+                              });
+
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Logged in successfully and authorized device!',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          }
+                        }
                       }
                     }
                   }
@@ -320,6 +536,567 @@ final routerProvider = Provider<GoRouter>((ref) {
             }
           });
 
+          return const MainWrapper();
+        },
+      ),
+      GoRoute(
+        path: '/onSignAndSendTransaction',
+        name: 'on_sign_and_send_transaction',
+        builder: (context, state) {
+          final queryParams = state.uri.queryParameters;
+          final error = queryParams['errorMessage'] ?? queryParams['errorCode'];
+          final data = queryParams['data'];
+          final nonce = queryParams['nonce'];
+
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            final user = ref.read(userProvider);
+            if (user != null) {
+              NavigationNotifier.switchTab(ref, 'profile');
+            }
+
+            var keyBytes = ref.read(phantomSessionPrivateKeyProvider);
+            var walletType = ref.read(connectingWalletTypeProvider);
+
+            if (keyBytes == null) {
+              keyBytes = await SecureStorageHelper.getPhantomSessionKey();
+            }
+            if (walletType == null) {
+              walletType = await SecureStorageHelper.getConnectingWalletType();
+            }
+
+            walletType ??= 'phantom';
+
+            // Clear session key state in RAM
+            ref.read(phantomSessionPrivateKeyProvider.notifier).state = null;
+            ref.read(connectingWalletTypeProvider.notifier).state = null;
+
+            // Clear connecting wallet type in SecureStorage (keep persistent session key)
+            await SecureStorageHelper.deleteConnectingWalletType();
+
+            if (error != null) {
+              debugPrint("Transaction signing error: $error");
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Transaction cancelled or failed: $error'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            final savedPhantomPub = await SecureStorageHelper.getPhantomEncryptionPublicKey();
+
+            if (data == null || nonce == null || keyBytes == null || savedPhantomPub == null) {
+              debugPrint("Missing required deep link parameters or session key.");
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Transaction failed: Missing decryption parameters.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            // Decrypt response
+            final service = ref.read(phantomServiceProvider);
+            final decrypted = service.decryptConnectResponse(
+              phantomPubB58: savedPhantomPub,
+              dataB58: data,
+              nonceB58: nonce,
+              sessionPrivateKeyBytes: keyBytes,
+            );
+
+            if (decrypted == null) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to decrypt transaction signature response.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            final signature = decrypted['signature'] as String?;
+            if (signature == null || signature.isEmpty) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to retrieve transaction signature.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            // Show a progress indicator/dialog while verifying the transaction
+            if (context.mounted) {
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (dialogContext) => const AlertDialog(
+                  content: Row(
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(width: 16),
+                      Expanded(
+                        child: Text(
+                          'Verifying transaction on Solana network...',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            try {
+              final confirmed = await service.confirmTransaction(signature);
+              if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop(); // Close progress dialog
+              }
+              if (!confirmed) {
+                throw Exception('Transaction confirmation timed out. Please check your wallet.');
+              }
+            } catch (rpcErr) {
+              debugPrint("Solana RPC error verifying transaction: $rpcErr");
+              if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop(); // Close progress dialog
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Transaction verification failed: $rpcErr'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            // Successfully received transaction signature from wallet!
+            final phpAmount = await SecureStorageHelper.getPendingDepositPhpAmount();
+            final cryptoAmount = await SecureStorageHelper.getPendingDepositCryptoAmount();
+            final currency = await SecureStorageHelper.getPendingDepositCurrency();
+
+            // Clear pending deposit state
+            await SecureStorageHelper.deletePendingDepositPhpAmount();
+            await SecureStorageHelper.deletePendingDepositCryptoAmount();
+            await SecureStorageHelper.deletePendingDepositCurrency();
+
+            if (phpAmount == null || cryptoAmount == null || currency == null || user == null) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Transaction signature received, but pending deposit details were missing.'),
+                    backgroundColor: Colors.amber,
+                  ),
+                );
+              }
+              return;
+            }
+
+            try {
+              // Confirm & Update balance in Firestore and record the deposit transaction
+              final repo = ref.read(transitRepositoryProvider);
+              final userProfile = await repo.getUser(user.uid);
+              if (userProfile != null) {
+                final newBalance = userProfile.tyxBalance + phpAmount;
+                await repo.updateTyxBalance(user.uid, newBalance);
+
+                final txId = 'deposit_sol_$signature';
+                await ref.read(firestoreProvider).collection('transactions').doc(txId).set({
+                  'uid': user.uid,
+                  'type': 'deposit',
+                  'amount': phpAmount,
+                  'title': 'Wallet Top-Up ($currency)',
+                  'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} $currency via Solana',
+                  'method': 'Solana',
+                  'solanaTxSignature': signature,
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                });
+
+                ref.invalidate(userProfileProvider);
+                ref.invalidate(userTransactionsProvider);
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Successfully deposited ₱ ${phpAmount.toStringAsFixed(2)} via Solana ($currency)'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              }
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Error updating wallet balance: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+          });
+
+          return const MainWrapper();
+        },
+      ),
+      GoRoute(
+        path: '/onSignTransaction',
+        name: 'on_sign_transaction',
+        builder: (context, state) {
+          final queryParams = state.uri.queryParameters;
+          final error = queryParams['errorMessage'] ?? queryParams['errorCode'];
+          final data = queryParams['data'];
+          final nonce = queryParams['nonce'];
+
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            final user = ref.read(userProvider);
+            if (user != null) {
+              NavigationNotifier.switchTab(ref, 'profile');
+            }
+
+            var keyBytes = ref.read(phantomSessionPrivateKeyProvider);
+            var walletType = ref.read(connectingWalletTypeProvider);
+
+            if (keyBytes == null) {
+              keyBytes = await SecureStorageHelper.getPhantomSessionKey();
+            }
+            if (walletType == null) {
+              walletType = await SecureStorageHelper.getConnectingWalletType();
+            }
+
+            walletType ??= 'phantom';
+
+            // Clear session key state in RAM
+            ref.read(phantomSessionPrivateKeyProvider.notifier).state = null;
+            ref.read(connectingWalletTypeProvider.notifier).state = null;
+
+            // Clear connecting wallet type in SecureStorage (keep persistent session key)
+            await SecureStorageHelper.deleteConnectingWalletType();
+
+            if (error != null) {
+              debugPrint("Transaction signing error: $error");
+              final isSessionError = error.toString().contains('-32603') || error.toString().toLowerCase().contains('unexpected');
+              final displayMessage = isSessionError
+                  ? 'Transaction failed (Session expired or out of sync). Please disconnect and reconnect your wallet from the profile tab.'
+                  : 'Transaction cancelled or failed: $error';
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(displayMessage),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 5),
+                  ),
+                );
+              }
+              return;
+            }
+
+            final savedPhantomPub = await SecureStorageHelper.getPhantomEncryptionPublicKey();
+
+            if (data == null || nonce == null || keyBytes == null || savedPhantomPub == null) {
+              debugPrint("Missing required deep link parameters or session key.");
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Transaction failed: Missing decryption parameters.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            // Decrypt response
+            final service = ref.read(phantomServiceProvider);
+            final decrypted = service.decryptConnectResponse(
+              phantomPubB58: savedPhantomPub,
+              dataB58: data,
+              nonceB58: nonce,
+              sessionPrivateKeyBytes: keyBytes,
+            );
+
+            if (decrypted == null) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to decrypt transaction signature response.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            final base58Tx = decrypted['transaction'] as String?;
+            if (base58Tx == null || base58Tx.isEmpty) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to retrieve signed transaction from response.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            // Show a progress indicator/dialog while broadcasting and verifying the transaction
+            if (context.mounted) {
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (dialogContext) => const AlertDialog(
+                  content: Row(
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(width: 16),
+                      Expanded(
+                        child: Text(
+                          'Broadcasting and verifying transaction on Solana network...',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            String? signature;
+            try {
+              signature = await service.sendTransaction(base58Tx);
+              final confirmed = await service.confirmTransaction(signature);
+              if (!confirmed) {
+                throw Exception('Transaction confirmation timed out. Please check your wallet.');
+              }
+            } catch (rpcErr) {
+              debugPrint("Solana RPC error broadcasting transaction: $rpcErr");
+              if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop(); // Close progress dialog
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Transaction verification failed: $rpcErr'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            if (context.mounted) {
+              Navigator.of(context, rootNavigator: true).pop(); // Close progress dialog
+            }
+
+            // Successfully received transaction signature from wallet!
+            final phpAmount = await SecureStorageHelper.getPendingDepositPhpAmount();
+            final cryptoAmount = await SecureStorageHelper.getPendingDepositCryptoAmount();
+            final currency = await SecureStorageHelper.getPendingDepositCurrency();
+
+            // Clear pending deposit state
+            await SecureStorageHelper.deletePendingDepositPhpAmount();
+            await SecureStorageHelper.deletePendingDepositCryptoAmount();
+            await SecureStorageHelper.deletePendingDepositCurrency();
+
+            if (phpAmount == null || cryptoAmount == null || currency == null || user == null) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Transaction broadcasted, but pending deposit details were missing.'),
+                    backgroundColor: Colors.amber,
+                  ),
+                );
+              }
+              return;
+            }
+
+            try {
+              // Confirm & Update balance in Firestore and record the deposit transaction
+              final repo = ref.read(transitRepositoryProvider);
+              final userProfile = await repo.getUser(user.uid);
+              if (userProfile != null) {
+                final newBalance = userProfile.tyxBalance + phpAmount;
+                await repo.updateTyxBalance(user.uid, newBalance);
+
+                final txId = 'deposit_sol_$signature';
+                await ref.read(firestoreProvider).collection('transactions').doc(txId).set({
+                  'uid': user.uid,
+                  'type': 'deposit',
+                  'amount': phpAmount,
+                  'title': 'Wallet Top-Up ($currency)',
+                  'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} $currency via Solana',
+                  'method': 'Solana',
+                  'solanaTxSignature': signature,
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                });
+
+                ref.invalidate(userProfileProvider);
+                ref.invalidate(userTransactionsProvider);
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Successfully deposited ₱ ${phpAmount.toStringAsFixed(2)} via Solana ($currency)'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              }
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Error updating wallet balance: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+          });
+
+          return const MainWrapper();
+        },
+      ),
+      GoRoute(
+        path: '/payment-success',
+        name: 'payment_success',
+        builder: (context, state) {
+          final queryParams = state.uri.queryParameters;
+          final uid = queryParams['uid'];
+
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            // First switch tab to profile so the user is on the wallet page
+            NavigationNotifier.switchTab(ref, 'profile');
+
+            if (uid == null || uid.isEmpty) {
+              debugPrint("Payment success deep link triggered but UID is missing.");
+              return;
+            }
+
+            // Show verification dialog
+            if (context.mounted) {
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (dialogContext) => const AlertDialog(
+                  content: Row(
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(width: 16),
+                      Expanded(
+                        child: Text(
+                          'Verifying payment with Xendit...',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            try {
+              // Fetch user's pending invoice details from Firestore
+              final userDoc = await ref
+                  .read(firestoreProvider)
+                  .collection('users')
+                  .doc(uid)
+                  .get();
+
+              final invoiceId = userDoc.data()?['pendingXenditInvoiceId'] as String?;
+              final amount = (userDoc.data()?['pendingXenditInvoiceAmount'] as num?)?.toDouble();
+
+              if (invoiceId == null || amount == null) {
+                if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop(); // Close dialog
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('No pending Xendit invoice found.'),
+                      backgroundColor: Colors.amber,
+                    ),
+                  );
+                }
+                return;
+              }
+
+              final isPaid = await ref
+                  .read(transitRepositoryProvider)
+                  .verifyXenditPayment(uid: uid, invoiceId: invoiceId, amount: amount);
+
+              if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop(); // Close dialog
+              }
+
+              if (isPaid) {
+                // Clear pending invoice fields from Firestore
+                await ref.read(firestoreProvider).collection('users').doc(uid).update({
+                  'pendingXenditInvoiceId': FieldValue.delete(),
+                  'pendingXenditInvoiceAmount': FieldValue.delete(),
+                  'pendingXenditInvoiceUrl': FieldValue.delete(),
+                });
+                
+                ref.invalidate(userProfileProvider);
+                ref.invalidate(userTransactionsProvider);
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Payment Verified! Balance credited successfully.'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } else {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Invoice is still unpaid or pending.'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                }
+              }
+            } catch (e) {
+              debugPrint("Error verifying Xendit payment: $e");
+              if (context.mounted) {
+                // Safely close dialog if still open
+                if (Navigator.of(context, rootNavigator: true).canPop()) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Verification error: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+          });
+
+          return const MainWrapper();
+        },
+      ),
+      GoRoute(
+        path: '/payment-failure',
+        name: 'payment_failure',
+        builder: (context, state) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            NavigationNotifier.switchTab(ref, 'profile');
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Xendit payment was not completed.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          });
           return const MainWrapper();
         },
       ),

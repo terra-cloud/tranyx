@@ -11,176 +11,244 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    // Helper to check if the user is an admin or staff member
+    function isAdminOrStaff() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff' ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'support');
+    }
+
+    // Helper to check if a user is currently banned or suspended
+    function isUserBlocked(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid)) && 
+             (get(/databases/$(database)/documents/users/$(uid)).data.banned == true ||
+              (get(/databases/$(database)/documents/users/$(uid)).data.suspendedUntil != null &&
+               get(/databases/$(database)/documents/users/$(uid)).data.suspendedUntil > request.time.toMillis()));
+    }
+
+    // Helper to check if current request user is authenticated and NOT blocked
+    function isActiveUser() {
+      return isAuthenticated() && !isUserBlocked(request.auth.uid);
+    }
+
     // Users Collection
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
-      allow create: if isOwner(userId);
-      allow update: if isAuthenticated(); // Allowed for transaction/balance updates between users
-      allow delete: if isOwner(userId);
+      allow create: if isOwner(userId) || isAdminOrStaff(); // Admins/staff can provision new accounts
+      allow update: if isActiveUser() || isAdminOrStaff(); // Allowed for transaction/balance updates between users
+      allow delete: if isOwner(userId) || isAdminOrStaff(); // Admins/staff can remove accounts
       
       // User Reviews subcollection
       match /reviews/{reviewId} {
         allow read: if true;
-        allow write: if isAuthenticated();
+        allow write: if isActiveUser();
       }
     }
 
     // Jobs Collection
     match /jobs/{jobId} {
       allow read: if true; // Publicly browse jobs
-      allow create, update: if isAuthenticated(); // Must be logged in to create/update
-      allow delete: if isAuthenticated() && resource.data.creatorId == request.auth.uid; // Only owner can delete
+      allow create, update: if isActiveUser(); // Must be logged in and active to create/update
+      allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid) || isAdminOrStaff(); // Only owner or admin/staff can delete
 
       // Subcollection: Applications
       match /applications/{applicantId} {
         allow read: if isAuthenticated();
-        allow write: if isAuthenticated();
+        allow write: if isActiveUser() || isAdminOrStaff();
       }
 
       // Subcollection: Messages (Chat room)
       match /messages/{messageId} {
         allow read: if isAuthenticated();
-        allow write: if isAuthenticated();
+        allow write: if isActiveUser() || isAdminOrStaff();
       }
 
       // Subcollection: Questions (Q&A)
       match /questions/{questionId} {
         allow read: if true; // Q&As are publicly readable
-        allow write: if isAuthenticated();
+        allow write: if isActiveUser();
       }
     }
 
     // Vehicle Rentals Collection
     match /rentals/{rentalId} {
       allow read: if true; // Publicly browse vehicle rentals
-      allow create, update: if isAuthenticated();
-      allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
+      allow create, update: if isActiveUser();
+      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid) || isAdminOrStaff();
 
       // Subcollection: Questions
       match /questions/{questionId} {
         allow read: if true;
-        allow write: if isAuthenticated();
+        allow write: if isActiveUser();
       }
     }
 
     // Properties Collection
     match /properties/{propertyId} {
       allow read: if true; // Publicly browse property rentals
-      allow create, update: if isAuthenticated();
-      allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
+      allow create, update: if isActiveUser();
+      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid) || isAdminOrStaff();
 
       // Subcollection: Questions
       match /questions/{questionId} {
         allow read: if true;
-        allow write: if isAuthenticated();
+        allow write: if isActiveUser();
       }
     }
 
     // Transactions Collection
     match /transactions/{txId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.type == 'rebate' || resource.data.type == 'payout' || resource.data.type == 'fee_deduction');
-      allow create: if isAuthenticated(); // To record listing fees, escrow payments, etc.
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.type == 'rebate' || resource.data.type == 'payout' || resource.data.type == 'fee_deduction' || isAdminOrStaff());
+      allow create: if isActiveUser(); // To record listing fees, escrow payments, etc.
       allow update, delete: if false; // Transactions should be immutable
+    }
+
+    // Withdrawal Requests Collection
+    match /withdrawalRequests/{requestId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create: if isActiveUser() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
     }
 
     // Notifications Collection
     match /notifications/{notifId} {
-      allow read, update, delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
-      allow create: if isAuthenticated();
+      allow read, update, delete: if isActiveUser() && resource.data.uid == request.auth.uid;
+      allow create: if isActiveUser();
     }
 
     // Escrow Holdbacks Collection
     match /escrow_holdbacks/{holdbackId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow write: if isActiveUser() || isAdminOrStaff();
     }
 
     // Rental Requests Collection
     match /rental_requests/{requestId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow write: if isActiveUser() || isAdminOrStaff();
     }
 
     // Rental Extensions Collection
     match /rental_extensions/{extId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow write: if isActiveUser() || isAdminOrStaff();
     }
 
     // Rental History Collection
     match /rental_history/{historyId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow write: if isActiveUser() || isAdminOrStaff();
     }
 
     // Property History Collection
     match /property_history/{historyId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow write: if isActiveUser() || isAdminOrStaff();
     }
 
     // Property Requests Collection
     match /property_requests/{requestId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow write: if isActiveUser() || isAdminOrStaff();
     }
 
     // KYC Submissions Collection
     match /kyc_submissions/{submissionId} {
-      allow read: if isAuthenticated() && (request.auth.uid == submissionId || resource.data.uid == request.auth.uid);
-      allow write: if isAuthenticated() && request.auth.uid == submissionId;
+      allow read: if isAuthenticated() && (request.auth.uid == submissionId || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow write: if (isActiveUser() && (request.auth.uid == submissionId)) || isAdminOrStaff();
     }
 
     // Escrow Collections
     match /escrow/{jobId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isActiveUser() || isAdminOrStaff();
     }
 
     match /rental_escrows/{rentalId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isActiveUser() || isAdminOrStaff();
     }
 
     match /rental_extension_escrows/{extensionId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isActiveUser() || isAdminOrStaff();
     }
 
     match /property_escrows/{requestId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isActiveUser() || isAdminOrStaff();
     }
 
     // Wallet Links Collection
     match /walletLinks/{walletPublicKey} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow write: if isActiveUser();
     }
 
-    // Config Collection
+    // Config Collection (app-level public config)
     match /config/app_config {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // System Config Collection (treasury key and other backend-only config)
+    match /system_config/{docId} {
       allow read: if isAuthenticated();
       allow write: if false;
     }
 
     // Chats Collection
     match /chats/{chatId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isActiveUser() || isAdminOrStaff();
       match /messages/{messageId} {
-        allow read, write: if isAuthenticated();
+        allow read, write: if isActiveUser() || isAdminOrStaff();
       }
+    }
+
+    // Support Chats Collection
+    match /support_chats/{chatId} {
+      allow read, write: if isActiveUser() || isAdminOrStaff();
+      match /messages/{messageId} {
+        allow read, write: if isActiveUser() || isAdminOrStaff();
+      }
+    }
+
+    // Support Tickets Collection
+    match /supportTickets/{ticketId} {
+      allow read, write: if isActiveUser() || isAdminOrStaff();
     }
 
     // Platform Fees Collection
     match /platform_fees/{feeId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isActiveUser() || isAdminOrStaff();
+    }
+
+    // Promos Collection
+    match /promos/{promoId} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdminOrStaff();
+      allow update: if isAdminOrStaff() || 
+        (isActiveUser() && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount', 'usedBy']));
+    }
+
+    // News & Promotions Collection
+    match /news_posts/{postId} {
+      allow read: if true;
+      allow write: if isAdminOrStaff();
+    }
+
+    // Points History Collection
+    match /points_history/{historyId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow write: if isActiveUser();
     }
 
     // Collection Group rules
     match /{path=**}/applications/{applicantId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isActiveUser() || isAdminOrStaff();
     }
 
     match /{path=**}/questions/{questionId} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow write: if isActiveUser();
     }
   }
 }

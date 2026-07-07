@@ -113,6 +113,8 @@ class AuthController {
 
     final user = userCredential.user;
     if (user != null) {
+      final googleEmail = user.email ?? googleUser.email;
+
       if (pendingType != null) {
         final doc = await _firestore.collection('users').doc(user.uid).get();
         if (!doc.exists) {
@@ -123,9 +125,10 @@ class AuthController {
             final profile = UserProfile(
               uid: user.uid,
               name: user.displayName!,
-              email: user.email ?? '',
+              email: googleEmail,
               photoUrl: user.photoURL,
               accountType: pendingType,
+              googleEmail: googleEmail,
               createdAt: DateTime.now(),
             );
             await _firestore
@@ -133,8 +136,22 @@ class AuthController {
                 .doc(user.uid)
                 .set(profile.toMap());
           }
+        } else {
+          // Doc already exists — ensure googleEmail is stamped
+          await _firestore.collection('users').doc(user.uid).update({
+            'googleEmail': googleEmail,
+          });
+        }
+      } else {
+        // Sign-in without pending account type — stamp googleEmail on existing doc
+        final doc = await _firestore.collection('users').doc(user.uid).get();
+        if (doc.exists) {
+          await _firestore.collection('users').doc(user.uid).update({
+            'googleEmail': googleEmail,
+          });
         }
       }
+
       await _linkPendingWallet(null);
     }
   }
@@ -146,9 +163,13 @@ class AuthController {
       try {
         final user = _auth.currentUser;
         if (user != null) {
+          final providers = user.providerData.map((p) => p.providerId).toList();
+          final provider = providers.contains('google.com') ? 'google.com' : 'password';
+
           final linkData = <String, dynamic>{
             'uid': user.uid,
             'email': user.email,
+            'provider': provider,
             'linkedAt': DateTime.now().millisecondsSinceEpoch,
           };
           if (password != null) {
@@ -180,6 +201,10 @@ class AuthController {
     final user = _auth.currentUser;
     if (user == null) throw Exception('No user logged in');
 
+    // Detect if signed in via Google and carry over googleEmail
+    final providers = user.providerData.map((p) => p.providerId).toList();
+    final googleEmail = providers.contains('google.com') ? user.email : null;
+
     final profile = UserProfile(
       uid: user.uid,
       name: name,
@@ -191,6 +216,7 @@ class AuthController {
           : null,
       businessName: businessName,
       businessPermit: businessPermit,
+      googleEmail: googleEmail,
       createdAt: DateTime.now(),
     );
 

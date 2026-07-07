@@ -8,6 +8,7 @@ import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart
 import 'package:tranyx_mobile/flavors.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:tranyx_mobile/core/providers/fcm_provider.dart';
 import '../test/helpers/fake_firestore.dart';
 
 class MockFirebaseUser implements User {
@@ -75,6 +76,18 @@ class MockTransitRepository extends TransitRepository {
   }
 }
 
+class MockFirebaseMessagingService extends Fake implements FirebaseMessagingService {
+  @override
+  Future<void> initialize(BuildContext context) async {
+    // No-op
+  }
+
+  @override
+  void dispose() {
+    // No-op
+  }
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   F.appFlavor = Flavor.dev;
@@ -101,6 +114,7 @@ void main() {
             firestoreProvider.overrideWithValue(fakeFirestore),
             userProvider.overrideWithValue(MockFirebaseUser()),
             authStateProvider.overrideWithValue(true),
+            fcmProvider.overrideWithValue(MockFirebaseMessagingService()),
             transitRepositoryProvider.overrideWith(
               (ref) => MockTransitRepository(fakeFirestore),
             ),

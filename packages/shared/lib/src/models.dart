@@ -53,6 +53,7 @@ class UserProfile {
   final double? hostRating;
   final DateTime? createdAt;
   final String? walletPublicKey;
+  final String? googleEmail;
   final double tyxBalance;
   final int jobsDone;
   final double totalEarned;
@@ -64,6 +65,12 @@ class UserProfile {
   final bool isPremium;
   final bool isBonded;
   final List<String>? certificationUrls;
+  final String? activePromoCode;
+  final String? activePromoDiscountType;
+  final double? activePromoDiscountValue;
+  final List<String> disabledPromos;
+  final int terraPoints;
+  final List<String> earnedRewards;
 
   const UserProfile({
     required this.uid,
@@ -85,6 +92,7 @@ class UserProfile {
     this.hostRating,
     this.createdAt,
     this.walletPublicKey,
+    this.googleEmail,
     this.tyxBalance = 0.0,
     this.jobsDone = 0,
     this.totalEarned = 0.0,
@@ -96,6 +104,12 @@ class UserProfile {
     this.isPremium = false,
     this.isBonded = false,
     this.certificationUrls,
+    this.activePromoCode,
+    this.activePromoDiscountType,
+    this.activePromoDiscountValue,
+    this.disabledPromos = const [],
+    this.terraPoints = 0,
+    this.earnedRewards = const [],
   });
 
   factory UserProfile.fromMap(String uid, Map<String, dynamic> map) {
@@ -130,6 +144,7 @@ class UserProfile {
           ? DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int)
           : null,
       walletPublicKey: map['walletPublicKey'] as String?,
+      googleEmail: map['googleEmail'] as String?,
       tyxBalance: (map['tyxBalance'] as num?)?.toDouble() ?? 0.0,
       jobsDone: map['jobsDone'] as int? ?? 0,
       totalEarned: (map['totalEarned'] as num?)?.toDouble() ?? 0.0,
@@ -143,6 +158,18 @@ class UserProfile {
       certificationUrls: (map['certificationUrls'] as List?)
           ?.map((e) => e as String)
           .toList(),
+      activePromoCode: map['activePromoCode'] as String?,
+      activePromoDiscountType: map['activePromoDiscountType'] as String?,
+      activePromoDiscountValue: (map['activePromoDiscountValue'] as num?)?.toDouble(),
+      disabledPromos: (map['disabledPromos'] as List?)
+          ?.map((e) => e as String)
+          .toList() ??
+          const [],
+      terraPoints: map['terraPoints'] as int? ?? 0,
+      earnedRewards: (map['earnedRewards'] as List?)
+          ?.map((e) => e as String)
+          .toList() ??
+          const [],
     );
   }
 
@@ -166,6 +193,7 @@ class UserProfile {
     'hostRating': hostRating,
     'createdAt': createdAt?.millisecondsSinceEpoch,
     'walletPublicKey': walletPublicKey,
+    'googleEmail': googleEmail,
     'tyxBalance': tyxBalance,
     'jobsDone': jobsDone,
     'totalEarned': totalEarned,
@@ -177,6 +205,12 @@ class UserProfile {
     'isPremium': isPremium,
     'isBonded': isBonded,
     'certificationUrls': certificationUrls,
+    'activePromoCode': activePromoCode,
+    'activePromoDiscountType': activePromoDiscountType,
+    'activePromoDiscountValue': activePromoDiscountValue,
+    'disabledPromos': disabledPromos,
+    'terraPoints': terraPoints,
+    'earnedRewards': earnedRewards,
   };
 
   UserProfile copyWith({
@@ -198,6 +232,7 @@ class UserProfile {
     double? hostRating,
     DateTime? createdAt,
     String? walletPublicKey,
+    String? googleEmail,
     double? tyxBalance,
     int? jobsDone,
     double? totalEarned,
@@ -209,6 +244,12 @@ class UserProfile {
     bool? isPremium,
     bool? isBonded,
     List<String>? certificationUrls,
+    String? activePromoCode,
+    String? activePromoDiscountType,
+    double? activePromoDiscountValue,
+    List<String>? disabledPromos,
+    int? terraPoints,
+    List<String>? earnedRewards,
   }) {
     return UserProfile(
       uid: uid,
@@ -230,6 +271,7 @@ class UserProfile {
       hostRating: hostRating ?? this.hostRating,
       createdAt: createdAt ?? this.createdAt,
       walletPublicKey: walletPublicKey ?? this.walletPublicKey,
+      googleEmail: googleEmail ?? this.googleEmail,
       tyxBalance: tyxBalance ?? this.tyxBalance,
       jobsDone: jobsDone ?? this.jobsDone,
       totalEarned: totalEarned ?? this.totalEarned,
@@ -241,6 +283,12 @@ class UserProfile {
       isPremium: isPremium ?? this.isPremium,
       isBonded: isBonded ?? this.isBonded,
       certificationUrls: certificationUrls ?? this.certificationUrls,
+      activePromoCode: activePromoCode ?? this.activePromoCode,
+      activePromoDiscountType: activePromoDiscountType ?? this.activePromoDiscountType,
+      activePromoDiscountValue: activePromoDiscountValue ?? this.activePromoDiscountValue,
+      disabledPromos: disabledPromos ?? this.disabledPromos,
+      terraPoints: terraPoints ?? this.terraPoints,
+      earnedRewards: earnedRewards ?? this.earnedRewards,
     );
   }
 }
@@ -282,6 +330,8 @@ class Job {
   final String? receiptUrl;
   final bool employerRated;
   final bool nyxianRated;
+  final String? promoCode;
+  final double? discountAmount;
 
   const Job({
     required this.id,
@@ -319,6 +369,8 @@ class Job {
     this.receiptUrl,
     this.employerRated = false,
     this.nyxianRated = false,
+    this.promoCode,
+    this.discountAmount,
   });
 
   Map<String, dynamic> toMap() {
@@ -357,6 +409,8 @@ class Job {
       'receiptUrl': receiptUrl,
       'employerRated': employerRated,
       'nyxianRated': nyxianRated,
+      'promoCode': promoCode,
+      'discountAmount': discountAmount,
     };
   }
 
@@ -410,6 +464,8 @@ class Job {
       receiptUrl: map['receiptUrl'] as String?,
       employerRated: map['employerRated'] ?? false,
       nyxianRated: map['nyxianRated'] ?? false,
+      promoCode: map['promoCode'] as String?,
+      discountAmount: (map['discountAmount'] as num?)?.toDouble(),
     );
   }
 
@@ -449,6 +505,8 @@ class Job {
     String? receiptUrl,
     bool? employerRated,
     bool? nyxianRated,
+    String? promoCode,
+    double? discountAmount,
   }) {
     return Job(
       id: id ?? this.id,
@@ -487,6 +545,8 @@ class Job {
       receiptUrl: receiptUrl ?? this.receiptUrl,
       employerRated: employerRated ?? this.employerRated,
       nyxianRated: nyxianRated ?? this.nyxianRated,
+      promoCode: promoCode ?? this.promoCode,
+      discountAmount: discountAmount ?? this.discountAmount,
     );
   }
 }
@@ -1042,3 +1102,202 @@ class PropertyRental {
     );
   }
 }
+
+class Promo {
+  final String code;
+  final String discountType; // 'percentage' | 'flat'
+  final double discountValue;
+  final String applicableTo; // 'services' | 'rentals' | 'both'
+  final int? maxUsers;
+  final int usedCount;
+  final bool isSingleUsePerUser;
+  final bool isSingleUseGlobal;
+  final List<String> usedBy;
+  final DateTime? expirationDate;
+  final bool isActive;
+  final DateTime createdAt;
+  final bool isAutoApply;
+  final List<String>? eligibleUserUids;
+  final bool onlyForSubscribed;
+  final bool onlyForHybrid;
+  final List<String> applicableRoles;
+
+  const Promo({
+    required this.code,
+    required this.discountType,
+    required this.discountValue,
+    required this.applicableTo,
+    this.maxUsers,
+    this.usedCount = 0,
+    this.isSingleUsePerUser = true,
+    this.isSingleUseGlobal = false,
+    this.usedBy = const [],
+    this.expirationDate,
+    this.isActive = true,
+    required this.createdAt,
+    this.isAutoApply = false,
+    this.eligibleUserUids,
+    this.onlyForSubscribed = false,
+    this.onlyForHybrid = false,
+    this.applicableRoles = const [],
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'code': code,
+      'discountType': discountType,
+      'discountValue': discountValue,
+      'applicableTo': applicableTo,
+      'maxUsers': maxUsers,
+      'usedCount': usedCount,
+      'isSingleUsePerUser': isSingleUsePerUser,
+      'isSingleUseGlobal': isSingleUseGlobal,
+      'usedBy': usedBy,
+      'expirationDate': expirationDate?.millisecondsSinceEpoch,
+      'isActive': isActive,
+      'createdAt': createdAt.millisecondsSinceEpoch,
+      'isAutoApply': isAutoApply,
+      'eligibleUserUids': eligibleUserUids,
+      'onlyForSubscribed': onlyForSubscribed,
+      'onlyForHybrid': onlyForHybrid,
+      'applicableRoles': applicableRoles,
+    };
+  }
+
+  factory Promo.fromMap(Map<String, dynamic> map, String code) {
+    return Promo(
+      code: code,
+      discountType: map['discountType'] as String? ?? 'flat',
+      discountValue: (map['discountValue'] as num?)?.toDouble() ?? 0.0,
+      applicableTo: map['applicableTo'] as String? ?? 'both',
+      maxUsers: map['maxUsers'] as int?,
+      usedCount: map['usedCount'] as int? ?? 0,
+      isSingleUsePerUser: map['isSingleUsePerUser'] as bool? ?? true,
+      isSingleUseGlobal: map['isSingleUseGlobal'] as bool? ?? false,
+      usedBy: List<String>.from(map['usedBy'] ?? []),
+      expirationDate: map['expirationDate'] != null
+          ? (map['expirationDate'] is int
+              ? DateTime.fromMillisecondsSinceEpoch(map['expirationDate'] as int)
+              : DateTime.tryParse(map['expirationDate'].toString()))
+          : null,
+      isActive: map['isActive'] as bool? ?? true,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int? ?? 0),
+      isAutoApply: map['isAutoApply'] as bool? ?? false,
+      eligibleUserUids: map['eligibleUserUids'] != null
+          ? List<String>.from(map['eligibleUserUids'])
+          : null,
+      onlyForSubscribed: map['onlyForSubscribed'] as bool? ?? false,
+      onlyForHybrid: map['onlyForHybrid'] as bool? ?? false,
+      applicableRoles: List<String>.from(map['applicableRoles'] ?? []),
+    );
+  }
+}
+
+class NewsPost {
+  final String id;
+  final String title;
+  final String content;
+  final String imageUrl;
+  final String category; // 'promo' | 'news' | 'advertisement' | 'announcement'
+  final String? promoCode; // linked promo code if any
+  final String actionType; // 'link' | 'promo' | 'none'
+  final String? actionUrl; // deeplink or universal link or web link
+  final bool isActive;
+  final DateTime createdAt;
+
+  // Embedded button configuration
+  final String? buttonText;
+  final double? buttonX; // X percentage (0.0 to 100.0)
+  final double? buttonY; // Y percentage (0.0 to 100.0)
+  final double? buttonWidth; // width percentage (0.0 to 100.0)
+  final double? buttonHeight; // height percentage (0.0 to 100.0)
+  final String? buttonLink; // specific link for this button
+  final String? buttonBgColor; // custom fill color (hex format, e.g. #4f46e5)
+  final String? buttonTextColor; // custom text color (hex format, e.g. #ffffff)
+  final String? buttonBorderColor; // custom border color (hex format, e.g. #ffffff)
+  final double? buttonBorderWidth; // border width in pixels
+  final double? buttonBorderRadius; // border radius in pixels
+  final double? buttonPaddingV; // vertical padding in pixels
+  final double? buttonPaddingH; // horizontal padding in pixels
+
+  const NewsPost({
+    required this.id,
+    required this.title,
+    required this.content,
+    required this.imageUrl,
+    required this.category,
+    this.promoCode,
+    required this.actionType,
+    this.actionUrl,
+    this.isActive = true,
+    required this.createdAt,
+    this.buttonText,
+    this.buttonX,
+    this.buttonY,
+    this.buttonWidth,
+    this.buttonHeight,
+    this.buttonLink,
+    this.buttonBgColor,
+    this.buttonTextColor,
+    this.buttonBorderColor,
+    this.buttonBorderWidth,
+    this.buttonBorderRadius,
+    this.buttonPaddingV,
+    this.buttonPaddingH,
+  });
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'title': title,
+    'content': content,
+    'imageUrl': imageUrl,
+    'category': category,
+    'promoCode': promoCode,
+    'actionType': actionType,
+    'actionUrl': actionUrl,
+    'isActive': isActive,
+    'createdAt': createdAt.millisecondsSinceEpoch,
+    'buttonText': buttonText,
+    'buttonX': buttonX,
+    'buttonY': buttonY,
+    'buttonWidth': buttonWidth,
+    'buttonHeight': buttonHeight,
+    'buttonLink': buttonLink,
+    'buttonBgColor': buttonBgColor,
+    'buttonTextColor': buttonTextColor,
+    'buttonBorderColor': buttonBorderColor,
+    'buttonBorderWidth': buttonBorderWidth,
+    'buttonBorderRadius': buttonBorderRadius,
+    'buttonPaddingV': buttonPaddingV,
+    'buttonPaddingH': buttonPaddingH,
+  };
+
+  factory NewsPost.fromMap(Map<String, dynamic> map, String id) {
+    return NewsPost(
+      id: id,
+      title: map['title'] as String? ?? '',
+      content: map['content'] as String? ?? '',
+      imageUrl: map['imageUrl'] as String? ?? '',
+      category: map['category'] as String? ?? 'news',
+      promoCode: map['promoCode'] as String?,
+      actionType: map['actionType'] as String? ?? 'none',
+      actionUrl: map['actionUrl'] as String?,
+      isActive: map['isActive'] as bool? ?? true,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int? ?? 0),
+      buttonText: map['buttonText'] as String?,
+      buttonX: (map['buttonX'] as num?)?.toDouble(),
+      buttonY: (map['buttonY'] as num?)?.toDouble(),
+      buttonWidth: (map['buttonWidth'] as num?)?.toDouble(),
+      buttonHeight: (map['buttonHeight'] as num?)?.toDouble(),
+      buttonLink: map['buttonLink'] as String?,
+      buttonBgColor: map['buttonBgColor'] as String?,
+      buttonTextColor: map['buttonTextColor'] as String?,
+      buttonBorderColor: map['buttonBorderColor'] as String?,
+      buttonBorderWidth: (map['buttonBorderWidth'] as num?)?.toDouble(),
+      buttonBorderRadius: (map['buttonBorderRadius'] as num?)?.toDouble(),
+      buttonPaddingV: (map['buttonPaddingV'] as num?)?.toDouble(),
+      buttonPaddingH: (map['buttonPaddingH'] as num?)?.toDouble(),
+    );
+  }
+}
+

@@ -23,6 +23,11 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
   int _step = 1;
   String _selectedPackage = 'Daily'; // '12h', 'Daily', 'Weekly', 'Monthly'
   String _licenseNumber = '';
+  Promo? _appliedPromo;
+  String _promoCodeInput = '';
+  String? _promoFeedback;
+  bool _isValidatingPromo = false;
+
   int _quantity = 1;
   int _activeImageIndex = 0;
   String? _lastRentalId;
@@ -132,8 +137,21 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     return (_basePrice * _quantity) + _driverPrice;
   }
 
+  double get _discountAmount {
+    if (_appliedPromo == null) return 0.0;
+    if (_appliedPromo!.discountType == 'percentage') {
+      return _totalPrice * (_appliedPromo!.discountValue / 100.0);
+    } else {
+      return _appliedPromo!.discountValue;
+    }
+  }
+
+  double get _discountedTotalPrice {
+    return (_totalPrice - _discountAmount).clamp(0.0, 999999.0);
+  }
+
   double get _bookingFee {
-    return _totalPrice * 0.03; // 3% renter fee
+    return _discountedTotalPrice * 0.03; // 3% renter fee on discounted cost
   }
 
   DateTime get _computedEndDate {
@@ -212,6 +230,194 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     } catch (_) {}
   }
 
+  void _loadAutoApplyPromo() async {
+    try {
+      final activePromos = await component.appState.firestore.getAllActivePromos();
+      final user = component.appState.userProfile;
+      final currentUid = user?.uid;
+      if (user == null || currentUid == null) return;
+
+      final now = DateTime.now();
+      final eligiblePromos = activePromos.where((promo) {
+        if (promo.applicableTo != 'rentals' && promo.applicableTo != 'both') {
+          return false;
+        }
+        if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) {
+          return false;
+        }
+        if (promo.maxUsers != null && promo.usedCount >= promo.maxUsers!) {
+          return false;
+        }
+        if (promo.isSingleUsePerUser && promo.usedBy.contains(currentUid)) {
+          return false;
+        }
+        if (promo.eligibleUserUids != null &&
+            promo.eligibleUserUids!.isNotEmpty &&
+            !promo.eligibleUserUids!.contains(currentUid)) {
+          return false;
+        }
+        if (promo.onlyForSubscribed && !user.isPremium) {
+          return false;
+        }
+        if (promo.onlyForHybrid && user.accountType != AccountType.hybrid) {
+          return false;
+        }
+        if (promo.applicableRoles.isNotEmpty && !promo.applicableRoles.contains('renter')) {
+          return false;
+        }
+        return true;
+      }).toList();
+
+      if (eligiblePromos.isEmpty) {
+        return;
+      }
+
+      final autoPromos = eligiblePromos.where((promoItem) => promoItem.isAutoApply).toList();
+      if (autoPromos.isEmpty) {
+        return;
+      }
+
+      final subtotal = _totalPrice;
+      Promo? bestPromo;
+      double bestDiscount = -1.0;
+
+      for (final promoItem in autoPromos) {
+        double currentDiscount = 0.0;
+        if (promoItem.discountType == 'percentage') {
+          currentDiscount = subtotal * (promoItem.discountValue / 100.0);
+        } else {
+          currentDiscount = promoItem.discountValue;
+        }
+        if (currentDiscount > bestDiscount) {
+          bestDiscount = currentDiscount;
+          bestPromo = promoItem;
+        }
+      }
+
+      if (bestPromo != null && mounted) {
+        final bp = bestPromo;
+        setState(() {
+          _appliedPromo = bp;
+          _promoCodeInput = bp.code;
+          _promoFeedback = 'Auto-applied promo: ${bp.code}';
+        });
+      }
+    } catch (e) {
+      print('ERROR loading auto promo: $e');
+    }
+  }
+
+  void _applyManualPromo(String code) async {
+    final cleanCode = code.trim().toUpperCase();
+    if (cleanCode.isEmpty) {
+      setState(() {
+        _promoFeedback = 'Please enter a promo code.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isValidatingPromo = true;
+      _promoFeedback = null;
+    });
+
+    try {
+      final promo = await component.appState.firestore.getPromo(cleanCode);
+      if (promo == null) {
+        setState(() {
+          _promoFeedback = 'Promo code not found.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+
+      final user = component.appState.userProfile;
+      final currentUid = user?.uid;
+      if (user == null || currentUid == null) throw Exception('User not logged in');
+
+      final now = DateTime.now();
+      if (!promo.isActive) {
+        setState(() {
+          _promoFeedback = 'This promo code is inactive.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.applicableTo != 'rentals' && promo.applicableTo != 'both') {
+        setState(() {
+          _promoFeedback = 'This promo is not applicable to rentals.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) {
+        setState(() {
+          _promoFeedback = 'This promo code has expired.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.maxUsers != null && promo.usedCount >= promo.maxUsers!) {
+        setState(() {
+          _promoFeedback = 'This promo code has reached its maximum usage limit.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.isSingleUsePerUser && promo.usedBy.contains(currentUid)) {
+        setState(() {
+          _promoFeedback = 'You have already used this promo code.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.eligibleUserUids != null &&
+          promo.eligibleUserUids!.isNotEmpty &&
+          !promo.eligibleUserUids!.contains(currentUid)) {
+        setState(() {
+          _promoFeedback = 'You are not eligible for this promo code.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.onlyForSubscribed && !user.isPremium) {
+        setState(() {
+          _promoFeedback = 'This promo code is only for subscribed premium users.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.onlyForHybrid && user.accountType != AccountType.hybrid) {
+        setState(() {
+          _promoFeedback = 'This promo code is only for Hybrid PRO accounts.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.applicableRoles.isNotEmpty && !promo.applicableRoles.contains('renter')) {
+        setState(() {
+          _promoFeedback = 'This promo is not applicable for renters.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+
+      setState(() {
+        _appliedPromo = promo;
+        _promoFeedback = 'Promo code applied successfully!';
+      });
+    } catch (e) {
+      setState(() {
+        _promoFeedback = 'Failed to validate promo code: $e';
+        _appliedPromo = null;
+      });
+    } finally {
+      setState(() {
+        _isValidatingPromo = false;
+      });
+    }
+  }
+
   void _book() async {
     setState(() {
       _isBooking = true;
@@ -250,7 +456,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         return;
       }
 
-      final totalRequired = _totalPrice + _bookingFee;
+      final totalRequired = _discountedTotalPrice + _bookingFee;
       if (user.tyxBalance < totalRequired) {
         component.appState.setState(() {
           component.appState.depositAmount = totalRequired - user.tyxBalance;
@@ -268,6 +474,8 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
             'deliveryLng': _rentalType == 'deliver' ? _deliveryLng : null,
             'startDate': _startDate!.millisecondsSinceEpoch,
             'endDate': _computedEndDate.millisecondsSinceEpoch,
+            'promoCode': _appliedPromo?.code,
+            'discountAmount': _discountAmount,
           };
           component.appState.showBookVehicleModal = false;
         });
@@ -291,6 +499,8 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         deliveryLng: _rentalType == 'deliver' ? _deliveryLng : null,
         startDate: _startDate!.millisecondsSinceEpoch,
         endDate: _computedEndDate.millisecondsSinceEpoch,
+        promoCode: _appliedPromo?.code,
+        discountAmount: _discountAmount,
       );
 
       // Close modal
@@ -345,9 +555,13 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
       _startDate = DateTime(now.year, now.month, now.day, now.hour + 1, 0);
       _approvedRequests = [];
       _calendarMonth = DateTime.now();
+      _appliedPromo = null;
+      _promoCodeInput = '';
+      _promoFeedback = null;
+      _isValidatingPromo = false;
       if (rentalId != null) {
         _loadApprovedRequests(rentalId);
-        // Pre-init delivery map so it's ready when user picks 'deliver'
+        _loadAutoApplyPromo();
       }
     }
 
@@ -812,6 +1026,42 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                 ),
               ]),
 
+              // Promo Code Section
+              div(classes: 'mb-6', [
+                label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                  Component.text('Promo Code'),
+                ]),
+                div(classes: 'flex gap-2', [
+                  input(
+                    classes:
+                        'flex-1 p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
+                    attributes: {'value': _promoCodeInput, 'placeholder': 'Enter code e.g., FIRST50'},
+                    events: {
+                      'input': (e) {
+                        _promoCodeInput = getInputValue(e.target);
+                      },
+                    },
+                  ),
+                  button(
+                    classes:
+                        'px-4 py-2 rounded-xl font-semibold text-white bg-purple-600 hover:bg-purple-700 transition-colors cursor-pointer border-0 outline-none',
+                    events: {
+                      'click': (e) {
+                        _applyManualPromo(_promoCodeInput);
+                      },
+                    },
+                    [
+                      Component.text(_isValidatingPromo ? 'Applying...' : 'Apply'),
+                    ],
+                  ),
+                ]),
+                if (_promoFeedback != null)
+                  p(
+                    classes: 'text-xs mt-1 font-semibold ${(_appliedPromo != null) ? "text-emerald-500" : "text-red-500"}',
+                    [Component.text(_promoFeedback!)],
+                  ),
+              ]),
+
               div(classes: 'p-5 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-3', [
                 div(classes: 'flex justify-between text-sm', [
                   span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
@@ -824,6 +1074,11 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                     span([Component.text('Driver Service (Included)')]),
                     span(classes: 'font-bold', [Component.text('₱ ${_driverPrice.toStringAsFixed(2)}')]),
                   ]),
+                if (_appliedPromo != null)
+                  div(classes: 'flex justify-between text-sm text-emerald-500', [
+                    span([Component.text('Promo Discount (${_appliedPromo!.code})')]),
+                    span(classes: 'font-bold', [Component.text('- ₱ ${_discountAmount.toStringAsFixed(2)}')]),
+                  ]),
                 div(classes: 'flex justify-between text-sm', [
                   span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
                     Component.text('Platform Booking Fee (3%)'),
@@ -834,7 +1089,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                 div(classes: 'flex justify-between', [
                   span(classes: 'font-bold', [Component.text('Total Amount')]),
                   span(classes: 'font-black text-xl text-purple-400', [
-                    Component.text('₱ ${(_totalPrice + _bookingFee).toStringAsFixed(2)}'),
+                    Component.text('₱ ${(_discountedTotalPrice + _bookingFee).toStringAsFixed(2)}'),
                   ]),
                 ]),
               ]),
