@@ -1489,14 +1489,23 @@ class _TrustVerification extends StatelessComponent {
               div(classes: 'flex items-center gap-3', [
                 lIcon('wallet', cls: 'w-5 h-5 text-purple-400'),
                 div([
-                  p(classes: 'text-xs font-bold ${isDark ? "text-white" : "text-zinc-800"}', [
-                    Component.text('Solana Wallet'),
+                  div(classes: 'flex items-center gap-2', [
+                    p(classes: 'text-xs font-bold ${isDark ? "text-white" : "text-zinc-800"}', [
+                      Component.text('Solana Wallet'),
+                    ]),
+                    span(classes: 'px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
+                      (s.userProfile?.walletPublicKey ?? '').isNotEmpty
+                          ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                          : "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20"
+                    }', [
+                      Component.text((s.userProfile?.walletPublicKey ?? '').isNotEmpty ? '🪙 +200 TP Claimed' : '🪙 +200 TP Reward'),
+                    ]),
                   ]),
                   p(classes: 'text-[10px] ${isDark ? "text-zinc-500" : "text-zinc-550"}', [
                     Component.text(
                       (s.userProfile?.walletPublicKey ?? '').isNotEmpty
                           ? 'Linked: ${s.userProfile!.walletPublicKey!.substring(0, 6)}...${s.userProfile!.walletPublicKey!.substring(s.userProfile!.walletPublicKey!.length - 6)}'
-                          : 'Not linked',
+                          : 'Link your wallet to secure payments and claim your reward',
                     ),
                   ]),
                 ]),
@@ -3871,13 +3880,13 @@ class _RewardsViewState extends State<_RewardsView> {
         // Quests List (2 cols)
         div(classes: 'lg:col-span-2 space-y-6', [
           // Onboarding Quests
-          _buildQuestSection('Onboarding Milestones', RewardQuest.quests.where((q) => q.category == 'Onboarding').toList(), earnedList, isDark, cardCls),
+          _buildQuestSection('Onboarding Milestones', RewardQuest.quests.where((q) => q.category == 'Onboarding').toList(), earnedList, isDark, cardCls, s),
 
           // Activity Quests
-          _buildQuestSection('Service Activities', RewardQuest.quests.where((q) => q.category == 'Services').toList(), earnedList, isDark, cardCls),
+          _buildQuestSection('Service Activities', RewardQuest.quests.where((q) => q.category == 'Services').toList(), earnedList, isDark, cardCls, s),
 
           // Rental Quests
-          _buildQuestSection('Rental Activities', RewardQuest.quests.where((q) => q.category == 'Rental').toList(), earnedList, isDark, cardCls),
+          _buildQuestSection('Rental Activities', RewardQuest.quests.where((q) => q.category == 'Rental').toList(), earnedList, isDark, cardCls, s),
         ]),
 
         // History Ledger (1 col)
@@ -3908,7 +3917,7 @@ class _RewardsViewState extends State<_RewardsView> {
     ]);
   }
 
-  Component _buildQuestSection(String title, List<RewardQuest> quests, List<String> earned, bool isDark, String cardCls) {
+  Component _buildQuestSection(String title, List<RewardQuest> quests, List<String> earned, bool isDark, String cardCls, TranyxAppState s) {
     final textCls = isDark ? 'text-zinc-100' : 'text-zinc-800';
     final subTextCls = isDark ? 'text-zinc-400' : 'text-zinc-500';
 
@@ -3916,19 +3925,64 @@ class _RewardsViewState extends State<_RewardsView> {
       h3(classes: 'text-lg font-extrabold $textCls px-1', [Component.text(title)]),
       div(classes: 'rounded-3xl border overflow-hidden $cardCls divide-y divide-zinc-200/50 dark:divide-zinc-800/50', [
         for (final q in quests)
-          _buildQuestRow(q, earned.contains(q.id), isDark, subTextCls, textCls),
+          _buildQuestRow(q, earned.contains(q.id), isDark, subTextCls, textCls, s),
       ]),
     ]);
   }
 
-  Component _buildQuestRow(RewardQuest q, bool isCompleted, bool isDark, String subTextCls, String textCls) {
+  Component _buildQuestRow(RewardQuest q, bool isCompleted, bool isDark, String subTextCls, String textCls, TranyxAppState s) {
+    final accountType = s.accountType;
+    final isEmployerOnly = accountType == AccountType.employer;
+    final isNyxianOnly = accountType == AccountType.nyxian;
+
+    // Determine if this quest is locked due to account type
+    // Quests only Employer + Hybrid can do (locked for Nyxian-only)
+    const employerOnlyQuests = {'post_first_service', 'hire_applicant', 'employer_complete_transaction'};
+    // Quests only Nyxian + Hybrid can do (locked for Employer-only)
+    const nyxianOnlyQuests  = {'add_skills_bio', 'apply_first_job', 'be_hired', 'jobseeker_complete_transaction'};
+
+    final bool isLockedForEmployer = nyxianOnlyQuests.contains(q.id) && isEmployerOnly;
+    final bool isLockedForNyxian   = employerOnlyQuests.contains(q.id) && isNyxianOnly;
+    final bool isLocked = isLockedForEmployer || isLockedForNyxian;
+
+    // Determine if this is the deposit quest
+    final bool isDepositQuest = q.id == 'deposit_any_amount';
+
+    final String? lockNote = isLocked ? 'Become Hybrid to unlock this milestone' : null;
+
+    // Map quest to its navigation action
+    void Function()? onTap;
+    if (!isLocked) {
+      if (isDepositQuest && !isCompleted) {
+        onTap = () => s.setState(() {
+          s.profileView = ProfileView.payment;
+          s.showDepositModal = true;
+        });
+      } else if (q.id == 'register_account' || q.id == 'verify_account' ||
+                 q.id == 'complete_profile_trust' || q.id == 'connect_solana_wallet') {
+        onTap = () => s.setState(() => s.profileView = ProfileView.trust);
+      } else if (q.id == 'add_skills_bio') {
+        onTap = () => s.setState(() => s.profileView = ProfileView.professional);
+      } else if (q.category == 'Services') {
+        onTap = () => s.setState(() => s.activeTab = AppTab.jobs);
+      } else if (q.category == 'Rental') {
+        onTap = () => s.setState(() => s.activeTab = AppTab.transit);
+      }
+    }
+
     return div(
-      classes: 'p-4 flex items-center justify-between gap-4 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/30',
+      classes: 'p-4 flex items-center justify-between gap-4 transition-colors ${isLocked ? "cursor-default" : "cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/30"}',
+      events: onTap != null ? {'click': (_) => onTap!()} : {},
       [
-        div(classes: 'flex-1 space-y-1', [
+        // Left: quest info — dimmed when locked
+        div(classes: 'flex-1 space-y-1 ${isLocked ? "opacity-50" : ""}', [
           div(classes: 'flex items-center gap-2', [
             span(classes: 'text-sm font-bold $textCls', [Component.text(q.title)]),
-            if (q.limit == 'Once')
+            if (isLocked)
+              span(classes: 'px-1.5 py-0.5 bg-orange-500/10 text-orange-400 text-[9px] font-black uppercase rounded tracking-wider border border-orange-500/20', [
+                Component.text('🔒 Locked'),
+              ])
+            else if (q.limit == 'Once')
               span(classes: 'px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[9px] font-black uppercase rounded tracking-wider border border-indigo-500/20', [
                 Component.text('Once'),
               ])
@@ -3937,16 +3991,39 @@ class _RewardsViewState extends State<_RewardsView> {
                 Component.text('Repeatable'),
               ]),
           ]),
-          if (q.notes != null)
+          if (lockNote != null)
+            p(classes: 'text-xs text-orange-400/80', [Component.text(lockNote)])
+          else if (q.notes != null)
             p(classes: 'text-xs $subTextCls', [Component.text(q.notes!)]),
         ]),
+
+        // Right: action area — always full opacity so Subscribe Now is clickable
         div(classes: 'flex items-center gap-3 shrink-0', [
-          span(classes: 'text-xs font-bold text-yellow-500 flex items-center gap-1', [
-            Component.text('🪙 +${q.points} TP'),
-          ]),
-          if (isCompleted)
+          if (!isLocked)
+            span(classes: 'text-xs font-bold text-yellow-500 flex items-center gap-1', [
+              Component.text('🪙 +${q.points} TP'),
+            ])
+          else
+            span(classes: 'text-xs font-bold text-yellow-500/40 flex items-center gap-1', [
+              Component.text('🪙 +${q.points} TP'),
+            ]),
+          if (isLocked)
+            button(
+              classes: 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm hover:bg-amber-500/25 transition-colors cursor-pointer',
+              events: {
+                'click': (_) => s.setState(() {
+                  s.profileSaveError = 'Hybrid PRO subscriptions are coming soon. Stay tuned!';
+                }),
+              },
+              [Component.text('🔓 Subscribe Now')],
+            )
+          else if (isCompleted)
             span(classes: 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-500/15 text-green-400 border border-green-500/20 shadow-sm', [
               Component.text('✓ Completed'),
+            ])
+          else if (isDepositQuest)
+            span(classes: 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/20 shadow-sm', [
+              Component.text('→ Top Up'),
             ])
           else
             span(classes: 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-zinc-500/15 text-zinc-400 border border-zinc-500/20 shadow-sm', [

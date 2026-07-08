@@ -3310,13 +3310,17 @@ class FirestoreService {
 
       final results = jsonDecode(req.body) as List;
       final list = <NewsPost>[];
+      final now = DateTime.now();
       for (final r in results) {
         if (r is Map && r.containsKey('document')) {
           final doc = r['document'] as Map<String, dynamic>;
           final name = doc['name'] as String;
           final docId = name.split('/').last;
           final data = _fromFirestoreDoc(doc);
-          list.add(NewsPost.fromMap(data, docId));
+          final post = NewsPost.fromMap(data, docId);
+          if (post.isActive && (post.publishAt == null || !post.publishAt!.isAfter(now))) {
+            list.add(post);
+          }
         }
       }
       return list;
@@ -3442,26 +3446,25 @@ class FirestoreService {
     await setDocument('users/$userId', updatedDoc);
   }
 
-  Future<void> awardPointsIfEligible(String uid, String questId) async {
+  Future<bool> awardPointsIfEligible(String uid, String questId) async {
     try {
       final quest = RewardQuest.quests.firstWhere((q) => q.id == questId);
       final userDoc = await getDocument('users/$uid');
-      if (userDoc == null) return;
+      if (userDoc == null) return false;
 
       final currentPoints = userDoc['terraPoints'] as int? ?? 0;
       final earnedRewards = List<String>.from(userDoc['earnedRewards'] as List? ?? []);
 
       if (quest.limit == 'Once' && earnedRewards.contains(questId)) {
-        return; // Already completed
+        return false; // Already completed
       }
 
-      // Update User Doc
+      // Update User Doc (write only target fields)
       final newRewards = List<String>.from(earnedRewards)..add(questId);
-      final updatedUser = Map<String, dynamic>.from(userDoc)
-        ..['terraPoints'] = currentPoints + quest.points
-        ..['earnedRewards'] = newRewards;
-
-      await setDocument('users/$uid', updatedUser);
+      await setDocument('users/$uid', {
+        'terraPoints': currentPoints + quest.points,
+        'earnedRewards': newRewards,
+      });
 
       // Log to points_history
       final historyId = '${uid}_${questId}_${DateTime.now().millisecondsSinceEpoch}';
@@ -3474,8 +3477,11 @@ class FirestoreService {
         'createdAt': DateTime.now().millisecondsSinceEpoch,
       });
       print('[Rewards] Awarded ${quest.points} TP to $uid for quest "$questId"');
-    } catch (e) {
+      return true;
+    } catch (e, stack) {
       print('[Rewards] Error awarding points: $e');
+      print(stack);
+      rethrow;
     }
   }
 
@@ -3525,42 +3531,56 @@ class FirestoreService {
     return [];
   }
 
-  Future<void> checkAndAwardOnboardingQuests(String uid) async {
+  Future<bool> checkAndAwardOnboardingQuests(String uid) async {
+    bool newlyAwarded = false;
     try {
       final userMap = await getDocument('users/$uid');
-      if (userMap == null) return;
+      if (userMap == null) return false;
 
       final earnedRewards = List<String>.from(userMap['earnedRewards'] as List? ?? []);
 
-      // 1. Register Account (Email verification completion)
-      if (userMap['emailVerified'] == true && !earnedRewards.contains('register_account')) {
-        await awardPointsIfEligible(uid, 'register_account');
+      // 1. Register Account
+      if (!earnedRewards.contains('register_account')) {
+        final success = await awardPointsIfEligible(uid, 'register_account');
+        if (success) newlyAwarded = true;
       }
 
       // 2. Verify Account (Email + Phone verification completion)
       if (userMap['emailVerified'] == true && userMap['phoneVerified'] == true && !earnedRewards.contains('verify_account')) {
-        await awardPointsIfEligible(uid, 'verify_account');
+        final success = await awardPointsIfEligible(uid, 'verify_account');
+        if (success) newlyAwarded = true;
       }
 
       // 3. Complete Profile Trust (idVerified == true)
       if (userMap['idVerified'] == true && !earnedRewards.contains('complete_profile_trust')) {
-        await awardPointsIfEligible(uid, 'complete_profile_trust');
+        final success = await awardPointsIfEligible(uid, 'complete_profile_trust');
+        if (success) newlyAwarded = true;
       }
 
       // 4. Add Skills & Bio (skills is not empty/null or bio/headline is present)
       final skillsList = userMap['skills'] as List?;
       final hasHeadline = userMap['headline'] != null && (userMap['headline'] as String).isNotEmpty;
       if (((skillsList != null && skillsList.isNotEmpty) || hasHeadline) && !earnedRewards.contains('add_skills_bio')) {
-        await awardPointsIfEligible(uid, 'add_skills_bio');
+        final success = await awardPointsIfEligible(uid, 'add_skills_bio');
+        if (success) newlyAwarded = true;
       }
 
       // 5. Connect Any Solana Wallet (walletPublicKey is not null/empty)
       if (userMap['walletPublicKey'] != null && (userMap['walletPublicKey'] as String).isNotEmpty && !earnedRewards.contains('connect_solana_wallet')) {
-        await awardPointsIfEligible(uid, 'connect_solana_wallet');
+        final success = await awardPointsIfEligible(uid, 'connect_solana_wallet');
+        if (success) newlyAwarded = true;
+      }
+
+      // 6. Deposit any amount to Wallet (tyxBalance > 0 means at least one deposit has occurred)
+      final tyxBalance = (userMap['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+      if (tyxBalance > 0 && !earnedRewards.contains('deposit_any_amount')) {
+        final success = await awardPointsIfEligible(uid, 'deposit_any_amount');
+        if (success) newlyAwarded = true;
       }
     } catch (e) {
       print('checkAndAwardOnboardingQuests error: $e');
     }
+    return newlyAwarded;
   }
 }
 

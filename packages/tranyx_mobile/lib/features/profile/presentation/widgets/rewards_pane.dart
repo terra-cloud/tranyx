@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shared/shared.dart';
-import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/profile/providers/profile_provider.dart';
-import 'package:tranyx_mobile/features/transit/providers/transit_provider.dart';
+import 'package:tranyx_mobile/features/navigation/providers/navigation_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 
 class RewardsPane extends ConsumerStatefulWidget {
@@ -42,9 +41,11 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
     setState(() => _isCheckingQuests = true);
     try {
       final repo = ref.read(transitRepositoryProvider);
-      await repo.checkAndAwardOnboardingQuests(user.uid);
-      // Refresh profile state
-      ref.invalidate(userProfileProvider);
+      final newlyAwarded = await repo.checkAndAwardOnboardingQuests(user.uid);
+      // Refresh profile state only if a new quest was completed/awarded
+      if (newlyAwarded) {
+        ref.invalidate(userProfileProvider);
+      }
     } catch (e) {
       debugPrint('Error checking rewards onboarding: $e');
     } finally {
@@ -364,127 +365,136 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
     );
   }
 
+  void _handleQuestClick(RewardQuest q) {
+    if (q.category == 'Services') {
+      NavigationNotifier.switchTab(ref, 'jobs');
+    } else if (q.category == 'Rental') {
+      NavigationNotifier.switchTab(ref, 'transit');
+    } else if (q.category == 'Onboarding') {
+      if (q.id == 'verify_account' || q.id == 'complete_profile_trust') {
+        ref.read(profileViewProvider.notifier).state = 'trust';
+      } else if (q.id == 'add_skills_bio') {
+        ref.read(profileViewProvider.notifier).state = 'main';
+      } else if (q.id == 'deposit_any_amount' || q.id == 'connect_solana_wallet') {
+        ref.read(profileViewProvider.notifier).state = 'payment';
+      }
+    }
+  }
+
   Widget _buildQuestTile(RewardQuest quest, bool isCompleted, bool isDarkMode) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: isDarkMode
-                ? const Color(0xFF2C2C2E)
-                : const Color(0xFFE5E5EA),
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        quest.title,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: isDarkMode ? Colors.white : Colors.black87,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 1.5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: quest.limit == 'Once'
-                            ? const Color(0xFF6366F1).withOpacity(0.1)
-                            : const Color(0xFF10B981).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        quest.limit == 'Once' ? 'Once' : 'Repeat',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                          color: quest.limit == 'Once'
-                              ? const Color(0xFF6366F1)
-                              : const Color(0xFF10B981),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                if (quest.notes != null) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    quest.notes!,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isDarkMode ? Colors.white54 : Colors.black45,
-                    ),
-                  ),
-                ],
-              ],
+    return InkWell(
+      onTap: () => _handleQuestClick(quest),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: isDarkMode
+                  ? const Color(0xFF2C2C2E)
+                  : const Color(0xFFE5E5EA),
             ),
           ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                "+${quest.points} TP",
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFFD97706),
-                ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          quest.title,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: isDarkMode ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1.5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: quest.limit == 'Once'
+                              ? const Color(0xFF6366F1).withOpacity(0.1)
+                              : const Color(0xFF10B981).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          quest.limit == 'Once' ? 'Once' : 'Repeat',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: quest.limit == 'Once'
+                                ? const Color(0xFF6366F1)
+                                : const Color(0xFF10B981),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              isCompleted
-                  ? Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF10B981).withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Text(
-                        "✓ Completed",
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF10B981),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  "+${quest.points} TP",
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFFD97706),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                isCompleted
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF10B981).withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          "✓ Completed",
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF10B981),
+                          ),
+                        ),
+                      )
+                    : Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          "Pending",
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.grey,
+                          ),
                         ),
                       ),
-                    )
-                  : Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Text(
-                        "Pending",
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
