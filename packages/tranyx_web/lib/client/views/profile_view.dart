@@ -3992,9 +3992,7 @@ class _RewardsViewState extends State<_RewardsView> {
               ]),
           ]),
           if (lockNote != null)
-            p(classes: 'text-xs text-orange-400/80', [Component.text(lockNote)])
-          else if (q.notes != null)
-            p(classes: 'text-xs $subTextCls', [Component.text(q.notes!)]),
+            p(classes: 'text-xs text-orange-400/80', [Component.text(lockNote)]),
         ]),
 
         // Right: action area — always full opacity so Subscribe Now is clickable
