@@ -13,18 +13,30 @@ service cloud.firestore {
 
     // Helper to check if the user is an admin or staff member
     function isAdminOrStaff() {
-      return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff' ||
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'support');
+      let path = /databases/$(database)/documents/users/$(request.auth.uid);
+      let hasDoc = exists(path);
+      let userDoc = hasDoc ? get(path).data : {};
+      return isAuthenticated() && hasDoc && (
+        'role' in userDoc && (
+          userDoc.role == 'admin' ||
+          userDoc.role == 'staff' ||
+          userDoc.role == 'support'
+        )
+      );
     }
 
-    // Helper to check if a user is currently banned or suspended
+    // Helper to check if a user is currently banned or suspended.
+    // suspendedUntil is stored as an integer (ms since epoch) by the Dart client.
+    // We cache the document data safely (defaulting to empty map if non-existent)
+    // and check field presence using `in` to prevent any execution errors.
     function isUserBlocked(uid) {
-      return exists(/databases/$(database)/documents/users/$(uid)) && 
-             (get(/databases/$(database)/documents/users/$(uid)).data.banned == true ||
-              (get(/databases/$(database)/documents/users/$(uid)).data.suspendedUntil != null &&
-               get(/databases/$(database)/documents/users/$(uid)).data.suspendedUntil > request.time.toMillis()));
+      let path = /databases/$(database)/documents/users/$(uid);
+      let docExists = exists(path);
+      let userDoc = docExists ? get(path).data : {};
+      return docExists && (
+        ('banned' in userDoc && userDoc.banned == true) ||
+        ('suspendedUntil' in userDoc && userDoc.suspendedUntil is int && userDoc.suspendedUntil > request.time.toMillis())
+      );
     }
 
     // Helper to check if current request user is authenticated and NOT blocked

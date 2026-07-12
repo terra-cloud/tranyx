@@ -76,6 +76,8 @@ class TranyxAppState extends State<TranyxApp> {
   String? userPhotoUrl;
   UserProfile? userProfile;
   List<Map<String, dynamic>> pendingHoldbacks = [];
+  List<Map<String, dynamic>> rewardsHistory = [];
+  bool rewardsLoaded = false;
 
   // ── Profile edit fields ──────────────────────────────────────
   String editName = '';
@@ -1029,6 +1031,13 @@ class TranyxAppState extends State<TranyxApp> {
     final uid = SessionStorage.uid;
     if (uid == null) return;
     try {
+      // Silently run onboarding verification at startup
+      final token = SessionStorage.idToken;
+      if (token != null) {
+        final svc = FirestoreService(token, handleTokenRefresh);
+        await svc.checkAndAwardOnboardingQuests(uid);
+      }
+
       final profile = await _firestore.getUser(uid);
       if (profile != null) {
         setState(() {
@@ -1852,6 +1861,9 @@ class TranyxAppState extends State<TranyxApp> {
         });
 
         await loadTransactions();
+
+        // Award deposit onboarding quest if eligible
+        unawaited(svc.awardPointsIfEligible(uid, 'deposit_any_amount'));
       }
 
       setState(() {
@@ -2211,6 +2223,9 @@ class TranyxAppState extends State<TranyxApp> {
 
             // Reload history if needed
             await loadTransactions();
+
+            // Award deposit onboarding quest if eligible
+            unawaited(svc.awardPointsIfEligible(uid, 'deposit_any_amount'));
           }
 
           SessionStorage.pendingXenditInvoiceId = null;
