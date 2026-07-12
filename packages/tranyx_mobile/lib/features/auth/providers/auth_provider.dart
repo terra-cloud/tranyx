@@ -39,6 +39,7 @@ final userProfileProvider = StreamProvider<UserProfile?>((ref) {
   // Silently run onboarding quests check in the background when the profile stream is subscribed
   final repo = ref.read(transitRepositoryProvider);
   repo.checkAndAwardOnboardingQuests(user.uid);
+  repo.checkAndExpireSubscription(user.uid);
 
   return ref
       .watch(firestoreProvider)

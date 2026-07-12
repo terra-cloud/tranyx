@@ -132,6 +132,30 @@ class SecureStorageHelper {
     await _storage.delete(key: 'pending_deposit_currency');
   }
 
+  static Future<void> savePendingAction(String action) async {
+    await _storage.write(key: 'pending_action', value: action);
+  }
+
+  static Future<String?> getPendingAction() async {
+    return await _storage.read(key: 'pending_action');
+  }
+
+  static Future<void> deletePendingAction() async {
+    await _storage.delete(key: 'pending_action');
+  }
+
+  static Future<void> savePendingSubscriptionType(String type) async {
+    await _storage.write(key: 'pending_subscription_type', value: type);
+  }
+
+  static Future<String?> getPendingSubscriptionType() async {
+    return await _storage.read(key: 'pending_subscription_type');
+  }
+
+  static Future<void> deletePendingSubscriptionType() async {
+    await _storage.delete(key: 'pending_subscription_type');
+  }
+
   static Future<void> saveTrustWalletAddress(String address) async {
     await _storage.write(key: 'trust_wallet_address', value: address);
   }

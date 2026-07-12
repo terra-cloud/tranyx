@@ -1036,6 +1036,7 @@ class TranyxAppState extends State<TranyxApp> {
       if (token != null) {
         final svc = FirestoreService(token, handleTokenRefresh);
         await svc.checkAndAwardOnboardingQuests(uid);
+        await checkAndExpireSubscription(uid, svc);
       }
 
       final profile = await _firestore.getUser(uid);
@@ -1053,6 +1054,41 @@ class TranyxAppState extends State<TranyxApp> {
       await loadKycSubmission();
       await loadHoldbacks();
     } catch (_) {}
+  }
+
+  Future<void> checkAndExpireSubscription(String uid, FirestoreService svc) async {
+    try {
+      final doc = await svc.getDocument('users/$uid');
+      if (doc != null) {
+        final isPremium = doc['isPremium'] as bool? ?? false;
+        final premiumUntilMs = doc['premiumUntil'] as int?;
+        if (isPremium && premiumUntilMs != null) {
+          final expiry = DateTime.fromMillisecondsSinceEpoch(premiumUntilMs);
+          if (expiry.isBefore(DateTime.now())) {
+            // Revert premium status & accountType in Firestore
+            await svc.createOrUpdate('users/$uid', {
+              ...doc,
+              'isPremium': false,
+              'accountType': 'nyxian',
+              'premiumUntil': null,
+            });
+
+            // Create notification for expiry
+            final now = DateTime.now();
+            final docId = 'notif_${now.millisecondsSinceEpoch}_${uid.substring(0, uid.length > 5 ? 5 : uid.length)}';
+            await svc.createOrUpdate('notifications/$docId', {
+              'uid': uid,
+              'title': 'Subscription Expired',
+              'message': 'Your Premium Hybrid subscription has expired. Renew now to continue enjoying PRO features!',
+              'isRead': false,
+              'createdAt': now.millisecondsSinceEpoch,
+            });
+          }
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
   }
 
   // ── Auth actions ────────────────────────────────────────────
@@ -1931,6 +1967,99 @@ class TranyxAppState extends State<TranyxApp> {
         isDepositing = false;
         postJobError = e.toString();
       });
+    }
+  }
+
+  Future<void> processSubscriptionPayment(double amountInSol, String subType) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) {
+      setState(() => postJobError = 'Please log in to make a payment.');
+      return;
+    }
+
+    setState(() {
+      isDepositing = true;
+      postJobError = null;
+    });
+
+    try {
+      // 1. Ensure Solana wallet is connected and obtain the active user's public key
+      final activeWalletType = selectedWalletType ?? 'phantom';
+      if (!isSolanaWalletInstalled(activeWalletType)) {
+        throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
+      }
+
+      var fromPubKey = userProfile?.walletPublicKey;
+      if (fromPubKey == null || fromPubKey.trim().isEmpty) {
+        fromPubKey = await connectSolanaWallet(activeWalletType);
+        if (fromPubKey == null) {
+          throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
+        }
+        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
+          uid,
+          fromPubKey,
+          refreshToken: SessionStorage.refreshToken,
+        );
+      }
+
+      // 2. Platform target Solana address
+      const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
+
+      // 3. Initiate the transfer transaction
+      final signature = await sendSolanaPayment(fromPubKey, adminSolanaAddress, amountInSol);
+      if (signature == null || signature.trim().isEmpty) {
+        throw 'Solana transaction rejected or failed to broadcast.';
+      }
+
+      // 4. Update premium status in user profile & set account type to hybrid
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final userDoc = await svc.getDocument('users/$uid');
+      if (userDoc != null) {
+        final double phpPrice = subType == 'yearly' ? 2999.0 : 299.0;
+        final now = DateTime.now();
+        final premiumUntil = subType == 'yearly'
+            ? now.add(const Duration(days: 365))
+            : now.add(const Duration(days: 30));
+
+        final updatedProfile = {
+          ...userDoc,
+          'isPremium': true,
+          'premiumUntil': premiumUntil.millisecondsSinceEpoch,
+          'accountType': 'hybrid',
+        };
+
+        await svc.createOrUpdate('users/$uid', updatedProfile);
+
+        if (userProfile != null) {
+          userProfile = UserProfile.fromMap(uid, updatedProfile);
+        }
+
+        // Record subscription transaction with Solana signature
+        await svc.createOrUpdate('transactions/sub_sol_$signature', {
+          'uid': uid,
+          'title': 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
+          'desc':
+              'Subscribed via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} (${amountInSol.toStringAsFixed(4)} SOL)',
+          'amount': phpPrice,
+          'status': 'Successful',
+          'method': 'Solana',
+          'solanaTxSignature': signature,
+          'solanaAmount': amountInSol,
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+          'type': 'subscription',
+        });
+
+        await loadTransactions();
+      }
+    } catch (e) {
+      setState(() => postJobError = e.toString());
+      rethrow;
+    } finally {
+      setState(() {
+        isDepositing = false;
+      });
+      unawaited(handleRefreshBalance());
     }
   }
 

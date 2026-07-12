@@ -116,6 +116,13 @@ service cloud.firestore {
       allow update, delete: if false; // Transactions should be immutable
     }
 
+    // Subscriptions Collection
+    match /subscriptions/{subId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create: if isActiveUser() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false; // Subscription logs should be immutable
+    }
+
     // Withdrawal Requests Collection
     match /withdrawalRequests/{requestId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());

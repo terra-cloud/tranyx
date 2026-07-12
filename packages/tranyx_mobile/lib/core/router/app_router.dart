@@ -897,6 +897,82 @@ final routerProvider = Provider<GoRouter>((ref) {
             }
 
             // Successfully received transaction signature from wallet!
+            final pendingAction = await SecureStorageHelper.getPendingAction();
+            await SecureStorageHelper.deletePendingAction();
+
+            if (pendingAction == 'subscription') {
+              final subType = await SecureStorageHelper.getPendingSubscriptionType();
+              await SecureStorageHelper.deletePendingSubscriptionType();
+
+              final phpAmount = await SecureStorageHelper.getPendingDepositPhpAmount();
+              final cryptoAmount = await SecureStorageHelper.getPendingDepositCryptoAmount();
+
+              await SecureStorageHelper.deletePendingDepositPhpAmount();
+              await SecureStorageHelper.deletePendingDepositCryptoAmount();
+              await SecureStorageHelper.deletePendingDepositCurrency();
+
+              if (phpAmount == null || cryptoAmount == null || user == null) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Transaction broadcasted, but subscription details were missing.'),
+                      backgroundColor: Colors.amber,
+                    ),
+                  );
+                }
+                return;
+              }
+
+              try {
+                final now = DateTime.now();
+                final premiumUntil = subType == 'yearly'
+                    ? now.add(const Duration(days: 365))
+                    : now.add(const Duration(days: 30));
+
+                // Update premium status in user profile & set account type to hybrid
+                await ref.read(firestoreProvider).collection('users').doc(user.uid).update({
+                  'isPremium': true,
+                  'premiumUntil': premiumUntil.millisecondsSinceEpoch,
+                  'accountType': 'hybrid',
+                });
+
+                // Record subscription transaction
+                final txId = 'sub_sol_$signature';
+                await ref.read(firestoreProvider).collection('transactions').doc(txId).set({
+                  'uid': user.uid,
+                  'type': 'subscription',
+                  'amount': phpAmount,
+                  'title': 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
+                  'desc': 'Subscribed via Solana wallet (${cryptoAmount.toStringAsFixed(4)} SOL)',
+                  'method': 'Solana Wallet',
+                  'solanaTxSignature': signature,
+                  'createdAt': now.millisecondsSinceEpoch,
+                });
+
+                ref.invalidate(userProfileProvider);
+                ref.invalidate(userTransactionsProvider);
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Successfully subscribed to Hybrid PRO (${subType == 'yearly' ? 'Yearly' : 'Monthly'})!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error activating subscription: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+              return;
+            }
+
             final phpAmount = await SecureStorageHelper.getPendingDepositPhpAmount();
             final cryptoAmount = await SecureStorageHelper.getPendingDepositCryptoAmount();
             final currency = await SecureStorageHelper.getPendingDepositCurrency();

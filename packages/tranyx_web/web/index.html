@@ -325,10 +325,12 @@
           throw new Error("Solana Web3 library is not loaded.");
         }
         const type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        console.log("Using wallet type:", type);
         const solana = getSolanaProvider(type);
         if (!solana) {
           throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
         }
+        console.log("Solana provider found:", !!solana, "Public key:", solana.publicKey ? solana.publicKey.toString() : "null");
         if (!solana.publicKey) {
           throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected.");
         }
@@ -342,12 +344,15 @@
             fallbackRpc = "https://rpc.ankr.com/solana";
           }
         } catch (e) {}
-        const connection = new solanaWeb3.Connection(rpcUrl || fallbackRpc);
+        const finalRpc = rpcUrl || fallbackRpc;
+        console.log("Connecting to Solana RPC:", finalRpc);
+        const connection = new solanaWeb3.Connection(finalRpc);
 
         const fromPubkey = new solanaWeb3.PublicKey(fromAddress);
         const toPubkey = new solanaWeb3.PublicKey(toAddress);
         const lamports = Math.round(amountInSol * 1000000000);
 
+        console.log("Constructing transfer transaction payload...");
         const transaction = new solanaWeb3.Transaction().add(
           solanaWeb3.SystemProgram.transfer({
             fromPubkey: fromPubkey,
@@ -356,31 +361,28 @@
           })
         );
 
+        console.log("Fetching latest blockhash...");
         const latestBlockHash = await connection.getLatestBlockhash("confirmed");
+        console.log("Latest blockhash fetched successfully:", latestBlockHash.blockhash);
+
         transaction.recentBlockhash = latestBlockHash.blockhash;
         transaction.feePayer = fromPubkey;
 
-        // Perform transaction simulation
-        console.log("Simulating SOL transfer...");
-        const simulation = await connection.simulateTransaction(transaction);
-        if (simulation.value.err) {
-          console.error("Simulation failed:", simulation.value.err);
-          throw new Error("Transaction simulation failed: " + JSON.stringify(simulation.value.err));
-        }
-
+        console.log("Prompting wallet to sign and send transaction...");
         const { signature } = await solana.signAndSendTransaction(transaction);
-        console.log("Transaction sent. Signature:", signature);
+        console.log("Transaction successfully signed and sent by wallet. Signature:", signature);
 
+        console.log("Confirming transaction on-chain...");
         await connection.confirmTransaction({
           blockhash: latestBlockHash.blockhash,
           lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
           signature: signature
         }, "confirmed");
 
-        console.log("Transaction confirmed successfully:", signature);
+        console.log("Transaction confirmed successfully on-chain:", signature);
         return signature;
       } catch (error) {
-        console.error("sendSolPayment failed:", error);
+        console.error("sendSolPayment failed with error:", error);
         throw error;
       }
     };
@@ -393,8 +395,10 @@
           throw new Error("Solana Web3 library is not loaded.");
         }
         const type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        console.log("Using wallet type:", type);
         const solana = getSolanaProvider(type);
         if (!solana) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
+        console.log("Solana provider found:", !!solana, "Public key:", solana.publicKey ? solana.publicKey.toString() : "null");
         if (!solana.publicKey) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected.");
 
         let fallbackRpc = "https://api.testnet.solana.com";
@@ -407,7 +411,9 @@
             fallbackRpc = "https://rpc.ankr.com/solana";
           }
         } catch (e) {}
-        const connection = new solanaWeb3.Connection(rpcUrl || fallbackRpc);
+        const finalRpc = rpcUrl || fallbackRpc;
+        console.log("Connecting to Solana RPC:", finalRpc);
+        const connection = new solanaWeb3.Connection(finalRpc);
         const USDT_MINT = new solanaWeb3.PublicKey(usdtMint || fallbackUsdtMint);
         const USDT_DECIMALS = 6;
         const amountInMicroUsdt = Math.round(amountInUsdt * Math.pow(10, USDT_DECIMALS));
@@ -446,6 +452,7 @@
 
         const transaction = new solanaWeb3.Transaction();
 
+        console.log("Checking recipient ATA account info...");
         const toATAInfo = await connection.getAccountInfo(toATA);
         if (!toATAInfo) {
           console.log("Recipient ATA does not exist, appending createAssociatedTokenAccountInstruction...");
@@ -466,28 +473,25 @@
 
         transaction.add(transferInstruction);
 
+        console.log("Fetching latest blockhash for USDT transfer...");
         const latestBlockHash = await connection.getLatestBlockhash("confirmed");
+        console.log("Latest blockhash fetched successfully:", latestBlockHash.blockhash);
+        
         transaction.recentBlockhash = latestBlockHash.blockhash;
         transaction.feePayer = fromPubkey;
 
-        // Perform transaction simulation
-        console.log("Simulating USDT transfer...");
-        const simulation = await connection.simulateTransaction(transaction);
-        if (simulation.value.err) {
-          console.error("USDT Simulation failed:", simulation.value.err);
-          throw new Error("USDT Transaction simulation failed: " + JSON.stringify(simulation.value.err));
-        }
-
+        console.log("Prompting wallet to sign and send USDT transaction...");
         const { signature } = await solana.signAndSendTransaction(transaction);
         console.log("USDT Transaction sent. Signature:", signature);
 
+        console.log("Confirming USDT transaction on-chain...");
         await connection.confirmTransaction({
           blockhash: latestBlockHash.blockhash,
           lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
           signature: signature
         }, "confirmed");
 
-        console.log("USDT Transaction confirmed:", signature);
+        console.log("USDT Transaction confirmed successfully on-chain:", signature);
         return signature;
       } catch (error) {
         console.error("sendUsdtPayment failed:", error);

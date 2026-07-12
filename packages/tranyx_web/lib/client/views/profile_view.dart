@@ -38,6 +38,7 @@ class ProfileViewComponent extends StatelessComponent {
       ProfileView.personal => _PersonalInfo(state: s),
       ProfileView.professional => _ProfessionalInfo(state: s),
       ProfileView.payment => _Payment(state: s),
+      ProfileView.subscription => _ProfileMain(state: s),
       ProfileView.trust => _TrustVerification(state: s),
       ProfileView.support => _HelpSupport(state: s),
       ProfileView.history => _HistoryView(state: s),
@@ -147,13 +148,38 @@ class _ProfileMenu extends StatelessComponent {
 }
 
 // ── Main overview ─────────────────────────────────────────────
-class _ProfileMain extends StatelessComponent {
+class _ProfileMain extends StatefulComponent {
   final TranyxAppState state;
   const _ProfileMain({required this.state});
 
   @override
+  State<_ProfileMain> createState() => _ProfileMainState();
+}
+
+class _ProfileMainState extends State<_ProfileMain> {
+  String selectedPlan = 'monthly'; // 'monthly' | 'yearly'
+  bool isProcessing = false;
+  String? errorMessage;
+
+  Component _perkRow(String text, bool active) {
+    final isDark = component.state.isDark;
+    return div(classes: 'flex items-center gap-2.5 text-xs', [
+      lIcon('check', cls: 'w-4 h-4 text-emerald-400 flex-shrink-0'),
+      span(classes: isDark ? "text-zinc-300" : "text-zinc-700", [Component.text(text)]),
+    ]);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      component.state.fetchSolToPhpRate();
+    });
+  }
+
+  @override
   Component build(BuildContext context) {
-    final s = state;
+    final s = component.state;
     final isDark = s.isDark;
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
 
@@ -279,61 +305,239 @@ class _ProfileMain extends StatelessComponent {
         ],
       ),
 
-      // Upgrade to Hybrid PRO Banner
-      if (s.accountType != AccountType.hybrid)
-        div(
-          classes:
-              'p-5 rounded-2xl border flex flex-col md:flex-row items-center gap-4 border-amber-500/30 bg-amber-500/10',
-          [
-            div(classes: 'p-3 rounded-xl bg-amber-500/20 text-amber-500', [
-              lIcon('crown', cls: 'w-6 h-6'),
-            ]),
-            div(classes: 'flex-1 text-center md:text-left', [
-              p(classes: 'font-bold text-amber-500', [Component.text('Upgrade to Hybrid PRO')]),
-              p(classes: 'text-sm mt-1 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                Component.text(
-                  'Unlock the ability to both hire and work. Get the full Tranyx experience with an active subscription.',
-                ),
-              ]),
-              if (s.profileSaveError != null)
-                p(classes: 'text-xs text-red-400 mt-2 font-semibold', [Component.text(s.profileSaveError!)]),
-            ]),
-            button(
-              classes:
-                  'px-6 py-2.5 rounded-xl font-bold bg-amber-500 text-white shadow-lg hover:bg-amber-400 transition-colors',
-              events: {
-                'click': (_) {
-                  s.setState(() {
-                    s.profileSaveError = 'Hybrid PRO subscriptions are coming soon. Stay tuned!';
-                  });
-                },
-              },
-              [Component.text('Subscribe Now')],
-            ),
-          ],
-        ),
 
-      // Switch account type (dev helper)
-      div(classes: 'p-5 rounded-2xl border $cardCls', [
-        p(
-          classes: 'text-xs font-semibold uppercase tracking-wider mb-3 ${isDark ? "text-zinc-500" : "text-zinc-400"}',
-          [Component.text('Switch Account Type (Dev)')],
-        ),
-        div(classes: 'flex gap-2 flex-wrap', [
-          for (final t in AccountType.values)
-            button(
-              classes:
-                  'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${s.accountType == t ? t.badgeClasses : (isDark ? "bg-zinc-800 text-zinc-400" : "bg-zinc-100 text-zinc-600")}',
-              events: {
-                'click': (_) => s.setState(() {
-                  s.accountType = t;
-                  s.hybridToggle = t == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-                }),
-              },
-              [Component.text(t.label)],
-            ),
+
+      if (const String.fromEnvironment('ENV', defaultValue: 'dev') == 'dev')
+        // Switch account type (dev helper)
+        div(classes: 'p-5 rounded-2xl border $cardCls', [
+          p(
+            classes: 'text-xs font-semibold uppercase tracking-wider mb-3 ${isDark ? "text-zinc-500" : "text-zinc-400"}',
+            [Component.text('Switch Account Type (Dev)')],
+          ),
+          div(classes: 'flex gap-2 flex-wrap', [
+            for (final t in AccountType.values)
+              button(
+                classes:
+                    'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${s.accountType == t ? t.badgeClasses : (isDark ? "bg-zinc-800 text-zinc-400" : "bg-zinc-100 text-zinc-650")}',
+                events: {
+                  'click': (_) => s.setState(() {
+                    s.accountType = t;
+                    s.hybridToggle = t == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+                  }),
+                },
+                [Component.text(t.label)],
+              ),
+          ]),
         ]),
-      ]),
+
+      // Perks & SOL Pricing Cards (Lite vs Pro comparison from reference)
+      if (s.accountType != AccountType.hybrid)
+        Builder(
+          builder: (context) {
+            final rate = s.solToPhpRate > 0 ? s.solToPhpRate : 8500.0;
+            final double monthlySolPrice = 299.0 / rate;
+            final double yearlySolPrice = 2999.0 / rate;
+            final double activeSolPrice = selectedPlan == 'yearly' ? yearlySolPrice : monthlySolPrice;
+            final hasWallet = s.walletState == WalletState.connected;
+            final displayAddress = s.walletAddress.isNotEmpty ? s.walletAddress : (s.userProfile?.walletPublicKey ?? '');
+            final textCls = isDark ? 'text-white' : 'text-zinc-900';
+
+            return div(classes: 'mt-10 pt-8 border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} space-y-6', [
+              // Header section
+              div(classes: 'text-center max-w-xl mx-auto space-y-2', [
+                h3(classes: 'text-xl font-black $textCls', [Component.text('Upgrade to Pro')]),
+                p(classes: 'text-xs text-zinc-500 mt-1', [
+                  Component.text('Choose the plan that fits your business needs. Pay with SOL to upgrade instantly.'),
+                ]),
+              ]),
+
+              // Plan Cards Selector
+              div(classes: 'grid grid-cols-2 gap-4 max-w-md mx-auto', [
+                // Monthly
+                div(
+                  classes:
+                      'p-4 rounded-2xl border text-center transition-all cursor-pointer relative '
+                      '${selectedPlan == 'monthly' ? "border-indigo-500 bg-indigo-500/10 shadow-lg shadow-indigo-500/5" : cardCls}',
+                  events: {
+                    'click': (_) => setState(() => selectedPlan = 'monthly'),
+                  },
+                  [
+                    h4(classes: 'text-sm font-black $textCls', [Component.text('Monthly Plan')]),
+                    p(classes: 'text-[10px] text-zinc-500 mt-0.5', [Component.text('₱299 PHP basis')]),
+                    p(classes: 'text-xs font-black text-indigo-400 mt-2', [
+                      Component.text('◎ ${monthlySolPrice.toStringAsFixed(4)} SOL / mo'),
+                    ]),
+                  ],
+                ),
+
+                // Yearly
+                div(
+                  classes:
+                      'p-4 rounded-2xl border text-center transition-all cursor-pointer relative overflow-visible '
+                      '${selectedPlan == 'yearly' ? "border-indigo-500 bg-indigo-500/10 shadow-lg shadow-indigo-500/5" : cardCls}',
+                  events: {
+                    'click': (_) => setState(() => selectedPlan = 'yearly'),
+                    },
+                    [
+                      div(
+                        classes:
+                            'absolute -top-2.5 right-2 px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-red-500 text-white shadow-sm border border-red-400/20',
+                        [Component.text('16% Saved')],
+                      ),
+                      h4(classes: 'text-sm font-black $textCls', [Component.text('Yearly Plan')]),
+                      p(classes: 'text-[10px] text-zinc-500 mt-0.5', [Component.text('₱2,999 PHP basis')]),
+                      p(classes: 'text-xs font-black text-indigo-400 mt-2', [
+                        Component.text('◎ ${yearlySolPrice.toStringAsFixed(4)} SOL / yr'),
+                      ]),
+                    ],
+                  ),
+                ]),
+
+                // Columns comparison grid
+                div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-6', [
+                  // Lite Card
+                  div(classes: 'p-6 rounded-[2rem] border $cardCls flex flex-col justify-between relative space-y-6', [
+                    div(classes: 'space-y-4', [
+                      div(classes: 'flex items-center gap-2', [
+                        span([], classes: 'w-2 h-6 bg-zinc-400 rounded-sm'),
+                        h4(classes: 'text-base font-black $textCls', [Component.text('Lite')]),
+                      ]),
+                      p(classes: 'text-xs text-zinc-500 leading-normal', [
+                        Component.text('Basic account with a single active role'),
+                      ]),
+                      div(classes: 'flex items-baseline gap-2 py-2 border-y ${isDark ? "border-zinc-800" : "border-zinc-150"}', [
+                        span(classes: 'text-3xl font-black $textCls', [Component.text('Single')]),
+                        p(classes: 'text-[10px] text-zinc-500 leading-snug', [
+                          Component.text('Choose either Nyxian or Employer role'),
+                        ]),
+                      ]),
+                      div(classes: 'space-y-3 pt-2', [
+                        _perkRow('Single account role active at a time', true),
+                        _perkRow('Standard search exposure ranking', true),
+                        _perkRow('Standard 3% platform service fee', true),
+                        _perkRow('Limited daily messaging tools', true),
+                      ]),
+                    ]),
+
+                    button(
+                      classes:
+                          'w-full py-3.5 rounded-2xl text-xs font-bold text-center border transition-all cursor-not-allowed '
+                          '${isDark ? "bg-zinc-800 border-zinc-800 text-zinc-500" : "bg-zinc-100 border-zinc-200 text-zinc-400"}',
+                      attributes: {'disabled': 'true'},
+                      [Component.text('Your plan')],
+                    ),
+                  ]),
+
+                  // Pro Card
+                  div(
+                    classes:
+                        'p-6 rounded-[2rem] border flex flex-col justify-between relative space-y-6 '
+                        '${selectedPlan == 'monthly' ? "border-indigo-500 bg-indigo-500/5 shadow-xl shadow-indigo-500/5" : "border-indigo-600 bg-indigo-650/5 shadow-xl shadow-indigo-600/5"}',
+                    [
+                      div(
+                        classes:
+                            'absolute top-6 right-6 px-3 py-1 rounded-full text-[9px] font-black uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30',
+                        [Component.text('Recommended')],
+                      ),
+
+                      div(classes: 'space-y-4', [
+                        div(classes: 'flex items-center gap-2', [
+                          span([], classes: 'w-2 h-6 bg-indigo-500 rounded-sm'),
+                          h4(classes: 'text-base font-black $textCls', [
+                            Component.text('Pro '),
+                            span(classes: 'text-xs', [Component.text('🔥')]),
+                          ]),
+                        ]),
+                        p(classes: 'text-xs text-zinc-500 leading-normal', [
+                          Component.text('Unlock full Hybrid permissions & tools 🔥'),
+                        ]),
+                        div(classes: 'flex items-baseline gap-2 py-2 border-y ${isDark ? "border-zinc-800" : "border-zinc-150"}', [
+                          span(classes: 'text-3xl font-black text-indigo-400', [Component.text('Hybrid')]),
+                          p(classes: 'text-[10px] text-zinc-500 leading-snug', [
+                            Component.text('Simultaneously hire and work with no friction'),
+                          ]),
+                        ]),
+                        div(classes: 'space-y-3 pt-2', [
+                          _perkRow('Dual Nyxian & Employer permissions', true),
+                          _perkRow('Priority search & listing exposure', true),
+                          _perkRow('Reduced service fee (1.5% platform cut)', true),
+                          _perkRow('Unlimited client/employer messages', true),
+                          _perkRow('Premium Hybrid profile badge', true),
+                        ]),
+                      ]),
+
+                      div(classes: 'space-y-4 pt-2', [
+                        if (errorMessage != null)
+                          p(classes: 'text-xs text-red-400 font-semibold text-center', [Component.text(errorMessage!)]),
+
+                        if (!hasWallet) ...[
+                          button(
+                            classes: 'w-full py-3.5 rounded-2xl text-xs font-bold text-center bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition-all border-0 cursor-pointer',
+                            events: {
+                              'click': (_) => s.handleConnectWallet(),
+                            },
+                            [Component.text('Connect Solana Wallet to Upgrade')],
+                          ),
+                        ] else ...[
+                          div(classes: 'p-3.5 rounded-xl border $cardCls flex items-center justify-between text-xs', [
+                            div([
+                              span(classes: 'text-zinc-500 block text-[10px]', [Component.text('Connected Wallet')]),
+                              span(classes: 'font-mono text-zinc-400 font-bold block mt-0.5', [
+                                Component.text(displayAddress.length > 12 ? '${displayAddress.substring(0, 6)}...${displayAddress.substring(displayAddress.length - 6)}' : displayAddress),
+                              ]),
+                            ]),
+                            div(classes: 'text-right', [
+                              span(classes: 'text-zinc-500 block text-[10px]', [Component.text('SOL Balance')]),
+                              span(classes: 'font-semibold text-zinc-350 block mt-0.5', [
+                                Component.text('${s.walletBalance.toStringAsFixed(4)} SOL'),
+                              ]),
+                            ]),
+                          ]),
+
+                          button(
+                            classes:
+                                'w-full py-3.5 rounded-2xl text-xs font-bold text-center text-white shadow-lg transition-all border-0 cursor-pointer '
+                                '${s.walletBalance < activeSolPrice ? "bg-zinc-800/80 text-zinc-555 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20"}',
+                            events: {
+                              'click': (_) async {
+                                if (s.walletBalance < activeSolPrice || isProcessing) return;
+                                setState(() {
+                                  isProcessing = true;
+                                  errorMessage = null;
+                                });
+                                try {
+                                  await s.processSubscriptionPayment(activeSolPrice, selectedPlan);
+                                } catch (e) {
+                                  setState(() {
+                                    errorMessage = e.toString();
+                                  });
+                                } finally {
+                                  setState(() {
+                                    isProcessing = false;
+                                  });
+                                }
+                              },
+                            },
+                            [
+                              if (isProcessing)
+                                lIcon('loader-2', cls: 'w-4 h-4 animate-spin mr-1.5 inline')
+                              else
+                                lIcon('star', cls: 'w-4 h-4 mr-1.5 inline'),
+                              Component.text(
+                                s.walletBalance < activeSolPrice
+                                    ? 'Insufficient SOL (Need ◎ ${activeSolPrice.toStringAsFixed(4)} SOL)'
+                                    : 'Upgrade now (◎ ${activeSolPrice.toStringAsFixed(4)} SOL)',
+                              ),
+                            ],
+                          ),
+                        ],
+                      ]),
+                    ],
+                  ),
+                ]),
+              ]);
+          },
+        ),
     ]);
   }
 
@@ -4010,7 +4214,7 @@ class _RewardsViewState extends State<_RewardsView> {
               classes: 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm hover:bg-amber-500/25 transition-colors cursor-pointer',
               events: {
                 'click': (_) => s.setState(() {
-                  s.profileSaveError = 'Hybrid PRO subscriptions are coming soon. Stay tuned!';
+                  s.profileView = ProfileView.subscription;
                 }),
               },
               [Component.text('🔓 Subscribe Now')],

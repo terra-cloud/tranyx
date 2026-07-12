@@ -1548,6 +1548,40 @@ class TransitRepository {
               .toList();
         });
   }
+
+  Future<void> updatePremiumStatus({
+    required String uid,
+    required bool isPremium,
+    required DateTime? premiumUntil,
+  }) async {
+    await _firestore.collection('users').doc(uid).update({
+      'isPremium': isPremium,
+      'premiumUntil': premiumUntil?.millisecondsSinceEpoch,
+      'accountType': isPremium ? 'hybrid' : 'nyxian',
+    });
+  }
+
+  Future<void> checkAndExpireSubscription(String uid) async {
+    try {
+      final user = await getUser(uid);
+      if (user != null && user.isPremium) {
+        if (user.premiumUntil != null && user.premiumUntil!.isBefore(DateTime.now())) {
+          await updatePremiumStatus(
+            uid: uid,
+            isPremium: false,
+            premiumUntil: null,
+          );
+          await createNotification(
+            uid: uid,
+            title: 'Subscription Expired',
+            message: 'Your Premium Hybrid subscription has expired. Renew now to continue enjoying PRO features!',
+          );
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
 }
 
 final transitRepositoryProvider = Provider<TransitRepository>((ref) {
