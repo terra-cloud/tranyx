@@ -1204,6 +1204,7 @@ class NewsPost {
   final String? actionUrl; // deeplink or universal link or web link
   final bool isActive;
   final DateTime createdAt;
+  final DateTime? publishAt;
 
   // Embedded button configuration
   final String? buttonText;
@@ -1231,6 +1232,7 @@ class NewsPost {
     this.actionUrl,
     this.isActive = true,
     required this.createdAt,
+    this.publishAt,
     this.buttonText,
     this.buttonX,
     this.buttonY,
@@ -1257,6 +1259,7 @@ class NewsPost {
     'actionUrl': actionUrl,
     'isActive': isActive,
     'createdAt': createdAt.millisecondsSinceEpoch,
+    'publishAt': publishAt?.millisecondsSinceEpoch,
     'buttonText': buttonText,
     'buttonX': buttonX,
     'buttonY': buttonY,
@@ -1273,6 +1276,20 @@ class NewsPost {
   };
 
   factory NewsPost.fromMap(Map<String, dynamic> map, String id) {
+    DateTime parseDate(dynamic val) {
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      if (val is String) return DateTime.tryParse(val) ?? DateTime.now();
+      if (val != null) {
+        try {
+          return (val as dynamic).toDate() as DateTime;
+        } catch (_) {}
+        try {
+          return DateTime.fromMillisecondsSinceEpoch((val as num).toInt());
+        } catch (_) {}
+      }
+      return DateTime.now();
+    }
+
     return NewsPost(
       id: id,
       title: map['title'] as String? ?? '',
@@ -1283,7 +1300,8 @@ class NewsPost {
       actionType: map['actionType'] as String? ?? 'none',
       actionUrl: map['actionUrl'] as String?,
       isActive: map['isActive'] as bool? ?? true,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int? ?? 0),
+      createdAt: parseDate(map['createdAt']),
+      publishAt: map['publishAt'] != null ? parseDate(map['publishAt']) : null,
       buttonText: map['buttonText'] as String?,
       buttonX: (map['buttonX'] as num?)?.toDouble(),
       buttonY: (map['buttonY'] as num?)?.toDouble(),

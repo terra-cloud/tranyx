@@ -72,7 +72,7 @@ class RewardQuest {
         limit: 'Once'),
     RewardQuest(
         id: 'employer_complete_transaction',
-        title: 'Complete Transaction',
+        title: 'Complete transaction as employer',
         category: 'Services',
         points: 500,
         limit: 'Unlimited',
@@ -93,7 +93,7 @@ class RewardQuest {
         limit: 'Once'),
     RewardQuest(
         id: 'jobseeker_complete_transaction',
-        title: 'Complete Transaction',
+        title: 'Complete transaction as Nyxian',
         category: 'Services',
         points: 500,
         limit: 'Unlimited',
@@ -108,7 +108,7 @@ class RewardQuest {
         limit: 'Unlimited'),
     RewardQuest(
         id: 'host_complete_transaction',
-        title: 'Complete Transaction',
+        title: 'Complete Transaction as a Lessor/Host',
         category: 'Rental',
         points: 500,
         limit: 'Unlimited'),
@@ -122,7 +122,7 @@ class RewardQuest {
         limit: 'Unlimited'),
     RewardQuest(
         id: 'client_complete_transaction',
-        title: 'Complete Transaction',
+        title: 'Complete transaction as a Lessee/Renter',
         category: 'Rental',
         points: 500,
         limit: 'Unlimited'),

@@ -9,6 +9,7 @@ export 'package:shared/shared.dart' show AccountType, EmployerType, UserProfile;
 import 'package:tranyx_mobile/flavors.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
+import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 
 final firebaseAuthProvider = Provider<FirebaseAuth>((ref) {
   return FirebaseAuth.instance;
@@ -31,18 +32,23 @@ final userProvider = Provider<User?>((ref) {
   return ref.watch(authStateChangesProvider).value;
 });
 
-final userProfileProvider = FutureProvider<UserProfile?>((ref) async {
+final userProfileProvider = StreamProvider<UserProfile?>((ref) {
   final user = ref.watch(userProvider);
-  if (user == null) return null;
+  if (user == null) return Stream.value(null);
 
-  final doc = await ref
+  // Silently run onboarding quests check in the background when the profile stream is subscribed
+  final repo = ref.read(transitRepositoryProvider);
+  repo.checkAndAwardOnboardingQuests(user.uid);
+
+  return ref
       .watch(firestoreProvider)
       .collection('users')
       .doc(user.uid)
-      .get();
-  if (!doc.exists) return null;
-
-  return UserProfile.fromMap(user.uid, doc.data()!);
+      .snapshots()
+      .map((doc) {
+        if (!doc.exists || doc.data() == null) return null;
+        return UserProfile.fromMap(user.uid, doc.data()!);
+      });
 });
 
 class AuthController {
