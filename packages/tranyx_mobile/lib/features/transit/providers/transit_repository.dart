@@ -1163,6 +1163,12 @@ class TransitRepository {
         final success = await awardPointsIfEligible(uid, 'connect_solana_wallet');
         if (success) newlyAwarded = true;
       }
+
+      // 6. Subscribe to Hybrid PRO (isPremium == true)
+      if (userMap['isPremium'] == true && !earnedRewards.contains('subscribe_hybrid_pro')) {
+        final success = await awardPointsIfEligible(uid, 'subscribe_hybrid_pro');
+        if (success) newlyAwarded = true;
+      }
     } catch (e) {
       print('checkAndAwardOnboardingQuests error: $e');
     }

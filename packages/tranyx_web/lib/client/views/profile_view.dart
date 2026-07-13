@@ -4165,6 +4165,8 @@ class _RewardsViewState extends State<_RewardsView> {
       } else if (q.id == 'register_account' || q.id == 'verify_account' ||
                  q.id == 'complete_profile_trust' || q.id == 'connect_solana_wallet') {
         onTap = () => s.setState(() => s.profileView = ProfileView.trust);
+      } else if (q.id == 'subscribe_hybrid_pro') {
+        onTap = () => s.setState(() => s.profileView = ProfileView.main);
       } else if (q.id == 'add_skills_bio') {
         onTap = () => s.setState(() => s.profileView = ProfileView.professional);
       } else if (q.category == 'Services') {

@@ -3577,6 +3577,12 @@ class FirestoreService {
         final success = await awardPointsIfEligible(uid, 'deposit_any_amount');
         if (success) newlyAwarded = true;
       }
+
+      // 7. Subscribe to Hybrid PRO (isPremium == true)
+      if (userMap['isPremium'] == true && !earnedRewards.contains('subscribe_hybrid_pro')) {
+        final success = await awardPointsIfEligible(uid, 'subscribe_hybrid_pro');
+        if (success) newlyAwarded = true;
+      }
     } catch (e) {
       print('checkAndAwardOnboardingQuests error: $e');
     }

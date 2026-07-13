@@ -377,6 +377,8 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
         ref.read(profileViewProvider.notifier).state = 'main';
       } else if (q.id == 'deposit_any_amount' || q.id == 'connect_solana_wallet') {
         ref.read(profileViewProvider.notifier).state = 'payment';
+      } else if (q.id == 'subscribe_hybrid_pro') {
+        ref.read(profileViewProvider.notifier).state = 'subscription';
       }
     }
   }
