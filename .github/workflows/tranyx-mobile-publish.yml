@@ -56,28 +56,34 @@ jobs:
 
       - name: Setup Android Keystore
         run: |
-          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
-            echo "Decoding Android Keystore..."
-            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > packages/tranyx_mobile/android/app/tranyx-upload.jks
-            
-            # Create key.properties referencing the decoded keystore
-            cat <<EOF > packages/tranyx_mobile/android/key.properties
-            storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'terra2026' }}
-            keyPassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'terra2026' }}
-            keyAlias=${{ secrets.ANDROID_KEY_ALIAS || 'tranyx-upload' }}
-            storeFile=tranyx-upload.jks
-            EOF
-            echo "Android keystore configured successfully."
-          else
-            echo "⚠️ ANDROID_KEYSTORE_BASE64 secret not found. Attempting to build with a mock keystore (release build will be self-signed)."
-            keytool -genkeypair -v -keystore packages/tranyx_mobile/android/app/tranyx-upload.jks -alias tranyx-upload -keyalg RSA -keysize 2048 -validity 10000 -storepass terra2026 -keypass terra2026 -dname "CN=Tranyx, O=Terra, C=US"
-            cat <<EOF > packages/tranyx_mobile/android/key.properties
-            storePassword=terra2026
-            keyPassword=terra2026
-            keyAlias=tranyx-upload
-            storeFile=tranyx-upload.jks
-            EOF
+          # Ensure target directory exists
+          mkdir -p ~/.signing-keys
+          
+          # Verify all required secrets are present
+          if [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] || [ -z "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ] || [ -z "${{ secrets.ANDROID_KEYSTORE_ALIAS }}" ]; then
+            echo "❌ Error: One or more required signing secrets are missing:"
+            [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] && echo "  - ANDROID_KEYSTORE_BASE64 is missing"
+            [ -z "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ] && echo "  - ANDROID_KEYSTORE_PASSWORD is missing"
+            [ -z "${{ secrets.ANDROID_KEYSTORE_ALIAS }}" ] && echo "  - ANDROID_KEYSTORE_ALIAS is missing"
+            exit 1
           fi
+
+          # Decode the keystore if it doesn't exist yet
+          if [ -f "$HOME/.signing-keys/tranyx-upload.jks" ]; then
+            echo "Keystore already exists at ~/.signing-keys/tranyx-upload.jks. Proceeding."
+          else
+            echo "Decoding Android Keystore from secrets..."
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > ~/.signing-keys/tranyx-upload.jks
+          fi
+
+          # Create key.properties referencing the keystore path
+          cat <<EOF > packages/tranyx_mobile/android/key.properties
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+          storeFile=~/.signing-keys/tranyx-upload.jks
+          EOF
+          echo "Android key.properties configured successfully."
 
       - name: Build APK
         working-directory: packages/tranyx_mobile
