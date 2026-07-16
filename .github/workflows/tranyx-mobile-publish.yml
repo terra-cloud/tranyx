@@ -1,0 +1,156 @@
+name: Build and Publish Mobile App to Solana dApp Store
+
+on:
+  push:
+    branches:
+      - main
+      - uat
+      - develop
+    paths:
+      - 'packages/tranyx_mobile/**'
+      - '.github/workflows/tranyx-mobile-publish.yml'
+
+jobs:
+  build_and_publish:
+    name: Build and Publish Mobile
+    runs-on: ubuntu-latest
+    env:
+      FLAVOR: ''
+      APK_PATH: ''
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set Flavor Environment
+        run: |
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "FLAVOR=production" >> $GITHUB_ENV
+          elif [[ "${{ github.ref_name }}" == "uat" ]]; then
+            echo "FLAVOR=uat" >> $GITHUB_ENV
+          elif [[ "${{ github.ref_name }}" == "develop" ]]; then
+            echo "FLAVOR=dev" >> $GITHUB_ENV
+          fi
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Workspace Dependencies
+        run: flutter pub get
+
+      - name: Generate Env Config
+        run: dart run shared:generate_env
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Setup Android Keystore
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "Decoding Android Keystore..."
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > packages/tranyx_mobile/android/app/tranyx-upload.jks
+            
+            # Create key.properties referencing the decoded keystore
+            cat <<EOF > packages/tranyx_mobile/android/key.properties
+            storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'terra2026' }}
+            keyPassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'terra2026' }}
+            keyAlias=${{ secrets.ANDROID_KEY_ALIAS || 'tranyx-upload' }}
+            storeFile=tranyx-upload.jks
+            EOF
+            echo "Android keystore configured successfully."
+          else
+            echo "⚠️ ANDROID_KEYSTORE_BASE64 secret not found. Attempting to build with a mock keystore (release build will be self-signed)."
+            keytool -genkeypair -v -keystore packages/tranyx_mobile/android/app/tranyx-upload.jks -alias tranyx-upload -keyalg RSA -keysize 2048 -validity 10000 -storepass terra2026 -keypass terra2026 -dname "CN=Tranyx, O=Terra, C=US"
+            cat <<EOF > packages/tranyx_mobile/android/key.properties
+            storePassword=terra2026
+            keyPassword=terra2026
+            keyAlias=tranyx-upload
+            storeFile=tranyx-upload.jks
+            EOF
+          fi
+
+      - name: Build APK
+        working-directory: packages/tranyx_mobile
+        run: |
+          flutter build apk --release --flavor ${{ env.FLAVOR }} --dart-define=FLAVOR=${{ env.FLAVOR }} --obfuscate --split-debug-info=build/app/outputs/symbols
+
+      - name: Locate APK
+        run: |
+          APK_PATH=$(find packages/tranyx_mobile/build/app/outputs/flutter-apk -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "❌ Error: Could not locate built APK."
+            exit 1
+          fi
+          echo "APK_PATH=$APK_PATH" >> $GITHUB_ENV
+          echo "Built APK located at: $APK_PATH"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Solana Keypair
+        run: |
+          node -e '
+            const fs = require("fs");
+            const secret = process.env.SOLANA_KEYPAIR_JSON;
+            if (!secret) {
+              console.error("❌ Error: SOLANA_KEYPAIR_JSON secret is not set.");
+              process.exit(1);
+            }
+            if (secret.trim().startsWith("[")) {
+              fs.writeFileSync("keypair.json", secret.trim());
+              console.log("Successfully wrote JSON keypair array to keypair.json");
+            } else {
+              // Decode Base58 string to byte array
+              const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+              const bytes = [0];
+              const str = secret.trim();
+              for (let i = 0; i < str.length; i++) {
+                const char = str[i];
+                let value = ALPHABET.indexOf(char);
+                if (value === -1) {
+                  console.error("Invalid Base58 character: " + char);
+                  process.exit(1);
+                }
+                for (let j = 0; j < bytes.length; j++) {
+                  value += bytes[j] * 58;
+                  bytes[j] = value & 0xff;
+                  value = value >> 8;
+                }
+                while (value > 0) {
+                  bytes.push(value & 0xff);
+                  value = value >> 8;
+                }
+              }
+              for (let i = 0; str.charAt(i) === "1" && i < str.length - 1; i++) {
+                bytes.push(0);
+              }
+              const result = Buffer.from(bytes.reverse());
+              fs.writeFileSync("keypair.json", JSON.stringify(Array.from(result)));
+              console.log("Successfully decoded Base58 keypair and saved to keypair.json");
+            }
+          '
+        env:
+          SOLANA_KEYPAIR_JSON: ${{ secrets.SOLANA_KEYPAIR_JSON }}
+
+      - name: Install Solana dApp Store CLI
+        run: npm install -g @solana-mobile/dapp-store-cli
+
+      - name: Publish to Solana dApp Store
+        env:
+          DAPP_STORE_API_KEY: ${{ secrets.DAPP_STORE_API_KEY }}
+        run: |
+          dapp-store --apk-file ${{ env.APK_PATH }} \
+                     --keypair ./keypair.json \
+                     --whats-new "Automated release for flavor ${{ env.FLAVOR }} - ${{ github.event.head_commit.message || github.sha }}"
