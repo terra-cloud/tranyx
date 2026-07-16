@@ -101,11 +101,13 @@ jobs:
           echo "Built APK located at: $APK_PATH"
 
       - name: Setup Node.js
+        if: env.FLAVOR == 'production'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Setup Solana Keypair
+        if: env.FLAVOR == 'production'
         run: |
           node -e '
             const fs = require("fs");
@@ -151,9 +153,11 @@ jobs:
           SOLANA_KEYPAIR_JSON: ${{ secrets.SOLANA_KEYPAIR_JSON }}
 
       - name: Install Solana dApp Store CLI
+        if: env.FLAVOR == 'production'
         run: npm install -g @solana-mobile/dapp-store-cli
 
       - name: Publish to Solana dApp Store
+        if: env.FLAVOR == 'production'
         env:
           DAPP_STORE_API_KEY: ${{ secrets.DAPP_STORE_API_KEY }}
         run: |
