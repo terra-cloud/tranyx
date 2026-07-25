@@ -557,12 +557,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             var keyBytes = ref.read(phantomSessionPrivateKeyProvider);
             var walletType = ref.read(connectingWalletTypeProvider);
 
-            if (keyBytes == null) {
-              keyBytes = await SecureStorageHelper.getPhantomSessionKey();
-            }
-            if (walletType == null) {
-              walletType = await SecureStorageHelper.getConnectingWalletType();
-            }
+            keyBytes ??= await SecureStorageHelper.getPhantomSessionKey();
+            walletType ??= await SecureStorageHelper.getConnectingWalletType();
 
             walletType ??= 'phantom';
 
@@ -766,12 +762,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             var keyBytes = ref.read(phantomSessionPrivateKeyProvider);
             var walletType = ref.read(connectingWalletTypeProvider);
 
-            if (keyBytes == null) {
-              keyBytes = await SecureStorageHelper.getPhantomSessionKey();
-            }
-            if (walletType == null) {
-              walletType = await SecureStorageHelper.getConnectingWalletType();
-            }
+            keyBytes ??= await SecureStorageHelper.getPhantomSessionKey();
+            walletType ??= await SecureStorageHelper.getConnectingWalletType();
 
             walletType ??= 'phantom';
 

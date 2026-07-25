@@ -68,7 +68,9 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
         if (promo.isSingleUsePerUser && promo.usedBy.contains(user.uid)) return false;
         if (promo.eligibleUserUids != null &&
             promo.eligibleUserUids!.isNotEmpty &&
-            !promo.eligibleUserUids!.contains(user.uid)) return false;
+            !promo.eligibleUserUids!.contains(user.uid)) {
+          return false;
+        }
         if (promo.onlyForSubscribed && !user.isPremium) return false;
         if (promo.onlyForHybrid && user.accountType != AccountType.hybrid) return false;
         if (promo.applicableRoles.isNotEmpty && !promo.applicableRoles.contains('renter')) return false;
@@ -108,7 +110,7 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
         setState(() {
           _appliedPromo = bestPromo;
           _promoController.text = bestPromo!.code;
-          _promoFeedback = 'Auto-applied promo: ${bestPromo!.code}';
+          _promoFeedback = 'Auto-applied promo: ${bestPromo.code}';
         });
       }
     } catch (e) {
@@ -229,23 +231,31 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
 
   double _getRate(String durationType) {
     if (widget.isProperty) {
-      if (durationType == 'daily')
+      if (durationType == 'daily') {
         return (widget.item['priceDaily'] as num?)?.toDouble() ?? 0.0;
-      if (durationType == 'weekly')
+      }
+      if (durationType == 'weekly') {
         return (widget.item['priceWeekly'] as num?)?.toDouble() ?? 0.0;
-      if (durationType == 'monthly')
+      }
+      if (durationType == 'monthly') {
         return (widget.item['priceMonthly'] as num?)?.toDouble() ?? 0.0;
-      if (durationType == 'yearly')
+      }
+      if (durationType == 'yearly') {
         return ((widget.item['priceMonthly'] as num?)?.toDouble() ?? 0.0) * 12;
+      }
     } else {
-      if (durationType == '12h')
+      if (durationType == '12h') {
         return (widget.item['price12h'] as num?)?.toDouble() ?? 0.0;
-      if (durationType == 'daily')
+      }
+      if (durationType == 'daily') {
         return (widget.item['priceDaily'] as num?)?.toDouble() ?? 0.0;
-      if (durationType == 'weekly')
+      }
+      if (durationType == 'weekly') {
         return (widget.item['priceWeekly'] as num?)?.toDouble() ?? 0.0;
-      if (durationType == 'monthly')
+      }
+      if (durationType == 'monthly') {
         return (widget.item['priceMonthly'] as num?)?.toDouble() ?? 0.0;
+      }
     }
     return 0.0;
   }
@@ -373,7 +383,7 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: _selectedDurationType,
+                      initialValue: _selectedDurationType,
                       decoration: InputDecoration(
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),

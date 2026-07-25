@@ -74,6 +74,28 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       darkTheme: _buildTheme(Brightness.dark, context),
       themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
       builder: (context, child) {
+        ErrorWidget.builder = (FlutterErrorDetails details) {
+          return Scaffold(
+            backgroundColor: const Color(0xFF0F172A),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.warning_amber_rounded, color: Colors.amberAccent, size: 48),
+                    SizedBox(height: 16),
+                    Text(
+                      "A temporary interface error occurred.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        };
         final withBanner = _flavorBanner(child: child!, show: kDebugMode);
         if (_isLocked) {
           return Stack(

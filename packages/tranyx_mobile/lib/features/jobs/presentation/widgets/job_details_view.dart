@@ -1398,8 +1398,9 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                                       color: Colors.white,
                                     ),
                                     onPressed: () async {
-                                      if (newQuestionText.trim().isEmpty)
+                                      if (newQuestionText.trim().isEmpty) {
                                         return;
+                                      }
                                       if (user == null) return;
 
                                       final question = JobQuestion(

@@ -5,6 +5,7 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 
 import 'package:shared/shared.dart';
 
@@ -70,7 +71,153 @@ String get _firestoreBase =>
     'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents';
 
 // ── Generic HTTP helpers ──────────────────────────────────────────────────────
-final _client = http.Client();
+class SecureFirebaseHttpClient {
+  final http.Client _client;
+  final Duration requestTimeout;
+
+  // Constructor Dependency Injection (Safe against runtime mutation)
+  SecureFirebaseHttpClient({
+    http.Client? client,
+    this.requestTimeout = const Duration(seconds: 15),
+  }) : _client = client ?? mockClient ?? http.Client();
+
+  // Test-only setter using annotation
+  @visibleForTesting
+  static http.Client? mockClient;
+
+  Future<Map<String, dynamic>> secureRequest(
+    String url,
+    Future<http.Response> Function(http.Client client) requestBuilder,
+  ) async {
+    // 1. Enforce HTTPS Protocol check
+    final uri = Uri.parse(url);
+    if (uri.scheme != 'https') {
+      throw SecurityException('Insecure connection scheme prohibited. HTTPS required.');
+    }
+
+    try {
+      final response = await requestBuilder(_client).timeout(requestTimeout);
+      return _parseResponse(response);
+    } on http.ClientException catch (e) {
+      throw FirebaseException('Network error: ${e.message}');
+    }
+  }
+
+  Map<String, dynamic> _parseResponse(http.Response response) {
+    final bodyText = response.body.trim();
+    dynamic decodedJson;
+
+    // 2. Safe JSON Decoding without exposing raw HTML/non-JSON bodies
+    if (bodyText.isNotEmpty) {
+      final contentType = response.headers['content-type'] ?? '';
+      if (contentType.contains('application/json')) {
+        try {
+          decodedJson = jsonDecode(bodyText);
+        } catch (e) {
+          throw FirebaseException('Failed to parse server response securely.');
+        }
+      } else {
+        // Non-JSON response (e.g., HTML Gateway error)
+        throw FirebaseException('Invalid response format received from server.', response.statusCode);
+      }
+    } else {
+      decodedJson = <String, dynamic>{};
+    }
+
+    if (response.statusCode >= 400) {
+      final err = (decodedJson is Map) ? (decodedJson['error'] as Map? ?? {}) : {};
+      throw FirebaseException(err['message'] as String? ?? 'Request failed', response.statusCode);
+    }
+
+    if (decodedJson is! Map<String, dynamic>) {
+      throw FirebaseException('Malformed server response.', response.statusCode);
+    }
+
+    return decodedJson;
+  }
+}
+
+class SecurityException implements Exception {
+  final String message;
+  SecurityException(this.message);
+  @override
+  String toString() => 'SecurityException: $message';
+}
+
+final _secureClient = SecureFirebaseHttpClient();
+
+http.Client get _client => _secureClient._client;
+
+Future<http.Response> _rawRequestWithRetry(
+  String url,
+  String? initialToken,
+  Future<String?> Function()? onTokenRefresh,
+  Future<http.Response> Function(String? token) requestBuilder,
+) async {
+  var token = initialToken;
+  final uri = Uri.parse(url);
+  if (uri.scheme != 'https') {
+    throw SecurityException('Insecure connection scheme prohibited. HTTPS required.');
+  }
+  var req = await requestBuilder(token).timeout(_secureClient.requestTimeout);
+
+  if ((req.statusCode == 401 || req.statusCode == 403) && onTokenRefresh != null) {
+    try {
+      final newToken = await onTokenRefresh();
+      if (newToken != null) {
+        token = newToken;
+        req = await requestBuilder(token).timeout(_secureClient.requestTimeout);
+      }
+    } catch (_) {
+      // Ignore refresh errors and let the original status code propagate
+    }
+  }
+  return req;
+}
+
+void _handleGlobalSessionExpiration(FirebaseException e) {
+  final lowerMsg = e.message.toLowerCase();
+  if (e.statusCode == 401 || lowerMsg.contains('not logged in') || lowerMsg.contains('id-token-expired')) {
+    final cb = onSessionExpiredGlobal;
+    if (cb != null) cb();
+  }
+}
+
+Future<Map<String, dynamic>> _requestWithRetry(
+  String url,
+  String? initialToken,
+  Future<String?> Function()? onTokenRefresh,
+  Future<http.Response> Function(String? token) requestBuilder,
+) async {
+  var token = initialToken;
+  
+  Future<Map<String, dynamic>> makeRequest() async {
+    return await _secureClient.secureRequest(url, (client) => requestBuilder(token));
+  }
+
+  try {
+    return await makeRequest();
+  } on FirebaseException catch (e) {
+    if ((e.statusCode == 401 || e.statusCode == 403) && onTokenRefresh != null) {
+      try {
+        final newToken = await onTokenRefresh();
+        if (newToken != null) {
+          token = newToken;
+          try {
+            return await makeRequest();
+          } on FirebaseException catch (retryErr) {
+            _handleGlobalSessionExpiration(retryErr);
+            rethrow;
+          }
+        }
+      } catch (_) {
+        // Ignore refresh errors
+      }
+    }
+    _handleGlobalSessionExpiration(e);
+    rethrow;
+  }
+}
 
 Future<Map<String, dynamic>> _post(
   String url,
@@ -84,48 +231,6 @@ Future<Map<String, dynamic>> _post(
     return _client.post(Uri.parse(url), headers: headers, body: jsonEncode(body));
   });
 }
-
-Future<http.Response> _rawRequestWithRetry(
-  String url,
-  String? initialToken,
-  Future<String?> Function()? onTokenRefresh,
-  Future<http.Response> Function(String? token) requestBuilder,
-) async {
-  var token = initialToken;
-  var req = await requestBuilder(token);
-
-  if ((req.statusCode == 401 || req.statusCode == 403) && onTokenRefresh != null) {
-    try {
-      final newToken = await onTokenRefresh();
-      if (newToken != null) {
-        token = newToken;
-        req = await requestBuilder(token);
-      }
-    } catch (_) {
-      // Ignore refresh errors and let the original status code propagate
-    }
-  }
-  return req;
-}
-
-Future<Map<String, dynamic>> _requestWithRetry(
-  String url,
-  String? initialToken,
-  Future<String?> Function()? onTokenRefresh,
-  Future<http.Response> Function(String? token) requestBuilder,
-) async {
-  final req = await _rawRequestWithRetry(url, initialToken, onTokenRefresh, requestBuilder);
-
-  final bodyText = req.body.trim();
-  final data = bodyText.isNotEmpty ? jsonDecode(bodyText) : <String, dynamic>{};
-
-  if (req.statusCode >= 400) {
-    final err = (data is Map) ? (data['error'] as Map? ?? {}) : {};
-    throw FirebaseException(err['message'] as String? ?? 'Request failed', req.statusCode);
-  }
-  return data as Map<String, dynamic>;
-}
-
 
 Future<Map<String, dynamic>> _get(String url, {String? idToken, Future<String?> Function()? onTokenRefresh}) async {
   return _requestWithRetry(url, idToken, onTokenRefresh, (token) {
@@ -184,7 +289,43 @@ class AuthResult {
   });
 }
 
+class SecureTokenRefreshManager {
+  final Future<String> Function(String) refreshIdTokenCallback;
+  Future<String>? _activeRefreshFuture;
+
+  SecureTokenRefreshManager(this.refreshIdTokenCallback);
+
+  Future<String> refresh(String refreshToken) {
+    if (_activeRefreshFuture != null) {
+      return _activeRefreshFuture!;
+    }
+
+    // Set a strict timeout guard to prevent permanent deadlocks
+    _activeRefreshFuture = refreshIdTokenCallback(refreshToken)
+        .timeout(const Duration(seconds: 10))
+        .catchError((Object error) {
+          // Reset future so subsequent attempts can retry
+          _activeRefreshFuture = null;
+          throw error;
+        })
+        .whenComplete(() {
+          _activeRefreshFuture = null; // Clean up active state
+        });
+
+    return _activeRefreshFuture!;
+  }
+}
+
 class FirebaseAuthService {
+  late final SecureTokenRefreshManager _refreshManager = SecureTokenRefreshManager((token) async {
+    final url = 'https://securetoken.googleapis.com/v1/token?key=${currentFirebaseConfig.apiKey}';
+    final res = await _post(url, {
+      'grant_type': 'refresh_token',
+      'refresh_token': token,
+    });
+    return res['id_token'] as String;
+  });
+
   Future<AuthResult> signIn(String email, String password) async {
     final res = await _post(
       '$_authBase:signInWithPassword?key=${currentFirebaseConfig.apiKey}',
@@ -247,24 +388,7 @@ class FirebaseAuthService {
   }
 
   Future<String> refreshIdToken(String refreshToken) async {
-    final url = 'https://securetoken.googleapis.com/v1/token?key=${currentFirebaseConfig.apiKey}';
-    final response = await http.post(
-      Uri.parse(url),
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: {
-        'grant_type': 'refresh_token',
-        'refresh_token': refreshToken,
-      },
-    );
-
-    final bodyText = response.body.trim();
-    final data = bodyText.isNotEmpty ? jsonDecode(bodyText) : <String, dynamic>{};
-
-    if (response.statusCode >= 400) {
-      final err = (data is Map) ? (data['error'] as Map? ?? {}) : {};
-      throw FirebaseException(err['message'] as String? ?? 'Token refresh failed', response.statusCode);
-    }
-    return data['id_token'] as String;
+    return _refreshManager.refresh(refreshToken);
   }
 
   /// Lookup a user by idToken to get uid/email/displayName
@@ -1618,8 +1742,7 @@ class FirestoreService {
       'type': 'payment',
       'amount': totalRequired,
       'title': 'Vehicle Booking Request',
-      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)' +
-          (promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''),
+      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)${promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''}',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -1653,7 +1776,7 @@ class FirestoreService {
       'deliveryLng': deliveryLng,
       'startDate': startDate,
       'endDate': endDate,
-      if (promoCode != null) 'promoCode': promoCode,
+      'promoCode': ?promoCode,
       if (promoCode != null) 'discountAmount': discount,
     };
     await setDocument('rental_requests/$requestId', requestDoc);
@@ -2703,8 +2826,7 @@ class FirestoreService {
       'type': 'payment',
       'amount': totalRequired,
       'title': 'Property Booking Request',
-      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)' +
-          (promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''),
+      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)${promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''}',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -2735,7 +2857,7 @@ class FirestoreService {
       'startDate': startDate,
       'endDate': endDate,
       'licenseNumber': licenseNumber ?? '',
-      if (promoCode != null) 'promoCode': promoCode,
+      'promoCode': ?promoCode,
       if (promoCode != null) 'discountAmount': discount,
     };
     await setDocument('property_requests/$requestId', requestDoc);
@@ -3596,13 +3718,52 @@ class GeminiService {
 
   GeminiService(FirebaseConfig config, {String? idToken, this.onTokenRefresh});
 
+  Future<http.Response> _postWithCorsFallback({
+    required String directUrl,
+    required Map<String, String> headers,
+    required String body,
+  }) async {
+    final encoded = Uri.encodeComponent(directUrl);
+    final urlsToTry = [
+      'https://corsproxy.io/?url=$encoded',
+      'https://api.allorigins.win/raw?url=$encoded',
+      directUrl,
+    ];
+
+    http.Response? lastResponse;
+    Object? lastError;
+
+    for (final url in urlsToTry) {
+      try {
+        final response = await http.post(
+          Uri.parse(url),
+          headers: headers,
+          body: body,
+        );
+
+        lastResponse = response;
+
+        if (response.statusCode == 403 && response.body.contains('corsfix')) {
+          continue;
+        }
+
+        if (response.statusCode == 200) {
+          return response;
+        }
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    return lastResponse ?? http.Response('Request failed: $lastError', 500);
+  }
+
   Future<String> _generate(String prompt, {String? systemPrompt}) async {
     final String accountId = Env.get('CLOUDFLARE_ACCOUNT_ID');
     final String apiToken = Env.get('CLOUDFLARE_API_TOKEN');
     const String model = '@cf/meta/llama-3.2-3b-instruct';
 
     final directUrl = 'https://api.cloudflare.com/client/v4/accounts/$accountId/ai/run/$model';
-    final url = 'https://proxy.corsfix.com/?url=${Uri.encodeComponent(directUrl)}';
 
     final messages = <Map<String, String>>[];
     if (systemPrompt != null) {
@@ -3611,8 +3772,8 @@ class GeminiService {
     messages.add({'role': 'user', 'content': prompt});
 
     try {
-      final response = await http.post(
-        Uri.parse(url),
+      final response = await _postWithCorsFallback(
+        directUrl: directUrl,
         headers: {
           'Authorization': 'Bearer $apiToken',
           'Content-Type': 'application/json',
@@ -3737,7 +3898,6 @@ class GeminiService {
     const String model = '@cf/meta/llama-3.2-3b-instruct';
 
     final directUrl = 'https://api.cloudflare.com/client/v4/accounts/$accountId/ai/run/$model';
-    final url = 'https://proxy.corsfix.com/?url=${Uri.encodeComponent(directUrl)}';
 
     final systemPrompt = 'You are Nyx, the official AI support assistant for the Tranyx platform—a localized service bridging and asset rental platform for the Philippine market.\n\n'
         'OFFICIAL LINKS & DOMAINS:\n'
@@ -3778,8 +3938,8 @@ class GeminiService {
     ];
 
     try {
-      final response = await http.post(
-        Uri.parse(url),
+      final response = await _postWithCorsFallback(
+        directUrl: directUrl,
         headers: {
           'Authorization': 'Bearer $apiToken',
           'Content-Type': 'application/json',

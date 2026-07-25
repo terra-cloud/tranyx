@@ -1,22 +1,17 @@
-import 'dart:math';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
-import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:reown_appkit/reown_appkit.dart';
-import 'package:tranyx_mobile/flavors.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
-import 'package:bs58/bs58.dart';
 
 final rawUserDocProvider =
     StreamProvider.autoDispose<DocumentSnapshot<Map<String, dynamic>>?>((ref) {

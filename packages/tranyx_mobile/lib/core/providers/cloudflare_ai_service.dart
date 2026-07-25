@@ -14,17 +14,59 @@ class CloudflareAIService {
     this.model = '@cf/meta/llama-3.2-3b-instruct',
   });
 
-  String _buildUrl() {
-    final directUrl =
-        'https://api.cloudflare.com/client/v4/accounts/$accountId/ai/run/$model';
+  Future<http.Response> _postWithCorsFallback({
+    required String directUrl,
+    required Map<String, String> headers,
+    required String body,
+  }) async {
+    final List<String> urlsToTry = [];
+    final encoded = Uri.encodeComponent(directUrl);
+
     if (kIsWeb) {
-      return 'https://proxy.corsfix.com/?url=${Uri.encodeComponent(directUrl)}';
+      urlsToTry.addAll([
+        'https://corsproxy.io/?url=$encoded',
+        'https://api.allorigins.win/raw?url=$encoded',
+        directUrl,
+      ]);
+    } else {
+      urlsToTry.add(directUrl);
+      urlsToTry.add('https://corsproxy.io/?url=$encoded');
     }
-    return directUrl;
+
+    http.Response? lastResponse;
+    Object? lastError;
+
+    for (final url in urlsToTry) {
+      try {
+        final response = await http.post(
+          Uri.parse(url),
+          headers: headers,
+          body: body,
+        ).timeout(const Duration(seconds: 15));
+
+        lastResponse = response;
+
+        // If proxy returned 403 or corsfix error, try next fallback proxy
+        if (response.statusCode == 403 && response.body.contains('corsfix')) {
+          debugPrint('CloudflareAIService: CORS proxy $url failed. Trying fallback...');
+          continue;
+        }
+
+        if (response.statusCode == 200) {
+          return response;
+        }
+      } catch (e) {
+        debugPrint('CloudflareAIService: Request failed on $url: $e');
+        lastError = e;
+      }
+    }
+
+    return lastResponse ?? http.Response('Request failed: $lastError', 500);
   }
 
   Future<String> _runModel(String prompt, {String? systemPrompt}) async {
-    final url = _buildUrl();
+    final directUrl =
+        'https://api.cloudflare.com/client/v4/accounts/$accountId/ai/run/$model';
 
     final messages = <Map<String, String>>[];
     if (systemPrompt != null) {
@@ -33,8 +75,8 @@ class CloudflareAIService {
     messages.add({'role': 'user', 'content': prompt});
 
     try {
-      final response = await http.post(
-        Uri.parse(url),
+      final response = await _postWithCorsFallback(
+        directUrl: directUrl,
         headers: {
           'Authorization': 'Bearer $apiToken',
           'Content-Type': 'application/json',
@@ -137,7 +179,8 @@ class CloudflareAIService {
   Future<String> getChatResponse(
     List<Map<String, String>> conversationHistory,
   ) async {
-    final url = _buildUrl();
+    final directUrl =
+        'https://api.cloudflare.com/client/v4/accounts/$accountId/ai/run/$model';
 
     final messages = <Map<String, String>>[
       {
@@ -180,8 +223,8 @@ class CloudflareAIService {
     ];
 
     try {
-      final response = await http.post(
-        Uri.parse(url),
+      final response = await _postWithCorsFallback(
+        directUrl: directUrl,
         headers: {
           'Authorization': 'Bearer $apiToken',
           'Content-Type': 'application/json',

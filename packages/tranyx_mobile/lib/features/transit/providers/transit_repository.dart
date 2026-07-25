@@ -191,8 +191,7 @@ class TransitRepository {
       'type': 'payment',
       'amount': totalRequired,
       'title': 'Vehicle Booking Request',
-      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)' +
-          (promoCode != null ? ' (Promo $promoCode applied)' : ''),
+      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)${promoCode != null ? ' (Promo $promoCode applied)' : ''}',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
@@ -224,7 +223,7 @@ class TransitRepository {
       'deliveryLng': deliveryLng,
       'startDate': startDate,
       'endDate': endDate,
-      if (promoCode != null) 'promoCode': promoCode,
+      'promoCode': ?promoCode,
       if (promoCode != null) 'discountAmount': discount,
     });
 
@@ -651,8 +650,7 @@ class TransitRepository {
       'type': 'payment',
       'amount': totalRequired,
       'title': 'Property Booking Request',
-      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)' +
-          (promoCode != null ? ' (Promo $promoCode applied)' : ''),
+      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)${promoCode != null ? ' (Promo $promoCode applied)' : ''}',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
@@ -680,7 +678,7 @@ class TransitRepository {
       'startDate': startDate,
       'endDate': endDate,
       'licenseNumber': licenseNumber ?? '',
-      if (promoCode != null) 'promoCode': promoCode,
+      'promoCode': ?promoCode,
       if (promoCode != null) 'discountAmount': discount,
     });
 

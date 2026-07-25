@@ -109,7 +109,7 @@ class Header extends ConsumerWidget {
                               decoration: BoxDecoration(
                                 color: isRead
                                     ? Colors.transparent
-                                    : (isDarkMode ? Colors.white.withOpacity(0.03) : Colors.black.withOpacity(0.02)),
+                                    : (isDarkMode ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02)),
                                 borderRadius: BorderRadius.circular(16),
                               ),
                               child: ListTile(
@@ -119,7 +119,7 @@ class Header extends ConsumerWidget {
                                   decoration: BoxDecoration(
                                     color: isRead
                                         ? Colors.transparent
-                                        : AppColors.indigo.withOpacity(0.15),
+                                        : AppColors.indigo.withValues(alpha: 0.15),
                                     shape: BoxShape.circle,
                                   ),
                                   child: Icon(

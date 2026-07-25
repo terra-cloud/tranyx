@@ -109,24 +109,31 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
 
       final now = DateTime.now();
       final eligiblePromos = activePromos.where((promo) {
-        if (promo.applicableTo != 'services' && promo.applicableTo != 'both')
+        if (promo.applicableTo != 'services' && promo.applicableTo != 'both') {
           return false;
-        if (promo.expirationDate != null && promo.expirationDate!.isBefore(now))
+        }
+        if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) {
           return false;
-        if (promo.maxUsers != null && promo.usedCount >= promo.maxUsers!)
+        }
+        if (promo.maxUsers != null && promo.usedCount >= promo.maxUsers!) {
           return false;
-        if (promo.isSingleUsePerUser && promo.usedBy.contains(user.uid))
+        }
+        if (promo.isSingleUsePerUser && promo.usedBy.contains(user.uid)) {
           return false;
+        }
         if (promo.eligibleUserUids != null &&
             promo.eligibleUserUids!.isNotEmpty &&
-            !promo.eligibleUserUids!.contains(user.uid))
+            !promo.eligibleUserUids!.contains(user.uid)) {
           return false;
+        }
         if (promo.onlyForSubscribed && !user.isPremium) return false;
-        if (promo.onlyForHybrid && user.accountType != AccountType.hybrid)
+        if (promo.onlyForHybrid && user.accountType != AccountType.hybrid) {
           return false;
+        }
         if (promo.applicableRoles.isNotEmpty &&
-            !promo.applicableRoles.contains('employer'))
+            !promo.applicableRoles.contains('employer')) {
           return false;
+        }
         return true;
       }).toList();
 
@@ -158,7 +165,7 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
         setState(() {
           _appliedPromo = bestPromo;
           _promoController.text = bestPromo!.code;
-          _promoFeedback = 'Auto-applied promo: ${bestPromo!.code}';
+          _promoFeedback = 'Auto-applied promo: ${bestPromo.code}';
         });
       }
     } catch (e) {
@@ -1336,20 +1343,22 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                   } else {
                     setState(() {
                       List<String> errors = [];
-                      if (selectedCategory == null)
+                      if (selectedCategory == null) {
                         errors.add("Select a category");
-                      if (_titleController.text.isEmpty)
+                      }
+                      if (_titleController.text.isEmpty) {
                         errors.add("Job title is required");
-                      if (_descController.text.isEmpty)
+                      }
+                      if (_descController.text.isEmpty) {
                         errors.add("Description is required");
+                      }
                       if (hasProfanity) {
                         errors.add(
                           "Your job title or description contains inappropriate language",
                         );
                       }
                       _validationErrorMessage =
-                          "Please correct the following:\n• " +
-                          errors.join("\n• ");
+                          "Please correct the following:\n• ${errors.join("\n• ")}";
                     });
                   }
                 }, isDarkMode),
@@ -1705,13 +1714,14 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                   } else {
                     setState(() {
                       List<String> errors = [];
-                      if (!isFormValid)
+                      if (!isFormValid) {
                         errors.add("Total budget must be greater than ₱0");
-                      if (_showDateError)
+                      }
+                      if (_showDateError) {
                         errors.add("Please select a job date");
+                      }
                       _validationErrorMessage =
-                          "Please correct the following:\n• " +
-                          errors.join("\n• ");
+                          "Please correct the following:\n• ${errors.join("\n• ")}";
                     });
                   }
                 }, isDarkMode),

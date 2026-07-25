@@ -171,7 +171,7 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
                           borderRadius: BorderRadius.circular(12),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
+                              color: Colors.black.withValues(alpha: 0.05),
                               blurRadius: 4,
                               offset: const Offset(0, 2),
                             ),
@@ -234,7 +234,7 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF4F46E5).withOpacity(0.3),
+            color: const Color(0xFF4F46E5).withValues(alpha: 0.3),
             blurRadius: 15,
             offset: const Offset(0, 8),
           ),
@@ -248,7 +248,7 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
             child: Icon(
               Icons.star,
               size: 100,
-              color: Colors.white.withOpacity(0.08),
+              color: Colors.white.withValues(alpha: 0.08),
             ),
           ),
           Column(
@@ -260,7 +260,7 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.15),
+                  color: Colors.white.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: const Row(
@@ -355,7 +355,7 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
                       (q) =>
                           _buildQuestTile(q, earned.contains(q.id), isDarkMode),
                     )
-                    .toList(),
+                    ,
               ],
             ),
           ),
@@ -423,8 +423,8 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
                         ),
                         decoration: BoxDecoration(
                           color: quest.limit == 'Once'
-                              ? const Color(0xFF6366F1).withOpacity(0.1)
-                              : const Color(0xFF10B981).withOpacity(0.1),
+                              ? const Color(0xFF6366F1).withValues(alpha: 0.1)
+                              : const Color(0xFF10B981).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
@@ -463,7 +463,7 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF10B981).withOpacity(0.12),
+                          color: const Color(0xFF10B981).withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Text(
@@ -481,7 +481,7 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.grey.withOpacity(0.15),
+                          color: Colors.grey.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Text(
@@ -601,7 +601,7 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF59E0B).withOpacity(0.12),
+                        color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(

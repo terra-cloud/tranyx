@@ -584,7 +584,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<PropertyCategory>(
-                          value: _selectedPropertyCategory,
+                          initialValue: _selectedPropertyCategory,
                           decoration: InputDecoration(
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -619,7 +619,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<PropertyType>(
-                          value: _selectedPropertyType,
+                          initialValue: _selectedPropertyType,
                           decoration: InputDecoration(
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -737,7 +737,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<VehicleType>(
-                          value: _selectedVehicleType,
+                          initialValue: _selectedVehicleType,
                           decoration: InputDecoration(
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -772,7 +772,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<String>(
-                          value: _fuelType,
+                          initialValue: _fuelType,
                           decoration: InputDecoration(
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -804,7 +804,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<String>(
-                          value: _transmission,
+                          initialValue: _transmission,
                           decoration: InputDecoration(
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -832,7 +832,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<String>(
-                          value: _brandController.text.isEmpty ? null : _brandController.text,
+                          initialValue: _brandController.text.isEmpty ? null : _brandController.text,
                           decoration: InputDecoration(
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                             hintText: 'Select Brand',
@@ -863,7 +863,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<String>(
-                          value: _modelController.text.isEmpty ? null : _modelController.text,
+                          initialValue: _modelController.text.isEmpty ? null : _modelController.text,
                           decoration: InputDecoration(
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                             hintText: _brandController.text.isEmpty ? 'Select Brand first' : 'Select Model',
@@ -897,7 +897,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<String>(
-                          value: _yearController.text.isEmpty ? null : _yearController.text,
+                          initialValue: _yearController.text.isEmpty ? null : _yearController.text,
                           decoration: InputDecoration(
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                             hintText: _modelController.text.isEmpty ? 'Select Model first' : 'Select Year',
@@ -1214,7 +1214,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                       ),
                       const SizedBox(height: 8),
                       DropdownButtonFormField<String>(
-                        value: _contractType,
+                        initialValue: _contractType,
                         decoration: InputDecoration(
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),

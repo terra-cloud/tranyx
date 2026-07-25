@@ -86,7 +86,9 @@ class FakeFirebaseFirestore extends Fake implements FirebaseFirestore {
 
 class FakeCollectionReference extends Fake
     implements CollectionReference<Map<String, dynamic>> {
+  @override
   final FakeFirebaseFirestore firestore;
+  @override
   final String path;
 
   FakeCollectionReference(this.firestore, this.path);
@@ -198,7 +200,9 @@ class FakeCollectionReference extends Fake
 
 class FakeDocumentReference extends Fake
     implements DocumentReference<Map<String, dynamic>> {
+  @override
   final FakeFirebaseFirestore firestore;
+  @override
   final String path;
 
   FakeDocumentReference(this.firestore, this.path);
@@ -304,10 +308,10 @@ class FakeDocumentSnapshot extends Fake
 class FakeQueryDocumentSnapshot extends FakeDocumentSnapshot
     implements QueryDocumentSnapshot<Map<String, dynamic>> {
   FakeQueryDocumentSnapshot(
-    FakeFirebaseFirestore firestore,
-    String path,
-    Map<String, dynamic> data,
-  ) : super(firestore, path, data);
+    super.firestore,
+    super.path,
+    Map<String, dynamic> super.data,
+  );
 
   @override
   Map<String, dynamic> data() => super.data()!;
@@ -322,6 +326,7 @@ class FakeQuerySnapshot extends Fake
 }
 
 class FakeQuery extends Fake implements Query<Map<String, dynamic>> {
+  @override
   final FakeFirebaseFirestore firestore;
   final String path;
   final bool isGroup;
