@@ -24,6 +24,7 @@ class CloudflareAIService {
 
     if (kIsWeb) {
       urlsToTry.addAll([
+        'https://api.codetabs.com/v1/proxy?quest=$encoded',
         'https://corsproxy.io/?url=$encoded',
         'https://api.allorigins.win/raw?url=$encoded',
         directUrl,

@@ -3725,6 +3725,7 @@ class GeminiService {
   }) async {
     final encoded = Uri.encodeComponent(directUrl);
     final urlsToTry = [
+      'https://api.codetabs.com/v1/proxy?quest=$encoded',
       'https://corsproxy.io/?url=$encoded',
       'https://api.allorigins.win/raw?url=$encoded',
       directUrl,
@@ -3792,13 +3793,13 @@ class GeminiService {
           final errorMsg = errors != null && errors.isNotEmpty
               ? errors.first['message']
               : 'Unknown Cloudflare error';
-          throw Exception(errorMsg);
+          return 'Error: $errorMsg';
         }
       } else {
-        throw Exception('HTTP Error: ${response.statusCode}\nBody: ${response.body}');
+        return 'HTTP Error: ${response.statusCode}';
       }
     } catch (e) {
-      rethrow;
+      return 'AI generation service is currently unavailable.';
     }
   }
 
@@ -3958,13 +3959,13 @@ class GeminiService {
           final errorMsg = errors != null && errors.isNotEmpty
               ? errors.first['message']
               : 'Unknown Cloudflare error';
-          throw Exception(errorMsg);
+          return 'I apologize, but I encountered an error: $errorMsg';
         }
       } else {
-        throw Exception('HTTP Error: ${response.statusCode}\nBody: ${response.body}');
+        return 'The AI support service is currently unavailable (Status ${response.statusCode}). Please try again in a moment.';
       }
     } catch (e) {
-      rethrow;
+      return 'I am currently having trouble connecting to the support server. Please try asking again shortly.';
     }
   }
 }
