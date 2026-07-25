@@ -22,8 +22,10 @@ class CloudflareAIService {
     final List<String> urlsToTry = [];
     final encoded = Uri.encodeComponent(directUrl);
 
+    final proxyEndpoint = Env.get('CLOUDFLARE_AI_PROXY_URL');
     if (kIsWeb) {
       urlsToTry.addAll([
+        if (proxyEndpoint.isNotEmpty) '$proxyEndpoint/ai/run',
         'https://api.codetabs.com/v1/proxy?quest=$encoded',
         'https://corsproxy.io/?url=$encoded',
         'https://api.allorigins.win/raw?url=$encoded',

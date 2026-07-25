@@ -3724,7 +3724,9 @@ class GeminiService {
     required String body,
   }) async {
     final encoded = Uri.encodeComponent(directUrl);
+    final proxyEndpoint = Env.get('CLOUDFLARE_AI_PROXY_URL');
     final urlsToTry = [
+      if (proxyEndpoint.isNotEmpty) '$proxyEndpoint/ai/run',
       'https://api.codetabs.com/v1/proxy?quest=$encoded',
       'https://corsproxy.io/?url=$encoded',
       'https://api.allorigins.win/raw?url=$encoded',
@@ -3740,7 +3742,7 @@ class GeminiService {
           Uri.parse(url),
           headers: headers,
           body: body,
-        );
+        ).timeout(const Duration(seconds: 15));
 
         lastResponse = response;
 
