@@ -117,9 +117,9 @@
     },
     {
       "name": "build_daemon",
-      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/build_daemon-4.1.1",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/build_daemon-4.1.4",
       "packageUri": "lib/",
-      "languageVersion": "3.7"
+      "languageVersion": "3.11"
     },
     {
       "name": "build_runner",

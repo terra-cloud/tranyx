@@ -84,6 +84,7 @@
         "web"
       ],
       "devDependencies": [
+        "build_daemon",
         "build_runner",
         "build_web_compilers",
         "dart_style",
@@ -208,6 +209,27 @@
         "logging",
         "meta",
         "mime",
+        "package_config",
+        "path",
+        "pool",
+        "pub_semver",
+        "shelf",
+        "shelf_web_socket",
+        "stream_transform",
+        "watcher",
+        "web_socket_channel",
+        "yaml"
+      ]
+    },
+    {
+      "name": "build_daemon",
+      "version": "4.1.4",
+      "dependencies": [
+        "built_collection",
+        "built_value",
+        "crypto",
+        "http_multi_server",
+        "logging",
         "package_config",
         "path",
         "pool",
@@ -1111,24 +1133,6 @@
       "name": "built_collection",
       "version": "5.1.1",
       "dependencies": []
-    },
-    {
-      "name": "build_daemon",
-      "version": "4.1.1",
-      "dependencies": [
-        "built_collection",
-        "built_value",
-        "crypto",
-        "http_multi_server",
-        "logging",
-        "path",
-        "pool",
-        "shelf",
-        "shelf_web_socket",
-        "stream_transform",
-        "watcher",
-        "web_socket_channel"
-      ]
     },
     {
       "name": "build_config",
