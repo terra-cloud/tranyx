@@ -635,16 +635,13 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
         final double phpPrice = _selectedPlan == 'yearly' ? 2999.0 : 299.0;
         final double solPrice = phpPrice / _solToPhpRate;
 
-        return Scaffold(
-          backgroundColor: Colors.transparent,
-          body: Container(
-            decoration: BoxDecoration(gradient: backgroundGradient),
-            child: SafeArea(
-              child: Column(
-                children: [
-                  // Custom App Bar
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        return Container(
+          decoration: BoxDecoration(gradient: backgroundGradient),
+          child: Column(
+            children: [
+              // Custom App Bar
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     child: Row(
                       children: [
                         IconButton(
@@ -665,12 +662,11 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
                   ),
 
                   // Content
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                           // Banner / Intro Card
                           Container(
                             width: double.infinity,
@@ -1232,12 +1228,9 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
                         ],
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
+                  ],
+                ),
+              );
       },
     );
   }

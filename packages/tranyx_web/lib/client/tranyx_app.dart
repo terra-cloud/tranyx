@@ -55,6 +55,7 @@ class TranyxApp extends StatefulComponent {
 class TranyxAppState extends State<TranyxApp> {
   // ── Theme / Auth ────────────────────────────────────────────
   bool isDark = true;
+  bool showWebSplash = true;
   bool isAuthenticated = false;
   bool isAuthLoading = false;
   String? authError;
@@ -538,10 +539,32 @@ class TranyxAppState extends State<TranyxApp> {
     fetchSolToPhpRate();
     _loadOfflineLocationBuffer();
     _initUserLocation();
+    final startTime = DateTime.now();
+    void scheduleDismissal() {
+      final elapsed = DateTime.now().difference(startTime);
+      // Allow full intro animations to complete: 1.6s 3D enter + 1.2s shimmer + 0.8s white glow fill + 0.2s hold = 3.8s
+      const minDuration = Duration(milliseconds: 3800);
+      final remaining = minDuration - elapsed;
+
+      void triggerExitSequence() {
+        dismissWebSplashScreen();
+        // Wait full 1.1s for the 3D warp & flash exit transition to complete before unmounting splash overlay
+        Timer(const Duration(milliseconds: 1100), () {
+          if (mounted) setState(() => showWebSplash = false);
+        });
+      }
+
+      if (remaining.isNegative) {
+        triggerExitSequence();
+      } else {
+        Timer(remaining, triggerExitSequence);
+      }
+    }
+
     if (SessionStorage.hasSession) {
-      _restoreSession();
+      _restoreSession().whenComplete(scheduleDismissal);
     } else {
-      _checkGoogleRedirectResult();
+      _checkGoogleRedirectResult().whenComplete(scheduleDismissal);
     }
   }
 
@@ -6114,11 +6137,45 @@ class TranyxAppState extends State<TranyxApp> {
 
     final darkBg = isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900';
 
-    if (!isAuthenticated) {
+    if (showWebSplash) {
       return div(
-        classes: 'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12 relative',
+        classes:
+            'fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-[radial-gradient(circle_at_50%_50%,#1a0b2e_0%,#0d0618_50%,#05030a_100%)] overflow-hidden font-sans text-white [perspective:1200px]',
         [
-          div(classes: 'w-full max-w-md p-6', [
+          div(classes: 'splash-orb splash-orb-1', []),
+          div(classes: 'splash-orb splash-orb-2', []),
+          div(classes: 'splash-orb splash-orb-3', []),
+          div(classes: 'splash-grid', []),
+          div(classes: 'splash-shockwave', []),
+          div(classes: 'splash-shockwave splash-shockwave-2', []),
+          div(classes: 'splash-logo-container', [
+            div(classes: 'splash-logo-glow', []),
+            img(src: '/images/logo.svg', classes: 'splash-logo-img', attributes: {'alt': 'Tranyx Logo'}),
+          ]),
+          h1(classes: 'splash-title', [Component.text('TRANYX')]),
+          p(classes: 'splash-subtitle', [Component.text('Decentralized Freelance & Transit')]),
+          div(classes: 'splash-loader-track', [
+            div(classes: 'splash-loader-bar', []),
+          ]),
+        ],
+      );
+    }
+
+    if (!isAuthenticated) {
+      // Trigger random web metaballs initialization
+      Timer.run(() => initRandomMetaballs('web-metaballs-container'));
+
+      return div(
+        classes:
+            'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12 relative overflow-hidden',
+        [
+          // Animated Metaballs background
+          div(
+            id: 'web-metaballs-container',
+            classes: 'metaball-container',
+            [],
+          ),
+          div(classes: 'w-full max-w-md p-6 z-10 relative', [
             AuthViewComponent(state: this),
           ]),
           if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),

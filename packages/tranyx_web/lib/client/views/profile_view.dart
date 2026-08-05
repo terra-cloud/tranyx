@@ -2247,9 +2247,22 @@ class _HelpSupportState extends State<_HelpSupport> {
       final gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken);
       final response = await gemini.askSupportQuestion(history);
 
-      // Successfully connected to server AI and got response!
-      // Now decrement token if this was a new conversation.
-      if (isNewConversation && tokensToUpdate != null && timestampToUpdate != null) {
+      if (response == "TRANSFER_TO_AGENT") {
+        setState(() {
+          isAiTyping = false;
+          showAgentChat = true;
+          startAgentChatPolling();
+        });
+        return;
+      }
+
+      final isErrorResponse = response.startsWith('Error:') ||
+          response.startsWith('HTTP Error:') ||
+          response.startsWith('Request failed:');
+
+      // Successfully connected to server AI and got valid response!
+      // Only decrement token if this was a new conversation AND not an error response.
+      if (!isErrorResponse && isNewConversation && tokensToUpdate != null && timestampToUpdate != null) {
         final token = SessionStorage.idToken;
         final uid = SessionStorage.uid;
         if (token != null && uid != null) {
@@ -2279,11 +2292,8 @@ class _HelpSupportState extends State<_HelpSupport> {
     } catch (e) {
       setState(() {
         isAiTyping = false;
-        chatMessages.add({
-          'isUser': false,
-          'text': 'Oops, I hit a snag: $e. Please feel free to raise a support ticket below!',
-          'time': 'Just now',
-        });
+        showAgentChat = true;
+        startAgentChatPolling();
       });
     }
   }

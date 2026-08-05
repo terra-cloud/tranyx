@@ -49,6 +49,7 @@
         "image_cropper",
         "image_picker",
         "intl",
+        "llama_cpp_dart",
         "local_auth",
         "lucide_icons_flutter",
         "path",
@@ -347,6 +348,17 @@
         "sprintf",
         "xml",
         "yaml"
+      ]
+    },
+    {
+      "name": "llama_cpp_dart",
+      "version": "0.2.2",
+      "dependencies": [
+        "ffi",
+        "flutter",
+        "image",
+        "typed_isolate",
+        "uuid"
       ]
     },
     {
@@ -1300,6 +1312,18 @@
       ]
     },
     {
+      "name": "typed_isolate",
+      "version": "6.0.0",
+      "dependencies": [
+        "meta"
+      ]
+    },
+    {
+      "name": "ffi",
+      "version": "2.2.0",
+      "dependencies": []
+    },
+    {
       "name": "webview_flutter_wkwebview",
       "version": "3.26.0",
       "dependencies": [
@@ -1994,11 +2018,6 @@
         "meta",
         "plugin_platform_interface"
       ]
-    },
-    {
-      "name": "ffi",
-      "version": "2.2.0",
-      "dependencies": []
     },
     {
       "name": "cloud_functions_web",

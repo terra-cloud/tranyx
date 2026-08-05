@@ -10,6 +10,8 @@ import 'package:tranyx_mobile/core/services/biometric_service.dart';
 import 'package:tranyx_mobile/core/services/deep_link_service.dart';
 import 'flavors.dart';
 
+import 'package:tranyx_mobile/core/services/nyx_model_manager_service.dart';
+
 class App extends ConsumerStatefulWidget {
   const App({super.key});
 
@@ -29,9 +31,11 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final router = ref.read(routerProvider);
       ref.read(deepLinkServiceProvider).initialize(router);
+      ref.read(nyxModelStatusProvider.notifier).autoStartBackgroundDownload();
       _isColdStart = false;
     });
   }
+
 
   @override
   void dispose() {

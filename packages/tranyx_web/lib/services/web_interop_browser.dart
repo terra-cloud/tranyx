@@ -6,6 +6,20 @@ import 'dart:typed_data';
 import 'dart:async';
 import 'dart:js_interop';
 
+// ── Splash Screen ─────────────────────────────────────────────────────────────
+
+void dismissWebSplashScreen() {
+  try {
+    web.window.callMethod('dismissWebSplashScreen'.toJS);
+  } catch (_) {}
+}
+
+void initRandomMetaballs(String containerId) {
+  try {
+    web.window.callMethod('initRandomMetaballs'.toJS, containerId.toJS);
+  } catch (_) {}
+}
+
 // ── Solana Wallet ────────────────────────────────────────────────────────────
 
 Future<String?> connectSolanaWallet(String type) async {

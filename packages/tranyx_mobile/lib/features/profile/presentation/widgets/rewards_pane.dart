@@ -61,163 +61,161 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
     final userProfileAsync = ref.watch(userProfileProvider);
     final user = ref.watch(userProvider);
 
-    final bgGradient = isDarkMode
-        ? const LinearGradient(
-            colors: [Color(0xFF121212), Color(0xFF1E1E1E)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          )
-        : const LinearGradient(
-            colors: [Color(0xFFF9F9FB), Color(0xFFF1F1F5)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          );
-
     final cardBg = isDarkMode ? const Color(0xFF1C1C1E) : Colors.white;
     final textTheme = Theme.of(context).textTheme;
 
-    return Container(
-      decoration: BoxDecoration(gradient: bgGradient),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header Bar
-          Padding(
-            padding: const EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 48,
-              bottom: 8,
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: Icon(
-                    Icons.arrow_back_ios_new,
-                    color: isDarkMode ? Colors.white : Colors.black87,
-                    size: 20,
-                  ),
-                  onPressed: widget.onBack,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  "Terra Rewards",
-                  style: textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: isDarkMode ? Colors.white : Colors.black87,
-                  ),
-                ),
-                const Spacer(),
-                if (_isCheckingQuests)
-                  const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2.5),
-                  )
-                else
-                  IconButton(
-                    icon: Icon(
-                      Icons.refresh,
-                      color: isDarkMode ? Colors.white70 : Colors.black54,
-                    ),
-                    onPressed: _triggerOnboardingCheck,
-                  ),
-              ],
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header Bar
+        Padding(
+          padding: const EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: 8,
           ),
-
-          Expanded(
-            child: userProfileAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, stack) => Center(
-                child: Text(
-                  "Failed to load profile: $err",
-                  style: const TextStyle(color: Colors.redAccent),
+          child: Row(
+            children: [
+              IconButton(
+                icon: Icon(
+                  Icons.arrow_back_ios_new,
+                  color: isDarkMode ? Colors.white : Colors.black87,
+                  size: 20,
+                ),
+                onPressed: widget.onBack,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                "Terra Rewards",
+                style: textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: isDarkMode ? Colors.white : Colors.black87,
                 ),
               ),
-              data: (profile) {
-                if (profile == null) {
-                  return const Center(child: Text("Profile data unavailable."));
-                }
-
-                final earned = profile.earnedRewards;
-
-                return ListView(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
+              const Spacer(),
+              if (_isCheckingQuests)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                )
+              else
+                IconButton(
+                  icon: Icon(
+                    Icons.refresh,
+                    color: isDarkMode ? Colors.white70 : Colors.black54,
                   ),
-                  children: [
-                    // Balance Card
-                    _buildBalanceCard(profile.terraPoints, isDarkMode),
-                    const SizedBox(height: 24),
+                  onPressed: _triggerOnboardingCheck,
+                ),
+            ],
+          ),
+        ),
 
-                    // Tab Selection Bar
-                    Container(
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: isDarkMode
-                            ? const Color(0xFF2C2C2E)
-                            : const Color(0xFFE5E5EA),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: TabBar(
-                        controller: _tabController,
-                        indicatorSize: TabBarIndicatorSize.tab,
-                        indicator: BoxDecoration(
-                          color: isDarkMode
-                              ? const Color(0xFF1C1C1E)
-                              : Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.05),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        labelColor: isDarkMode ? Colors.white : Colors.black87,
-                        unselectedLabelColor: isDarkMode
-                            ? Colors.white54
-                            : Colors.black45,
-                        labelStyle: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                        tabs: const [
-                          Tab(text: "Active Quests"),
-                          Tab(text: "Points History"),
-                        ],
-                      ),
+        userProfileAsync.when(
+          loading: () => const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32.0),
+              child: CircularProgressIndicator(),
+            ),
+          ),
+          error: (err, stack) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32.0),
+              child: Text(
+                "Failed to load profile: $err",
+                style: const TextStyle(color: Colors.redAccent),
+              ),
+            ),
+          ),
+          data: (profile) {
+            if (profile == null) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32.0),
+                  child: Text("Profile data unavailable."),
+                ),
+              );
+            }
+
+            final earned = profile.earnedRewards;
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 12,
+              ),
+              child: Column(
+                children: [
+                  // Balance Card
+                  _buildBalanceCard(profile.terraPoints, isDarkMode),
+                  const SizedBox(height: 24),
+
+                  // Tab Selection Bar
+                  Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: isDarkMode
+                          ? const Color(0xFF2C2C2E)
+                          : const Color(0xFFE5E5EA),
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    const SizedBox(height: 20),
-
-                    // Tab Views
-                    SizedBox(
-                      height: 520,
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: [
-                          // Tab 1: Quests List
-                          _buildQuestsList(earned, isDarkMode, cardBg),
-
-                          // Tab 2: History List
-                          _buildHistoryList(
-                            user?.uid ?? '',
-                            isDarkMode,
-                            cardBg,
+                    child: TabBar(
+                      controller: _tabController,
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      indicator: BoxDecoration(
+                        color: isDarkMode
+                            ? const Color(0xFF1C1C1E)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
                           ),
                         ],
                       ),
+                      labelColor: isDarkMode ? Colors.white : Colors.black87,
+                      unselectedLabelColor: isDarkMode
+                          ? Colors.white54
+                          : Colors.black45,
+                      labelStyle: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                      tabs: const [
+                        Tab(text: "Active Quests"),
+                        Tab(text: "Points History"),
+                      ],
                     ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ],
-      ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Tab Views
+                  SizedBox(
+                    height: 600,
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        // Tab 1: Quests List
+                        _buildQuestsList(earned, isDarkMode, cardBg, profile.accountType),
+
+                        // Tab 2: History List
+                        _buildHistoryList(
+                          user?.uid ?? '',
+                          isDarkMode,
+                          cardBg,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 
@@ -317,12 +315,11 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
     );
   }
 
-  Widget _buildQuestsList(List<String> earned, bool isDarkMode, Color cardBg) {
+  Widget _buildQuestsList(List<String> earned, bool isDarkMode, Color cardBg, AccountType accountType) {
     // Group quests by category
     final categories = ["Onboarding", "Services", "Rental"];
 
     return ListView(
-      physics: const NeverScrollableScrollPhysics(),
       padding: EdgeInsets.zero,
       children: [
         for (final category in categories) ...[
@@ -353,9 +350,8 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
                     .where((q) => q.category == category)
                     .map(
                       (q) =>
-                          _buildQuestTile(q, earned.contains(q.id), isDarkMode),
-                    )
-                    ,
+                          _buildQuestTile(q, earned.contains(q.id), isDarkMode, accountType),
+                    ),
               ],
             ),
           ),
@@ -383,9 +379,28 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
     }
   }
 
-  Widget _buildQuestTile(RewardQuest quest, bool isCompleted, bool isDarkMode) {
+  Widget _buildQuestTile(RewardQuest quest, bool isCompleted, bool isDarkMode, AccountType accountType) {
+    final isEmployerOnly = accountType == AccountType.employer;
+    final isNyxianOnly = accountType == AccountType.nyxian;
+
+    const employerOnlyQuests = {
+      'post_first_service',
+      'hire_applicant',
+      'employer_complete_transaction',
+    };
+    const nyxianOnlyQuests = {
+      'add_skills_bio',
+      'apply_first_job',
+      'be_hired',
+      'jobseeker_complete_transaction',
+    };
+
+    final bool isLockedForEmployer = nyxianOnlyQuests.contains(quest.id) && isEmployerOnly;
+    final bool isLockedForNyxian = employerOnlyQuests.contains(quest.id) && isNyxianOnly;
+    final bool isLocked = isLockedForEmployer || isLockedForNyxian;
+
     return InkWell(
-      onTap: () => _handleQuestClick(quest),
+      onTap: isLocked ? null : () => _handleQuestClick(quest),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
@@ -400,47 +415,85 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
         child: Row(
           children: [
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
+              child: Opacity(
+                opacity: isLocked ? 0.5 : 1.0,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            quest.title,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: isDarkMode ? Colors.white : Colors.black87,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        if (isLocked)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1.5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF97316).withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: const Color(0xFFF97316).withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: const Text(
+                              '🔒 Locked',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFFF97316),
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1.5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: quest.limit == 'Once'
+                                  ? const Color(0xFF6366F1).withValues(alpha: 0.1)
+                                  : const Color(0xFF10B981).withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              quest.limit == 'Once' ? 'Once' : 'Repeat',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: quest.limit == 'Once'
+                                    ? const Color(0xFF6366F1)
+                                    : const Color(0xFF10B981),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (isLocked)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 2),
                         child: Text(
-                          quest.title,
+                          'Become Hybrid to unlock this milestone',
                           style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: isDarkMode ? Colors.white : Colors.black87,
+                            fontSize: 10,
+                            color: Color(0xFFF97316),
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 1.5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: quest.limit == 'Once'
-                              ? const Color(0xFF6366F1).withValues(alpha: 0.1)
-                              : const Color(0xFF10B981).withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          quest.limit == 'Once' ? 'Once' : 'Repeat',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: quest.limit == 'Once'
-                                ? const Color(0xFF6366F1)
-                                : const Color(0xFF10B981),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -449,50 +502,79 @@ class _RewardsPaneState extends ConsumerState<RewardsPane>
               children: [
                 Text(
                   "+${quest.points} TP",
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w900,
-                    color: Color(0xFFD97706),
+                    color: isLocked
+                        ? const Color(0xFFD97706).withValues(alpha: 0.4)
+                        : const Color(0xFFD97706),
                   ),
                 ),
                 const SizedBox(height: 4),
-                isCompleted
-                    ? Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          "✓ Completed",
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF10B981),
-                          ),
-                        ),
-                      )
-                    : Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          "Pending",
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.grey,
-                          ),
+                if (isLocked)
+                  InkWell(
+                    onTap: () => ref.read(profileViewProvider.notifier).state = 'subscription',
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
                         ),
                       ),
+                      child: const Text(
+                        "🔓 Subscribe Now",
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFFD97706),
+                        ),
+                      ),
+                    ),
+                  )
+                else if (isCompleted)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      "✓ Completed",
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF10B981),
+                      ),
+                    ),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      "Pending",
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ],

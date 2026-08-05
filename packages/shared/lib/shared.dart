@@ -7,3 +7,5 @@ export 'src/vehicle_data.dart';
 export 'src/env.dart';
 export 'src/reward_service.dart';
 export 'src/profanity.dart';
+export 'src/nyx_domain_knowledge.dart';
+

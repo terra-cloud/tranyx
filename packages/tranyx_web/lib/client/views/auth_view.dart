@@ -46,7 +46,9 @@ class _LoginScreenState extends State<_LoginScreen> {
   Component build(BuildContext context) {
     final s = component.state;
     final isDark = s.isDark;
-    final cardCls = isDark ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-xl';
+    final cardCls = isDark
+        ? 'bg-zinc-900/60 backdrop-blur-xl border-zinc-800/80 shadow-2xl'
+        : 'bg-white/70 backdrop-blur-xl border-zinc-200/80 shadow-xl';
 
     final errorMsg = _localError ?? s.authError;
 

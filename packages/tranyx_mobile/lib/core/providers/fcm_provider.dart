@@ -44,10 +44,14 @@ class FirebaseMessagingService {
           settings.authorizationStatus == AuthorizationStatus.provisional) {
         debugPrint('FCM: Notification permission granted');
 
-        // 2. Get FCM token
-        final token = await messaging.getToken();
-        if (token != null) {
-          await _updateTokenInFirestore(user.uid, token);
+        // 2. Get FCM token (safely handle simulator APNS delay)
+        try {
+          final token = await messaging.getToken();
+          if (token != null) {
+            await _updateTokenInFirestore(user.uid, token);
+          }
+        } catch (e) {
+          debugPrint('FCM: Token fetching postponed (APNS pending): $e');
         }
 
         // 3. Listen to token refresh
@@ -63,19 +67,23 @@ class FirebaseMessagingService {
         _onMessageSub?.cancel();
         _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
           debugPrint('FCM: Foreground message received: ${message.notification?.title}');
-          _showForegroundNotification(context, message);
+          if (context.mounted) {
+            _showForegroundNotification(context, message);
+          }
         });
 
         // 5. Background opened notifications handling
         _onMessageOpenedAppSub?.cancel();
         _onMessageOpenedAppSub = FirebaseMessaging.onMessageOpenedApp.listen((message) {
           debugPrint('FCM: App opened from message: ${message.data}');
-          _handleNotificationClick(context, message);
+          if (context.mounted) {
+            _handleNotificationClick(context, message);
+          }
         });
 
         // 6. Terminated state opened notifications handling
         final initialMessage = await messaging.getInitialMessage();
-        if (initialMessage != null) {
+        if (initialMessage != null && context.mounted) {
           debugPrint('FCM: Initial message received: ${initialMessage.data}');
           _handleNotificationClick(context, initialMessage);
         }

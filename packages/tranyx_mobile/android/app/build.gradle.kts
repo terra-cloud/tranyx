@@ -50,10 +50,10 @@ android {
         applicationId = "com.terraph.tranyx"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 23
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        versionCode = 2
-        versionName = "0.0.1"
+        versionCode = 5
+        versionName = "0.0.5"
         multiDexEnabled = true
     }
 
