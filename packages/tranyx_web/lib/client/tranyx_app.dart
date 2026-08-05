@@ -56,6 +56,7 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Theme / Auth ────────────────────────────────────────────
   bool isDark = true;
   bool showWebSplash = true;
+  bool showMobileAppPrompt = false;
   bool isAuthenticated = false;
   bool isAuthLoading = false;
   String? authError;
@@ -575,47 +576,9 @@ class TranyxAppState extends State<TranyxApp> {
       final isIOS = userAgent.contains('iphone') || userAgent.contains('ipad') || userAgent.contains('ipod');
       final isAndroid = userAgent.contains('android');
 
-      if (isIOS) {
-        const env = String.fromEnvironment('ENV', defaultValue: 'dev');
-        String appStoreUrl;
-        if (env == 'prod') {
-          appStoreUrl = 'https://apps.apple.com/app/tranyx/id6470000000';
-        } else if (env == 'uat') {
-          appStoreUrl = 'https://apps.apple.com/app/tranyx-uat/id6470000002';
-        } else {
-          appStoreUrl = 'https://apps.apple.com/app/tranyx-dev/id6470000001';
-        }
-
-        // Try launching the custom scheme first
-        web.window.location.replace('tranyx://');
-        // Fallback to App Store if not installed
-        Future.delayed(const Duration(milliseconds: 2000), () {
-          web.window.location.replace(appStoreUrl);
-        });
-      } else if (isAndroid) {
-        final isSaga = userAgent.contains('saga') || userAgent.contains('solana');
-        const env = String.fromEnvironment('ENV', defaultValue: 'dev');
-        String appId = 'com.terraph.tranyx';
-        if (env == 'uat') {
-          appId = 'com.terraph.tranyx.uat';
-        } else if (env == 'dev') {
-          appId = 'com.terraph.tranyx.dev';
-        }
-
-        final playStoreUrl = 'https://play.google.com/store/apps/details?id=$appId';
-        final intentUrl =
-            'intent://#Intent;scheme=tranyx;package=$appId;S.browser_fallback_url=${Uri.encodeComponent(playStoreUrl)};end';
-
-        if (isSaga) {
-          // Open in Solana dApp Store
-          web.window.location.replace('dappstore://details?id=$appId');
-          // Set a fallback timeout to play store in case the protocol scheme fails
-          Future.delayed(const Duration(milliseconds: 1500), () {
-            web.window.location.replace(intentUrl);
-          });
-        } else {
-          web.window.location.replace(intentUrl);
-        }
+      if (isIOS || isAndroid) {
+        // Show choice prompt modal instead of auto-redirecting
+        setState(() => showMobileAppPrompt = true);
       }
     }
   }
@@ -6179,6 +6142,7 @@ class TranyxAppState extends State<TranyxApp> {
             AuthViewComponent(state: this),
           ]),
           if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
+          if (showMobileAppPrompt) MobileAppPromptModalComponent(state: this),
         ],
       );
     }
@@ -6867,3 +6831,78 @@ class WalletReconnectModalComponent extends StatelessComponent {
     );
   }
 }
+
+class MobileAppPromptModalComponent extends StatelessComponent {
+  final TranyxAppState state;
+  const MobileAppPromptModalComponent({required this.state, super.key});
+
+  @override
+  Component build(BuildContext context) {
+    final s = state;
+    final isDark = s.isDark;
+    final userAgent = web.window.navigator.userAgent.toLowerCase();
+    final isAndroid = userAgent.contains('android');
+
+    const env = String.fromEnvironment('ENV', defaultValue: 'dev');
+    String appId = 'com.terraph.tranyx';
+    if (env == 'uat') appId = 'com.terraph.tranyx.uat';
+    if (env == 'dev') appId = 'com.terraph.tranyx.dev';
+
+    return div(
+      classes:
+          'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in',
+      [
+        div(
+          classes:
+              'w-full max-w-md p-6 rounded-3xl border shadow-2xl ${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-900"}',
+          [
+            div(classes: 'flex justify-between items-center mb-5', [
+              div(classes: 'flex items-center gap-3', [
+                svgLogo(size: 'w-7 h-7'),
+                h3(classes: 'font-bold text-lg', [Component.text('Open Tranyx Mobile')]),
+              ]),
+              button(
+                classes:
+                    'p-1.5 rounded-full hover:bg-zinc-500/10 transition-colors ${isDark ? "text-zinc-400 hover:text-white" : "text-zinc-500 hover:text-zinc-800"}',
+                events: {'click': (_) => s.setState(() => s.showMobileAppPrompt = false)},
+                [lIcon('x', cls: 'w-5 h-5')],
+              ),
+            ]),
+            p(classes: 'text-sm mb-6 ${isDark ? "text-zinc-400" : "text-zinc-600"} leading-relaxed', [
+              Component.text(
+                'How would you like to experience Tranyx on your device? You can continue in your web browser or open our mobile app.',
+              ),
+            ]),
+            div(classes: 'space-y-3', [
+              if (isAndroid)
+                button(
+                  classes:
+                      'w-full py-3.5 px-4 rounded-2xl font-semibold border flex items-center justify-between transition-all ${isDark ? "border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" : "border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100"}',
+                  events: {
+                    'click': (_) {
+                      s.setState(() => s.showMobileAppPrompt = false);
+                      web.window.location.assign('dappstore://details?id=$appId');
+                    },
+                  },
+                  [
+                    div(classes: 'flex items-center gap-3', [
+                      lIcon('sparkles', cls: 'w-5 h-5 text-purple-400'),
+                      span([Component.text('Solana dApp Store')]),
+                    ]),
+                    lIcon('external-link', cls: 'w-4 h-4 opacity-70'),
+                  ],
+                ),
+              button(
+                classes:
+                    'w-full py-3.5 px-4 rounded-2xl font-semibold border flex items-center justify-center transition-all ${isDark ? "border-zinc-800 bg-zinc-800/80 text-zinc-300 hover:bg-zinc-800 hover:text-white" : "border-zinc-200 bg-zinc-100 text-zinc-700 hover:bg-zinc-200"}',
+                events: {'click': (_) => s.setState(() => s.showMobileAppPrompt = false)},
+                [Component.text('Continue in Web Browser')],
+              ),
+            ]),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
