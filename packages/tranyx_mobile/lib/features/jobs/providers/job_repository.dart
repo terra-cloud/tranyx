@@ -356,7 +356,7 @@ class JobRepository {
   Future<void> updateJobStatus(String jobId, String status, {Map<String, dynamic>? additionalFields}) async {
     await _firestore.collection('jobs').doc(jobId).update({
       'status': status,
-      if (additionalFields != null) ...additionalFields,
+      ...?additionalFields,
     });
   }
 
@@ -471,8 +471,7 @@ class JobRepository {
         transaction.set(payoutTxRef, {
           'uid': nyxianId,
           'title': 'Gig Payout Released',
-          'desc': 'Payout for completing job $jobId (3% commission deducted' +
-              (redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : '') + ')',
+          'desc': 'Payout for completing job $jobId (3% commission deducted${redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : ''})',
           'amount': immediatePayout,
           'status': 'Successful',
           'method': 'Tranyx Wallet',
@@ -522,8 +521,7 @@ class JobRepository {
         transaction.set(feeTxRef, {
           'uid': employerId,
           'title': 'Job Completion Fees (10%)',
-          'desc': '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId' +
-              (discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''),
+          'desc': '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
           'amount': totalFees,
           'status': 'Successful',
           'method': 'Tranyx Wallet',

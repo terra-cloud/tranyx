@@ -56,6 +56,13 @@ class RewardQuest {
         category: 'Onboarding',
         points: 200,
         limit: 'Once'),
+    RewardQuest(
+        id: 'subscribe_hybrid_pro',
+        title: 'Subscribe to Hybrid PRO',
+        category: 'Onboarding',
+        points: 15000,
+        limit: 'Once',
+        notes: 'Unlock dual permissions and premium rewards'),
 
     // Employer
     RewardQuest(

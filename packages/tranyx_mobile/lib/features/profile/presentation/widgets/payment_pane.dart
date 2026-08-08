@@ -16,7 +16,6 @@ import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/flavors.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
-import 'package:bs58/bs58.dart';
 
 final rawUserDocProvider =
     StreamProvider.autoDispose<DocumentSnapshot<Map<String, dynamic>>?>((ref) {

@@ -35,11 +35,13 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = keyProperties["keyAlias"] as String
-            keyPassword = keyProperties["keyPassword"] as String
-            val rawStorePath = (keyProperties["storeFile"] as String).replace("~", System.getProperty("user.home"))
-            storeFile = file(rawStorePath)
-            storePassword = keyProperties["storePassword"] as String
+            if (keyPropertiesFile.exists()) {
+                keyAlias = keyProperties["keyAlias"] as String
+                keyPassword = keyProperties["keyPassword"] as String
+                val rawStorePath = (keyProperties["storeFile"] as String).replace("~", System.getProperty("user.home"))
+                storeFile = file(rawStorePath)
+                storePassword = keyProperties["storePassword"] as String
+            }
         }
     }
 
@@ -50,8 +52,8 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        versionCode = 5
+        versionName = "0.0.5"
         multiDexEnabled = true
     }
 
@@ -61,7 +63,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (keyPropertiesFile.exists()) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

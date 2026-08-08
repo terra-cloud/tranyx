@@ -1,7 +1,5 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:pinenacl/ed25519.dart';
-import 'package:pinenacl/digests.dart'; // sha256 or similar might be here
+// sha256 or similar might be here
 import 'package:bs58/bs58.dart';
 
 void main() {

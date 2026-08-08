@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
@@ -19,7 +18,7 @@ class LocalWalletConnectBridge {
     // Bind to the loopback interface on any available ephemeral port (0)
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     debugPrint(
-      'LocalWalletConnectBridge: Listening on ws://${_server!.address.address}:${_server!.port}',
+      'LocalWalletConnectBridge: Local loopback server listening on port ${_server!.port}',
     );
 
     _server!.listen(

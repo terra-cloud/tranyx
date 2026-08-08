@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -1070,27 +1071,35 @@ class PhantomService {
   }
 
   Future<String> fetchRecentBlockhash() async {
-    final response = await http.post(
-      Uri.parse(rpcUrl),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'jsonrpc': '2.0',
-        'id': 1,
-        'method': 'getLatestBlockhash',
-        'params': [
-          {'commitment': 'finalized'},
-        ],
-      }),
-    );
+    try {
+      final response = await http.post(
+        Uri.parse(rpcUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'jsonrpc': '2.0',
+          'id': 1,
+          'method': 'getLatestBlockhash',
+          'params': [
+            {'commitment': 'finalized'},
+          ],
+        }),
+      ).timeout(const Duration(seconds: 10));
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final blockhash = data['result']?['value']?['blockhash'] as String?;
-      if (blockhash != null) {
-        return blockhash;
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final blockhash = data['result']?['value']?['blockhash'] as String?;
+        if (blockhash != null) {
+          return blockhash;
+        }
       }
+      throw Exception('Failed to fetch recent blockhash from Solana RPC');
+    } on SocketException {
+      throw Exception('Network offline. Please check your internet connection and try again.');
+    } on TimeoutException {
+      throw Exception('Solana RPC connection timed out. Please try again.');
+    } catch (e) {
+      throw Exception('Error fetching blockhash: $e');
     }
-    throw Exception('Failed to fetch recent blockhash from Solana RPC');
   }
 
   Future<String> requestAirdrop(String walletPubkey, int lamports) async {

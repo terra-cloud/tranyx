@@ -1,3 +1,6 @@
+void dismissWebSplashScreen() {}
+void initRandomMetaballs(String containerId) {}
+
 class SessionStorage {
   static void save(dynamic auth) {}
   static void saveProfile({String? name, String? email, String? accountType}) {}

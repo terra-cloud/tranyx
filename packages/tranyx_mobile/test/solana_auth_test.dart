@@ -206,7 +206,7 @@ void main() {
   setUp(() {
     secureStorageValues.clear();
 
-    final handler = (MethodCall methodCall) async {
+    Future<Object?> handler(MethodCall methodCall) async {
       if (methodCall.method == 'write') {
         secureStorageValues[methodCall.arguments['key'] as String] =
             methodCall.arguments['value'] as String;
@@ -224,7 +224,7 @@ void main() {
         return true;
       }
       return null;
-    };
+    }
 
     for (final channel in [
       'plugins.it_nomads.com/flutter_secure_storage',
