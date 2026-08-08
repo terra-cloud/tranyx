@@ -95,6 +95,7 @@ jobs:
         if: env.FLAVOR == 'prod'
         working-directory: packages/tranyx_mobile
         run: |
+          flutter clean
           flutter build apk --release --flavor prod --dart-define=FLAVOR=prod --dart-define=XENDIT_SECRET_KEY=${{ secrets.XENDIT_SECRET_KEY }} --obfuscate --split-debug-info=build/app/outputs/symbols
 
       - name: Locate APK

@@ -54,11 +54,11 @@ jobs:
         run: |
           jaspr clean
           if [[ "$BASE_REF" == "main" ]]; then
-            jaspr build --dart-define=ENV=prod
+            jaspr build --dart-define=ENV=prod --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY"
           elif [[ "$BASE_REF" == "uat" ]]; then
-            jaspr build --dart-define=ENV=uat
+            jaspr build --dart-define=ENV=uat --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY"
           else
-            jaspr build --dart-define=ENV=dev
+            jaspr build --dart-define=ENV=dev --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY"
           fi
 
       - name: Set Environment Variables
