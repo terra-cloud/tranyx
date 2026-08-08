@@ -2226,7 +2226,7 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     try {
-      const apiKey = 'xnd_development_6en2scIVPSVNYySuAtoeoHL7NTZ0xl5tMfMsHbkJT3e2HnI7fyFxkC1LkDD3A';
+      final apiKey = Env.get('XENDIT_SECRET_KEY');
       final basicAuth = base64Encode(utf8.encode('$apiKey:'));
       final timestamp = DateTime.now().millisecondsSinceEpoch;
 
@@ -2293,7 +2293,7 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() => isVerifyingPayment = true);
 
     try {
-      const apiKey = 'xnd_development_6en2scIVPSVNYySuAtoeoHL7NTZ0xl5tMfMsHbkJT3e2HnI7fyFxkC1LkDD3A';
+      final apiKey = Env.get('XENDIT_SECRET_KEY');
       final basicAuth = base64Encode(utf8.encode('$apiKey:'));
 
       final checkRes = await http.get(

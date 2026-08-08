@@ -12,11 +12,11 @@ jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Check for code changes
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@de568385c70017408e65f62160f471469047d904 # v3.0.2
         with:
           filters: |
             code:
@@ -24,7 +24,7 @@ jobs:
 
       - name: Setup Flutter
         if: steps.filter.outputs.code == 'true'
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@f37a9a951d0bd8c8a70c0c69bc39c636f2e46b3f # v2.16.0
         with:
           channel: 'stable'
           cache: true
@@ -49,11 +49,13 @@ jobs:
       - name: Build Jaspr Web
         if: steps.filter.outputs.code == 'true'
         working-directory: packages/tranyx_web
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
           jaspr clean
-          if [[ "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$BASE_REF" == "main" ]]; then
             jaspr build --dart-define=ENV=prod
-          elif [[ "${{ github.base_ref }}" == "uat" ]]; then
+          elif [[ "$BASE_REF" == "uat" ]]; then
             jaspr build --dart-define=ENV=uat
           else
             jaspr build --dart-define=ENV=dev
@@ -62,11 +64,13 @@ jobs:
       - name: Set Environment Variables
         if: steps.filter.outputs.code == 'true'
         id: set_env
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          if [[ "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$BASE_REF" == "main" ]]; then
             echo "project_id=tranyx-app" >> $GITHUB_OUTPUT
             echo "sa_key_name=FIREBASE_SERVICE_ACCOUNT_TRANYX_APP" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.base_ref }}" == "uat" ]]; then
+          elif [[ "$BASE_REF" == "uat" ]]; then
             echo "project_id=tranyx-uat" >> $GITHUB_OUTPUT
             echo "sa_key_name=FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT" >> $GITHUB_OUTPUT
           else
@@ -78,7 +82,7 @@ jobs:
       - name: Deploy PR Preview (prod)
         if: steps.filter.outputs.code == 'true' && github.base_ref == 'main'
         continue-on-error: true
-        uses: FirebaseExtended/action-hosting-deploy@v0
+        uses: FirebaseExtended/action-hosting-deploy@e3a444983226ff342fa79758cf273b5ebbfebce3 # v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}
@@ -87,7 +91,7 @@ jobs:
       - name: Deploy PR Preview (uat)
         if: steps.filter.outputs.code == 'true' && github.base_ref == 'uat'
         continue-on-error: true
-        uses: FirebaseExtended/action-hosting-deploy@v0
+        uses: FirebaseExtended/action-hosting-deploy@e3a444983226ff342fa79758cf273b5ebbfebce3 # v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT }}
@@ -96,7 +100,7 @@ jobs:
       - name: Deploy PR Preview (dev)
         if: steps.filter.outputs.code == 'true' && github.base_ref != 'main' && github.base_ref != 'uat'
         continue-on-error: true
-        uses: FirebaseExtended/action-hosting-deploy@v0
+        uses: FirebaseExtended/action-hosting-deploy@e3a444983226ff342fa79758cf273b5ebbfebce3 # v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}

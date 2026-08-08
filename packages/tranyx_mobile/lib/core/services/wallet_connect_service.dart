@@ -18,7 +18,7 @@ class LocalWalletConnectBridge {
     // Bind to the loopback interface on any available ephemeral port (0)
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     debugPrint(
-      'LocalWalletConnectBridge: Listening on ws://${_server!.address.address}:${_server!.port}',
+      'LocalWalletConnectBridge: Local loopback server listening on port ${_server!.port}',
     );
 
     _server!.listen(

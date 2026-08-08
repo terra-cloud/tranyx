@@ -534,7 +534,8 @@ class SessionStorage {
   static void save(dynamic auth) {
     web.window.localStorage.setItem(_uid, auth.uid as String);
     web.window.localStorage.setItem(_tok, auth.idToken as String);
-    if (auth.refreshToken != null) web.window.localStorage.setItem(_ref, auth.refreshToken as String);
+    // refreshToken is handled securely by Firebase Auth persistence, not stored in raw localStorage
+    web.window.localStorage.removeItem(_ref);
     if (auth.displayName != null) web.window.localStorage.setItem(_nam, auth.displayName as String);
     if (auth.email != null) web.window.localStorage.setItem(_eml, auth.email as String);
   }

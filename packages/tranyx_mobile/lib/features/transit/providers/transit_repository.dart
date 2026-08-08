@@ -1211,7 +1211,7 @@ class TransitRepository {
     required double amount,
     required String userName,
   }) async {
-    const apiKey = 'xnd_development_6en2scIVPSVNYySuAtoeoHL7NTZ0xl5tMfMsHbkJT3e2HnI7fyFxkC1LkDD3A';
+    final apiKey = Env.get('XENDIT_SECRET_KEY');
     final basicAuth = base64Encode(utf8.encode('$apiKey:'));
     final timestamp = DateTime.now().millisecondsSinceEpoch;
 
@@ -1249,7 +1249,7 @@ class TransitRepository {
     required String invoiceId,
     required double amount,
   }) async {
-    const apiKey = 'xnd_development_6en2scIVPSVNYySuAtoeoHL7NTZ0xl5tMfMsHbkJT3e2HnI7fyFxkC1LkDD3A';
+    final apiKey = Env.get('XENDIT_SECRET_KEY');
     final basicAuth = base64Encode(utf8.encode('$apiKey:'));
 
     final checkRes = await http.get(
