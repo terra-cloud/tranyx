@@ -16,7 +16,7 @@ jobs:
 
       - name: Check for code changes
         id: filter
-        uses: dorny/paths-filter@de568385c70017408e65f62160f471469047d904 # v3.0.2
+        uses: dorny/paths-filter@v3 # v3.0.2
         with:
           filters: |
             code:
@@ -82,7 +82,7 @@ jobs:
       - name: Deploy PR Preview (prod)
         if: steps.filter.outputs.code == 'true' && github.base_ref == 'main'
         continue-on-error: true
-        uses: FirebaseExtended/action-hosting-deploy@e3a444983226ff342fa79758cf273b5ebbfebce3 # v0
+        uses: FirebaseExtended/action-hosting-deploy@v0 # v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}
@@ -91,7 +91,7 @@ jobs:
       - name: Deploy PR Preview (uat)
         if: steps.filter.outputs.code == 'true' && github.base_ref == 'uat'
         continue-on-error: true
-        uses: FirebaseExtended/action-hosting-deploy@e3a444983226ff342fa79758cf273b5ebbfebce3 # v0
+        uses: FirebaseExtended/action-hosting-deploy@v0  # v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_UAT }}
@@ -100,7 +100,7 @@ jobs:
       - name: Deploy PR Preview (dev)
         if: steps.filter.outputs.code == 'true' && github.base_ref != 'main' && github.base_ref != 'uat'
         continue-on-error: true
-        uses: FirebaseExtended/action-hosting-deploy@e3a444983226ff342fa79758cf273b5ebbfebce3 # v0
+        uses: FirebaseExtended/action-hosting-deploy@v0  # v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_DEV }}
