@@ -24,7 +24,7 @@ jobs:
 
       - name: Setup Flutter
         if: steps.filter.outputs.code == 'true'
-        uses: subosito/flutter-action@f37a9a951d0bd8c8a70c0c69bc39c636f2e46b3f # v2.16.0
+        uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
