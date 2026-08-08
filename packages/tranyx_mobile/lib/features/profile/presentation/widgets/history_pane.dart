@@ -1056,7 +1056,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  if (extra != null) extra,
+                  ?extra,
                 ],
               ),
             ),

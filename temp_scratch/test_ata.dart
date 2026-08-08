@@ -54,17 +54,17 @@ Uint8List findProgramAddress(List<Uint8List> seeds, Uint8List programId) {
 }
 
 void main() {
-  final TOKEN_PROGRAM_ID = base58.decode("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-  final ASSOCIATED_TOKEN_PROGRAM_ID = base58.decode("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bS");
+  final tokenProgramId = base58.decode("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+  final associatedTokenProgramId = base58.decode("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bS");
   
   final sender = base58.decode("H4r14zR2N9t3G5c1Fv8P8NJdTREpY1vzqKqZKvdpH4r1");
   final mint = base58.decode("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
   
   final senderATA = findProgramAddress([
     sender,
-    TOKEN_PROGRAM_ID,
+    tokenProgramId,
     mint,
-  ], ASSOCIATED_TOKEN_PROGRAM_ID);
+  ], associatedTokenProgramId);
   
   print("Derived Sender ATA (Dart): ${base58.encode(senderATA)}");
   print("Expected (from JS)       : GTLkDyKxuviezwJB8epmnRVQHVmzhSKn6T9tNwwVhFne");

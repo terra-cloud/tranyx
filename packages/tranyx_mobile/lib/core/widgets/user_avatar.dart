@@ -47,7 +47,7 @@ class UserAvatar extends StatelessWidget {
             ? DecorationImage(
                 image: NetworkImage(photoUrl!),
                 fit: BoxFit.cover,
-                onError: (_, __) {
+                onError: (_, _) {
                   // Fallback on image loading error will be handled by the framework 
                   // but we want to make sure it doesn't crash.
                 },

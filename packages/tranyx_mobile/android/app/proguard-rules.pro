@@ -70,3 +70,20 @@
 ## Multidex
 ##-------------------------------------------------------------------------------
 -keep class androidx.multidex.** { *; }
+
+##-------------------------------------------------------------------------------
+## Web3 / Cryptography / Solana Mobile Stack / Storage
+##-------------------------------------------------------------------------------
+-keep class com.pinenacl.** { *; }
+-dontwarn com.pinenacl.**
+-keep class com.cryptography.** { *; }
+-dontwarn com.cryptography.**
+-keep class com.it_roots.flutter_secure_storage.** { *; }
+-dontwarn com.it_roots.flutter_secure_storage.**
+-keep class com.reown.** { *; }
+-dontwarn com.reown.**
+-keep class org.bouncycastle.** { *; }
+-dontwarn org.bouncycastle.**
+-keep class bs58.** { *; }
+-dontwarn bs58.**
+

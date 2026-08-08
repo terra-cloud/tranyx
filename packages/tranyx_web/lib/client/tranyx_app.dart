@@ -55,6 +55,8 @@ class TranyxApp extends StatefulComponent {
 class TranyxAppState extends State<TranyxApp> {
   // ── Theme / Auth ────────────────────────────────────────────
   bool isDark = true;
+  bool showWebSplash = true;
+  bool showMobileAppPrompt = false;
   bool isAuthenticated = false;
   bool isAuthLoading = false;
   String? authError;
@@ -538,10 +540,32 @@ class TranyxAppState extends State<TranyxApp> {
     fetchSolToPhpRate();
     _loadOfflineLocationBuffer();
     _initUserLocation();
+    final startTime = DateTime.now();
+    void scheduleDismissal() {
+      final elapsed = DateTime.now().difference(startTime);
+      // Allow full intro animations to complete: 1.6s 3D enter + 1.2s shimmer + 0.8s white glow fill + 0.2s hold = 3.8s
+      const minDuration = Duration(milliseconds: 3800);
+      final remaining = minDuration - elapsed;
+
+      void triggerExitSequence() {
+        dismissWebSplashScreen();
+        // Wait full 1.1s for the 3D warp & flash exit transition to complete before unmounting splash overlay
+        Timer(const Duration(milliseconds: 1100), () {
+          if (mounted) setState(() => showWebSplash = false);
+        });
+      }
+
+      if (remaining.isNegative) {
+        triggerExitSequence();
+      } else {
+        Timer(remaining, triggerExitSequence);
+      }
+    }
+
     if (SessionStorage.hasSession) {
-      _restoreSession();
+      _restoreSession().whenComplete(scheduleDismissal);
     } else {
-      _checkGoogleRedirectResult();
+      _checkGoogleRedirectResult().whenComplete(scheduleDismissal);
     }
   }
 
@@ -552,47 +576,9 @@ class TranyxAppState extends State<TranyxApp> {
       final isIOS = userAgent.contains('iphone') || userAgent.contains('ipad') || userAgent.contains('ipod');
       final isAndroid = userAgent.contains('android');
 
-      if (isIOS) {
-        const env = String.fromEnvironment('ENV', defaultValue: 'dev');
-        String appStoreUrl;
-        if (env == 'prod') {
-          appStoreUrl = 'https://apps.apple.com/app/tranyx/id6470000000';
-        } else if (env == 'uat') {
-          appStoreUrl = 'https://apps.apple.com/app/tranyx-uat/id6470000002';
-        } else {
-          appStoreUrl = 'https://apps.apple.com/app/tranyx-dev/id6470000001';
-        }
-
-        // Try launching the custom scheme first
-        web.window.location.replace('tranyx://');
-        // Fallback to App Store if not installed
-        Future.delayed(const Duration(milliseconds: 2000), () {
-          web.window.location.replace(appStoreUrl);
-        });
-      } else if (isAndroid) {
-        final isSaga = userAgent.contains('saga') || userAgent.contains('solana');
-        const env = String.fromEnvironment('ENV', defaultValue: 'dev');
-        String appId = 'com.terraph.tranyx';
-        if (env == 'uat') {
-          appId = 'com.terraph.tranyx.uat';
-        } else if (env == 'dev') {
-          appId = 'com.terraph.tranyx.dev';
-        }
-
-        final playStoreUrl = 'https://play.google.com/store/apps/details?id=$appId';
-        final intentUrl =
-            'intent://#Intent;scheme=tranyx;package=$appId;S.browser_fallback_url=${Uri.encodeComponent(playStoreUrl)};end';
-
-        if (isSaga) {
-          // Open in Solana dApp Store
-          web.window.location.replace('dappstore://details?id=$appId');
-          // Set a fallback timeout to play store in case the protocol scheme fails
-          Future.delayed(const Duration(milliseconds: 1500), () {
-            web.window.location.replace(intentUrl);
-          });
-        } else {
-          web.window.location.replace(intentUrl);
-        }
+      if (isIOS || isAndroid) {
+        // Show choice prompt modal instead of auto-redirecting
+        setState(() => showMobileAppPrompt = true);
       }
     }
   }
@@ -1036,6 +1022,7 @@ class TranyxAppState extends State<TranyxApp> {
       if (token != null) {
         final svc = FirestoreService(token, handleTokenRefresh);
         await svc.checkAndAwardOnboardingQuests(uid);
+        await checkAndExpireSubscription(uid, svc);
       }
 
       final profile = await _firestore.getUser(uid);
@@ -1053,6 +1040,41 @@ class TranyxAppState extends State<TranyxApp> {
       await loadKycSubmission();
       await loadHoldbacks();
     } catch (_) {}
+  }
+
+  Future<void> checkAndExpireSubscription(String uid, FirestoreService svc) async {
+    try {
+      final doc = await svc.getDocument('users/$uid');
+      if (doc != null) {
+        final isPremium = doc['isPremium'] as bool? ?? false;
+        final premiumUntilMs = doc['premiumUntil'] as int?;
+        if (isPremium && premiumUntilMs != null) {
+          final expiry = DateTime.fromMillisecondsSinceEpoch(premiumUntilMs);
+          if (expiry.isBefore(DateTime.now())) {
+            // Revert premium status & accountType in Firestore
+            await svc.createOrUpdate('users/$uid', {
+              ...doc,
+              'isPremium': false,
+              'accountType': 'nyxian',
+              'premiumUntil': null,
+            });
+
+            // Create notification for expiry
+            final now = DateTime.now();
+            final docId = 'notif_${now.millisecondsSinceEpoch}_${uid.substring(0, uid.length > 5 ? 5 : uid.length)}';
+            await svc.createOrUpdate('notifications/$docId', {
+              'uid': uid,
+              'title': 'Subscription Expired',
+              'message': 'Your Premium Hybrid subscription has expired. Renew now to continue enjoying PRO features!',
+              'isRead': false,
+              'createdAt': now.millisecondsSinceEpoch,
+            });
+          }
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
   }
 
   // ── Auth actions ────────────────────────────────────────────
@@ -1934,6 +1956,99 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  Future<void> processSubscriptionPayment(double amountInSol, String subType) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) {
+      setState(() => postJobError = 'Please log in to make a payment.');
+      return;
+    }
+
+    setState(() {
+      isDepositing = true;
+      postJobError = null;
+    });
+
+    try {
+      // 1. Ensure Solana wallet is connected and obtain the active user's public key
+      final activeWalletType = selectedWalletType ?? 'phantom';
+      if (!isSolanaWalletInstalled(activeWalletType)) {
+        throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
+      }
+
+      var fromPubKey = userProfile?.walletPublicKey;
+      if (fromPubKey == null || fromPubKey.trim().isEmpty) {
+        fromPubKey = await connectSolanaWallet(activeWalletType);
+        if (fromPubKey == null) {
+          throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
+        }
+        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
+          uid,
+          fromPubKey,
+          refreshToken: SessionStorage.refreshToken,
+        );
+      }
+
+      // 2. Platform target Solana address
+      const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
+
+      // 3. Initiate the transfer transaction
+      final signature = await sendSolanaPayment(fromPubKey, adminSolanaAddress, amountInSol);
+      if (signature == null || signature.trim().isEmpty) {
+        throw 'Solana transaction rejected or failed to broadcast.';
+      }
+
+      // 4. Update premium status in user profile & set account type to hybrid
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final userDoc = await svc.getDocument('users/$uid');
+      if (userDoc != null) {
+        final double phpPrice = subType == 'yearly' ? 2999.0 : 299.0;
+        final now = DateTime.now();
+        final premiumUntil = subType == 'yearly'
+            ? now.add(const Duration(days: 365))
+            : now.add(const Duration(days: 30));
+
+        final updatedProfile = {
+          ...userDoc,
+          'isPremium': true,
+          'premiumUntil': premiumUntil.millisecondsSinceEpoch,
+          'accountType': 'hybrid',
+        };
+
+        await svc.createOrUpdate('users/$uid', updatedProfile);
+
+        if (userProfile != null) {
+          userProfile = UserProfile.fromMap(uid, updatedProfile);
+        }
+
+        // Record subscription transaction with Solana signature
+        await svc.createOrUpdate('transactions/sub_sol_$signature', {
+          'uid': uid,
+          'title': 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
+          'desc':
+              'Subscribed via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} (${amountInSol.toStringAsFixed(4)} SOL)',
+          'amount': phpPrice,
+          'status': 'Successful',
+          'method': 'Solana',
+          'solanaTxSignature': signature,
+          'solanaAmount': amountInSol,
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+          'type': 'subscription',
+        });
+
+        await loadTransactions();
+      }
+    } catch (e) {
+      setState(() => postJobError = e.toString());
+      rethrow;
+    } finally {
+      setState(() {
+        isDepositing = false;
+      });
+      unawaited(handleRefreshBalance());
+    }
+  }
+
   Future<void> processUsdtPayment(double amountInUsdt) async {
     final uid = SessionStorage.uid;
     final token = SessionStorage.idToken;
@@ -2111,7 +2226,7 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     try {
-      const apiKey = 'xnd_development_6en2scIVPSVNYySuAtoeoHL7NTZ0xl5tMfMsHbkJT3e2HnI7fyFxkC1LkDD3A';
+      final apiKey = Env.get('XENDIT_SECRET_KEY');
       final basicAuth = base64Encode(utf8.encode('$apiKey:'));
       final timestamp = DateTime.now().millisecondsSinceEpoch;
 
@@ -2178,7 +2293,7 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() => isVerifyingPayment = true);
 
     try {
-      const apiKey = 'xnd_development_6en2scIVPSVNYySuAtoeoHL7NTZ0xl5tMfMsHbkJT3e2HnI7fyFxkC1LkDD3A';
+      final apiKey = Env.get('XENDIT_SECRET_KEY');
       final basicAuth = base64Encode(utf8.encode('$apiKey:'));
 
       final checkRes = await http.get(
@@ -3437,8 +3552,7 @@ class TranyxAppState extends State<TranyxApp> {
             await svc.createOrUpdate('transactions/payout_nyx_$jobId', {
               'uid': nyxianId,
               'title': 'Gig Payout Released',
-              'desc': 'Payout for completing job $jobId (3% commission deducted' +
-                  (redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : '') + ')',
+              'desc': 'Payout for completing job $jobId (3% commission deducted${redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : ''})',
               'amount': immediatePayout,
               'status': 'Successful',
               'method': 'Tranyx Wallet',
@@ -3471,8 +3585,7 @@ class TranyxAppState extends State<TranyxApp> {
               'uid': employerId,
               'title': 'Job Completion Fees (10%)',
               'desc':
-                  '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId' +
-                  (discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''),
+                  '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
               'amount': totalFees,
               'status': 'Successful',
               'method': 'Tranyx Wallet',
@@ -5987,14 +6100,49 @@ class TranyxAppState extends State<TranyxApp> {
 
     final darkBg = isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900';
 
-    if (!isAuthenticated) {
+    if (showWebSplash) {
       return div(
-        classes: 'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12 relative',
+        classes:
+            'fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-[radial-gradient(circle_at_50%_50%,#1a0b2e_0%,#0d0618_50%,#05030a_100%)] overflow-hidden font-sans text-white [perspective:1200px]',
         [
-          div(classes: 'w-full max-w-md p-6', [
+          div(classes: 'splash-orb splash-orb-1', []),
+          div(classes: 'splash-orb splash-orb-2', []),
+          div(classes: 'splash-orb splash-orb-3', []),
+          div(classes: 'splash-grid', []),
+          div(classes: 'splash-shockwave', []),
+          div(classes: 'splash-shockwave splash-shockwave-2', []),
+          div(classes: 'splash-logo-container', [
+            div(classes: 'splash-logo-glow', []),
+            img(src: '/images/logo.svg', classes: 'splash-logo-img', attributes: {'alt': 'Tranyx Logo'}),
+          ]),
+          h1(classes: 'splash-title', [Component.text('TRANYX')]),
+          p(classes: 'splash-subtitle', [Component.text('One Platform. Endless Opportunities.')]),
+          div(classes: 'splash-loader-track', [
+            div(classes: 'splash-loader-bar', []),
+          ]),
+        ],
+      );
+    }
+
+    if (!isAuthenticated) {
+      // Trigger random web metaballs initialization
+      Timer.run(() => initRandomMetaballs('web-metaballs-container'));
+
+      return div(
+        classes:
+            'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12 relative overflow-hidden',
+        [
+          // Animated Metaballs background
+          div(
+            id: 'web-metaballs-container',
+            classes: 'metaball-container',
+            [],
+          ),
+          div(classes: 'w-full max-w-md p-6 z-10 relative', [
             AuthViewComponent(state: this),
           ]),
           if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
+          if (showMobileAppPrompt) MobileAppPromptModalComponent(state: this),
         ],
       );
     }
@@ -6683,3 +6831,78 @@ class WalletReconnectModalComponent extends StatelessComponent {
     );
   }
 }
+
+class MobileAppPromptModalComponent extends StatelessComponent {
+  final TranyxAppState state;
+  const MobileAppPromptModalComponent({required this.state, super.key});
+
+  @override
+  Component build(BuildContext context) {
+    final s = state;
+    final isDark = s.isDark;
+    final userAgent = web.window.navigator.userAgent.toLowerCase();
+    final isAndroid = userAgent.contains('android');
+
+    const env = String.fromEnvironment('ENV', defaultValue: 'dev');
+    String appId = 'com.terraph.tranyx';
+    if (env == 'uat') appId = 'com.terraph.tranyx.uat';
+    if (env == 'dev') appId = 'com.terraph.tranyx.dev';
+
+    return div(
+      classes:
+          'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in',
+      [
+        div(
+          classes:
+              'w-full max-w-md p-6 rounded-3xl border shadow-2xl ${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-900"}',
+          [
+            div(classes: 'flex justify-between items-center mb-5', [
+              div(classes: 'flex items-center gap-3', [
+                svgLogo(size: 'w-7 h-7'),
+                h3(classes: 'font-bold text-lg', [Component.text('Open Tranyx Mobile')]),
+              ]),
+              button(
+                classes:
+                    'p-1.5 rounded-full hover:bg-zinc-500/10 transition-colors ${isDark ? "text-zinc-400 hover:text-white" : "text-zinc-500 hover:text-zinc-800"}',
+                events: {'click': (_) => s.setState(() => s.showMobileAppPrompt = false)},
+                [lIcon('x', cls: 'w-5 h-5')],
+              ),
+            ]),
+            p(classes: 'text-sm mb-6 ${isDark ? "text-zinc-400" : "text-zinc-600"} leading-relaxed', [
+              Component.text(
+                'How would you like to experience Tranyx on your device? You can continue in your web browser or open our mobile app.',
+              ),
+            ]),
+            div(classes: 'space-y-3', [
+              if (isAndroid)
+                button(
+                  classes:
+                      'w-full py-3.5 px-4 rounded-2xl font-semibold border flex items-center justify-between transition-all ${isDark ? "border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20" : "border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100"}',
+                  events: {
+                    'click': (_) {
+                      s.setState(() => s.showMobileAppPrompt = false);
+                      web.window.location.assign('dappstore://details?id=$appId');
+                    },
+                  },
+                  [
+                    div(classes: 'flex items-center gap-3', [
+                      lIcon('sparkles', cls: 'w-5 h-5 text-purple-400'),
+                      span([Component.text('Solana dApp Store')]),
+                    ]),
+                    lIcon('external-link', cls: 'w-4 h-4 opacity-70'),
+                  ],
+                ),
+              button(
+                classes:
+                    'w-full py-3.5 px-4 rounded-2xl font-semibold border flex items-center justify-center transition-all ${isDark ? "border-zinc-800 bg-zinc-800/80 text-zinc-300 hover:bg-zinc-800 hover:text-white" : "border-zinc-200 bg-zinc-100 text-zinc-700 hover:bg-zinc-200"}',
+                events: {'click': (_) => s.setState(() => s.showMobileAppPrompt = false)},
+                [Component.text('Continue in Web Browser')],
+              ),
+            ]),
+          ],
+        ),
+      ],
+    );
+  }
+}
+

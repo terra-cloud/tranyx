@@ -1,5 +1,5 @@
 # Uncomment this line to define a global platform for your project
-platform :ios, '26.0'
+# platform :ios, '26.0'
 
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
@@ -49,6 +49,31 @@ post_install do |installer|
     target.build_configurations.each do |config|
       config.build_settings['ONLY_ACTIVE_ARCH'] = 'YES'
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '26.0'
+      config.build_settings['GCC_WARN_ABOUT_DEPRECATED_FUNCTIONS'] = 'NO'
+      config.build_settings['CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS'] = 'NO'
+      config.build_settings['OTHER_CFLAGS'] ||= ['$(inherited)']
+      config.build_settings['OTHER_CFLAGS'] << '-Wno-deprecated-declarations'
+      config.build_settings['OTHER_CFLAGS'] << '-Wno-error=deprecated-declarations'
+      config.build_settings['OTHER_CFLAGS'] << '-Wno-obsolete-declarations'
     end
+  end
+
+  # Patch legacy ALAsset usage in flutter_image_compress_common for iOS 26+ SDK compatibility
+  symetadata_m = File.expand_path('../.symlinks/plugins/flutter_image_compress_common/ios/Classes/SYPictureMetadata/SYMetadata.m', __FILE__)
+  if File.exist?(symetadata_m)
+    text = File.read(symetadata_m)
+    text.gsub!(/\+ \(instancetype\)metadataWithAsset:[\s\S]*?\n\}/, '+ (instancetype)metadataWithAsset:(id)asset { return nil; }')
+    text.gsub!(/\+ \(NSDictionary \*\)dictionaryWithAssetURL:[\s\S]*?\n\}/, '+ (NSDictionary *)dictionaryWithAssetURL:(NSURL *)assetURL { return nil; }')
+    File.write(symetadata_m, text)
+  end
+
+  symetadata_h = File.expand_path('../.symlinks/plugins/flutter_image_compress_common/ios/Classes/SYPictureMetadata/SYMetadata.h', __FILE__)
+  if File.exist?(symetadata_h)
+    text = File.read(symetadata_h)
+    text.gsub!(/@class ALAsset;/, '//@class ALAsset;')
+    text.gsub!(/\+ \(instancetype\)metadataWithAsset:([^\n;]*);/, '+ (instancetype)metadataWithAsset:(id)asset;')
+    text.gsub!(/\+ \(instancetype\)metadataWithAssetURL:([^\n;]*);/, '+ (instancetype)metadataWithAssetURL:(NSURL *)assetURL;')
+    text.gsub!(/\+ \(NSDictionary \*\)dictionaryWithAssetURL:([^\n;]*);/, '+ (NSDictionary *)dictionaryWithAssetURL:(NSURL *)assetURL;')
+    File.write(symetadata_h, text)
   end
 end

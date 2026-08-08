@@ -6,6 +6,20 @@ import 'dart:typed_data';
 import 'dart:async';
 import 'dart:js_interop';
 
+// ── Splash Screen ─────────────────────────────────────────────────────────────
+
+void dismissWebSplashScreen() {
+  try {
+    web.window.callMethod('dismissWebSplashScreen'.toJS);
+  } catch (_) {}
+}
+
+void initRandomMetaballs(String containerId) {
+  try {
+    web.window.callMethod('initRandomMetaballs'.toJS, containerId.toJS);
+  } catch (_) {}
+}
+
 // ── Solana Wallet ────────────────────────────────────────────────────────────
 
 Future<String?> connectSolanaWallet(String type) async {
@@ -520,7 +534,8 @@ class SessionStorage {
   static void save(dynamic auth) {
     web.window.localStorage.setItem(_uid, auth.uid as String);
     web.window.localStorage.setItem(_tok, auth.idToken as String);
-    if (auth.refreshToken != null) web.window.localStorage.setItem(_ref, auth.refreshToken as String);
+    // refreshToken is handled securely by Firebase Auth persistence, not stored in raw localStorage
+    web.window.localStorage.removeItem(_ref);
     if (auth.displayName != null) web.window.localStorage.setItem(_nam, auth.displayName as String);
     if (auth.email != null) web.window.localStorage.setItem(_eml, auth.email as String);
   }

@@ -397,23 +397,23 @@ class _ActiveTripTrackerSheetState
         'Rental terms & conditions...';
 
     // Step calculations
-    final s1_completed = true;
-    final s1_active = true;
+    final s1Completed = true;
+    final s1Active = true;
 
-    final s2_completed =
+    final s2Completed =
         signature.isNotEmpty ||
         status == 'Booked' ||
         status == 'Active' ||
         status == 'Ongoing' ||
         status == 'Completed';
-    final s2_active = status == 'Awaiting Signature';
+    final s2Active = status == 'Awaiting Signature';
 
-    final s3_completed =
+    final s3Completed =
         status == 'Active' || status == 'Ongoing' || status == 'Completed';
-    final s3_active = status == 'Booked';
+    final s3Active = status == 'Booked';
 
-    final s4_completed = status == 'Completed';
-    final s4_active = status == 'Active' || status == 'Ongoing';
+    final s4Completed = status == 'Completed';
+    final s4Active = status == 'Active' || status == 'Ongoing';
 
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
@@ -510,8 +510,8 @@ class _ActiveTripTrackerSheetState
                       1,
                       'Booking Escrow Deposited',
                       'Renter balance has been locked in escrow.',
-                      s1_completed,
-                      s1_active,
+                      s1Completed,
+                      s1Active,
                     ),
                     _buildStep(
                       2,
@@ -519,8 +519,8 @@ class _ActiveTripTrackerSheetState
                       signature.isNotEmpty
                           ? 'Signed: $signature'
                           : 'Awaiting renter electronic signature.',
-                      s2_completed,
-                      s2_active,
+                      s2Completed,
+                      s2Active,
                     ),
                     _buildStep(
                       3,
@@ -528,8 +528,8 @@ class _ActiveTripTrackerSheetState
                       status == 'Active' || status == 'Ongoing'
                           ? 'Asset handed over to renter.'
                           : 'Awaiting keys handover.',
-                      s3_completed,
-                      s3_active,
+                      s3Completed,
+                      s3Active,
                     ),
                     _buildStep(
                       4,
@@ -537,8 +537,8 @@ class _ActiveTripTrackerSheetState
                       status == 'Completed'
                           ? 'Trip has ended.'
                           : 'Active lease period.',
-                      s4_completed,
-                      s4_active,
+                      s4Completed,
+                      s4Active,
                     ),
 
                     // Renter Signature Action

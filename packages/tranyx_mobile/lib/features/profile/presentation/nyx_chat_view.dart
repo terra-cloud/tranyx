@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/ai_provider.dart';
+import 'package:tranyx_mobile/core/services/nyx_model_manager_service.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
+
 
 enum SupportChatMode { menu, ai, agent }
 
@@ -242,9 +244,45 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
       final aiService = ref.read(aiServiceProvider);
       final response = await aiService.getChatResponse(history);
 
-      // Successfully connected to server AI and got response!
-      // Now decrement token if this was a new conversation.
-      if (isNewConversation &&
+      if (response.startsWith('OUT_OF_SCOPE:')) {
+        final cleanMsg = response.replaceFirst('OUT_OF_SCOPE:', '').trim();
+        if (mounted) {
+          setState(() {
+            _messages.add({
+              'role': 'assistant',
+              'content': '$cleanMsg\n\n[Session Terminated: Query is out of Tranyx scope]',
+            });
+            _isThinking = false;
+          });
+          _scrollToBottom();
+        }
+        Future.delayed(const Duration(milliseconds: 2500), () {
+          if (mounted) {
+            widget.onBack();
+          }
+        });
+        return;
+      }
+
+      if (response == "TRANSFER_TO_AGENT") {
+
+        if (mounted) {
+          setState(() {
+            _chatMode = SupportChatMode.agent;
+            _isThinking = false;
+          });
+        }
+        return;
+      }
+
+      final isErrorResponse = response.startsWith('Error:') ||
+          response.startsWith('HTTP Error:') ||
+          response.startsWith('Request failed:');
+
+      // Successfully connected to server AI and got valid response!
+      // Only decrement token if this was a new conversation AND not an error response.
+      if (!isErrorResponse &&
+          isNewConversation &&
           tokensToUpdate != null &&
           timestampToUpdate != null) {
         try {
@@ -276,14 +314,9 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _messages.add({
-            'role': 'assistant',
-            'content':
-                "Sorry, I had trouble connecting. Please check if your Cloudflare Account ID is configured correctly in the app.",
-          });
+          _chatMode = SupportChatMode.agent;
           _isThinking = false;
         });
-        _scrollToBottom();
       }
     }
   }
@@ -366,8 +399,10 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
             ),
             child: Column(
               children: [
+                _buildModelStatusBanner(context, isDarkMode),
                 Expanded(
                   child: ListView.builder(
+
                     controller: _scrollController,
                     itemCount: _messages.length,
                     itemBuilder: (context, index) {
@@ -952,8 +987,139 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
     }, SetOptions(merge: true));
   }
 
+  Widget _buildModelStatusBanner(BuildContext context, bool isDarkMode) {
+    final modelStatus = ref.watch(nyxModelStatusProvider);
+
+    if (modelStatus.isReady) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.green.withAlpha(30),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.green.withAlpha(75)),
+        ),
+        child: Row(
+          children: const [
+            Icon(Icons.check_circle_rounded, color: Colors.green, size: 16),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                "Nyx AI 7B Neural Engine (Downloaded & Offline Ready)",
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (modelStatus.isDownloading) {
+      final pct = (modelStatus.progress * 100).toInt();
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.amber.withAlpha(30),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.amber.withAlpha(75)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.amber,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "Downloading Nyx AI 7B Neural Model ($pct%)...",
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.amber,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: modelStatus.progress,
+                backgroundColor: Colors.amber.withAlpha(50),
+                color: Colors.amber,
+                minHeight: 4,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.indigo.withAlpha(30),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.indigo.withAlpha(75)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.bolt_rounded, color: AppColors.indigo, size: 16),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              "Nyx AI: Knowledge Base Active",
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.indigo,
+              ),
+            ),
+          ),
+          InkWell(
+            onTap: () {
+              ref.read(nyxModelStatusProvider.notifier).startDownload();
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.indigo,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                "Download 7B Model",
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
+
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     switch (_chatMode) {

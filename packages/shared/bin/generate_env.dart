@@ -48,7 +48,8 @@ void main() {
   }
 
   // 2. Fallback to system environment variables (useful for CI/CD pipelines)
-  final keysToLoad = ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'];
+  final keysToLoad = <String>[];
+
   for (final key in keysToLoad) {
     if (!vars.containsKey(key) || vars[key]!.isEmpty) {
       final envVal = Platform.environment[key];

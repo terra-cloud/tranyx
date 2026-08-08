@@ -16,7 +16,9 @@ import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane
 import 'package:tranyx_mobile/features/profile/presentation/widgets/reviews_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/security_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/rewards_pane.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/subscription_pane.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
+import 'package:tranyx_mobile/core/utils/enums.dart';
 
 class ProfileView extends ConsumerStatefulWidget {
   final bool isTablet;
@@ -39,6 +41,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
   late TextEditingController _industryController;
   late TextEditingController _taxIdController;
 
+  List<String> _skills = [];
   bool _initialized = false;
   bool _isSaving = false;
   bool _isUploadingImage = false;
@@ -228,6 +231,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
 
   void _initFields(UserProfile profile) {
     if (_initialized) return;
+    _skills = List<String>.from(profile.skills ?? []);
     _nameController.text = profile.name;
     _emailController.text = profile.email;
     _phoneController.text = profile.phoneNumber ?? '';
@@ -278,7 +282,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
         hourlyRate: currentProfile.accountType == AccountType.employer
             ? currentProfile.hourlyRate
             : (double.tryParse(_hourlyRateController.text) ?? 0),
-        skills: currentProfile.skills,
+        skills: _skills,
         rating: currentProfile.rating,
         createdAt: currentProfile.createdAt,
       );
@@ -304,6 +308,142 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
         });
       }
     }
+  }
+
+  Future<void> _showAddSkillDialog(bool isDarkMode) async {
+    JobCategory? selectedCategory;
+    final customSkillController = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final bgColor = isDarkMode ? const Color(0xFF18181B) : Colors.white;
+            final textColor = isDarkMode ? AppColors.darkText : AppColors.lightText;
+
+            return AlertDialog(
+              backgroundColor: bgColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: Text(
+                'Add Skill or Service',
+                style: TextStyle(
+                  color: textColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DropdownButtonFormField<JobCategory>(
+                    value: selectedCategory,
+                    decoration: InputDecoration(
+                      labelText: 'Select Service Category',
+                      labelStyle: TextStyle(
+                        color: isDarkMode
+                            ? AppColors.darkTextMuted
+                            : AppColors.lightTextMuted,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                    ),
+                    dropdownColor: bgColor,
+                    style: TextStyle(color: textColor, fontSize: 14),
+                    isExpanded: true,
+                    items: JobCategory.values.map((category) {
+                      return DropdownMenuItem<JobCategory>(
+                        value: category,
+                        child: Text(
+                          category.label,
+                          style: TextStyle(color: textColor),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        selectedCategory = value;
+                        if (value != null) {
+                          customSkillController.text = value.label;
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: customSkillController,
+                    style: TextStyle(color: textColor),
+                    decoration: InputDecoration(
+                      labelText: 'Or type custom skill',
+                      labelStyle: TextStyle(
+                        color: isDarkMode
+                            ? AppColors.darkTextMuted
+                            : AppColors.lightTextMuted,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(
+                      color: isDarkMode
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.indigo,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: () {
+                    final newSkill = customSkillController.text.trim();
+                    if (newSkill.isNotEmpty && !_skills.contains(newSkill)) {
+                      setState(() {
+                        _skills.add(newSkill);
+                      });
+                      final currentProfile = ref.read(userProfileProvider).value;
+                      if (currentProfile != null) {
+                        _saveProfile(currentProfile);
+                      }
+                    }
+                    Navigator.pop(dialogContext);
+                  },
+                  child: const Text(
+                    'Add',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    customSkillController.dispose();
   }
 
   @override
@@ -614,6 +754,8 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
             const SizedBox(height: 12),
             buildProfileMenu(Icons.credit_card, "Payment Methods", 'payment'),
             const SizedBox(height: 12),
+            buildProfileMenu(Icons.star_rounded, "Hybrid PRO Subscription", 'subscription'),
+            const SizedBox(height: 12),
             buildProfileMenu(Icons.security, "Trust & Verification", 'trust'),
             const SizedBox(height: 12),
             buildProfileMenu(Icons.history, "History & Earnings", 'history'),
@@ -750,7 +892,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
         } else if (profileView == 'professional') {
           Widget buildSkillChip(String label, bool isDarkMode) {
             return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: isDarkMode
                     ? const Color(0xFF27272A)
@@ -762,52 +904,79 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                       : AppColors.lightBorder,
                 ),
               ),
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: isDarkMode ? AppColors.darkText : AppColors.lightText,
-                ),
-              ),
-            );
-          }
-
-          Widget buildAddSkillChip(bool isDarkMode) {
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: isDarkMode
-                      ? const Color(0xFF3F3F46)
-                      : AppColors.lightTextMuted.withValues(alpha: 0.5),
-                  width: 1,
-                ),
-              ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.add,
-                    size: 16,
-                    color: isDarkMode
-                        ? AppColors.darkTextMuted
-                        : AppColors.lightTextMuted,
-                  ),
-                  const SizedBox(width: 4),
                   Text(
-                    "Add Skill",
+                    label,
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
+                      color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _skills.remove(label);
+                      });
+                      if (profile != null) {
+                        _saveProfile(profile);
+                      }
+                    },
+                    child: Icon(
+                      Icons.close,
+                      size: 14,
                       color: isDarkMode
                           ? AppColors.darkTextMuted
                           : AppColors.lightTextMuted,
                     ),
                   ),
                 ],
+              ),
+            );
+          }
+
+          Widget buildAddSkillChip(bool isDarkMode) {
+            return InkWell(
+              onTap: () => _showAddSkillDialog(isDarkMode),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isDarkMode
+                        ? const Color(0xFF3F3F46)
+                        : AppColors.lightTextMuted.withValues(alpha: 0.5),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.add,
+                      size: 16,
+                      color: isDarkMode
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      "Add Skill",
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isDarkMode
+                            ? AppColors.darkTextMuted
+                            : AppColors.lightTextMuted,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           }
@@ -844,9 +1013,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      buildSkillChip("Plumbing", isDarkMode),
-                      buildSkillChip("Electrical", isDarkMode),
-                      buildSkillChip("HVAC", isDarkMode),
+                      ..._skills.map((skill) => buildSkillChip(skill, isDarkMode)),
                       buildAddSkillChip(isDarkMode),
                     ],
                   ),
@@ -954,6 +1121,10 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
           );
         } else if (profileView == 'payment') {
           rightPane = PaymentPane(
+            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
+          );
+        } else if (profileView == 'subscription') {
+          rightPane = SubscriptionPane(
             onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
           );
         } else if (profileView == 'trust') {

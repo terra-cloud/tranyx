@@ -63,6 +63,7 @@ class UserProfile {
   final bool idVerified;
   final bool bgChecked;
   final bool isPremium;
+  final DateTime? premiumUntil;
   final bool isBonded;
   final List<String>? certificationUrls;
   final String? activePromoCode;
@@ -102,6 +103,7 @@ class UserProfile {
     this.idVerified = false,
     this.bgChecked = false,
     this.isPremium = false,
+    this.premiumUntil,
     this.isBonded = false,
     this.certificationUrls,
     this.activePromoCode,
@@ -154,6 +156,9 @@ class UserProfile {
       idVerified: map['idVerified'] as bool? ?? false,
       bgChecked: map['bgChecked'] as bool? ?? false,
       isPremium: map['isPremium'] as bool? ?? false,
+      premiumUntil: map['premiumUntil'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['premiumUntil'] as int)
+          : null,
       isBonded: map['isBonded'] as bool? ?? false,
       certificationUrls: (map['certificationUrls'] as List?)
           ?.map((e) => e as String)
@@ -203,6 +208,7 @@ class UserProfile {
     'idVerified': idVerified,
     'bgChecked': bgChecked,
     'isPremium': isPremium,
+    'premiumUntil': premiumUntil?.millisecondsSinceEpoch,
     'isBonded': isBonded,
     'certificationUrls': certificationUrls,
     'activePromoCode': activePromoCode,
@@ -242,6 +248,7 @@ class UserProfile {
     bool? idVerified,
     bool? bgChecked,
     bool? isPremium,
+    DateTime? premiumUntil,
     bool? isBonded,
     List<String>? certificationUrls,
     String? activePromoCode,
@@ -281,6 +288,7 @@ class UserProfile {
       idVerified: idVerified ?? this.idVerified,
       bgChecked: bgChecked ?? this.bgChecked,
       isPremium: isPremium ?? this.isPremium,
+      premiumUntil: premiumUntil ?? this.premiumUntil,
       isBonded: isBonded ?? this.isBonded,
       certificationUrls: certificationUrls ?? this.certificationUrls,
       activePromoCode: activePromoCode ?? this.activePromoCode,

@@ -49,6 +49,7 @@
         "image_cropper",
         "image_picker",
         "intl",
+        "llama_cpp_dart",
         "local_auth",
         "lucide_icons_flutter",
         "path",
@@ -83,6 +84,7 @@
         "web"
       ],
       "devDependencies": [
+        "build_daemon",
         "build_runner",
         "build_web_compilers",
         "dart_style",
@@ -207,6 +209,27 @@
         "logging",
         "meta",
         "mime",
+        "package_config",
+        "path",
+        "pool",
+        "pub_semver",
+        "shelf",
+        "shelf_web_socket",
+        "stream_transform",
+        "watcher",
+        "web_socket_channel",
+        "yaml"
+      ]
+    },
+    {
+      "name": "build_daemon",
+      "version": "4.1.4",
+      "dependencies": [
+        "built_collection",
+        "built_value",
+        "crypto",
+        "http_multi_server",
+        "logging",
         "package_config",
         "path",
         "pool",
@@ -347,6 +370,17 @@
         "sprintf",
         "xml",
         "yaml"
+      ]
+    },
+    {
+      "name": "llama_cpp_dart",
+      "version": "0.2.2",
+      "dependencies": [
+        "ffi",
+        "flutter",
+        "image",
+        "typed_isolate",
+        "uuid"
       ]
     },
     {
@@ -1101,24 +1135,6 @@
       "dependencies": []
     },
     {
-      "name": "build_daemon",
-      "version": "4.1.1",
-      "dependencies": [
-        "built_collection",
-        "built_value",
-        "crypto",
-        "http_multi_server",
-        "logging",
-        "path",
-        "pool",
-        "shelf",
-        "shelf_web_socket",
-        "stream_transform",
-        "watcher",
-        "web_socket_channel"
-      ]
-    },
-    {
       "name": "build_config",
       "version": "1.3.0",
       "dependencies": [
@@ -1298,6 +1314,18 @@
         "io",
         "win32"
       ]
+    },
+    {
+      "name": "typed_isolate",
+      "version": "6.0.0",
+      "dependencies": [
+        "meta"
+      ]
+    },
+    {
+      "name": "ffi",
+      "version": "2.2.0",
+      "dependencies": []
     },
     {
       "name": "webview_flutter_wkwebview",
@@ -1994,11 +2022,6 @@
         "meta",
         "plugin_platform_interface"
       ]
-    },
-    {
-      "name": "ffi",
-      "version": "2.2.0",
-      "dependencies": []
     },
     {
       "name": "cloud_functions_web",

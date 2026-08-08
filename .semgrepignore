@@ -1,0 +1,14 @@
+# Ignore public Firebase configuration files containing client API keys
+packages/shared/lib/src/firebase_config.dart
+packages/tranyx_mobile/lib/firebase_options_dev.dart
+packages/tranyx_mobile/lib/firebase_options_uat.dart
+packages/tranyx_mobile/lib/firebase_options_prod.dart
+
+# External CDN scripts in HTML (Tailwind CDN, Firebase JS, Solana Web3)
+packages/tranyx_web/web/index.html
+
+# iOS Info.plist - Dynamic Firebase serverless endpoints (Google Cloud rotates TLS certs)
+packages/tranyx_mobile/ios/Runner/Info.plist
+# Temporary scratch directories
+temp_scratch/
+scratch/

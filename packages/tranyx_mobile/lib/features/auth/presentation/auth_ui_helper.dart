@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 
@@ -31,50 +33,46 @@ class AuthUiHelper {
       ),
       body: Stack(
         children: [
-          // Background decoration
-          if (!isDarkMode)
-            Positioned(
-              top: -100,
-              right: -100,
-              child: Container(
-                width: 300,
-                height: 300,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.indigo.withValues(alpha: 0.05),
-                ),
-              ),
-            ),
+          // Animated Metaballs Background
+          const Positioned.fill(
+            child: _AnimatedMetaballsBackground(),
+          ),
           Center(
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.all(24.0),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 450),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 32.0,
-                    vertical: 40.0,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isDarkMode ? AppColors.darkCard : Colors.white,
-                    borderRadius: BorderRadius.circular(32),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(
-                          alpha: isDarkMode ? 0.3 : 0.05,
-                        ),
-                        blurRadius: 40,
-                        offset: const Offset(0, 20),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(32),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32.0,
+                        vertical: 40.0,
                       ),
-                    ],
-                    border: isDarkMode
-                        ? null
-                        : Border.all(
-                            color: AppColors.lightBorder.withValues(alpha: 0.5),
+                      decoration: BoxDecoration(
+                        color: (isDarkMode ? AppColors.darkCard : Colors.white)
+                            .withValues(alpha: isDarkMode ? 0.65 : 0.75),
+                        borderRadius: BorderRadius.circular(32),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(
+                              alpha: isDarkMode ? 0.3 : 0.08,
+                            ),
+                            blurRadius: 40,
+                            offset: const Offset(0, 20),
                           ),
+                        ],
+                        border: Border.all(
+                          color: (isDarkMode ? Colors.white : AppColors.indigo)
+                              .withValues(alpha: isDarkMode ? 0.12 : 0.18),
+                        ),
+                      ),
+                      child: body,
+                    ),
                   ),
-                  child: body,
                 ),
               ),
             ),
@@ -326,6 +324,145 @@ class AuthUiHelper {
         const SizedBox(height: 12),
         Image.asset('assets/images/terra-logo.png', height: 40),
       ],
+    );
+  }
+}
+
+class _AnimatedMetaballsBackground extends StatefulWidget {
+  const _AnimatedMetaballsBackground();
+
+  @override
+  State<_AnimatedMetaballsBackground> createState() =>
+      __AnimatedMetaballsBackgroundState();
+}
+
+class _MetaballSpec {
+  final double startXRatio;
+  final double startYRatio;
+  final double targetXRatio;
+  final double targetYRatio;
+  final double size;
+  final Color color;
+  final double speedMultiplier;
+
+  _MetaballSpec({
+    required this.startXRatio,
+    required this.startYRatio,
+    required this.targetXRatio,
+    required this.targetYRatio,
+    required this.size,
+    required this.color,
+    required this.speedMultiplier,
+  });
+}
+
+class __AnimatedMetaballsBackgroundState
+    extends State<_AnimatedMetaballsBackground>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late List<_MetaballSpec> _metaballs;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 16),
+    )..repeat(reverse: true);
+
+    final random = math.Random();
+    final count = random.nextInt(4) + 3; // Random 3 to 6 metaballs
+
+    final colorPalette = [
+      AppColors.indigo.withValues(alpha: 0.55),
+      AppColors.purple.withValues(alpha: 0.55),
+      Colors.blue.withValues(alpha: 0.45),
+      Colors.pinkAccent.withValues(alpha: 0.45),
+      Colors.cyan.withValues(alpha: 0.45),
+      Colors.deepPurpleAccent.withValues(alpha: 0.5),
+    ];
+
+    _metaballs = List.generate(count, (index) {
+      return _MetaballSpec(
+        startXRatio: 0.05 + random.nextDouble() * 0.85,
+        startYRatio: 0.05 + random.nextDouble() * 0.85,
+        targetXRatio: 0.05 + random.nextDouble() * 0.85,
+        targetYRatio: 0.05 + random.nextDouble() * 0.85,
+        size: 220.0 + random.nextDouble() * 140.0,
+        color: colorPalette[index % colorPalette.length],
+        speedMultiplier: 0.7 + random.nextDouble() * 0.6,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final rawT = _controller.value;
+
+        return Stack(
+          children: _metaballs.map((spec) {
+            // Apply unique speed phase per metaball
+            final t = ((rawT * spec.speedMultiplier) % 1.0);
+            // Smooth sine curve for natural motion
+            final smoothT = (1 - math.cos(t * math.pi)) / 2;
+
+            final x = (screenSize.width * spec.startXRatio) +
+                ((screenSize.width * (spec.targetXRatio - spec.startXRatio)) * smoothT);
+            final y = (screenSize.height * spec.startYRatio) +
+                ((screenSize.height * (spec.targetYRatio - spec.startYRatio)) * smoothT);
+
+            return Positioned(
+              left: x - (spec.size / 2),
+              top: y - (spec.size / 2),
+              child: ImageFilterBlob(
+                size: spec.size,
+                color: spec.color,
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+}
+
+class ImageFilterBlob extends StatelessWidget {
+  final double size;
+  final Color color;
+
+  const ImageFilterBlob({
+    super.key,
+    required this.size,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [
+            color,
+            color.withValues(alpha: 0.2),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.6, 1.0],
+        ),
+      ),
     );
   }
 }

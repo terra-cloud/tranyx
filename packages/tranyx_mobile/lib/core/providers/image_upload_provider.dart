@@ -4,12 +4,14 @@ import 'package:http/http.dart' as http;
 import 'dart:io';
 import 'dart:convert';
 
+import 'package:shared/shared.dart';
+
 final imgBBServiceProvider = Provider<ImgUploadService>((ref) {
   return ImgUploadService();
 });
 
 class ImgUploadService {
-  static const String _apiKey = "50952d72f276ff20aa3362f346b134ab";
+  static String get _apiKey => Env.get('IMGBB_API_KEY', defaultValue: '50952d72f276ff20aa3362f346b134ab');
   static String get apiUrl {
     return "https://api.imgbb.com/1/upload?key=$_apiKey";
   }

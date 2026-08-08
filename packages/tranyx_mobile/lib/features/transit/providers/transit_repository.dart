@@ -191,8 +191,7 @@ class TransitRepository {
       'type': 'payment',
       'amount': totalRequired,
       'title': 'Vehicle Booking Request',
-      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)' +
-          (promoCode != null ? ' (Promo $promoCode applied)' : ''),
+      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)${promoCode != null ? ' (Promo $promoCode applied)' : ''}',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
@@ -224,7 +223,7 @@ class TransitRepository {
       'deliveryLng': deliveryLng,
       'startDate': startDate,
       'endDate': endDate,
-      if (promoCode != null) 'promoCode': promoCode,
+      'promoCode': ?promoCode,
       if (promoCode != null) 'discountAmount': discount,
     });
 
@@ -651,8 +650,7 @@ class TransitRepository {
       'type': 'payment',
       'amount': totalRequired,
       'title': 'Property Booking Request',
-      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)' +
-          (promoCode != null ? ' (Promo $promoCode applied)' : ''),
+      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)${promoCode != null ? ' (Promo $promoCode applied)' : ''}',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
@@ -680,7 +678,7 @@ class TransitRepository {
       'startDate': startDate,
       'endDate': endDate,
       'licenseNumber': licenseNumber ?? '',
-      if (promoCode != null) 'promoCode': promoCode,
+      'promoCode': ?promoCode,
       if (promoCode != null) 'discountAmount': discount,
     });
 
@@ -1163,6 +1161,12 @@ class TransitRepository {
         final success = await awardPointsIfEligible(uid, 'connect_solana_wallet');
         if (success) newlyAwarded = true;
       }
+
+      // 6. Subscribe to Hybrid PRO (isPremium == true)
+      if (userMap['isPremium'] == true && !earnedRewards.contains('subscribe_hybrid_pro')) {
+        final success = await awardPointsIfEligible(uid, 'subscribe_hybrid_pro');
+        if (success) newlyAwarded = true;
+      }
     } catch (e) {
       print('checkAndAwardOnboardingQuests error: $e');
     }
@@ -1207,7 +1211,7 @@ class TransitRepository {
     required double amount,
     required String userName,
   }) async {
-    const apiKey = 'xnd_development_6en2scIVPSVNYySuAtoeoHL7NTZ0xl5tMfMsHbkJT3e2HnI7fyFxkC1LkDD3A';
+    final apiKey = Env.get('XENDIT_SECRET_KEY');
     final basicAuth = base64Encode(utf8.encode('$apiKey:'));
     final timestamp = DateTime.now().millisecondsSinceEpoch;
 
@@ -1245,7 +1249,7 @@ class TransitRepository {
     required String invoiceId,
     required double amount,
   }) async {
-    const apiKey = 'xnd_development_6en2scIVPSVNYySuAtoeoHL7NTZ0xl5tMfMsHbkJT3e2HnI7fyFxkC1LkDD3A';
+    final apiKey = Env.get('XENDIT_SECRET_KEY');
     final basicAuth = base64Encode(utf8.encode('$apiKey:'));
 
     final checkRes = await http.get(
@@ -1547,6 +1551,40 @@ class TransitRepository {
               .where((post) => post.isActive && (post.publishAt == null || !post.publishAt!.isAfter(now)))
               .toList();
         });
+  }
+
+  Future<void> updatePremiumStatus({
+    required String uid,
+    required bool isPremium,
+    required DateTime? premiumUntil,
+  }) async {
+    await _firestore.collection('users').doc(uid).update({
+      'isPremium': isPremium,
+      'premiumUntil': premiumUntil?.millisecondsSinceEpoch,
+      'accountType': isPremium ? 'hybrid' : 'nyxian',
+    });
+  }
+
+  Future<void> checkAndExpireSubscription(String uid) async {
+    try {
+      final user = await getUser(uid);
+      if (user != null && user.isPremium) {
+        if (user.premiumUntil != null && user.premiumUntil!.isBefore(DateTime.now())) {
+          await updatePremiumStatus(
+            uid: uid,
+            isPremium: false,
+            premiumUntil: null,
+          );
+          await createNotification(
+            uid: uid,
+            title: 'Subscription Expired',
+            message: 'Your Premium Hybrid subscription has expired. Renew now to continue enjoying PRO features!',
+          );
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
   }
 }
 

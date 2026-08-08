@@ -92,3 +92,8 @@ assets/.env
 # Generated Dart files
 *.g.dart
 **/*.g.dart
+
+# Temporary scratch directories
+temp_scratch/
+scratch/
+

@@ -4,9 +4,6 @@
 //   - Public Key  → put this in kSystemSolanaReceiverAddress in payment_pane.dart
 //   - Private Key → put this ONLY in Firestore systemConfig/treasury.privateKeyBase58
 
-import 'dart:convert';
-import 'dart:math';
-import 'dart:typed_data';
 
 // Pure Dart Ed25519 key generation using the dart:math CSPRNG.
 // We use the same pinenacl approach the app already uses.

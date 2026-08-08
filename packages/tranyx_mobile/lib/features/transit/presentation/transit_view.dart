@@ -532,7 +532,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                       );
                     },
                     loading: () => const SizedBox.shrink(),
-                    error: (_, __) => const SizedBox.shrink(),
+                    error: (_, _) => const SizedBox.shrink(),
                   ),
             ] else ...[
               ref
@@ -587,7 +587,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                       );
                     },
                     loading: () => const SizedBox.shrink(),
-                    error: (_, __) => const SizedBox.shrink(),
+                    error: (_, _) => const SizedBox.shrink(),
                   ),
             ],
 
@@ -1034,32 +1034,40 @@ class _TransitViewState extends ConsumerState<TransitView> {
                           if (!title.contains(sq)) return false;
                         }
 
-                        if (filterCat != null && p.category != filterCat)
+                        if (filterCat != null && p.category != filterCat) {
                           return false;
-                        if (filterType != null && p.type != filterType)
+                        }
+                        if (filterType != null && p.type != filterType) {
                           return false;
+                        }
 
                         if (filterDur == 'daily' &&
                             p.priceDaily <= 0 &&
-                            p.priceMonthly <= 0)
+                            p.priceMonthly <= 0) {
                           return false;
+                        }
                         if (filterDur == 'weekly' &&
                             p.priceWeekly <= 0 &&
-                            p.priceMonthly <= 0)
+                            p.priceMonthly <= 0) {
                           return false;
+                        }
                         if (filterDur == 'monthly' &&
                             p.priceMonthly <= 0 &&
-                            p.priceDaily <= 0)
+                            p.priceDaily <= 0) {
                           return false;
-                        if (filterDur == 'yearly' && p.priceMonthly <= 0)
+                        }
+                        if (filterDur == 'yearly' && p.priceMonthly <= 0) {
                           return false;
+                        }
 
                         if (maxP != null) {
                           double checkPrice = p.priceMonthly;
-                          if (filterDur == 'daily' && p.priceDaily > 0)
+                          if (filterDur == 'daily' && p.priceDaily > 0) {
                             checkPrice = p.priceDaily;
-                          if (filterDur == 'weekly' && p.priceWeekly > 0)
+                          }
+                          if (filterDur == 'weekly' && p.priceWeekly > 0) {
                             checkPrice = p.priceWeekly;
+                          }
                           if (checkPrice > maxP) return false;
                         }
 

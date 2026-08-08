@@ -26,9 +26,6 @@ service cloud.firestore {
     }
 
     // Helper to check if a user is currently banned or suspended.
-    // suspendedUntil is stored as an integer (ms since epoch) by the Dart client.
-    // We cache the document data safely (defaulting to empty map if non-existent)
-    // and check field presence using `in` to prevent any execution errors.
     function isUserBlocked(uid) {
       let path = /databases/$(database)/documents/users/$(uid);
       let docExists = exists(path);
@@ -44,30 +41,80 @@ service cloud.firestore {
       return isAuthenticated() && !isUserBlocked(request.auth.uid);
     }
 
-    // Users Collection
+    // Users Collection (Option 1: Strict segregation of User vs Admin fields)
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
-      allow create: if isOwner(userId) || isAdminOrStaff(); // Admins/staff can provision new accounts
-      allow update: if isActiveUser() || isAdminOrStaff(); // Allowed for transaction/balance updates between users
-      allow delete: if isOwner(userId) || isAdminOrStaff(); // Admins/staff can remove accounts
+      
+      // On creation: Regular users CANNOT initialize sensitive system/financial fields
+      allow create: if (isOwner(userId) && !request.resource.data.keys().hasAny([
+        'role', 'banned', 'suspendedUntil', 'tyxBalance', 'terraPoints', 
+        'verificationLevel', 'emailVerified', 'phoneVerified', 'idVerified', 'bgChecked', 'isPremium'
+      ])) || isAdminOrStaff();
+
+      allow update: if 
+        // 1. Regular User: Can ONLY update personal profile fields on their own profile
+        (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'photoUrl', 'phoneNumber', 'employerType', 'businessName', 
+          'businessPermit', 'industry', 'taxId', 'headline', 'hourlyRate', 
+          'skills', 'certificationUrls', 'walletPublicKey', 'googleEmail', 'activePromoCode',
+          'activePromoDiscountType', 'activePromoDiscountValue'
+        ]))
+        || 
+        // 2. Admin / Staff: Can ONLY update admin, moderation & verification fields
+        (isAdminOrStaff() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'role', 'banned', 'suspendedUntil', 'verificationLevel', 
+          'emailVerified', 'phoneVerified', 'idVerified', 'bgChecked', 
+          'isPremium', 'premiumUntil', 'isBonded'
+        ]));
+
+      allow delete: if isAdminOrStaff();
       
       // User Reviews subcollection
       match /reviews/{reviewId} {
         allow read: if true;
-        allow write: if isActiveUser();
+        allow write: if isActiveUser() && request.resource.data.authorId == request.auth.uid;
       }
     }
 
-    // Jobs Collection
+    // Jobs Collection (Anti-Exploitation Rules: Employer CANNOT update job details once active/hired)
     match /jobs/{jobId} {
       allow read: if true; // Publicly browse jobs
-      allow create, update: if isActiveUser(); // Must be logged in and active to create/update
-      allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid) || isAdminOrStaff(); // Only owner or admin/staff can delete
+      allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid;
+      
+      allow update: if 
+        // 1. Creator (Employer): Can update listing details ONLY when job status is 'Open' / 'open'
+        (isActiveUser() && resource.data.creatorId == request.auth.uid && 
+          (resource.data.status == 'Open' || resource.data.status == 'open') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'title', 'description', 'category', 'categoryGroup', 'employmentType', 
+            'dateRequirement', 'jobDate', 'timePreference', 'pricingType', 'pricingValue', 
+            'locationType', 'address', 'landmark', 'status', 'applicantCount', 
+            'recentApplicantPhotos', 'applicantUids', 'pickupAddress', 'pickupLat', 
+            'pickupLng', 'destinationAddress', 'destinationLat', 'destinationLng', 
+            'hasTracker', 'acceptedApplicantId', 'completionCode', 'receiptUrl', 
+            'employerRated', 'promoCode', 'discountAmount'
+          ])
+        ) ||
+        // 1b. Creator (Employer): When job is completed/active, can ONLY submit employer rating (no editing pricing, addresses or requirements!)
+        (isActiveUser() && resource.data.creatorId == request.auth.uid && 
+          resource.data.status != 'Open' && resource.data.status != 'open' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['employerRated'])
+        ) ||
+        // 2. Assigned Nyxian (Freelancer): Can update work progress, status & completion fields
+        (isActiveUser() && 'acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid && 
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'completionCode', 'receiptUrl', 'nyxianRated'
+          ])
+        ) ||
+        // 3. Admin / Staff
+        isAdminOrStaff();
+
+      allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid && (resource.data.status == 'Open' || resource.data.status == 'open')) || isAdminOrStaff();
 
       // Subcollection: Applications
       match /applications/{applicantId} {
         allow read: if isAuthenticated();
-        allow write: if isActiveUser() || isAdminOrStaff();
+        allow write: if isActiveUser() && (request.auth.uid == applicantId || resource.data.applicantId == request.auth.uid) || isAdminOrStaff();
       }
 
       // Subcollection: Messages (Chat room)
@@ -78,42 +125,109 @@ service cloud.firestore {
 
       // Subcollection: Questions (Q&A)
       match /questions/{questionId} {
-        allow read: if true; // Q&As are publicly readable
+        allow read: if true;
         allow write: if isActiveUser();
       }
     }
 
-    // Vehicle Rentals Collection
+    // Vehicle Rentals Collection (Anti-Exploitation Rules: Host CANNOT update vehicle/pricing once booked/active)
     match /rentals/{rentalId} {
-      allow read: if true; // Publicly browse vehicle rentals
-      allow create, update: if isActiveUser();
-      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid) || isAdminOrStaff();
+      allow read: if true;
+      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid;
+      
+      allow update: if 
+        // 1. Host (Vehicle Owner): Can update vehicle/price details ONLY when status is 'Available' or 'available'
+        (isActiveUser() && resource.data.hostId == request.auth.uid && 
+          (resource.data.status == 'Available' || resource.data.status == 'available') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'brand', 'model', 'year', 'type', 'plateNumber', 'vehicleValue', 
+            'ltoCrNumber', 'ltoOrNumber', 'insuranceProvider', 'insurancePolicyNumber', 
+            'franchisePermit', 'interiorPhotoUrl', 'frontPhotoUrl', 'backPhotoUrl', 
+            'contractType', 'contractTerms', 'price12h', 'priceDaily', 'priceWeekly', 
+            'priceMonthly', 'extensionRatePerHour', 'latePenaltyRatePerHour', 'status', 
+            'fuelType', 'transmission', 'offersDriver', 'driverDailyPrice', 'driverNote', 
+            'driverLicenseNumber', 'renteeId', 'renteeName', 'renteePhotoUrl', 
+            'renteePhone', 'renteeRating', 'startEpoch', 'endEpoch', 'expectedReturnEpoch', 
+            'deliveryType', 'deliveryAddress', 'deliveryFee', 'currentLocationLat', 
+            'currentLocationLng', 'fuelLevel', 'odoMeter', 'pickupPhotos', 
+            'dropoffPhotos', 'hostRated', 'renteeRated'
+          ])
+        ) ||
+        // 1b. Host (Vehicle Owner): When vehicle is active/booked, can ONLY submit host rating (no altering pricing or terms mid-rental!)
+        (isActiveUser() && resource.data.hostId == request.auth.uid && 
+          resource.data.status != 'Available' && resource.data.status != 'available' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hostRated'])
+        ) ||
+        // 2. Assigned Rentee / Nyxian: Can update trip status, return info & location tracking
+        (isActiveUser() && 'renteeId' in resource.data && resource.data.renteeId == request.auth.uid && 
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'currentLocationLat', 'currentLocationLng', 'fuelLevel', 
+            'odoMeter', 'dropoffPhotos', 'renteeRated'
+          ])
+        ) ||
+        // 3. Admin / Staff
+        isAdminOrStaff();
 
-      // Subcollection: Questions
+      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
+
       match /questions/{questionId} {
         allow read: if true;
         allow write: if isActiveUser();
       }
     }
 
-    // Properties Collection
+    // Properties Collection (Anti-Exploitation Rules: Host CANNOT update property/pricing once booked/active)
     match /properties/{propertyId} {
-      allow read: if true; // Publicly browse property rentals
-      allow create, update: if isActiveUser();
-      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid) || isAdminOrStaff();
+      allow read: if true;
+      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid;
+      
+      allow update: if 
+        // 1. Host (Property Owner): Can update property details ONLY when status is 'Available' or 'available'
+        (isActiveUser() && resource.data.hostId == request.auth.uid && 
+          (resource.data.status == 'Available' || resource.data.status == 'available') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'title', 'description', 'propertyType', 'address', 'landmark', 
+            'lat', 'lng', 'bedrooms', 'bathrooms', 'maxGuests', 'nightlyPrice', 
+            'weeklyDiscount', 'monthlyDiscount', 'cleaningFee', 'depositAmount', 
+            'amenities', 'houseRules', 'images', 'contractType', 'contractTerms', 
+            'status', 'renteeId', 'renteeName', 'renteePhotoUrl', 'checkInDate', 
+            'checkOutDate', 'hostRated', 'renteeRated'
+          ])
+        ) ||
+        // 1b. Host (Property Owner): When property is active/booked, can ONLY submit host rating (no altering pricing or rules mid-booking!)
+        (isActiveUser() && resource.data.hostId == request.auth.uid && 
+          resource.data.status != 'Available' && resource.data.status != 'available' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hostRated'])
+        ) ||
+        // 2. Assigned Rentee / Nyxian: Can update booking status & guest rating
+        (isActiveUser() && 'renteeId' in resource.data && resource.data.renteeId == request.auth.uid && 
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'renteeRated'
+          ])
+        ) ||
+        // 3. Admin / Staff
+        isAdminOrStaff();
 
-      // Subcollection: Questions
+      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
+
       match /questions/{questionId} {
         allow read: if true;
         allow write: if isActiveUser();
       }
     }
 
-    // Transactions Collection
+    // Transactions Collection (Immutable; prohibits clients from inserting payouts/rebates)
     match /transactions/{txId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.type == 'rebate' || resource.data.type == 'payout' || resource.data.type == 'fee_deduction' || isAdminOrStaff());
-      allow create: if isActiveUser(); // To record listing fees, escrow payments, etc.
-      allow update, delete: if false; // Transactions should be immutable
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create: if isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$');
+      allow update, delete: if false;
+    }
+
+    // Subscriptions Collection
+    match /subscriptions/{subId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create: if isActiveUser() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
     }
 
     // Withdrawal Requests Collection
@@ -131,8 +245,8 @@ service cloud.firestore {
 
     // Escrow Holdbacks Collection
     match /escrow_holdbacks/{holdbackId} {
-      allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow write: if isAdminOrStaff();
     }
 
     // Rental Requests Collection
@@ -171,27 +285,31 @@ service cloud.firestore {
       allow write: if (isActiveUser() && (request.auth.uid == submissionId)) || isAdminOrStaff();
     }
 
-    // Escrow Collections
+    // Escrow Collections (Restricted to Admin / Staff for state mutations)
     match /escrow/{jobId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.creatorId == request.auth.uid || resource.data.workerId == request.auth.uid || isAdminOrStaff());
+      allow write: if isAdminOrStaff();
     }
 
     match /rental_escrows/{rentalId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.renterId == request.auth.uid || resource.data.hostId == request.auth.uid || isAdminOrStaff());
+      allow write: if isAdminOrStaff();
     }
 
     match /rental_extension_escrows/{extensionId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.renterId == request.auth.uid || resource.data.hostId == request.auth.uid || isAdminOrStaff());
+      allow write: if isAdminOrStaff();
     }
 
     match /property_escrows/{requestId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.renterId == request.auth.uid || resource.data.hostId == request.auth.uid || isAdminOrStaff());
+      allow write: if isAdminOrStaff();
     }
 
     // Wallet Links Collection
     match /walletLinks/{walletPublicKey} {
       allow read: if true;
-      allow write: if isActiveUser();
+      allow write: if isActiveUser() && request.resource.data.uid == request.auth.uid;
     }
 
     // Config Collection (app-level public config)
@@ -200,10 +318,9 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // System Config Collection (treasury key and other backend-only config)
+    // System Config Collection (treasury key and backend config - Admin only!)
     match /system_config/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if false;
+      allow read, write: if isAdminOrStaff();
     }
 
     // Chats Collection
@@ -227,9 +344,10 @@ service cloud.firestore {
       allow read, write: if isActiveUser() || isAdminOrStaff();
     }
 
-    // Platform Fees Collection
+    // Platform Fees Collection (Admin managed)
     match /platform_fees/{feeId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated();
+      allow write: if isAdminOrStaff();
     }
 
     // Promos Collection
@@ -250,7 +368,7 @@ service cloud.firestore {
     // Points History Collection
     match /points_history/{historyId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow write: if isActiveUser();
+      allow write: if isActiveUser() && request.resource.data.uid == request.auth.uid;
     }
 
     // Collection Group rules

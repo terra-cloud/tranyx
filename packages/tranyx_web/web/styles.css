@@ -101,6 +101,81 @@ body {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* ── Metaballs Background Animation ── */
+.metaball-container {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.metaball {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.55;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+.metaball-1 {
+  width: 380px;
+  height: 380px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.8) 0%, rgba(168, 85, 247, 0.4) 70%, transparent 100%);
+  animation: metaballMove1 14s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+}
+
+.metaball-2 {
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.8) 0%, rgba(236, 72, 153, 0.4) 70%, transparent 100%);
+  animation: metaballMove2 18s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+}
+
+.metaball-3 {
+  width: 280px;
+  height: 280px;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.7) 0%, rgba(99, 102, 241, 0.3) 70%, transparent 100%);
+  animation: metaballMove3 16s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+}
+
+@keyframes metaballMove1 {
+  0% {
+    transform: translate(-10%, -10%) scale(1);
+  }
+  50% {
+    transform: translate(60vw, 40vh) scale(1.25);
+  }
+  100% {
+    transform: translate(20vw, 70vh) scale(0.9);
+  }
+}
+
+@keyframes metaballMove2 {
+  0% {
+    transform: translate(80vw, 60vh) scale(1.1);
+  }
+  50% {
+    transform: translate(15vw, 10vh) scale(0.85);
+  }
+  100% {
+    transform: translate(70vw, 5vh) scale(1.2);
+  }
+}
+
+@keyframes metaballMove3 {
+  0% {
+    transform: translate(50vw, 80vh) scale(0.9);
+  }
+  50% {
+    transform: translate(75vw, 20vh) scale(1.15);
+  }
+  100% {
+    transform: translate(-5vw, 30vh) scale(1);
+  }
+}
+
 /* ── Logo Gradient ── */
 .logo-gradient {
   background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
