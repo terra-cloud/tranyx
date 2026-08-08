@@ -53,14 +53,21 @@ class _LoginScreenState extends State<_LoginScreen> {
     final errorMsg = _localError ?? s.authError;
 
     return div(classes: 'w-full animate-fade-up', [
-      // Logo
-      div(classes: 'flex flex-col items-center mb-10', [
-        svgLogo(size: 'w-10 h-10'),
-        div(classes: 'mt-4 text-center', [
-          h1(classes: 'text-3xl font-bold tracking-tight', [Component.text('Tranyx')]),
-          p(classes: 'text-sm mt-1 ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-            Component.text('The Future of Work & Service'),
-          ]),
+      // Logo & Header
+      div(classes: 'flex flex-col items-center mb-8', [
+        div(classes: 'p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 shadow-lg backdrop-blur-md mb-3', [
+          svgLogo(size: 'w-10 h-10'),
+        ]),
+        div(classes: 'text-center', [
+          h1(
+            classes: 'splash-title text-center text-white text-[2.25rem] font-black uppercase tracking-[0.04em] m-0',
+            [Component.text('TRANYX')],
+          ),
+          p(
+            classes:
+                'splash-subtitle text-center text-zinc-400 text-[0.78rem] font-semibold uppercase tracking-[0.28em] mt-1.5',
+            [Component.text('One Platform. Endless Opportunities.')],
+          ),
         ]),
       ]),
 
@@ -224,8 +231,8 @@ class _RegisterPathScreen extends StatelessComponent {
         ),
         svgLogo(size: 'w-10 h-10'),
         div(classes: 'mt-4 text-center', [
-          h1(classes: 'text-2xl font-bold', [Component.text('Join Tranyx')]),
-          p(classes: 'text-sm mt-1 ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
+          h1(classes: 'text-2xl font-black ${isDark ? "text-white" : "text-zinc-900"}', [Component.text('Join Tranyx')]),
+          p(classes: 'text-sm font-semibold tracking-wide mt-1.5 ${isDark ? "text-indigo-300/90" : "text-indigo-600/90"}', [
             Component.text('Choose your account type to get started'),
           ]),
         ]),

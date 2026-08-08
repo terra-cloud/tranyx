@@ -507,7 +507,10 @@ class _LoginViewState extends ConsumerState<LoginView> {
         try {
           final uri = Uri.parse(scheme);
           if (await canLaunchUrl(uri)) {
-            launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+            launched = await launchUrl(
+              uri,
+              mode: LaunchMode.externalApplication,
+            );
             if (launched) {
               debugPrint('Trust Wallet auth: launched via $scheme');
               break;
@@ -527,47 +530,55 @@ class _LoginViewState extends ConsumerState<LoginView> {
       // Await the WalletConnect session settlement — this is the authoritative
       // callback that fires when Trust Wallet approves the connection request.
       // The session data contains CAIP-10 accounts: "solana:<chainId>:<address>".
-      connectResponse.session.future.then((sessionData) async {
-        debugPrint('Trust Wallet auth session settled: ${sessionData.topic}');
+      connectResponse.session.future
+          .then((sessionData) async {
+            debugPrint(
+              'Trust Wallet auth session settled: ${sessionData.topic}',
+            );
 
-        // Extract the Solana address from the CAIP-10 account string.
-        String? address;
+            // Extract the Solana address from the CAIP-10 account string.
+            String? address;
 
-        // Try to get it from the settled session's namespaces first.
-        final solanaAccounts = sessionData.namespaces['solana']?.accounts;
-        if (solanaAccounts != null && solanaAccounts.isNotEmpty) {
-          // CAIP-10 format: "solana:<chainId>:<address>"
-          final parts = solanaAccounts.first.split(':');
-          if (parts.length >= 3) address = parts.last;
-        }
+            // Try to get it from the settled session's namespaces first.
+            final solanaAccounts = sessionData.namespaces['solana']?.accounts;
+            if (solanaAccounts != null && solanaAccounts.isNotEmpty) {
+              // CAIP-10 format: "solana:<chainId>:<address>"
+              final parts = solanaAccounts.first.split(':');
+              if (parts.length >= 3) address = parts.last;
+            }
 
-        // Fallback: ask the modal for the address (works if modal session is set).
-        address ??= modal.session?.getAddress(NetworkUtils.solana);
+            // Fallback: ask the modal for the address (works if modal session is set).
+            address ??= modal.session?.getAddress(NetworkUtils.solana);
 
-        debugPrint('Trust Wallet auth: resolved address = $address');
+            debugPrint('Trust Wallet auth: resolved address = $address');
 
-        if (address != null && address.isNotEmpty) {
-          if (!mounted) return;
-          await _signInWithTrustWalletAddress(address);
-        } else {
-          debugPrint('Trust Wallet auth: could not extract Solana address.');
-          if (mounted) {
-            setState(() => _isLoading = false);
-            _showError('Could not retrieve wallet address. Please try again.');
-          }
-        }
-      }).catchError((e) {
-        debugPrint('Trust Wallet auth connection rejected or failed: $e');
-        if (mounted) {
-          setState(() => _isLoading = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Trust Wallet connection failed or rejected.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      });
+            if (address != null && address.isNotEmpty) {
+              if (!mounted) return;
+              await _signInWithTrustWalletAddress(address);
+            } else {
+              debugPrint(
+                'Trust Wallet auth: could not extract Solana address.',
+              );
+              if (mounted) {
+                setState(() => _isLoading = false);
+                _showError(
+                  'Could not retrieve wallet address. Please try again.',
+                );
+              }
+            }
+          })
+          .catchError((e) {
+            debugPrint('Trust Wallet auth connection rejected or failed: $e');
+            if (mounted) {
+              setState(() => _isLoading = false);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Trust Wallet connection failed or rejected.'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          });
     } catch (e) {
       _trustModal?.dispose();
       _trustModal = null;
@@ -602,7 +613,9 @@ class _LoginViewState extends ConsumerState<LoginView> {
             : null;
 
         final providers = user.providerData.map((p) => p.providerId).toList();
-        final provider = providers.contains('google.com') ? 'google.com' : 'password';
+        final provider = providers.contains('google.com')
+            ? 'google.com'
+            : 'password';
 
         final linkData = <String, dynamic>{
           'uid': user.uid,
@@ -662,8 +675,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
       final obfuscatedPassword = linkData?['password'] as String?;
 
       if ((email == null || email.isEmpty) && uid != null) {
-        final userDoc =
-            await firestore.collection('users').doc(uid).get();
+        final userDoc = await firestore.collection('users').doc(uid).get();
         email = userDoc.data()?['email'] as String?;
       }
 
@@ -696,17 +708,23 @@ class _LoginViewState extends ConsumerState<LoginView> {
               barrierDismissible: false,
               builder: (ctx) {
                 return AlertDialog(
-                  backgroundColor: isDarkMode ? AppColors.darkCard : Colors.white,
+                  backgroundColor: isDarkMode
+                      ? AppColors.darkCard
+                      : Colors.white,
                   title: Text(
                     'Google Sign-In Required',
                     style: TextStyle(
-                      color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                      color: isDarkMode
+                          ? AppColors.darkText
+                          : AppColors.lightText,
                     ),
                   ),
                   content: Text(
                     'This wallet is linked to the Google account $email. Please sign in with Google to authorize this device.',
                     style: TextStyle(
-                      color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                      color: isDarkMode
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
                     ),
                   ),
                   actions: [
@@ -747,8 +765,11 @@ class _LoginViewState extends ConsumerState<LoginView> {
         } else if (provider == 'password') {
           // Prompt user to enter their password to authorize this device
           if (mounted) {
-            final password =
-                await _showPasswordPromptDialog(context, email, isDarkMode);
+            final password = await _showPasswordPromptDialog(
+              context,
+              email,
+              isDarkMode,
+            );
             if (password != null && password.isNotEmpty) {
               await ref
                   .read(firebaseAuthProvider)
@@ -783,17 +804,23 @@ class _LoginViewState extends ConsumerState<LoginView> {
               barrierDismissible: false,
               builder: (ctx) {
                 return AlertDialog(
-                  backgroundColor: isDarkMode ? AppColors.darkCard : Colors.white,
+                  backgroundColor: isDarkMode
+                      ? AppColors.darkCard
+                      : Colors.white,
                   title: Text(
                     'Authorize Device',
                     style: TextStyle(
-                      color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                      color: isDarkMode
+                          ? AppColors.darkText
+                          : AppColors.lightText,
                     ),
                   ),
                   content: Text(
                     'This wallet is linked to the email $email. Please choose how you want to authorize this device.',
                     style: TextStyle(
-                      color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                      color: isDarkMode
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
                     ),
                   ),
                   actions: [
@@ -895,8 +922,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
             return AlertDialog(
-              backgroundColor:
-                  isDarkMode ? AppColors.darkCard : Colors.white,
+              backgroundColor: isDarkMode ? AppColors.darkCard : Colors.white,
               title: Text(
                 'Authorize Device',
                 style: TextStyle(
@@ -923,13 +949,10 @@ class _LoginViewState extends ConsumerState<LoginView> {
                       labelText: 'Password',
                       suffixIcon: IconButton(
                         icon: Icon(
-                          obscureText
-                              ? Icons.visibility_off
-                              : Icons.visibility,
+                          obscureText ? Icons.visibility_off : Icons.visibility,
                         ),
-                        onPressed: () => setDialogState(
-                          () => obscureText = !obscureText,
-                        ),
+                        onPressed: () =>
+                            setDialogState(() => obscureText = !obscureText),
                       ),
                     ),
                   ),
