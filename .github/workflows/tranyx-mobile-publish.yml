@@ -95,7 +95,7 @@ jobs:
 
       - name: Locate APK
         run: |
-          APK_PATH=$(find packages/tranyx_mobile/build/app/outputs/flutter-apk -name "*.apk" | head -n 1)
+          APK_PATH=$(find packages/tranyx_mobile/build/app/outputs/apk/production/release/ -name "*.apk" | head -n 1)
           if [ -z "$APK_PATH" ]; then
             echo "❌ Error: Could not locate built APK."
             exit 1
@@ -104,13 +104,13 @@ jobs:
           echo "Built APK located at: $APK_PATH"
 
       - name: Setup Node.js
-        if: env.FLAVOR == 'production'
+        if: env.FLAVOR == 'prod'
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: '20'
 
       - name: Setup Solana Keypair
-        if: env.FLAVOR == 'production'
+        if: env.FLAVOR == 'prod'
         run: |
           node -e '
             const fs = require("fs");
