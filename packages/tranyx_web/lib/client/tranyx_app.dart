@@ -6116,7 +6116,7 @@ class TranyxAppState extends State<TranyxApp> {
             img(src: '/images/logo.svg', classes: 'splash-logo-img', attributes: {'alt': 'Tranyx Logo'}),
           ]),
           h1(classes: 'splash-title', [Component.text('TRANYX')]),
-          p(classes: 'splash-subtitle', [Component.text('Decentralized Freelance & Transit')]),
+          p(classes: 'splash-subtitle', [Component.text('One Platform. Endless Opportunities.')]),
           div(classes: 'splash-loader-track', [
             div(classes: 'splash-loader-bar', []),
           ]),
