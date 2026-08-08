@@ -46,7 +46,30 @@ jobs:
         with:
           channel: 'stable'
           cache: true
+      - name: Fetch Latest Tag and Calculate Next Version
+        id: bump_version
+        run: |
+          # 1. Get the latest tag matching 'v*.*.*'. Default to v0.0.0 if no tags exist.
+          LATEST_TAG=$(git tag -l "v*" --sort=-v:refname | head -n 1)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
+          echo "Current Version: $LATEST_TAG"
 
+          # 2. Strip the 'v' prefix (e.g., "0.0.1")
+          CLEAN_VER="${LATEST_TAG#v}"
+
+          # 3. Split version into Major, Minor, Patch components
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CLEAN_VER"
+
+          # 4. Increment the patch version (e.g., 1 -> 2)
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          echo "Next Version: $NEW_VERSION"
+
+          # Save to step output and GitHub environment
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
       - name: Install Workspace Dependencies
         if: env.FLAVOR == 'prod'
         run: flutter pub get
@@ -96,7 +119,14 @@ jobs:
         working-directory: packages/tranyx_mobile
         run: |
           flutter clean
-          flutter build apk --release --flavor production --dart-define=FLAVOR=prod --dart-define=XENDIT_SECRET_KEY=${{ secrets.XENDIT_SECRET_KEY }} --obfuscate --split-debug-info=build/app/outputs/symbols
+          flutter build apk --release \
+            --flavor production \
+            --build-name="${{ steps.bump_version.outputs.new_version }}" \
+            --build-number=${{ github.run_number }} \
+            --dart-define=FLAVOR=prod \
+            --dart-define=XENDIT_SECRET_KEY=${{ secrets.XENDIT_SECRET_KEY }} \
+            --obfuscate \
+            --split-debug-info=build/app/outputs/symbols
 
       - name: Locate APK
         if: env.FLAVOR == 'prod'
