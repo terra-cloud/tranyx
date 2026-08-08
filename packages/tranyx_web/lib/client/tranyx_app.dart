@@ -543,14 +543,14 @@ class TranyxAppState extends State<TranyxApp> {
     final startTime = DateTime.now();
     void scheduleDismissal() {
       final elapsed = DateTime.now().difference(startTime);
-      // Allow full intro animations to complete: 1.6s 3D enter + 1.2s shimmer + 0.8s white glow fill + 0.2s hold = 3.8s
-      const minDuration = Duration(milliseconds: 3800);
+      // Fast, responsive splash screen duration: 1.6s max wait once session is ready
+      const minDuration = Duration(milliseconds: 1600);
       final remaining = minDuration - elapsed;
 
       void triggerExitSequence() {
         dismissWebSplashScreen();
-        // Wait full 1.1s for the 3D warp & flash exit transition to complete before unmounting splash overlay
-        Timer(const Duration(milliseconds: 1100), () {
+        // Wait 800ms for 3D warp transition before unmounting splash overlay
+        Timer(const Duration(milliseconds: 800), () {
           if (mounted) setState(() => showWebSplash = false);
         });
       }
@@ -988,11 +988,14 @@ class TranyxAppState extends State<TranyxApp> {
     final uid = SessionStorage.uid;
     if (uid == null) return;
     try {
-      final list = await _firestore.getRenterPendingRequests(uid);
+      final results = await Future.wait([
+        _firestore.getRenterPendingRequests(uid),
+        _firestore.getPropertyPendingRequestsForRenter(uid),
+      ]);
       setState(() {
-        renterPendingRequests = list;
+        renterPendingRequests = results[0];
+        propertyRenterPendingRequests = results[1];
       });
-      await _loadRenterPendingPropertyRequests();
     } catch (e) {
       print('Error loading renter pending requests: $e');
     }
@@ -1002,11 +1005,13 @@ class TranyxAppState extends State<TranyxApp> {
     final uid = SessionStorage.uid;
     if (uid == null) return;
     try {
-      final list = await _firestore.getPendingRequestsForHost(uid);
-      final propList = await _firestore.getPropertyPendingRequestsForHost(uid);
+      final results = await Future.wait([
+        _firestore.getPendingRequestsForHost(uid),
+        _firestore.getPropertyPendingRequestsForHost(uid),
+      ]);
       setState(() {
-        hostPendingRequests = list;
-        propertyHostPendingRequests = propList;
+        hostPendingRequests = results[0];
+        propertyHostPendingRequests = results[1];
       });
     } catch (e) {
       print('Error loading host pending requests: $e');
@@ -1510,15 +1515,26 @@ class TranyxAppState extends State<TranyxApp> {
     });
     try {
       final uid = SessionStorage.uid;
-      if (uid == null) return;
-      final my = await _firestore.getMyJobs(uid);
-      final accepted = await _firestore.getAcceptedJobs(uid);
+      if (uid == null) {
+        setState(() => isLoadingJobs = false);
+        return;
+      }
+
+      // Execute all 4 job queries concurrently in parallel
+      final results = await Future.wait([
+        _firestore.getMyJobs(uid),
+        _firestore.getAcceptedJobs(uid),
+        _firestore.getAvailableJobs(currentViewMode),
+        _firestore.getAppliedJobs(uid),
+      ]);
+
+      final my = results[0];
+      final accepted = results[1];
+      final avail = results[2];
+      final applied = results[3];
 
       // Combine created jobs and accepted jobs into one list
       final allMyJobs = [...my, ...accepted];
-
-      final avail = await _firestore.getAvailableJobs(currentViewMode);
-      final applied = await _firestore.getAppliedJobs(uid);
 
       // De-duplicate by id
       final seenIds = <String>{};
@@ -4905,15 +4921,8 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Navigation ──────────────────────────────────────────────
 
   void switchTab(AppTab tab) {
-    if (userProfile == null) {
-      showAppToast('Profile Incomplete', 'Please complete and save your profile details first to unlock all features.');
-      setState(() {
-        activeTab = AppTab.profile;
-        profileView = ProfileView.personal;
-        initializeProfileEditing();
-      });
-      return;
-    }
+    if (activeTab == tab) return;
+
     setState(() {
       activeTab = tab;
       if (tab != AppTab.profile) profileView = ProfileView.main;
@@ -4928,8 +4937,10 @@ class TranyxAppState extends State<TranyxApp> {
         _stopSelectedJobRealtime();
       }
     });
-    if (tab == AppTab.jobs) loadJobs();
-    if (tab == AppTab.transit) {
+
+    if (tab == AppTab.jobs) {
+      loadJobs();
+    } else if (tab == AppTab.transit) {
       loadRenterPendingRequests();
       loadHostPendingRequests();
     }
@@ -6132,6 +6143,8 @@ class TranyxAppState extends State<TranyxApp> {
         classes:
             'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12 relative overflow-hidden',
         [
+          // Floating 3D perspective grid background
+          div(classes: 'splash-grid pointer-events-none', []),
           // Animated Metaballs background
           div(
             id: 'web-metaballs-container',

@@ -10,11 +10,11 @@ import 'package:jaspr/jaspr.dart';
 /// The MutationObserver in index.html auto-renders them via Lucide JS.
 Component lIcon(String name, {String cls = 'w-5 h-5'}) {
   return span(
-    classes: 'inline-flex items-center justify-center lucide-wrapper',
+    classes: 'inline-flex items-center justify-center lucide-wrapper pointer-events-none',
     [
       i(
         [],
-        classes: cls,
+        classes: '$cls pointer-events-none',
         attributes: {'data-lucide': name},
       ),
     ],

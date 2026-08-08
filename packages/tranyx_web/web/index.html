@@ -26,8 +26,20 @@
     content="Find premium freelance gigs and trusted Nyxians in the Philippines. Web3-powered escrow, real-time tracking, and verified identities.">
   <meta property="twitter:image" content="https://tranyx-app.web.app/images/logo.png">
 
-  <!-- External Scripts & Styles from main.server.dart -->
+  <!-- External Scripts & Styles -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
   <script src="https://unpkg.com/lucide@0.525.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-app-compat.js" crossorigin="anonymous"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-auth-compat.js" crossorigin="anonymous"></script>
@@ -72,7 +84,7 @@
       /* zinc-50 */
     }
 
-    /* Dramatic Web Splash Screen Styling */
+    /* Refined Premium Web Splash Screen Styling */
     #tranyx-web-splash {
       position: fixed;
       inset: 0;
@@ -81,253 +93,164 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: radial-gradient(circle at 50% 50%, #1a0b2e 0%, #0d0618 50%, #05030a 100%);
+      background: #04020a;
       overflow: hidden;
-      perspective: 1200px;
-      transition: opacity 1.1s cubic-bezier(0.7, 0, 0.25, 1), transform 1.1s cubic-bezier(0.7, 0, 0.25, 1), filter 1.1s ease;
+      perspective: 1000px;
+      transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+      will-change: opacity, transform;
     }
 
     #tranyx-web-splash.splash-hidden {
       opacity: 0;
-      transform: scale(2.2) translateZ(300px);
-      filter: blur(40px) brightness(2.5) drop-shadow(0 0 120px rgba(168, 85, 247, 1));
+      transform: scale(1.08);
       pointer-events: none;
       visibility: hidden;
     }
 
-    /* Ambient animated background glowing orbs */
+    /* Soft ambient background glowing orbs */
     .splash-orb {
       position: absolute;
       border-radius: 50%;
       filter: blur(100px);
-      opacity: 0.6;
-      animation: orbHyper 5s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+      opacity: 0.35;
+      will-change: transform;
+      animation: orbFloat 8s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
     }
 
     .splash-orb-1 {
-      width: 550px;
-      height: 550px;
-      background: radial-gradient(circle, rgba(99, 102, 241, 0.9) 0%, rgba(59, 130, 246, 0.4) 60%, transparent 100%);
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.5) 0%, transparent 70%);
       top: 10%;
-      left: 15%;
+      left: 20%;
     }
 
     .splash-orb-2 {
-      width: 600px;
-      height: 600px;
-      background: radial-gradient(circle, rgba(168, 85, 247, 0.9) 0%, rgba(236, 72, 153, 0.4) 60%, transparent 100%);
+      width: 550px;
+      height: 550px;
+      background: radial-gradient(circle, rgba(168, 85, 247, 0.45) 0%, transparent 70%);
       bottom: 5%;
-      right: 10%;
-      animation-delay: -2.5s;
-    }
-
-    .splash-orb-3 {
-      width: 400px;
-      height: 400px;
-      background: radial-gradient(circle, rgba(56, 189, 248, 0.8) 0%, rgba(168, 85, 247, 0.3) 60%, transparent 100%);
-      top: 40%;
-      left: 45%;
+      right: 15%;
       animation-delay: -4s;
     }
 
-    @keyframes orbHyper {
-      0% {
-        transform: translate(-40px, -30px) scale(0.85) rotate(0deg);
-      }
-      50% {
-        transform: translate(50px, 40px) scale(1.35) rotate(180deg);
-      }
-      100% {
-        transform: translate(-20px, 60px) scale(1.1) rotate(360deg);
-      }
+    .splash-orb-3 {
+      width: 380px;
+      height: 380px;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.4) 0%, transparent 70%);
+      top: 40%;
+      left: 45%;
+      animation-delay: -6s;
     }
 
-    /* Floating particles background grid */
+    @keyframes orbFloat {
+      0% { transform: translate(-20px, -15px) scale(0.95); }
+      100% { transform: translate(30px, 25px) scale(1.1); }
+    }
+
+    /* Subtle angled 3D background grid */
     .splash-grid {
       position: absolute;
-      inset: -60%;
+      inset: -70%;
       background-image: 
-        linear-gradient(to right, rgba(168, 85, 247, 0.12) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(168, 85, 247, 0.12) 1px, transparent 1px);
-      background-size: 56px 56px;
-      transform: rotateX(65deg) translateZ(-120px);
-      animation: gridTunnel 8s linear infinite;
+        linear-gradient(to right, rgba(99, 102, 241, 0.06) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(168, 85, 247, 0.05) 1px, transparent 1px);
+      background-size: 64px 64px;
+      transform: perspective(1000px) rotateX(68deg) rotateZ(-22deg) translateZ(-60px);
+      opacity: 0.55;
+      mask-image: radial-gradient(circle at 50% 45%, black 25%, transparent 75%);
+      -webkit-mask-image: radial-gradient(circle at 50% 45%, black 25%, transparent 75%);
+      pointer-events: none;
     }
 
-    @keyframes gridTunnel {
-      0% {
-        transform: rotateX(65deg) translateY(0px);
-      }
-      100% {
-        transform: rotateX(65deg) translateY(56px);
-      }
-    }
-
-    /* Double Glowing Gradient Metaball Portal Shockwaves */
-    .splash-shockwave {
-      position: absolute;
-      width: 220px;
-      height: 220px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(99, 102, 241, 0.7) 0%, rgba(168, 85, 247, 0.5) 40%, rgba(236, 72, 153, 0.3) 70%, transparent 100%);
-      filter: blur(30px);
-      box-shadow: 0 0 100px rgba(168, 85, 247, 0.9), 0 0 140px rgba(99, 102, 241, 0.7);
-      animation: glowingPortalExpand 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-    }
-
-    .splash-shockwave-2 {
-      animation-delay: -1.3s;
-    }
-
-    @keyframes glowingPortalExpand {
-      0% {
-        transform: scale(0.3) rotate(0deg);
-        opacity: 1;
-        filter: blur(15px);
-      }
-      60% {
-        opacity: 0.85;
-        filter: blur(40px);
-      }
-      100% {
-        transform: scale(5.5) rotate(240deg);
-        opacity: 0;
-        filter: blur(70px);
-      }
-    }
-
-    /* Dramatic 3D Logo Container */
+    /* Clean 3D Logo Container */
     .splash-logo-container {
       position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 36px;
-      transform-style: preserve-3d;
+      margin-bottom: 28px;
     }
 
     .splash-logo-glow {
       position: absolute;
-      width: 160px;
-      height: 160px;
+      width: 140px;
+      height: 140px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(236, 72, 153, 0.8) 0%, rgba(168, 85, 247, 0.7) 40%, rgba(99, 102, 241, 0.5) 70%, transparent 100%);
-      filter: blur(32px);
-      animation: dramaticPulse 1.8s ease-in-out infinite alternate;
-    }
-
-    @keyframes dramaticPulse {
-      0% {
-        transform: scale(0.8) rotate(0deg);
-        opacity: 0.6;
-        filter: blur(24px);
-      }
-      100% {
-        transform: scale(1.5) rotate(180deg);
-        opacity: 1;
-        filter: blur(42px);
-      }
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.35) 0%, rgba(168, 85, 247, 0.2) 60%, transparent 100%);
+      filter: blur(24px);
     }
 
     .splash-logo-img {
       position: relative;
-      width: 96px;
-      height: 96px;
+      width: 84px;
+      height: 84px;
       object-fit: contain;
-      filter: drop-shadow(0 0 35px rgba(168, 85, 247, 0.9)) drop-shadow(0 0 60px rgba(99, 102, 241, 0.7));
-      animation: dramaticLogoEnter 1.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+      will-change: transform, opacity;
+      animation: logoFadeIn 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
 
-    @keyframes dramaticLogoEnter {
+    @keyframes logoFadeIn {
       0% {
         opacity: 0;
-        transform: scale(0.1) rotateX(-90deg) rotateY(-180deg) translateZ(-400px);
-        filter: drop-shadow(0 0 80px rgba(99, 102, 241, 1)) blur(20px);
-      }
-      65% {
-        transform: scale(1.18) rotateX(15deg) rotateY(15deg) translateZ(40px);
+        transform: scale(0.85) translateY(12px);
       }
       100% {
         opacity: 1;
-        transform: scale(1) rotateX(0deg) rotateY(0deg) translateZ(0);
-        filter: drop-shadow(0 0 35px rgba(168, 85, 247, 0.9));
+        transform: scale(1) translateY(0);
       }
     }
 
-    /* Dramatic Kinetic Typography */
+    /* Crisp Premium Typography with Neon Aura Glow */
     .splash-title {
-      font-size: 3.5rem;
+      font-size: 2.25rem;
       font-weight: 900;
-      letter-spacing: 0.22em;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
       text-align: center;
-      background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 20%, #f472b6 45%, #c084fc 70%, #38bdf8 100%);
-      background-size: 200% auto;
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      margin: 0 0 12px 0;
+      color: #ffffff;
+      margin: 0 0 8px 0;
       opacity: 0;
-      animation: 
-        dramaticTextUp 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards,
-        titleShimmer 1.8s linear 0.3s 1,
-        whiteFillGlowTransition 0.8s ease-in-out 2.1s forwards;
-    }
-
-    @keyframes titleShimmer {
-      0% { background-position: 0% center; }
-      100% { background-position: 200% center; }
-    }
-
-    @keyframes whiteFillGlowTransition {
-      0% {
-        -webkit-text-fill-color: transparent;
-        filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.7));
-      }
-      100% {
-        -webkit-text-fill-color: #ffffff;
-        filter: drop-shadow(0 0 25px rgba(255, 255, 255, 1)) drop-shadow(0 0 50px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 90px rgba(255, 255, 255, 0.8));
-      }
+      filter: drop-shadow(0 0 16px rgba(168, 85, 247, 0.7)) drop-shadow(0 0 35px rgba(99, 102, 241, 0.4));
+      will-change: transform, opacity, filter;
+      animation: textFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
     }
 
     .splash-subtitle {
-      font-size: 0.95rem;
-      font-weight: 800;
-      letter-spacing: 0.3em;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.28em;
       text-transform: uppercase;
       text-align: center;
-      background: linear-gradient(90deg, #a7f3d0, #38bdf8, #c084fc, #f472b6);
-      background-size: 200% auto;
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      margin: 0 0 46px 0;
+      color: #a1a1aa; /* zinc-400 */
+      margin: 0 0 38px 0;
       opacity: 0;
-      animation: dramaticTextUp 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.5s forwards, titleShimmer 5s linear infinite;
+      will-change: transform, opacity;
+      animation: textFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.35s forwards;
     }
 
-    @keyframes dramaticTextUp {
+    @keyframes textFadeIn {
       0% {
         opacity: 0;
-        transform: translateY(35px) scale(0.85);
-        filter: blur(12px);
+        transform: translateY(14px);
       }
       100% {
         opacity: 1;
-        transform: translateY(0) scale(1);
-        filter: blur(0);
+        transform: translateY(0);
       }
     }
 
-    /* Futuristic Cyber Loader */
+    /* Clean Minimalist Progress Loader */
     .splash-loader-track {
-      width: 260px;
-      height: 5px;
+      width: 200px;
+      height: 3px;
       background: rgba(255, 255, 255, 0.08);
       border-radius: 9999px;
       overflow: hidden;
       position: relative;
-      box-shadow: 0 0 25px rgba(168, 85, 247, 0.4), inset 0 0 10px rgba(255, 255, 255, 0.1);
       opacity: 0;
-      animation: dramaticTextUp 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.7s forwards;
+      will-change: opacity;
+      animation: loaderFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.5s forwards;
     }
 
     .splash-loader-bar {
@@ -336,22 +259,22 @@
       left: 0;
       height: 100%;
       width: 100%;
-      background: linear-gradient(90deg, #38bdf8 0%, #818cf8 30%, #c084fc 60%, #f472b6 100%);
+      background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%);
       border-radius: 9999px;
       transform: translateX(-100%);
-      animation: dramaticProgress 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+      will-change: transform;
+      animation: loaderProgress 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
     }
 
-    @keyframes dramaticProgress {
-      0% {
-        transform: translateX(-100%) scaleX(0.2);
-      }
-      50% {
-        transform: translateX(0%) scaleX(1);
-      }
-      100% {
-        transform: translateX(100%) scaleX(0.2);
-      }
+    @keyframes loaderFadeIn {
+      0% { opacity: 0; }
+      100% { opacity: 1; }
+    }
+
+    @keyframes loaderProgress {
+      0% { transform: translateX(-100%) scaleX(0.3); }
+      50% { transform: translateX(0%) scaleX(1); }
+      100% { transform: translateX(100%) scaleX(0.3); }
     }
   </style>
 
@@ -402,24 +325,37 @@
     })();
 
     function initLucideIcons() {
-      // Set __originalParent on any icon elements before Lucide replaces them
-      document.querySelectorAll('i[data-lucide]').forEach(i => {
-        if (i.parentNode && !i.__originalParent) {
-          i.__originalParent = i.parentNode;
-        }
-      });
-      lucide.createIcons();
+      if (typeof lucide === 'undefined' || !lucide.createIcons) return;
+      try {
+        document.querySelectorAll('i[data-lucide]').forEach(i => {
+          if (i.parentNode && !i.__originalParent) {
+            i.__originalParent = i.parentNode;
+          }
+        });
+        lucide.createIcons();
+      } catch (e) {
+        console.warn("Lucide createIcons warning:", e);
+      }
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', startLucideObserver);
+    } else {
+      startLucideObserver();
+    }
+
+    function startLucideObserver() {
       initLucideIcons();
-      const observer = new MutationObserver(() => {
-        observer.disconnect();
-        initLucideIcons();
-        observer.observe(document.body, { childList: true, subtree: true });
+      if (window._lucideObserver) return;
+      let timer = null;
+      window._lucideObserver = new MutationObserver(() => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          initLucideIcons();
+        }, 60);
       });
-      observer.observe(document.body, { childList: true, subtree: true });
-    });
+      window._lucideObserver.observe(document.body, { childList: true, subtree: true });
+    }
 
 
     window._createMap = function (options) {
@@ -432,6 +368,14 @@
         const map = new maplibregl.Map(options);
         console.log("DEBUG: maplibregl.Map constructed successfully");
         map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+        // Safari WebGL container size fix
+        map.on('load', function() {
+          setTimeout(function() {
+            try { map.resize(); } catch (_) {}
+          }, 200);
+        });
+
         return map;
       } catch (e) {
         console.error("DEBUG: Failed to construct maplibregl.Map:", e);
@@ -509,7 +453,11 @@
     };
 
     window.isSolanaWalletInstalled = function (type) {
-      return !!getSolanaProvider(type);
+      const provider = getSolanaProvider(type);
+      if (provider) return true;
+      // On iOS Safari / Mobile browsers without injected extension, check userAgent for deep-link compatibility
+      const isMobileSafari = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      return isMobileSafari;
     };
 
     function setupSolanaWalletListeners(provider, type) {
@@ -1788,7 +1736,7 @@
         heroClone.style.width = startRect.width + 'px';
         heroClone.style.height = startRect.height + 'px';
         heroClone.style.zIndex = '100000';
-        heroClone.style.transition = 'all 0.85s cubic-bezier(0.16, 1, 0.3, 1)';
+        heroClone.style.transition = 'all 0.65s cubic-bezier(0.16, 1, 0.3, 1)';
         heroClone.style.transformOrigin = 'center center';
         heroClone.style.filter = 'drop-shadow(0 0 20px rgba(168, 85, 247, 0.9))';
 
@@ -1810,7 +1758,7 @@
           if (heroClone.parentNode) {
             heroClone.parentNode.removeChild(heroClone);
           }
-        }, 850);
+        }, 650);
       }
 
       splash.classList.add('splash-hidden');
@@ -1818,55 +1766,179 @@
         if (splash.parentNode) {
           splash.parentNode.removeChild(splash);
         }
-      }, 900);
+      }, 700);
     };
 
     window.initRandomMetaballs = function (containerId) {
       const container = document.getElementById(containerId);
       if (!container) return;
       container.innerHTML = '';
-      const count = Math.floor(Math.random() * 4) + 3; // 3 to 6 metaballs
-      const colors = [
-        'radial-gradient(circle, rgba(99, 102, 241, 0.85) 0%, rgba(168, 85, 247, 0.45) 70%, transparent 100%)',
-        'radial-gradient(circle, rgba(168, 85, 247, 0.85) 0%, rgba(236, 72, 153, 0.45) 70%, transparent 100%)',
-        'radial-gradient(circle, rgba(59, 130, 246, 0.8) 0%, rgba(99, 102, 241, 0.4) 70%, transparent 100%)',
-        'radial-gradient(circle, rgba(236, 72, 153, 0.8) 0%, rgba(168, 85, 247, 0.4) 70%, transparent 100%)',
-        'radial-gradient(circle, rgba(14, 165, 233, 0.8) 0%, rgba(99, 102, 241, 0.4) 70%, transparent 100%)',
-        'radial-gradient(circle, rgba(168, 85, 247, 0.75) 0%, rgba(59, 130, 246, 0.35) 70%, transparent 100%)'
+
+      /* ─────────────────────────────────────────────────────────────────────
+         HIGH-END 3D ORGANIC GLOWING METABALL ENGINE
+         ─────────────────────────────────────────────────────────────────────
+         1. 3D Radial Gradients with top-left specular highlight (fx=28%, fy=28%)
+            give each blob rich volume, emissive depth, and glossy glass/wax look.
+         2. SVG Alpha-only Gooey Filter (feGaussianBlur + feColorMatrix on Alpha):
+            Thresholds the alpha channel to create liquid necking/bridges when blobs
+            merge, while leaving the rich 3D RGB gradient stops 100% smooth!
+      ──────────────────────────────────────────────────────────────────────── */
+
+      const svgNS = "http://www.w3.org/2000/svg";
+      const defsSvg = document.createElementNS(svgNS, "svg");
+      defsSvg.style.cssText = "position:absolute;width:0;height:0;pointer-events:none;visibility:hidden;";
+      
+      defsSvg.innerHTML = `
+        <defs>
+          <!-- Alpha-only gooey liquid filter (preserves rich 3D gradient RGB) -->
+          <filter id="gooey-3d" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="16" result="blur" />
+            <feColorMatrix in="blur" mode="matrix" 
+                           values="1 0 0 0 0
+                                   0 1 0 0 0
+                                   0 0 1 0 0
+                                   0 0 0 20 -8" result="goo" />
+          </filter>
+
+          <!-- 3D Spherical Radial Gradients with Specular Highlights & Emissive Core -->
+          <radialGradient id="blob-grad-0" cx="35%" cy="35%" fx="28%" fy="28%" r="68%">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+            <stop offset="16%" stop-color="#38bdf8" stop-opacity="0.95" />
+            <stop offset="45%" stop-color="#6366f1" stop-opacity="0.90" />
+            <stop offset="75%" stop-color="#a855f7" stop-opacity="0.85" />
+            <stop offset="100%" stop-color="#3b0764" stop-opacity="0.70" />
+          </radialGradient>
+
+          <radialGradient id="blob-grad-1" cx="35%" cy="35%" fx="28%" fy="28%" r="68%">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+            <stop offset="16%" stop-color="#f472b6" stop-opacity="0.95" />
+            <stop offset="45%" stop-color="#e879f9" stop-opacity="0.90" />
+            <stop offset="75%" stop-color="#8b5cf6" stop-opacity="0.85" />
+            <stop offset="100%" stop-color="#1e1b4b" stop-opacity="0.70" />
+          </radialGradient>
+
+          <radialGradient id="blob-grad-2" cx="35%" cy="35%" fx="28%" fy="28%" r="68%">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+            <stop offset="18%" stop-color="#22d3ee" stop-opacity="0.95" />
+            <stop offset="50%" stop-color="#3b82f6" stop-opacity="0.90" />
+            <stop offset="78%" stop-color="#9333ea" stop-opacity="0.85" />
+            <stop offset="100%" stop-color="#111827" stop-opacity="0.70" />
+          </radialGradient>
+
+          <radialGradient id="blob-grad-3" cx="35%" cy="35%" fx="28%" fy="28%" r="68%">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+            <stop offset="20%" stop-color="#c084fc" stop-opacity="0.95" />
+            <stop offset="52%" stop-color="#ec4899" stop-opacity="0.90" />
+            <stop offset="80%" stop-color="#4f46e5" stop-opacity="0.85" />
+            <stop offset="100%" stop-color="#0f172a" stop-opacity="0.70" />
+          </radialGradient>
+
+          <radialGradient id="blob-grad-4" cx="35%" cy="35%" fx="28%" fy="28%" r="68%">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+            <stop offset="18%" stop-color="#818cf8" stop-opacity="0.95" />
+            <stop offset="48%" stop-color="#d946ef" stop-opacity="0.90" />
+            <stop offset="78%" stop-color="#3b82f6" stop-opacity="0.85" />
+            <stop offset="100%" stop-color="#1e1035" stop-opacity="0.70" />
+          </radialGradient>
+        </defs>
+      `;
+      container.appendChild(defsSvg);
+
+      // Wrapper with SVG Gooey filter applied
+      const outer = document.createElement('div');
+      outer.style.cssText = [
+        'position:absolute', 'inset:0', 'overflow:hidden', 'pointer-events:none',
+        'filter:url(#gooey-3d)',
+        '-webkit-filter:url(#gooey-3d)',
+      ].join(';');
+
+      container.appendChild(outer);
+
+      /* Organic SVG path shapes (viewBox 200×200). */
+      const blobPaths = [
+        'M 100 25 C 145 15 185 50 190 95 C 196 145 168 185 120 192 C 70 200 22 172 12 122 C 1 70 40 20 100 25 Z',
+        'M 100 10 C 135 5 170 35 178 72 C 188 118 172 162 138 178 C 102 196 55 185 28 150 C 0 114 8 60 32 35 C 56 10 75 15 100 10 Z',
+        'M 108 20 C 150 14 188 52 188 96 C 188 142 158 180 115 188 C 70 198 24 168 12 122 C -2 74 22 28 65 15 C 84 8 88 25 108 20 Z',
+        'M 100 22 C 140 12 178 45 182 88 C 188 136 162 174 122 186 C 80 198 32 175 15 130 C -4 82 20 35 62 18 C 78 12 84 28 100 22 Z',
+        'M 95 15 C 138 5 182 42 186 90 C 192 140 158 182 110 192 C 60 204 10 168 5 118 C -2 66 28 18 95 15 Z',
       ];
 
-      for (let i = 0; i < count; i++) {
-        const ball = document.createElement('div');
-        ball.className = 'metaball';
-        const size = Math.floor(Math.random() * 160) + 260; // 260px - 420px
-        const startX = Math.floor(Math.random() * 80) + 5; // 5% - 85%
-        const startY = Math.floor(Math.random() * 80) + 5; // 5% - 85%
-        const duration = (Math.random() * 8 + 10).toFixed(1); // 10s - 18s
+      const NUM = 5;
+      const blobEls = [];
 
-        ball.style.width = size + 'px';
-        ball.style.height = size + 'px';
-        ball.style.left = startX + '%';
-        ball.style.top = startY + '%';
-        ball.style.background = colors[i % colors.length];
+      for (let i = 0; i < NUM; i++) {
+        const mover = document.createElement('div');
+        mover.style.cssText = 'position:absolute;will-change:transform;';
 
-        // Unique dynamic keyframe animation per metaball
-        const animName = 'metaballDynamic_' + Date.now() + '_' + i;
-        const targetX1 = Math.floor(Math.random() * 120 - 60);
-        const targetY1 = Math.floor(Math.random() * 120 - 60);
-        const targetX2 = Math.floor(Math.random() * 120 - 60);
-        const targetY2 = Math.floor(Math.random() * 120 - 60);
+        const svg = document.createElementNS(svgNS, 'svg');
+        svg.setAttribute('viewBox', '0 0 200 200');
+        svg.style.cssText = 'display:block;overflow:visible;';
 
-        const styleSheet = document.createElement('style');
-        styleSheet.textContent = `@keyframes ${animName} {
-          0% { transform: translate(0px, 0px) scale(1); }
-          50% { transform: translate(${targetX1}vw, ${targetY1}vh) scale(1.25); }
-          100% { transform: translate(${targetX2}vw, ${targetY2}vh) scale(0.85); }
-        }`;
-        document.head.appendChild(styleSheet);
+        const path = document.createElementNS(svgNS, 'path');
+        path.setAttribute('d', blobPaths[i % blobPaths.length]);
+        path.setAttribute('fill', `url(#blob-grad-${i})`);
+        svg.appendChild(path);
+        mover.appendChild(svg);
+        outer.appendChild(mover);
 
-        ball.style.animation = `${animName} ${duration}s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate`;
-        container.appendChild(ball);
+        blobEls.push({
+          el: mover,
+          svg,
+          x: 0.1 + (i / NUM) * 0.75 + (Math.random() - 0.5) * 0.15,
+          y: 0.15 + ((i * 0.38 + 0.1) % 0.7),
+          vx: ((i % 2 === 0 ? 1 : -1)) * (0.22 + Math.random() * 0.28),
+          vy: ((i % 3 === 0 ? 1 : -1)) * (0.18 + Math.random() * 0.25),
+          rot: i * 72 + Math.random() * 30,
+          rotSpeed: (i % 2 === 0 ? 1 : -1) * (0.04 + (i % 3) * 0.02),
+          sizeFrac: 0.35 + (i % 3) * 0.08,
+          phase: i * 1.26,
+          pulseSpeed: 0.003 + Math.random() * 0.003,
+        });
       }
+
+      let rafId;
+      function animate() {
+        const W = container.offsetWidth  || window.innerWidth;
+        const H = container.offsetHeight || window.innerHeight;
+
+        for (const b of blobEls) {
+          b.x += b.vx / W;
+          b.y += b.vy / H;
+
+          const mg = 0.18;
+          if (b.x < -mg) b.vx =  Math.abs(b.vx);
+          if (b.x > 1+mg) b.vx = -Math.abs(b.vx);
+          if (b.y < -mg) b.vy =  Math.abs(b.vy);
+          if (b.y > 1+mg) b.vy = -Math.abs(b.vy);
+
+          b.rot += b.rotSpeed;
+
+          b.phase += b.pulseSpeed;
+          const scale = 1 + 0.06 * Math.sin(b.phase);
+
+          const sz = Math.min(W, H) * b.sizeFrac * scale;
+          const px = b.x * W - sz / 2;
+          const py = b.y * H - sz / 2;
+
+          b.svg.style.width  = sz + 'px';
+          b.svg.style.height = sz + 'px';
+          b.el.style.transform = `translate(${px}px,${py}px)`;
+          b.svg.style.transform = `rotate(${b.rot}deg)`;
+          b.svg.style.transformOrigin = '50% 50%';
+        }
+
+        rafId = requestAnimationFrame(animate);
+      }
+
+      animate();
+
+      const observer = new MutationObserver(() => {
+        if (!document.contains(outer)) {
+          cancelAnimationFrame(rafId);
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
     };
   </script>
 

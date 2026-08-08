@@ -6,23 +6,121 @@
 /* ── Fonts ── */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
-/* ── Base Reset ── */
+/* ── Safari Engine Reset & Layout Normalization ── */
 *,
 *::before,
 *::after {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
-html,
-body {
+html {
   width: 100%;
+  height: 100%;
   min-height: 100vh;
+  min-height: -webkit-fill-available;
   padding: 0;
   margin: 0;
-  font-family: 'Inter', sans-serif;
+}
+
+body {
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  padding: 0;
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background-color: #09090b;
-  /* zinc-950 */
   color: #fafafa;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: hidden;
+}
+
+/* Safari Flexbox height shrink/stretch fix */
+.flex {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+}
+
+.flex-col {
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+}
+
+.flex-1 {
+  -webkit-box-flex: 1;
+  -webkit-flex: 1 1 0%;
+  flex: 1 1 0%;
+}
+
+.items-center {
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+}
+
+.justify-center {
+  -webkit-box-pack: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+}
+
+.justify-between {
+  -webkit-box-pack: justify;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+}
+
+.h-screen {
+  height: 100vh;
+  height: -webkit-fill-available;
+}
+
+.min-h-screen {
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+}
+
+/* Safari Backdrop Filter Polyfill / Webkit Prefix Support */
+[class*="backdrop-blur"] {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.backdrop-blur-none { -webkit-backdrop-filter: none; backdrop-filter: none; }
+.backdrop-blur-sm   { -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+.backdrop-blur      { -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.backdrop-blur-md   { -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.backdrop-blur-lg   { -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+.backdrop-blur-xl   { -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); }
+.backdrop-blur-2xl  { -webkit-backdrop-filter: blur(40px); backdrop-filter: blur(40px); }
+.backdrop-blur-3xl  { -webkit-backdrop-filter: blur(64px); backdrop-filter: blur(64px); }
+
+/* Safari -webkit-background-clip fix */
+[class*="bg-clip-text"],
+.bg-clip-text {
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+}
+
+/* Safari Webkit Smooth Scrolling */
+.overflow-y-auto,
+.overflow-x-auto,
+.overflow-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* MapLibre Canvas Safari WebGL aspect ratio reset */
+.maplibregl-canvas {
+  width: 100% !important;
+  height: 100% !important;
+  outline: none;
 }
 
 /* ── Scrollbar Hiding ── */
@@ -101,79 +199,16 @@ body {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* ── Metaballs Background Animation ── */
+/* ── Metaball Canvas Container ──────────────────────────────────────────────
+   The JS canvas engine creates its own wrapper + canvas inside this container.
+   This element is just a full-screen positioner.
+── */
 .metaball-container {
   position: absolute;
   inset: 0;
-  overflow: hidden;
+  overflow: visible;
   pointer-events: none;
   z-index: 0;
-}
-
-.metaball {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(60px);
-  opacity: 0.55;
-  mix-blend-mode: screen;
-  will-change: transform;
-}
-
-.metaball-1 {
-  width: 380px;
-  height: 380px;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.8) 0%, rgba(168, 85, 247, 0.4) 70%, transparent 100%);
-  animation: metaballMove1 14s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
-}
-
-.metaball-2 {
-  width: 320px;
-  height: 320px;
-  background: radial-gradient(circle, rgba(168, 85, 247, 0.8) 0%, rgba(236, 72, 153, 0.4) 70%, transparent 100%);
-  animation: metaballMove2 18s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
-}
-
-.metaball-3 {
-  width: 280px;
-  height: 280px;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.7) 0%, rgba(99, 102, 241, 0.3) 70%, transparent 100%);
-  animation: metaballMove3 16s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
-}
-
-@keyframes metaballMove1 {
-  0% {
-    transform: translate(-10%, -10%) scale(1);
-  }
-  50% {
-    transform: translate(60vw, 40vh) scale(1.25);
-  }
-  100% {
-    transform: translate(20vw, 70vh) scale(0.9);
-  }
-}
-
-@keyframes metaballMove2 {
-  0% {
-    transform: translate(80vw, 60vh) scale(1.1);
-  }
-  50% {
-    transform: translate(15vw, 10vh) scale(0.85);
-  }
-  100% {
-    transform: translate(70vw, 5vh) scale(1.2);
-  }
-}
-
-@keyframes metaballMove3 {
-  0% {
-    transform: translate(50vw, 80vh) scale(0.9);
-  }
-  50% {
-    transform: translate(75vw, 20vh) scale(1.15);
-  }
-  100% {
-    transform: translate(-5vw, 30vh) scale(1);
-  }
 }
 
 /* ── Logo Gradient ── */

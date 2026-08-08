@@ -43,23 +43,24 @@ class BottomNavComponent extends StatelessComponent {
 
     return button(
       classes:
-          'flex flex-col items-center gap-1 px-4 py-2 rounded-2xl transition-colors ${isActive ? activeTxt : inactiveTxt}',
+          'flex flex-col items-center gap-1 px-4 py-2 rounded-2xl transition-colors cursor-pointer ${isActive ? activeTxt : inactiveTxt}',
       events: {'click': (_) => s.switchTab(tab)},
+      attributes: {'type': 'button', 'title': label},
       [
-        div(classes: 'relative', [
-          lIcon(icon, cls: 'w-5 h-5'),
+        div(classes: 'relative pointer-events-none flex flex-col items-center', [
+          lIcon(icon, cls: 'w-5 h-5 pointer-events-none'),
           if (isActive)
-            div([], classes: 'absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-indigo-500'),
+            div([], classes: 'absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-indigo-500 pointer-events-none'),
           if (unreadCount > 0)
             div(
               [Component.text('$unreadCount')],
               classes:
-                  'absolute -top-2 -right-2 flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[8px] font-black border border-white dark:border-zinc-950 animate-pulse',
+                  'absolute -top-2 -right-2 flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[8px] font-black border border-white dark:border-zinc-950 animate-pulse pointer-events-none',
             )
           else if (showBadge)
-            div([], classes: 'absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 border border-white dark:border-zinc-955 animate-pulse'),
+            div([], classes: 'absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 border border-white dark:border-zinc-955 animate-pulse pointer-events-none'),
         ]),
-        span(classes: 'text-[10px] font-semibold', [Component.text(label)]),
+        span(classes: 'text-[10px] font-semibold pointer-events-none', [Component.text(label)]),
       ],
     );
   }
