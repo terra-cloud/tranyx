@@ -8,7 +8,6 @@ import '../../services/web_interop.dart';
 import 'package:shared/shared.dart';
 import '../utils/geo_helper.dart';
 
-
 // ── Top-services computation helper ──────────────────────────────────────────
 /// Returns the top [limit] JobCategoryGroups ranked by how many jobs exist
 /// for each group in [allJobs]. Falls back to the first static groups when
@@ -32,15 +31,16 @@ List<({JobCategoryGroup group, int count})> _computeTopGroups(
   }
 
   // Resolve to enum values and sort descending by count
-  final entries = tally.entries
-      .map((e) {
-        final grp = JobCategoryGroup.values.where((g) => g.name == e.key).firstOrNull;
-        if (grp == null) return null;
-        return (group: grp, count: e.value);
-      })
-      .whereType<({JobCategoryGroup group, int count})>()
-      .toList()
-    ..sort((grpA, grpB) => grpB.count.compareTo(grpA.count));
+  final entries =
+      tally.entries
+          .map((e) {
+            final grp = JobCategoryGroup.values.where((g) => g.name == e.key).firstOrNull;
+            if (grp == null) return null;
+            return (group: grp, count: e.value);
+          })
+          .whereType<({JobCategoryGroup group, int count})>()
+          .toList()
+        ..sort((grpA, grpB) => grpB.count.compareTo(grpA.count));
 
   // Pad with unseen groups when fewer than [limit] distinct groups appear
   if (entries.length < limit) {
@@ -207,36 +207,36 @@ class HomeViewComponentState extends State<HomeViewComponent> {
     final isNyxian = s.currentViewMode == AccountType.nyxian;
     final isHybrid = s.accountType == AccountType.hybrid;
 
-    final localVehicles = s.realtimeRentals.where((r) {
-      if (r['status'] != 'Available' || r['hostId'] == s.userProfile?.uid) return false;
-      final lat = (r['pickupLat'] as num?)?.toDouble();
-      final lng = (r['pickupLng'] as num?)?.toDouble();
-      if (lat == null || lng == null) return false;
-      final dist = calculateDistance(s.userLatitude, s.userLongitude, lat, lng);
-      return dist <= 30.0;
-    }).toList()
-    ..sort((vA, vB) {
-      final latA = (vA['pickupLat'] as num?)?.toDouble();
-      final lngA = (vA['pickupLng'] as num?)?.toDouble();
-      final distA = calculateDistance(s.userLatitude, s.userLongitude, latA, lngA);
+    final localVehicles =
+        s.realtimeRentals.where((r) {
+          if (r['status'] != 'Available' || r['hostId'] == s.userProfile?.uid) return false;
+          final lat = (r['pickupLat'] as num?)?.toDouble();
+          final lng = (r['pickupLng'] as num?)?.toDouble();
+          if (lat == null || lng == null) return false;
+          final dist = calculateDistance(s.userLatitude, s.userLongitude, lat, lng);
+          return dist <= 30.0;
+        }).toList()..sort((vA, vB) {
+          final latA = (vA['pickupLat'] as num?)?.toDouble();
+          final lngA = (vA['pickupLng'] as num?)?.toDouble();
+          final distA = calculateDistance(s.userLatitude, s.userLongitude, latA, lngA);
 
-      final latB = (vB['pickupLat'] as num?)?.toDouble();
-      final lngB = (vB['pickupLng'] as num?)?.toDouble();
-      final distB = calculateDistance(s.userLatitude, s.userLongitude, latB, lngB);
+          final latB = (vB['pickupLat'] as num?)?.toDouble();
+          final lngB = (vB['pickupLng'] as num?)?.toDouble();
+          final distB = calculateDistance(s.userLatitude, s.userLongitude, latB, lngB);
 
-      return distA.compareTo(distB);
-    });
+          return distA.compareTo(distB);
+        });
 
-    final localProperties = s.realtimeProperties.where((prop) {
-      if (prop.status != 'Available' || prop.hostId == s.userProfile?.uid) return false;
-      final dist = calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude);
-      return dist <= 30.0;
-    }).toList()
-    ..sort((pA, pB) {
-      final distA = calculateDistance(s.userLatitude, s.userLongitude, pA.latitude, pA.longitude);
-      final distB = calculateDistance(s.userLatitude, s.userLongitude, pB.latitude, pB.longitude);
-      return distA.compareTo(distB);
-    });
+    final localProperties =
+        s.realtimeProperties.where((prop) {
+          if (prop.status != 'Available' || prop.hostId == s.userProfile?.uid) return false;
+          final dist = calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude);
+          return dist <= 30.0;
+        }).toList()..sort((pA, pB) {
+          final distA = calculateDistance(s.userLatitude, s.userLongitude, pA.latitude, pA.longitude);
+          final distB = calculateDistance(s.userLatitude, s.userLongitude, pB.latitude, pB.longitude);
+          return distA.compareTo(distB);
+        });
 
     return div(classes: 'space-y-8 animate-fade-up', [
       // ── Hybrid mode switcher ──────────────────────────────
@@ -253,22 +253,26 @@ class HomeViewComponentState extends State<HomeViewComponent> {
 
       // ── Hero header ──────────────────────────────────────
       div(classes: 'space-y-3', [
-        h1(classes: 'text-3xl md:text-4xl font-extrabold tracking-tight leading-tight logo-gradient bg-clip-text text-transparent', [
-          Component.text(
-            isHybrid
-                ? 'All-Access Hub. Hire Services, Find Jobs & Rent Anything.'
-                : (isNyxian
-                    ? 'Find Jobs. Hire Services. Rent Anything.'
-                    : 'Hire Services. Find Jobs. Rent Anything.'),
-          ),
-        ]),
+        h1(
+          classes:
+              'text-3xl md:text-4xl font-extrabold tracking-tight leading-tight logo-gradient bg-clip-text text-transparent',
+          [
+            Component.text(
+              isHybrid
+                  ? 'All-Access Hub. Hire Services, Find Jobs & Rent Anything.'
+                  : (isNyxian
+                        ? 'Find Jobs. Hire Services. Rent Anything.'
+                        : 'Hire Services. Find Jobs. Rent Anything.'),
+            ),
+          ],
+        ),
         p(classes: 'text-base md:text-lg ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
           Component.text(
             isHybrid
                 ? 'Seamlessly switch between hiring top Nyxian talent and earning on available jobs & assets with full platform privileges.'
                 : (isNyxian
-                    ? 'Browse available jobs in your area, track transit routes, and start earning.'
-                    : 'Connect with verified Nyxians, rent assets, and get tasks done safely.'),
+                      ? 'Browse available jobs in your area, track transit routes, and start earning.'
+                      : 'Connect with verified Nyxians, rent assets, and get tasks done safely.'),
           ),
         ]),
       ]),
@@ -276,26 +280,16 @@ class HomeViewComponentState extends State<HomeViewComponent> {
       // ── Home Tab Selector ─────────────────────────────────
       div(classes: 'flex border-b ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
         button(
-          classes: 'px-6 py-3 font-semibold text-sm transition-all border-b-2 ${
-            _homeTab == 'dashboard'
-                ? 'border-indigo-500 text-indigo-400 font-bold'
-                : 'border-transparent ${isDark ? "text-zinc-500 hover:text-zinc-300" : "text-zinc-450 hover:text-zinc-650"}'
-          }',
-          events: {
-            'click': (_) => setState(() => _homeTab = 'dashboard')
-          },
-          [Component.text('Dashboard')]
+          classes:
+              'px-6 py-3 font-semibold text-sm transition-all border-b-2 ${_homeTab == 'dashboard' ? 'border-indigo-500 text-indigo-400 font-bold' : 'border-transparent ${isDark ? "text-zinc-500 hover:text-zinc-300" : "text-zinc-450 hover:text-zinc-650"}'}',
+          events: {'click': (_) => setState(() => _homeTab = 'dashboard')},
+          [Component.text('Dashboard')],
         ),
         button(
-          classes: 'px-6 py-3 font-semibold text-sm transition-all border-b-2 ${
-            _homeTab == 'news'
-                ? 'border-indigo-500 text-indigo-400 font-bold'
-                : 'border-transparent ${isDark ? "text-zinc-500 hover:text-zinc-300" : "text-zinc-450 hover:text-zinc-650"}'
-          }',
-          events: {
-            'click': (_) => setState(() => _homeTab = 'news')
-          },
-          [Component.text('News & Promos')]
+          classes:
+              'px-6 py-3 font-semibold text-sm transition-all border-b-2 ${_homeTab == 'news' ? 'border-indigo-500 text-indigo-400 font-bold' : 'border-transparent ${isDark ? "text-zinc-500 hover:text-zinc-300" : "text-zinc-450 hover:text-zinc-650"}'}',
+          events: {'click': (_) => setState(() => _homeTab = 'news')},
+          [Component.text('News & Promos')],
         ),
       ]),
 
@@ -327,9 +321,7 @@ class HomeViewComponentState extends State<HomeViewComponent> {
               button(
                 classes:
                     'px-6 py-3 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors flex items-center justify-center min-w-[100px]',
-                events: {
-                  'click': (_) => _redeemPromo()
-                },
+                events: {'click': (_) => _redeemPromo()},
                 [
                   if (_isRedeeming)
                     div(classes: 'w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin', [])
@@ -379,7 +371,8 @@ class HomeViewComponentState extends State<HomeViewComponent> {
                         [
                           img(
                             src: post.imageUrl,
-                            classes: 'w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-300',
+                            classes:
+                                'w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-300',
                             events: {
                               'click': (_) => _handleNewsPostAction(post),
                             },
@@ -394,12 +387,13 @@ class HomeViewComponentState extends State<HomeViewComponent> {
                               classes:
                                   'absolute font-bold transition-all shadow-lg flex items-center justify-center text-xs md:text-sm',
                               attributes: {
-                                'style': 'left: ${post.buttonX}%; top: ${post.buttonY}%; width: ${post.buttonWidth}%; height: ${post.buttonHeight}%; box-sizing: border-box; '
+                                'style':
+                                    'left: ${post.buttonX}%; top: ${post.buttonY}%; width: ${post.buttonWidth}%; height: ${post.buttonHeight}%; box-sizing: border-box; '
                                     'background-color: ${post.buttonBgColor ?? '#4f46e5'}; '
                                     'color: ${post.buttonTextColor ?? '#ffffff'}; '
                                     'border: ${post.buttonBorderWidth ?? 1}px solid ${post.buttonBorderColor ?? '#4f46e5'}; '
                                     'border-radius: ${post.buttonBorderRadius ?? 8}px; '
-                                    'padding: ${post.buttonPaddingV ?? 8}px ${post.buttonPaddingH ?? 16}px;'
+                                    'padding: ${post.buttonPaddingV ?? 8}px ${post.buttonPaddingH ?? 16}px;',
                               },
                               events: {
                                 'click': (_) => _handleNewsPostAction(post),
@@ -413,19 +407,22 @@ class HomeViewComponentState extends State<HomeViewComponent> {
                       div(classes: 'space-y-3', [
                         div(classes: 'flex items-center justify-between', [
                           span(
-                            classes: 'px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide uppercase ${
-                              post.category == 'promo'
-                                  ? 'bg-green-500/10 text-green-400'
-                                  : post.category == 'news'
-                                      ? 'bg-indigo-500/10 text-indigo-400'
-                                      : post.category == 'announcement'
-                                          ? 'bg-amber-500/10 text-amber-400'
-                                          : 'bg-purple-500/10 text-purple-400'
-                            }',
+                            classes:
+                                'px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide uppercase ${post.category == 'promo'
+                                    ? 'bg-green-500/10 text-green-400'
+                                    : post.category == 'news'
+                                    ? 'bg-indigo-500/10 text-indigo-400'
+                                    : post.category == 'announcement'
+                                    ? 'bg-amber-500/10 text-amber-400'
+                                    : 'bg-purple-500/10 text-purple-400'}',
                             [Component.text(post.category)],
                           ),
                           span(classes: 'text-xs text-zinc-500', [
-                            Component.text(DateTime.now().difference(post.createdAt).inDays == 0 ? 'Today' : '${post.createdAt.month}/${post.createdAt.day}/${post.createdAt.year}'),
+                            Component.text(
+                              DateTime.now().difference(post.createdAt).inDays == 0
+                                  ? 'Today'
+                                  : '${post.createdAt.month}/${post.createdAt.day}/${post.createdAt.year}',
+                            ),
                           ]),
                         ]),
                         h3(classes: 'text-lg font-bold text-zinc-200', [
@@ -442,76 +439,76 @@ class HomeViewComponentState extends State<HomeViewComponent> {
           ),
       ] else ...[
         // ── Global Search Bar ─────────────────────────────────
-      div(
-        classes:
-            'flex items-center gap-3 p-4 rounded-2xl border transition-colors ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
-        [
-          lIcon('search', cls: 'w-5 h-5 ${isDark ? "text-zinc-600" : "text-zinc-400"} flex-shrink-0'),
-          input(
-            classes:
-                'bg-transparent border-none outline-none flex-1 text-sm md:text-base ${isDark ? "text-zinc-200 placeholder-zinc-600" : "text-zinc-800 placeholder-zinc-400"}',
-            type: InputType.search,
-            attributes: {
-              'placeholder': isNyxian ? 'Search available gigs...' : 'Search for a service or Nyxian...',
-              'value': s.homeSearchQuery,
-              'id': 'home-search-input',
-              'name': 'search',
-            },
-            events: {
-              'input': (e) {
-                s.setState(() => s.homeSearchQuery = getInputValue(e.target));
+        div(
+          classes:
+              'flex items-center gap-3 p-4 rounded-2xl border transition-colors ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
+          [
+            lIcon('search', cls: 'w-5 h-5 ${isDark ? "text-zinc-600" : "text-zinc-400"} flex-shrink-0'),
+            input(
+              classes:
+                  'bg-transparent border-none outline-none flex-1 text-sm md:text-base ${isDark ? "text-zinc-200 placeholder-zinc-600" : "text-zinc-800 placeholder-zinc-400"}',
+              type: InputType.search,
+              attributes: {
+                'placeholder': isNyxian ? 'Search available gigs...' : 'Search for a service or Nyxian...',
+                'value': s.homeSearchQuery,
+                'id': 'home-search-input',
+                'name': 'search',
               },
-              'keydown': (e) {
-                final key = (e as web.KeyboardEvent).key;
-                if (key == 'Enter') s.handleHomeSearch(s.homeSearchQuery);
+              events: {
+                'input': (e) {
+                  s.setState(() => s.homeSearchQuery = getInputValue(e.target));
+                },
+                'keydown': (e) {
+                  final key = (e as web.KeyboardEvent).key;
+                  if (key == 'Enter') s.handleHomeSearch(s.homeSearchQuery);
+                },
               },
-            },
+            ),
+            button(
+              classes:
+                  'flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity',
+              events: {'click': (_) => s.handleHomeSearch(s.homeSearchQuery)},
+              [Component.text('Search')],
+            ),
+          ],
+        ),
+
+        // ── Quick Stats Bar ───────────────────────────────────
+        _quickStatsBar(isDark: isDark, isNyxian: isNyxian, s: s),
+
+        // ── Ongoing / Current Gig Widget ──────────────────────
+        _ongoingWidget(isDark: isDark, isNyxian: isNyxian, s: s),
+
+        // ── Active Trackers & Trips ───────────────────────────
+        _activeTrackersSection(isDark: isDark, s: s),
+
+        if (isNyxian) ...[
+          // ── Top Services Grid (Firebase-synced) ───────────────
+          _topServicesSection(isDark: isDark, s: s),
+
+          // ── Transit Teaser ────────────────────────────────────
+          _transitTeaser(isDark: isDark, onTap: () => s.switchTab(AppTab.transit)),
+
+          // ── Real Estate Teaser ────────────────────────────────
+          _realEstateTeaser(isDark: isDark, s: s),
+        ] else ...[
+          // Employer view: Proximity-sorted rentals carousels
+          _nearMeRentalsSection(
+            title: '🚗 Vehicles Near Me',
+            items: localVehicles.take(4).toList(),
+            isProperty: false,
+            isDark: isDark,
+            s: s,
           ),
-          button(
-            classes:
-                'flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity',
-            events: {'click': (_) => s.handleHomeSearch(s.homeSearchQuery)},
-            [Component.text('Search')],
+
+          _nearMeRentalsSection(
+            title: '🏢 Real Estate Near Me',
+            items: localProperties.take(4).toList(),
+            isProperty: true,
+            isDark: isDark,
+            s: s,
           ),
         ],
-      ),
-
-      // ── Quick Stats Bar ───────────────────────────────────
-      _quickStatsBar(isDark: isDark, isNyxian: isNyxian, s: s),
-
-      // ── Ongoing / Current Gig Widget ──────────────────────
-      _ongoingWidget(isDark: isDark, isNyxian: isNyxian, s: s),
-
-      // ── Active Trackers & Trips ───────────────────────────
-      _activeTrackersSection(isDark: isDark, s: s),
-
-      if (isNyxian) ...[
-        // ── Top Services Grid (Firebase-synced) ───────────────
-        _topServicesSection(isDark: isDark, s: s),
-
-        // ── Transit Teaser ────────────────────────────────────
-        _transitTeaser(isDark: isDark, onTap: () => s.switchTab(AppTab.transit)),
-
-        // ── Real Estate Teaser ────────────────────────────────
-        _realEstateTeaser(isDark: isDark, s: s),
-      ] else ...[
-        // Employer view: Proximity-sorted rentals carousels
-        _nearMeRentalsSection(
-          title: '🚗 Vehicles Near Me',
-          items: localVehicles.take(4).toList(),
-          isProperty: false,
-          isDark: isDark,
-          s: s,
-        ),
-
-        _nearMeRentalsSection(
-          title: '🏢 Real Estate Near Me',
-          items: localProperties.take(4).toList(),
-          isProperty: true,
-          isDark: isDark,
-          s: s,
-        ),
-      ],
       ],
     ]);
   }
@@ -786,9 +783,7 @@ class HomeViewComponentState extends State<HomeViewComponent> {
     final isLoading = s.isLoadingJobs && allJobs.isEmpty;
     final topGroups = _computeTopGroups(allJobs);
 
-    final cardBase = isDark
-        ? 'bg-zinc-900 border-zinc-800'
-        : 'bg-white border-zinc-200 shadow-sm';
+    final cardBase = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
 
     return div([
       div(classes: 'flex items-center justify-between mb-5', [
@@ -796,7 +791,8 @@ class HomeViewComponentState extends State<HomeViewComponent> {
           h2(classes: 'text-lg font-bold', [Component.text('Top Services')]),
           if (!isLoading && allJobs.isNotEmpty)
             span(
-              classes: 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/20',
+              classes:
+                  'px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/20',
               [Component.text('LIVE')],
             ),
         ]),
@@ -851,7 +847,8 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         // Live job count badge (only if > 0)
         if (jobCount > 0)
           div(
-            classes: 'absolute top-3 right-3 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500 text-white leading-tight',
+            classes:
+                'absolute top-3 right-3 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500 text-white leading-tight',
             [Component.text('$jobCount')],
           ),
         div(classes: 'p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', [
@@ -871,8 +868,6 @@ class HomeViewComponentState extends State<HomeViewComponent> {
       ],
     );
   }
-
-
 
   Component _transitTeaser({required bool isDark, required void Function() onTap}) {
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
@@ -951,15 +946,17 @@ class HomeViewComponentState extends State<HomeViewComponent> {
       if (pendingTotal <= 0) return div([]);
       return div(classes: 'mt-2 space-y-1 border-t border-zinc-500/10 pt-2', [
         for (final holdback in s.pendingHoldbacks)
-          Builder(builder: (context) {
-            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
-            final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
-            final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
-            final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
-            return p(classes: 'text-[9px] text-amber-500/80 font-bold text-left', [
-              Component.text('• Php ${amt.toStringAsFixed(2)} $hrsStr'),
-            ]);
-          }),
+          Builder(
+            builder: (context) {
+              final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
+              final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+              final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
+              final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
+              return p(classes: 'text-[9px] text-amber-500/80 font-bold text-left', [
+                Component.text('• Php ${amt.toStringAsFixed(2)} $hrsStr'),
+              ]);
+            },
+          ),
       ]);
     }
 
@@ -976,7 +973,7 @@ class HomeViewComponentState extends State<HomeViewComponent> {
           events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
           [
             div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Balance')]),
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Wallet')]),
               lIcon('wallet', cls: 'w-4 h-4 text-indigo-400'),
             ]),
             p(classes: 'text-lg font-black $titleColor', [
@@ -989,19 +986,26 @@ class HomeViewComponentState extends State<HomeViewComponent> {
               ]),
               buildPendingReleaseBreakdown(),
             ] else
-              p(classes: 'text-[9px] text-zinc-500 mt-1 font-semibold hover:text-indigo-400 transition-colors', [Component.text('Deposit Tyx')],),
+              p(
+                classes: 'text-[9px] text-zinc-500 mt-1 font-semibold hover:text-indigo-400 transition-colors',
+                [Component.text('Deposit Tyx')],
+              ),
           ],
         ),
         // Completed Gigs
         div(
           classes: 'p-5 rounded-2xl border transition-all hover:border-purple-500/40 cursor-pointer $cardBg',
-          events: {'click': (_) => s.setState(() {
-            s.activeTab = AppTab.profile;
-            s.profileView = ProfileView.main;
-          })},
+          events: {
+            'click': (_) => s.setState(() {
+              s.activeTab = AppTab.profile;
+              s.profileView = ProfileView.main;
+            }),
+          },
           [
             div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Gigs Done')]),
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [
+                Component.text('Gigs Done'),
+              ]),
               lIcon('check-circle', cls: 'w-4 h-4 text-purple-400'),
             ]),
             p(classes: 'text-lg font-black $titleColor', [
@@ -1013,13 +1017,17 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         // Total Earnings
         div(
           classes: 'p-5 rounded-2xl border transition-all hover:border-emerald-500/40 cursor-pointer $cardBg',
-          events: {'click': (_) => s.setState(() {
-            s.activeTab = AppTab.profile;
-            s.profileView = ProfileView.history;
-          })},
+          events: {
+            'click': (_) => s.setState(() {
+              s.activeTab = AppTab.profile;
+              s.profileView = ProfileView.history;
+            }),
+          },
           [
             div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Total Earned')]),
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [
+                Component.text('Total Earned'),
+              ]),
               lIcon('trending-up', cls: 'w-4 h-4 text-emerald-400'),
             ]),
             p(classes: 'text-lg font-black $titleColor', [
@@ -1031,13 +1039,17 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         // Rating
         div(
           classes: 'p-5 rounded-2xl border transition-all hover:border-amber-500/40 cursor-pointer $cardBg',
-          events: {'click': (_) => s.setState(() {
-            s.activeTab = AppTab.profile;
-            s.profileView = ProfileView.reviews;
-          })},
+          events: {
+            'click': (_) => s.setState(() {
+              s.activeTab = AppTab.profile;
+              s.profileView = ProfileView.reviews;
+            }),
+          },
           [
             div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Trust Rating')]),
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [
+                Component.text('Trust Rating'),
+              ]),
               lIcon('star', cls: 'w-4 h-4 text-amber-400'),
             ]),
             p(classes: 'text-lg font-black $titleColor flex items-center gap-1', [
@@ -1062,7 +1074,7 @@ class HomeViewComponentState extends State<HomeViewComponent> {
           events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
           [
             div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Balance')]),
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Wallet')]),
               lIcon('wallet', cls: 'w-4 h-4 text-indigo-400'),
             ]),
             p(classes: 'text-lg font-black $titleColor', [
@@ -1075,19 +1087,25 @@ class HomeViewComponentState extends State<HomeViewComponent> {
               ]),
               buildPendingReleaseBreakdown(),
             ] else
-              p(classes: 'text-[9px] text-zinc-500 mt-1 font-semibold hover:text-indigo-400 transition-colors', [Component.text('Deposit Tyx')]),
+              p(classes: 'text-[9px] text-zinc-500 mt-1 font-semibold hover:text-indigo-400 transition-colors', [
+                Component.text('Deposit Tyx'),
+              ]),
           ],
         ),
         // Posted Gigs
         div(
           classes: 'p-5 rounded-2xl border transition-all hover:border-purple-500/40 cursor-pointer $cardBg',
-          events: {'click': (_) => s.setState(() {
-            s.activeTab = AppTab.jobs;
-            s.activeJobPane = 'active';
-          })},
+          events: {
+            'click': (_) => s.setState(() {
+              s.activeTab = AppTab.jobs;
+              s.activeJobPane = 'active';
+            }),
+          },
           [
             div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Gigs Posted')]),
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [
+                Component.text('Gigs Posted'),
+              ]),
               lIcon('briefcase', cls: 'w-4 h-4 text-purple-400'),
             ]),
             p(classes: 'text-lg font-black $titleColor', [
@@ -1099,13 +1117,17 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         // Active Hires
         div(
           classes: 'p-5 rounded-2xl border transition-all hover:border-emerald-500/40 cursor-pointer $cardBg',
-          events: {'click': (_) => s.setState(() {
-            s.activeTab = AppTab.jobs;
-            s.activeJobPane = 'active';
-          })},
+          events: {
+            'click': (_) => s.setState(() {
+              s.activeTab = AppTab.jobs;
+              s.activeJobPane = 'active';
+            }),
+          },
           [
             div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Active Gigs')]),
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [
+                Component.text('Active Gigs'),
+              ]),
               lIcon('users', cls: 'w-4 h-4 text-emerald-400'),
             ]),
             p(classes: 'text-lg font-black $titleColor', [
@@ -1117,13 +1139,17 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         // Rating
         div(
           classes: 'p-5 rounded-2xl border transition-all hover:border-amber-500/40 cursor-pointer $cardBg',
-          events: {'click': (_) => s.setState(() {
-            s.activeTab = AppTab.profile;
-            s.profileView = ProfileView.reviews;
-          })},
+          events: {
+            'click': (_) => s.setState(() {
+              s.activeTab = AppTab.profile;
+              s.profileView = ProfileView.reviews;
+            }),
+          },
           [
             div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Employer Score')]),
+              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [
+                Component.text('Employer Score'),
+              ]),
               lIcon('star', cls: 'w-4 h-4 text-amber-400'),
             ]),
             p(classes: 'text-lg font-black $titleColor flex items-center gap-1', [
@@ -1142,15 +1168,20 @@ class HomeViewComponentState extends State<HomeViewComponent> {
     if (currentUid == null) return div([]);
 
     final activeRentals = s.realtimeRentals
-        .where((r) =>
-            r['renteeId'] == currentUid &&
-            r['status'] != 'Available' &&
-            r['status'] != 'Completed' &&
-            r['status'] != 'Complete')
+        .where(
+          (r) =>
+              r['renteeId'] == currentUid &&
+              r['status'] != 'Available' &&
+              r['status'] != 'Completed' &&
+              r['status'] != 'Complete',
+        )
         .toList();
 
     final activeLeases = s.realtimeProperties
-        .where((leaseItem) => leaseItem.renteeId == currentUid && leaseItem.status != 'Available' && leaseItem.status != 'Completed')
+        .where(
+          (leaseItem) =>
+              leaseItem.renteeId == currentUid && leaseItem.status != 'Available' && leaseItem.status != 'Completed',
+        )
         .toList();
 
     final hasActiveRentals = activeRentals.isNotEmpty || activeLeases.isNotEmpty;
@@ -1165,7 +1196,8 @@ class HomeViewComponentState extends State<HomeViewComponent> {
       div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4', [
         for (final r in activeRentals)
           div(
-            classes: 'p-4 rounded-2xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 cursor-pointer transition-all flex items-center justify-between',
+            classes:
+                'p-4 rounded-2xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 cursor-pointer transition-all flex items-center justify-between',
             events: {
               'click': (_) => s.setState(() {
                 s.selectedRentalData = r;
@@ -1194,7 +1226,8 @@ class HomeViewComponentState extends State<HomeViewComponent> {
           ),
         for (final lease in activeLeases)
           div(
-            classes: 'p-4 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 hover:bg-indigo-500/10 cursor-pointer transition-all flex items-center justify-between',
+            classes:
+                'p-4 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 hover:bg-indigo-500/10 cursor-pointer transition-all flex items-center justify-between',
             events: {
               'click': (_) => s.setState(() {
                 s.activeTab = AppTab.transit;
