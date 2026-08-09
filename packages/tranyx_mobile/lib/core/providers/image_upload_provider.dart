@@ -11,7 +11,7 @@ final imgBBServiceProvider = Provider<ImgUploadService>((ref) {
 });
 
 class ImgUploadService {
-  static String get _apiKey => Env.get('IMGBB_API_KEY', defaultValue: '50952d72f276ff20aa3362f346b134ab');
+  static String get _apiKey => Env.imgbbApiKey;
   static String get apiUrl {
     return "https://api.imgbb.com/1/upload?key=$_apiKey";
   }

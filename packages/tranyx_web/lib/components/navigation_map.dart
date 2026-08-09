@@ -892,9 +892,9 @@ class _NavigationMapState extends State<NavigationMapComponent> {
                         'w-10 h-10 rounded-xl backdrop-blur-md border flex items-center justify-center pointer-events-auto shadow-lg hover:scale-105 transition-transform '
                         '${isDark ? "bg-zinc-900/85 border-zinc-700/60 text-white" : "bg-white/85 border-white text-zinc-900"}',
                     events: {
-                      'click': (_) {
+                      'click': (_) async {
                         final pitch = component.isNyxian ? 45.0 : 0.0;
-                        if (_myLat != null) {
+                        if (_myLat != null && component.state.isLocationEnabled) {
                           double? bearing;
                           if (component.isNyxian) {
                             if (_isSimulating && _simulationCoordIndex + 1 < _routeCoordinates.length) {
@@ -912,10 +912,23 @@ class _NavigationMapState extends State<NavigationMapComponent> {
                           }
                           panTo(_mapId, _myLat!, _myLng!, bearing: bearing, pitch: pitch);
                         } else {
-                          final pLat = (job['pickupLat'] as num?)?.toDouble();
-                          final pLng = (job['pickupLng'] as num?)?.toDouble();
-                          if (pLat != null) {
-                            panTo(_mapId, pLat, pLng!, pitch: pitch);
+                          // Location is disabled or null — request GPS permission again
+                          component.state.isLocationEnabled = true;
+                          final pos = await getCurrentPosition();
+                          if (pos != null) {
+                            setState(() {
+                              _myLat = pos.lat;
+                              _myLng = pos.lng;
+                              component.state.userLatitude = pos.lat;
+                              component.state.userLongitude = pos.lng;
+                            });
+                            panTo(_mapId, pos.lat, pos.lng, pitch: pitch);
+                          } else {
+                            final pLat = (job['pickupLat'] as num?)?.toDouble();
+                            final pLng = (job['pickupLng'] as num?)?.toDouble();
+                            if (pLat != null) {
+                              panTo(_mapId, pLat, pLng!, pitch: pitch);
+                            }
                           }
                         }
                       },

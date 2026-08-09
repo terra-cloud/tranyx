@@ -855,7 +855,7 @@ class HomeView extends ConsumerWidget {
         if (isNyxian) ...[
           // Wallet Balance
           buildStatCard(
-            title: "Balance",
+            title: "Wallet",
             value: "₱ ${tyxBal.toStringAsFixed(2)}",
             subtitle: "Top-up Tyx",
             icon: LucideIcons.wallet,

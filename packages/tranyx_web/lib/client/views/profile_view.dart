@@ -243,7 +243,8 @@ class _ProfileMainState extends State<_ProfileMain> {
 
           // Balance - Always shown for everyone with Top Up & Withdraw actions
           div(
-            classes: 'p-4 rounded-2xl border text-center transition-all duration-300 group '
+            classes:
+                'p-4 rounded-2xl border text-center transition-all duration-300 group '
                 '${isDark ? "bg-zinc-900/50 border-zinc-800/50 hover:border-indigo-500/30" : "bg-white border-zinc-200 shadow-sm hover:border-indigo-500/30"}',
             [
               div(
@@ -267,17 +268,23 @@ class _ProfileMainState extends State<_ProfileMain> {
                   });
                   if (pendingTotal > 0) {
                     return div(classes: 'mt-1.5 space-y-1', [
-                      p(classes: 'text-[9px] text-amber-500 font-extrabold flex items-center justify-center gap-0.5 animate-pulse', [
-                        lIcon('clock', cls: 'w-3 h-3'),
-                        Component.text('+ ₱${pendingTotal.toStringAsFixed(2)} Pending'),
-                      ]),
+                      p(
+                        classes:
+                            'text-[9px] text-amber-500 font-extrabold flex items-center justify-center gap-0.5 animate-pulse',
+                        [
+                          lIcon('clock', cls: 'w-3 h-3'),
+                          Component.text('+ ₱${pendingTotal.toStringAsFixed(2)} Pending'),
+                        ],
+                      ),
                       for (final holdback in s.pendingHoldbacks)
                         Builder(
                           builder: (context) {
                             final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
                             final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
                             final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
-                            final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
+                            final hrsStr = hrs <= 0
+                                ? 'processing release'
+                                : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
                             return p(classes: 'text-[8.5px] text-amber-500/80 font-bold', [
                               Component.text('• Php ${amt.toStringAsFixed(2)} $hrsStr'),
                             ]);
@@ -290,12 +297,14 @@ class _ProfileMainState extends State<_ProfileMain> {
               ),
               div(classes: 'mt-3 flex justify-center gap-2', [
                 button(
-                  classes: 'px-2 py-1 text-[10px] uppercase font-bold text-indigo-400 hover:text-indigo-300 border border-indigo-500/20 rounded-lg bg-indigo-500/5 transition-colors cursor-pointer',
+                  classes:
+                      'px-2 py-1 text-[10px] uppercase font-bold text-indigo-400 hover:text-indigo-300 border border-indigo-500/20 rounded-lg bg-indigo-500/5 transition-colors cursor-pointer',
                   events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
                   [Component.text('Top Up')],
                 ),
                 button(
-                  classes: 'px-2 py-1 text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 rounded-lg bg-emerald-500/5 transition-colors cursor-pointer',
+                  classes:
+                      'px-2 py-1 text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 rounded-lg bg-emerald-500/5 transition-colors cursor-pointer',
                   events: {'click': (_) => s.handleWithdrawTyx()},
                   [Component.text('Withdraw')],
                 ),
@@ -305,13 +314,12 @@ class _ProfileMainState extends State<_ProfileMain> {
         ],
       ),
 
-
-
       if (const String.fromEnvironment('ENV', defaultValue: 'dev') == 'dev')
         // Switch account type (dev helper)
         div(classes: 'p-5 rounded-2xl border $cardCls', [
           p(
-            classes: 'text-xs font-semibold uppercase tracking-wider mb-3 ${isDark ? "text-zinc-500" : "text-zinc-400"}',
+            classes:
+                'text-xs font-semibold uppercase tracking-wider mb-3 ${isDark ? "text-zinc-500" : "text-zinc-400"}',
             [Component.text('Switch Account Type (Dev)')],
           ),
           div(classes: 'flex gap-2 flex-wrap', [
@@ -339,7 +347,9 @@ class _ProfileMainState extends State<_ProfileMain> {
             final double yearlySolPrice = 2999.0 / rate;
             final double activeSolPrice = selectedPlan == 'yearly' ? yearlySolPrice : monthlySolPrice;
             final hasWallet = s.walletState == WalletState.connected;
-            final displayAddress = s.walletAddress.isNotEmpty ? s.walletAddress : (s.userProfile?.walletPublicKey ?? '');
+            final displayAddress = s.walletAddress.isNotEmpty
+                ? s.walletAddress
+                : (s.userProfile?.walletPublicKey ?? '');
             final textCls = isDark ? 'text-white' : 'text-zinc-900';
 
             return div(classes: 'mt-10 pt-8 border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} space-y-6', [
@@ -377,165 +387,178 @@ class _ProfileMainState extends State<_ProfileMain> {
                       '${selectedPlan == 'yearly' ? "border-indigo-500 bg-indigo-500/10 shadow-lg shadow-indigo-500/5" : cardCls}',
                   events: {
                     'click': (_) => setState(() => selectedPlan = 'yearly'),
-                    },
-                    [
-                      div(
-                        classes:
-                            'absolute -top-2.5 right-2 px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-red-500 text-white shadow-sm border border-red-400/20',
-                        [Component.text('16% Saved')],
-                      ),
-                      h4(classes: 'text-sm font-black $textCls', [Component.text('Yearly Plan')]),
-                      p(classes: 'text-[10px] text-zinc-500 mt-0.5', [Component.text('₱2,999 PHP basis')]),
-                      p(classes: 'text-xs font-black text-indigo-400 mt-2', [
-                        Component.text('◎ ${yearlySolPrice.toStringAsFixed(4)} SOL / yr'),
-                      ]),
-                    ],
-                  ),
-                ]),
+                  },
+                  [
+                    div(
+                      classes:
+                          'absolute -top-2.5 right-2 px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-red-500 text-white shadow-sm border border-red-400/20',
+                      [Component.text('16% Saved')],
+                    ),
+                    h4(classes: 'text-sm font-black $textCls', [Component.text('Yearly Plan')]),
+                    p(classes: 'text-[10px] text-zinc-500 mt-0.5', [Component.text('₱2,999 PHP basis')]),
+                    p(classes: 'text-xs font-black text-indigo-400 mt-2', [
+                      Component.text('◎ ${yearlySolPrice.toStringAsFixed(4)} SOL / yr'),
+                    ]),
+                  ],
+                ),
+              ]),
 
-                // Columns comparison grid
-                div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-6', [
-                  // Lite Card
-                  div(classes: 'p-6 rounded-[2rem] border $cardCls flex flex-col justify-between relative space-y-6', [
-                    div(classes: 'space-y-4', [
-                      div(classes: 'flex items-center gap-2', [
-                        span([], classes: 'w-2 h-6 bg-zinc-400 rounded-sm'),
-                        h4(classes: 'text-base font-black $textCls', [Component.text('Lite')]),
-                      ]),
-                      p(classes: 'text-xs text-zinc-500 leading-normal', [
-                        Component.text('Basic account with a single active role'),
-                      ]),
-                      div(classes: 'flex items-baseline gap-2 py-2 border-y ${isDark ? "border-zinc-800" : "border-zinc-150"}', [
+              // Columns comparison grid
+              div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-6', [
+                // Lite Card
+                div(classes: 'p-6 rounded-[2rem] border $cardCls flex flex-col justify-between relative space-y-6', [
+                  div(classes: 'space-y-4', [
+                    div(classes: 'flex items-center gap-2', [
+                      span([], classes: 'w-2 h-6 bg-zinc-400 rounded-sm'),
+                      h4(classes: 'text-base font-black $textCls', [Component.text('Lite')]),
+                    ]),
+                    p(classes: 'text-xs text-zinc-500 leading-normal', [
+                      Component.text('Basic account with a single active role'),
+                    ]),
+                    div(
+                      classes:
+                          'flex items-baseline gap-2 py-2 border-y ${isDark ? "border-zinc-800" : "border-zinc-150"}',
+                      [
                         span(classes: 'text-3xl font-black $textCls', [Component.text('Single')]),
                         p(classes: 'text-[10px] text-zinc-500 leading-snug', [
                           Component.text('Choose either Nyxian or Employer role'),
                         ]),
-                      ]),
-                      div(classes: 'space-y-3 pt-2', [
-                        _perkRow('Single account role active at a time', true),
-                        _perkRow('Standard search exposure ranking', true),
-                        _perkRow('Standard 3% platform service fee', true),
-                        _perkRow('Limited daily messaging tools', true),
-                      ]),
-                    ]),
-
-                    button(
-                      classes:
-                          'w-full py-3.5 rounded-2xl text-xs font-bold text-center border transition-all cursor-not-allowed '
-                          '${isDark ? "bg-zinc-800 border-zinc-800 text-zinc-500" : "bg-zinc-100 border-zinc-200 text-zinc-400"}',
-                      attributes: {'disabled': 'true'},
-                      [Component.text('Your plan')],
+                      ],
                     ),
+                    div(classes: 'space-y-3 pt-2', [
+                      _perkRow('Single account role active at a time', true),
+                      _perkRow('Standard search exposure ranking', true),
+                      _perkRow('Standard 3% platform service fee', true),
+                      _perkRow('Limited daily messaging tools', true),
+                    ]),
                   ]),
 
-                  // Pro Card
-                  div(
+                  button(
                     classes:
-                        'p-6 rounded-[2rem] border flex flex-col justify-between relative space-y-6 '
-                        '${selectedPlan == 'monthly' ? "border-indigo-500 bg-indigo-500/5 shadow-xl shadow-indigo-500/5" : "border-indigo-600 bg-indigo-650/5 shadow-xl shadow-indigo-600/5"}',
-                    [
+                        'w-full py-3.5 rounded-2xl text-xs font-bold text-center border transition-all cursor-not-allowed '
+                        '${isDark ? "bg-zinc-800 border-zinc-800 text-zinc-500" : "bg-zinc-100 border-zinc-200 text-zinc-400"}',
+                    attributes: {'disabled': 'true'},
+                    [Component.text('Your plan')],
+                  ),
+                ]),
+
+                // Pro Card
+                div(
+                  classes:
+                      'p-6 rounded-[2rem] border flex flex-col justify-between relative space-y-6 '
+                      '${selectedPlan == 'monthly' ? "border-indigo-500 bg-indigo-500/5 shadow-xl shadow-indigo-500/5" : "border-indigo-600 bg-indigo-650/5 shadow-xl shadow-indigo-600/5"}',
+                  [
+                    div(
+                      classes:
+                          'absolute top-6 right-6 px-3 py-1 rounded-full text-[9px] font-black uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30',
+                      [Component.text('Recommended')],
+                    ),
+
+                    div(classes: 'space-y-4', [
+                      div(classes: 'flex items-center gap-2', [
+                        span([], classes: 'w-2 h-6 bg-indigo-500 rounded-sm'),
+                        h4(classes: 'text-base font-black $textCls', [
+                          Component.text('Pro '),
+                          span(classes: 'text-xs', [Component.text('🔥')]),
+                        ]),
+                      ]),
+                      p(classes: 'text-xs text-zinc-500 leading-normal', [
+                        Component.text('Unlock full Hybrid permissions & tools 🔥'),
+                      ]),
                       div(
                         classes:
-                            'absolute top-6 right-6 px-3 py-1 rounded-full text-[9px] font-black uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30',
-                        [Component.text('Recommended')],
-                      ),
-
-                      div(classes: 'space-y-4', [
-                        div(classes: 'flex items-center gap-2', [
-                          span([], classes: 'w-2 h-6 bg-indigo-500 rounded-sm'),
-                          h4(classes: 'text-base font-black $textCls', [
-                            Component.text('Pro '),
-                            span(classes: 'text-xs', [Component.text('🔥')]),
-                          ]),
-                        ]),
-                        p(classes: 'text-xs text-zinc-500 leading-normal', [
-                          Component.text('Unlock full Hybrid permissions & tools 🔥'),
-                        ]),
-                        div(classes: 'flex items-baseline gap-2 py-2 border-y ${isDark ? "border-zinc-800" : "border-zinc-150"}', [
+                            'flex items-baseline gap-2 py-2 border-y ${isDark ? "border-zinc-800" : "border-zinc-150"}',
+                        [
                           span(classes: 'text-3xl font-black text-indigo-400', [Component.text('Hybrid')]),
                           p(classes: 'text-[10px] text-zinc-500 leading-snug', [
                             Component.text('Simultaneously hire and work with no friction'),
                           ]),
-                        ]),
-                        div(classes: 'space-y-3 pt-2', [
-                          _perkRow('Dual Nyxian & Employer permissions', true),
-                          _perkRow('Priority search & listing exposure', true),
-                          _perkRow('Reduced service fee (1.5% platform cut)', true),
-                          _perkRow('Unlimited client/employer messages', true),
-                          _perkRow('Premium Hybrid profile badge', true),
-                        ]),
+                        ],
+                      ),
+                      div(classes: 'space-y-3 pt-2', [
+                        _perkRow('Dual Nyxian & Employer permissions', true),
+                        _perkRow('Priority search & listing exposure', true),
+                        _perkRow('Reduced service fee (1.5% platform cut)', true),
+                        _perkRow('Unlimited client/employer messages', true),
+                        _perkRow('Premium Hybrid profile badge', true),
                       ]),
+                    ]),
 
-                      div(classes: 'space-y-4 pt-2', [
-                        if (errorMessage != null)
-                          p(classes: 'text-xs text-red-400 font-semibold text-center', [Component.text(errorMessage!)]),
+                    div(classes: 'space-y-4 pt-2', [
+                      if (errorMessage != null)
+                        p(classes: 'text-xs text-red-400 font-semibold text-center', [Component.text(errorMessage!)]),
 
-                        if (!hasWallet) ...[
-                          button(
-                            classes: 'w-full py-3.5 rounded-2xl text-xs font-bold text-center bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition-all border-0 cursor-pointer',
-                            events: {
-                              'click': (_) => s.handleConnectWallet(),
-                            },
-                            [Component.text('Connect Solana Wallet to Upgrade')],
-                          ),
-                        ] else ...[
-                          div(classes: 'p-3.5 rounded-xl border $cardCls flex items-center justify-between text-xs', [
-                            div([
-                              span(classes: 'text-zinc-500 block text-[10px]', [Component.text('Connected Wallet')]),
-                              span(classes: 'font-mono text-zinc-400 font-bold block mt-0.5', [
-                                Component.text(displayAddress.length > 12 ? '${displayAddress.substring(0, 6)}...${displayAddress.substring(displayAddress.length - 6)}' : displayAddress),
-                              ]),
-                            ]),
-                            div(classes: 'text-right', [
-                              span(classes: 'text-zinc-500 block text-[10px]', [Component.text('SOL Balance')]),
-                              span(classes: 'font-semibold text-zinc-350 block mt-0.5', [
-                                Component.text('${s.walletBalance.toStringAsFixed(4)} SOL'),
-                              ]),
+                      if (!hasWallet) ...[
+                        button(
+                          classes:
+                              'w-full py-3.5 rounded-2xl text-xs font-bold text-center bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition-all border-0 cursor-pointer',
+                          events: {
+                            'click': (_) => s.handleConnectWallet(),
+                          },
+                          [Component.text('Connect Solana Wallet to Upgrade')],
+                        ),
+                      ] else ...[
+                        div(classes: 'p-3.5 rounded-xl border $cardCls flex items-center justify-between text-xs', [
+                          div([
+                            span(classes: 'text-zinc-500 block text-[10px]', [Component.text('Connected Wallet')]),
+                            span(classes: 'font-mono text-zinc-400 font-bold block mt-0.5', [
+                              Component.text(
+                                displayAddress.length > 12
+                                    ? '${displayAddress.substring(0, 6)}...${displayAddress.substring(displayAddress.length - 6)}'
+                                    : displayAddress,
+                              ),
                             ]),
                           ]),
+                          div(classes: 'text-right', [
+                            span(classes: 'text-zinc-500 block text-[10px]', [Component.text('SOL Balance')]),
+                            span(classes: 'font-semibold text-zinc-350 block mt-0.5', [
+                              Component.text('${s.walletBalance.toStringAsFixed(4)} SOL'),
+                            ]),
+                          ]),
+                        ]),
 
-                          button(
-                            classes:
-                                'w-full py-3.5 rounded-2xl text-xs font-bold text-center text-white shadow-lg transition-all border-0 cursor-pointer '
-                                '${s.walletBalance < activeSolPrice ? "bg-zinc-800/80 text-zinc-555 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20"}',
-                            events: {
-                              'click': (_) async {
-                                if (s.walletBalance < activeSolPrice || isProcessing) return;
+                        button(
+                          classes:
+                              'w-full py-3.5 rounded-2xl text-xs font-bold text-center text-white shadow-lg transition-all border-0 cursor-pointer '
+                              '${s.walletBalance < activeSolPrice ? "bg-zinc-800/80 text-zinc-555 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20"}',
+                          events: {
+                            'click': (_) async {
+                              if (s.walletBalance < activeSolPrice || isProcessing) return;
+                              setState(() {
+                                isProcessing = true;
+                                errorMessage = null;
+                              });
+                              try {
+                                await s.processSubscriptionPayment(activeSolPrice, selectedPlan);
+                              } catch (e) {
                                 setState(() {
-                                  isProcessing = true;
-                                  errorMessage = null;
+                                  errorMessage = e.toString();
                                 });
-                                try {
-                                  await s.processSubscriptionPayment(activeSolPrice, selectedPlan);
-                                } catch (e) {
-                                  setState(() {
-                                    errorMessage = e.toString();
-                                  });
-                                } finally {
-                                  setState(() {
-                                    isProcessing = false;
-                                  });
-                                }
-                              },
+                              } finally {
+                                setState(() {
+                                  isProcessing = false;
+                                });
+                              }
                             },
-                            [
-                              if (isProcessing)
-                                lIcon('loader-2', cls: 'w-4 h-4 animate-spin mr-1.5 inline')
-                              else
-                                lIcon('star', cls: 'w-4 h-4 mr-1.5 inline'),
-                              Component.text(
-                                s.walletBalance < activeSolPrice
-                                    ? 'Insufficient SOL (Need ◎ ${activeSolPrice.toStringAsFixed(4)} SOL)'
-                                    : 'Upgrade now (◎ ${activeSolPrice.toStringAsFixed(4)} SOL)',
-                              ),
-                            ],
-                          ),
-                        ],
-                      ]),
-                    ],
-                  ),
-                ]),
-              ]);
+                          },
+                          [
+                            if (isProcessing)
+                              lIcon('loader-2', cls: 'w-4 h-4 animate-spin mr-1.5 inline')
+                            else
+                              lIcon('star', cls: 'w-4 h-4 mr-1.5 inline'),
+                            Component.text(
+                              s.walletBalance < activeSolPrice
+                                  ? 'Insufficient SOL (Need ◎ ${activeSolPrice.toStringAsFixed(4)} SOL)'
+                                  : 'Upgrade now (◎ ${activeSolPrice.toStringAsFixed(4)} SOL)',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ]),
+                  ],
+                ),
+              ]),
+            ]);
           },
         ),
     ]);
@@ -684,6 +707,88 @@ class _PersonalInfo extends StatelessComponent {
           },
         ),
       ]),
+
+      // Location Services & GPS Privacy Card
+      div(
+        classes:
+            'p-5 rounded-2xl border ${s.isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"} space-y-4',
+        [
+          div(classes: 'flex items-center justify-between', [
+            div(classes: 'flex items-center gap-3', [
+              div(
+                classes:
+                    'w-10 h-10 rounded-xl flex items-center justify-center ${s.isLocationEnabled ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-zinc-500/10 text-zinc-500 border border-zinc-500/20"}',
+                [lIcon('map-pin', cls: 'w-5 h-5')],
+              ),
+              div([
+                h4(classes: 'font-bold text-sm ${s.isDark ? "text-white" : "text-zinc-900"}', [
+                  Component.text('Location Services & GPS'),
+                ]),
+                p(classes: 'text-xs ${s.isDark ? "text-zinc-400" : "text-zinc-500"} mt-0.5', [
+                  Component.text(
+                    s.isLocationEnabled
+                        ? 'GPS active — Used for job tracking, navigation & map pickers'
+                        : 'Disabled — Maps use default Manila coordinates',
+                  ),
+                ]),
+              ]),
+            ]),
+            // Toggle Switch
+            button(
+              classes:
+                  'relative w-12 h-6 rounded-full transition-colors duration-200 ease-in-out cursor-pointer ${s.isLocationEnabled ? "bg-indigo-600" : "bg-zinc-700"}',
+              events: {
+                'click': (_) async {
+                  s.setState(() {
+                    s.isLocationEnabled = !s.isLocationEnabled;
+                  });
+                  if (s.isLocationEnabled) {
+                    await s.requestAndUpdateUserLocation();
+                  }
+                },
+              },
+              [
+                span(
+                  [],
+                  classes:
+                      'inline-block w-5 h-5 transform rounded-full bg-white transition duration-200 ease-in-out mt-0.5 ${s.isLocationEnabled ? "translate-x-6" : "translate-x-0.5"}',
+                ),
+              ],
+            ),
+          ]),
+
+          if (s.isLocationEnabled) ...[
+            div(
+              classes:
+                  'p-3.5 rounded-xl border flex items-center justify-between text-xs ${s.isDark ? "bg-zinc-800/40 border-zinc-800/80" : "bg-zinc-50 border-zinc-200"}',
+              [
+                div([
+                  span(classes: 'font-semibold ${s.isDark ? "text-zinc-300" : "text-zinc-700"} block', [
+                    Component.text('Current Position'),
+                  ]),
+                  span(classes: 'font-mono text-xs ${s.isDark ? "text-indigo-400" : "text-indigo-600"} mt-0.5 block', [
+                    Component.text('${s.userLatitude.toStringAsFixed(4)}° N, ${s.userLongitude.toStringAsFixed(4)}° E'),
+                  ]),
+                ]),
+                button(
+                  classes:
+                      'px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 transition-colors flex items-center gap-1.5 cursor-pointer',
+                  events: {
+                    'click': (_) async {
+                      await s.requestAndUpdateUserLocation();
+                    },
+                  },
+                  [
+                    lIcon('navigation', cls: 'w-3.5 h-3.5'),
+                    Component.text('Detect GPS Location'),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+
       if (s.profileSaveError != null)
         p(classes: 'text-sm text-red-400 text-center', [Component.text(s.profileSaveError!)]),
       button(
@@ -835,9 +940,14 @@ class _ProfessionalInfo extends StatelessComponent {
                     classes:
                         'flex items-center justify-between p-2 rounded-xl border ${isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-200"} text-xs',
                     [
-                      a(href: url, target: Target.blank, classes: 'text-indigo-400 hover:underline truncate max-w-[70%]', [
-                        Component.text('Certificate Document ${s.userProfile!.certificationUrls!.indexOf(url) + 1}'),
-                      ]),
+                      a(
+                        href: url,
+                        target: Target.blank,
+                        classes: 'text-indigo-400 hover:underline truncate max-w-[70%]',
+                        [
+                          Component.text('Certificate Document ${s.userProfile!.certificationUrls!.indexOf(url) + 1}'),
+                        ],
+                      ),
                       span(
                         classes:
                             'text-[10px] font-bold text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded-lg border border-green-500/25',
@@ -1013,7 +1123,9 @@ class _Payment extends StatelessComponent {
                       Component.text('Pending Release (48-Hr Holdback): ₱ ${pendingTotal.toStringAsFixed(2)}'),
                     ]),
                     p(classes: 'text-[10px] text-zinc-400 font-medium leading-relaxed', [
-                      Component.text('In-app payments are held temporarily to protect users from incomplete jobs. Payouts release automatically after their inspection periods.'),
+                      Component.text(
+                        'In-app payments are held temporarily to protect users from incomplete jobs. Payouts release automatically after their inspection periods.',
+                      ),
                     ]),
                     div(classes: 'space-y-1.5 pt-1.5 border-t border-amber-500/20', [
                       for (final holdback in s.pendingHoldbacks)
@@ -1022,13 +1134,21 @@ class _Payment extends StatelessComponent {
                             final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
                             final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
                             final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
-                            final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
-                            return p(classes: 'text-[10px] text-amber-300 font-medium flex justify-between items-center', [
-                              Component.text('• Php ${amt.toStringAsFixed(2)}'),
-                              span(classes: 'text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold', [
-                                Component.text(hrsStr),
-                              ]),
-                            ]);
+                            final hrsStr = hrs <= 0
+                                ? 'processing release'
+                                : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
+                            return p(
+                              classes: 'text-[10px] text-amber-300 font-medium flex justify-between items-center',
+                              [
+                                Component.text('• Php ${amt.toStringAsFixed(2)}'),
+                                span(
+                                  classes: 'text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold',
+                                  [
+                                    Component.text(hrsStr),
+                                  ],
+                                ),
+                              ],
+                            );
                           },
                         ),
                     ]),
@@ -1067,32 +1187,42 @@ class _Payment extends StatelessComponent {
 
       // Profile Promo Section
       div(
-        classes: 'p-6 rounded-[2rem] border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"} space-y-4',
+        classes:
+            'p-6 rounded-[2rem] border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"} space-y-4',
         [
           p(classes: 'text-sm font-bold', [Component.text('Redeem Profile Promo Code')]),
           p(classes: 'text-xs text-zinc-400', [
-            Component.text('Redeem a promo code directly to your profile. Applicable discounts (e.g. payout commission reductions) will be applied automatically.'),
+            Component.text(
+              'Redeem a promo code directly to your profile. Applicable discounts (e.g. payout commission reductions) will be applied automatically.',
+            ),
           ]),
           if (s.userProfile?.activePromoCode != null)
-            div(classes: 'p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex justify-between items-center text-xs font-semibold text-emerald-500', [
-              div(classes: 'flex flex-col gap-1', [
-                span([Component.text('Active Profile Promo: ${s.userProfile!.activePromoCode}')]),
-                span([
-                  Component.text(s.userProfile!.activePromoDiscountType == 'percentage'
-                      ? '${s.userProfile!.activePromoDiscountValue?.toStringAsFixed(0) ?? "0"}% Off Payout Commission'
-                      : '₱ ${(s.userProfile!.activePromoDiscountValue ?? 0.0).toStringAsFixed(2)} Off Payout Commission')
+            div(
+              classes:
+                  'p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex justify-between items-center text-xs font-semibold text-emerald-500',
+              [
+                div(classes: 'flex flex-col gap-1', [
+                  span([Component.text('Active Profile Promo: ${s.userProfile!.activePromoCode}')]),
+                  span([
+                    Component.text(
+                      s.userProfile!.activePromoDiscountType == 'percentage'
+                          ? '${s.userProfile!.activePromoDiscountValue?.toStringAsFixed(0) ?? "0"}% Off Payout Commission'
+                          : '₱ ${(s.userProfile!.activePromoDiscountValue ?? 0.0).toStringAsFixed(2)} Off Payout Commission',
+                    ),
+                  ]),
                 ]),
-              ]),
-              button(
-                classes: 'ml-4 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-500 cursor-pointer border-0 outline-none text-[10px] uppercase font-black tracking-wider transition-all',
-                events: {
-                  'click': (e) {
-                    s.handleDisableProfilePromo(s.userProfile!.activePromoCode!);
-                  }
-                },
-                [Component.text('Disable')]
-              ),
-            ]),
+                button(
+                  classes:
+                      'ml-4 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-500 cursor-pointer border-0 outline-none text-[10px] uppercase font-black tracking-wider transition-all',
+                  events: {
+                    'click': (e) {
+                      s.handleDisableProfilePromo(s.userProfile!.activePromoCode!);
+                    },
+                  },
+                  [Component.text('Disable')],
+                ),
+              ],
+            ),
           div(classes: 'flex gap-2', [
             input(
               classes:
@@ -1119,7 +1249,8 @@ class _Payment extends StatelessComponent {
           ]),
           if (s.profilePromoFeedback != null)
             p(
-              classes: 'text-xs font-semibold ${s.profilePromoFeedback!.contains("successfully") ? "text-emerald-500" : "text-red-500"}',
+              classes:
+                  'text-xs font-semibold ${s.profilePromoFeedback!.contains("successfully") ? "text-emerald-500" : "text-red-500"}',
               [Component.text(s.profilePromoFeedback!)],
             ),
         ],
@@ -1142,10 +1273,14 @@ class _Payment extends StatelessComponent {
         : 'Solana';
 
     Component getWalletIcon({String size = 'w-5 h-5'}) {
-      if (s.selectedWalletType == 'phantom') return img(src: '/images/PhantomWallet.png', classes: '$size object-contain rounded-md');
-      if (s.selectedWalletType == 'solflare') return img(src: '/images/Solflare.png', classes: '$size object-contain rounded-md');
-      if (s.selectedWalletType == 'trust') return img(src: '/images/TrustWallet.jpeg', classes: '$size object-contain rounded-md');
-      if (s.selectedWalletType == 'backpack') return img(src: '/images/BackPack.png', classes: '$size object-contain rounded-md');
+      if (s.selectedWalletType == 'phantom')
+        return img(src: '/images/PhantomWallet.png', classes: '$size object-contain rounded-md');
+      if (s.selectedWalletType == 'solflare')
+        return img(src: '/images/Solflare.png', classes: '$size object-contain rounded-md');
+      if (s.selectedWalletType == 'trust')
+        return img(src: '/images/TrustWallet.jpeg', classes: '$size object-contain rounded-md');
+      if (s.selectedWalletType == 'backpack')
+        return img(src: '/images/BackPack.png', classes: '$size object-contain rounded-md');
       return lIcon('wallet', cls: '$size text-white');
     }
 
@@ -1239,7 +1374,8 @@ class _Payment extends StatelessComponent {
         name = 'USDT';
         icon = 'dollar-sign';
         color = 'green';
-      } else if (mint == '2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo' || mint == 'CXk2AMBfi3TwaEL2468s6zP8xq9NxTXjp9gjMgzeUynM') {
+      } else if (mint == '2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo' ||
+          mint == 'CXk2AMBfi3TwaEL2468s6zP8xq9NxTXjp9gjMgzeUynM') {
         symbol = 'PYUSD';
         name = 'PYUSD';
         icon = 'dollar-sign';
@@ -1275,7 +1411,9 @@ class _Payment extends StatelessComponent {
               [getWalletIcon(size: 'w-6 h-6')],
             ),
             div([
-              p(classes: 'font-extrabold text-indigo-400 tracking-tight text-base', [Component.text('$walletName Wallet')]),
+              p(classes: 'font-extrabold text-indigo-400 tracking-tight text-base', [
+                Component.text('$walletName Wallet'),
+              ]),
               p(classes: 'text-xs text-zinc-500 font-mono mt-0.5', [Component.text(displayAddr)]),
             ]),
           ]),
@@ -1337,7 +1475,9 @@ class _Payment extends StatelessComponent {
               assets.map((t) {
                 final name = t['name'] as String;
                 final addr = t['address'] as String;
-                final shortAddr = addr.length > 8 ? '${addr.substring(0, 4)}...${addr.substring(addr.length - 4)}' : addr;
+                final shortAddr = addr.length > 8
+                    ? '${addr.substring(0, 4)}...${addr.substring(addr.length - 4)}'
+                    : addr;
                 final amount = t['amount'] as double;
                 final decimals = t['decimals'] as int;
                 final icon = t['icon'] as String;
@@ -1353,7 +1493,8 @@ class _Payment extends StatelessComponent {
                 }
 
                 return div(
-                  classes: 'flex items-center justify-between p-3 rounded-2xl border ${isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-200"}',
+                  classes:
+                      'flex items-center justify-between p-3 rounded-2xl border ${isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-200"}',
                   [
                     div(classes: 'flex items-center gap-3', [
                       div(
@@ -1361,7 +1502,9 @@ class _Payment extends StatelessComponent {
                         [lIcon(icon, cls: 'w-4 h-4')],
                       ),
                       div([
-                        p(classes: 'text-xs font-bold ${isDark ? "text-zinc-200" : "text-zinc-800"}', [Component.text(name)]),
+                        p(classes: 'text-xs font-bold ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                          Component.text(name),
+                        ]),
                         p(classes: 'text-[10px] text-zinc-500 font-mono mt-0.5', [Component.text(shortAddr)]),
                       ]),
                     ]),
@@ -1475,8 +1618,25 @@ class _TrustVerification extends StatelessComponent {
             div(
               classes:
                   'w-10 h-10 rounded-xl flex items-center justify-center '
-                  '${displayStatus == "approved" ? "bg-green-500/10 text-green-400" : displayStatus == "pending" ? "bg-amber-500/10 text-amber-400" : displayStatus == "rejected" ? "bg-red-500/10 text-red-400" : "bg-zinc-500/10 text-zinc-400"}',
-              [lIcon(displayStatus == "approved" ? 'check-circle' : displayStatus == "pending" ? 'clock' : displayStatus == "rejected" ? 'alert-circle' : 'circle', cls: 'w-5 h-5')],
+                  '${displayStatus == "approved"
+                      ? "bg-green-500/10 text-green-400"
+                      : displayStatus == "pending"
+                      ? "bg-amber-500/10 text-amber-400"
+                      : displayStatus == "rejected"
+                      ? "bg-red-500/10 text-red-400"
+                      : "bg-zinc-500/10 text-zinc-400"}',
+              [
+                lIcon(
+                  displayStatus == "approved"
+                      ? 'check-circle'
+                      : displayStatus == "pending"
+                      ? 'clock'
+                      : displayStatus == "rejected"
+                      ? 'alert-circle'
+                      : 'circle',
+                  cls: 'w-5 h-5',
+                ),
+              ],
             ),
             div([
               p(classes: 'font-bold text-sm ${isDark ? "text-white" : "text-zinc-800"}', [Component.text(title)]),
@@ -1512,7 +1672,8 @@ class _TrustVerification extends StatelessComponent {
         ]),
         if (displayStatus == 'rejected' && rejectionReason != null && rejectionReason.isNotEmpty)
           div(
-            classes: 'mt-1 p-3 rounded-xl bg-red-500/5 border border-red-500/10 text-[10.5px] text-red-400 font-medium flex items-start gap-1.5',
+            classes:
+                'mt-1 p-3 rounded-xl bg-red-500/5 border border-red-500/10 text-[10.5px] text-red-400 font-medium flex items-start gap-1.5',
             [
               lIcon('alert-triangle', cls: 'w-3.5 h-3.5 mt-0.5 shrink-0'),
               div([
@@ -1635,7 +1796,8 @@ class _TrustVerification extends StatelessComponent {
 
       // ── Linked Accounts Section ──────────────────────────────────
       div(
-        classes: 'p-5 rounded-2xl border space-y-4 ${isDark ? "bg-zinc-900/40 border-zinc-800/80" : "bg-white border-zinc-200/60 shadow-sm"}',
+        classes:
+            'p-5 rounded-2xl border space-y-4 ${isDark ? "bg-zinc-900/40 border-zinc-800/80" : "bg-white border-zinc-200/60 shadow-sm"}',
         [
           div(classes: 'flex items-center gap-2 mb-2', [
             div(
@@ -1654,7 +1816,8 @@ class _TrustVerification extends StatelessComponent {
 
           // Google Account Link
           div(
-            classes: 'flex items-center justify-between p-3 rounded-xl ${isDark ? "bg-zinc-800/40 border border-zinc-800" : "bg-zinc-50 border border-zinc-200"}',
+            classes:
+                'flex items-center justify-between p-3 rounded-xl ${isDark ? "bg-zinc-800/40 border border-zinc-800" : "bg-zinc-50 border border-zinc-200"}',
             [
               div(classes: 'flex items-center gap-3', [
                 lIcon('mail', cls: 'w-5 h-5 text-red-400'),
@@ -1673,13 +1836,15 @@ class _TrustVerification extends StatelessComponent {
               ]),
               if ((s.userProfile?.googleEmail ?? '').isNotEmpty)
                 button(
-                  classes: 'px-3 py-1 text-xs font-bold rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all border border-red-500/20',
+                  classes:
+                      'px-3 py-1 text-xs font-bold rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all border border-red-500/20',
                   events: {'click': (_) => s.handleUnlinkGoogleAccount()},
                   [Component.text('Unlink')],
                 )
               else
                 button(
-                  classes: 'px-3 py-1 text-xs font-bold rounded-lg bg-indigo-650 text-white hover:bg-indigo-700 transition-all shadow-sm',
+                  classes:
+                      'px-3 py-1 text-xs font-bold rounded-lg bg-indigo-650 text-white hover:bg-indigo-700 transition-all shadow-sm',
                   events: {'click': (_) => s.handleLinkGoogleAccount()},
                   [Component.text('Link Google')],
                 ),
@@ -1688,7 +1853,8 @@ class _TrustVerification extends StatelessComponent {
 
           // Solana Wallet Link
           div(
-            classes: 'flex items-center justify-between p-3 rounded-xl ${isDark ? "bg-zinc-800/40 border border-zinc-800" : "bg-zinc-50 border border-zinc-200"}',
+            classes:
+                'flex items-center justify-between p-3 rounded-xl ${isDark ? "bg-zinc-800/40 border border-zinc-800" : "bg-zinc-50 border border-zinc-200"}',
             [
               div(classes: 'flex items-center gap-3', [
                 lIcon('wallet', cls: 'w-5 h-5 text-purple-400'),
@@ -1697,13 +1863,17 @@ class _TrustVerification extends StatelessComponent {
                     p(classes: 'text-xs font-bold ${isDark ? "text-white" : "text-zinc-800"}', [
                       Component.text('Solana Wallet'),
                     ]),
-                    span(classes: 'px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
-                      (s.userProfile?.walletPublicKey ?? '').isNotEmpty
-                          ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                          : "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20"
-                    }', [
-                      Component.text((s.userProfile?.walletPublicKey ?? '').isNotEmpty ? '🪙 +200 TP Claimed' : '🪙 +200 TP Reward'),
-                    ]),
+                    span(
+                      classes:
+                          'px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${(s.userProfile?.walletPublicKey ?? '').isNotEmpty ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20"}',
+                      [
+                        Component.text(
+                          (s.userProfile?.walletPublicKey ?? '').isNotEmpty
+                              ? '🪙 +200 TP Claimed'
+                              : '🪙 +200 TP Reward',
+                        ),
+                      ],
+                    ),
                   ]),
                   p(classes: 'text-[10px] ${isDark ? "text-zinc-500" : "text-zinc-550"}', [
                     Component.text(
@@ -1716,29 +1886,34 @@ class _TrustVerification extends StatelessComponent {
               ]),
               if ((s.userProfile?.walletPublicKey ?? '').isNotEmpty)
                 button(
-                  classes: 'px-3 py-1 text-xs font-bold rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all border border-red-500/20',
+                  classes:
+                      'px-3 py-1 text-xs font-bold rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all border border-red-500/20',
                   events: {'click': (_) => s.unlinkSolanaWallet()},
                   [Component.text('Unlink')],
                 )
               else
                 div(classes: 'flex flex-wrap items-center gap-1.5', [
                   button(
-                    classes: 'px-2.5 py-1 text-[10px] font-bold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-all shadow-sm',
+                    classes:
+                        'px-2.5 py-1 text-[10px] font-bold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-all shadow-sm',
                     events: {'click': (_) => s.linkSolanaWallet('phantom')},
                     [Component.text('Phantom')],
                   ),
                   button(
-                    classes: 'px-2.5 py-1 text-[10px] font-bold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-all shadow-sm',
+                    classes:
+                        'px-2.5 py-1 text-[10px] font-bold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-all shadow-sm',
                     events: {'click': (_) => s.linkSolanaWallet('solflare')},
                     [Component.text('Solflare')],
                   ),
                   button(
-                    classes: 'px-2.5 py-1 text-[10px] font-bold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-all shadow-sm',
+                    classes:
+                        'px-2.5 py-1 text-[10px] font-bold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-all shadow-sm',
                     events: {'click': (_) => s.linkSolanaWallet('backpack')},
                     [Component.text('Backpack')],
                   ),
                   button(
-                    classes: 'px-2.5 py-1 text-[10px] font-bold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-all shadow-sm',
+                    classes:
+                        'px-2.5 py-1 text-[10px] font-bold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-all shadow-sm',
                     events: {'click': (_) => s.linkSolanaWallet('trust')},
                     [Component.text('Trust')],
                   ),
@@ -1913,10 +2088,7 @@ class _HelpSupportState extends State<_HelpSupport> {
               'text': m['content'] ?? '',
               'senderName': m['senderName'] ?? 'Support',
               'time': m['createdAt'] != null
-                  ? DateTime.fromMillisecondsSinceEpoch(m['createdAt'] as int)
-                      .toLocal()
-                      .toString()
-                      .substring(11, 16)
+                  ? DateTime.fromMillisecondsSinceEpoch(m['createdAt'] as int).toLocal().toString().substring(11, 16)
                   : 'Just now',
             };
           }).toList();
@@ -2148,21 +2320,48 @@ class _HelpSupportState extends State<_HelpSupport> {
     // Check for satisfaction / termination keywords
     final cleanText = text.toLowerCase().trim();
     final terminationKeywords = [
-      'thank you', 'thanks', 'thank u', 'no more questions', 'no more question', 
-      'no questions', "i'm good", 'im good', 'satisfied', 'all good', 'that is all', 
-      'thats all', "that's all", 'nothing else', 'no need',
-      'salamat', 'maraming salamat', 'wala na', 'ok na', 'okay na', 'ayos na', 
-      'sapat na', 'walang anuman',
-      'damo nga salamat', 'waray na', 'igo na', 'tolda na'
+      'thank you',
+      'thanks',
+      'thank u',
+      'no more questions',
+      'no more question',
+      'no questions',
+      "i'm good",
+      'im good',
+      'satisfied',
+      'all good',
+      'that is all',
+      'thats all',
+      "that's all",
+      'nothing else',
+      'no need',
+      'salamat',
+      'maraming salamat',
+      'wala na',
+      'ok na',
+      'okay na',
+      'ayos na',
+      'sapat na',
+      'walang anuman',
+      'damo nga salamat',
+      'waray na',
+      'igo na',
+      'tolda na',
     ];
     final isTerminating = terminationKeywords.any((k) => cleanText.contains(k) || cleanText == k);
 
     if (isTerminating) {
       String partingMsg = "You're welcome! Glad I could help. Terminating the support session now. Have a great day!";
       if (cleanText.contains('damo') || cleanText.contains('waray na') || cleanText.contains('igo na')) {
-        partingMsg = 'Waray anuman! Malipayon ako nga nakabulig. Awtomatiko ko na nga tatapuson ini nga chat. Maopay nga adlaw!';
-      } else if (cleanText.contains('salamat') || cleanText.contains('wala na') || cleanText.contains('ok na') || cleanText.contains('okay na') || cleanText.contains('ayos na')) {
-        partingMsg = 'Walang anuman! Masaya akong makatolong. Awtomatiko ko nang tatapusin ang chat na ito. Magandang araw!';
+        partingMsg =
+            'Waray anuman! Malipayon ako nga nakabulig. Awtomatiko ko na nga tatapuson ini nga chat. Maopay nga adlaw!';
+      } else if (cleanText.contains('salamat') ||
+          cleanText.contains('wala na') ||
+          cleanText.contains('ok na') ||
+          cleanText.contains('okay na') ||
+          cleanText.contains('ayos na')) {
+        partingMsg =
+            'Walang anuman! Masaya akong makatolong. Awtomatiko ko nang tatapusin ang chat na ito. Magandang araw!';
       }
 
       setState(() {
@@ -2219,7 +2418,8 @@ class _HelpSupportState extends State<_HelpSupport> {
               isAiTyping = false;
               chatMessages.add({
                 'isUser': false,
-                'text': 'You have run out of free support questions. A new free question token will recover in $minutesLeft minutes. Other services like title, description, and cover note generation remain unlimited!',
+                'text':
+                    'You have run out of free support questions. A new free question token will recover in $minutesLeft minutes. Other services like title, description, and cover note generation remain unlimited!',
                 'time': 'Just now',
               });
             });
@@ -2256,9 +2456,8 @@ class _HelpSupportState extends State<_HelpSupport> {
         return;
       }
 
-      final isErrorResponse = response.startsWith('Error:') ||
-          response.startsWith('HTTP Error:') ||
-          response.startsWith('Request failed:');
+      final isErrorResponse =
+          response.startsWith('Error:') || response.startsWith('HTTP Error:') || response.startsWith('Request failed:');
 
       // Successfully connected to server AI and got valid response!
       // Only decrement token if this was a new conversation AND not an error response.
@@ -2370,7 +2569,8 @@ class _HelpSupportState extends State<_HelpSupport> {
               [
                 div(classes: 'flex items-center gap-3', [
                   div(
-                    classes: 'w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400',
+                    classes:
+                        'w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400',
                     [lIcon('user', cls: 'w-5 h-5 text-emerald-400')],
                   ),
                   div([
@@ -2391,7 +2591,7 @@ class _HelpSupportState extends State<_HelpSupport> {
                     'click': (_) {
                       stopAgentChatPolling();
                       setState(() => showAgentChat = false);
-                    }
+                    },
                   },
                   [lIcon('x', cls: 'w-4 h-4')],
                 ),
@@ -2500,9 +2700,11 @@ class _HelpSupportState extends State<_HelpSupport> {
                     ]),
                     p(classes: 'text-xs text-emerald-400 font-bold flex items-center gap-1.5', [
                       span(classes: 'w-2 h-2 rounded-full bg-emerald-400 animate-ping', []),
-                      Component.text(supportTokens != null
-                          ? 'Online Now • Tokens: ${supportTokens! % 1 == 0 ? supportTokens!.toInt() : supportTokens!.toStringAsFixed(1)}/5'
-                          : 'Online Now'),
+                      Component.text(
+                        supportTokens != null
+                            ? 'Online Now • Tokens: ${supportTokens! % 1 == 0 ? supportTokens!.toInt() : supportTokens!.toStringAsFixed(1)}/5'
+                            : 'Online Now',
+                      ),
                     ]),
                   ]),
                 ]),
@@ -2702,7 +2904,7 @@ class _HelpSupportState extends State<_HelpSupport> {
                     'time': 'Just now',
                   });
                 });
-              }
+              },
             },
             [
               div(
@@ -2732,7 +2934,7 @@ class _HelpSupportState extends State<_HelpSupport> {
                 });
                 loadAgentChatMessages();
                 startAgentChatPolling();
-              }
+              },
             },
             [
               div(
@@ -3456,13 +3658,15 @@ class _HistoryViewState extends State<_HistoryView> {
             ]),
             div([
               span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
-                Component.text(activeFilter == 'daily'
-                    ? 'This Week\'s Earnings'
-                    : activeFilter == 'weekly'
-                        ? 'This Month\'s Earnings'
-                        : activeFilter == 'monthly'
-                            ? 'This Year\'s Earnings'
-                            : 'Total Earnings'),
+                Component.text(
+                  activeFilter == 'daily'
+                      ? 'This Week\'s Earnings'
+                      : activeFilter == 'weekly'
+                      ? 'This Month\'s Earnings'
+                      : activeFilter == 'monthly'
+                      ? 'This Year\'s Earnings'
+                      : 'Total Earnings',
+                ),
               ]),
               p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
                 Component.text(formatCurrency(totalEarnedInFilter)),
@@ -3498,7 +3702,9 @@ class _HistoryViewState extends State<_HistoryView> {
                             final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
                             final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
                             final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
-                            final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
+                            final hrsStr = hrs <= 0
+                                ? 'processing release'
+                                : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
                             return p(classes: 'text-[10px] text-amber-500/80 font-bold pl-4', [
                               Component.text('• Php ${amt.toStringAsFixed(2)} $hrsStr'),
                             ]);
@@ -4047,8 +4253,9 @@ class _RewardsViewState extends State<_RewardsView> {
         p([Component.text(errorMessage!)]),
         button(
           onClick: _loadRewardsData,
-          classes: 'mt-3 px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-colors',
-          [Component.text('Try Again')]
+          classes:
+              'mt-3 px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-colors',
+          [Component.text('Try Again')],
         ),
       ]);
     }
@@ -4056,35 +4263,58 @@ class _RewardsViewState extends State<_RewardsView> {
     return div(classes: 'space-y-6', [
       // Banner / Balance Section
       div(
-        classes: 'relative overflow-hidden rounded-3xl p-6 md:p-8 bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-800 text-white shadow-xl',
+        classes:
+            'relative overflow-hidden rounded-3xl p-6 md:p-8 bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-800 text-white shadow-xl',
         [
           // Decorative graphics
-          div(classes: 'absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl transform translate-x-20 -translate-y-20', []),
-          div(classes: 'absolute bottom-0 left-0 w-48 h-48 bg-purple-500/20 rounded-full blur-2xl transform -translate-x-10 translate-y-10', []),
+          div(
+            classes:
+                'absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl transform translate-x-20 -translate-y-20',
+            [],
+          ),
+          div(
+            classes:
+                'absolute bottom-0 left-0 w-48 h-48 bg-purple-500/20 rounded-full blur-2xl transform -translate-x-10 translate-y-10',
+            [],
+          ),
 
           div(classes: 'relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6', [
             div(classes: 'space-y-2', [
-              span(classes: 'px-3 py-1 bg-white/15 backdrop-blur-md rounded-full text-xs font-black tracking-widest uppercase text-yellow-300 border border-white/10', [
-                Component.text('⭐ Terra Rewards Member'),
-              ]),
+              span(
+                classes:
+                    'px-3 py-1 bg-white/15 backdrop-blur-md rounded-full text-xs font-black tracking-widest uppercase text-yellow-300 border border-white/10',
+                [
+                  Component.text('⭐ Terra Rewards Member'),
+                ],
+              ),
               h2(classes: 'text-3xl font-extrabold tracking-tight', [Component.text('Your Terra Points')]),
               p(classes: 'text-indigo-100 max-w-md text-sm', [
-                Component.text('Earn TP by using the Tranyx ecosystem for payments, services, and property rentals. Redeem points for perks and discounts!'),
+                Component.text(
+                  'Earn TP by using the Tranyx ecosystem for payments, services, and property rentals. Redeem points for perks and discounts!',
+                ),
               ]),
             ]),
-            div(classes: 'flex items-center gap-4 bg-white/10 backdrop-blur-md border border-white/20 p-4 md:p-6 rounded-2xl shadow-inner min-w-[200px]', [
-              div(classes: 'p-3 bg-yellow-400 rounded-2xl text-zinc-900 text-2xl font-bold flex items-center justify-center shadow-lg', [
-                Component.text('🪙'),
-              ]),
-              div(classes: 'flex flex-col', [
-                span(classes: 'text-3xl font-black tracking-tight text-yellow-300', [
-                  Component.text(userPoints.toString()),
+            div(
+              classes:
+                  'flex items-center gap-4 bg-white/10 backdrop-blur-md border border-white/20 p-4 md:p-6 rounded-2xl shadow-inner min-w-[200px]',
+              [
+                div(
+                  classes:
+                      'p-3 bg-yellow-400 rounded-2xl text-zinc-900 text-2xl font-bold flex items-center justify-center shadow-lg',
+                  [
+                    Component.text('🪙'),
+                  ],
+                ),
+                div(classes: 'flex flex-col', [
+                  span(classes: 'text-3xl font-black tracking-tight text-yellow-300', [
+                    Component.text(userPoints.toString()),
+                  ]),
+                  span(classes: 'text-[11px] font-bold text-indigo-200 uppercase tracking-wider', [
+                    Component.text('TP Balance'),
+                  ]),
                 ]),
-                span(classes: 'text-[11px] font-bold text-indigo-200 uppercase tracking-wider', [
-                  Component.text('TP Balance'),
-                ]),
-              ]),
-            ]),
+              ],
+            ),
           ]),
         ],
       ),
@@ -4094,13 +4324,34 @@ class _RewardsViewState extends State<_RewardsView> {
         // Quests List (2 cols)
         div(classes: 'lg:col-span-2 space-y-6', [
           // Onboarding Quests
-          _buildQuestSection('Onboarding Milestones', RewardQuest.quests.where((q) => q.category == 'Onboarding').toList(), earnedList, isDark, cardCls, s),
+          _buildQuestSection(
+            'Onboarding Milestones',
+            RewardQuest.quests.where((q) => q.category == 'Onboarding').toList(),
+            earnedList,
+            isDark,
+            cardCls,
+            s,
+          ),
 
           // Activity Quests
-          _buildQuestSection('Service Activities', RewardQuest.quests.where((q) => q.category == 'Services').toList(), earnedList, isDark, cardCls, s),
+          _buildQuestSection(
+            'Service Activities',
+            RewardQuest.quests.where((q) => q.category == 'Services').toList(),
+            earnedList,
+            isDark,
+            cardCls,
+            s,
+          ),
 
           // Rental Quests
-          _buildQuestSection('Rental Activities', RewardQuest.quests.where((q) => q.category == 'Rental').toList(), earnedList, isDark, cardCls, s),
+          _buildQuestSection(
+            'Rental Activities',
+            RewardQuest.quests.where((q) => q.category == 'Rental').toList(),
+            earnedList,
+            isDark,
+            cardCls,
+            s,
+          ),
         ]),
 
         // History Ledger (1 col)
@@ -4114,37 +4365,58 @@ class _RewardsViewState extends State<_RewardsView> {
               ])
             else
               for (final tx in pointsHistory)
-                div(classes: 'flex items-center justify-between border-b pb-3 last:border-b-0 last:pb-0 ${isDark ? "border-zinc-800/80" : "border-zinc-150"}', [
-                  div(classes: 'space-y-1', [
-                    p(classes: 'text-xs font-bold $textCls', [Component.text(tx['title'] ?? 'Points Reward')]),
-                    p(classes: 'text-[10px] $subTextCls', [
-                      Component.text(_formatTime(tx['createdAt'] as int?)),
+                div(
+                  classes:
+                      'flex items-center justify-between border-b pb-3 last:border-b-0 last:pb-0 ${isDark ? "border-zinc-800/80" : "border-zinc-150"}',
+                  [
+                    div(classes: 'space-y-1', [
+                      p(classes: 'text-xs font-bold $textCls', [Component.text(tx['title'] ?? 'Points Reward')]),
+                      p(classes: 'text-[10px] $subTextCls', [
+                        Component.text(_formatTime(tx['createdAt'] as int?)),
+                      ]),
                     ]),
-                  ]),
-                  span(classes: 'px-2 py-0.5 bg-yellow-400/10 text-yellow-500 text-xs font-bold rounded-lg border border-yellow-400/20', [
-                    Component.text('+${tx['points']} TP'),
-                  ]),
-                ]),
+                    span(
+                      classes:
+                          'px-2 py-0.5 bg-yellow-400/10 text-yellow-500 text-xs font-bold rounded-lg border border-yellow-400/20',
+                      [
+                        Component.text('+${tx['points']} TP'),
+                      ],
+                    ),
+                  ],
+                ),
           ]),
         ]),
       ]),
     ]);
   }
 
-  Component _buildQuestSection(String title, List<RewardQuest> quests, List<String> earned, bool isDark, String cardCls, TranyxAppState s) {
+  Component _buildQuestSection(
+    String title,
+    List<RewardQuest> quests,
+    List<String> earned,
+    bool isDark,
+    String cardCls,
+    TranyxAppState s,
+  ) {
     final textCls = isDark ? 'text-zinc-100' : 'text-zinc-800';
     final subTextCls = isDark ? 'text-zinc-400' : 'text-zinc-500';
 
     return div(classes: 'space-y-3', [
       h3(classes: 'text-lg font-extrabold $textCls px-1', [Component.text(title)]),
       div(classes: 'rounded-3xl border overflow-hidden $cardCls divide-y divide-zinc-200/50 dark:divide-zinc-800/50', [
-        for (final q in quests)
-          _buildQuestRow(q, earned.contains(q.id), isDark, subTextCls, textCls, s),
+        for (final q in quests) _buildQuestRow(q, earned.contains(q.id), isDark, subTextCls, textCls, s),
       ]),
     ]);
   }
 
-  Component _buildQuestRow(RewardQuest q, bool isCompleted, bool isDark, String subTextCls, String textCls, TranyxAppState s) {
+  Component _buildQuestRow(
+    RewardQuest q,
+    bool isCompleted,
+    bool isDark,
+    String subTextCls,
+    String textCls,
+    TranyxAppState s,
+  ) {
     final accountType = s.accountType;
     final isEmployerOnly = accountType == AccountType.employer;
     final isNyxianOnly = accountType == AccountType.nyxian;
@@ -4153,10 +4425,10 @@ class _RewardsViewState extends State<_RewardsView> {
     // Quests only Employer + Hybrid can do (locked for Nyxian-only)
     const employerOnlyQuests = {'post_first_service', 'hire_applicant', 'employer_complete_transaction'};
     // Quests only Nyxian + Hybrid can do (locked for Employer-only)
-    const nyxianOnlyQuests  = {'add_skills_bio', 'apply_first_job', 'be_hired', 'jobseeker_complete_transaction'};
+    const nyxianOnlyQuests = {'add_skills_bio', 'apply_first_job', 'be_hired', 'jobseeker_complete_transaction'};
 
     final bool isLockedForEmployer = nyxianOnlyQuests.contains(q.id) && isEmployerOnly;
-    final bool isLockedForNyxian   = employerOnlyQuests.contains(q.id) && isNyxianOnly;
+    final bool isLockedForNyxian = employerOnlyQuests.contains(q.id) && isNyxianOnly;
     final bool isLocked = isLockedForEmployer || isLockedForNyxian;
 
     // Determine if this is the deposit quest
@@ -4172,8 +4444,10 @@ class _RewardsViewState extends State<_RewardsView> {
           s.profileView = ProfileView.payment;
           s.showDepositModal = true;
         });
-      } else if (q.id == 'register_account' || q.id == 'verify_account' ||
-                 q.id == 'complete_profile_trust' || q.id == 'connect_solana_wallet') {
+      } else if (q.id == 'register_account' ||
+          q.id == 'verify_account' ||
+          q.id == 'complete_profile_trust' ||
+          q.id == 'connect_solana_wallet') {
         onTap = () => s.setState(() => s.profileView = ProfileView.trust);
       } else if (q.id == 'subscribe_hybrid_pro') {
         onTap = () => s.setState(() => s.profileView = ProfileView.main);
@@ -4187,7 +4461,8 @@ class _RewardsViewState extends State<_RewardsView> {
     }
 
     return div(
-      classes: 'p-4 flex items-center justify-between gap-4 transition-colors ${isLocked ? "cursor-default" : "cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/30"}',
+      classes:
+          'p-4 flex items-center justify-between gap-4 transition-colors ${isLocked ? "cursor-default" : "cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/30"}',
       events: onTap != null ? {'click': (_) => onTap!()} : {},
       [
         // Left: quest info — dimmed when locked
@@ -4195,20 +4470,31 @@ class _RewardsViewState extends State<_RewardsView> {
           div(classes: 'flex items-center gap-2', [
             span(classes: 'text-sm font-bold $textCls', [Component.text(q.title)]),
             if (isLocked)
-              span(classes: 'px-1.5 py-0.5 bg-orange-500/10 text-orange-400 text-[9px] font-black uppercase rounded tracking-wider border border-orange-500/20', [
-                Component.text('🔒 Locked'),
-              ])
+              span(
+                classes:
+                    'px-1.5 py-0.5 bg-orange-500/10 text-orange-400 text-[9px] font-black uppercase rounded tracking-wider border border-orange-500/20',
+                [
+                  Component.text('🔒 Locked'),
+                ],
+              )
             else if (q.limit == 'Once')
-              span(classes: 'px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[9px] font-black uppercase rounded tracking-wider border border-indigo-500/20', [
-                Component.text('Once'),
-              ])
+              span(
+                classes:
+                    'px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[9px] font-black uppercase rounded tracking-wider border border-indigo-500/20',
+                [
+                  Component.text('Once'),
+                ],
+              )
             else
-              span(classes: 'px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase rounded tracking-wider border border-emerald-500/20', [
-                Component.text('Repeatable'),
-              ]),
+              span(
+                classes:
+                    'px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase rounded tracking-wider border border-emerald-500/20',
+                [
+                  Component.text('Repeatable'),
+                ],
+              ),
           ]),
-          if (lockNote != null)
-            p(classes: 'text-xs text-orange-400/80', [Component.text(lockNote)]),
+          if (lockNote != null) p(classes: 'text-xs text-orange-400/80', [Component.text(lockNote)]),
         ]),
 
         // Right: action area — always full opacity so Subscribe Now is clickable
@@ -4223,7 +4509,8 @@ class _RewardsViewState extends State<_RewardsView> {
             ]),
           if (isLocked)
             button(
-              classes: 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm hover:bg-amber-500/25 transition-colors cursor-pointer',
+              classes:
+                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm hover:bg-amber-500/25 transition-colors cursor-pointer',
               events: {
                 'click': (_) => s.setState(() {
                   s.profileView = ProfileView.subscription;
@@ -4232,19 +4519,31 @@ class _RewardsViewState extends State<_RewardsView> {
               [Component.text('🔓 Subscribe Now')],
             )
           else if (isCompleted)
-            span(classes: 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-500/15 text-green-400 border border-green-500/20 shadow-sm', [
-              Component.text('✓ Completed'),
-            ])
+            span(
+              classes:
+                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-500/15 text-green-400 border border-green-500/20 shadow-sm',
+              [
+                Component.text('✓ Completed'),
+              ],
+            )
           else if (isDepositQuest)
-            span(classes: 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/20 shadow-sm', [
-              Component.text('→ Top Up'),
-            ])
+            span(
+              classes:
+                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/20 shadow-sm',
+              [
+                Component.text('→ Top Up'),
+              ],
+            )
           else
-            span(classes: 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-zinc-500/15 text-zinc-400 border border-zinc-500/20 shadow-sm', [
-              Component.text('Pending'),
-            ]),
+            span(
+              classes:
+                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-zinc-500/15 text-zinc-400 border border-zinc-500/20 shadow-sm',
+              [
+                Component.text('Pending'),
+              ],
+            ),
         ]),
-      ]
+      ],
     );
   }
 

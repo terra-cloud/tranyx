@@ -3788,7 +3788,7 @@ class ImgBBService {
         return keyVal;
       }
     } catch (_) {}
-    return '50952d72f276ff20aa3362f346b134ab'; // Fallback working apiKey from mobile
+    return Env.imgbbApiKey;
   }
 
   Future<String?> uploadImageBytes(List<int> bytes, String filename, {int? expiration}) async {

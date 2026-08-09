@@ -312,6 +312,7 @@ class TranyxAppState extends State<TranyxApp> {
   String chatInputText = '';
   bool chatPiiBlocked = false;
   bool chatDisintermediationBlocked = false;
+  bool isChatLocked = false;
   bool isUploadingChatPhoto = false;
   bool isUploadingCertificate = false;
   Map<String, dynamic>? acceptedApplicantProfile;
@@ -591,13 +592,29 @@ class TranyxAppState extends State<TranyxApp> {
     );
   }
 
+  bool isLocationEnabled = true;
+
   void _initUserLocation() async {
+    if (!isLocationEnabled) return;
     try {
       final pos = await getCurrentPosition();
       if (pos != null) {
         setState(() {
           userLatitude = pos.lat;
           userLongitude = pos.lng;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> requestAndUpdateUserLocation() async {
+    try {
+      final pos = await getCurrentPosition();
+      if (pos != null) {
+        setState(() {
+          userLatitude = pos.lat;
+          userLongitude = pos.lng;
+          isLocationEnabled = true;
         });
       }
     } catch (_) {}
@@ -2881,23 +2898,42 @@ class TranyxAppState extends State<TranyxApp> {
   void sendChatMessage() {
     final uid = SessionStorage.uid;
     if (uid == null || currentChatId.isEmpty || chatInputText.trim().isEmpty) return;
+
+    if (isChatLocked || MessageViolationTracker.isMessagingLocked(uid)) {
+      setState(() => isChatLocked = true);
+      return;
+    }
+
     final text = chatInputText.trim();
     final name = userProfile?.name ?? userName;
     final result = sendChatMessageJs(currentChatId, uid, name, text);
-    if (result == 'pii_blocked') {
-      setState(() => chatPiiBlocked = true);
-      Timer(const Duration(seconds: 4), () {
-        setState(() => chatPiiBlocked = false);
-      });
+
+    if (result == 'pii_blocked' || result == 'disintermediation_blocked') {
+      final isNowLocked = MessageViolationTracker.recordViolation(uid);
+      if (isNowLocked) {
+        createAdminBanTicketJs(uid, name, currentChatId, text, result);
+        setState(() {
+          isChatLocked = true;
+          chatPiiBlocked = false;
+          chatDisintermediationBlocked = false;
+        });
+        return;
+      }
+
+      if (result == 'pii_blocked') {
+        setState(() => chatPiiBlocked = true);
+        Timer(const Duration(seconds: 4), () {
+          setState(() => chatPiiBlocked = false);
+        });
+      } else {
+        setState(() => chatDisintermediationBlocked = true);
+        Timer(const Duration(seconds: 6), () {
+          setState(() => chatDisintermediationBlocked = false);
+        });
+      }
       return;
     }
-    if (result == 'disintermediation_blocked') {
-      setState(() => chatDisintermediationBlocked = true);
-      Timer(const Duration(seconds: 6), () {
-        setState(() => chatDisintermediationBlocked = false);
-      });
-      return;
-    }
+
     setState(() {
       chatInputText = '';
       chatPiiBlocked = false;

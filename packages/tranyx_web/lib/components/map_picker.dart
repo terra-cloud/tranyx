@@ -141,9 +141,12 @@ class _MapPickerState extends State<MapPickerComponent> {
 
   Future<void> _useMyLocation() async {
     setState(() => _geolocating = true);
+    component.state.isLocationEnabled = true;
     final pos = await getCurrentPosition();
     if (pos != null) {
       panTo(_mapId, pos.lat, pos.lng);
+      component.state.userLatitude = pos.lat;
+      component.state.userLongitude = pos.lng;
     }
     setState(() => _geolocating = false);
   }
