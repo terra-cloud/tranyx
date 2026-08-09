@@ -790,6 +790,22 @@ String sendChatMessageJs(String chatId, String senderId, String senderName, Stri
   }
 }
 
+void createAdminBanTicketJs(String userId, String userName, String chatId, String offendingText, String violationType) {
+  try {
+    final ticketObj = JSObject();
+    ticketObj.setProperty('userId'.toJS, userId.toJS);
+    ticketObj.setProperty('userName'.toJS, userName.toJS);
+    ticketObj.setProperty('chatId'.toJS, chatId.toJS);
+    ticketObj.setProperty('offendingText'.toJS, offendingText.toJS);
+    ticketObj.setProperty('violationType'.toJS, violationType.toJS);
+
+    web.window.callMethod(
+      'createAdminBanTicket'.toJS,
+      ticketObj,
+    );
+  } catch (_) {}
+}
+
 Future<String?> uploadChatPhotoJs(String chatId, String base64Data, String mimeType) async {
   try {
     final result = await web.window

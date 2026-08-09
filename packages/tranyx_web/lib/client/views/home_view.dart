@@ -254,13 +254,21 @@ class HomeViewComponentState extends State<HomeViewComponent> {
       // ── Hero header ──────────────────────────────────────
       div(classes: 'space-y-3', [
         h1(classes: 'text-3xl md:text-4xl font-extrabold tracking-tight leading-tight logo-gradient bg-clip-text text-transparent', [
-          Component.text('Hire Services. Find Jobs. Rent Anything.'),
+          Component.text(
+            isHybrid
+                ? 'All-Access Hub. Hire Services, Find Jobs & Rent Anything.'
+                : (isNyxian
+                    ? 'Find Jobs. Hire Services. Rent Anything.'
+                    : 'Hire Services. Find Jobs. Rent Anything.'),
+          ),
         ]),
         p(classes: 'text-base md:text-lg ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
           Component.text(
-            isNyxian
-                ? 'Browse available jobs in your area, track transit routes, and start earning.'
-                : 'Connect with verified Nyxians, rent assets, and get tasks done safely.',
+            isHybrid
+                ? 'Seamlessly switch between hiring top Nyxian talent and earning on available jobs & assets with full platform privileges.'
+                : (isNyxian
+                    ? 'Browse available jobs in your area, track transit routes, and start earning.'
+                    : 'Connect with verified Nyxians, rent assets, and get tasks done safely.'),
           ),
         ]),
       ]),
@@ -350,7 +358,7 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         else if (_newsPosts == null || _newsPosts!.isEmpty)
           div(classes: 'text-center py-16 space-y-4', [
             div(classes: 'flex justify-center', [
-              lIcon('feed', cls: 'w-12 h-12 ${isDark ? "text-zinc-800" : "text-zinc-350"}'),
+              lIcon('rss', cls: 'w-12 h-12 ${isDark ? "text-zinc-800" : "text-zinc-350"}'),
             ]),
             p(classes: 'text-sm font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
               Component.text('No news or promotions available at this time.'),

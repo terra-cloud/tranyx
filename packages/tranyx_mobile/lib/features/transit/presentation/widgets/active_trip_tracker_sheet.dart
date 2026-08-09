@@ -9,6 +9,7 @@ import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:tranyx_mobile/features/transit/presentation/widgets/signature_pad_dialog.dart';
+import 'package:shared/shared.dart';
 
 class ActiveTripTrackerSheet extends ConsumerStatefulWidget {
   final Map<String, dynamic> item;
@@ -328,6 +329,69 @@ class _ActiveTripTrackerSheetState
                       onPressed: () async {
                         final val = controller.text.trim();
                         if (val.isEmpty) return;
+
+                        if (MessageViolationTracker.isMessagingLocked(user.uid)) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Messaging locked: An Admin ticket has been opened for account review due to repeated violations.'),
+                              backgroundColor: Colors.redAccent,
+                            ),
+                          );
+                          return;
+                        }
+
+                        final policyResult = MessagePolicyFilter.check(val);
+                        if (policyResult != MessagePolicyResult.ok) {
+                          final isNowLocked = MessageViolationTracker.recordViolation(user.uid);
+                          final userName = userProfile?.name ?? 'User';
+
+                          if (isNowLocked) {
+                            final ticketSubject = MessageViolationTracker.formatBanSubject(userName);
+                            final ticketId = 'ticket_ban_${DateTime.now().millisecondsSinceEpoch}_${user.uid.substring(0, 5)}';
+
+                            await ref.read(firestoreProvider).collection('tickets').doc(ticketId).set({
+                              'id': ticketId,
+                              'subject': ticketSubject,
+                              'title': ticketSubject,
+                              'userId': user.uid,
+                              'userName': userName,
+                              'chatId': chatId,
+                              'reason': 'Repeated attempt to share contact numbers, emails, or off-platform payment methods in chat.',
+                              'lastOffendingMessage': val,
+                              'violationType': policyResult.name,
+                              'status': 'flagged_for_ban',
+                              'priority': 'urgent',
+                              'createdAt': DateTime.now().millisecondsSinceEpoch,
+                              'updatedAt': DateTime.now().millisecondsSinceEpoch,
+                            });
+
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Messaging Locked: $ticketSubject. An admin ticket has been opened for account review.'),
+                                backgroundColor: Colors.redAccent,
+                                duration: const Duration(seconds: 5),
+                              ),
+                            );
+                            return;
+                          }
+
+                          if (policyResult == MessagePolicyResult.piiBlocked) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Message blocked: Sharing phone numbers, emails, or links is not allowed.'),
+                                backgroundColor: Colors.redAccent,
+                              ),
+                            );
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Message blocked: Off-platform payment requests (GCash, Maya, etc.) violate Tranyx terms.'),
+                                backgroundColor: Colors.orangeAccent,
+                              ),
+                            );
+                          }
+                          return;
+                        }
 
                         await ref
                             .read(firestoreProvider)
