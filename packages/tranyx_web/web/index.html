@@ -1406,6 +1406,9 @@
         type: 'chat',
         chatId: chatId,
         senderName: senderName
+      });
+    }
+
     window.createAdminBanTicket = function (ticketObj) {
       if (!firebase.apps.length || !ticketObj) return;
       const userId = ticketObj.userId || '';
