@@ -8,4 +8,5 @@ export 'src/env.dart';
 export 'src/reward_service.dart';
 export 'src/profanity.dart';
 export 'src/nyx_domain_knowledge.dart';
+export 'src/message_policy.dart';
 

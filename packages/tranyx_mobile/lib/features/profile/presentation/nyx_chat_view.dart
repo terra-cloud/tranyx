@@ -6,6 +6,7 @@ import 'package:tranyx_mobile/core/providers/ai_provider.dart';
 import 'package:tranyx_mobile/core/services/nyx_model_manager_service.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 
+import 'package:shared/shared.dart';
 
 enum SupportChatMode { menu, ai, agent }
 
@@ -967,6 +968,68 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
     if (profile == null) return;
     final uid = profile.uid;
     final name = profile.name;
+
+    if (MessageViolationTracker.isMessagingLocked(uid)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Messaging locked: An Admin ticket has been opened for account review due to repeated violations.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    }
+
+    final policyResult = MessagePolicyFilter.check(text);
+    if (policyResult != MessagePolicyResult.ok) {
+      final isNowLocked = MessageViolationTracker.recordViolation(uid);
+      if (isNowLocked) {
+        final ticketSubject = MessageViolationTracker.formatBanSubject(name);
+        final ticketId = 'ticket_ban_${DateTime.now().millisecondsSinceEpoch}_${uid.substring(0, 5)}';
+
+        await ref.read(firestoreProvider).collection('tickets').doc(ticketId).set({
+          'id': ticketId,
+          'subject': ticketSubject,
+          'title': ticketSubject,
+          'userId': uid,
+          'userName': name,
+          'chatId': 'support_chats_$uid',
+          'reason': 'Repeated attempt to share contact numbers, emails, or off-platform payment methods in support chat.',
+          'lastOffendingMessage': text,
+          'violationType': policyResult.name,
+          'status': 'flagged_for_ban',
+          'priority': 'urgent',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+          'updatedAt': DateTime.now().millisecondsSinceEpoch,
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Messaging Locked: $ticketSubject. Ticket sent to admin.'),
+              backgroundColor: Colors.redAccent,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              policyResult == MessagePolicyResult.piiBlocked
+                  ? 'Message blocked: Sharing phone numbers, emails, or links is not allowed.'
+                  : 'Message blocked: Off-platform payment requests (GCash, Maya, etc.) violate Tranyx terms.',
+            ),
+            backgroundColor: policyResult == MessagePolicyResult.piiBlocked ? Colors.redAccent : Colors.orangeAccent,
+          ),
+        );
+      }
+      return;
+    }
 
     final firestore = ref.read(firestoreProvider);
     final now = DateTime.now().millisecondsSinceEpoch;

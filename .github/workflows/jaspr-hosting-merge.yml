@@ -46,6 +46,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           XENDIT_SECRET_KEY: ${{ secrets.XENDIT_SECRET_KEY }}
+          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
 
       - name: Build Jaspr Web
         if: steps.filter.outputs.code == 'true'
@@ -53,14 +54,15 @@ jobs:
         env:
           REF_NAME: ${{ github.ref_name }}
           XENDIT_SECRET_KEY: ${{ secrets.XENDIT_SECRET_KEY }}
+          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
         run: |
           jaspr clean
           if [[ "$REF_NAME" == "main" ]]; then
-            jaspr build --dart-define=ENV=prod --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY"
+            jaspr build --dart-define=ENV=prod --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY"
           elif [[ "$REF_NAME" == "uat" ]]; then
-            jaspr build --dart-define=ENV=uat --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY"
+            jaspr build --dart-define=ENV=uat --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY"
           elif [[ "$REF_NAME" == "develop" ]]; then
-            jaspr build --dart-define=ENV=dev --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY"
+            jaspr build --dart-define=ENV=dev --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY"
           fi
 
       - name: Deploy to Firebase Hosting (prod)

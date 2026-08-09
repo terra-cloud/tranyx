@@ -48,19 +48,15 @@ FirebaseConfig _getEnvironmentConfig() {
   const env = String.fromEnvironment('ENV', defaultValue: 'dev');
 
   SharedFirebaseOptions options;
-  String authDomain;
   if (env == 'prod') {
     options = DefaultFirebaseConfig.prodWeb;
-    authDomain = 'tranyx.app';
   } else if (env == 'uat') {
     options = DefaultFirebaseConfig.uatWeb;
-    authDomain = 'uat.tranyx.app';
   } else {
     options = DefaultFirebaseConfig.devWeb;
-    authDomain = 'dev.tranyx.app';
   }
 
-  return FirebaseConfig.fromShared(options, authDomainOverride: authDomain);
+  return FirebaseConfig.fromShared(options);
 }
 
 final currentFirebaseConfig = _getEnvironmentConfig();
@@ -3788,7 +3784,7 @@ class ImgBBService {
         return keyVal;
       }
     } catch (_) {}
-    return '50952d72f276ff20aa3362f346b134ab'; // Fallback working apiKey from mobile
+    return Env.imgbbApiKey;
   }
 
   Future<String?> uploadImageBytes(List<int> bytes, String filename, {int? expiration}) async {

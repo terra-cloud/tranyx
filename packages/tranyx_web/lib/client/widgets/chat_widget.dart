@@ -1,6 +1,7 @@
 import 'package:web/web.dart' as web;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../services/web_interop.dart';
@@ -114,6 +115,26 @@ class _ChatWidgetState extends State<ChatWidget> {
               ],
             ),
 
+            // ── Locked messaging banner ──────────────────────────────────
+            if (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid))
+              div(
+                classes:
+                    'mx-4 mb-2 px-4 py-3.5 rounded-2xl bg-red-500/15 border border-red-500/40 flex items-start gap-3 animate-fade-up',
+                [
+                  lIcon('lock', cls: 'w-5 h-5 text-red-400 flex-shrink-0 mt-0.5'),
+                  div([
+                    p(classes: 'text-xs font-bold text-red-400', [
+                      Component.text('Messaging Locked — Subject for Ban Ticket Opened'),
+                    ]),
+                    p(classes: 'text-[11px] text-red-300/90 mt-1 leading-relaxed', [
+                      Component.text(
+                        'Your messaging access is temporarily locked due to repeated policy violations. An admin ticket titled "Subject for Ban: Repeated Chat Policy Violations" has been opened for account review.',
+                      ),
+                    ]),
+                  ]),
+                ],
+              ),
+
             // ── PII warning banner ───────────────────────────────────────
             if (s.chatPiiBlocked)
               div(
@@ -175,66 +196,77 @@ class _ChatWidgetState extends State<ChatWidget> {
               [
                 div(classes: 'flex items-center gap-2', [
                   // Photo upload
-                  div(classes: 'relative', [
-                    button(
-                      classes:
-                          'p-2.5 rounded-xl ${isDark ? "bg-zinc-800 text-zinc-400 hover:text-indigo-400" : "bg-zinc-100 text-zinc-500 hover:text-indigo-500"} transition-colors',
-                      attributes: {'title': 'Send photo'},
-                      events: {},
-                      [
-                        if (s.isUploadingChatPhoto)
-                          lIcon('loader-2', cls: 'w-5 h-5 animate-spin')
-                        else
-                          lIcon('image', cls: 'w-5 h-5'),
-                      ],
-                    ),
-                    input(
-                      type: InputType.file,
-                      classes: 'absolute inset-0 opacity-0 cursor-pointer',
-                      attributes: {
-                        'accept': 'image/*',
-                        'id': 'chat-photo-input',
-                        'name': 'chat_photo',
-                      },
-                      events: {
-                        'change': (e) => s.sendChatPhoto(e),
-                      },
-                    ),
-                  ]),
+                  if (!s.isChatLocked && !MessageViolationTracker.isMessagingLocked(uid))
+                    div(classes: 'relative', [
+                      button(
+                        classes:
+                            'p-2.5 rounded-xl ${isDark ? "bg-zinc-800 text-zinc-400 hover:text-indigo-400" : "bg-zinc-100 text-zinc-500 hover:text-indigo-500"} transition-colors',
+                        attributes: {'title': 'Send photo'},
+                        events: {},
+                        [
+                          if (s.isUploadingChatPhoto)
+                            lIcon('loader-2', cls: 'w-5 h-5 animate-spin')
+                          else
+                            lIcon('image', cls: 'w-5 h-5'),
+                        ],
+                      ),
+                      input(
+                        type: InputType.file,
+                        classes: 'absolute inset-0 opacity-0 cursor-pointer',
+                        attributes: {
+                          'accept': 'image/*',
+                          'id': 'chat-photo-input',
+                          'name': 'chat_photo',
+                        },
+                        events: {
+                          'change': (e) => s.sendChatPhoto(e),
+                        },
+                      ),
+                    ]),
 
                   // Text input
                   input(
                     type: InputType.text,
-                    classes:
-                        'flex-1 px-4 py-3 rounded-xl text-sm border $inputBg outline-none transition-colors focus:border-indigo-500',
+                    classes: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid))
+                        ? 'flex-1 px-4 py-3 rounded-xl text-sm border bg-zinc-800/40 border-zinc-800 text-zinc-500 outline-none cursor-not-allowed'
+                        : 'flex-1 px-4 py-3 rounded-xl text-sm border $inputBg outline-none transition-colors focus:border-indigo-500',
                     attributes: {
-                      'placeholder': 'Type a message...',
+                      'placeholder': (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid))
+                          ? 'Messaging locked due to policy violations'
+                          : 'Type a message...',
                       'id': _inputId,
                       'name': 'chat_message',
                       'value': s.chatInputText,
                       'autocomplete': 'off',
+                      if (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid)) 'disabled': 'true',
                     },
-                    events: {
-                      'input': (e) {
-                        s.setState(() => s.chatInputText = getInputValue(e.target));
-                      },
-                      'keydown': (e) {
-                        final ke = e as web.KeyboardEvent;
-                        if (ke.key == 'Enter' && !ke.shiftKey) {
-                          ke.preventDefault();
-                          s.sendChatMessage();
-                        }
-                      },
-                    },
+                    events: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid))
+                        ? {}
+                        : {
+                            'input': (e) {
+                              s.setState(() => s.chatInputText = getInputValue(e.target));
+                            },
+                            'keydown': (e) {
+                              final ke = e as web.KeyboardEvent;
+                              if (ke.key == 'Enter' && !ke.shiftKey) {
+                                ke.preventDefault();
+                                s.sendChatMessage();
+                              }
+                            },
+                          },
                   ),
 
                   // Send button
                   button(
-                    classes: s.chatInputText.trim().isEmpty
+                    classes: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid) || s.chatInputText.trim().isEmpty)
                         ? 'p-2.5 rounded-xl bg-indigo-500/30 text-white/50 cursor-not-allowed'
                         : 'p-2.5 rounded-xl logo-gradient text-white hover:opacity-90 transition-opacity',
-                    attributes: s.chatInputText.trim().isEmpty ? {'disabled': 'true'} : {},
-                    events: s.chatInputText.trim().isEmpty ? {} : {'click': (_) => s.sendChatMessage()},
+                    attributes: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid) || s.chatInputText.trim().isEmpty)
+                        ? {'disabled': 'true'}
+                        : {},
+                    events: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid) || s.chatInputText.trim().isEmpty)
+                        ? {}
+                        : {'click': (_) => s.sendChatMessage()},
                     [lIcon('send', cls: 'w-5 h-5')],
                   ),
                 ]),
