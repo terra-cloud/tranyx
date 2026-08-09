@@ -684,6 +684,86 @@ class _PersonalInfo extends StatelessComponent {
           },
         ),
       ]),
+
+      // Location Services & GPS Privacy Card
+      div(
+        classes:
+            'p-5 rounded-2xl border ${s.isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"} space-y-4',
+        [
+          div(classes: 'flex items-center justify-between', [
+            div(classes: 'flex items-center gap-3', [
+              div(
+                classes:
+                    'w-10 h-10 rounded-xl flex items-center justify-center ${s.isLocationEnabled ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-zinc-500/10 text-zinc-500 border border-zinc-500/20"}',
+                [lIcon('map-pin', cls: 'w-5 h-5')],
+              ),
+              div([
+                h4(classes: 'font-bold text-sm ${s.isDark ? "text-white" : "text-zinc-900"}', [
+                  Component.text('Location Services & GPS'),
+                ]),
+                p(classes: 'text-xs ${s.isDark ? "text-zinc-400" : "text-zinc-500"} mt-0.5', [
+                  Component.text(s.isLocationEnabled
+                      ? 'GPS active — Used for job tracking, navigation & map pickers'
+                      : 'Disabled — Maps use default Manila coordinates'),
+                ]),
+              ]),
+            ]),
+            // Toggle Switch
+            button(
+              classes:
+                  'relative w-12 h-6 rounded-full transition-colors duration-200 ease-in-out cursor-pointer ${s.isLocationEnabled ? "bg-indigo-600" : "bg-zinc-700"}',
+              events: {
+                'click': (_) async {
+                  s.setState(() {
+                    s.isLocationEnabled = !s.isLocationEnabled;
+                  });
+                  if (s.isLocationEnabled) {
+                    await s.requestAndUpdateUserLocation();
+                  }
+                },
+              },
+              [
+                span(
+                  [],
+                  classes:
+                      'inline-block w-5 h-5 transform rounded-full bg-white transition duration-200 ease-in-out mt-0.5 ${s.isLocationEnabled ? "translate-x-6" : "translate-x-0.5"}',
+                ),
+              ],
+            ),
+          ]),
+
+          if (s.isLocationEnabled) ...[
+            div(
+              classes:
+                  'p-3.5 rounded-xl border flex items-center justify-between text-xs ${s.isDark ? "bg-zinc-800/40 border-zinc-800/80" : "bg-zinc-50 border-zinc-200"}',
+              [
+                div([
+                  span(classes: 'font-semibold ${s.isDark ? "text-zinc-300" : "text-zinc-700"} block', [
+                    Component.text('Current Position'),
+                  ]),
+                  span(classes: 'font-mono text-xs ${s.isDark ? "text-indigo-400" : "text-indigo-600"} mt-0.5 block', [
+                    Component.text('${s.userLatitude.toStringAsFixed(4)}° N, ${s.userLongitude.toStringAsFixed(4)}° E'),
+                  ]),
+                ]),
+                button(
+                  classes:
+                      'px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 transition-colors flex items-center gap-1.5 cursor-pointer',
+                  events: {
+                    'click': (_) async {
+                      await s.requestAndUpdateUserLocation();
+                    },
+                  },
+                  [
+                    lIcon('navigation', cls: 'w-3.5 h-3.5'),
+                    Component.text('Detect GPS Location'),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+
       if (s.profileSaveError != null)
         p(classes: 'text-sm text-red-400 text-center', [Component.text(s.profileSaveError!)]),
       button(

@@ -3,7 +3,7 @@ import 'env.g.dart';
 class Env {
   /// Known compile-time environment variables.
   static const String _xenditSecretKey = String.fromEnvironment('XENDIT_SECRET_KEY');
-  static const String _imgbbApiKey = String.fromEnvironment('IMGBB_API_KEY', defaultValue: '50952d72f276ff20aa3362f346b134ab');
+  static const String _imgbbApiKey = String.fromEnvironment('IMGBB_API_KEY');
   static const String _cloudflareAccountId = String.fromEnvironment('CLOUDFLARE_ACCOUNT_ID');
   static const String _cloudflareApiToken = String.fromEnvironment('CLOUDFLARE_API_TOKEN');
   static const String _env = String.fromEnvironment('ENV', defaultValue: 'dev');
@@ -35,7 +35,7 @@ class Env {
   }
 
   static String get xenditSecretKey => get('XENDIT_SECRET_KEY');
-  static String get imgbbApiKey => get('IMGBB_API_KEY', defaultValue: '50952d72f276ff20aa3362f346b134ab');
+  static String get imgbbApiKey => get('IMGBB_API_KEY');
   static String get cloudflareAccountId => get('CLOUDFLARE_ACCOUNT_ID');
   static String get cloudflareApiToken => get('CLOUDFLARE_API_TOKEN');
   static String get env => get('ENV', defaultValue: 'dev');

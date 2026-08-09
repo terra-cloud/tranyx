@@ -591,13 +591,29 @@ class TranyxAppState extends State<TranyxApp> {
     );
   }
 
+  bool isLocationEnabled = true;
+
   void _initUserLocation() async {
+    if (!isLocationEnabled) return;
     try {
       final pos = await getCurrentPosition();
       if (pos != null) {
         setState(() {
           userLatitude = pos.lat;
           userLongitude = pos.lng;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> requestAndUpdateUserLocation() async {
+    try {
+      final pos = await getCurrentPosition();
+      if (pos != null) {
+        setState(() {
+          userLatitude = pos.lat;
+          userLongitude = pos.lng;
+          isLocationEnabled = true;
         });
       }
     } catch (_) {}
