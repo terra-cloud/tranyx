@@ -15,6 +15,12 @@ void main() {
     });
 
     test('Verify job creation & listing collection references', () async {
+      firestore.db['users/employer123'] = {
+        'uid': 'employer123',
+        'name': 'Test Employer',
+        'tyxBalance': 2000.0,
+      };
+
       final job = Job(
         id: 'job123',
         creatorId: 'employer123',
@@ -426,6 +432,50 @@ void main() {
       // Verify Employer balance has been refunded 2000 - 20 = 1980
       final empDoc = await firestore.collection('users').doc('employer123').get();
       expect(empDoc.data()!['tyxBalance'], equals(6980.0));
+    });
+
+    test('Verify initial rating state is unrated (null) and first review sets explicit score', () async {
+      // 1. Initial user profile without reviews has null rating
+      final newProfile = UserProfile(
+        uid: 'newuser123',
+        name: 'New User',
+        email: 'new@tranyx.app',
+        accountType: AccountType.nyxian,
+      );
+      expect(newProfile.rating, isNull);
+      expect(newProfile.renterRating, isNull);
+      expect(newProfile.hostRating, isNull);
+
+      final map = newProfile.toMap();
+      expect(map['rating'], isNull);
+
+      // 2. Setup user in DB without rating (unrated)
+      firestore.db['users/newuser123'] = {
+        'uid': 'newuser123',
+        'name': 'New User',
+      };
+      firestore.db['jobs/job_new'] = {
+        'id': 'job_new',
+        'title': 'Delivery',
+        'status': 'Completed',
+        'employerRated': false,
+        'nyxianRated': false,
+      };
+
+      // 3. Submit first rating (score: 5)
+      await repo.submitJobRating(
+        jobId: 'job_new',
+        targetId: 'newuser123',
+        reviewerUid: 'employer123',
+        reviewerName: 'Test Employer',
+        score: 5,
+        comment: 'First review!',
+        currentViewMode: AccountType.employer,
+      );
+
+      final userDoc = await firestore.collection('users').doc('newuser123').get();
+      expect(userDoc.data()!['rating'], equals(5.0));
+      expect(userDoc.data()!['ratingCount'], equals(1));
     });
   });
 }

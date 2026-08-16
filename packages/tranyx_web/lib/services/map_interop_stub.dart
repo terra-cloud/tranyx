@@ -1,6 +1,26 @@
+class GeolocationResult {
+  final double? lat;
+  final double? lng;
+  final String? error;
+  final int? errorCode;
+  final bool isSuccess;
+
+  const GeolocationResult.success(double this.lat, double this.lng)
+      : error = null,
+        errorCode = null,
+        isSuccess = true;
+
+  const GeolocationResult.failure(this.error, [this.errorCode])
+      : lat = null,
+        lng = null,
+        isSuccess = false;
+}
+
 // Stub for server-side rendering — MapLibre APIs are client-only.
 Future<void> ensureMapLibreLoaded() async {}
-Future<({double lat, double lng})?> getCurrentPosition() async => null;
+Future<GeolocationResult> getDetailedCurrentPosition({int timeoutMs = 10000}) async =>
+    const GeolocationResult.failure('Not running in browser');
+Future<({double lat, double lng})?> getCurrentPosition({int timeoutMs = 10000}) async => null;
 int watchPosition(void Function(double lat, double lng) onUpdate) => -1;
 void clearWatch(int id) {}
 Future<void> initMap(

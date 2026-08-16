@@ -964,13 +964,13 @@ class HomeViewComponentState extends State<HomeViewComponent> {
       final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
       final jobsDone = s.userProfile?.jobsDone ?? 0;
       final totalEarned = s.userProfile?.totalEarned ?? 0.0;
-      final rating = s.userProfile?.rating ?? 5.0;
+      final rating = s.userProfile?.rating;
 
       return div(classes: 'grid grid-cols-2 lg:grid-cols-4 gap-4', [
         // Wallet Balance
         div(
           classes: 'p-5 rounded-2xl border transition-all hover:border-indigo-500/40 cursor-pointer $cardBg',
-          events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
+          events: {'click': (_) => s.setState(() => s.showWalletActionMenu = true)},
           [
             div(classes: 'flex justify-between items-start mb-2', [
               span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Wallet')]),
@@ -1053,8 +1053,8 @@ class HomeViewComponentState extends State<HomeViewComponent> {
               lIcon('star', cls: 'w-4 h-4 text-amber-400'),
             ]),
             p(classes: 'text-lg font-black $titleColor flex items-center gap-1', [
-              Component.text(rating.toStringAsFixed(1)),
-              span(classes: 'text-xs text-amber-400', [Component.text('★')]),
+              Component.text(rating != null ? rating.toStringAsFixed(1) : 'Unrated'),
+              if (rating != null) span(classes: 'text-xs text-amber-400', [Component.text('★')]),
             ]),
             p(classes: 'text-[9px] text-amber-500 font-semibold mt-1', [Component.text('View Reviews')]),
           ],
@@ -1065,13 +1065,13 @@ class HomeViewComponentState extends State<HomeViewComponent> {
       final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
       final postedCount = s.myJobs.length;
       final activeHires = s.myJobs.where((j) => j['status'] == 'In Progress').length;
-      final rating = s.userProfile?.rating ?? 5.0;
+      final rating = s.userProfile?.rating;
 
       return div(classes: 'grid grid-cols-2 lg:grid-cols-4 gap-4', [
         // Wallet Balance
         div(
           classes: 'p-5 rounded-2xl border transition-all hover:border-indigo-500/40 cursor-pointer $cardBg',
-          events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
+          events: {'click': (_) => s.setState(() => s.showWalletActionMenu = true)},
           [
             div(classes: 'flex justify-between items-start mb-2', [
               span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Wallet')]),
@@ -1153,8 +1153,8 @@ class HomeViewComponentState extends State<HomeViewComponent> {
               lIcon('star', cls: 'w-4 h-4 text-amber-400'),
             ]),
             p(classes: 'text-lg font-black $titleColor flex items-center gap-1', [
-              Component.text(rating.toStringAsFixed(1)),
-              span(classes: 'text-xs text-amber-400', [Component.text('★')]),
+              Component.text(rating != null ? rating.toStringAsFixed(1) : 'Unrated'),
+              if (rating != null) span(classes: 'text-xs text-amber-400', [Component.text('★')]),
             ]),
             p(classes: 'text-[9px] text-amber-500 font-semibold mt-1', [Component.text('View Reviews')]),
           ],

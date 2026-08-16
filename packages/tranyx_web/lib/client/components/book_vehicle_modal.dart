@@ -154,8 +154,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     return _discountedTotalPrice * 0.03; // 3% renter fee on discounted cost
   }
 
-  DateTime get _computedEndDate {
-    final start = _startDate ?? DateTime.now();
+  DateTime _computeEndDateFor(DateTime start) {
     switch (_selectedPackage) {
       case '12h':
         return start.add(Duration(hours: 12 * _quantity));
@@ -168,11 +167,15 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     }
   }
 
-  bool get _hasBookingOverlap {
-    if (_startDate == null) return false;
-    final start = _startDate!.millisecondsSinceEpoch;
-    final end = _computedEndDate.millisecondsSinceEpoch;
-    for (final req in _approvedRequests) {
+  DateTime get _computedEndDate {
+    final start = _startDate ?? DateTime.now();
+    return _computeEndDateFor(start);
+  }
+
+  bool _hasBookingOverlapWith(DateTime startDate, List<Map<String, dynamic>> requests) {
+    final start = startDate.millisecondsSinceEpoch;
+    final end = _computeEndDateFor(startDate).millisecondsSinceEpoch;
+    for (final req in requests) {
       final reqStart = req['startDate'] as int?;
       final reqEnd = req['endDate'] as int?;
       if (reqStart != null && reqEnd != null) {
@@ -184,10 +187,15 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     return false;
   }
 
-  bool _isDateBooked(DateTime date) {
+  bool get _hasBookingOverlap {
+    if (_startDate == null) return false;
+    return _hasBookingOverlapWith(_startDate!, _approvedRequests);
+  }
+
+  bool _isDateBookedWith(DateTime date, List<Map<String, dynamic>> requests) {
     final startOfDayMs = DateTime(date.year, date.month, date.day, 0, 0, 0).millisecondsSinceEpoch;
     final endOfDayMs = DateTime(date.year, date.month, date.day, 23, 59, 59).millisecondsSinceEpoch;
-    for (final req in _approvedRequests) {
+    for (final req in requests) {
       final start = req['startDate'] as int?;
       final end = req['endDate'] as int?;
       if (start != null && end != null) {
@@ -197,6 +205,26 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
       }
     }
     return false;
+  }
+
+  bool _isDateBooked(DateTime date) {
+    return _isDateBookedWith(date, _approvedRequests);
+  }
+
+  DateTime _calculateNextAvailableStartDate(List<Map<String, dynamic>> approvedRequests) {
+    final now = DateTime.now();
+    DateTime candidate = DateTime(now.year, now.month, now.day, now.hour + 1, 0);
+    if (candidate.hour == 0) {
+      candidate = DateTime(now.year, now.month, now.day + 1, 0, 0);
+    }
+
+    // Advance day by day until an unbooked date without overlap is found
+    while (true) {
+      if (!_isDateBookedWith(candidate, approvedRequests)) {
+        return candidate;
+      }
+      candidate = DateTime(candidate.year, candidate.month, candidate.day + 1, 0, 0);
+    }
   }
 
   bool _isDateInPast(DateTime date) {
@@ -225,6 +253,12 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
       if (mounted) {
         setState(() {
           _approvedRequests = reqs;
+          // Synchronize _startDate to the next available date if current _startDate is uninitialized, booked, or has overlap
+          if (_startDate == null || _isDateBookedWith(_startDate!, reqs) || _hasBookingOverlapWith(_startDate!, reqs)) {
+            _startDate = _calculateNextAvailableStartDate(reqs);
+            _calendarMonth = DateTime(_startDate!.year, _startDate!.month, 1);
+            _error = null;
+          }
         });
       }
     } catch (_) {}
@@ -1122,6 +1156,16 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                       setState(() => _error = 'Please select a start date on the calendar.');
                       return;
                     }
+                    if (_isDateBooked(_startDate!)) {
+                      final nextAvail = _calculateNextAvailableStartDate(_approvedRequests);
+                      setState(() {
+                        _startDate = nextAvail;
+                        _calendarMonth = DateTime(nextAvail.year, nextAvail.month, 1);
+                        _error =
+                            'Selected start date is already booked. Updated to next available date (${nextAvail.day} ${_monthName(nextAvail.month).substring(0, 3)}).';
+                      });
+                      return;
+                    }
                     if (_rentalType == 'deliver' && _deliveryAddress.trim().isEmpty) {
                       setState(() => _error = 'Please pin your delivery address on the map.');
                       return;
@@ -1532,24 +1576,58 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                               } else {
                                 _startDate = DateTime(day.year, day.month, day.day, hour, 0);
                               }
+                              _quantity = 1;
+                              _error = null;
                             } else {
                               final diff = day.difference(DateTime(_startDate!.year, _startDate!.month, _startDate!.day));
-                              int newQty = 1;
-                              switch (_selectedPackage) {
-                                case '12h':
-                                  newQty = (diff.inHours / 12).round();
-                                  break;
-                                case 'Weekly':
-                                  newQty = (diff.inDays / 7).round();
-                                  break;
-                                case 'Monthly':
-                                  newQty = (diff.inDays / 30).round();
-                                  break;
-                                default: // 'Daily'
-                                  newQty = diff.inDays;
-                                  break;
+                              if (diff.inDays == 0) {
+                                _quantity = 1;
+                                _error = null;
+                              } else {
+                                // Check if any date between _startDate and day is booked
+                                bool hasBookedBetween = false;
+                                for (int i = 0; i <= diff.inDays; i++) {
+                                  if (_isDateBooked(_startDate!.add(Duration(days: i)))) {
+                                    hasBookedBetween = true;
+                                    break;
+                                  }
+                                }
+
+                                if (hasBookedBetween) {
+                                  // Selected date cannot form a contiguous range over booked days; set as new start date
+                                  int hour = _startDate?.hour ?? (now.hour + 1);
+                                  final isToday = day.year == now.year && day.month == now.month && day.day == now.day;
+                                  if (isToday && hour <= now.hour) {
+                                    hour = now.hour + 1;
+                                  }
+                                  if (hour > 23) {
+                                    final tomorrow = day.add(const Duration(days: 1));
+                                    _startDate = DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0);
+                                  } else {
+                                    _startDate = DateTime(day.year, day.month, day.day, hour, 0);
+                                  }
+                                  _quantity = 1;
+                                  _error = null;
+                                } else {
+                                  int newQty = 1;
+                                  switch (_selectedPackage) {
+                                    case '12h':
+                                      newQty = (diff.inHours / 12).round();
+                                      break;
+                                    case 'Weekly':
+                                      newQty = (diff.inDays / 7).round();
+                                      break;
+                                    case 'Monthly':
+                                      newQty = (diff.inDays / 30).round();
+                                      break;
+                                    default: // 'Daily'
+                                      newQty = diff.inDays;
+                                      break;
+                                  }
+                                  _quantity = newQty.clamp(1, 999);
+                                  _error = null;
+                                }
                               }
-                              _quantity = newQty.clamp(1, 999);
                             }
                           }),
                         }

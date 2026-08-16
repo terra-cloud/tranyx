@@ -28,6 +28,7 @@ import '../client/widgets/chat_widget.dart';
 import '../client/widgets/top_header.dart';
 import '../client/widgets/category_modal.dart';
 import '../client/widgets/payment_modal.dart';
+import '../client/widgets/wallet_action_modal.dart';
 import '../client/widgets/rating_modal.dart';
 import '../client/widgets/delete_confirm_modal.dart';
 import '../client/components/list_vehicle_modal.dart';
@@ -245,6 +246,7 @@ class TranyxAppState extends State<TranyxApp> {
   String? get idToken => SessionStorage.idToken;
 
   // ── Tyx payment & deposit state ───────────────────────────────
+  bool showWalletActionMenu = false;
   bool showDepositModal = false;
   double depositAmount = 0.0;
   bool isDepositing = false;
@@ -593,31 +595,88 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   bool isLocationEnabled = true;
+  bool isDetectingLocation = false;
+  String? locationStatusMessage;
+  double? gpsLatitude;
+  double? gpsLongitude;
+  bool hasAcquiredGps = false;
+  int? locationErrorCode;
 
   void _initUserLocation() async {
     if (!isLocationEnabled) return;
     try {
-      final pos = await getCurrentPosition();
-      if (pos != null) {
+      final res = await getDetailedCurrentPosition(timeoutMs: 8000);
+      if (res.isSuccess && res.lat != null && res.lng != null) {
         setState(() {
-          userLatitude = pos.lat;
-          userLongitude = pos.lng;
+          gpsLatitude = res.lat;
+          gpsLongitude = res.lng;
+          userLatitude = res.lat!;
+          userLongitude = res.lng!;
+          hasAcquiredGps = true;
+          locationErrorCode = null;
+          locationStatusMessage = 'GPS Position Active';
+        });
+      } else {
+        setState(() {
+          locationErrorCode = res.errorCode;
+          locationStatusMessage = res.errorCode == 1
+              ? 'Permission Denied'
+              : (res.error ?? 'GPS Inactive');
         });
       }
     } catch (_) {}
   }
 
   Future<void> requestAndUpdateUserLocation() async {
+    setState(() {
+      isDetectingLocation = true;
+      locationStatusMessage = 'Detecting GPS position...';
+    });
     try {
-      final pos = await getCurrentPosition();
-      if (pos != null) {
+      final res = await getDetailedCurrentPosition(timeoutMs: 12000);
+      if (res.isSuccess && res.lat != null && res.lng != null) {
         setState(() {
-          userLatitude = pos.lat;
-          userLongitude = pos.lng;
+          gpsLatitude = res.lat;
+          gpsLongitude = res.lng;
+          userLatitude = res.lat!;
+          userLongitude = res.lng!;
+          hasAcquiredGps = true;
           isLocationEnabled = true;
+          isDetectingLocation = false;
+          locationErrorCode = null;
+          locationStatusMessage = 'GPS Position Active';
         });
+        showAppToast(
+          'Location Detected',
+          'Current position acquired: ${res.lat!.toStringAsFixed(4)}° N, ${res.lng!.toStringAsFixed(4)}° E',
+        );
+      } else {
+        setState(() {
+          isDetectingLocation = false;
+          locationErrorCode = res.errorCode;
+          locationStatusMessage = res.errorCode == 1
+              ? 'Permission Denied'
+              : (res.error ?? 'Unable to detect GPS.');
+        });
+        if (res.errorCode == 1) {
+          showAppToast(
+            'Location Permission Denied',
+            'Please click the lock/tune icon in your browser address bar to allow Location access for Tranyx.',
+          );
+        } else {
+          showAppToast(
+            'Location Access',
+            res.error ?? 'Could not retrieve GPS coordinates. Please ensure location access is allowed in your browser settings.',
+          );
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      setState(() {
+        isDetectingLocation = false;
+        locationStatusMessage = 'GPS error: $e';
+      });
+      showAppToast('Location Error', 'Failed to retrieve location: $e');
+    }
   }
 
   /// Restore a previous session from localStorage
@@ -930,10 +989,13 @@ class TranyxAppState extends State<TranyxApp> {
           myJobs = merged;
 
           // Find ongoing job from merged list
+          final currentUid = userProfile?.uid ?? SessionStorage.uid;
           ongoingJob = merged.cast<Map<String, dynamic>?>().firstWhere(
             (j) {
-              final s = (j?['status'] as String?)?.toLowerCase();
-              return s != null && s != 'open' && s != 'completed' && s != 'cancelled' && s != 'held' && s != 'pending';
+              if (j == null) return false;
+              final s = (j['status'] as String?)?.toLowerCase();
+              final isParty = (currentUid != null && (j['creatorId'] == currentUid || j['acceptedApplicantId'] == currentUid));
+              return isParty && s != null && s != 'open' && s != 'completed' && s != 'cancelled' && s != 'held' && s != 'pending';
             },
             orElse: () => null,
           );
@@ -1574,10 +1636,13 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       // Find the first job with status 'In Progress', active delivery, or 'Done' for the ongoing widget
+      final currentUid = userProfile?.uid ?? SessionStorage.uid;
       final ongoing = merged.cast<Map<String, dynamic>?>().firstWhere(
         (j) {
-          final s = (j?['status'] as String?)?.toLowerCase();
-          return s != null && s != 'open' && s != 'completed' && s != 'cancelled' && s != 'held' && s != 'pending';
+          if (j == null) return false;
+          final s = (j['status'] as String?)?.toLowerCase();
+          final isParty = (currentUid != null && (j['creatorId'] == currentUid || j['acceptedApplicantId'] == currentUid));
+          return isParty && s != null && s != 'open' && s != 'completed' && s != 'cancelled' && s != 'held' && s != 'pending';
         },
         orElse: () => null,
       );
@@ -5305,12 +5370,24 @@ class TranyxAppState extends State<TranyxApp> {
         final token = SessionStorage.idToken;
         final currentUid = SessionStorage.uid;
         if (token != null && currentUid != null) {
+          // ── 1:1 guard: check if this wallet is already owned by another user ──
+          final linkData = await FirestoreService().getWalletLink(publicKey);
+          if (linkData != null) {
+            final existingUid = linkData['uid'] as String?;
+            if (existingUid != null && existingUid != currentUid) {
+              setState(() => walletState = WalletState.disconnected);
+              showAppToast('Wallet Linking Blocked', 'This Solana wallet is already linked to another Tranyx account.');
+              return;
+            }
+          }
+
           try {
             await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
               currentUid,
               publicKey,
               refreshToken: SessionStorage.refreshToken,
             );
+            await loadUserProfile();
           } catch (_) {}
         }
 
@@ -5949,7 +6026,7 @@ class TranyxAppState extends State<TranyxApp> {
               builder: (context) {
                 final emp = employerProfileData!;
                 final name = emp['name'] as String? ?? emp['displayName'] as String? ?? 'Unknown';
-                final rating = (emp['rating'] as num?)?.toDouble() ?? 0.0;
+                final rating = (emp['rating'] as num?)?.toDouble();
                 final about = emp['about'] as String? ?? emp['headline'] as String? ?? 'No description provided.';
                 final phone = emp['phoneNumber'] as String? ?? emp['mobileNumber'] as String? ?? 'Not provided';
                 final photo = emp['photoUrl'] as String? ?? emp['profile_photo'] as String? ?? '';
@@ -6001,7 +6078,7 @@ class TranyxAppState extends State<TranyxApp> {
                               'flex items-center gap-1 text-sm font-semibold ${isDark ? "text-zinc-400" : "text-zinc-650"} mr-2',
                           [
                             lIcon('star', cls: 'w-4 h-4 text-yellow-500 fill-current'),
-                            Component.text(rating.toStringAsFixed(1)),
+                            Component.text(rating != null && rating > 0 ? rating.toStringAsFixed(1) : 'Unrated'),
                           ],
                         ),
                         // Verification Badge
@@ -6379,6 +6456,9 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Wallet Selection modal overlay
       if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
+
+      // Wallet Action Menu modal overlay
+      if (showWalletActionMenu) WalletActionModalComponent(state: this),
 
       // Payment modal overlay
       if (showDepositModal) PaymentModalComponent(state: this),

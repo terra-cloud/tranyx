@@ -11,6 +11,7 @@ import 'package:tranyx_mobile/core/utils/image_utils.dart';
 import 'package:tranyx_mobile/core/providers/image_upload_provider.dart';
 import 'package:tranyx_mobile/features/profile/presentation/nyx_chat_view.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/payment_pane.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/withdraw_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/trust_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/reviews_pane.dart';
@@ -754,6 +755,8 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
             const SizedBox(height: 12),
             buildProfileMenu(Icons.credit_card, "Payment Methods", 'payment'),
             const SizedBox(height: 12),
+            buildProfileMenu(Icons.arrow_upward_rounded, "Withdraw Funds", 'withdraw'),
+            const SizedBox(height: 12),
             buildProfileMenu(Icons.star_rounded, "Hybrid PRO Subscription", 'subscription'),
             const SizedBox(height: 12),
             buildProfileMenu(Icons.security, "Trust & Verification", 'trust'),
@@ -1121,6 +1124,10 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
           );
         } else if (profileView == 'payment') {
           rightPane = PaymentPane(
+            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
+          );
+        } else if (profileView == 'withdraw') {
+          rightPane = WithdrawPane(
             onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
           );
         } else if (profileView == 'subscription') {
