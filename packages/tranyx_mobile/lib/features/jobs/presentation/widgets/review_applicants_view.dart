@@ -125,27 +125,19 @@ class _ReviewApplicantsViewState extends ConsumerState<ReviewApplicantsView> {
                                         ),
                                         Row(
                                           children: [
-                                            const Icon(
-                                              Icons.star,
-                                              color: AppColors.amber,
+                                            Icon(
+                                              Icons.star_outline,
+                                              color: isDarkMode
+                                                  ? AppColors.darkTextMuted
+                                                  : AppColors.lightTextMuted,
                                               size: 14,
                                             ),
                                             const SizedBox(width: 4),
                                             Text(
-                                              "5.0", // Dummy rating for now
+                                              "Unrated",
                                               style: TextStyle(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.bold,
-                                                color: isDarkMode
-                                                    ? AppColors.darkText
-                                                    : AppColors.lightText,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              "(0)", // Dummy reviews for now
-                                              style: TextStyle(
-                                                fontSize: 12,
                                                 color: isDarkMode
                                                     ? AppColors.darkTextMuted
                                                     : AppColors.lightTextMuted,

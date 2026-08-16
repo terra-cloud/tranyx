@@ -38,6 +38,7 @@ class ProfileViewComponent extends StatelessComponent {
       ProfileView.personal => _PersonalInfo(state: s),
       ProfileView.professional => _ProfessionalInfo(state: s),
       ProfileView.payment => _Payment(state: s),
+      ProfileView.withdraw => _WithdrawPane(state: s),
       ProfileView.subscription => _ProfileMain(state: s),
       ProfileView.trust => _TrustVerification(state: s),
       ProfileView.support => _HelpSupport(state: s),
@@ -65,6 +66,7 @@ class _ProfileMenu extends StatelessComponent {
       (ProfileView.personal, 'user', 'Personal Information'),
       (ProfileView.professional, 'briefcase', 'Professional Info'),
       (ProfileView.payment, 'credit-card', 'Payment Methods'),
+      (ProfileView.withdraw, 'arrow-up-right', 'Withdraw Funds'),
       (ProfileView.trust, 'shield-check', 'Trust & Verification'),
       (ProfileView.support, 'help-circle', 'Help & Support'),
       (ProfileView.history, 'activity', historyLabel),
@@ -224,7 +226,7 @@ class _ProfileMainState extends State<_ProfileMain> {
         [
           // Rating - Always shown
           _stat(
-            (s.userProfile?.rating ?? 0.0).toStringAsFixed(1),
+            s.userProfile?.rating != null ? s.userProfile!.rating!.toStringAsFixed(1) : 'Unrated',
             'Rating',
             'star',
             'text-amber-400',
@@ -305,7 +307,7 @@ class _ProfileMainState extends State<_ProfileMain> {
                 button(
                   classes:
                       'px-2 py-1 text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 rounded-lg bg-emerald-500/5 transition-colors cursor-pointer',
-                  events: {'click': (_) => s.handleWithdrawTyx()},
+                  events: {'click': (_) => s.setState(() => s.profileView = ProfileView.withdraw)},
                   [Component.text('Withdraw')],
                 ),
               ]),
@@ -727,22 +729,33 @@ class _PersonalInfo extends StatelessComponent {
                 p(classes: 'text-xs ${s.isDark ? "text-zinc-400" : "text-zinc-500"} mt-0.5', [
                   Component.text(
                     s.isLocationEnabled
-                        ? 'GPS active — Used for job tracking, navigation & map pickers'
+                        ? (s.hasAcquiredGps
+                            ? 'GPS locked — Real-time position active for jobs, transit & navigation'
+                            : 'Enabled — Awaiting GPS fix from browser')
                         : 'Disabled — Maps use default Manila coordinates',
                   ),
                 ]),
               ]),
             ]),
-            // Toggle Switch
+            // Accessible Standard Toggle Switch
             button(
               classes:
-                  'relative w-12 h-6 rounded-full transition-colors duration-200 ease-in-out cursor-pointer ${s.isLocationEnabled ? "bg-indigo-600" : "bg-zinc-700"}',
+                  'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${s.isLocationEnabled ? "bg-indigo-600" : "bg-zinc-700"}',
+              attributes: {
+                'type': 'button',
+                'title': s.isLocationEnabled ? 'Disable Location Services' : 'Enable Location Services',
+              },
               events: {
                 'click': (_) async {
+                  final willEnable = !s.isLocationEnabled;
                   s.setState(() {
-                    s.isLocationEnabled = !s.isLocationEnabled;
+                    s.isLocationEnabled = willEnable;
+                    if (!willEnable) {
+                      s.hasAcquiredGps = false;
+                      s.locationStatusMessage = 'Disabled';
+                    }
                   });
-                  if (s.isLocationEnabled) {
+                  if (willEnable) {
                     await s.requestAndUpdateUserLocation();
                   }
                 },
@@ -751,7 +764,7 @@ class _PersonalInfo extends StatelessComponent {
                 span(
                   [],
                   classes:
-                      'inline-block w-5 h-5 transform rounded-full bg-white transition duration-200 ease-in-out mt-0.5 ${s.isLocationEnabled ? "translate-x-6" : "translate-x-0.5"}',
+                      'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${s.isLocationEnabled ? "translate-x-5" : "translate-x-0"}',
                 ),
               ],
             ),
@@ -760,31 +773,64 @@ class _PersonalInfo extends StatelessComponent {
           if (s.isLocationEnabled) ...[
             div(
               classes:
-                  'p-3.5 rounded-xl border flex items-center justify-between text-xs ${s.isDark ? "bg-zinc-800/40 border-zinc-800/80" : "bg-zinc-50 border-zinc-200"}',
+                  'p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${s.isDark ? "bg-zinc-800/40 border-zinc-800/80" : "bg-zinc-50 border-zinc-200"}',
               [
                 div([
-                  span(classes: 'font-semibold ${s.isDark ? "text-zinc-300" : "text-zinc-700"} block', [
-                    Component.text('Current Position'),
+                  div(classes: 'flex items-center gap-2', [
+                    span(classes: 'font-semibold ${s.isDark ? "text-zinc-300" : "text-zinc-700"} block', [
+                      Component.text(s.hasAcquiredGps ? 'Current Position (GPS Locked)' : 'Location Status'),
+                    ]),
+                    if (s.locationStatusMessage != null)
+                      span(
+                        classes:
+                            'text-[10px] px-2 py-0.5 rounded-full font-bold ${s.hasAcquiredGps ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : (s.locationErrorCode == 1 ? "bg-red-500/15 text-red-400 border border-red-500/30" : "bg-amber-500/15 text-amber-400 border border-amber-500/30")}',
+                        [Component.text(s.locationStatusMessage!)],
+                      ),
                   ]),
-                  span(classes: 'font-mono text-xs ${s.isDark ? "text-indigo-400" : "text-indigo-600"} mt-0.5 block', [
-                    Component.text('${s.userLatitude.toStringAsFixed(4)}° N, ${s.userLongitude.toStringAsFixed(4)}° E'),
-                  ]),
+                  if (s.hasAcquiredGps && s.gpsLatitude != null && s.gpsLongitude != null)
+                    span(classes: 'font-mono text-xs ${s.isDark ? "text-emerald-400" : "text-emerald-600"} mt-0.5 block font-bold', [
+                      Component.text('${s.gpsLatitude!.toStringAsFixed(4)}° N, ${s.gpsLongitude!.toStringAsFixed(4)}° E'),
+                    ])
+                  else
+                    span(classes: 'text-[11px] ${s.isDark ? "text-zinc-400" : "text-zinc-500"} mt-0.5 block', [
+                      Component.text('Default map center: ${s.userLatitude.toStringAsFixed(4)}° N, ${s.userLongitude.toStringAsFixed(4)}° E (Manila)'),
+                    ]),
                 ]),
                 button(
                   classes:
-                      'px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 transition-colors flex items-center gap-1.5 cursor-pointer',
+                      'px-3.5 py-2 rounded-lg text-xs font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
+                  attributes: s.isDetectingLocation ? {'disabled': 'disabled'} : {},
                   events: {
                     'click': (_) async {
-                      await s.requestAndUpdateUserLocation();
+                      if (!s.isDetectingLocation) {
+                        await s.requestAndUpdateUserLocation();
+                      }
                     },
                   },
                   [
-                    lIcon('navigation', cls: 'w-3.5 h-3.5'),
-                    Component.text('Detect GPS Location'),
+                    if (s.isDetectingLocation)
+                      lIcon('loader-2', cls: 'w-3.5 h-3.5 animate-spin')
+                    else
+                      lIcon('navigation', cls: 'w-3.5 h-3.5'),
+                    Component.text(s.isDetectingLocation ? 'Detecting GPS...' : 'Detect GPS Location'),
                   ],
                 ),
               ],
             ),
+
+            if (s.locationErrorCode == 1)
+              div(
+                classes:
+                    'p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-2.5 text-xs text-amber-400',
+                [
+                  lIcon('alert-triangle', cls: 'w-4 h-4 mt-0.5 flex-shrink-0 text-amber-400'),
+                  p(classes: 'leading-relaxed', [
+                    Component.text(
+                      'Browser permission is blocked. To grant access: Click the lock / tune icon in your browser address bar, set Location to "Allow", and click "Detect GPS Location".',
+                    ),
+                  ]),
+                ],
+              ),
           ],
         ],
       ),
@@ -1169,12 +1215,11 @@ class _Payment extends StatelessComponent {
               if (s.accountType == AccountType.nyxian || s.accountType == AccountType.hybrid)
                 button(
                   classes:
-                      'flex-1 py-3.5 rounded-2xl bg-black/20 backdrop-blur-md border border-white/10 font-bold text-sm hover:bg-black/30 transition-all flex items-center justify-center gap-2',
-                  events: {'click': (_) => s.handleWithdrawTyx()},
+                      'flex-1 py-3.5 rounded-2xl bg-black/20 backdrop-blur-md border border-white/10 font-bold text-sm hover:bg-black/30 transition-all flex items-center justify-center gap-2 cursor-pointer',
+                  events: {'click': (_) => s.setState(() => s.profileView = ProfileView.withdraw)},
                   [
-                    if (s.isSavingProfile) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
                     lIcon('arrow-up-right', cls: 'w-4 h-4'),
-                    Component.text(s.isSavingProfile ? 'Processing...' : 'Withdraw'),
+                    Component.text('Withdraw'),
                   ],
                 ),
             ]),
@@ -1519,6 +1564,387 @@ class _Payment extends StatelessComponent {
         ],
       ],
     );
+  }
+}
+
+// ── Withdraw Funds Pane ───────────────────────────────────────
+class _WithdrawPane extends StatefulComponent {
+  final TranyxAppState state;
+  const _WithdrawPane({required this.state});
+
+  @override
+  State<_WithdrawPane> createState() => _WithdrawPaneState();
+}
+
+class _WithdrawPaneState extends State<_WithdrawPane> {
+  String _amountInput = '100';
+  String _selectedCoin = 'USDT'; // 'USDT' (SPL) or 'SOL'
+  bool _isSubmitting = false;
+  String? _errorMessage;
+  String? _successMessage;
+
+  void _setPresetAmount(double amount, double maxBal) {
+    final clamped = amount.clamp(0.0, maxBal);
+    setState(() {
+      _amountInput = clamped.toStringAsFixed(0);
+      _errorMessage = null;
+    });
+  }
+
+  Future<void> _submitWithdrawal() async {
+    final s = component.state;
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+
+    if (uid == null || token == null) {
+      setState(() => _errorMessage = 'Please sign in to proceed.');
+      return;
+    }
+
+    final hasActiveVehicleRentals = s.realtimeRentals.any((rMap) {
+      final rental = VehicleRental.fromMap(rMap, rMap['id'] ?? '');
+      final isRenter = (rental.renteeId == uid);
+      final statusLower = rental.status.toLowerCase();
+      final isActive = (statusLower != 'completed' && statusLower != 'cancelled');
+      return isRenter && isActive;
+    });
+
+    final hasActivePropertyRentals = s.realtimeProperties.any((prop) {
+      final isRenter = (prop.renteeId == uid);
+      final statusLower = prop.status.toLowerCase();
+      final isActive = (statusLower != 'completed' && statusLower != 'cancelled' && statusLower != 'available');
+      return isRenter && isActive;
+    });
+
+    if (hasActiveVehicleRentals || hasActivePropertyRentals) {
+      setState(
+        () => _errorMessage =
+            'Withdrawals are disabled while you have active/ongoing rentals.',
+      );
+      return;
+    }
+
+    final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
+    final amount = double.tryParse(_amountInput.trim()) ?? 0.0;
+
+    if (amount < 100) {
+      setState(() => _errorMessage = 'Minimum withdrawal amount is ₱ 100.00.');
+      return;
+    }
+
+    if (amount > tyxBal) {
+      setState(() => _errorMessage = 'Requested amount exceeds your available balance.');
+      return;
+    }
+
+    final walletKey = s.walletAddress.isNotEmpty ? s.walletAddress : (s.userProfile?.walletPublicKey ?? '');
+
+    if (walletKey.isEmpty) {
+      setState(
+        () => _errorMessage =
+            'Withdrawals are only available to connected Solana wallets. Please link your Solana wallet first in Payment Methods or Trust & Verification.',
+      );
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+      _errorMessage = null;
+      _successMessage = null;
+    });
+
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final requestId = 'withdraw_$timestamp';
+      final svc = FirestoreService(token, s.handleTokenRefresh);
+      final methodTitle = 'Solana ($_selectedCoin)';
+
+      final requestData = <String, dynamic>{
+        'id': requestId,
+        'uid': uid,
+        'userName': s.userName,
+        'amount': amount,
+        'status': 'Pending',
+        'createdAt': timestamp,
+        'currency': 'PHP',
+        'method': 'Solana',
+        'methodTitle': methodTitle,
+        'coin': _selectedCoin,
+        'walletPublicKey': walletKey,
+      };
+
+      // 1. Save withdrawal request record
+      await svc.createOrUpdate('withdrawalRequests/$requestId', requestData);
+
+      // 2. Create transaction record
+      await svc.createOrUpdate('transactions/tx_$timestamp', {
+        'id': 'tx_$timestamp',
+        'uid': uid,
+        'title': 'Withdrawal Request ($methodTitle)',
+        'type': 'withdraw',
+        'amount': -amount,
+        'currency': 'PHP',
+        'status': 'Pending',
+        'createdAt': timestamp,
+        'walletPublicKey': walletKey,
+      });
+
+      // 3. Deduct from user profile balance
+      final newBalance = (tyxBal - amount).clamp(0.0, double.infinity);
+      await svc.createOrUpdate('users/$uid', {'tyxBalance': newBalance});
+
+      s.setState(() {
+        if (s.userProfile != null) {
+          s.userProfile = s.userProfile!.copyWith(tyxBalance: newBalance);
+        }
+      });
+
+      setState(() {
+        _isSubmitting = false;
+        _successMessage = 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
+      });
+      s.showAppToast('Withdrawal Requested', '₱ ${amount.toStringAsFixed(2)} via $methodTitle submitted.');
+    } catch (e) {
+      setState(() {
+        _isSubmitting = false;
+        _errorMessage = 'Withdrawal request failed: $e';
+      });
+    }
+  }
+
+  @override
+  Component build(BuildContext context) {
+    final s = component.state;
+    final isDark = s.isDark;
+    final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
+    final walletKey = s.walletAddress.isNotEmpty ? s.walletAddress : (s.userProfile?.walletPublicKey ?? '');
+    final hasWallet = walletKey.isNotEmpty;
+    final cardBg = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+    final inputBg = isDark ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-white border-zinc-300 text-zinc-900';
+
+    return div(classes: 'space-y-6', [
+      subViewHeader(
+        title: 'Withdraw Funds (Solana)',
+        isDark: isDark,
+        onBack: () => s.setState(() => s.profileView = ProfileView.main),
+      ),
+
+      // Security / Linked Wallet Requirement Banner
+      if (!hasWallet)
+        div(
+          classes:
+              'p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-400',
+          [
+            div(classes: 'flex items-start gap-2.5', [
+              lIcon('shield-alert', cls: 'w-5 h-5 shrink-0 text-amber-400 mt-0.5'),
+              div([
+                p(classes: 'font-bold text-sm text-amber-300', [Component.text('Solana Wallet Required')]),
+                p(classes: 'mt-0.5 text-zinc-400', [
+                  Component.text(
+                    'Withdrawals are only available to verified Solana wallets. Please link your Solana wallet in Payment Methods or Trust & Verification.',
+                  ),
+                ]),
+              ]),
+            ]),
+            button(
+              classes:
+                  'px-3.5 py-2 rounded-xl font-bold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-all text-xs cursor-pointer border-0 shrink-0',
+              events: {'click': (_) => s.setState(() => s.profileView = ProfileView.payment)},
+              [Component.text('Link Wallet in Payments')],
+            ),
+          ],
+        )
+      else
+        div(
+          classes:
+              'p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between text-xs',
+          [
+            div(classes: 'flex items-center gap-2.5', [
+              lIcon('shield-check', cls: 'w-4 h-4 text-emerald-400'),
+              span(classes: 'font-semibold text-zinc-300', [Component.text('Connected Solana Wallet:')]),
+              span(classes: 'font-mono text-emerald-400 font-bold', [
+                Component.text('${walletKey.substring(0, 6)}...${walletKey.substring(walletKey.length - 6)}'),
+              ]),
+            ]),
+            span(classes: 'text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold', [
+              Component.text('Verified'),
+            ]),
+          ],
+        ),
+
+      // Withdrawable Balance Banner
+      div(
+        classes:
+            'p-8 rounded-[2.5rem] logo-gradient text-white relative overflow-hidden shadow-2xl shadow-indigo-500/20',
+        [
+          div(classes: 'relative z-10 space-y-4', [
+            div(classes: 'flex justify-between items-start', [
+              div([
+                p(classes: 'text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-1', [
+                  Component.text('Withdrawable Balance'),
+                ]),
+                p(classes: 'text-sm font-medium opacity-90', [Component.text(s.userName)]),
+              ]),
+              div(
+                classes:
+                    'w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20',
+                [lIcon('arrow-up-right', cls: 'w-6 h-6 text-white')],
+              ),
+            ]),
+            div([
+              p(classes: 'text-4xl font-black flex items-center gap-3', [
+                span(classes: 'text-2xl opacity-60', [Component.text('₱')]),
+                Component.text(tyxBal.toStringAsFixed(2)),
+              ]),
+              p(classes: 'text-xs opacity-75 mt-1 font-mono tracking-wide', [
+                Component.text('Equivalent to ${tyxBal.toStringAsFixed(0)} Tyxbits (1 Tyx = ₱1.00)'),
+              ]),
+            ]),
+          ]),
+        ],
+      ),
+
+      // Step 1: Amount Selection Card
+      div(classes: 'p-6 rounded-[2rem] border $cardBg space-y-4', [
+        p(classes: 'text-xs font-bold uppercase tracking-wider text-indigo-400', [
+          Component.text('1. Enter Withdrawal Amount'),
+        ]),
+        div(classes: 'relative', [
+          span(classes: 'absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-black text-indigo-400', [
+            Component.text('₱'),
+          ]),
+          input(
+            classes:
+                'w-full pl-12 pr-4 py-4 rounded-2xl border $inputBg text-2xl font-black outline-none focus:border-indigo-500 transition-colors',
+            attributes: {
+              'type': 'number',
+              'step': '1',
+              'min': '100',
+              'value': _amountInput,
+              'placeholder': '100',
+            },
+            events: {
+              'input': (e) {
+                setState(() {
+                  _amountInput = getInputValue(e.target);
+                  _errorMessage = null;
+                });
+              },
+            },
+          ),
+        ]),
+        // Quick Presets
+        div(classes: 'flex flex-wrap gap-2 pt-2', [
+          for (final preset in [100.0, 500.0, 1000.0, 5000.0])
+            button(
+              classes:
+                  'px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-zinc-100 border-zinc-200 text-zinc-700 hover:bg-zinc-200"}',
+              events: {'click': (_) => _setPresetAmount(preset, tyxBal)},
+              [Component.text('₱${preset.toStringAsFixed(0)}')],
+            ),
+          button(
+            classes:
+                'px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600/20 border border-indigo-500/40 text-indigo-400 hover:bg-indigo-600/30 transition-all cursor-pointer',
+            events: {'click': (_) => _setPresetAmount(tyxBal, tyxBal)},
+            [Component.text('MAX BALANCE')],
+          ),
+        ]),
+      ]),
+
+      // Step 2: Solana Destination Card
+      div(classes: 'p-6 rounded-[2rem] border $cardBg space-y-4', [
+        div(classes: 'flex items-center justify-between', [
+          p(classes: 'text-xs font-bold uppercase tracking-wider text-indigo-400', [
+            Component.text('2. Solana Payout Destination'),
+          ]),
+          span(
+            classes:
+                'text-[11px] font-bold px-2.5 py-1 rounded-lg ${isDark ? "bg-purple-500/10 text-purple-400" : "bg-purple-50 text-purple-700"} flex items-center gap-1.5',
+            [
+              lIcon('wallet', cls: 'w-3.5 h-3.5'),
+              Component.text('Solana Network Only'),
+            ],
+          ),
+        ]),
+
+        div(classes: 'p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 space-y-3', [
+          div(classes: 'flex items-center justify-between', [
+            span(classes: 'text-xs font-semibold text-zinc-400', [Component.text('Destination Solana Address')]),
+            span(
+              classes:
+                  'text-[10px] px-2 py-0.5 rounded-full font-bold ${hasWallet ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}',
+              [Component.text(hasWallet ? 'Linked' : 'No Wallet Linked')],
+            ),
+          ]),
+          if (hasWallet) ...[
+            p(classes: 'font-mono text-xs font-bold text-indigo-400 break-all', [Component.text(walletKey)]),
+            div(classes: 'pt-2 space-y-2', [
+              span(classes: 'text-xs font-semibold text-zinc-400 block', [Component.text('Select Payout Token:')]),
+              div(classes: 'flex gap-2', [
+                for (final coin in ['USDT', 'SOL'])
+                  button(
+                    classes:
+                        'px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${_selectedCoin == coin ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30" : (isDark ? "bg-zinc-800 text-zinc-400 hover:text-white" : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300")}',
+                    events: {'click': (_) => setState(() => _selectedCoin = coin)},
+                    [Component.text(coin == 'USDT' ? 'USDT (SPL Token)' : 'SOL (Native SOL)')],
+                  ),
+              ]),
+            ]),
+          ] else ...[
+            p(classes: 'text-xs text-zinc-400', [
+              Component.text('Link your Phantom, Solflare, or Trust wallet in Payment Methods to receive instant Solana payouts.'),
+            ]),
+          ],
+        ]),
+      ]),
+
+      // Fee & ETA Summary
+      div(classes: 'p-4 rounded-2xl border ${isDark ? "bg-zinc-900/40 border-zinc-800 text-zinc-400" : "bg-zinc-50 border-zinc-200 text-zinc-600"} text-xs space-y-2', [
+        div(classes: 'flex justify-between items-center', [
+          span([Component.text('Network Fee')]),
+          span(classes: 'font-bold text-emerald-400', [Component.text('Covered by Tranyx (0%)')]),
+        ]),
+        div(classes: 'flex justify-between items-center', [
+          span([Component.text('Estimated Settlement')]),
+          span(classes: 'font-semibold', [Component.text('Instant to 1 Hour')]),
+        ]),
+        div(classes: 'flex justify-between items-center', [
+          span([Component.text('Minimum Amount')]),
+          span(classes: 'font-semibold', [Component.text('₱ 100.00')]),
+        ]),
+      ]),
+
+      if (_errorMessage != null)
+        div(classes: 'p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2', [
+          lIcon('alert-triangle', cls: 'w-4 h-4 shrink-0'),
+          span([Component.text(_errorMessage!)]),
+        ]),
+
+      if (_successMessage != null)
+        div(classes: 'p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2', [
+          lIcon('check-circle', cls: 'w-4 h-4 shrink-0'),
+          span(classes: 'font-bold', [Component.text(_successMessage!)]),
+        ]),
+
+      // Action Button
+      button(
+        classes:
+            'w-full py-4 rounded-2xl font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
+        attributes: _isSubmitting ? {'disabled': 'disabled'} : {},
+        events: {
+          'click': (_) async {
+            if (!_isSubmitting) {
+              await _submitWithdrawal();
+            }
+          },
+        },
+        [
+          if (_isSubmitting) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
+          lIcon('arrow-up-right', cls: 'w-5 h-5'),
+          Component.text(_isSubmitting ? 'Submitting Request...' : 'Confirm & Request Withdrawal'),
+        ],
+      ),
+    ]);
   }
 }
 
@@ -4039,7 +4465,8 @@ class _ReviewsViewState extends State<_ReviewsView> {
     final textCls = isDark ? 'text-zinc-100' : 'text-zinc-800';
     final textMuted = isDark ? 'text-zinc-400' : 'text-zinc-500';
 
-    final rating = s.userProfile?.rating ?? 0.0;
+    final rating = s.userProfile?.rating;
+    final ratingDisplay = rating != null ? rating.toStringAsFixed(1) : 'Unrated';
     final count = reviews.length;
 
     return div(classes: 'space-y-6', [
@@ -4060,7 +4487,7 @@ class _ReviewsViewState extends State<_ReviewsView> {
           p(classes: 'text-sm $textMuted', [Component.text('Loading your reviews...')]),
         ])
       else if (errorMessage != null)
-        div(classes: 'p-6 rounded-3xl border border-red-500/20 bg-red-500/5 text-center', [
+        div(classes: 'p-6 rounded-[2rem] border border-red-500/20 bg-red-500/5 text-center', [
           p(classes: 'text-red-400 font-medium', [Component.text(errorMessage!)]),
           button(
             classes:
@@ -4075,9 +4502,9 @@ class _ReviewsViewState extends State<_ReviewsView> {
           div(classes: 'flex items-center gap-4', [
             div(
               classes:
-                  'w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-400 text-3xl font-black',
+                  'w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-400 ${rating != null ? "text-3xl font-black" : "text-xs font-black"}',
               [
-                Component.text(rating.toStringAsFixed(1)),
+                Component.text(ratingDisplay),
               ],
             ),
             div([
@@ -4087,11 +4514,11 @@ class _ReviewsViewState extends State<_ReviewsView> {
                   for (int i = 1; i <= 5; i++)
                     lIcon(
                       'star',
-                      cls: 'w-4 h-4 ${i <= rating.round() ? "fill-amber-400 text-amber-400" : "text-zinc-600"}',
+                      cls: 'w-4 h-4 ${rating != null && i <= rating.round() ? "fill-amber-400 text-amber-400" : "text-zinc-600"}',
                     ),
                 ]),
                 span(classes: 'text-xs $textMuted', [
-                  Component.text('Based on $count ${count == 1 ? "review" : "reviews"}'),
+                  Component.text(count > 0 ? 'Based on $count ${count == 1 ? "review" : "reviews"}' : 'No reviews yet'),
                 ]),
               ]),
             ]),

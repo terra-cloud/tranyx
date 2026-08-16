@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
+import 'package:tranyx_mobile/features/profile/providers/profile_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -3078,7 +3079,9 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                         'Withdraw',
                         style: TextStyle(fontSize: 12),
                       ),
-                      onPressed: () => _handleWithdraw(tyxBalance, uid),
+                      onPressed: () =>
+                          ref.read(profileViewProvider.notifier).state =
+                              'withdraw',
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.black.withValues(alpha: 0.2),
                         foregroundColor: Colors.white,

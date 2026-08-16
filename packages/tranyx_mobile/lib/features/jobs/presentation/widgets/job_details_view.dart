@@ -86,7 +86,7 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
     required String targetName,
     required AccountType currentViewMode,
   }) {
-    int rating = 5;
+    int? rating;
     final commentController = TextEditingController();
     bool isSubmitting = false;
 
@@ -130,7 +130,7 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                         icon: Icon(
                           Icons.star,
                           size: 36,
-                          color: rating >= starScore
+                          color: (rating != null && rating! >= starScore)
                               ? AppColors.indigo
                               : Colors.grey[400],
                         ),
@@ -179,13 +179,15 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.indigo,
+                    backgroundColor: (rating == null || isSubmitting)
+                        ? Colors.grey
+                        : AppColors.indigo,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  onPressed: isSubmitting
+                  onPressed: (rating == null || isSubmitting)
                       ? null
                       : () async {
                           setDialogState(() {
@@ -202,7 +204,7 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                                   targetId: targetId,
                                   reviewerUid: userProfile?.uid ?? '',
                                   reviewerName: userProfile?.name ?? 'User',
-                                  score: rating,
+                                  score: rating!,
                                   comment: commentController.text.trim(),
                                   currentViewMode: currentViewMode,
                                 );
@@ -601,6 +603,8 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
         }
 
         final isCreator = user?.uid == activeJob.creatorId;
+        final isAssignedWorker = activeJob.acceptedApplicantId == user?.uid;
+        final isAuthorizedExecution = isCreator || isAssignedWorker;
         final hasApplied = activeJob.applicantUids.contains(currentUser?.uid);
         final activeReplyId = ref.watch(activeReplyIdProvider);
         final replyText = ref.watch(replyTextProvider);
@@ -780,13 +784,14 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                     const SizedBox(height: 24),
 
                     // ── Delivery Tracker Timeline ─────────────────────────────────────
-                    if (activeJob.hasTracker) ...[
+                    if (activeJob.hasTracker && isAuthorizedExecution && activeJob.status.toLowerCase() != 'open') ...[
                       _buildDeliveryTrackerTimeline(activeJob, isDarkMode),
                       const SizedBox(height: 24),
                     ],
 
                     // Proof of Payment / Receipt display
-                    if (activeJob.receiptUrl != null &&
+                    if (isAuthorizedExecution &&
+                        activeJob.receiptUrl != null &&
                         activeJob.receiptUrl!.isNotEmpty) ...[
                       Text(
                         "Receipt / Proof of Payment",
@@ -2325,6 +2330,40 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
           ),
         );
       }
+    }
+
+    if (job.status.toLowerCase() != 'open') {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              hasApplied ? Icons.assignment_turned_in_outlined : Icons.lock_outline,
+              color: AppColors.indigo,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                hasApplied
+                    ? 'This gig is currently in progress with an accepted applicant.'
+                    : 'This job listing is in progress and no longer accepting applications.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
     return Row(

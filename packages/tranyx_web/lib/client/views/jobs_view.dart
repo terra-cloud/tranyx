@@ -207,9 +207,19 @@ class JobsViewComponent extends StatelessComponent {
               if (s.activeJobPane == 'browse')
                 Builder(
                   builder: (context) {
+                    final myUid = s.userProfile?.uid ?? SessionStorage.uid;
                     final ongoingJobs = s.myJobs.where((j) {
                       final stat = (j['status'] as String?)?.toLowerCase() ?? '';
-                      return stat != 'completed' && stat != 'closed' && stat != 'cancelled';
+                      final isOngoing = stat == 'in progress' ||
+                          stat == 'in_progress' ||
+                          stat == 'ongoing' ||
+                          stat == 'heading_to_pickup' ||
+                          stat == 'arrived_pickup' ||
+                          stat == 'paid_cashier' ||
+                          stat == 'in_transit' ||
+                          stat == 'arrived_dropoff';
+                      final isWorker = j['acceptedApplicantId'] == myUid;
+                      return isWorker && isOngoing;
                     }).toList();
                     if (ongoingJobs.isEmpty) return div([]);
                     return div(
@@ -885,8 +895,14 @@ class _JobDetails extends StatelessComponent {
     final reportedBy = List<String>.from(s.selectedJobData?['reportedByUids'] as List? ?? []);
     final hasReported = reportedBy.contains(s.userProfile?.uid);
 
-    final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+    final currentUid = s.userProfile?.uid ?? SessionStorage.uid;
+    final creatorId = s.selectedJobData?['creatorId'] as String?;
     final acceptedId = s.selectedJobData?['acceptedApplicantId'] as String?;
+    final isEmployer = (currentUid != null && currentUid == creatorId);
+    final isHiredApplicant = (currentUid != null && currentUid == acceptedId);
+    final isAuthorizedExecution = isEmployer || isHiredApplicant;
+    final isNotOpen = status.toLowerCase() != 'open';
+    final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
     final currentStep = _getStepperStep(status, acceptedId);
 
     return div(classes: 'space-y-6 animate-fade-up', [
@@ -896,7 +912,8 @@ class _JobDetails extends StatelessComponent {
         onBack: () => s.exitJobDetails(),
       ),
 
-      _jobStepper(currentStep, isDark),
+      if (isAuthorizedExecution && isNotOpen)
+        _jobStepper(currentStep, isDark),
 
       // Image Carousel above content
       if (s.selectedJobData?['imageUrls'] != null && (s.selectedJobData!['imageUrls'] as List).isNotEmpty)
@@ -1543,6 +1560,30 @@ class _JobDetails extends StatelessComponent {
             }
 
             // Default: Open / Applied (for Nyxian)
+            final statLower = status.toLowerCase();
+            final isNotOpen = statLower != 'open';
+            if (isNotOpen && !isAccepted) {
+              return div(
+                classes:
+                    'p-4 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800 text-zinc-300" : "bg-zinc-50 border-zinc-200 text-zinc-700"} flex items-center gap-3',
+                [
+                  lIcon(hasApplied ? 'clock' : 'lock', cls: 'w-5 h-5 text-indigo-400'),
+                  div([
+                    p(classes: 'font-bold text-sm text-indigo-400', [
+                      Component.text(hasApplied ? 'Application Submitted' : 'Listing Closed'),
+                    ]),
+                    p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                      Component.text(
+                        hasApplied
+                            ? 'This gig is in progress with an accepted applicant.'
+                            : 'This listing is currently in progress and no longer accepting applications.',
+                      ),
+                    ]),
+                  ]),
+                ],
+              );
+            }
+
             return div(classes: 'flex gap-3', [
               button(
                 classes: hasReported
@@ -2205,7 +2246,7 @@ class _JobDetails extends StatelessComponent {
           ),
         ]),
 
-      if ((s.selectedJobData?['pickupLat'] != null) && (s.selectedJobData?['destinationLat'] != null))
+      if (isAuthorizedExecution && isNotOpen && (s.selectedJobData?['pickupLat'] != null) && (s.selectedJobData?['destinationLat'] != null))
         NavigationMapComponent(state: s, isNyxian: isNyxian),
     ]);
   }

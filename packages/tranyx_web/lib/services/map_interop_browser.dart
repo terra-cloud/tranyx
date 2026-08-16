@@ -55,24 +55,76 @@ Future<bool> _waitForElement(String id, {int maxWaitMs = 3000}) async {
   return false;
 }
 
+class GeolocationResult {
+  final double? lat;
+  final double? lng;
+  final String? error;
+  final int? errorCode;
+  final bool isSuccess;
+
+  const GeolocationResult.success(double this.lat, double this.lng)
+      : error = null,
+        errorCode = null,
+        isSuccess = true;
+
+  const GeolocationResult.failure(this.error, [this.errorCode])
+      : lat = null,
+        lng = null,
+        isSuccess = false;
+}
+
 // ── Geolocation ───────────────────────────────────────────────────────────────
 
-Future<({double lat, double lng})?> getCurrentPosition() async {
-  final completer = Completer<({double lat, double lng})?>();
+Future<GeolocationResult> getDetailedCurrentPosition({int timeoutMs = 12000}) async {
+  final completer = Completer<GeolocationResult>();
   try {
+    final options = PositionOptions(
+      enableHighAccuracy: true,
+      timeout: timeoutMs,
+      maximumAge: 0,
+    );
     window.navigator.geolocation.getCurrentPosition(
       ((GeolocationPosition pos) {
         final c = pos.coords;
-        completer.complete((lat: c.latitude, lng: c.longitude));
+        if (!completer.isCompleted) {
+          completer.complete(GeolocationResult.success(c.latitude, c.longitude));
+        }
       }).toJS,
       ((GeolocationPositionError err) {
-        completer.complete(null);
+        String msg;
+        switch (err.code) {
+          case 1:
+            msg = 'Location permission is denied in browser. Please click the site settings / lock icon in your address bar and allow Location.';
+            break;
+          case 2:
+            msg = 'GPS signal unavailable. Please ensure device or OS Location Services are turned on.';
+            break;
+          case 3:
+            msg = 'Location request timed out. Please try again.';
+            break;
+          default:
+            msg = err.message.isNotEmpty ? err.message : 'Unable to retrieve location.';
+        }
+        if (!completer.isCompleted) {
+          completer.complete(GeolocationResult.failure(msg, err.code));
+        }
       }).toJS,
+      options,
     );
-  } catch (_) {
-    completer.complete(null);
+  } catch (e) {
+    if (!completer.isCompleted) {
+      completer.complete(GeolocationResult.failure('Location error: $e'));
+    }
   }
   return completer.future;
+}
+
+Future<({double lat, double lng})?> getCurrentPosition({int timeoutMs = 10000}) async {
+  final res = await getDetailedCurrentPosition(timeoutMs: timeoutMs);
+  if (res.isSuccess && res.lat != null && res.lng != null) {
+    return (lat: res.lat!, lng: res.lng!);
+  }
+  return null;
 }
 
 int watchPosition(void Function(double lat, double lng) onUpdate) {

@@ -765,7 +765,8 @@ class HomeView extends ConsumerWidget {
     final tyxBal = profile?.tyxBalance ?? 0.0;
     final jobsDone = profile?.jobsDone ?? 0;
     final totalEarned = profile?.totalEarned ?? 0.0;
-    final rating = profile?.rating ?? 5.0;
+    final rating = profile?.rating;
+    final ratingDisplay = rating != null ? rating.toStringAsFixed(1) : "Unrated";
 
     final postedCount = myJobs.length;
     final activeHires = myJobs.where((j) => j.status == 'In Progress').length;
@@ -801,41 +802,42 @@ class HomeView extends ConsumerWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: Text(
-                      title.toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.5,
-                        color: isDarkMode
-                            ? AppColors.darkTextMuted
-                            : AppColors.lightTextMuted,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isDarkMode
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
                     ),
                   ),
-                  Icon(icon, color: iconColor, size: 16),
+                  Icon(icon, color: iconColor, size: 18),
                 ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  color: isDarkMode ? AppColors.darkText : AppColors.lightText,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w600,
-                  color: iconColor,
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: isDarkMode
+                          ? AppColors.darkText
+                          : AppColors.lightText,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: iconColor,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -857,13 +859,10 @@ class HomeView extends ConsumerWidget {
           buildStatCard(
             title: "Wallet",
             value: "₱ ${tyxBal.toStringAsFixed(2)}",
-            subtitle: "Top-up Tyx",
+            subtitle: "Manage Wallet",
             icon: LucideIcons.wallet,
             iconColor: AppColors.indigo,
-            onTap: () {
-              ref.read(activeTabProvider.notifier).state = 'profile';
-              ref.read(profileViewProvider.notifier).state = 'payment';
-            },
+            onTap: () => _showWalletActionMenu(context, ref, tyxBal),
           ),
           // Completed Gigs
           buildStatCard(
@@ -892,7 +891,7 @@ class HomeView extends ConsumerWidget {
           // Rating
           buildStatCard(
             title: "Trust Rating",
-            value: rating.toStringAsFixed(1),
+            value: ratingDisplay,
             subtitle: "View Reviews",
             icon: Icons.star_outline,
             iconColor: AppColors.amber,
@@ -906,13 +905,10 @@ class HomeView extends ConsumerWidget {
           buildStatCard(
             title: "Balance",
             value: "₱ ${tyxBal.toStringAsFixed(2)}",
-            subtitle: "Top-up Tyx",
+            subtitle: "Manage Wallet",
             icon: LucideIcons.wallet,
             iconColor: AppColors.indigo,
-            onTap: () {
-              ref.read(activeTabProvider.notifier).state = 'profile';
-              ref.read(profileViewProvider.notifier).state = 'payment';
-            },
+            onTap: () => _showWalletActionMenu(context, ref, tyxBal),
           ),
           // Posted Gigs
           buildStatCard(
@@ -941,7 +937,7 @@ class HomeView extends ConsumerWidget {
           // Rating
           buildStatCard(
             title: "Trust Rating",
-            value: rating.toStringAsFixed(1),
+            value: ratingDisplay,
             subtitle: "View Reviews",
             icon: Icons.star_outline,
             iconColor: AppColors.amber,
@@ -952,6 +948,257 @@ class HomeView extends ConsumerWidget {
           ),
         ],
       ],
+    );
+  }
+
+  void _showWalletActionMenu(
+    BuildContext context,
+    WidgetRef ref,
+    double balance,
+  ) {
+    final isDarkMode = ref.read(themeModeProvider);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Container(
+          decoration: BoxDecoration(
+            color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(
+              color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+            ),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Handle bar
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDarkMode ? Colors.grey[700] : Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Header
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.indigo.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(
+                        LucideIcons.wallet,
+                        color: AppColors.indigo,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Wallet Options',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: isDarkMode
+                                  ? AppColors.darkText
+                                  : AppColors.lightText,
+                            ),
+                          ),
+                          Text(
+                            'Available Balance: ₱ ${balance.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.indigo,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        Icons.close,
+                        color: isDarkMode
+                            ? AppColors.darkTextMuted
+                            : AppColors.lightTextMuted,
+                      ),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                // 1. Deposit / Cash In
+                _WalletActionTile(
+                  icon: Icons.add_circle_outline,
+                  iconColor: Colors.green,
+                  iconBgColor: Colors.green.withValues(alpha: 0.12),
+                  title: 'Deposit / Cash In',
+                  subtitle: 'Top-up Tyx via GCash, Crypto, or Bank',
+                  isDarkMode: isDarkMode,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    ref.read(activeTabProvider.notifier).state = 'profile';
+                    ref.read(profileViewProvider.notifier).state = 'payment';
+                  },
+                ),
+                const SizedBox(height: 10),
+                // 2. Withdraw / Cash Out
+                _WalletActionTile(
+                  icon: Icons.arrow_circle_up_outlined,
+                  iconColor: AppColors.purple,
+                  iconBgColor: AppColors.purple.withValues(alpha: 0.12),
+                  title: 'Withdraw / Cash Out',
+                  subtitle: 'Transfer funds to connected wallet or bank',
+                  isDarkMode: isDarkMode,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    ref.read(activeTabProvider.notifier).state = 'profile';
+                    ref.read(profileViewProvider.notifier).state = 'withdraw';
+                  },
+                ),
+                const SizedBox(height: 10),
+                // 3. Show All Transaction History
+                _WalletActionTile(
+                  icon: Icons.receipt_long_outlined,
+                  iconColor: AppColors.indigo,
+                  iconBgColor: AppColors.indigo.withValues(alpha: 0.12),
+                  title: 'Show All Transaction History',
+                  subtitle: 'View ledger, escrow logs, and payment activity',
+                  isDarkMode: isDarkMode,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    ref.read(activeTabProvider.notifier).state = 'profile';
+                    ref.read(profileViewProvider.notifier).state = 'history';
+                  },
+                ),
+                const SizedBox(height: 12),
+                // Cancel button
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    onPressed: () => Navigator.pop(ctx),
+                    child: Text(
+                      'Cancel',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: isDarkMode
+                            ? AppColors.darkTextMuted
+                            : AppColors.lightTextMuted,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _WalletActionTile extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBgColor;
+  final String title;
+  final String subtitle;
+  final bool isDarkMode;
+  final VoidCallback onTap;
+
+  const _WalletActionTile({
+    required this.icon,
+    required this.iconColor,
+    required this.iconBgColor,
+    required this.title,
+    required this.subtitle,
+    required this.isDarkMode,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkBg : Colors.grey[50],
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: iconBgColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: iconColor, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: isDarkMode
+                          ? AppColors.darkText
+                          : AppColors.lightText,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDarkMode
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right,
+              color: isDarkMode
+                  ? AppColors.darkTextMuted
+                  : AppColors.lightTextMuted,
+              size: 18,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
