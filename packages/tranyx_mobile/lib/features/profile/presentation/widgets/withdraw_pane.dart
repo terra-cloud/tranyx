@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
+import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/profile/providers/profile_provider.dart';
 
@@ -18,6 +19,9 @@ class WithdrawPane extends ConsumerStatefulWidget {
 class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
   final _amountController = TextEditingController(text: '100');
   String _selectedCoin = 'USDT'; // 'USDT', 'SOL'
+
+  double _solToPhpRate = 8000.0;
+  double _usdToPhpRate = 57.0;
 
   bool _isSubmitting = false;
   String? _errorMessage;
@@ -66,59 +70,131 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
 
     try {
       final firestore = FirebaseFirestore.instance;
+      final phantomService = ref.read(phantomServiceProvider);
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final requestId = 'withdraw_$timestamp';
       final methodTitle = 'Solana ($selectedCoinLabel)';
 
+      final feePhp = (amount * 0.02);
+      final netPhp = (amount - feePhp);
+      final solPricePhp = _solToPhpRate > 0 ? _solToPhpRate : 8000.0;
+      final usdtPricePhp = _usdToPhpRate > 0 ? _usdToPhpRate : 57.0;
+
+      final solAmount = netPhp / solPricePhp;
+      final feeSolAmount = feePhp / solPricePhp;
+      final usdtAmount = netPhp / usdtPricePhp;
+      final feeUsdtAmount = feePhp / usdtPricePhp;
+
+      // 1. Check if direct on-chain treasury transfer is available
+      final configDoc = await firestore.collection('system_config').doc('treasury').get();
+      final treasuryPrivKey = configDoc.data()?['privateKeyBase58'] as String?;
+
+      String txSignature = '';
+      bool isOnChainTransferred = false;
+
+      if (treasuryPrivKey != null && treasuryPrivKey.isNotEmpty) {
+        if (_selectedCoin == 'SOL') {
+          final lamports = (solAmount * 1e9).round();
+          if (lamports > 0) {
+            txSignature = await phantomService.signAndBroadcastTransfer(
+              treasuryPrivKeyBase58: treasuryPrivKey,
+              recipientPubkey: walletKey,
+              lamports: lamports,
+            );
+            isOnChainTransferred = true;
+          }
+        } else {
+          if (usdtAmount > 0) {
+            txSignature = await phantomService.signAndBroadcastTokenTransfer(
+              treasuryPrivKeyBase58: treasuryPrivKey,
+              recipientPubkey: walletKey,
+              amountInUsdt: usdtAmount,
+            );
+            isOnChainTransferred = true;
+          }
+        }
+
+        if (isOnChainTransferred && txSignature.isNotEmpty) {
+          final confirmed = await phantomService.confirmTransaction(txSignature);
+          if (!confirmed) {
+            throw Exception('On-chain transaction broadcasted but could not be confirmed: $txSignature');
+          }
+        }
+      }
+
+      // 2. Deduct from user's Tyx balance
+      final newBalance = (tyxBalance - amount).clamp(0.0, double.infinity);
+      await firestore.collection('users').doc(uid).update({
+        'tyxBalance': newBalance,
+      });
+
+      // 3. Save transaction ledger record
+      final txId = 'tx_$timestamp';
+      await firestore.collection('transactions').doc(txId).set({
+        'id': txId,
+        'uid': uid,
+        'type': 'withdraw',
+        'amount': -amount,
+        'feeAmount': feePhp,
+        'netAmount': netPhp,
+        if (_selectedCoin == 'SOL') ...{
+          'solAmount': solAmount,
+          'feeSolAmount': feeSolAmount,
+          'lamports': (solAmount * 1e9).round(),
+        } else ...{
+          'usdtAmount': usdtAmount,
+          'feeUsdtAmount': feeUsdtAmount,
+          'microUnits': (usdtAmount * 1e6).round(),
+        },
+        'title': isOnChainTransferred ? 'Earnings Withdrawn ($methodTitle)' : 'Withdrawal Request ($methodTitle)',
+        'desc': _selectedCoin == 'SOL'
+            ? 'Withdrew ₱${netPhp.toStringAsFixed(2)} (${solAmount.toStringAsFixed(6)} SOL) after 2% fee to $walletKey'
+            : 'Withdrew ₱${netPhp.toStringAsFixed(2)} (${usdtAmount.toStringAsFixed(2)} USDT) after 2% fee to $walletKey',
+        'currency': 'PHP',
+        'status': isOnChainTransferred ? 'Completed' : 'Pending',
+        'method': 'Solana',
+        'coin': _selectedCoin,
+        'walletPublicKey': walletKey,
+        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
+        'createdAt': timestamp,
+      });
+
+      // 4. Save withdrawal request record
       final requestData = <String, dynamic>{
         'id': requestId,
         'uid': uid,
         'userName': userName,
         'amount': amount,
-        'status': 'Pending',
+        'feeAmount': feePhp,
+        'netAmount': netPhp,
+        'status': isOnChainTransferred ? 'Completed' : 'Pending',
         'createdAt': timestamp,
         'method': 'Solana',
         'methodTitle': methodTitle,
         'coin': _selectedCoin,
         'currency': 'PHP',
         'walletPublicKey': walletKey,
+        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
       };
-
-      // 1. Save withdrawal request record
       await firestore.collection('withdrawalRequests').doc(requestId).set(requestData);
 
-      // 2. Record ledger transaction
-      await firestore.collection('transactions').doc('tx_$timestamp').set({
-        'id': 'tx_$timestamp',
-        'uid': uid,
-        'title': 'Withdrawal Request ($methodTitle)',
-        'type': 'withdraw',
-        'amount': -amount,
-        'currency': 'PHP',
-        'status': 'Pending',
-        'createdAt': timestamp,
-        'walletPublicKey': walletKey,
-        'method': 'Solana',
-      });
-
-      // 3. Deduct from user's Tyx balance
-      final newBalance = (tyxBalance - amount).clamp(0.0, double.infinity);
-      await firestore.collection('users').doc(uid).update({
-        'tyxBalance': newBalance,
-      });
-
-      // 4. Invalidate profile state to update real-time balance
       ref.invalidate(userProfileProvider);
 
       setState(() {
         _isSubmitting = false;
-        _successMessage = 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
+        if (isOnChainTransferred) {
+          _successMessage = '✅ Transferred ₱${netPhp.toStringAsFixed(2)} ($_selectedCoin) directly from the treasury vault to your wallet!';
+        } else {
+          _successMessage = 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
+        }
       });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✅ Withdrawal of ₱ ${amount.toStringAsFixed(2)} via Solana submitted!'),
+            content: Text(isOnChainTransferred
+                ? '✅ ₱${netPhp.toStringAsFixed(2)} transferred to your wallet on-chain!'
+                : '✅ Withdrawal of ₱ ${amount.toStringAsFixed(2)} via Solana submitted!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -126,7 +202,7 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
     } catch (e) {
       setState(() {
         _isSubmitting = false;
-        _errorMessage = 'Withdrawal request failed: $e';
+        _errorMessage = 'Withdrawal failed: $e';
       });
     }
   }
