@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
+import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/profile/providers/profile_provider.dart';
 
@@ -18,6 +19,9 @@ class WithdrawPane extends ConsumerStatefulWidget {
 class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
   final _amountController = TextEditingController(text: '100');
   String _selectedCoin = 'USDT'; // 'USDT', 'SOL'
+
+  double _solToPhpRate = 8000.0;
+  double _usdToPhpRate = 57.0;
 
   bool _isSubmitting = false;
   String? _errorMessage;
@@ -37,7 +41,11 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
     });
   }
 
-  Future<void> _submitWithdrawal(double tyxBalance, String uid, String userName) async {
+  Future<void> _submitWithdrawal(
+    double tyxBalance,
+    String uid,
+    String userName,
+  ) async {
     final amount = double.tryParse(_amountController.text.trim()) ?? 0.0;
 
     if (amount < 100) {
@@ -46,7 +54,10 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
     }
 
     if (amount > tyxBalance) {
-      setState(() => _errorMessage = 'Requested amount exceeds your available balance (₱ ${tyxBalance.toStringAsFixed(2)}).');
+      setState(
+        () => _errorMessage =
+            'Requested amount exceeds your available balance (₱ ${tyxBalance.toStringAsFixed(2)}).',
+      );
       return;
     }
 
@@ -54,7 +65,10 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
     final walletKey = profile?.walletPublicKey;
 
     if (walletKey == null || walletKey.isEmpty) {
-      setState(() => _errorMessage = 'Withdrawals are only available to connected Solana wallets. Please link your wallet first in Payment Methods or Trust & Verification.');
+      setState(
+        () => _errorMessage =
+            'Withdrawals are only available to connected Solana wallets. Please link your wallet first in Payment Methods or Trust & Verification.',
+      );
       return;
     }
 
@@ -66,59 +80,147 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
 
     try {
       final firestore = FirebaseFirestore.instance;
+      final phantomService = ref.read(phantomServiceProvider);
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final requestId = 'withdraw_$timestamp';
       final methodTitle = 'Solana ($selectedCoinLabel)';
 
+      final feePhp = (amount * 0.02);
+      final netPhp = (amount - feePhp);
+      final solPricePhp = _solToPhpRate > 0 ? _solToPhpRate : 8000.0;
+      final usdtPricePhp = _usdToPhpRate > 0 ? _usdToPhpRate : 57.0;
+
+      final solAmount = netPhp / solPricePhp;
+      final feeSolAmount = feePhp / solPricePhp;
+      final usdtAmount = netPhp / usdtPricePhp;
+      final feeUsdtAmount = feePhp / usdtPricePhp;
+
+      // 1. Check if direct on-chain treasury transfer is available
+      final configDoc = await firestore
+          .collection('system_config')
+          .doc('treasury')
+          .get();
+      final treasuryPrivKey = configDoc.data()?['privateKeyBase58'] as String?;
+
+      String txSignature = '';
+      bool isOnChainTransferred = false;
+
+      if (treasuryPrivKey != null && treasuryPrivKey.isNotEmpty) {
+        if (_selectedCoin == 'SOL') {
+          final lamports = (solAmount * 1e9).round();
+          if (lamports > 0) {
+            txSignature = await phantomService.signAndBroadcastTransfer(
+              treasuryPrivKeyBase58: treasuryPrivKey,
+              recipientPubkey: walletKey,
+              lamports: lamports,
+            );
+            isOnChainTransferred = true;
+          }
+        } else {
+          if (usdtAmount > 0) {
+            txSignature = await phantomService.signAndBroadcastTokenTransfer(
+              treasuryPrivKeyBase58: treasuryPrivKey,
+              recipientPubkey: walletKey,
+              amountInUsdt: usdtAmount,
+            );
+            isOnChainTransferred = true;
+          }
+        }
+
+        if (isOnChainTransferred && txSignature.isNotEmpty) {
+          final confirmed = await phantomService.confirmTransaction(
+            txSignature,
+          );
+          if (!confirmed) {
+            throw Exception(
+              'On-chain transaction broadcasted but could not be confirmed: $txSignature',
+            );
+          }
+        }
+      }
+
+      // 2. Deduct from user's Tyx balance
+      final newBalance = (tyxBalance - amount).clamp(0.0, double.infinity);
+      await firestore.collection('users').doc(uid).update({
+        'tyxBalance': newBalance,
+      });
+
+      // 3. Save transaction ledger record
+      final txId = 'tx_$timestamp';
+      await firestore.collection('transactions').doc(txId).set({
+        'id': txId,
+        'uid': uid,
+        'type': 'withdraw',
+        'amount': -amount,
+        'feeAmount': feePhp,
+        'netAmount': netPhp,
+        if (_selectedCoin == 'SOL') ...{
+          'solAmount': solAmount,
+          'feeSolAmount': feeSolAmount,
+          'lamports': (solAmount * 1e9).round(),
+        } else ...{
+          'usdtAmount': usdtAmount,
+          'feeUsdtAmount': feeUsdtAmount,
+          'microUnits': (usdtAmount * 1e6).round(),
+        },
+        'title': isOnChainTransferred
+            ? 'Earnings Withdrawn ($methodTitle)'
+            : 'Withdrawal Request ($methodTitle)',
+        'desc': _selectedCoin == 'SOL'
+            ? 'Withdrew ₱${netPhp.toStringAsFixed(2)} (${solAmount.toStringAsFixed(6)} SOL) after 2% fee to $walletKey'
+            : 'Withdrew ₱${netPhp.toStringAsFixed(2)} (${usdtAmount.toStringAsFixed(2)} USDT) after 2% fee to $walletKey',
+        'currency': 'PHP',
+        'status': isOnChainTransferred ? 'Completed' : 'Pending',
+        'method': 'Solana',
+        'coin': _selectedCoin,
+        'walletPublicKey': walletKey,
+        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
+        'createdAt': timestamp,
+      });
+
+      // 4. Save withdrawal request record
       final requestData = <String, dynamic>{
         'id': requestId,
         'uid': uid,
         'userName': userName,
         'amount': amount,
-        'status': 'Pending',
+        'feeAmount': feePhp,
+        'netAmount': netPhp,
+        'status': isOnChainTransferred ? 'Completed' : 'Pending',
         'createdAt': timestamp,
         'method': 'Solana',
         'methodTitle': methodTitle,
         'coin': _selectedCoin,
         'currency': 'PHP',
         'walletPublicKey': walletKey,
+        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
       };
+      await firestore
+          .collection('withdrawalRequests')
+          .doc(requestId)
+          .set(requestData);
 
-      // 1. Save withdrawal request record
-      await firestore.collection('withdrawalRequests').doc(requestId).set(requestData);
-
-      // 2. Record ledger transaction
-      await firestore.collection('transactions').doc('tx_$timestamp').set({
-        'id': 'tx_$timestamp',
-        'uid': uid,
-        'title': 'Withdrawal Request ($methodTitle)',
-        'type': 'withdraw',
-        'amount': -amount,
-        'currency': 'PHP',
-        'status': 'Pending',
-        'createdAt': timestamp,
-        'walletPublicKey': walletKey,
-        'method': 'Solana',
-      });
-
-      // 3. Deduct from user's Tyx balance
-      final newBalance = (tyxBalance - amount).clamp(0.0, double.infinity);
-      await firestore.collection('users').doc(uid).update({
-        'tyxBalance': newBalance,
-      });
-
-      // 4. Invalidate profile state to update real-time balance
       ref.invalidate(userProfileProvider);
 
       setState(() {
         _isSubmitting = false;
-        _successMessage = 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
+        if (isOnChainTransferred) {
+          _successMessage =
+              '✅ Transferred ₱${netPhp.toStringAsFixed(2)} ($_selectedCoin) directly from the treasury vault to your wallet!';
+        } else {
+          _successMessage =
+              'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
+        }
       });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✅ Withdrawal of ₱ ${amount.toStringAsFixed(2)} via Solana submitted!'),
+            content: Text(
+              isOnChainTransferred
+                  ? '✅ ₱${netPhp.toStringAsFixed(2)} transferred to your wallet on-chain!'
+                  : '✅ Withdrawal of ₱ ${amount.toStringAsFixed(2)} via Solana submitted!',
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -126,12 +228,13 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
     } catch (e) {
       setState(() {
         _isSubmitting = false;
-        _errorMessage = 'Withdrawal request failed: $e';
+        _errorMessage = 'Withdrawal failed: $e';
       });
     }
   }
 
-  String get selectedCoinLabel => _selectedCoin == 'SOL' ? 'SOL (Native)' : 'USDT (SPL)';
+  String get selectedCoinLabel =>
+      _selectedCoin == 'SOL' ? 'SOL (Native)' : 'USDT (SPL)';
 
   @override
   Widget build(BuildContext context) {
@@ -149,7 +252,9 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
 
         final tyxBalance = profile.tyxBalance;
         final cardBg = isDarkMode ? const Color(0xFF1E1E24) : Colors.white;
-        final borderColor = isDarkMode ? const Color(0xFF2E2E38) : const Color(0xFFE5E7EB);
+        final borderColor = isDarkMode
+            ? const Color(0xFF2E2E38)
+            : const Color(0xFFE5E7EB);
         final walletKey = profile.walletPublicKey;
         final hasWallet = walletKey != null && walletKey.isNotEmpty;
 
@@ -185,14 +290,20 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                   decoration: BoxDecoration(
                     color: Colors.amber.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                    border: Border.all(
+                      color: Colors.amber.withValues(alpha: 0.3),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.shield_outlined, color: Colors.amber, size: 20),
+                          Icon(
+                            Icons.shield_outlined,
+                            color: Colors.amber,
+                            size: 20,
+                          ),
                           SizedBox(width: 8),
                           Text(
                             "Solana Wallet Required",
@@ -209,21 +320,35 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                         "Withdrawals on Tranyx are only available to verified Solana wallets. Please link your wallet first in Payment Methods.",
                         style: TextStyle(
                           fontSize: 12,
-                          color: isDarkMode ? Colors.grey[300] : Colors.grey[700],
+                          color: isDarkMode
+                              ? Colors.grey[300]
+                              : Colors.grey[700],
                         ),
                       ),
                       const SizedBox(height: 10),
                       ElevatedButton(
                         onPressed: () {
-                          ref.read(profileViewProvider.notifier).state = 'payment';
+                          ref.read(profileViewProvider.notifier).state =
+                              'payment';
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.amber[800],
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
-                        child: const Text("Link Wallet in Payments", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        child: const Text(
+                          "Link Wallet in Payments",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -231,11 +356,16 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
               else
                 Container(
                   margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.green.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.green.withValues(alpha: 0.25)),
+                    border: Border.all(
+                      color: Colors.green.withValues(alpha: 0.25),
+                    ),
                   ),
                   child: Row(
                     children: [
@@ -243,12 +373,21 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                       const SizedBox(width: 8),
                       const Text(
                         "Connected Solana Wallet: ",
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green,
+                        ),
                       ),
                       Expanded(
                         child: Text(
                           "${walletKey.substring(0, 6)}...${walletKey.substring(walletKey.length - 6)}",
-                          style: const TextStyle(fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.bold, color: Colors.green),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -291,7 +430,10 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                           ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(12),
@@ -299,11 +441,19 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.shield_outlined, size: 13, color: Colors.white),
+                              Icon(
+                                Icons.shield_outlined,
+                                size: 13,
+                                color: Colors.white,
+                              ),
                               SizedBox(width: 4),
                               Text(
                                 "Instant Escrow",
-                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
                               ),
                             ],
                           ),
@@ -340,7 +490,9 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 1.0,
-                  color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                  color: isDarkMode
+                      ? AppColors.darkTextMuted
+                      : AppColors.lightTextMuted,
                 ),
               ),
               const SizedBox(height: 12),
@@ -357,8 +509,14 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                   children: [
                     TextField(
                       controller: _amountController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'^\d+\.?\d{0,2}'),
+                        ),
+                      ],
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w900,
@@ -372,15 +530,22 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                             style: TextStyle(
                               fontSize: 24,
                               fontWeight: FontWeight.w900,
-                              color: isDarkMode ? AppColors.indigo : AppColors.blue,
+                              color: isDarkMode
+                                  ? AppColors.indigo
+                                  : AppColors.blue,
                             ),
                           ),
                         ),
-                        prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+                        prefixIconConstraints: const BoxConstraints(
+                          minWidth: 0,
+                          minHeight: 0,
+                        ),
                         hintText: "0.00",
                         hintStyle: TextStyle(
                           fontSize: 24,
-                          color: isDarkMode ? Colors.grey[600] : Colors.grey[400],
+                          color: isDarkMode
+                              ? Colors.grey[600]
+                              : Colors.grey[400],
                         ),
                         border: InputBorder.none,
                       ),
@@ -393,9 +558,25 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                       children: [
                         _buildPresetChip("₱100", 100, tyxBalance, isDarkMode),
                         _buildPresetChip("₱500", 500, tyxBalance, isDarkMode),
-                        _buildPresetChip("₱1,000", 1000, tyxBalance, isDarkMode),
-                        _buildPresetChip("₱5,000", 5000, tyxBalance, isDarkMode),
-                        _buildPresetChip("MAX", tyxBalance, tyxBalance, isDarkMode, isMax: true),
+                        _buildPresetChip(
+                          "₱1,000",
+                          1000,
+                          tyxBalance,
+                          isDarkMode,
+                        ),
+                        _buildPresetChip(
+                          "₱5,000",
+                          5000,
+                          tyxBalance,
+                          isDarkMode,
+                        ),
+                        _buildPresetChip(
+                          "MAX",
+                          tyxBalance,
+                          tyxBalance,
+                          isDarkMode,
+                          isMax: true,
+                        ),
                       ],
                     ),
                   ],
@@ -414,18 +595,29 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.0,
-                      color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                      color: isDarkMode
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
-                      color: isDarkMode ? const Color(0xFF4F46E5).withValues(alpha: 0.15) : const Color(0xFFEEF2FF),
+                      color: isDarkMode
+                          ? const Color(0xFF4F46E5).withValues(alpha: 0.15)
+                          : const Color(0xFFEEF2FF),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Text(
                       "Solana Only",
-                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)),
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF4F46E5),
+                      ),
                     ),
                   ),
                 ],
@@ -448,12 +640,20 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                       children: [
                         const Text(
                           "Destination Wallet Address",
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
-                            color: hasWallet ? Colors.green.withValues(alpha: 0.15) : Colors.amber.withValues(alpha: 0.15),
+                            color: hasWallet
+                                ? Colors.green.withValues(alpha: 0.15)
+                                : Colors.amber.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
@@ -461,7 +661,9 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
-                              color: hasWallet ? Colors.green : Colors.amber[700],
+                              color: hasWallet
+                                  ? Colors.green
+                                  : Colors.amber[700],
                             ),
                           ),
                         ),
@@ -484,13 +686,19 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                          color: isDarkMode
+                              ? Colors.grey[400]
+                              : Colors.grey[600],
                         ),
                       ),
                       const SizedBox(height: 8),
                       Row(
                         children: [
-                          _buildCoinChip('USDT', 'USDT (SPL Token)', isDarkMode),
+                          _buildCoinChip(
+                            'USDT',
+                            'USDT (SPL Token)',
+                            isDarkMode,
+                          ),
                           const SizedBox(width: 8),
                           _buildCoinChip('SOL', 'SOL (Native SOL)', isDarkMode),
                         ],
@@ -498,7 +706,12 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                     ] else ...[
                       Text(
                         "Please link your Phantom, Solflare, or Trust wallet in Payment Methods to receive instant Solana payouts.",
-                        style: TextStyle(fontSize: 12, color: isDarkMode ? Colors.grey[400] : Colors.grey[600]),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDarkMode
+                              ? Colors.grey[400]
+                              : Colors.grey[600],
+                        ),
                       ),
                     ],
                   ],
@@ -511,7 +724,9 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: isDarkMode ? const Color(0xFF13131A) : const Color(0xFFF9FAFB),
+                  color: isDarkMode
+                      ? const Color(0xFF13131A)
+                      : const Color(0xFFF9FAFB),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: borderColor),
                 ),
@@ -546,16 +761,25 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                   decoration: BoxDecoration(
                     color: Colors.red.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                    border: Border.all(
+                      color: Colors.red.withValues(alpha: 0.3),
+                    ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.error_outline, color: Colors.redAccent, size: 18),
+                      const Icon(
+                        Icons.error_outline,
+                        color: Colors.redAccent,
+                        size: 18,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           _errorMessage!,
-                          style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                          style: const TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                     ],
@@ -570,16 +794,26 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                   decoration: BoxDecoration(
                     color: Colors.green.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                    border: Border.all(
+                      color: Colors.green.withValues(alpha: 0.3),
+                    ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.check_circle_outline, color: Colors.green, size: 18),
+                      const Icon(
+                        Icons.check_circle_outline,
+                        color: Colors.green,
+                        size: 18,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           _successMessage!,
-                          style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                            color: Colors.green,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
@@ -596,16 +830,28 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         onPressed: hasWallet
-                            ? () => _submitWithdrawal(tyxBalance, user?.uid ?? profile.uid, profile.name)
+                            ? () => _submitWithdrawal(
+                                tyxBalance,
+                                user?.uid ?? profile.uid,
+                                profile.name,
+                              )
                             : null,
                         icon: const Icon(Icons.arrow_upward_rounded),
-                        label: Text(hasWallet ? "Confirm & Withdraw via Solana" : "Link Solana Wallet to Withdraw"),
+                        label: Text(
+                          hasWallet
+                              ? "Confirm & Withdraw via Solana"
+                              : "Link Solana Wallet to Withdraw",
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF4F46E5),
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          disabledBackgroundColor: Colors.grey.withValues(alpha: 0.3),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          disabledBackgroundColor: Colors.grey.withValues(
+                            alpha: 0.3,
+                          ),
                           disabledForegroundColor: Colors.grey,
                         ),
                       ),
@@ -619,7 +865,13 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
     );
   }
 
-  Widget _buildPresetChip(String label, double amount, double maxBalance, bool isDarkMode, {bool isMax = false}) {
+  Widget _buildPresetChip(
+    String label,
+    double amount,
+    double maxBalance,
+    bool isDarkMode, {
+    bool isMax = false,
+  }) {
     return InkWell(
       onTap: () => _setPresetAmount(amount, maxBalance),
       borderRadius: BorderRadius.circular(10),
@@ -628,7 +880,9 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
         decoration: BoxDecoration(
           color: isMax
               ? const Color(0xFF4F46E5).withValues(alpha: 0.15)
-              : (isDarkMode ? const Color(0xFF27272A) : const Color(0xFFF3F4F6)),
+              : (isDarkMode
+                    ? const Color(0xFF27272A)
+                    : const Color(0xFFF3F4F6)),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isMax ? const Color(0xFF4F46E5) : Colors.transparent,
@@ -658,7 +912,9 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
         decoration: BoxDecoration(
           color: isSelected
               ? const Color(0xFF4F46E5).withValues(alpha: 0.15)
-              : (isDarkMode ? const Color(0xFF27272A) : const Color(0xFFF3F4F6)),
+              : (isDarkMode
+                    ? const Color(0xFF27272A)
+                    : const Color(0xFFF3F4F6)),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isSelected ? const Color(0xFF4F46E5) : Colors.transparent,
@@ -670,27 +926,39 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
           style: TextStyle(
             fontSize: 12,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            color: isSelected ? const Color(0xFF4F46E5) : (isDarkMode ? Colors.white70 : Colors.black87),
+            color: isSelected
+                ? const Color(0xFF4F46E5)
+                : (isDarkMode ? Colors.white70 : Colors.black87),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildSummaryRow(String label, String value, {bool isHighlight = false, required bool isDarkMode}) {
+  Widget _buildSummaryRow(
+    String label,
+    String value, {
+    bool isHighlight = false,
+    required bool isDarkMode,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           label,
-          style: TextStyle(fontSize: 12, color: isDarkMode ? Colors.grey[400] : Colors.grey[600]),
+          style: TextStyle(
+            fontSize: 12,
+            color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+          ),
         ),
         Text(
           value,
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.bold,
-            color: isHighlight ? Colors.green : (isDarkMode ? Colors.white : Colors.black87),
+            color: isHighlight
+                ? Colors.green
+                : (isDarkMode ? Colors.white : Colors.black87),
           ),
         ),
       ],
