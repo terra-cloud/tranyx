@@ -515,6 +515,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
           String label,
           String viewKey, {
           bool isDestructive = false,
+          VoidCallback? onTap,
         }) {
           Color itemColor = isDestructive
               ? AppColors.red
@@ -524,7 +525,9 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
 
           return GestureDetector(
             onTap: () {
-              if (isDestructive && viewKey == 'logout') {
+              if (onTap != null) {
+                onTap();
+              } else if (isDestructive && viewKey == 'logout') {
                 ref.read(authControllerProvider).signOut();
                 ref.read(authViewProvider.notifier).state = 'login';
                 ref.read(profileViewProvider.notifier).state = 'main';
@@ -753,9 +756,12 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
               'professional',
             ),
             const SizedBox(height: 12),
-            buildProfileMenu(Icons.credit_card, "Payment Methods", 'payment'),
-            const SizedBox(height: 12),
-            buildProfileMenu(Icons.arrow_upward_rounded, "Withdraw Funds", 'withdraw'),
+            buildProfileMenu(
+              Icons.arrow_upward_rounded,
+              "Withdraw Funds",
+              'withdraw',
+              onTap: () => WithdrawPane.show(context),
+            ),
             const SizedBox(height: 12),
             buildProfileMenu(Icons.star_rounded, "Hybrid PRO Subscription", 'subscription'),
             const SizedBox(height: 12),
@@ -1127,9 +1133,11 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
             onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
           );
         } else if (profileView == 'withdraw') {
-          rightPane = WithdrawPane(
-            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
-          );
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ref.read(profileViewProvider.notifier).state = 'main';
+            WithdrawPane.show(context);
+          });
+          rightPane = menuPane;
         } else if (profileView == 'subscription') {
           rightPane = SubscriptionPane(
             onBack: () => ref.read(profileViewProvider.notifier).state = 'main',

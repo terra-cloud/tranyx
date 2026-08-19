@@ -16,6 +16,7 @@ import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/flavors.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/withdraw_pane.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 
 final rawUserDocProvider =
@@ -3079,9 +3080,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                         'Withdraw',
                         style: TextStyle(fontSize: 12),
                       ),
-                      onPressed: () =>
-                          ref.read(profileViewProvider.notifier).state =
-                              'withdraw',
+                      onPressed: () => WithdrawPane.show(context),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.black.withValues(alpha: 0.2),
                         foregroundColor: Colors.white,

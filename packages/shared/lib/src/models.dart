@@ -145,7 +145,9 @@ class UserProfile {
       createdAt: map['createdAt'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int)
           : null,
-      walletPublicKey: map['walletPublicKey'] as String?,
+      walletPublicKey: (map['walletPublicKey'] ??
+              map['solanaWalletAddress'] ??
+              map['walletAddress']) as String?,
       googleEmail: map['googleEmail'] as String?,
       tyxBalance: (map['tyxBalance'] as num?)?.toDouble() ?? 0.0,
       jobsDone: map['jobsDone'] as int? ?? 0,

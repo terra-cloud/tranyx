@@ -15,6 +15,7 @@ import 'package:tranyx_mobile/features/navigation/providers/navigation_provider.
 import 'package:tranyx_mobile/features/jobs/presentation/categories_bottom_sheet.dart';
 import 'package:shared/shared.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/withdraw_pane.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 
 final homeTabProvider = StateProvider<String>((ref) => 'dashboard');
@@ -1066,8 +1067,7 @@ class HomeView extends ConsumerWidget {
                   isDarkMode: isDarkMode,
                   onTap: () {
                     Navigator.pop(ctx);
-                    ref.read(activeTabProvider.notifier).state = 'profile';
-                    ref.read(profileViewProvider.notifier).state = 'withdraw';
+                    WithdrawPane.show(context);
                   },
                 ),
                 const SizedBox(height: 10),

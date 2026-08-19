@@ -45,6 +45,7 @@ import '../client/components/sign_contract_modal.dart';
 import '../client/components/kyc_id_modal.dart';
 import '../client/components/kyc_bg_modal.dart';
 import '../client/widgets/session_expired_modal.dart';
+import '../client/widgets/withdraw_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -245,9 +246,9 @@ class TranyxAppState extends State<TranyxApp> {
 
   String? get idToken => SessionStorage.idToken;
 
-  // ── Tyx payment & deposit state ───────────────────────────────
   bool showWalletActionMenu = false;
   bool showDepositModal = false;
+  bool showWithdrawModal = false;
   double depositAmount = 0.0;
   bool isDepositing = false;
   String selectedPaymentMethod = const String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod'
@@ -6462,6 +6463,9 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Payment modal overlay
       if (showDepositModal) PaymentModalComponent(state: this),
+
+      // Withdraw modal overlay
+      if (showWithdrawModal) WithdrawModalComponent(state: this),
 
       // SMS Verification modal overlay
       if (showSmsModal) SmsVerificationModalComponent(state: this),

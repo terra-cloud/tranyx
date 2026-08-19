@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:web/web.dart' as web;
@@ -133,8 +135,12 @@ class _ProfileMenu extends StatelessComponent {
           'w-full flex items-center gap-3 p-4 rounded-2xl transition-all text-left ${isActive ? activeCls : inactiveCls}',
       events: {
         'click': (_) => s.setState(() {
-          s.profileView = view;
-          s.initializeProfileEditing();
+          if (view == ProfileView.withdraw) {
+            s.showWithdrawModal = true;
+          } else {
+            s.profileView = view;
+            s.initializeProfileEditing();
+          }
         }),
       },
       [
@@ -307,7 +313,7 @@ class _ProfileMainState extends State<_ProfileMain> {
                 button(
                   classes:
                       'px-2 py-1 text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 rounded-lg bg-emerald-500/5 transition-colors cursor-pointer',
-                  events: {'click': (_) => s.setState(() => s.profileView = ProfileView.withdraw)},
+                  events: {'click': (_) => s.setState(() => s.showWithdrawModal = true)},
                   [Component.text('Withdraw')],
                 ),
               ]),
@@ -1216,7 +1222,7 @@ class _Payment extends StatelessComponent {
                 button(
                   classes:
                       'flex-1 py-3.5 rounded-2xl bg-black/20 backdrop-blur-md border border-white/10 font-bold text-sm hover:bg-black/30 transition-all flex items-center justify-center gap-2 cursor-pointer',
-                  events: {'click': (_) => s.setState(() => s.profileView = ProfileView.withdraw)},
+                  events: {'click': (_) => s.setState(() => s.showWithdrawModal = true)},
                   [
                     lIcon('arrow-up-right', cls: 'w-4 h-4'),
                     Component.text('Withdraw'),
@@ -1579,9 +1585,75 @@ class _WithdrawPane extends StatefulComponent {
 class _WithdrawPaneState extends State<_WithdrawPane> {
   String _amountInput = '100';
   String _selectedCoin = 'USDT'; // 'USDT' (SPL) or 'SOL'
+  double _solToPhpRate = 8000.0;
+  double _usdToPhpRate = 57.0;
+  bool _isFetchingRates = false;
   bool _isSubmitting = false;
   String? _errorMessage;
   String? _successMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLiveRates();
+  }
+
+  Future<void> _fetchLiveRates() async {
+    setState(() => _isFetchingRates = true);
+    try {
+      final cgRes = await http
+          .get(
+            Uri.parse(
+              'https://api.coingecko.com/api/v3/simple/price?ids=solana,tether&vs_currencies=php,usd',
+            ),
+          )
+          .timeout(const Duration(seconds: 5));
+
+      if (cgRes.statusCode == 200) {
+        final data = jsonDecode(cgRes.body) as Map<String, dynamic>;
+        final sol = (data['solana']?['php'] as num?)?.toDouble();
+        final usdt = (data['tether']?['php'] as num?)?.toDouble();
+        setState(() {
+          if (sol != null && sol > 0) _solToPhpRate = sol;
+          if (usdt != null && usdt > 0) _usdToPhpRate = usdt;
+        });
+      } else {
+        final binanceRes = await http
+            .get(
+              Uri.parse(
+                'https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT',
+              ),
+            )
+            .timeout(const Duration(seconds: 4));
+        final usdPhpRes = await http
+            .get(Uri.parse('https://open.er-api.com/v6/latest/USD'))
+            .timeout(const Duration(seconds: 4));
+
+        double usdPhp = 57.0;
+        if (usdPhpRes.statusCode == 200) {
+          final usdData = jsonDecode(usdPhpRes.body) as Map<String, dynamic>;
+          final php = (usdData['rates']?['PHP'] as num?)?.toDouble();
+          if (php != null && php > 0) usdPhp = php;
+        }
+
+        if (binanceRes.statusCode == 200) {
+          final bData = jsonDecode(binanceRes.body) as Map<String, dynamic>;
+          final solUsd =
+              double.tryParse(bData['price']?.toString() ?? '') ?? 0.0;
+          if (solUsd > 0) {
+            setState(() {
+              _solToPhpRate = solUsd * usdPhp;
+              _usdToPhpRate = usdPhp;
+            });
+          }
+        }
+      }
+    } catch (_) {
+      // Sensible defaults maintained if offline
+    } finally {
+      setState(() => _isFetchingRates = false);
+    }
+  }
 
   void _setPresetAmount(double amount, double maxBal) {
     final clamped = amount.clamp(0.0, maxBal);
@@ -1659,11 +1731,20 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
       final svc = FirestoreService(token, s.handleTokenRefresh);
       final methodTitle = 'Solana ($_selectedCoin)';
 
+      final feePhp = (amount * 0.02);
+      final netPhp = (amount - feePhp);
+      final activeRate = _selectedCoin == 'SOL' ? (_solToPhpRate > 0 ? _solToPhpRate : 8000.0) : (_usdToPhpRate > 0 ? _usdToPhpRate : 57.0);
+      final cryptoAmount = activeRate > 0 ? netPhp / activeRate : 0.0;
+
       final requestData = <String, dynamic>{
         'id': requestId,
         'uid': uid,
         'userName': s.userName,
         'amount': amount,
+        'feeAmount': feePhp,
+        'netAmount': netPhp,
+        'cryptoAmount': cryptoAmount,
+        'rateUsed': activeRate,
         'status': 'Pending',
         'createdAt': timestamp,
         'currency': 'PHP',
@@ -1683,10 +1764,15 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
         'title': 'Withdrawal Request ($methodTitle)',
         'type': 'withdraw',
         'amount': -amount,
+        'feeAmount': feePhp,
+        'netAmount': netPhp,
+        'cryptoAmount': cryptoAmount,
+        'rateUsed': activeRate,
         'currency': 'PHP',
         'status': 'Pending',
         'createdAt': timestamp,
         'walletPublicKey': walletKey,
+        'coin': _selectedCoin,
       });
 
       // 3. Deduct from user profile balance
@@ -1721,6 +1807,15 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
     final hasWallet = walletKey.isNotEmpty;
     final cardBg = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
     final inputBg = isDark ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-white border-zinc-300 text-zinc-900';
+
+    final enteredAmount = double.tryParse(_amountInput.trim()) ?? 0.0;
+    final feePhp = enteredAmount * 0.02;
+    final netPhp = (enteredAmount - feePhp).clamp(0.0, double.infinity);
+    final activeRate = _selectedCoin == 'SOL' ? (_solToPhpRate > 0 ? _solToPhpRate : 8000.0) : (_usdToPhpRate > 0 ? _usdToPhpRate : 57.0);
+    final estCryptoAmount = activeRate > 0 ? netPhp / activeRate : 0.0;
+    final estCryptoStr = _selectedCoin == 'SOL'
+        ? '${estCryptoAmount.toStringAsFixed(6)} SOL'
+        : '${estCryptoAmount.toStringAsFixed(2)} USDT';
 
     return div(classes: 'space-y-6', [
       subViewHeader(
@@ -1879,15 +1974,41 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
           if (hasWallet) ...[
             p(classes: 'font-mono text-xs font-bold text-indigo-400 break-all', [Component.text(walletKey)]),
             div(classes: 'pt-2 space-y-2', [
-              span(classes: 'text-xs font-semibold text-zinc-400 block', [Component.text('Select Payout Token:')]),
-              div(classes: 'flex gap-2', [
-                for (final coin in ['USDT', 'SOL'])
-                  button(
-                    classes:
-                        'px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${_selectedCoin == coin ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30" : (isDark ? "bg-zinc-800 text-zinc-400 hover:text-white" : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300")}',
-                    events: {'click': (_) => setState(() => _selectedCoin = coin)},
-                    [Component.text(coin == 'USDT' ? 'USDT (SPL Token)' : 'SOL (Native SOL)')],
-                  ),
+              div(classes: 'flex items-center justify-between', [
+                span(classes: 'text-xs font-semibold text-zinc-400 block', [Component.text('Select Payout Token:')]),
+                span(classes: 'text-[11px] text-zinc-400 font-mono', [
+                  Component.text(_isFetchingRates ? 'Fetching live rates...' : 'Live Web Rates'),
+                ]),
+              ]),
+              div(classes: 'grid grid-cols-1 sm:grid-cols-2 gap-2.5', [
+                button(
+                  classes:
+                      'p-3 rounded-2xl text-left border transition-all cursor-pointer ${_selectedCoin == 'USDT' ? "bg-indigo-600/15 border-indigo-500 text-white shadow-md shadow-indigo-600/20" : (isDark ? "bg-zinc-800/80 border-zinc-700 text-zinc-400 hover:text-white" : "bg-zinc-100 border-zinc-200 text-zinc-700 hover:bg-zinc-200")}',
+                  events: {'click': (_) => setState(() => _selectedCoin = 'USDT')},
+                  [
+                    div(classes: 'flex justify-between items-center', [
+                      span(classes: 'text-xs font-bold text-white', [Component.text('Tether (USDT SPL)')]),
+                      if (_selectedCoin == 'USDT') lIcon('check-circle', cls: 'w-4 h-4 text-indigo-400'),
+                    ]),
+                    p(classes: 'text-[11px] text-zinc-400 mt-1', [
+                      Component.text('1 USDT ≈ ₱${_usdToPhpRate.toStringAsFixed(2)}'),
+                    ]),
+                  ],
+                ),
+                button(
+                  classes:
+                      'p-3 rounded-2xl text-left border transition-all cursor-pointer ${_selectedCoin == 'SOL' ? "bg-indigo-600/15 border-indigo-500 text-white shadow-md shadow-indigo-600/20" : (isDark ? "bg-zinc-800/80 border-zinc-700 text-zinc-400 hover:text-white" : "bg-zinc-100 border-zinc-200 text-zinc-700 hover:bg-zinc-200")}',
+                  events: {'click': (_) => setState(() => _selectedCoin = 'SOL')},
+                  [
+                    div(classes: 'flex justify-between items-center', [
+                      span(classes: 'text-xs font-bold text-white', [Component.text('Solana (SOL Native)')]),
+                      if (_selectedCoin == 'SOL') lIcon('check-circle', cls: 'w-4 h-4 text-indigo-400'),
+                    ]),
+                    p(classes: 'text-[11px] text-zinc-400 mt-1', [
+                      Component.text('1 SOL ≈ ₱${_solToPhpRate.toStringAsFixed(2)}'),
+                    ]),
+                  ],
+                ),
               ]),
             ]),
           ] else ...[
@@ -1900,6 +2021,24 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
 
       // Fee & ETA Summary
       div(classes: 'p-4 rounded-2xl border ${isDark ? "bg-zinc-900/40 border-zinc-800 text-zinc-400" : "bg-zinc-50 border-zinc-200 text-zinc-600"} text-xs space-y-2', [
+        div(classes: 'flex justify-between items-center', [
+          span([Component.text('Live Rate (from web)')]),
+          span(classes: 'font-mono font-bold text-indigo-400', [
+            Component.text('1 $_selectedCoin ≈ ₱${activeRate.toStringAsFixed(2)}'),
+          ]),
+        ]),
+        div(classes: 'flex justify-between items-center', [
+          span([Component.text('Platform Fee (2%)')]),
+          span(classes: 'font-semibold text-rose-400', [
+            Component.text('₱ ${feePhp.toStringAsFixed(2)}'),
+          ]),
+        ]),
+        div(classes: 'flex justify-between items-center', [
+          span([Component.text('Estimated Net Payout')]),
+          span(classes: 'font-bold text-emerald-400 font-mono', [
+            Component.text('₱ ${netPhp.toStringAsFixed(2)} ($estCryptoStr)'),
+          ]),
+        ]),
         div(classes: 'flex justify-between items-center', [
           span([Component.text('Network Fee')]),
           span(classes: 'font-bold text-emerald-400', [Component.text('Covered by Tranyx (0%)')]),
@@ -1929,7 +2068,7 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
       // Action Button
       button(
         classes:
-            'w-full py-4 rounded-2xl font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
+          'w-full py-4 rounded-2xl font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
         attributes: _isSubmitting ? {'disabled': 'disabled'} : {},
         events: {
           'click': (_) async {
@@ -2620,107 +2759,15 @@ class _HelpSupportState extends State<_HelpSupport> {
 
   List<Map<String, String>> get faqData {
     final type = component.state.accountType;
-    switch (type) {
-      case AccountType.employer:
-        return [
-          {
-            'title': 'How do I post a gig?',
-            'icon': 'briefcase',
-            'answer':
-                'Navigate to the "Find Workers" tab or dashboard. Click the "Post a Gig" button to open the creation modal. Enter a catchy job title, choose a category, specify required skills, set the budget in Tyx, and complete the escrow. The gig will instantly become visible to qualified Nyxian workers!',
-          },
-          {
-            'title': 'How does payment and Escrow work?',
-            'icon': 'credit-card',
-            'answer':
-                'Tranyx utilizes a secure, trustless in-app Escrow system. When you post a job, the designated funds are safely held in a project escrow. Once the worker delivers their work and you review and approve it, the funds are instantly released to their wallet. No delayed payouts, no hidden fees.',
-          },
-          {
-            'title': 'Why should I verify my TIN ID?',
-            'icon': 'shield-check',
-            'answer':
-                'Verifying your Tax Identification Number (TIN) unlocks the "Verified Employer" status. This dramatically boosts worker trust, increases the visibility of your gig listings, and qualifies you for posting higher-tier contracts.',
-          },
-          {
-            'title': 'How do I review and hire applicants?',
-            'icon': 'users',
-            'answer':
-                'Under "Manage Jobs", click on your posted gig to view the active applicants. You can inspect their profile, reviews, and verified skills. Once you find the perfect match, click "Hire" to lock in the escrow and begin!',
-          },
-          {
-            'title': 'How does the Escrow dispute system work?',
-            'icon': 'alert-circle',
-            'answer':
-                'If a worker fails to deliver or the output does not meet your project specification, you can raise a dispute. Our decentralized moderation team will examine the deliverables and the agreement, settling the escrow fairly.',
-          },
-        ];
-      case AccountType.nyxian:
-        return [
-          {
-            'title': 'How do I apply for jobs?',
-            'icon': 'briefcase',
-            'answer':
-                'Explore the active gig listings under "Find Jobs". When you find a gig matching your expertise, click "Apply Now". Present a brief proposal showing why you are the best fit. If the employer approves, they will hire you and the escrow goes active!',
-          },
-          {
-            'title': 'How and when do I get paid?',
-            'icon': 'credit-card',
-            'answer':
-                'Your payout is completely secured by our in-app Escrow. The moment you submit the gig deliverables and the employer approves them, the funds are instantly released from escrow directly into your virtual Tyx balance.',
-          },
-          {
-            'title': 'What is the minimum withdrawal limit?',
-            'icon': 'wallet',
-            'answer':
-                'To withdraw Tyx to your connected Solana or GCash wallet, a minimum balance of 100 Tyx is required. Withdrawals are processed safely through our payment bridge.',
-          },
-          {
-            'title': 'How do I increase my profile rating?',
-            'icon': 'star',
-            'answer':
-                'Completing jobs on time, communicating professionally, and delivering high-quality results will earn you stellar ratings (up to 5 stars). Higher ratings boost your visibility and make you a preferred choice for premium gigs!',
-          },
-          {
-            'title': 'What are verified skills and how do I add them?',
-            'icon': 'zap',
-            'answer':
-                'Go to your Profile and manage your skills list. Highlighting verified skills that match search criteria helps employers discover you automatically when searching for Nyxian professionals.',
-          },
-        ];
-      case AccountType.hybrid:
-        return [
-          {
-            'title': 'What is a Hybrid PRO account?',
-            'icon': 'zap',
-            'answer':
-                'A Hybrid account gives you the ultimate flexibility to act as both an Employer (posting jobs) and a Nyxian Worker (applying for gigs) using a single, unified profile and balance!',
-          },
-          {
-            'title': 'How do I switch between Employer and Worker views?',
-            'icon': 'refresh-cw',
-            'answer':
-                'You can seamlessly toggle your active mode using the role selector in the dashboard or sidebar. This dynamically switches your views, custom tabs, and actions so you can hire or apply on the fly.',
-          },
-          {
-            'title': 'Are my balance and ratings shared?',
-            'icon': 'credit-card',
-            'answer':
-                'Yes! Your Tyx balance is shared across both roles, meaning you can immediately use earnings from your completed gigs to post new jobs. However, your rating system is split into "Employer Rating" and "Worker Rating" to represent your reputation in both roles accurately.',
-          },
-          {
-            'title': 'Do I need to verify both profiles?',
-            'icon': 'shield-check',
-            'answer':
-                'No, a single verification process validates your identity globally. Verifying your email, phone number, or TIN ID applies premium badges to both your Employer and Worker interfaces.',
-          },
-          {
-            'title': 'How do fees work on a Hybrid account?',
-            'icon': 'wallet',
-            'answer':
-                'Posting a gig as an employer locks in the escrow budget, while receiving payouts as a worker is subject to standard minimal network processing fees upon withdrawal.',
-          },
-        ];
-    }
+    final items = TranyxFaqData.getFaqsForAccountType(type);
+    return items
+        .map((f) => {
+              'title': f.title,
+              'icon': f.icon,
+              'category': f.category,
+              'answer': f.answer,
+            })
+        .toList();
   }
 
   void toggleFaq(int index) {
@@ -2871,7 +2918,16 @@ class _HelpSupportState extends State<_HelpSupport> {
 
     try {
       final gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken);
-      final response = await gemini.askSupportQuestion(history);
+      final profile = component.state.userProfile;
+      final userCtx = TranyxAIUserContext(
+        userId: SessionStorage.uid,
+        userRole: component.state.accountType.name,
+        walletAddress: profile?.walletPublicKey,
+        connectedWallet: profile?.walletPublicKey != null ? 'Solana Wallet' : null,
+        tyxbitBalance: profile?.tyxBalance,
+        isWalletVerified: profile?.walletPublicKey != null,
+      );
+      final response = await gemini.askSupportQuestion(history, appContext: userCtx);
 
       if (response == "TRANSFER_TO_AGENT") {
         setState(() {

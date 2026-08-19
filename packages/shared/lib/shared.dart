@@ -9,4 +9,6 @@ export 'src/reward_service.dart';
 export 'src/profanity.dart';
 export 'src/nyx_domain_knowledge.dart';
 export 'src/message_policy.dart';
+export 'src/ai_service.dart';
+export 'src/faq_data.dart';
 

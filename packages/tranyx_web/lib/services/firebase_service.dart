@@ -3708,47 +3708,54 @@ class FirestoreService {
   }
 }
 
-// ── Local Nyx AI Service (Replacing Cloud Gemini AI) ──────────────────────────
-class LocalNyxAIService {
+// ── Gemini AI Service ─────────────────────────────────────────────────────────
+class GeminiService {
+  final TranyxAIService _aiService;
   final Future<String?> Function()? onTokenRefresh;
 
-  LocalNyxAIService(FirebaseConfig config, {String? idToken, this.onTokenRefresh});
+  GeminiService(FirebaseConfig config, {String? idToken, this.onTokenRefresh, TranyxAIService? aiService})
+      : _aiService = aiService ?? TranyxAIService();
 
-  Future<String> generateJobDescription(String title) async {
+  Future<String> generateJobDescription(String title, {String? categoryLabel}) async {
     if (title.isEmpty) return '';
-    return 'We are looking for a reliable worker to perform $title. The candidate should possess relevant experience and bring standard tools necessary for completing the job efficiently.';
+    return _aiService.generateJobDescription(title, categoryLabel: categoryLabel);
   }
 
   Future<String> generateJobTitle(String categoryLabel, String categoryDesc, String description) async {
-    if (description.isNotEmpty && description.length < 30) return description;
-    return 'Experienced $categoryLabel Professional';
+    final matchedCategory = JobCategory.values.firstWhere(
+      (c) => c.label.toLowerCase() == categoryLabel.toLowerCase(),
+      orElse: () => JobCategory.others,
+    );
+    return _aiService.generateJobTitle(matchedCategory, description);
   }
 
   Future<String> evaluateJobAuthenticity(Map<String, dynamic> jobData) async {
-    return 'Job details reviewed. The description and rate align with standard platform guidelines. Authenticity Score: 9/10.';
+    return _aiService.evaluateJobAuthenticity(jobData);
   }
 
   Future<bool> validateJobTitle(String title, String categoryLabel) async {
-    return true;
+    final matchedCategory = JobCategory.values.firstWhere(
+      (c) => c.label.toLowerCase() == categoryLabel.toLowerCase(),
+      orElse: () => JobCategory.others,
+    );
+    return _aiService.validateJobTitle(title, matchedCategory);
   }
 
-  Future<String> generateCoverNote(String jobTitle) async {
-    if (jobTitle.isEmpty) return 'I would like to express my interest in applying for this gig.';
-    return 'Hi! I am enthusiastic about applying for "$jobTitle". I have proven experience, complete tools, and can start immediately upon hire.';
+  Future<String> generateCoverNote(String jobTitle, {String? workerExperience}) async {
+    if (jobTitle.isEmpty) return '';
+    return _aiService.generateCoverNote(jobTitle, workerExperience: workerExperience);
   }
 
-  Future<String> askSupportQuestion(List<Map<String, String>> conversationHistory) async {
+  Future<String> askSupportQuestion(
+    List<Map<String, String>> conversationHistory, {
+    TranyxAIUserContext? appContext,
+  }) async {
     if (conversationHistory.isEmpty) return 'Please ask a valid question.';
-
-    final lastUserMsg = conversationHistory.isNotEmpty
-        ? conversationHistory.last['content'] ?? ''
-        : '';
-
-    return NyxDomainKnowledgeBase.queryKnowledge(lastUserMsg);
+    return _aiService.getChatResponse(conversationHistory, appContext: appContext);
   }
 }
 
-typedef GeminiService = LocalNyxAIService;
+typedef LocalNyxAIService = GeminiService;
 
 
 // ── ImgBB service ─────────────────────────────────────────────────────────────

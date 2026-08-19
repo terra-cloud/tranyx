@@ -6,6 +6,7 @@ class Env {
   static const String _imgbbApiKey = String.fromEnvironment('IMGBB_API_KEY');
   static const String _cloudflareAccountId = String.fromEnvironment('CLOUDFLARE_ACCOUNT_ID');
   static const String _cloudflareApiToken = String.fromEnvironment('CLOUDFLARE_API_TOKEN');
+  static const String _geminiApiKey = String.fromEnvironment('GEMINI_AI_API_KEY');
   static const String _env = String.fromEnvironment('ENV', defaultValue: 'dev');
   static const String _flavor = String.fromEnvironment('FLAVOR');
 
@@ -14,6 +15,7 @@ class Env {
   /// and finally falls back to [defaultValue].
   static String get(String key, {String defaultValue = ''}) {
     final fromConst = switch (key) {
+      'GEMINI_AI_API_KEY' => _geminiApiKey,
       'XENDIT_SECRET_KEY' => _xenditSecretKey,
       'IMGBB_API_KEY' => _imgbbApiKey,
       'CLOUDFLARE_ACCOUNT_ID' => _cloudflareAccountId,
@@ -34,6 +36,7 @@ class Env {
     return defaultValue;
   }
 
+  static String get geminiApiKey => get('GEMINI_AI_API_KEY');
   static String get xenditSecretKey => get('XENDIT_SECRET_KEY');
   static String get imgbbApiKey => get('IMGBB_API_KEY');
   static String get cloudflareAccountId => get('CLOUDFLARE_ACCOUNT_ID');
