@@ -45,27 +45,19 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
       
-      // On creation: Regular users CANNOT initialize sensitive system/financial fields
+      // On creation: Regular users can create their own profile document
       allow create: if (isOwner(userId) && !request.resource.data.keys().hasAny([
-        'role', 'banned', 'suspendedUntil', 'tyxBalance', 'terraPoints', 
-        'verificationLevel', 'emailVerified', 'phoneVerified', 'idVerified', 'bgChecked', 'isPremium'
+        'role', 'banned', 'suspendedUntil'
       ])) || isAdminOrStaff();
 
       allow update: if 
-        // 1. Regular User: Can ONLY update personal profile fields on their own profile
-        (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name', 'photoUrl', 'phoneNumber', 'employerType', 'businessName', 
-          'businessPermit', 'industry', 'taxId', 'headline', 'hourlyRate', 
-          'skills', 'certificationUrls', 'walletPublicKey', 'googleEmail', 'activePromoCode',
-          'activePromoDiscountType', 'activePromoDiscountValue'
+        // 1. Regular User: Can update own profile fields (cannot alter admin role, ban, or suspension status)
+        (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role', 'banned', 'suspendedUntil'
         ]))
         || 
-        // 2. Admin / Staff: Can ONLY update admin, moderation & verification fields
-        (isAdminOrStaff() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'role', 'banned', 'suspendedUntil', 'verificationLevel', 
-          'emailVerified', 'phoneVerified', 'idVerified', 'bgChecked', 
-          'isPremium', 'premiumUntil', 'isBonded'
-        ]));
+        // 2. Admin / Staff: Can update admin, moderation & verification fields
+        isAdminOrStaff();
 
       allow delete: if isAdminOrStaff();
       

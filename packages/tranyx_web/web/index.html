@@ -770,6 +770,163 @@
       }
     };
 
+    function decodeBase58(str) {
+      const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+      const ALPHABET_MAP = {};
+      for (let i = 0; i < ALPHABET.length; i++) ALPHABET_MAP[ALPHABET.charAt(i)] = i;
+      let bytes = [0];
+      for (let i = 0; i < str.length; i++) {
+        const c = str.charAt(i);
+        const val = ALPHABET_MAP[c];
+        if (val === undefined) throw new Error('Invalid Base58 character: ' + c);
+        for (let j = 0; j < bytes.length; j++) bytes[j] *= 58;
+        bytes[0] += val;
+        let carry = 0;
+        for (let j = 0; j < bytes.length; j++) {
+          bytes[j] += carry;
+          carry = bytes[j] >> 8;
+          bytes[j] &= 0xff;
+        }
+        while (carry > 0) {
+          bytes.push(carry & 0xff);
+          carry >>= 8;
+        }
+      }
+      for (let i = 0; i < str.length && str.charAt(i) === '1'; i++) bytes.push(0);
+      return new Uint8Array(bytes.reverse());
+    }
+
+    window.broadcastTreasuryTransfer = async function (treasuryPrivKeyBase58, recipientPubkey, lamports, rpcUrl) {
+      console.log("broadcastTreasuryTransfer started", recipientPubkey, lamports, rpcUrl);
+      ensureBuffer();
+      try {
+        if (!window.solanaWeb3) throw new Error("Solana Web3 is not loaded.");
+        let fallbackRpc = "https://api.testnet.solana.com";
+        try {
+          const hostname = window.location.hostname;
+          if (hostname.includes("uat") || hostname.includes("devnet")) {
+            fallbackRpc = "https://api.devnet.solana.com";
+          } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
+            fallbackRpc = "https://rpc.ankr.com/solana";
+          }
+        } catch (e) {}
+        const finalRpc = rpcUrl || fallbackRpc;
+        const connection = new solanaWeb3.Connection(finalRpc, "confirmed");
+
+        const secretKey = decodeBase58(treasuryPrivKeyBase58);
+        const keypair = solanaWeb3.Keypair.fromSecretKey(secretKey);
+        const toPubkey = new solanaWeb3.PublicKey(recipientPubkey);
+
+        const transaction = new solanaWeb3.Transaction().add(
+          solanaWeb3.SystemProgram.transfer({
+            fromPubkey: keypair.publicKey,
+            toPubkey: toPubkey,
+            lamports: Math.round(lamports),
+          })
+        );
+
+        const signature = await solanaWeb3.sendAndConfirmTransaction(
+          connection,
+          transaction,
+          [keypair],
+          { commitment: 'confirmed' }
+        );
+        console.log("Treasury transfer broadcasted successfully. Signature:", signature);
+        return signature;
+      } catch (error) {
+        console.error("broadcastTreasuryTransfer failed:", error);
+        throw error;
+      }
+    };
+
+    window.broadcastTreasuryTokenTransfer = async function (treasuryPrivKeyBase58, recipientPubkey, amountInUsdt, rpcUrl, tokenMint) {
+      console.log("broadcastTreasuryTokenTransfer started", recipientPubkey, amountInUsdt, rpcUrl, tokenMint);
+      ensureBuffer();
+      try {
+        if (!window.solanaWeb3) throw new Error("Solana Web3 is not loaded.");
+        let fallbackRpc = "https://api.testnet.solana.com";
+        try {
+          const hostname = window.location.hostname;
+          if (hostname.includes("uat") || hostname.includes("devnet")) {
+            fallbackRpc = "https://api.devnet.solana.com";
+          } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
+            fallbackRpc = "https://rpc.ankr.com/solana";
+          }
+        } catch (e) {}
+        const finalRpc = rpcUrl || fallbackRpc;
+        const connection = new solanaWeb3.Connection(finalRpc, "confirmed");
+
+        const secretKey = decodeBase58(treasuryPrivKeyBase58);
+        const keypair = solanaWeb3.Keypair.fromSecretKey(secretKey);
+        const toPubkey = new solanaWeb3.PublicKey(recipientPubkey);
+        const mintAddress = tokenMint || "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr";
+        const mintPubkey = new solanaWeb3.PublicKey(mintAddress);
+
+        const TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+        const ASSOCIATED_TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+        const fromAta = solanaWeb3.PublicKey.findProgramAddressSync(
+          [keypair.publicKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintPubkey.toBuffer()],
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        )[0];
+
+        const toAta = solanaWeb3.PublicKey.findProgramAddressSync(
+          [toPubkey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintPubkey.toBuffer()],
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        )[0];
+
+        const transaction = new solanaWeb3.Transaction();
+
+        const toAtaInfo = await connection.getAccountInfo(toAta);
+        if (!toAtaInfo) {
+          transaction.add(
+            new solanaWeb3.TransactionInstruction({
+              keys: [
+                { pubkey: keypair.publicKey, isSigner: true, isWritable: true },
+                { pubkey: toAta, isSigner: false, isWritable: true },
+                { pubkey: toPubkey, isSigner: false, isWritable: false },
+                { pubkey: mintPubkey, isSigner: false, isWritable: false },
+                { pubkey: solanaWeb3.SystemProgram.programId, isSigner: false, isWritable: false },
+                { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+              ],
+              programId: ASSOCIATED_TOKEN_PROGRAM_ID,
+              data: new Uint8Array(0),
+            })
+          );
+        }
+
+        const microUnits = Math.round(amountInUsdt * 1000000);
+        const data = new Uint8Array(9);
+        data[0] = 3; // Transfer instruction index = 3
+        const view = new DataView(data.buffer);
+        view.setBigUint64(1, BigInt(microUnits), true);
+
+        transaction.add(
+          new solanaWeb3.TransactionInstruction({
+            keys: [
+              { pubkey: fromAta, isSigner: false, isWritable: true },
+              { pubkey: toAta, isSigner: false, isWritable: true },
+              { pubkey: keypair.publicKey, isSigner: true, isWritable: false },
+            ],
+            programId: TOKEN_PROGRAM_ID,
+            data: data,
+          })
+        );
+
+        const signature = await solanaWeb3.sendAndConfirmTransaction(
+          connection,
+          transaction,
+          [keypair],
+          { commitment: 'confirmed' }
+        );
+        console.log("Treasury token transfer broadcasted. Signature:", signature);
+        return signature;
+      } catch (error) {
+        console.error("broadcastTreasuryTokenTransfer failed:", error);
+        throw error;
+      }
+    };
+
     window.connectEthereumWallet = async function () {
       try {
         const provider = window.ethereum || (window.phantom && window.phantom.ethereum);

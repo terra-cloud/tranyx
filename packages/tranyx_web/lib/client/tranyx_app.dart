@@ -95,6 +95,7 @@ class TranyxAppState extends State<TranyxApp> {
   String editIndustry = '';
   String editTaxId = '';
   bool isSavingProfile = false;
+  bool isUploadingProfilePhoto = false;
   String? profileSaveError;
 
   // ── Navigation ──────────────────────────────────────────────
@@ -209,7 +210,6 @@ class TranyxAppState extends State<TranyxApp> {
   String profilePromoCodeInput = '';
   String? profilePromoFeedback;
   bool isValidatingProfilePromo = false;
-
 
   // ── Nyxian sub-status (for tracked in-progress jobs) ─────────
   bool isUpdatingSubStatus = false;
@@ -620,9 +620,7 @@ class TranyxAppState extends State<TranyxApp> {
       } else {
         setState(() {
           locationErrorCode = res.errorCode;
-          locationStatusMessage = res.errorCode == 1
-              ? 'Permission Denied'
-              : (res.error ?? 'GPS Inactive');
+          locationStatusMessage = res.errorCode == 1 ? 'Permission Denied' : (res.error ?? 'GPS Inactive');
         });
       }
     } catch (_) {}
@@ -655,9 +653,7 @@ class TranyxAppState extends State<TranyxApp> {
         setState(() {
           isDetectingLocation = false;
           locationErrorCode = res.errorCode;
-          locationStatusMessage = res.errorCode == 1
-              ? 'Permission Denied'
-              : (res.error ?? 'Unable to detect GPS.');
+          locationStatusMessage = res.errorCode == 1 ? 'Permission Denied' : (res.error ?? 'Unable to detect GPS.');
         });
         if (res.errorCode == 1) {
           showAppToast(
@@ -667,7 +663,8 @@ class TranyxAppState extends State<TranyxApp> {
         } else {
           showAppToast(
             'Location Access',
-            res.error ?? 'Could not retrieve GPS coordinates. Please ensure location access is allowed in your browser settings.',
+            res.error ??
+                'Could not retrieve GPS coordinates. Please ensure location access is allowed in your browser settings.',
           );
         }
       }
@@ -682,45 +679,113 @@ class TranyxAppState extends State<TranyxApp> {
 
   /// Restore a previous session from localStorage
   Future<void> _restoreSession() async {
-    final storedType = SessionStorage.accountType;
-    AccountType type = AccountType.employer;
-    if (storedType != null) {
-      type = AccountType.values.firstWhere(
-        (e) => e.name == storedType,
-        orElse: () => AccountType.employer,
-      );
-    }
-
-    setState(() {
-      isAuthenticated = true;
-      accountType = type;
-      hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-      userName = SessionStorage.displayName ?? '';
-      userEmail = SessionStorage.email ?? '';
-    });
-
-    // Load full profile from Firestore
-    await loadUserProfile();
-    if (userProfile == null) {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    final refreshToken = SessionStorage.refreshToken;
+    if (uid == null || (token == null && refreshToken == null)) {
+      SessionStorage.clear();
       setState(() {
-        activeTab = AppTab.profile;
-        profileView = ProfileView.personal;
+        isAuthenticated = false;
+        userProfile = null;
+        authView = AuthView.login;
       });
+      return;
     }
-    // Load jobs for current tab
-    await loadJobs();
-    await loadTransactions();
-    await loadRenterPendingRequests();
-    await loadHostPendingRequests();
-    _startListeningNotifications();
-    _startListeningJobs();
-    _startListeningRentals();
-    _startListeningProperties();
-    await handleQrVerificationParams();
 
-    // Auto-execute pending QR verification if one exists and we are logged in
-    if (pendingQrJobId != null && pendingQrCode != null) {
-      await executePendingQrVerification();
+    try {
+      if (refreshToken != null) {
+        try {
+          final refreshed = await _auth.refreshIdToken(refreshToken);
+          SessionStorage.updateIdToken(refreshed);
+        } catch (_) {}
+      }
+
+      final tokenNow = SessionStorage.idToken;
+      final svc = FirestoreService(tokenNow, _handleTokenRefresh);
+      UserProfile? profile;
+      for (int attempt = 0; attempt < 3; attempt++) {
+        profile = await svc.getUser(uid);
+        if (profile != null) break;
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
+
+      if (profile != null) {
+        final prof = profile;
+        final type = prof.accountType;
+        final resolvedName = (prof.name.isNotEmpty && prof.name != 'User')
+            ? prof.name
+            : (SessionStorage.displayName ?? (userName.isNotEmpty && userName != 'User' ? userName : prof.name));
+        final resolvedPhoto = prof.photoUrl ?? userPhotoUrl ?? SessionStorage.photoUrl;
+
+        SessionStorage.saveProfile(
+          name: resolvedName,
+          email: prof.email,
+          accountType: type.name,
+          photoUrl: resolvedPhoto,
+        );
+        setState(() {
+          isAuthenticated = true;
+          userProfile = prof;
+          userName = resolvedName;
+          userEmail = prof.email;
+          userPhotoUrl = resolvedPhoto;
+          accountType = type;
+          hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+        });
+
+        initializeProfileEditing();
+        // Load jobs for current tab
+        await loadJobs();
+        await loadTransactions();
+        await loadRenterPendingRequests();
+        await loadHostPendingRequests();
+        _startListeningNotifications();
+        _startListeningJobs();
+        _startListeningRentals();
+        _startListeningProperties();
+        await handleQrVerificationParams();
+
+        // Auto-execute pending QR verification if one exists and we are logged in
+        if (pendingQrJobId != null && pendingQrCode != null) {
+          await executePendingQrVerification();
+        }
+      } else {
+        // User document does not exist in Firestore -> clear session and prompt login
+        SessionStorage.clear();
+        setState(() {
+          isAuthenticated = false;
+          userProfile = null;
+          authView = AuthView.login;
+        });
+      }
+    } catch (e) {
+      // In case of temporary network glitch, retain cached session profile if present
+      final storedName = SessionStorage.displayName;
+      final storedEmail = SessionStorage.email;
+      if (storedName != null && storedEmail != null) {
+        final storedType = SessionStorage.accountType;
+        AccountType type = AccountType.employer;
+        if (storedType != null) {
+          type = AccountType.values.firstWhere(
+            (e) => e.name == storedType,
+            orElse: () => AccountType.employer,
+          );
+        }
+        setState(() {
+          isAuthenticated = true;
+          accountType = type;
+          hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+          userName = storedName;
+          userEmail = storedEmail;
+        });
+      } else {
+        SessionStorage.clear();
+        setState(() {
+          isAuthenticated = false;
+          userProfile = null;
+          authView = AuthView.login;
+        });
+      }
     }
   }
 
@@ -763,23 +828,54 @@ class TranyxAppState extends State<TranyxApp> {
             isAuthLoading = false;
           });
         } else {
-          if (profile.googleEmail == null || profile.googleEmail!.isEmpty) {
+          var userProf = profile;
+          final updates = <String, dynamic>{};
+          if (userProf.googleEmail == null || userProf.googleEmail!.isEmpty) {
+            updates['googleEmail'] = authResult.email;
+            userProf = userProf.copyWith(googleEmail: authResult.email);
+          }
+          if ((userProf.photoUrl == null || userProf.photoUrl!.isEmpty) && authResult.photoUrl != null && authResult.photoUrl!.isNotEmpty) {
+            updates['photoUrl'] = authResult.photoUrl;
+            userProf = userProf.copyWith(photoUrl: authResult.photoUrl);
+          }
+          if ((userProf.name.isEmpty || userProf.name == 'User') && authResult.displayName != null && authResult.displayName!.isNotEmpty) {
+            updates['name'] = authResult.displayName;
+            userProf = userProf.copyWith(name: authResult.displayName);
+          }
+          if (updates.isNotEmpty) {
             await FirestoreService(
               authResult.idToken,
               _handleTokenRefresh,
-            ).setDocument('users/${authResult.uid}', {'googleEmail': authResult.email});
-            profile = profile.copyWith(googleEmail: authResult.email);
+            ).setDocument('users/${authResult.uid}', updates);
           }
-          final type = profile.accountType;
+          final type = userProf.accountType;
           SessionStorage.saveProfile(
-            name: profile.name,
-            email: profile.email,
+            name: userProf.name,
+            email: userProf.email,
             accountType: type.name,
           );
-          await _restoreSession();
           setState(() {
+            isAuthenticated = true;
+            userProfile = userProf;
+            userName = userProf.name;
+            userEmail = userProf.email;
+            userPhotoUrl = userProf.photoUrl ?? authResult.photoUrl;
+            accountType = type;
+            hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
             isAuthLoading = false;
+            authView = AuthView.login;
           });
+
+          initializeProfileEditing();
+          await loadJobs();
+          await loadTransactions();
+          await loadRenterPendingRequests();
+          await loadHostPendingRequests();
+          _startListeningNotifications();
+          _startListeningJobs();
+          _startListeningRentals();
+          _startListeningProperties();
+          await handleQrVerificationParams();
         }
       } else {
         handleQrVerificationParams();
@@ -995,8 +1091,15 @@ class TranyxAppState extends State<TranyxApp> {
             (j) {
               if (j == null) return false;
               final s = (j['status'] as String?)?.toLowerCase();
-              final isParty = (currentUid != null && (j['creatorId'] == currentUid || j['acceptedApplicantId'] == currentUid));
-              return isParty && s != null && s != 'open' && s != 'completed' && s != 'cancelled' && s != 'held' && s != 'pending';
+              final isParty =
+                  (currentUid != null && (j['creatorId'] == currentUid || j['acceptedApplicantId'] == currentUid));
+              return isParty &&
+                  s != null &&
+                  s != 'open' &&
+                  s != 'completed' &&
+                  s != 'cancelled' &&
+                  s != 'held' &&
+                  s != 'pending';
             },
             orElse: () => null,
           );
@@ -1102,28 +1205,54 @@ class TranyxAppState extends State<TranyxApp> {
     final uid = SessionStorage.uid;
     if (uid == null) return;
     try {
+      final refreshToken = SessionStorage.refreshToken;
+      if (refreshToken != null) {
+        try {
+          final refreshed = await _auth.refreshIdToken(refreshToken);
+          SessionStorage.updateIdToken(refreshed);
+        } catch (_) {}
+      }
+
       // Silently run onboarding verification at startup
       final token = SessionStorage.idToken;
+      final svc = FirestoreService(token, _handleTokenRefresh);
       if (token != null) {
-        final svc = FirestoreService(token, handleTokenRefresh);
         await svc.checkAndAwardOnboardingQuests(uid);
         await checkAndExpireSubscription(uid, svc);
       }
 
-      final profile = await _firestore.getUser(uid);
+      UserProfile? profile;
+      for (int attempt = 0; attempt < 3; attempt++) {
+        profile = await svc.getUser(uid);
+        if (profile != null) break;
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
+
       if (profile != null) {
+        final prof = profile;
+        final resolvedName = (prof.name.isNotEmpty && prof.name != 'User')
+            ? prof.name
+            : (SessionStorage.displayName ?? (userName.isNotEmpty && userName != 'User' ? userName : prof.name));
+        final resolvedPhoto = prof.photoUrl ?? userPhotoUrl ?? SessionStorage.photoUrl;
+
+        SessionStorage.saveProfile(
+          name: resolvedName,
+          email: prof.email,
+          accountType: prof.accountType.name,
+          photoUrl: resolvedPhoto,
+        );
         setState(() {
-          userProfile = profile;
-          userName = profile.name;
-          userEmail = profile.email;
-          userPhotoUrl = profile.photoUrl;
-          accountType = profile.accountType;
+          userProfile = prof;
+          userName = resolvedName;
+          userEmail = prof.email;
+          userPhotoUrl = resolvedPhoto;
+          accountType = prof.accountType;
           hybridToggle = accountType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
         });
+        initializeProfileEditing();
+        await loadKycSubmission();
+        await loadHoldbacks();
       }
-      initializeProfileEditing();
-      await loadKycSubmission();
-      await loadHoldbacks();
     } catch (_) {}
   }
 
@@ -1185,26 +1314,49 @@ class TranyxAppState extends State<TranyxApp> {
         await signInWithEmailAndPasswordJs(configMap, email, password);
       } catch (_) {}
 
-      // Load user profile from Firestore to get account type
-      final profile = await FirestoreService(result.idToken, _handleTokenRefresh).getUser(result.uid);
+      // Load user profile from Firestore to get account type (with retry to avoid race condition)
+      UserProfile? currentProfile;
+      final fsSvc = FirestoreService(result.idToken, _handleTokenRefresh);
+      for (int attempt = 0; attempt < 3; attempt++) {
+        currentProfile = await fsSvc.getUser(result.uid);
+        if (currentProfile != null) break;
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
 
-      final type = profile?.accountType ?? AccountType.employer;
+      final profile = currentProfile ??
+          UserProfile(
+            uid: result.uid,
+            name: result.displayName?.isNotEmpty == true ? result.displayName! : email.split('@').first,
+            email: email,
+            accountType: AccountType.employer,
+            createdAt: DateTime.now(),
+          );
+
+      final type = profile.accountType;
       SessionStorage.saveProfile(
-        name: profile?.name ?? result.displayName ?? email.split('@').first,
-        email: email,
+        name: profile.name.isNotEmpty && profile.name != 'User' ? profile.name : (result.displayName ?? email.split('@').first),
+        email: profile.email.isNotEmpty ? profile.email : email,
         accountType: type.name,
+        photoUrl: profile.photoUrl,
       );
 
       setState(() {
         isAuthenticated = true;
         accountType = type;
         hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-        userName = profile?.name ?? result.displayName ?? email.split('@').first;
-        userEmail = email;
+        userName = profile.name.isNotEmpty && profile.name != 'User'
+            ? profile.name
+            : (result.displayName ?? email.split('@').first);
+        userEmail = profile.email.isNotEmpty ? profile.email : email;
         userProfile = profile;
+        userPhotoUrl = profile.photoUrl;
         isAuthLoading = false;
         authView = AuthView.login;
       });
+
+      initializeProfileEditing();
+      await loadKycSubmission();
+      await loadHoldbacks();
 
       // If this sign-in was triggered after Phantom wallet recognition, link it
       if (pendingWalletPublicKey != null) {
@@ -1229,7 +1381,7 @@ class TranyxAppState extends State<TranyxApp> {
       _startListeningRentals();
       _startListeningProperties();
       // Auto-connect Phantom wallet if already trusted by the browser
-      unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
+      unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
 
       if (pendingQrJobId != null && pendingQrCode != null) {
         await executePendingQrVerification();
@@ -1413,12 +1565,24 @@ class TranyxAppState extends State<TranyxApp> {
         return;
       }
 
+      final updates = <String, dynamic>{};
       if (profile.googleEmail == null || profile.googleEmail!.isEmpty) {
+        updates['googleEmail'] = authResult.email;
+        profile = profile.copyWith(googleEmail: authResult.email);
+      }
+      if ((profile.photoUrl == null || profile.photoUrl!.isEmpty) && authResult.photoUrl != null && authResult.photoUrl!.isNotEmpty) {
+        updates['photoUrl'] = authResult.photoUrl;
+        profile = profile.copyWith(photoUrl: authResult.photoUrl);
+      }
+      if ((profile.name.isEmpty || profile.name == 'User') && authResult.displayName != null && authResult.displayName!.isNotEmpty) {
+        updates['name'] = authResult.displayName;
+        profile = profile.copyWith(name: authResult.displayName);
+      }
+      if (updates.isNotEmpty) {
         await FirestoreService(
           authResult.idToken,
           _handleTokenRefresh,
-        ).setDocument('users/${authResult.uid}', {'googleEmail': authResult.email});
-        profile = profile.copyWith(googleEmail: authResult.email);
+        ).setDocument('users/${authResult.uid}', updates);
       }
 
       final type = profile.accountType;
@@ -1432,12 +1596,15 @@ class TranyxAppState extends State<TranyxApp> {
         isAuthenticated = true;
         accountType = type;
         hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-        userName = profile?.name ?? 'Tranyx User';
-        userEmail = profile?.email ?? 'unknown@tranyx.app';
+        userName = profile!.name;
+        userEmail = profile.email;
         userProfile = profile;
+        userPhotoUrl = profile.photoUrl ?? authResult.photoUrl;
         isAuthLoading = false;
         authView = AuthView.login;
       });
+
+      initializeProfileEditing();
 
       if (pendingWalletPublicKey != null) {
         final walletKey = pendingWalletPublicKey!;
@@ -1511,6 +1678,8 @@ class TranyxAppState extends State<TranyxApp> {
         authView = AuthView.login;
         activeTab = AppTab.home;
       });
+
+      initializeProfileEditing();
 
       if (pendingWalletPublicKey != null) {
         final walletKey = pendingWalletPublicKey!;
@@ -1642,8 +1811,15 @@ class TranyxAppState extends State<TranyxApp> {
         (j) {
           if (j == null) return false;
           final s = (j['status'] as String?)?.toLowerCase();
-          final isParty = (currentUid != null && (j['creatorId'] == currentUid || j['acceptedApplicantId'] == currentUid));
-          return isParty && s != null && s != 'open' && s != 'completed' && s != 'cancelled' && s != 'held' && s != 'pending';
+          final isParty =
+              (currentUid != null && (j['creatorId'] == currentUid || j['acceptedApplicantId'] == currentUid));
+          return isParty &&
+              s != null &&
+              s != 'open' &&
+              s != 'completed' &&
+              s != 'cancelled' &&
+              s != 'held' &&
+              s != 'pending';
         },
         orElse: () => null,
       );
@@ -1938,7 +2114,9 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       // 2. Platform target Solana address
-      const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
+      final adminSolanaAddress = Env.solanaPublicKey.isNotEmpty
+          ? Env.solanaPublicKey
+          : '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
 
       // 3. Initiate the transfer transaction
       final signature = await sendSolanaPayment(fromPubKey, adminSolanaAddress, amountInSol);
@@ -2089,7 +2267,7 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       // 2. Platform target Solana address
-      const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
+      final adminSolanaAddress = Env.solanaPublicKey;
 
       // 3. Initiate the transfer transaction
       final signature = await sendSolanaPayment(fromPubKey, adminSolanaAddress, amountInSol);
@@ -2180,7 +2358,9 @@ class TranyxAppState extends State<TranyxApp> {
         );
       }
 
-      const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
+      final adminSolanaAddress = Env.solanaPublicKey.isNotEmpty
+          ? Env.solanaPublicKey
+          : '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
 
       // Auto-detect if user holds a USDT token, and use that mint if present
       String? customMint;
@@ -3670,7 +3850,8 @@ class TranyxAppState extends State<TranyxApp> {
             await svc.createOrUpdate('transactions/payout_nyx_$jobId', {
               'uid': nyxianId,
               'title': 'Gig Payout Released',
-              'desc': 'Payout for completing job $jobId (3% commission deducted${redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : ''})',
+              'desc':
+                  'Payout for completing job $jobId (3% commission deducted${redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : ''})',
               'amount': immediatePayout,
               'status': 'Successful',
               'method': 'Tranyx Wallet',
@@ -4115,7 +4296,9 @@ class TranyxAppState extends State<TranyxApp> {
 
   void handleDisableProfilePromo(String code) async {
     final cleanCode = code.trim().toUpperCase();
-    final confirm = web.window.confirm('Are you sure you want to disable the promo code "$cleanCode"? Once disabled, you will lose the discount and can never re-enable or redeem it again.');
+    final confirm = web.window.confirm(
+      'Are you sure you want to disable the promo code "$cleanCode"? Once disabled, you will lose the discount and can never re-enable or redeem it again.',
+    );
     if (!confirm) return;
 
     setState(() {
@@ -4501,9 +4684,12 @@ class TranyxAppState extends State<TranyxApp> {
 
   void initializeProfileEditing() {
     final profile = userProfile;
+    final authEmail = userEmail.isNotEmpty ? userEmail : (SessionStorage.email ?? '');
+    final authName = (userName.isNotEmpty && userName != 'User') ? userName : (SessionStorage.displayName ?? '');
+
     if (profile == null) {
-      editName = SessionStorage.displayName ?? userName;
-      editEmail = SessionStorage.email ?? userEmail;
+      editName = authName;
+      editEmail = authEmail;
       editPhone = '';
       editTaxId = '';
       editHeadline = '';
@@ -4514,12 +4700,12 @@ class TranyxAppState extends State<TranyxApp> {
       profileSaveError = null;
       return;
     }
-    editName = profile.name;
-    editEmail = profile.email;
+    editName = (profile.name.isNotEmpty && profile.name != 'User') ? profile.name : authName;
+    editEmail = profile.email.isNotEmpty ? profile.email : authEmail;
     editPhone = getDisplayPhone(profile.phoneNumber);
     editTaxId = profile.taxId ?? '';
     editHeadline = profile.headline ?? '';
-    editHourlyRate = profile.hourlyRate?.toString() ?? '';
+    editHourlyRate = profile.hourlyRate != null && profile.hourlyRate! > 0 ? profile.hourlyRate!.toString() : '';
     editSkills = List<String>.from(profile.skills ?? []);
     editBusinessName = profile.businessName ?? '';
     editIndustry = profile.industry ?? '';
@@ -4901,14 +5087,76 @@ class TranyxAppState extends State<TranyxApp> {
         name: updated.name,
         email: updated.email,
         accountType: updated.accountType.name,
+        photoUrl: updated.photoUrl ?? userPhotoUrl ?? SessionStorage.photoUrl,
       );
       setState(() {
         userProfile = updated;
         userName = updated.name;
         userEmail = updated.email;
+        if (updated.photoUrl != null && updated.photoUrl!.isNotEmpty) {
+          userPhotoUrl = updated.photoUrl;
+        }
         accountType = updated.accountType;
       });
     } catch (_) {}
+  }
+
+  Future<void> handleProfilePhotoUpload(dynamic eventTarget) async {
+    final uid = SessionStorage.uid;
+    if (uid == null) return;
+    final token = SessionStorage.idToken;
+    if (token == null) return;
+
+    setState(() => isUploadingProfilePhoto = true);
+
+    try {
+      final files = await readFilesFromEvent(eventTarget);
+      if (files.isNotEmpty) {
+        final file = files.first;
+        final url = await ImgBBService(
+          currentFirebaseConfig,
+          idToken: token,
+          onTokenRefresh: _handleTokenRefresh,
+        ).uploadImageBytes(file.bytes, file.name);
+
+        if (url != null && url.isNotEmpty) {
+          final existing = userProfile;
+          final UserProfile updated;
+          if (existing == null) {
+            updated = UserProfile(
+              uid: uid,
+              name: userName.isNotEmpty && userName != 'User' ? userName : (SessionStorage.displayName ?? 'User'),
+              email: userEmail.isNotEmpty ? userEmail : (SessionStorage.email ?? ''),
+              photoUrl: url,
+              accountType: accountType,
+              createdAt: DateTime.now(),
+            );
+          } else {
+            updated = existing.copyWith(photoUrl: url);
+          }
+
+          await FirestoreService(token, _handleTokenRefresh).setDocument('users/$uid', {'photoUrl': url});
+          await handleSaveProfile(updated);
+          SessionStorage.saveProfile(
+            name: updated.name,
+            email: updated.email,
+            accountType: updated.accountType.name,
+            photoUrl: url,
+          );
+          setState(() {
+            userPhotoUrl = url;
+          });
+          showAppToast('Profile Photo Updated', 'Your new profile photo was uploaded and saved successfully.');
+        } else {
+          showAppToast('Upload Error', 'Failed to upload photo to image service. Please check your image and try again.');
+        }
+      }
+    } catch (e) {
+      print('handleProfilePhotoUpload error: $e');
+      showAppToast('Upload Error', 'An unexpected error occurred during photo upload.');
+    } finally {
+      setState(() => isUploadingProfilePhoto = false);
+    }
   }
 
   Future<void> handleSavePersonalInfo() async {
@@ -6982,8 +7230,7 @@ class MobileAppPromptModalComponent extends StatelessComponent {
     if (env == 'dev') appId = 'com.terraph.tranyx.dev';
 
     return div(
-      classes:
-          'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in',
+      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in',
       [
         div(
           classes:
@@ -7038,4 +7285,3 @@ class MobileAppPromptModalComponent extends StatelessComponent {
     );
   }
 }
-

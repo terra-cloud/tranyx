@@ -186,15 +186,61 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
         'walletPublicKey': walletKey,
       };
 
-      // 1. Save withdrawal request record
-      await svc.createOrUpdate('withdrawalRequests/$requestId', requestData);
+      // 1. Direct on-chain treasury transfer if private key configured
+      String txSignature = '';
+      bool isOnChainTransferred = false;
 
-      // 2. Record ledger transaction
+      final treasuryPrivKey = Env.solanaPrivateKey;
+      if (treasuryPrivKey.isNotEmpty) {
+        try {
+          if (_selectedCoin == 'SOL') {
+            final lamports = (cryptoAmount * 1e9).round();
+            if (lamports > 0) {
+              final sig = await broadcastTreasuryTransfer(
+                treasuryPrivKeyBase58: treasuryPrivKey,
+                recipientPubkey: walletKey,
+                lamports: lamports,
+              );
+              if (sig != null && sig.isNotEmpty) {
+                txSignature = sig;
+                isOnChainTransferred = true;
+              }
+            }
+          } else {
+            if (cryptoAmount > 0) {
+              final sig = await broadcastTreasuryTokenTransfer(
+                treasuryPrivKeyBase58: treasuryPrivKey,
+                recipientPubkey: walletKey,
+                amountInUsdt: cryptoAmount,
+              );
+              if (sig != null && sig.isNotEmpty) {
+                txSignature = sig;
+                isOnChainTransferred = true;
+              }
+            }
+          }
+        } catch (vaultErr) {
+          print('Direct client-side vault transfer skipped/queued: $vaultErr');
+        }
+      }
+
+      final txStatus = isOnChainTransferred ? 'Successful' : 'Pending';
+
+      // 2. Save withdrawal request record
+      await svc.createOrUpdate('withdrawalRequests/$requestId', {
+        ...requestData,
+        'status': txStatus,
+        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
+      });
+
+      // 3. Record ledger transaction
       final txId = 'tx_$timestamp';
       await svc.createOrUpdate('transactions/$txId', {
         'id': txId,
         'uid': uid,
-        'title': 'Withdrawal Request ($methodTitle)',
+        'title': isOnChainTransferred
+            ? 'Withdrawal Successful ($methodTitle)'
+            : 'Withdrawal Request ($methodTitle)',
         'type': 'withdraw',
         'amount': -amount,
         'feeAmount': feePhp,
@@ -203,26 +249,34 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
         'cryptoAmount': cryptoAmount,
         'coin': _selectedCoin,
         'currency': 'PHP',
-        'status': 'Pending',
+        'status': txStatus,
         'method': 'Solana',
         'walletPublicKey': walletKey,
-        'desc': 'Requested ₱${amount.toStringAsFixed(2)} withdrawal to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin)',
+        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
+        'desc': isOnChainTransferred
+            ? 'Withdrew ₱${amount.toStringAsFixed(2)} to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin). On-Chain Tx: $txSignature'
+            : 'Requested ₱${amount.toStringAsFixed(2)} withdrawal to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin)',
         'createdAt': timestamp,
       });
 
-      // 3. Deduct balance
+      // 4. Deduct balance
       final newBal = (tyxBal - amount).clamp(0.0, double.infinity);
       await svc.createOrUpdate('users/$uid', {'tyxBalance': newBal});
 
-      // 4. Update local state
+      // 5. Update local state
       s.userProfile = s.userProfile?.copyWith(tyxBalance: newBal);
       s.loadTransactions();
 
       setState(() {
         _isSubmitting = false;
-        _successMessage = 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
+        _successMessage = isOnChainTransferred
+            ? 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin) has been transferred directly to your Solana wallet on-chain!'
+            : 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
       });
-      s.showAppToast('Withdrawal Requested', '₱ ${amount.toStringAsFixed(2)} via $methodTitle submitted.');
+      s.showAppToast(
+        isOnChainTransferred ? 'Withdrawal Completed' : 'Withdrawal Requested',
+        '₱ ${amount.toStringAsFixed(2)} via $methodTitle ${isOnChainTransferred ? "sent on-chain!" : "submitted."}',
+      );
     } catch (e) {
       setState(() {
         _isSubmitting = false;

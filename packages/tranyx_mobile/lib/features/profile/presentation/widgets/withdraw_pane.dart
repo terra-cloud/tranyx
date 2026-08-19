@@ -10,6 +10,7 @@ import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/profile/providers/profile_provider.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/payment_pane.dart';
+import 'package:shared/shared.dart';
 
 class WithdrawPane extends ConsumerStatefulWidget {
   final VoidCallback? onBack;
@@ -193,11 +194,14 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
       bool isOnChainTransferred = false;
 
       try {
-        final configDoc = await firestore
-            .collection('system_config')
-            .doc('treasury')
-            .get();
-        final treasuryPrivKey = configDoc.data()?['privateKeyBase58'] as String?;
+        String? treasuryPrivKey = Env.solanaPrivateKey.isNotEmpty ? Env.solanaPrivateKey : null;
+        if (treasuryPrivKey == null || treasuryPrivKey.isEmpty) {
+          final configDoc = await firestore
+              .collection('system_config')
+              .doc('treasury')
+              .get();
+          treasuryPrivKey = configDoc.data()?['privateKeyBase58'] as String?;
+        }
 
         if (treasuryPrivKey != null && treasuryPrivKey.isNotEmpty) {
           if (_selectedCoin == 'SOL') {
@@ -247,7 +251,10 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> {
         'id': txId,
         'uid': uid,
         'type': 'withdraw',
+        'originRail': 'mwa_on_chain',
         'amount': -amount,
+        'cryptoAmount': _selectedCoin == 'SOL' ? solAmount : usdtAmount,
+        'cryptoCurrency': _selectedCoin,
         'feeAmount': feePhp,
         'netAmount': netPhp,
         if (_selectedCoin == 'SOL') ...{

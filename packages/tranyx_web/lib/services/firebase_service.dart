@@ -474,6 +474,9 @@ Map<String, dynamic> _fromFirestoreDoc(Map<String, dynamic> doc) {
     if (val.containsKey('integerValue')) return int.parse(val['integerValue'].toString());
     if (val.containsKey('doubleValue')) return (val['doubleValue'] as num).toDouble();
     if (val.containsKey('stringValue')) return val['stringValue'] as String;
+    if (val.containsKey('timestampValue')) return val['timestampValue'] as String;
+    if (val.containsKey('referenceValue')) return val['referenceValue'] as String;
+    if (val.containsKey('geoPointValue')) return val['geoPointValue'];
     if (val.containsKey('arrayValue')) {
       final arr = val['arrayValue'] as Map;
       final vals = arr['values'] as List? ?? [];
@@ -556,7 +559,7 @@ class FirestoreService {
       final res = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       if (res.isEmpty || !res.containsKey('fields')) return null;
       return _fromFirestoreDoc(res);
-    } on FirebaseException {
+    } catch (_) {
       return null;
     }
   }
@@ -3760,69 +3763,72 @@ typedef LocalNyxAIService = GeminiService;
 
 // ── ImgBB service ─────────────────────────────────────────────────────────────
 class ImgBBService {
-  final FirebaseConfig _config;
-  String? _idToken;
+  final FirebaseConfig? config;
+  final String? idToken;
   final Future<String?> Function()? onTokenRefresh;
-  String? _imgbbKeyCache;
 
-  ImgBBService(this._config, {String? idToken, this.onTokenRefresh}) : _idToken = idToken;
-
-  Future<String?> _refreshToken() async {
-    if (onTokenRefresh != null) {
-      final newToken = await onTokenRefresh!();
-      if (newToken != null) {
-        _idToken = newToken;
-        return newToken;
-      }
-    }
-    return null;
-  }
+  ImgBBService(this.config, {this.idToken, this.onTokenRefresh});
 
   Future<String> _getApiKey() async {
-    if (_imgbbKeyCache != null) return _imgbbKeyCache!;
-    try {
-      final url =
-          'https://firestore.googleapis.com/v1/projects/${_config.projectId}/databases/(default)/documents/config/app_config';
-      final res = await _get(url, idToken: _idToken, onTokenRefresh: _refreshToken);
-      final fields = res['fields'] as Map<String, dynamic>?;
-      final keyVal = fields?['imgbb']?['stringValue'] as String?;
-      if (keyVal != null && keyVal.isNotEmpty) {
-        _imgbbKeyCache = keyVal;
-        return keyVal;
-      }
-    } catch (_) {}
     return Env.imgbbApiKey;
   }
 
   Future<String?> uploadImageBytes(List<int> bytes, String filename, {int? expiration}) async {
     try {
       final apiKey = await _getApiKey();
-      if (apiKey.isEmpty) return null;
+      if (apiKey.isEmpty) {
+        print('[ImgBB] API key is missing');
+        return null;
+      }
 
-      var uri = Uri.parse('https://api.imgbb.com/1/upload');
-      uri = uri.replace(
+      final uri = Uri.parse('https://api.imgbb.com/1/upload');
+
+      // 1. Try URL-encoded base64 POST (fast & direct in browser)
+      try {
+        final b64 = base64Encode(bytes);
+        final res = await http.post(
+          uri,
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: {
+            'key': apiKey,
+            'image': b64,
+            'name': filename.replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), ''),
+            if (expiration != null) 'expiration': expiration.toString(),
+          },
+        );
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final url = data['data']['url'] as String? ?? data['data']['display_url'] as String?;
+          if (url != null && url.isNotEmpty) return url;
+        } else {
+          print('[ImgBB] Base64 upload failed with status ${res.statusCode}: ${res.body}');
+        }
+      } catch (e) {
+        print('[ImgBB] Base64 upload error: $e');
+      }
+
+      // 2. Fallback to multipart request
+      var multipartUri = uri.replace(
         queryParameters: {
           'key': apiKey,
           if (expiration != null) 'expiration': expiration.toString(),
         },
       );
-
-      var request = http.MultipartRequest('POST', uri);
-
-      // Attach the file
+      var request = http.MultipartRequest('POST', multipartUri);
       request.files.add(http.MultipartFile.fromBytes('image', bytes, filename: filename));
 
-      // Send the request
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return data['data']['url'] as String?;
+        return data['data']['url'] as String? ?? data['data']['display_url'] as String?;
       } else {
+        print('[ImgBB] Multipart upload failed with status ${response.statusCode}: ${response.body}');
         return null;
       }
     } catch (e) {
+      print('[ImgBB] uploadImageBytes error: $e');
       return null;
     }
   }

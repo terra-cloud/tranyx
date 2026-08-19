@@ -119,12 +119,58 @@ class UserProfile {
       (e) => e.name == map['accountType'],
       orElse: () => AccountType.employer,
     );
+
+    DateTime? parseDate(dynamic val) {
+      if (val == null) return null;
+      if (val is DateTime) return val;
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+      if (val is String) {
+        final parsed = DateTime.tryParse(val);
+        if (parsed != null) return parsed;
+        final asNum = num.tryParse(val);
+        if (asNum != null) return DateTime.fromMillisecondsSinceEpoch(asNum.toInt());
+      }
+      try {
+        final dynamic dyn = val;
+        if (dyn.millisecondsSinceEpoch is int) {
+          return DateTime.fromMillisecondsSinceEpoch(dyn.millisecondsSinceEpoch as int);
+        }
+        if (dyn.toDate is Function) {
+          final res = dyn.toDate();
+          if (res is DateTime) return res;
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    int parseInt(dynamic val, [int fallback = 0]) {
+      if (val == null) return fallback;
+      if (val is num) return val.toInt();
+      if (val is String) return int.tryParse(val) ?? fallback;
+      return fallback;
+    }
+
+    List<String>? parseStringList(dynamic val) {
+      if (val == null) return null;
+      if (val is List) {
+        return val.map((e) => e.toString()).toList();
+      }
+      return null;
+    }
+
     return UserProfile(
       uid: uid,
-      name: map['name'] as String? ?? '',
+      name: (map['name'] as String?)?.trim().isNotEmpty == true
+          ? (map['name'] as String).trim()
+          : ((map['displayName'] as String?)?.trim().isNotEmpty == true
+              ? (map['displayName'] as String).trim()
+              : ((map['email'] as String?)?.split('@').first.isNotEmpty == true
+                  ? (map['email'] as String).split('@').first
+                  : 'User')),
       email: map['email'] as String? ?? '',
-      photoUrl: map['photoUrl'] as String?,
-      phoneNumber: map['phoneNumber'] as String?,
+      photoUrl: (map['photoUrl'] ?? map['avatarUrl'] ?? map['picture']) as String?,
+      phoneNumber: (map['phoneNumber'] ?? map['phone'] ?? map['contactNumber']) as String?,
       accountType: type,
       employerType: map['employerType'] != null
           ? EmployerType.values.firstWhere(
@@ -132,51 +178,39 @@ class UserProfile {
               orElse: () => EmployerType.personal,
             )
           : null,
-      businessName: map['businessName'] as String?,
+      businessName: (map['businessName'] ?? map['companyName']) as String?,
       businessPermit: map['businessPermit'] as String?,
       industry: map['industry'] as String?,
-      taxId: map['taxId'] as String?,
-      headline: map['headline'] as String?,
+      taxId: (map['taxId'] ?? map['tin']) as String?,
+      headline: (map['headline'] ?? map['bio'] ?? map['title']) as String?,
       hourlyRate: (map['hourlyRate'] as num?)?.toDouble(),
-      skills: (map['skills'] as List?)?.map((e) => e as String).toList(),
+      skills: parseStringList(map['skills']),
       rating: (map['rating'] as num?)?.toDouble(),
       renterRating: (map['renterRating'] as num?)?.toDouble(),
       hostRating: (map['hostRating'] as num?)?.toDouble(),
-      createdAt: map['createdAt'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int)
-          : null,
+      createdAt: parseDate(map['createdAt']),
       walletPublicKey: (map['walletPublicKey'] ??
               map['solanaWalletAddress'] ??
               map['walletAddress']) as String?,
       googleEmail: map['googleEmail'] as String?,
       tyxBalance: (map['tyxBalance'] as num?)?.toDouble() ?? 0.0,
-      jobsDone: map['jobsDone'] as int? ?? 0,
+      jobsDone: parseInt(map['jobsDone']),
       totalEarned: (map['totalEarned'] as num?)?.toDouble() ?? 0.0,
-      verificationLevel: map['verificationLevel'] as int? ?? 0,
+      verificationLevel: parseInt(map['verificationLevel']),
       emailVerified: map['emailVerified'] as bool? ?? false,
       phoneVerified: map['phoneVerified'] as bool? ?? false,
       idVerified: map['idVerified'] as bool? ?? false,
       bgChecked: map['bgChecked'] as bool? ?? false,
       isPremium: map['isPremium'] as bool? ?? false,
-      premiumUntil: map['premiumUntil'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['premiumUntil'] as int)
-          : null,
+      premiumUntil: parseDate(map['premiumUntil']),
       isBonded: map['isBonded'] as bool? ?? false,
-      certificationUrls: (map['certificationUrls'] as List?)
-          ?.map((e) => e as String)
-          .toList(),
+      certificationUrls: parseStringList(map['certificationUrls']),
       activePromoCode: map['activePromoCode'] as String?,
       activePromoDiscountType: map['activePromoDiscountType'] as String?,
       activePromoDiscountValue: (map['activePromoDiscountValue'] as num?)?.toDouble(),
-      disabledPromos: (map['disabledPromos'] as List?)
-          ?.map((e) => e as String)
-          .toList() ??
-          const [],
-      terraPoints: map['terraPoints'] as int? ?? 0,
-      earnedRewards: (map['earnedRewards'] as List?)
-          ?.map((e) => e as String)
-          .toList() ??
-          const [],
+      disabledPromos: parseStringList(map['disabledPromos']) ?? const [],
+      terraPoints: parseInt(map['terraPoints']),
+      earnedRewards: parseStringList(map['earnedRewards']) ?? const [],
     );
   }
 

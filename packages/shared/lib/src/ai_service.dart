@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'models.dart';
 import 'env.dart';
+import 'nyx_domain_knowledge.dart';
 
 /// Dynamic Tranyx AI context information
 class TranyxAIUserContext {
@@ -181,8 +182,8 @@ class TranyxAIService {
             conversationHistory: conversationHistory,
             model: fallbackModel,
           );
-        } else if (res.statusCode >= 500) {
-          // Server error, retry
+        } else if (res.statusCode == 429 || res.statusCode >= 500) {
+          // Rate limit or server error, retry with backoff
           if (attempt < delays.length) {
             await Future.delayed(Duration(milliseconds: delays[attempt]));
             continue;
@@ -417,7 +418,11 @@ class TranyxAIService {
       }
       return clean;
     } catch (e) {
-      return 'Sorry, I encountered a temporary connection issue. Please try again or tap "Chat with Agent" for live assistance.';
+      final lastUserMsg = conversationHistory.lastWhere(
+        (m) => m['role'] == 'user',
+        orElse: () => {'content': ''},
+      )['content'] as String? ?? '';
+      return NyxDomainKnowledgeBase.queryKnowledge(lastUserMsg);
     }
   }
 

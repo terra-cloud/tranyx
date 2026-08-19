@@ -152,7 +152,17 @@ class NyxDomainKnowledgeBase {
       return 'For Tracked Delivery Gigs: Arrive at pickup, pay the cashier and upload the receipt photo. Once at dropoff, generate a QR code for the recipient to scan and release Escrow payout instantly!';
     }
 
-    // 2. Gigs & Job Matching Queries
+    // 2. Escrow & Payout Queries
+    if (clean.contains('escrow') || clean.contains('release') || clean.contains('payout') || clean.contains('bayad') || clean.contains('bayaran')) {
+      if (isWaray) {
+        return 'Kun tapos na an trabaho ha Tranyx, i-mamark han Nyxian nga tapos na, maghihimo an Employer hin QR code, ngan i-iscan ini han Nyxian para diretso nga ma-release an Escrow payout ha iya wallet!';
+      } else if (isTagalog) {
+        return 'Kapag tapos na ang trabaho sa Tranyx, i-mamark ng Nyxian ang job as "Completed", bubuo ang Employer ng QR code, at i-iscan ito ng Nyxian upang agarang ma-release ang Escrow payout diretso sa kanyang wallet!';
+      }
+      return 'When a job is completed on Tranyx, the Nyxian marks the job as done, the Employer generates a completion QR code, and the Nyxian scans it to instantly release the Escrow funds into their wallet!';
+    }
+
+    // 3. Gigs & Job Matching Queries
     if (clean.contains('gig') || clean.contains('job') || clean.contains('work') || clean.contains('trabaho') || clean.contains('apply') || clean.contains('post') || clean.contains('pustar') || clean.contains('patrabaho')) {
       if (clean.contains('post') || clean.contains('create') || clean.contains('employer') || clean.contains('magpost') || clean.contains('pag-himo')) {
         if (isWaray) {

@@ -39,4 +39,8 @@ class F {
         return null;
     }
   }
+
+  /// Whether fiat top-ups/withdrawals (e.g. Xendit GCash Sandbox) are enabled.
+  /// Gated to false in production until full fiat regulatory compliance is active.
+  static bool get isFiatEnabled => appFlavor != Flavor.production;
 }

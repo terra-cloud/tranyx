@@ -511,6 +511,57 @@ Future<String?> signSolanaMessage(String fromAddress, String message) async {
   }
 }
 
+Future<String?> broadcastTreasuryTransfer({
+  required String treasuryPrivKeyBase58,
+  required String recipientPubkey,
+  required int lamports,
+}) async {
+  try {
+    final rpcUrl = getSolanaRpcUrl();
+    final promise = web.window.callMethodVarArgs(
+      'broadcastTreasuryTransfer'.toJS,
+      [
+        treasuryPrivKeyBase58.toJS,
+        recipientPubkey.toJS,
+        lamports.toJS,
+        rpcUrl.toJS,
+      ],
+    ) as JSPromise;
+    final res = await promise.toDart;
+    return (res as JSString).toDart;
+  } catch (e) {
+    print("broadcastTreasuryTransfer exception: $e");
+    rethrow;
+  }
+}
+
+Future<String?> broadcastTreasuryTokenTransfer({
+  required String treasuryPrivKeyBase58,
+  required String recipientPubkey,
+  required double amountInUsdt,
+  String? usdtMint,
+}) async {
+  try {
+    final rpcUrl = getSolanaRpcUrl();
+    final mint = usdtMint ?? getUsdtMintAddress();
+    final promise = web.window.callMethodVarArgs(
+      'broadcastTreasuryTokenTransfer'.toJS,
+      [
+        treasuryPrivKeyBase58.toJS,
+        recipientPubkey.toJS,
+        amountInUsdt.toJS,
+        rpcUrl.toJS,
+        mint.toJS,
+      ],
+    ) as JSPromise;
+    final res = await promise.toDart;
+    return (res as JSString).toDart;
+  } catch (e) {
+    print("broadcastTreasuryTokenTransfer exception: $e");
+    rethrow;
+  }
+}
+
 // ── Session Storage ───────────────────────────────────────────────────────────
 
 class SessionStorage {
@@ -520,6 +571,7 @@ class SessionStorage {
   static const _nam = 'tranyx_name';
   static const _eml = 'tranyx_email';
   static const _act = 'tranyx_account_type';
+  static const _pho = 'tranyx_photo_url';
   static const _qrJobId = 'tranyx_pending_qr_job_id';
   static const _qrCode = 'tranyx_pending_qr_code';
 
@@ -534,16 +586,31 @@ class SessionStorage {
   static void save(dynamic auth) {
     web.window.localStorage.setItem(_uid, auth.uid as String);
     web.window.localStorage.setItem(_tok, auth.idToken as String);
-    // refreshToken is handled securely by Firebase Auth persistence, not stored in raw localStorage
-    web.window.localStorage.removeItem(_ref);
-    if (auth.displayName != null) web.window.localStorage.setItem(_nam, auth.displayName as String);
-    if (auth.email != null) web.window.localStorage.setItem(_eml, auth.email as String);
+    if (auth.refreshToken != null && (auth.refreshToken as String).isNotEmpty) {
+      web.window.localStorage.setItem(_ref, auth.refreshToken as String);
+    }
+    if (auth.displayName != null && (auth.displayName as String).isNotEmpty) {
+      web.window.localStorage.setItem(_nam, auth.displayName as String);
+    }
+    if (auth.email != null && (auth.email as String).isNotEmpty) {
+      web.window.localStorage.setItem(_eml, auth.email as String);
+    }
+    if (auth.photoUrl != null && (auth.photoUrl as String).isNotEmpty) {
+      web.window.localStorage.setItem(_pho, auth.photoUrl as String);
+    } else {
+      web.window.localStorage.removeItem(_pho);
+    }
   }
 
-  static void saveProfile({String? name, String? email, String? accountType}) {
+  static void saveProfile({String? name, String? email, String? accountType, String? photoUrl}) {
     if (name != null) web.window.localStorage.setItem(_nam, name);
     if (email != null) web.window.localStorage.setItem(_eml, email);
     if (accountType != null) web.window.localStorage.setItem(_act, accountType);
+    if (photoUrl != null && photoUrl.isNotEmpty) {
+      web.window.localStorage.setItem(_pho, photoUrl);
+    } else {
+      web.window.localStorage.removeItem(_pho);
+    }
   }
 
   static String? get uid => web.window.localStorage.getItem(_uid);
@@ -552,6 +619,7 @@ class SessionStorage {
   static String? get displayName => web.window.localStorage.getItem(_nam);
   static String? get email => web.window.localStorage.getItem(_eml);
   static String? get accountType => web.window.localStorage.getItem(_act);
+  static String? get photoUrl => web.window.localStorage.getItem(_pho);
   static bool get hasSession => uid != null && idToken != null;
 
   static String? get pendingQrJobId => web.window.localStorage.getItem(_qrJobId);
@@ -661,6 +729,7 @@ class SessionStorage {
       _nam,
       _eml,
       _act,
+      _pho,
       _xenditInvoiceId,
       _xenditInvoiceAmount,
       _pendingPropertyBooking,
@@ -697,37 +766,87 @@ class WebFile {
 }
 
 Future<List<WebFile>> readFilesFromEvent(dynamic event) async {
+  if (event == null) return [];
   try {
-    final e = event as web.Event;
-    final targetObj = e.target as JSObject?;
-    if (targetObj == null) return [];
-    if (!targetObj.hasProperty('files'.toJS).toDart) return [];
-    final filesObj = targetObj.getProperty<JSObject?>('files'.toJS);
-    if (filesObj == null) return [];
-    if (!filesObj.hasProperty('length'.toJS).toDart) return [];
-    final length = (filesObj.getProperty('length'.toJS) as JSNumber).toDartInt;
-    if (length == 0) return [];
-    final result = <WebFile>[];
-    for (var i = 0; i < length; i++) {
-      final fileObj = filesObj.callMethod<JSObject?>('item'.toJS, i.toJS);
-      if (fileObj == null) continue;
-      final name = (fileObj.getProperty('name'.toJS) as JSString).toDart;
-      final completer = Completer<Uint8List>();
-      final reader = web.FileReader();
-      reader.readAsArrayBuffer(fileObj as web.Blob);
-      reader.onLoadEnd.listen((_) {
-        try {
-          final jsBuffer = reader.result as JSArrayBuffer;
-          final jsUint8Array = JSUint8Array(jsBuffer);
-          completer.complete(jsUint8Array.toDart);
-        } catch (err) {
-          completer.completeError(err);
+    web.HTMLInputElement? inputEl;
+    if (event is JSObject) {
+      if (event.isA<web.HTMLInputElement>()) {
+        inputEl = event as web.HTMLInputElement;
+      } else if (event.isA<web.Event>()) {
+        final ev = event as web.Event;
+        final target = ev.target;
+        if (target != null && (target as JSObject).isA<web.HTMLInputElement>()) {
+          inputEl = target as web.HTMLInputElement;
         }
-      });
-      result.add(WebFile(name, await completer.future));
+      }
     }
-    return result;
-  } catch (_) {
+
+    if (inputEl != null) {
+      final filesList = inputEl.files;
+      if (filesList != null && filesList.length > 0) {
+        final result = <WebFile>[];
+        for (var i = 0; i < filesList.length; i++) {
+          final file = filesList.item(i);
+          if (file == null) continue;
+          final name = file.name;
+          final completer = Completer<Uint8List>();
+          final reader = web.FileReader();
+          reader.readAsArrayBuffer(file);
+          reader.onLoadEnd.listen((_) {
+            try {
+              final jsBuffer = reader.result as JSArrayBuffer;
+              final jsUint8Array = JSUint8Array(jsBuffer);
+              completer.complete(jsUint8Array.toDart);
+            } catch (err) {
+              completer.completeError(err);
+            }
+          });
+          result.add(WebFile(name, await completer.future));
+        }
+        return result;
+      }
+    }
+
+    // Dynamic / JSObject fallback
+    dynamic target;
+    try {
+      target = (event as dynamic).target ?? event;
+    } catch (_) {
+      target = event;
+    }
+
+    final targetObj = target as JSObject?;
+    if (targetObj != null && targetObj.hasProperty('files'.toJS).toDart) {
+      final filesObj = targetObj.getProperty<JSObject?>('files'.toJS);
+      if (filesObj != null && filesObj.hasProperty('length'.toJS).toDart) {
+        final length = (filesObj.getProperty('length'.toJS) as JSNumber).toDartInt;
+        if (length > 0) {
+          final result = <WebFile>[];
+          for (var i = 0; i < length; i++) {
+            final fileObj = filesObj.callMethod<JSObject?>('item'.toJS, i.toJS);
+            if (fileObj == null) continue;
+            final name = (fileObj.getProperty('name'.toJS) as JSString).toDart;
+            final completer = Completer<Uint8List>();
+            final reader = web.FileReader();
+            reader.readAsArrayBuffer(fileObj as web.Blob);
+            reader.onLoadEnd.listen((_) {
+              try {
+                final jsBuffer = reader.result as JSArrayBuffer;
+                final jsUint8Array = JSUint8Array(jsBuffer);
+                completer.complete(jsUint8Array.toDart);
+              } catch (err) {
+                completer.completeError(err);
+              }
+            });
+            result.add(WebFile(name, await completer.future));
+          }
+          return result;
+        }
+      }
+    }
+    return [];
+  } catch (e) {
+    print('[readFilesFromEvent] error: $e');
     return [];
   }
 }

@@ -11,4 +11,5 @@ export 'src/nyx_domain_knowledge.dart';
 export 'src/message_policy.dart';
 export 'src/ai_service.dart';
 export 'src/faq_data.dart';
+export 'src/wallet_transaction.dart';
 

@@ -79,17 +79,36 @@ class _ProfileMenu extends StatelessComponent {
     return div(classes: 'rounded-3xl border p-4 $cardCls', [
       // Avatar + name header
       div(classes: 'p-4 text-center mb-4', [
-        div(classes: 'relative inline-block mb-3', [
+        div(classes: 'relative inline-block mb-3 group', [
           div(
             classes:
-                'w-20 h-20 rounded-full overflow-hidden gradient-border flex items-center justify-center bg-indigo-600/20',
+                'w-20 h-20 rounded-full overflow-hidden gradient-border flex items-center justify-center bg-indigo-600/20 relative shadow-md',
             [
-              if (s.userPhotoUrl != null)
+              if (s.userPhotoUrl != null && s.userPhotoUrl!.isNotEmpty)
                 img(src: s.userPhotoUrl!, classes: 'w-full h-full object-cover')
               else
                 span(classes: 'text-2xl font-bold text-indigo-400', [
                   Component.text(s.userName.isNotEmpty ? s.userName[0].toUpperCase() : '?'),
                 ]),
+              if (s.isUploadingProfilePhoto)
+                div(
+                  classes: 'absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-sm',
+                  [lIcon('loader-2', cls: 'w-6 h-6 animate-spin text-white')],
+                ),
+            ],
+          ),
+          label(
+            classes:
+                'absolute bottom-0 right-0 p-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg cursor-pointer transition-all hover:scale-110 flex items-center justify-center border-2 ${isDark ? "border-zinc-900" : "border-white"}',
+            attributes: {'title': 'Upload custom profile photo'},
+            [
+              lIcon('camera', cls: 'w-3.5 h-3.5'),
+              input(
+                type: InputType.file,
+                classes: 'hidden',
+                attributes: {'accept': 'image/*'},
+                events: {'change': (e) => s.handleProfilePhotoUpload(e)},
+              ),
             ],
           ),
         ]),
@@ -182,6 +201,7 @@ class _ProfileMainState extends State<_ProfileMain> {
     super.initState();
     Future.microtask(() {
       component.state.fetchSolToPhpRate();
+      component.state.loadUserProfile();
     });
   }
 
@@ -620,10 +640,21 @@ class _PersonalInfo extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final s = state;
-
-    final currentName = s.editName.isNotEmpty ? s.editName : (s.userProfile?.name ?? s.userName);
-    final currentEmail = s.editEmail.isNotEmpty ? s.editEmail : (s.userProfile?.email ?? s.userEmail);
-    final currentTaxId = s.editTaxId.isNotEmpty ? s.editTaxId : (s.userProfile?.taxId ?? '');
+    if (s.editName.isEmpty && (s.userProfile?.name.isNotEmpty == true || s.userName.isNotEmpty)) {
+      s.initializeProfileEditing();
+    }
+    if (s.editEmail.isEmpty) {
+      final authEmail = s.userEmail.isNotEmpty ? s.userEmail : (SessionStorage.email ?? '');
+      if (authEmail.isNotEmpty) s.editEmail = authEmail;
+    }
+    if (s.editName.isEmpty) {
+      final authName = (s.userName.isNotEmpty && s.userName != 'User')
+          ? s.userName
+          : (s.userProfile?.name.isNotEmpty == true && s.userProfile!.name != 'User'
+              ? s.userProfile!.name
+              : (SessionStorage.displayName ?? ''));
+      if (authName.isNotEmpty) s.editName = authName;
+    }
 
     return div(classes: 'space-y-6', [
       subViewHeader(
@@ -641,13 +672,64 @@ class _PersonalInfo extends StatelessComponent {
             ]),
           ]),
         ]),
+
+      // Profile Photo Upload Card
+      div(
+        classes:
+            'p-5 rounded-3xl border ${s.isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"} flex items-center justify-between gap-4',
+        [
+          div(classes: 'flex items-center gap-4', [
+            div(
+              classes:
+                  'w-16 h-16 rounded-full overflow-hidden flex items-center justify-center relative bg-indigo-600/20 border-2 border-indigo-500/30 shrink-0 shadow-sm',
+              [
+                if (s.userPhotoUrl != null && s.userPhotoUrl!.isNotEmpty)
+                  img(src: s.userPhotoUrl!, classes: 'w-full h-full object-cover')
+                else
+                  span(classes: 'text-xl font-bold text-indigo-400', [
+                    Component.text(s.userName.isNotEmpty ? s.userName[0].toUpperCase() : '?'),
+                  ]),
+                if (s.isUploadingProfilePhoto)
+                  div(
+                    classes: 'absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-sm',
+                    [lIcon('loader-2', cls: 'w-5 h-5 animate-spin text-white')],
+                  ),
+              ],
+            ),
+            div([
+              p(classes: 'text-sm font-bold ${s.isDark ? "text-white" : "text-zinc-900"}', [
+                Component.text('Profile Picture'),
+              ]),
+              p(classes: 'text-xs ${s.isDark ? "text-zinc-400" : "text-zinc-500"} mt-0.5', [
+                Component.text('Upload custom photo (PNG, JPG, WebP)'),
+              ]),
+            ]),
+          ]),
+          label(
+            classes:
+                'px-4 py-2.5 rounded-xl font-bold text-xs bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer transition-all flex items-center gap-2 shadow-sm shrink-0',
+            [
+              lIcon(s.isUploadingProfilePhoto ? 'loader-2' : 'camera',
+                  cls: 'w-4 h-4 ${s.isUploadingProfilePhoto ? "animate-spin" : ""}'),
+              Component.text(s.isUploadingProfilePhoto ? 'Uploading...' : 'Change Photo'),
+              input(
+                type: InputType.file,
+                classes: 'hidden',
+                attributes: {'accept': 'image/*'},
+                events: {'change': (e) => s.handleProfilePhotoUpload(e)},
+              ),
+            ],
+          ),
+        ],
+      ),
+
       div(classes: 'space-y-4', [
         inputField(
           label: 'Full Name',
           placeholder: 'Juan Dela Cruz',
           iconName: 'user-circle',
           isDark: s.isDark,
-          value: currentName,
+          value: s.editName,
           onChange: (v) => s.setState(() => s.editName = v),
         ),
         inputField(
@@ -656,7 +738,7 @@ class _PersonalInfo extends StatelessComponent {
           iconName: 'mail',
           type: 'email',
           isDark: s.isDark,
-          value: currentEmail,
+          value: s.editEmail,
           onChange: (v) => s.setState(() => s.editEmail = v),
         ),
         div(classes: 'space-y-1', [
@@ -707,7 +789,7 @@ class _PersonalInfo extends StatelessComponent {
           placeholder: '000-000-000-000',
           iconName: 'file-text',
           isDark: s.isDark,
-          value: s.formatTIN(currentTaxId),
+          value: s.formatTIN(s.editTaxId),
           onChange: (v) {
             final digits = v.replaceAll(RegExp(r'\D'), '');
             final tin = digits.substring(0, digits.length > 12 ? 12 : digits.length);
@@ -866,21 +948,15 @@ class _ProfessionalInfo extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final s = state;
+    if (s.editHeadline.isEmpty && s.editSkills.isEmpty && (s.userProfile?.headline?.isNotEmpty == true || s.userProfile?.skills?.isNotEmpty == true || s.userProfile?.businessName?.isNotEmpty == true || s.userProfile?.industry?.isNotEmpty == true)) {
+      s.initializeProfileEditing();
+    }
     final isDark = s.isDark;
     final isNyxian = s.accountType == AccountType.nyxian || s.accountType == AccountType.hybrid;
     final isEmployer = s.accountType == AccountType.employer || s.accountType == AccountType.hybrid;
     final sectionCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
 
-    final currentHeadline = s.editHeadline.isNotEmpty ? s.editHeadline : (s.userProfile?.headline ?? '');
-    final currentHourlyRate = s.editHourlyRate.isNotEmpty
-        ? s.editHourlyRate
-        : (s.userProfile?.hourlyRate?.toStringAsFixed(0) ?? '');
-    final skills = s.editSkills.isNotEmpty ? s.editSkills : (s.userProfile?.skills ?? []);
-    final currentBusinessName = s.editBusinessName.isNotEmpty
-        ? s.editBusinessName
-        : (s.userProfile?.businessName ?? '');
-    final currentIndustry = s.editIndustry.isNotEmpty ? s.editIndustry : (s.userProfile?.industry ?? '');
-    final currentTaxId = s.editTaxId.isNotEmpty ? s.editTaxId : (s.userProfile?.taxId ?? '');
+    final skills = s.editSkills;
 
     return div(classes: 'space-y-6', [
       subViewHeader(
@@ -911,7 +987,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: 'e.g. Expert Electrician & Handyman',
             iconName: 'zap',
             isDark: isDark,
-            value: currentHeadline,
+            value: s.editHeadline,
             onChange: (v) => s.setState(() => s.editHeadline = v),
           ),
           inputField(
@@ -919,7 +995,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: '250',
             iconName: 'wallet',
             isDark: isDark,
-            value: currentHourlyRate,
+            value: s.editHourlyRate,
             onChange: (v) => s.setState(() => s.editHourlyRate = v),
           ),
           div([
@@ -1056,7 +1132,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: 'Juan Constructions',
             iconName: 'building',
             isDark: isDark,
-            value: currentBusinessName,
+            value: s.editBusinessName,
             onChange: (v) => s.setState(() => s.editBusinessName = v),
           ),
           inputField(
@@ -1064,7 +1140,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: 'Construction & Real Estate',
             iconName: 'briefcase',
             isDark: isDark,
-            value: currentIndustry,
+            value: s.editIndustry,
             onChange: (v) => s.setState(() => s.editIndustry = v),
           ),
           inputField(
@@ -1072,7 +1148,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: '000-000-000-000',
             iconName: 'file-text',
             isDark: isDark,
-            value: s.formatTIN(currentTaxId),
+            value: s.formatTIN(s.editTaxId),
             onChange: (v) {
               final digits = v.replaceAll(RegExp(r'\D'), '');
               final tin = digits.substring(0, digits.length > 12 ? 12 : digits.length);
@@ -1233,9 +1309,6 @@ class _Payment extends StatelessComponent {
         ],
       ),
 
-      // Phantom wallet section
-      _phantomWallet(s, isDark),
-
       // Profile Promo Section
       div(
         classes:
@@ -1315,261 +1388,6 @@ class _Payment extends StatelessComponent {
         [lIcon('plus', cls: 'w-5 h-5'), Component.text('  Add Payment Method')],
       ),
     ]);
-  }
-
-  Component _phantomWallet(TranyxAppState s, bool isDark) {
-    final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
-    final walletName = s.selectedWalletType != null
-        ? '${s.selectedWalletType!.substring(0, 1).toUpperCase()}${s.selectedWalletType!.substring(1)}'
-        : 'Solana';
-
-    Component getWalletIcon({String size = 'w-5 h-5'}) {
-      if (s.selectedWalletType == 'phantom')
-        return img(src: '/images/PhantomWallet.png', classes: '$size object-contain rounded-md');
-      if (s.selectedWalletType == 'solflare')
-        return img(src: '/images/Solflare.png', classes: '$size object-contain rounded-md');
-      if (s.selectedWalletType == 'trust')
-        return img(src: '/images/TrustWallet.jpeg', classes: '$size object-contain rounded-md');
-      if (s.selectedWalletType == 'backpack')
-        return img(src: '/images/BackPack.png', classes: '$size object-contain rounded-md');
-      return lIcon('wallet', cls: '$size text-white');
-    }
-
-    if (s.walletState == WalletState.disconnected) {
-      return div(classes: 'p-5 rounded-2xl border $cardCls', [
-        div(classes: 'flex items-center justify-between', [
-          div(classes: 'flex items-center gap-3', [
-            div(classes: 'p-2.5 rounded-xl phantom-gradient', [
-              getWalletIcon(size: 'w-5 h-5'),
-            ]),
-            div([
-              p(classes: 'font-semibold', [Component.text('Solana Wallet')]),
-              p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-                Component.text('Connect Phantom, Trust, Solflare, or Backpack'),
-              ]),
-            ]),
-          ]),
-          button(
-            classes:
-                'px-4 py-2.5 rounded-xl text-sm font-bold text-white phantom-gradient hover:opacity-90 transition-opacity',
-            events: {'click': (_) => s.handleConnectWallet()},
-            [Component.text('Connect')],
-          ),
-        ]),
-      ]);
-    }
-
-    if (s.walletState == WalletState.connecting) {
-      return div(classes: 'p-5 rounded-2xl border $cardCls', [
-        div(classes: 'flex items-center gap-3', [
-          div(classes: 'p-2.5 rounded-xl phantom-gradient animate-pulse', [
-            getWalletIcon(size: 'w-5 h-5'),
-          ]),
-          div([
-            p(classes: 'font-semibold', [Component.text('Connecting $walletName...')]),
-            p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-              Component.text('Please approve in your browser extension'),
-            ]),
-          ]),
-          lIcon('loader-2', cls: 'w-5 h-5 ml-auto animate-spin ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
-        ]),
-      ]);
-    }
-
-    // Connected
-    final displayAddr = s.walletAddress.length > 8
-        ? '${s.walletAddress.substring(0, 4)}...${s.walletAddress.substring(s.walletAddress.length - 4)}'
-        : s.walletAddress;
-
-    // Compile all assets to show in the list
-    final assets = <Map<String, dynamic>>[];
-
-    if (s.ethAddress.isNotEmpty) {
-      assets.add({
-        'symbol': 'ETH',
-        'name': 'Ethereum',
-        'address': s.ethAddress,
-        'amount': s.ethBalance,
-        'decimals': 4,
-        'icon': 'coins',
-        'color': 'purple',
-      });
-    }
-
-    if (s.suiAddress.isNotEmpty) {
-      assets.add({
-        'symbol': 'SUI',
-        'name': 'Sui',
-        'address': s.suiAddress,
-        'amount': s.suiBalance,
-        'decimals': 2,
-        'icon': 'coins',
-        'color': 'blue',
-      });
-    }
-
-    for (final t in s.walletCollectibles) {
-      final mint = t['mint'] as String;
-      final amount = t['amount'] as double;
-      final decimals = t['decimals'] as int;
-      final symVal = t['symbol'] as String?;
-      final nameVal = t['name'] as String?;
-
-      String symbol = (symVal != null && symVal.isNotEmpty) ? symVal : 'SPL Token';
-      String name = (nameVal != null && nameVal.isNotEmpty) ? nameVal : symbol;
-      String icon = 'coins';
-      String color = 'zinc';
-
-      if (mint == 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB') {
-        symbol = 'USDT';
-        name = 'USDT';
-        icon = 'dollar-sign';
-        color = 'green';
-      } else if (mint == '2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo' ||
-          mint == 'CXk2AMBfi3TwaEL2468s6zP8xq9NxTXjp9gjMgzeUynM') {
-        symbol = 'PYUSD';
-        name = 'PYUSD';
-        icon = 'dollar-sign';
-        color = 'green';
-      } else if (decimals == 0 && amount == 1) {
-        symbol = 'NFT';
-        name = 'NFT';
-        icon = 'image';
-        color = 'purple';
-      }
-
-      assets.add({
-        'symbol': symbol,
-        'name': name,
-        'address': mint,
-        'amount': amount,
-        'decimals': decimals,
-        'icon': icon,
-        'color': color,
-      });
-    }
-
-    return div(
-      classes:
-          'p-6 rounded-[2rem] border transition-all duration-300 '
-          '${isDark ? "bg-[#18181b]/60 border-zinc-800/80 text-white" : "bg-white border-zinc-200 text-zinc-800 shadow-sm"} space-y-6',
-      [
-        div(classes: 'flex items-center justify-between', [
-          div(classes: 'flex items-center gap-4', [
-            div(
-              classes:
-                  'w-12 h-12 rounded-full bg-[#512da8] flex items-center justify-center text-white shadow-lg shadow-purple-500/20',
-              [getWalletIcon(size: 'w-6 h-6')],
-            ),
-            div([
-              p(classes: 'font-extrabold text-indigo-400 tracking-tight text-base', [
-                Component.text('$walletName Wallet'),
-              ]),
-              p(classes: 'text-xs text-zinc-500 font-mono mt-0.5', [Component.text(displayAddr)]),
-            ]),
-          ]),
-          button(
-            classes:
-                'p-2 rounded-xl text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer',
-            events: {
-              'click': (_) => s.setState(() {
-                s.walletState = WalletState.disconnected;
-                s.walletAddress = '';
-                s.walletBalance = 0;
-                s.walletCollectibles = [];
-                s.ethAddress = '';
-                s.suiAddress = '';
-                s.ethBalance = 0;
-                s.suiBalance = 0;
-              }),
-            },
-            [lIcon('log-out', cls: 'w-5 h-5')],
-          ),
-        ]),
-
-        div(classes: 'flex items-end justify-between pt-1', [
-          div([
-            p(classes: 'text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500 mb-1', [
-              Component.text('Balance'),
-            ]),
-            p(
-              classes:
-                  'text-3xl font-black flex items-baseline gap-1.5 '
-                  '${isDark ? "text-white" : "text-zinc-900"}',
-              [
-                Component.text(s.walletBalance.toStringAsFixed(2)),
-                span(classes: 'text-xs font-black text-zinc-500 tracking-wider', [Component.text('SOL')]),
-              ],
-            ),
-          ]),
-          button(
-            classes:
-                'p-3 rounded-2xl transition-all flex items-center justify-center border shadow-sm '
-                '${isDark ? "bg-zinc-800/80 border-zinc-700/60 hover:bg-zinc-800 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-600"}',
-            events: {'click': (_) => s.handleRefreshBalance()},
-            [
-              lIcon(
-                s.isRefreshingBalance ? 'loader-2' : 'refresh-cw',
-                cls: 'w-5 h-5 ${s.isRefreshingBalance ? "animate-spin" : ""}',
-              ),
-            ],
-          ),
-        ]),
-
-        if (assets.isNotEmpty) ...[
-          div(classes: 'border-t border-zinc-800/60 pt-4 mt-2 space-y-3', [
-            p(classes: 'text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500', [
-              Component.text('Token Assets & Collectibles'),
-            ]),
-            div(
-              classes: 'grid grid-cols-1 gap-2.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar',
-              assets.map((t) {
-                final name = t['name'] as String;
-                final addr = t['address'] as String;
-                final shortAddr = addr.length > 8
-                    ? '${addr.substring(0, 4)}...${addr.substring(addr.length - 4)}'
-                    : addr;
-                final amount = t['amount'] as double;
-                final decimals = t['decimals'] as int;
-                final icon = t['icon'] as String;
-                final color = t['color'] as String;
-
-                String iconBgCls = 'bg-zinc-500/10 text-zinc-400';
-                if (color == 'purple') {
-                  iconBgCls = 'bg-purple-500/10 text-purple-400';
-                } else if (color == 'blue') {
-                  iconBgCls = 'bg-blue-500/10 text-blue-400';
-                } else if (color == 'green') {
-                  iconBgCls = 'bg-green-500/10 text-green-400';
-                }
-
-                return div(
-                  classes:
-                      'flex items-center justify-between p-3 rounded-2xl border ${isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-200"}',
-                  [
-                    div(classes: 'flex items-center gap-3', [
-                      div(
-                        classes: 'w-8 h-8 rounded-xl $iconBgCls flex items-center justify-center',
-                        [lIcon(icon, cls: 'w-4 h-4')],
-                      ),
-                      div([
-                        p(classes: 'text-xs font-bold ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
-                          Component.text(name),
-                        ]),
-                        p(classes: 'text-[10px] text-zinc-500 font-mono mt-0.5', [Component.text(shortAddr)]),
-                      ]),
-                    ]),
-                    p(classes: 'text-xs font-black ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
-                      Component.text(amount.toStringAsFixed(decimals == 0 ? 0 : decimals)),
-                    ]),
-                  ],
-                );
-              }).toList(),
-            ),
-          ]),
-        ],
-      ],
-    );
   }
 }
 
@@ -1754,14 +1572,60 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
         'walletPublicKey': walletKey,
       };
 
-      // 1. Save withdrawal request record
-      await svc.createOrUpdate('withdrawalRequests/$requestId', requestData);
+      // 1. Direct on-chain treasury transfer if private key configured
+      String txSignature = '';
+      bool isOnChainTransferred = false;
 
-      // 2. Create transaction record
+      final treasuryPrivKey = Env.solanaPrivateKey;
+      if (treasuryPrivKey.isNotEmpty) {
+        try {
+          if (_selectedCoin == 'SOL') {
+            final lamports = (cryptoAmount * 1e9).round();
+            if (lamports > 0) {
+              final sig = await broadcastTreasuryTransfer(
+                treasuryPrivKeyBase58: treasuryPrivKey,
+                recipientPubkey: walletKey,
+                lamports: lamports,
+              );
+              if (sig != null && sig.isNotEmpty) {
+                txSignature = sig;
+                isOnChainTransferred = true;
+              }
+            }
+          } else {
+            if (cryptoAmount > 0) {
+              final sig = await broadcastTreasuryTokenTransfer(
+                treasuryPrivKeyBase58: treasuryPrivKey,
+                recipientPubkey: walletKey,
+                amountInUsdt: cryptoAmount,
+              );
+              if (sig != null && sig.isNotEmpty) {
+                txSignature = sig;
+                isOnChainTransferred = true;
+              }
+            }
+          }
+        } catch (vaultErr) {
+          print('Direct client-side vault transfer skipped/queued: $vaultErr');
+        }
+      }
+
+      final txStatus = isOnChainTransferred ? 'Successful' : 'Pending';
+
+      // 2. Save withdrawal request record
+      await svc.createOrUpdate('withdrawalRequests/$requestId', {
+        ...requestData,
+        'status': txStatus,
+        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
+      });
+
+      // 3. Create transaction record
       await svc.createOrUpdate('transactions/tx_$timestamp', {
         'id': 'tx_$timestamp',
         'uid': uid,
-        'title': 'Withdrawal Request ($methodTitle)',
+        'title': isOnChainTransferred
+            ? 'Withdrawal Successful ($methodTitle)'
+            : 'Withdrawal Request ($methodTitle)',
         'type': 'withdraw',
         'amount': -amount,
         'feeAmount': feePhp,
@@ -1769,13 +1633,17 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
         'cryptoAmount': cryptoAmount,
         'rateUsed': activeRate,
         'currency': 'PHP',
-        'status': 'Pending',
+        'status': txStatus,
         'createdAt': timestamp,
         'walletPublicKey': walletKey,
         'coin': _selectedCoin,
+        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
+        'desc': isOnChainTransferred
+            ? 'Withdrew ₱${amount.toStringAsFixed(2)} to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin). On-Chain Tx: $txSignature'
+            : 'Requested ₱${amount.toStringAsFixed(2)} withdrawal to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin)',
       });
 
-      // 3. Deduct from user profile balance
+      // 4. Deduct from user profile balance
       final newBalance = (tyxBal - amount).clamp(0.0, double.infinity);
       await svc.createOrUpdate('users/$uid', {'tyxBalance': newBalance});
 
@@ -1787,9 +1655,14 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
 
       setState(() {
         _isSubmitting = false;
-        _successMessage = 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
+        _successMessage = isOnChainTransferred
+            ? 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin) has been transferred directly to your Solana wallet on-chain!'
+            : 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
       });
-      s.showAppToast('Withdrawal Requested', '₱ ${amount.toStringAsFixed(2)} via $methodTitle submitted.');
+      s.showAppToast(
+        isOnChainTransferred ? 'Withdrawal Completed' : 'Withdrawal Requested',
+        '₱ ${amount.toStringAsFixed(2)} via $methodTitle ${isOnChainTransferred ? "sent on-chain!" : "submitted."}',
+      );
     } catch (e) {
       setState(() {
         _isSubmitting = false;
@@ -3939,25 +3812,38 @@ class _HistoryViewState extends State<_HistoryView> {
 
     // Process userTransactions for deposits (or any other types)
     for (final tx in component.state.userTransactions) {
-      final type = tx['type'] as String?;
-      final createdAt = (tx['createdAt'] as num?)?.toInt();
-      if (type == 'deposit') {
+      final record = WalletTransaction.fromMap(tx);
+      final createdAt = record.createdAt;
+      final isDeposit = record.amount >= 0 ||
+          record.transactionType == WalletTransactionType.deposit ||
+          record.transactionType == WalletTransactionType.fiatTopup ||
+          record.transactionType == WalletTransactionType.refund;
+
+      if (isDeposit) {
         dTrans.add({
-          'title': tx['title'] ?? 'Top-Up',
-          'desc': tx['desc'] ?? 'Deposit',
+          'title': record.title,
+          'desc': record.desc,
           'date': _formatDate(createdAt),
-          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
-          'method': tx['method'] ?? 'Unknown',
-          'timestamp': createdAt ?? 0,
+          'amount': record.amount.abs(),
+          'cryptoAmount': record.cryptoAmount,
+          'cryptoCurrency': record.cryptoCurrency,
+          'solanaTxSignature': record.solanaTxSignature,
+          'xenditReferenceId': record.xenditReferenceId,
+          'originRail': record.originRail == TransactionOriginRail.mwaOnChain
+              ? 'mwa_on_chain'
+              : (record.originRail == TransactionOriginRail.gcashXendit ? 'gcash_xendit' : 'internal_balance'),
+          'method': record.method ?? (record.originRail == TransactionOriginRail.mwaOnChain ? 'Solana' : 'Xendit'),
+          'timestamp': createdAt,
         });
-      } else if (type == 'listing_fee') {
+      } else if (record.transactionType == WalletTransactionType.listingFee) {
         pTrans.add({
-          'title': tx['title'] ?? 'Listing Fee',
-          'desc': tx['desc'] ?? 'Platform Listing Fee',
+          'title': record.title,
+          'desc': record.desc,
           'date': _formatDate(createdAt),
-          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
+          'amount': record.amount.abs(),
           'status': 'Successful',
-          'timestamp': createdAt ?? 0,
+          'timestamp': createdAt,
+          'kind': 'listing_fee',
         });
       }
     }
@@ -4409,31 +4295,65 @@ class _HistoryViewState extends State<_HistoryView> {
                 div(classes: 'p-5 flex justify-between items-center hover:bg-zinc-500/5 transition-colors', [
                   div(classes: 'flex items-center gap-4', [
                     div(
-                      classes: 'w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center text-violet-400',
+                      classes:
+                          'w-10 h-10 rounded-xl ${tx['originRail'] == 'mwa_on_chain' ? "bg-indigo-500/10 text-indigo-400" : "bg-emerald-500/10 text-emerald-400"} flex items-center justify-center',
                       [
-                        lIcon('plus-circle', cls: 'w-5 h-5'),
+                        lIcon(tx['originRail'] == 'mwa_on_chain' ? 'zap' : 'credit-card', cls: 'w-5 h-5'),
                       ],
                     ),
                     div([
-                      p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
-                        Component.text(tx['title'] as String),
+                      div(classes: 'flex items-center gap-2', [
+                        p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                          Component.text(tx['title'] as String),
+                        ]),
+                        if (tx['originRail'] == 'mwa_on_chain')
+                          span(
+                            classes:
+                                'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/30',
+                            [Component.text('MWA / On-Chain')],
+                          )
+                        else if (tx['originRail'] == 'gcash_xendit')
+                          span(
+                            classes:
+                                'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
+                            [Component.text('GCash via Xendit')],
+                          ),
                       ]),
                       p(classes: 'text-xs text-zinc-500 mt-0.5', [
                         Component.text('${tx['desc']} • ${tx['date']}'),
                       ]),
+                      if (tx['solanaTxSignature'] != null && (tx['solanaTxSignature'] as String).isNotEmpty)
+                        a(
+                          href: WalletTransaction.getSolanaExplorerUrl(
+                            signature: tx['solanaTxSignature'] as String,
+                            environment: 'dev',
+                          ),
+                          target: Target.blank,
+                          classes:
+                              'inline-flex items-center gap-1 text-[11px] font-bold text-indigo-400 hover:text-indigo-300 mt-1',
+                          [
+                            Component.text('View on Solana Explorer'),
+                            lIcon('external-link', cls: 'w-3 h-3'),
+                          ],
+                        ),
                     ]),
                   ]),
                   div(classes: 'text-right', [
-                    p(classes: 'font-black text-sm text-indigo-400', [
+                    p(classes: 'font-black text-sm text-emerald-400', [
                       Component.text('+ ${formatCurrency((tx['amount'] as num).toDouble())}'),
                     ]),
-                    span(
-                      classes:
-                          'inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-violet-500/10 text-violet-400',
-                      [
-                        Component.text(tx['method'] as String),
-                      ],
-                    ),
+                    if (tx['cryptoAmount'] != null && (tx['cryptoAmount'] as num) > 0)
+                      p(classes: 'text-[11px] font-bold text-indigo-400 mt-0.5', [
+                        Component.text('≈ ${(tx['cryptoAmount'] as num).toStringAsFixed(4)} ${tx['cryptoCurrency'] ?? "SOL"}'),
+                      ])
+                    else
+                      span(
+                        classes:
+                            'inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-500/10 text-zinc-400',
+                        [
+                          Component.text(tx['method'] as String),
+                        ],
+                      ),
                   ]),
                 ]),
             ],

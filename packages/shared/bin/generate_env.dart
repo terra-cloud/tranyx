@@ -48,7 +48,19 @@ void main() {
   }
 
   // 2. Fallback to system environment variables (useful for CI/CD pipelines)
-  final keysToLoad = <String>[];
+  final keysToLoad = <String>[
+    'CLOUDFLARE_ACCOUNT_ID',
+    'CLOUDFLARE_API_TOKEN',
+    'XENDIT_SECRET_KEY',
+    'IMGBB_API_KEY',
+    'GEMINI_AI_API_KEY',
+    'SOLANA_PRIVATE_KEY',
+    'SOLANA_PUBLIC_KEY',
+    'TREASURY_PRIVATE_KEY',
+    'TREASURY_PUBLIC_KEY',
+    'ENV',
+    'FLAVOR',
+  ];
 
   for (final key in keysToLoad) {
     if (!vars.containsKey(key) || vars[key]!.isEmpty) {

@@ -342,6 +342,7 @@ Component inputField({
           value: value,
           attributes: {
             'placeholder': placeholder,
+            'value': value,
             if (type == 'date') 'type': 'date',
             'id': inputId,
             'name': inputId,

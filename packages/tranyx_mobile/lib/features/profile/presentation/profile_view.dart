@@ -230,27 +230,21 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
     }
   }
 
+  String? _lastLoadedUid;
+
   void _initFields(UserProfile profile) {
-    if (_initialized) return;
+    if (_initialized && _lastLoadedUid == profile.uid && _nameController.text.isNotEmpty) return;
     _skills = List<String>.from(profile.skills ?? []);
     _nameController.text = profile.name;
     _emailController.text = profile.email;
     _phoneController.text = profile.phoneNumber ?? '';
 
-    if (profile.accountType == AccountType.nyxian) {
-      _headlineController.text = profile.headline ?? '';
-      _hourlyRateController.text = profile.hourlyRate?.toString() ?? '';
-    } else if (profile.accountType == AccountType.employer) {
-      _companyNameController.text = profile.businessName ?? '';
-      _industryController.text = profile.industry ?? '';
-      _taxIdController.text = profile.taxId ?? '';
-    } else if (profile.accountType == AccountType.hybrid) {
-      _headlineController.text = profile.headline ?? '';
-      _hourlyRateController.text = profile.hourlyRate?.toString() ?? '';
-      _companyNameController.text = profile.businessName ?? '';
-      _industryController.text = profile.industry ?? '';
-      _taxIdController.text = profile.taxId ?? '';
-    }
+    _headlineController.text = profile.headline ?? '';
+    _hourlyRateController.text = profile.hourlyRate?.toString() ?? '';
+    _companyNameController.text = profile.businessName ?? '';
+    _industryController.text = profile.industry ?? '';
+    _taxIdController.text = profile.taxId ?? '';
+    _lastLoadedUid = profile.uid;
     _initialized = true;
   }
 
@@ -466,7 +460,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
         }
 
         final displayName =
-            profile?.name ?? user?.displayName ?? user?.email ?? "Alex Mercer";
+            profile?.name ?? user?.displayName ?? user?.email ?? "";
         final AccountType currentAccountType =
             profile?.accountType ?? accountType;
 

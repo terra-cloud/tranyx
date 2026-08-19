@@ -10,14 +10,16 @@ import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/profile/providers/profile_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:intl/intl.dart';
+import 'package:tranyx_mobile/flavors.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:reown_appkit/reown_appkit.dart';
-import 'package:tranyx_mobile/flavors.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/withdraw_pane.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/transaction_details_sheet.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
+import 'package:shared/shared.dart';
 
 final rawUserDocProvider =
     StreamProvider.autoDispose<DocumentSnapshot<Map<String, dynamic>>?>((ref) {
@@ -103,7 +105,9 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
   ReownAppKitModal? _trustModal;
 
   // Deposit sheet state
-  String _selectedPaymentMethod = 'xendit'; // 'xendit' | 'solana'
+  late String _selectedPaymentMethod = F.isFiatEnabled
+      ? 'xendit'
+      : 'solana'; // 'xendit' | 'solana'
   String _selectedSolanaCurrency = 'SOL'; // 'SOL' | 'USDT'
   double _solToPhpRate = 8000.0;
   double _usdToPhpRate = 57.0;
@@ -160,7 +164,8 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         });
         return;
       }
-      if (promo.expirationDate != null && promo.expirationDate!.isBefore(DateTime.now())) {
+      if (promo.expirationDate != null &&
+          promo.expirationDate!.isBefore(DateTime.now())) {
         setState(() {
           _redeemFeedback = 'This promo code has expired.';
         });
@@ -194,7 +199,8 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       if (profile != null) {
         if (profile.disabledPromos.contains(cleanCode)) {
           setState(() {
-            _redeemFeedback = 'You have disabled this promotion and cannot re-enable it.';
+            _redeemFeedback =
+                'You have disabled this promotion and cannot re-enable it.';
           });
           return;
         }
@@ -202,7 +208,8 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         // Checking subscribed-only requirement
         if (promo.onlyForSubscribed && !profile.isPremium) {
           setState(() {
-            _redeemFeedback = 'This promo code is only for premium subscribed accounts.';
+            _redeemFeedback =
+                'This promo code is only for premium subscribed accounts.';
           });
           return;
         }
@@ -226,10 +233,13 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
             userRoles.addAll(['renter', 'host', 'employer', 'nyxian']);
           }
 
-          final hasMatchingRole = promo.applicableRoles.any((r) => userRoles.contains(r));
+          final hasMatchingRole = promo.applicableRoles.any(
+            (r) => userRoles.contains(r),
+          );
           if (!hasMatchingRole) {
             setState(() {
-              _redeemFeedback = 'You do not have the required role to use this promotion.';
+              _redeemFeedback =
+                  'You do not have the required role to use this promotion.';
             });
             return;
           }
@@ -237,7 +247,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       }
 
       await repo.redeemPromoToProfile(uid, promo);
-      
+
       // Invalidate profile to show active promo
       ref.invalidate(userProfileProvider);
 
@@ -256,12 +266,18 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     }
   }
 
-  void _handleDisablePromo(BuildContext context, String code, String uid) async {
+  void _handleDisablePromo(
+    BuildContext context,
+    String code,
+    String uid,
+  ) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Disable Promo Code?'),
-        content: Text('Are you sure you want to disable the promo code "$code"? Once disabled, you will lose the discount and can never re-enable or redeem it again.'),
+        content: Text(
+          'Are you sure you want to disable the promo code "$code"? Once disabled, you will lose the discount and can never re-enable or redeem it again.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -375,8 +391,8 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         final accounts = tokenData['result']?['value'] as List<dynamic>? ?? [];
         double totalUsdt = 0.0;
         for (final account in accounts) {
-          final amount = account['account']?['data']?['parsed']?['info']
-              ?['tokenAmount']?['uiAmount'];
+          final amount =
+              account['account']?['data']?['parsed']?['info']?['tokenAmount']?['uiAmount'];
           if (amount != null) totalUsdt += (amount as num).toDouble();
         }
         if (mounted) setState(() => _usdtBalance = totalUsdt);
@@ -402,7 +418,11 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       } else if (wallet.id == 'phantom') {
         schemesToCheck = ['phantom://', 'phantom://v1/connect'];
       } else if (wallet.id == 'solflare') {
-        schemesToCheck = ['solflare://', 'solflare://ul/v1/connect', 'solflare://v1/connect'];
+        schemesToCheck = [
+          'solflare://',
+          'solflare://ul/v1/connect',
+          'solflare://v1/connect',
+        ];
       } else if (wallet.id == 'backpack') {
         schemesToCheck = ['backpack://', 'backpack://v1/connect'];
       }
@@ -942,17 +962,19 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                             // Payment method selector
                             Row(
                               children: [
-                                methodCard(
-                                  id: 'xendit',
-                                  icon: Icons.credit_card_outlined,
-                                  label: 'GCash / Card',
-                                  accent: AppColors.indigo,
-                                ),
-                                const SizedBox(width: 12),
+                                if (F.isFiatEnabled) ...[
+                                  methodCard(
+                                    id: 'xendit',
+                                    icon: Icons.credit_card_outlined,
+                                    label: 'GCash (Sandbox)',
+                                    accent: AppColors.indigo,
+                                  ),
+                                  const SizedBox(width: 12),
+                                ],
                                 methodCard(
                                   id: 'solana',
                                   icon: Icons.bolt,
-                                  label: 'Solana Wallet',
+                                  label: 'Solana (On-Chain)',
                                   accent: const Color(0xFF512DA8),
                                 ),
                               ],
@@ -1133,10 +1155,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                   try {
                     final uri = Uri.parse(invoiceUrl);
                     if (await canLaunchUrl(uri)) {
-                      await launchUrl(
-                        uri,
-                        mode: LaunchMode.inAppBrowserView,
-                      );
+                      await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
                     }
                   } catch (_) {}
                   if (mounted) {
@@ -1443,7 +1462,10 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     }
   }
 
-  Future<void> _handleMobileAccountChanged(String newAddress, String walletType) async {
+  Future<void> _handleMobileAccountChanged(
+    String newAddress,
+    String walletType,
+  ) async {
     setState(() {
       _solBalance = 0.0;
       _usdtBalance = 0.0;
@@ -1457,7 +1479,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       if (currentProfile?.walletPublicKey != newAddress) {
         await ref.read(authControllerProvider).signOut();
         ref.invalidate(userProfileProvider);
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1479,14 +1501,13 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         final linkData = walletLinkDoc.data();
         final email = linkData?['email'] as String?;
         final obfuscatedPassword = linkData?['password'] as String?;
-        if (email != null && obfuscatedPassword != null && obfuscatedPassword.isNotEmpty) {
+        if (email != null &&
+            obfuscatedPassword != null &&
+            obfuscatedPassword.isNotEmpty) {
           final password = SecureStorageHelper.deobfuscate(obfuscatedPassword);
           await ref
               .read(firebaseAuthProvider)
-              .signInWithEmailAndPassword(
-                email: email,
-                password: password,
-              );
+              .signInWithEmailAndPassword(email: email, password: password);
           ref.invalidate(userProfileProvider);
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -1514,7 +1535,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
 
     await ref.read(authControllerProvider).signOut();
     ref.invalidate(userProfileProvider);
-    
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1681,9 +1702,14 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         try {
           final uri = Uri.parse(scheme);
           if (await canLaunchUrl(uri)) {
-            launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+            launched = await launchUrl(
+              uri,
+              mode: LaunchMode.externalApplication,
+            );
             if (launched) {
-              debugPrint('Successfully launched Trust Wallet directly: $scheme');
+              debugPrint(
+                'Successfully launched Trust Wallet directly: $scheme',
+              );
               break;
             }
           }
@@ -1693,25 +1719,29 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       }
 
       if (!launched) {
-        throw Exception('Could not launch Trust Wallet. Please make sure the app is installed.');
+        throw Exception(
+          'Could not launch Trust Wallet. Please make sure the app is installed.',
+        );
       }
 
       // Await connection in background, handle potential failure/rejection
-      connectResponse.session.future.then((sessionData) {
-        debugPrint('Direct Trust Wallet connection session settled.');
-      }).catchError((e) {
-        debugPrint('Direct Trust Wallet connection rejected or failed: $e');
-        modal.onModalConnect.unsubscribeAll();
-        if (mounted) {
-          setState(() => _isProcessing = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Trust Wallet connection failed or rejected.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      });
+      connectResponse.session.future
+          .then((sessionData) {
+            debugPrint('Direct Trust Wallet connection session settled.');
+          })
+          .catchError((e) {
+            debugPrint('Direct Trust Wallet connection rejected or failed: $e');
+            modal.onModalConnect.unsubscribeAll();
+            if (mounted) {
+              setState(() => _isProcessing = false);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Trust Wallet connection failed or rejected.'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          });
     } catch (e) {
       _trustModal?.dispose();
       _trustModal = null;
@@ -1739,12 +1769,15 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     try {
       final firestore = ref.read(firestoreProvider);
 
-      // Fetch treasury public key from Firestore config
-      final configDoc = await firestore
-          .collection('system_config')
-          .doc('treasury')
-          .get();
-      final treasuryPublicKey = configDoc.data()?['publicKey'] as String?;
+      // Fetch treasury public key from Env / config
+      String? treasuryPublicKey = Env.solanaPublicKey.isNotEmpty ? Env.solanaPublicKey : null;
+      if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
+        final configDoc = await firestore
+            .collection('system_config')
+            .doc('treasury')
+            .get();
+        treasuryPublicKey = configDoc.data()?['publicKey'] as String?;
+      }
 
       if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
         throw Exception(
@@ -1794,18 +1827,20 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         );
 
         // Immediately open Trust Wallet app so the user is prompted to sign the transaction
-        final schemes = [
-          'trust://',
-          'trustwallet://',
-        ];
+        final schemes = ['trust://', 'trustwallet://'];
         bool launched = false;
         for (final scheme in schemes) {
           try {
             final uri = Uri.parse(scheme);
             if (await canLaunchUrl(uri)) {
-              launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+              launched = await launchUrl(
+                uri,
+                mode: LaunchMode.externalApplication,
+              );
               if (launched) {
-                debugPrint('Successfully opened Trust Wallet for signing via: $scheme');
+                debugPrint(
+                  'Successfully opened Trust Wallet for signing via: $scheme',
+                );
                 break;
               }
             }
@@ -1816,7 +1851,10 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
           final redirectLink = modal.session?.peer?.metadata.redirect?.native;
           if (redirectLink != null && redirectLink.isNotEmpty) {
             try {
-              await launchUrl(Uri.parse(redirectLink), mode: LaunchMode.externalApplication);
+              await launchUrl(
+                Uri.parse(redirectLink),
+                mode: LaunchMode.externalApplication,
+              );
             } catch (_) {}
           }
         }
@@ -1956,12 +1994,15 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     try {
       final firestore = ref.read(firestoreProvider);
 
-      // Fetch treasury public key from Firestore config
-      final configDoc = await firestore
-          .collection('system_config')
-          .doc('treasury')
-          .get();
-      final treasuryPublicKey = configDoc.data()?['publicKey'] as String?;
+      // Fetch treasury public key from Env / config
+      String? treasuryPublicKey = Env.solanaPublicKey.isNotEmpty ? Env.solanaPublicKey : null;
+      if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
+        final configDoc = await firestore
+            .collection('system_config')
+            .doc('treasury')
+            .get();
+        treasuryPublicKey = configDoc.data()?['publicKey'] as String?;
+      }
 
       if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
         throw Exception(
@@ -2019,7 +2060,10 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
           try {
             final uri = Uri.parse(scheme);
             if (await canLaunchUrl(uri)) {
-              launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+              launched = await launchUrl(
+                uri,
+                mode: LaunchMode.externalApplication,
+              );
               if (launched) break;
             }
           } catch (_) {}
@@ -2028,7 +2072,10 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
           final redirectLink = modal.session?.peer?.metadata.redirect?.native;
           if (redirectLink != null && redirectLink.isNotEmpty) {
             try {
-              await launchUrl(Uri.parse(redirectLink), mode: LaunchMode.externalApplication);
+              await launchUrl(
+                Uri.parse(redirectLink),
+                mode: LaunchMode.externalApplication,
+              );
             } catch (_) {}
           }
         }
@@ -2355,9 +2402,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                               Container(
                                 padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
-                                  color: Colors.blue.withValues(
-                                    alpha: 0.12,
-                                  ),
+                                  color: Colors.blue.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(14),
                                 ),
                                 child: const Icon(
@@ -2402,7 +2447,10 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
 
                     Flexible(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 8,
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -2423,7 +2471,9 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
-                                      color: isDarkMode ? Colors.white60 : Colors.black54,
+                                      color: isDarkMode
+                                          ? Colors.white60
+                                          : Colors.black54,
                                       letterSpacing: 1.0,
                                     ),
                                   ),
@@ -2474,7 +2524,9 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
                                   color: selectedCoin == 'SOL'
-                                      ? AppColors.indigo.withValues(alpha: isDarkMode ? 0.15 : 0.05)
+                                      ? AppColors.indigo.withValues(
+                                          alpha: isDarkMode ? 0.15 : 0.05,
+                                        )
                                       : cardColor,
                                   borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
@@ -2494,7 +2546,8 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                     const SizedBox(width: 16),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           const Text(
                                             'Solana (SOL)',
@@ -2514,7 +2567,8 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                       ),
                                     ),
                                     Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
                                       children: [
                                         Text(
                                           '${solAmount.toStringAsFixed(6)} SOL',
@@ -2553,7 +2607,9 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
                                   color: selectedCoin == 'USDT'
-                                      ? AppColors.indigo.withValues(alpha: isDarkMode ? 0.15 : 0.05)
+                                      ? AppColors.indigo.withValues(
+                                          alpha: isDarkMode ? 0.15 : 0.05,
+                                        )
                                       : cardColor,
                                   borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
@@ -2573,7 +2629,8 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                     const SizedBox(width: 16),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           const Text(
                                             'Tether (USDT)',
@@ -2593,7 +2650,8 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                       ),
                                     ),
                                     Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
                                       children: [
                                         Text(
                                           '${usdtAmount.toStringAsFixed(2)} USDT',
@@ -2631,16 +2689,22 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                               child: Column(
                                 children: [
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
                                     children: [
                                       const Text(
                                         'Gross Balance',
-                                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                                        style: TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 13,
+                                        ),
                                       ),
                                       Text(
                                         '₱ ${tyxBalance.toStringAsFixed(2)}',
                                         style: TextStyle(
-                                          color: isDarkMode ? Colors.white : Colors.black,
+                                          color: isDarkMode
+                                              ? Colors.white
+                                              : Colors.black,
                                           fontWeight: FontWeight.w500,
                                           fontSize: 13,
                                         ),
@@ -2649,11 +2713,15 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                   ),
                                   const SizedBox(height: 8),
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
                                     children: [
                                       const Text(
                                         'Platform Fee (2%)',
-                                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                                        style: TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 13,
+                                        ),
                                       ),
                                       Text(
                                         '₱ ${feePhp.toStringAsFixed(2)}',
@@ -2667,11 +2735,15 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                   ),
                                   const Divider(height: 16),
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
                                     children: [
                                       const Text(
                                         'Net Received Value',
-                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
                                       ),
                                       Text(
                                         '₱ ${netPhp.toStringAsFixed(2)}',
@@ -2699,19 +2771,31 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                     height: 52,
                                     child: ElevatedButton(
                                       onPressed: () async {
-                                        setSheetState(() => isWithdrawing = true);
+                                        setSheetState(
+                                          () => isWithdrawing = true,
+                                        );
                                         try {
-                                          final firestore = ref.read(firestoreProvider);
-                                          final phantomService = ref.read(phantomServiceProvider);
+                                          final firestore = ref.read(
+                                            firestoreProvider,
+                                          );
+                                          final phantomService = ref.read(
+                                            phantomServiceProvider,
+                                          );
 
-                                          // 1. Fetch treasury private key
-                                          final configDoc = await firestore
-                                              .collection('system_config')
-                                              .doc('treasury')
-                                              .get();
-                                          final treasuryPrivKey =
-                                              configDoc.data()?['privateKeyBase58'] as String?;
+                                          // 1. Fetch treasury private key from Env / config
+                                          String? treasuryPrivKey = Env.solanaPrivateKey.isNotEmpty ? Env.solanaPrivateKey : null;
                                           if (treasuryPrivKey == null || treasuryPrivKey.isEmpty) {
+                                            final configDoc = await firestore
+                                                .collection('system_config')
+                                                .doc('treasury')
+                                                .get();
+                                            treasuryPrivKey =
+                                                configDoc
+                                                        .data()?['privateKeyBase58']
+                                                    as String?;
+                                          }
+                                          if (treasuryPrivKey == null ||
+                                              treasuryPrivKey.isEmpty) {
                                             throw Exception(
                                               'Treasury wallet is not configured. Please contact support.',
                                             );
@@ -2720,33 +2804,48 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                           String txSignature = '';
 
                                           if (selectedCoin == 'SOL') {
-                                            final lamports = (solAmount * 1e9).round();
+                                            final lamports = (solAmount * 1e9)
+                                                .round();
                                             if (lamports <= 0) {
-                                              throw Exception('Withdrawal amount too small to process on-chain.');
+                                              throw Exception(
+                                                'Withdrawal amount too small to process on-chain.',
+                                              );
                                             }
 
                                             // 2. Sign & broadcast Treasury -> User SOL
-                                            txSignature = await phantomService.signAndBroadcastTransfer(
-                                              treasuryPrivKeyBase58: treasuryPrivKey,
-                                              recipientPubkey: userProfile.walletPublicKey!,
-                                              lamports: lamports,
-                                            );
+                                            txSignature = await phantomService
+                                                .signAndBroadcastTransfer(
+                                                  treasuryPrivKeyBase58:
+                                                      treasuryPrivKey,
+                                                  recipientPubkey: userProfile
+                                                      .walletPublicKey!,
+                                                  lamports: lamports,
+                                                );
                                           } else {
                                             // selectedCoin == 'USDT'
                                             if (usdtAmount <= 0) {
-                                              throw Exception('Withdrawal amount too small to process on-chain.');
+                                              throw Exception(
+                                                'Withdrawal amount too small to process on-chain.',
+                                              );
                                             }
 
                                             // 2. Sign & broadcast Treasury -> User USDT
-                                            txSignature = await phantomService.signAndBroadcastTokenTransfer(
-                                              treasuryPrivKeyBase58: treasuryPrivKey,
-                                              recipientPubkey: userProfile.walletPublicKey!,
-                                              amountInUsdt: usdtAmount,
-                                            );
+                                            txSignature = await phantomService
+                                                .signAndBroadcastTokenTransfer(
+                                                  treasuryPrivKeyBase58:
+                                                      treasuryPrivKey,
+                                                  recipientPubkey: userProfile
+                                                      .walletPublicKey!,
+                                                  amountInUsdt: usdtAmount,
+                                                );
                                           }
 
                                           // 3. Confirm transaction
-                                          final txConfirmed = await phantomService.confirmTransaction(txSignature);
+                                          final txConfirmed =
+                                              await phantomService
+                                                  .confirmTransaction(
+                                                    txSignature,
+                                                  );
                                           if (!txConfirmed) {
                                             throw Exception(
                                               'Transaction was broadcast but could not be confirmed. '
@@ -2755,10 +2854,13 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                           }
 
                                           // 4. Deduct tyxBalance
-                                          await ref.read(transitRepositoryProvider).updateTyxBalance(uid, 0);
+                                          await ref
+                                              .read(transitRepositoryProvider)
+                                              .updateTyxBalance(uid, 0);
 
                                           // 5. Save history
-                                          final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+                                          final txId =
+                                              'tx_${DateTime.now().microsecondsSinceEpoch}';
                                           await firestore.collection('transactions').doc(txId).set({
                                             'uid': uid,
                                             'type': 'withdraw',
@@ -2768,60 +2870,84 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                             if (selectedCoin == 'SOL') ...{
                                               'solAmount': solAmount,
                                               'feeSolAmount': feeSolAmount,
-                                              'lamports': (solAmount * 1e9).round(),
+                                              'lamports': (solAmount * 1e9)
+                                                  .round(),
                                             } else ...{
                                               'usdtAmount': usdtAmount,
                                               'feeUsdtAmount': feeUsdtAmount,
-                                              'microUnits': (usdtAmount * 1e6).round(),
+                                              'microUnits': (usdtAmount * 1e6)
+                                                  .round(),
                                             },
                                             'title': 'Earnings Withdrawn',
                                             'desc': selectedCoin == 'SOL'
                                                 ? 'Withdrew ₱${netPhp.toStringAsFixed(2)} (${solAmount.toStringAsFixed(6)} SOL) '
-                                                    'after 2% fee of ₱${feePhp.toStringAsFixed(2)} (${feeSolAmount.toStringAsFixed(6)} SOL) '
-                                                    'to ${userProfile.walletPublicKey}'
+                                                      'after 2% fee of ₱${feePhp.toStringAsFixed(2)} (${feeSolAmount.toStringAsFixed(6)} SOL) '
+                                                      'to ${userProfile.walletPublicKey}'
                                                 : 'Withdrew ₱${netPhp.toStringAsFixed(2)} (${usdtAmount.toStringAsFixed(2)} USDT) '
-                                                    'after 2% fee of ₱${feePhp.toStringAsFixed(2)} (${feeUsdtAmount.toStringAsFixed(2)} USDT) '
-                                                    'to ${userProfile.walletPublicKey}',
+                                                      'after 2% fee of ₱${feePhp.toStringAsFixed(2)} (${feeUsdtAmount.toStringAsFixed(2)} USDT) '
+                                                      'to ${userProfile.walletPublicKey}',
                                             'method': selectedCoin,
                                             'solanaTxSignature': txSignature,
-                                            'createdAt': DateTime.now().millisecondsSinceEpoch,
+                                            'createdAt': DateTime.now()
+                                                .millisecondsSinceEpoch,
                                           });
 
                                           // 6. Record withdrawal request
-                                          final requestId = 'withdraw_${DateTime.now().microsecondsSinceEpoch}';
-                                          await firestore.collection('withdrawalRequests').doc(requestId).set({
-                                            'uid': uid,
-                                            'userName': userProfile.name,
-                                            'amount': tyxBalance,
-                                            'feeAmount': feePhp,
-                                            'netAmount': netPhp,
-                                            if (selectedCoin == 'SOL') 'solAmount': solAmount else 'usdtAmount': usdtAmount,
-                                            'status': 'Completed',
-                                            'createdAt': DateTime.now().millisecondsSinceEpoch,
-                                            'method': selectedCoin,
-                                            'walletPublicKey': userProfile.walletPublicKey,
-                                            'solanaTxSignature': txSignature,
-                                          });
+                                          final requestId =
+                                              'withdraw_${DateTime.now().microsecondsSinceEpoch}';
+                                          await firestore
+                                              .collection('withdrawalRequests')
+                                              .doc(requestId)
+                                              .set({
+                                                'uid': uid,
+                                                'userName': userProfile.name,
+                                                'amount': tyxBalance,
+                                                'feeAmount': feePhp,
+                                                'netAmount': netPhp,
+                                                if (selectedCoin == 'SOL')
+                                                  'solAmount': solAmount
+                                                else
+                                                  'usdtAmount': usdtAmount,
+                                                'status': 'Completed',
+                                                'createdAt': DateTime.now()
+                                                    .millisecondsSinceEpoch,
+                                                'method': selectedCoin,
+                                                'walletPublicKey':
+                                                    userProfile.walletPublicKey,
+                                                'solanaTxSignature':
+                                                    txSignature,
+                                              });
 
                                           // 7. Record fee
                                           final feeId = 'fee_$txId';
-                                          await firestore.collection('platform_fees').doc(feeId).set({
-                                            'withdrawalId': requestId,
-                                            'txId': txId,
-                                            'uid': uid,
-                                            'amount': feePhp,
-                                            if (selectedCoin == 'SOL') 'solAmount': feeSolAmount else 'usdtAmount': feeUsdtAmount,
-                                            'feeType': 'withdrawal',
-                                            'rate': selectedCoin == 'SOL' ? rateSol : rateUsdt,
-                                            'timestamp': DateTime.now().millisecondsSinceEpoch,
-                                          });
+                                          await firestore
+                                              .collection('platform_fees')
+                                              .doc(feeId)
+                                              .set({
+                                                'withdrawalId': requestId,
+                                                'txId': txId,
+                                                'uid': uid,
+                                                'amount': feePhp,
+                                                if (selectedCoin == 'SOL')
+                                                  'solAmount': feeSolAmount
+                                                else
+                                                  'usdtAmount': feeUsdtAmount,
+                                                'feeType': 'withdrawal',
+                                                'rate': selectedCoin == 'SOL'
+                                                    ? rateSol
+                                                    : rateUsdt,
+                                                'timestamp': DateTime.now()
+                                                    .millisecondsSinceEpoch,
+                                              });
 
                                           ref.invalidate(userProfileProvider);
                                           if (sheetContext.mounted) {
                                             Navigator.pop(sheetContext);
                                           }
                                           if (mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
                                               SnackBar(
                                                 content: Text(
                                                   '✅ Withdrawal successful! '
@@ -2834,10 +2960,18 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                           }
                                         } catch (e, s) {
                                           debugPrint("Withdrawal error: $e $s");
-                                          setSheetState(() => isWithdrawing = false);
+                                          setSheetState(
+                                            () => isWithdrawing = false,
+                                          );
                                           if (mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(content: Text('Withdrawal failed: $e')),
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  'Withdrawal failed: $e',
+                                                ),
+                                              ),
                                             );
                                           }
                                         }
@@ -2846,7 +2980,9 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                         backgroundColor: AppColors.indigo,
                                         foregroundColor: Colors.white,
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
                                         ),
                                         elevation: 0,
                                       ),
@@ -3329,7 +3465,10 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.check_circle_outline, color: Colors.green),
+                      const Icon(
+                        Icons.check_circle_outline,
+                        color: Colors.green,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -3355,7 +3494,11 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.cancel_outlined, color: Colors.redAccent, size: 20),
+                        icon: const Icon(
+                          Icons.cancel_outlined,
+                          color: Colors.redAccent,
+                          size: 20,
+                        ),
                         onPressed: () => _handleDisablePromo(
                           context,
                           userProfile.activePromoCode!,
@@ -3415,9 +3558,9 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                     onPressed: _isRedeeming
                         ? null
                         : () => _handleRedeemPromo(
-                              _promoRedeemController.text,
-                              uid,
-                            ),
+                            _promoRedeemController.text,
+                            uid,
+                          ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.indigo,
                       foregroundColor: Colors.white,
@@ -3725,108 +3868,222 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
               itemCount: txList.length,
               itemBuilder: (context, index) {
                 final tx = txList[index];
+                final record = WalletTransaction.fromMap(tx);
                 final isDeposit =
-                    tx['type'] == 'deposit' || tx['type'] == 'refund';
-                final isWithdraw = tx['type'] == 'withdraw';
-                final amount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
-                final title = tx['title'] as String? ?? 'Transaction';
-                final desc = tx['desc'] as String? ?? '';
-                final dateVal = tx['createdAt'] as int? ?? 0;
-                final dateStr = DateFormat(
-                  'MMM dd, yyyy • hh:mm a',
-                ).format(DateTime.fromMillisecondsSinceEpoch(dateVal));
+                    record.amount >= 0 ||
+                    record.transactionType == WalletTransactionType.deposit ||
+                    record.transactionType == WalletTransactionType.fiatTopup ||
+                    record.transactionType == WalletTransactionType.refund;
+                final isWithdraw =
+                    record.transactionType == WalletTransactionType.withdraw ||
+                    record.transactionType ==
+                        WalletTransactionType.fiatWithdrawal;
+                final amount = record.amount.abs();
+                final title = record.title;
+                final desc = record.desc;
+                final dateVal = record.createdAt;
+                final dateStr = dateVal > 0
+                    ? DateFormat(
+                        'MMM dd, yyyy • hh:mm a',
+                      ).format(DateTime.fromMillisecondsSinceEpoch(dateVal))
+                    : 'Recent';
 
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: isDarkMode
-                        ? AppColors.darkCard
-                        : AppColors.lightCard,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: isDarkMode
-                          ? AppColors.darkBorder
-                          : AppColors.lightBorder,
-                    ),
+                final isMwa =
+                    record.originRail == TransactionOriginRail.mwaOnChain;
+                final isXendit =
+                    record.originRail == TransactionOriginRail.gcashXendit;
+
+                return InkWell(
+                  onTap: () => TransactionDetailsSheet.show(
+                    context,
+                    transaction: record,
+                    isDarkMode: isDarkMode,
                   ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: isDeposit
-                              ? Colors.green.withValues(alpha: 0.1)
-                              : isWithdraw
-                              ? Colors.blue.withValues(alpha: 0.1)
-                              : Colors.orange.withValues(alpha: 0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          isDeposit
-                              ? Icons.add_circle_outline
-                              : isWithdraw
-                              ? Icons.remove_circle_outline
-                              : Icons.swap_horiz,
-                          color: isDeposit
-                              ? Colors.green
-                              : isWithdraw
-                              ? Colors.blue
-                              : Colors.orange,
-                          size: 20,
-                        ),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: isDarkMode
+                          ? AppColors.darkCard
+                          : AppColors.lightCard,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: isDarkMode
+                            ? AppColors.darkBorder
+                            : AppColors.lightBorder,
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isDeposit
+                                ? Colors.green.withValues(alpha: 0.1)
+                                : isWithdraw
+                                ? Colors.blue.withValues(alpha: 0.1)
+                                : Colors.orange.withValues(alpha: 0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            isDeposit
+                                ? Icons.add_circle_outline
+                                : isWithdraw
+                                ? Icons.remove_circle_outline
+                                : Icons.swap_horiz,
+                            color: isDeposit
+                                ? Colors.green
+                                : isWithdraw
+                                ? Colors.blue
+                                : Colors.orange,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      title,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  // Origin Rail Badge
+                                  if (isMwa)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(
+                                          0xFF512DA8,
+                                        ).withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.bolt,
+                                            size: 11,
+                                            color: Color(0xFF7E57C2),
+                                          ),
+                                          SizedBox(width: 2),
+                                          Text(
+                                            'MWA',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF7E57C2),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  else if (isXendit)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.green.withValues(
+                                          alpha: 0.12,
+                                        ),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Text(
+                                        'GCash',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.green,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                desc,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDarkMode
+                                      ? AppColors.darkTextMuted
+                                      : AppColors.lightTextMuted,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Text(
+                                    dateStr,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: isDarkMode
+                                          ? AppColors.darkTextMuted.withValues(
+                                              alpha: 0.7,
+                                            )
+                                          : AppColors.lightTextMuted.withValues(
+                                              alpha: 0.7,
+                                            ),
+                                    ),
+                                  ),
+                                  if (record.cryptoAmount != null &&
+                                      record.cryptoAmount! > 0) ...[
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '• ${record.cryptoAmount!.toStringAsFixed(4)} ${record.cryptoCurrency ?? "SOL"}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDarkMode
+                                            ? Colors.indigo.shade300
+                                            : AppColors.indigo,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              title,
-                              style: const TextStyle(
+                              '${isDeposit ? "+" : "-"} ₱${amount.toStringAsFixed(2)}',
+                              style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              desc,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isDarkMode
-                                    ? AppColors.darkTextMuted
-                                    : AppColors.lightTextMuted,
+                                color: isDeposit ? Colors.green : Colors.red,
                               ),
                             ),
                             const SizedBox(height: 4),
-                            Text(
-                              dateStr,
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: isDarkMode
-                                    ? AppColors.darkTextMuted.withValues(
-                                        alpha: 0.7,
-                                      )
-                                    : AppColors.lightTextMuted.withValues(
-                                        alpha: 0.7,
-                                      ),
-                              ),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              size: 16,
+                              color: isDarkMode
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${isDeposit ? "+" : "-"}${amount.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                          color: isDeposit ? Colors.green : Colors.red,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 );
               },

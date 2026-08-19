@@ -47,7 +47,9 @@ final userProfileProvider = StreamProvider<UserProfile?>((ref) {
       .doc(user.uid)
       .snapshots()
       .map((doc) {
-        if (!doc.exists || doc.data() == null) return null;
+        if (!doc.exists || doc.data() == null) {
+          return null;
+        }
         return UserProfile.fromMap(user.uid, doc.data()!);
       });
 });
@@ -61,8 +63,31 @@ class AuthController {
   AuthController(this._auth, this._firestore, this._ref);
 
   Future<void> signInWithEmailAndPassword(String email, String password) async {
-    await _auth.signInWithEmailAndPassword(email: email, password: password);
+    final userCredential = await _auth.signInWithEmailAndPassword(email: email, password: password);
     await SecureStorageHelper.savePassword(password);
+
+    final user = userCredential.user;
+    if (user != null) {
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      if (!doc.exists) {
+        final defaultName = user.displayName != null && user.displayName!.isNotEmpty
+            ? user.displayName!
+            : email.split('@').first;
+        final profile = UserProfile(
+          uid: user.uid,
+          name: defaultName,
+          email: email,
+          accountType: AccountType.employer,
+          createdAt: DateTime.now(),
+        );
+        try {
+          await _firestore.collection('users').doc(user.uid).set(profile.toMap());
+        } catch (e) {
+          debugPrint('Error creating initial user document on email sign-in: $e');
+        }
+      }
+    }
+
     await _linkPendingWallet(password);
   }
 

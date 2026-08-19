@@ -8,6 +8,8 @@ import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart
 import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:intl/intl.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/transaction_details_sheet.dart';
+import 'package:shared/shared.dart';
 
 final userTransactionsProvider =
     StreamProvider.family<List<Map<String, dynamic>>, String>((ref, uid) {
@@ -1411,77 +1413,111 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
   }
 
   Widget _buildTopUpHistoryCard(Map<String, dynamic> tx, bool isDarkMode) {
-    final title = tx['title'] as String? ?? 'Funds Deposited';
-    final desc = tx['desc'] as String? ?? '';
+    final record = WalletTransaction.fromMap(tx);
+    final title = record.title;
+    final desc = record.desc;
     final date = tx['date'] as String? ?? '';
-    final amount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
-    final method = tx['method'] as String? ?? 'Unknown';
+    final amount = record.amount.abs();
+    final isMwa = record.originRail == TransactionOriginRail.mwaOnChain;
+    final isXendit = record.originRail == TransactionOriginRail.gcashXendit;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
-        ),
+    return InkWell(
+      onTap: () => TransactionDetailsSheet.show(
+        context,
+        transaction: record,
+        isDarkMode: isDarkMode,
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.deepPurple.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.add_circle_outline,
-              color: Colors.deepPurple,
-              size: 20,
-            ),
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isMwa
+                    ? const Color(0xFF512DA8).withValues(alpha: 0.12)
+                    : Colors.green.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                isMwa ? Icons.bolt : Icons.credit_card,
+                color: isMwa ? const Color(0xFF7E57C2) : Colors.green,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      if (isMwa)
+                        _pill('MWA / On-Chain', const Color(0xFF7E57C2))
+                      else if (isXendit)
+                        _pill('GCash (Sandbox)', Colors.green)
+                      else
+                        _pill(record.method ?? 'Deposit', Colors.deepPurple),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$desc • $date',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDarkMode
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  title,
+                  '+ ₱ ${amount.toStringAsFixed(2)}',
                   style: const TextStyle(
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w900,
                     fontSize: 14,
+                    color: Colors.green,
                   ),
                 ),
-                Text(
-                  '$desc • $date',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isDarkMode
-                        ? AppColors.darkTextMuted
-                        : AppColors.lightTextMuted,
+                if (record.cryptoAmount != null && record.cryptoAmount! > 0) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    '${record.cryptoAmount!.toStringAsFixed(4)} ${record.cryptoCurrency ?? "SOL"}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: isDarkMode ? Colors.indigo.shade300 : AppColors.indigo,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '+ ₱ ${amount.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 14,
-                  color: Colors.green,
-                ),
-              ),
-              const SizedBox(height: 6),
-              _pill(method, Colors.deepPurple),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
