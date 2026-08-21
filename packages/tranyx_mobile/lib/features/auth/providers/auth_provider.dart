@@ -126,6 +126,7 @@ class AuthController {
 
       await _firestore.collection('users').doc(user.uid).set(profile.toMap());
       await _linkPendingWallet(password);
+      await SecureStorageHelper.saveHasSeenOnboarding(false);
     }
   }
 
@@ -253,6 +254,7 @@ class AuthController {
     );
 
     await _firestore.collection('users').doc(user.uid).set(profile.toMap());
+    await SecureStorageHelper.saveHasSeenOnboarding(false);
   }
 
   Future<void> signOut() async {

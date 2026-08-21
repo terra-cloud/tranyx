@@ -80,5 +80,141 @@ void main() {
       });
       expect(auth, contains('Authenticity Score'));
     });
+
+    test('Scenario 1: Category-Specific Prompt Tuning for Delivery and Rental', () async {
+      final service = NyxAIAssistantService();
+
+      final deliveryDesc = await service.generateJobDescription(
+        'Need pickup in Bacoor',
+        categoryLabel: 'Courier / Delivery',
+      );
+      expect(deliveryDesc, isNotEmpty);
+      expect(
+        deliveryDesc.toLowerCase(),
+        anyOf(
+          contains('courier'),
+          contains('delivery'),
+          contains('pickup'),
+          contains('drop-off'),
+          contains('transit'),
+        ),
+      );
+
+      final rentalDesc = await service.generateJobDescription(
+        'Need pickup in Bacoor',
+        categoryLabel: 'Vehicle Rental',
+      );
+      expect(rentalDesc, isNotEmpty);
+      expect(
+        rentalDesc.toLowerCase(),
+        anyOf(
+          contains('vehicle'),
+          contains('rental'),
+          contains('driver'),
+          contains('pickup'),
+          contains('timing'),
+        ),
+      );
+    });
+
+    test('Scenario 2: No False Positive Profanity Flags on clean regional & English words', () {
+      final safeWords = [
+        'Need assistance with my plumbing system',
+        'Fast pass delivery to Bacoor',
+        'Meet at Kanto street corner for item pickup',
+        'Paspas delivery service needed today',
+        'Kikiam and street food cart assistant',
+      ];
+
+      for (final text in safeWords) {
+        expect(
+          checkProfanity(text),
+          isFalse,
+          reason: 'Clean text "$text" should not be flagged as profanity.',
+        );
+      }
+    });
+
+    test('Scenario 5: Category Mismatch Validation & Rejection', () async {
+      final service = NyxAIAssistantService();
+
+      expect(
+        () => service.generateJobDescription(
+          'Fix leaking kitchen sink and faucet pipe',
+          categoryLabel: 'Vehicle Rental',
+        ),
+        throwsA(isA<CategoryMismatchException>().having(
+          (e) => e.message,
+          'message',
+          contains('Category Mismatch'),
+        )),
+      );
+
+      expect(
+        () => service.generateJobDescription(
+          'Need motorcycle driver for courier deliveries',
+          categoryLabel: 'Plumbing',
+        ),
+        throwsA(isA<CategoryMismatchException>().having(
+          (e) => e.message,
+          'message',
+          contains('Category Mismatch'),
+        )),
+      );
+
+      // User case: Carpenter under Electrician in Waray-Waray
+      expect(
+        () => service.generateJobDescription(
+          'Nanginginahanglan ak san karpentero',
+          categoryLabel: 'Electrician',
+        ),
+        throwsA(isA<CategoryMismatchException>().having(
+          (e) => e.message,
+          'message',
+          contains('Category Mismatch'),
+        )),
+      );
+    });
+
+    test('Scenario 6: Multilingual Auto-Drafting in Tagalog and Waray-Waray', () async {
+      final service = NyxAIAssistantService();
+
+      // Tagalog aligned prompt
+      final tagalogDesc = await service.generateJobDescription(
+        'Kailangan ng tubero para sa tumutulong lababo',
+        categoryLabel: 'Plumbing',
+      );
+      expect(tagalogDesc, isNotEmpty);
+      expect(tagalogDesc, isNot(contains('"Kailangan ng tubero para sa tumutulong lababo"')));
+      expect(
+        tagalogDesc.toLowerCase(),
+        anyOf(
+          contains('naghahanap'),
+          contains('kailangan'),
+          contains('tubero'),
+          contains('manggagawa'),
+          contains('gamit'),
+        ),
+      );
+
+      // Waray-Waray aligned prompt
+      final warayDesc = await service.generateJobDescription(
+        'Nagkikinahanglan hin panday para hit balay',
+        categoryLabel: 'Carpentry',
+      );
+      expect(warayDesc, isNotEmpty);
+      expect(warayDesc, isNot(contains('"Nagkikinahanglan hin panday para hit balay"')));
+      expect(
+        warayDesc.toLowerCase(),
+        anyOf(
+          contains('nagkikinahanglan'),
+          contains('kinahanglan'),
+          contains('traba'),
+          contains('gamit'),
+          contains('panday'),
+        ),
+      );
+    });
   });
 }
+

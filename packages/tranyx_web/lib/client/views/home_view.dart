@@ -438,40 +438,41 @@ class HomeViewComponentState extends State<HomeViewComponent> {
             ],
           ),
       ] else ...[
-        // ── Global Search Bar ─────────────────────────────────
-        div(
-          classes:
-              'flex items-center gap-3 p-4 rounded-2xl border transition-colors ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
-          [
-            lIcon('search', cls: 'w-5 h-5 ${isDark ? "text-zinc-600" : "text-zinc-400"} flex-shrink-0'),
-            input(
-              classes:
-                  'bg-transparent border-none outline-none flex-1 text-sm md:text-base ${isDark ? "text-zinc-200 placeholder-zinc-600" : "text-zinc-800 placeholder-zinc-400"}',
-              type: InputType.search,
-              attributes: {
-                'placeholder': isNyxian ? 'Search available gigs...' : 'Search for a service or Nyxian...',
-                'value': s.homeSearchQuery,
-                'id': 'home-search-input',
-                'name': 'search',
-              },
-              events: {
-                'input': (e) {
-                  s.setState(() => s.homeSearchQuery = getInputValue(e.target));
+        // ── Global Search Bar (Nyxian Only) ───────────────────
+        if (isNyxian)
+          div(
+            classes:
+                'flex items-center gap-3 p-4 rounded-2xl border transition-colors ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
+            [
+              lIcon('search', cls: 'w-5 h-5 ${isDark ? "text-zinc-600" : "text-zinc-400"} flex-shrink-0'),
+              input(
+                classes:
+                    'bg-transparent border-none outline-none flex-1 text-sm md:text-base ${isDark ? "text-zinc-200 placeholder-zinc-600" : "text-zinc-800 placeholder-zinc-400"}',
+                type: InputType.search,
+                attributes: {
+                  'placeholder': 'Search available gigs...',
+                  'value': s.homeSearchQuery,
+                  'id': 'home-search-input',
+                  'name': 'search',
                 },
-                'keydown': (e) {
-                  final key = (e as web.KeyboardEvent).key;
-                  if (key == 'Enter') s.handleHomeSearch(s.homeSearchQuery);
+                events: {
+                  'input': (e) {
+                    s.setState(() => s.homeSearchQuery = getInputValue(e.target));
+                  },
+                  'keydown': (e) {
+                    final key = (e as web.KeyboardEvent).key;
+                    if (key == 'Enter') s.handleHomeSearch(s.homeSearchQuery);
+                  },
                 },
-              },
-            ),
-            button(
-              classes:
-                  'flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity',
-              events: {'click': (_) => s.handleHomeSearch(s.homeSearchQuery)},
-              [Component.text('Search')],
-            ),
-          ],
-        ),
+              ),
+              button(
+                classes:
+                    'flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity',
+                events: {'click': (_) => s.handleHomeSearch(s.homeSearchQuery)},
+                [Component.text('Search')],
+              ),
+            ],
+          ),
 
         // ── Quick Stats Bar ───────────────────────────────────
         _quickStatsBar(isDark: isDark, isNyxian: isNyxian, s: s),

@@ -3242,7 +3242,29 @@ class _HelpSupportState extends State<_HelpSupport> {
         ),
       ] else ...[
         // Default View Option Buttons
-        div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
+        div(classes: 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4', [
+          button(
+            classes:
+                'py-6 px-4 rounded-[2rem] border transition-all text-center flex flex-col items-center justify-center gap-3 '
+                '${isDark ? "bg-zinc-900/60 border-purple-500/30 hover:bg-purple-950/20 hover:border-purple-500/60" : "bg-white border-purple-200 shadow-sm hover:shadow-md hover:border-purple-400"}',
+            events: {
+              'click': (_) => s.openWalkthroughModal(),
+            },
+            [
+              div(
+                classes: 'w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center text-purple-400',
+                [lIcon('sparkles', cls: 'w-6 h-6')],
+              ),
+              div([
+                p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                  Component.text('App Guide & Badges'),
+                ]),
+                p(classes: 'text-xs text-purple-400 mt-1', [
+                  Component.text('Interactive walkthrough'),
+                ]),
+              ]),
+            ],
+          ),
           button(
             classes:
                 'py-6 px-4 rounded-[2rem] border transition-all text-center flex flex-col items-center justify-center gap-3 '

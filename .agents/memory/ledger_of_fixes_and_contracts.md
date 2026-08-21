@@ -47,7 +47,19 @@ This memory document acts as an immutable ledger to prevent regressions across `
 
 ---
 
-## 2. Treasury Vault, Payment Methods & On-Chain Settlement (VERIFIED & CONFIRMED)
+## 2. Gemini AI Auto-Drafting, Support & Generative Engine (VERIFIED & CONFIRMED)
+* **Rules**:
+  - **Self-Healing Gemini Initialization**:
+    - In [`generateJobDesc`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_web/lib/client/tranyx_app.dart) and [`generateCoverNote`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_web/lib/client/tranyx_app.dart), check `if (_gemini == null) _initGemini();` before attempting AI generation.
+  - **Textarea Value & Virtual DOM Synchronization**:
+    - In [`jobs_view.dart`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_web/lib/client/views/jobs_view.dart) and [`post_job.dart`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_web/lib/pages/post_job.dart), `<textarea>` elements must include `'value': s.newJobDesc` / `'value': s.coverNote` in their `attributes` map as well as child text `[Component.text(...)]` to ensure auto-drafted text updates the browser DOM `.value` properly upon state re-renders.
+  - **Gemini Model Routing & Multilingual Capabilities**:
+    - [`TranyxAIService`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/shared/lib/src/ai_service.dart) targets `gemini-3.6-flash` (primary) and `gemini-flash-latest` (fallback).
+    - Auto-drafting automatically detects the input language and writes descriptions/cover notes in English, Tagalog (Filipino), or Waray-Waray according to context.
+
+---
+
+## 3. Treasury Vault, Payment Methods & On-Chain Settlement (VERIFIED & CONFIRMED)
 * **Rules**:
   - **Payment Methods View**: In [`packages/tranyx_web/lib/client/views/profile_view.dart`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_web/lib/client/views/profile_view.dart), the Phantom Wallet card is removed from the Payment Methods section.
   - **Top-Up & Subscriptions**: Platform target Solana address must always use `Env.solanaPublicKey` (Treasury Vault address) and never hardcoded test addresses (`4zMMC...`).
@@ -58,7 +70,191 @@ This memory document acts as an immutable ledger to prevent regressions across `
 
 ---
 
-## 3. Web & Mobile Security (VERIFIED & CONFIRMED)
+## 4. Web & Mobile Security (VERIFIED & CONFIRMED)
 * **Rules**:
   - CI/CD GitHub workflows must use 40-character immutable commit SHAs for third-party actions.
   - Mobile manifest must retain `android:networkSecurityConfig="@xml/network_security_config"` and `android:allowBackup="false"`.
+
+---
+
+## 5. Job Cancellation Integrity & Lockout Matrix (VERIFIED & CONFIRMED)
+* **Rules**:
+  - **Unilateral Cancellation Lockout Once Hired**:
+    - If `job.isHired` (or `acceptedNyxianId` is set / status is `IN_PROGRESS`, `NYXIAN_ACCEPTED`, `COMMITTED`, `UNDER_REVIEW`), unilateral employer cancellation is strictly forbidden (`JOB_ALREADY_COMMITTED`).
+    - UI hides or disables unilateral cancel buttons and presents `_buildProtectedHireBanner` / "Cancellation Locked" with Admin/Support Dispute instructions.
+  - **Open Job Cancellation**:
+    - An open job (`OPEN` / `PUBLISHED` with no accepted Nyxian) may be cancelled with 100% escrow refund.
+    - All pending applications are updated in batch to status `REJECTED_JOB_CANCELLED`.
+    - Cancellation audit events are logged to the `/job_cancellation_logs` collection.
+  - **Terminal / Completed State Transition Guards**:
+    - Completed or terminal jobs (`COMPLETED`, `CANCELLED`, `ADMIN_CANCELLED`) cannot be cancelled or applied to (`INVALID_STATE_TRANSITION` / `JOB_IS_TERMINAL`).
+  - **Admin Override Cancellation**:
+    - Admins can override cancellation with a required reason ($\ge 20$ characters), releasing escrow and logging to audit logs.
+
+---
+
+## 6. AI Auto-Draft Generator, Category Tuning & Profanity Moderation [LOCKED - VERIFIED & COMPLETED - DO NOT MODIFY]
+* **Status**: **LOCKED & ENFORCED** (Complies with AC-DRAFT-01 through AC-DRAFT-07, tested and verified across `shared`, `tranyx_mobile`, and `tranyx_web`).
+* **Rules**:
+  - **Category-Specific Prompt Tuning**:
+    - `generateJobDescription` receives `categoryLabel` and adapts prompts and fallbacks for vehicle rental, courier/delivery, home repair, etc., ensuring specific logistics/tool terms are generated.
+  - **Category Mismatch Validation & Rejection Invariant**:
+    - If the input job title does not reasonably align with the selected category (e.g. plumbing title under Vehicle Rental or driver title under Plumbing), `generateJobDescription` strictly throws `CategoryMismatchException` (`isCategoryMismatch`).
+    - The client UI (Mobile snackbar / Web alert toast) displays the mismatch warning directly to the user to prevent generating misaligned garbage.
+  - **Multilingual Auto-Drafting (English, Tagalog, Waray-Waray)**:
+    - Auto-Draft detects the language of the prompt/title (`detectLanguage`). When aligned with the category, it drafts the job description in fluent **Tagalog** or **Waray-Waray** if the prompt was provided in those regional languages.
+  - **Rich Category Description Invariant (No Raw Title Quoting / Generalizing)**:
+    - Auto-Drafting synthesizes rich descriptions outlining specific tasks, tools, materials, and safety measures (`getCategorySpecificDraft`) instead of simply wrapping the input title in quotes (`para hit "..."`).
+  - **Profanity Moderation Word-Boundary Invariant**:
+    - `checkProfanity` in `shared` and `tranyx_web` must use word boundaries (`RegExp(r'(^|[^\w])' + RegExp.escape(phrase) + r'([^\w]|$)')`) so common words with clean substrings ("assistance", "fast pass", "kanto", "paspas", "kikiam") are NEVER falsely flagged.
+  - **Explicit Draft Preview & Confirmation Workflow**:
+    - Auto-Draft generator opens an explicit preview sheet / modal (`_AIDraftPreviewSheet` on Mobile, `s.showAIDraftModal` on Web).
+    - **Discard**: Closes the preview and leaves the description field untouched (zero overwrite).
+    - **Use This Draft**: Populates and replaces the description field with the generated/edited text.
+
+---
+
+## 7. Vehicle Rental Driver License Requirement (With Driver vs Self-Drive) [VERIFIED & ENFORCED]
+* **Rules**:
+  - **With Driver (Chauffeur-Driven) Flow**:
+    - When `hireWithDriver == true` (`WITH_DRIVER`), the Driver's License Number field is completely omitted/hidden from the booking form.
+    - Validation passes without entering a license, and the payload sets `licenseNumber: null`.
+    - Receipt / summary displays `"Rental Type: With Driver (Chauffeur-Driven)"`.
+  - **Self-Drive Flow**:
+    - When `hireWithDriver == false` (`SELF_DRIVE`), the Driver's License Number field is visible and marked required (`*`).
+    - Submitting an empty field displays error: `"Driver's license number is required for self-drive bookings."`.
+    - Entering a valid license allows proceeding to payment and sets `licenseNumber: "N01-XX-XXXXXX"`.
+  - **Real-Time Mode Switch Invariant**:
+    - Toggling from Self-Drive to With Driver clears the controller and forces `licenseNumber: null` in the payload, preventing stale license leakage.
+
+---
+
+## 8. Rental Listing Card Gesture Routing & Book Now CTA [VERIFIED & ENFORCED]
+* **Rules**:
+  - **Full-Card Tap $\rightarrow$ Detail Modal**:
+    - Tapping/clicking anywhere on the card body (image thumbnail, vehicle/property title, badges, specs, price, or empty container area) opens the detailed view modal / dialog (`_openDetailDialog` on Mobile, `BookVehicleModalComponent` on Web).
+    - Desktop/Web cards render with `cursor-pointer`, `card-hover`, and border highlight.
+    - Mobile cards are wrapped in `Material` + `InkWell` with `SystemMouseCursors.click` and standard touch ripples.
+  - **Dedicated "Book Now" / "Rent Now" Fast-Track Button**:
+    - Direct CTA button on the card triggers the booking / date selection flow (`_openBookingSheet` on Mobile, `showBookVehicleModal` on Web).
+    - Tapping the CTA button stops event bubbling (`e.stopPropagation()` on Web, Flutter nested widget gesture absorption on Mobile), isolating the trigger and preventing duplicate dialogs/page pushes.
+  - **Multi-Category Uniformity**:
+    - Applies consistently across Vehicles, Heavy Equipment, and Properties.
+
+---
+
+## 9. Persistent Calendar Availability, Span Conflict & Smart Tiered Rate Optimization [VERIFIED & ENFORCED]
+* **Rules**:
+  - **Dedicated Start & End Date Pickers with Bi-directional Sync**:
+    - Web and Mobile interfaces provide explicit date pickers for **Start Date** and **End Date** (`<input type="date">`).
+    - Users can freely choose any Start Date and End Date (e.g. Start: Aug 25, End: Aug 27 $\rightarrow 2$ days; or 5 days, 10 days).
+    - Changing Start Date or End Date automatically recalculates `_quantity` and updates the calendar active range band.
+    - Adjusting the `_quantity` multiplier/stepper automatically updates the computed End Date picker value in real time.
+  - **Persistent Visualizer Calendar (Non-clickable Days, Clickable Month Navigation)**:
+    - Calendar day cells are non-clickable visual elements (`cursor-default`), preventing accidental single-day click overrides.
+    - Month navigation (`<` / `>`) remains fully interactive (`cursor-pointer`) so users can check reservations in upcoming months.
+    - Clear visual states: Available, Booked/Reserved (red), Active Span (purple band), Start/End Dates (purple badge with ring), Overlap Conflicts (pulsing red border `border-2 border-red-500 bg-red-500/30`), Past Dates (dimmed).
+  - **Unavailable / Unoffered Rental Package Locking**:
+    - If a package rate is not offered (`price <= 0` or missing in listing), the option card is rendered with dimmed opacity (`opacity-40 cursor-not-allowed select-none`), displays an `"Unavailable"` / `"Not Offered"` badge, and has no click handler.
+    - Initialization defaults `_selectedPackage` to the first available offered rate.
+  - **Span Conflict & Overlap Blocking**:
+    - Iterates every day from `_startDate` to `_computedEndDate`.
+    - If any day overlaps an existing reservation:
+      - Overlapping dates pulse red on the calendar.
+      - Inline error alert displays: `"Selected duration overlaps with an existing reservation on [Conflicting Date(s)]. Please choose a different start date or shorter duration."`.
+      - "Review Contract" / Proceed CTA is disabled.
+  - **Time Formatting Standard (`HH:mm aa` / `hh:mm a`) & Payload Integrity**:
+    - All time pickers, dropdown options, and schedule summary labels format time in 12-hour format with zero-padded 2-digit hours, minutes, and AM/PM markers (e.g. `Starts: Aug 25, 2026 • 09:00 AM`, `Ends: Aug 27, 2026 • 09:00 AM`).
+    - Dispatching booking requests assigns `startDate` and `endDate` from `_startDate.millisecondsSinceEpoch` and `_calculatedEndDate.millisecondsSinceEpoch`.
+  - **Smart Tiered Rate Engine (`SmartRateEngine`)**:
+    - **7-Day Threshold**: Automatically converts 7 days (or multiple of 7) to Weekly Rate instead of $7 \times \text{Daily Rate}$.
+    - **30-Day Threshold**: Automatically converts 30 days to Monthly Rate.
+    - **Hybrid Durations**: Decomposes days into optimal tier sum (e.g. 10 days = 1x weekly + 3x daily).
+    - **Price Capping Rule**: If $N \times \text{Daily Rate} > \text{Weekly Rate}$ (e.g. 5 days @ ₱1,000 > ₱4,500 weekly), automatically caps base price at cheaper Weekly Rate and displays optimization savings badge.
+    - **Live Price Breakdown**: Real-time breakdown updates dynamically with applied tiers, capping notices, promo discounts, and escrow fees.
+
+---
+
+## 10. Dynamic & Immutable Counterparty Identity Verification in Rental Contracts & Summaries
+- **Core Architecture & Threat Model Resolution**:
+  - **Hardcoded Template Elimination**: Removed all static template strings certifying parties as "(Verified Account)" or "Verified Landlord".
+  - **Dynamic Fallback Evaluation (`PartyVerificationHelper`)**:
+    - Evaluates authentic database records: `idVerified == true`, `verificationLevel >= 2`, or explicit `verificationStatus == 'VERIFIED'`.
+    - Returns `"Identity Status: Verified (Government ID Verified)"` (or specific tier e.g. Level 3 Pro) with green badges and checkmarks when KYC is complete.
+    - Returns `"Identity Status: Unverified Account"` in amber/zinc without trust badges or checkmarks when KYC is unverified, null, or false.
+  - **Immutable Contract Snapshots (`/rental_contracts/{contractId}`)**:
+    - When vehicle or property rental agreements are signed, a permanent snapshot is frozen containing:
+      - `hostId`, `hostName`, `hostIsVerified`, `hostVerificationStatus`, `hostVerificationTier`
+      - `renteeId`, `renteeName`, `renteeIsVerified`, `renteeVerificationStatus`, `renteeVerificationTier`
+      - `signatureHash`, `signedAt`, `isImmutableSnapshot: true`
+    - Prevents past executed contracts from mutating retroactively if a user later updates their profile or KYC status.
+  - **Contract & Transaction View Parity**:
+    - Dynamic verification cards in `contract_viewer.dart`, `contract_drafts.dart`, `book_vehicle_modal.dart`, `book_property_modal.dart`, and `firebase_service.dart`.
+
+---
+
+## 11. LTO Registration & Comprehensive Insurance Compliance Form Integration
+- **Context & Resolution**:
+  - Previously, generated contracts contained a section for "3. LTO REGISTRATION & COMPLIANCE", but the vehicle listing wizards had no inputs for these fields, resulting in hardcoded `'PENDING'` and `'N/A'` values in contracts and database documents.
+  - Added dedicated form sections in both Web ([`list_vehicle_modal.dart`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_web/lib/client/components/list_vehicle_modal.dart)) and Mobile ([`listing_wizard_sheet.dart`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_mobile/lib/features/transit/presentation/widgets/listing_wizard_sheet.dart)) with inputs for:
+    - **LTO Certificate of Registration (CR Number)**
+    - **LTO Official Receipt (OR Number)**
+    - **Insured Vehicle Market Value (₱)**
+    - **Comprehensive Insurance Provider** (dropdown with Philippine providers: Standard Insurance, Malayan, FPG, Pioneer, Mercantile, Alpha, Charter Ping An, or CTPL Only)
+    - **Insurance Policy Reference Number**
+  - Updated contract preview in Step 4 and submission handlers to bind, sanitize, and save these values to Firestore, accurately reflecting them in the generated P2P agreements.
+
+---
+
+---
+
+## 12. Transparent Gig Filtering Engine & Live Active Summary Strip (`AC-GIG-01` to `AC-GIG-10`)
+- **Context & Resolution**:
+  - Implemented pure Dart [`GigFilterEngine`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/shared/lib/src/gig_filter_engine.dart) evaluating the filtering matrix $\text{Match} = \text{Category Rule} \land \text{Modality/Distance Rule}$.
+  - Remote gigs bypass physical distance checks when Remote is ON, and are strictly excluded when Remote is OFF.
+  - On-site gigs are evaluated with Haversine distance from user coordinates against the selected radius (5 km, 15 km, 30 km, 50 km, 100 km, Any Distance).
+  - Category presets support `"All"`, `"Recommended"` (regex boundary matching on user skills), and `"High Paying"` (`payout >= 1000.0`).
+  - Added live **Active Filter Summary Strip** showing category, distance, remote modality, and total matching count with `"Clear All"` reset button on both Web and Mobile.
+  - Integrated Zero Results state with `"No available gigs match your current filters"` and a prominent `"Reset Filters"` CTA button.
+
+---
+
+## 13. Role-Based Search Bar Exclusivity (`AC-SEARCH-01`)
+- **Context & Resolution**:
+  - The home search input and global search bar are now strictly restricted to Nyxians (`isNyxian == true` / `AccountType.nyxian`).
+  - For Employers (`AccountType.employer`), search inputs have been removed from the Home view across both Web and Mobile so employer accounts focus on creating listings and managing contracts rather than browsing gigs.
+
+---
+
+---
+
+## 14. Interactive Walkthrough & Verification Badge System (`AC-ONBOARD-01` to `AC-ONBOARD-05`)
+- **Context & Resolution**:
+  - Implemented the `VerificationLevel` enum (`none`, `level1Basic`, `level2Pro`) in `packages/shared/lib/src/enums.dart`.
+  - Built reusable [`UserBadgeWidget`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_mobile/lib/core/widgets/user_badge_widget.dart) (Flutter) and [`UserBadgeComponent`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_web/lib/client/components/user_badge_component.dart) (Jaspr):
+    - **Unverified Users (`VerificationLevel.none`)**: Renders `SizedBox.shrink()` (0 badge icons, zero misleading certified labels).
+    - **Level 1 Basic (`VerificationLevel.level1Basic`)**: Cyan shield badge (`VERIFIED`).
+    - **Level 2 Pro (`VerificationLevel.level2Pro`)**: Upgraded Gold shield badge (`PRO`).
+    - Tapping opens a bottom sheet modal breaking down Government ID, Biometric Liveness, and Merchant/Business records.
+  - Built [`InteractiveWalkthroughOverlay`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_mobile/lib/core/widgets/interactive_walkthrough_overlay.dart):
+    - Dims background scrim and creates live spotlight cutout highlights around core UI targets with glowing pulse animations.
+    - 4 Sequential Steps: 1. Trust & Verification Badges, 2. Rentals & Calendar Availability, 3. Jobs & Live Execution Tracking, 4. MWA Web3 Wallet & Fiat Ledger.
+    - Auto-triggers on first launch with persistent `has_seen_onboarding` local storage flag in `SecureStorageHelper`.
+    - Supports on-demand replay from Settings > Help & Support > "App Guide & Verification Levels" in Profile.
+  - Verified with 100% passing test suite in `packages/tranyx_mobile/test/user_badge_and_walkthrough_test.dart`.
+
+---
+
+## 15. QA Acceptance Criteria Reference
+* Detailed specifications, user stories, state matrices, and test case mappings are recorded in:
+  - [`qa_acceptance_criteria_matrix.md`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/.agents/memory/qa_acceptance_criteria_matrix.md)
+
+
+
+
+
+
+
+
+
+

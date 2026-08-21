@@ -1217,10 +1217,17 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                           ),
                           GestureDetector(
                             onTap: () async {
-                              if (_titleController.text.isEmpty ||
-                                  isGeneratingDesc) {
+                              final title = _titleController.text.trim();
+                              if (title.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Please enter a job title first.'),
+                                  ),
+                                );
                                 return;
                               }
+                              if (isGeneratingDesc) return;
+
                               ref
                                       .read(isGeneratingDescProvider.notifier)
                                       .state =
@@ -1229,11 +1236,57 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                                 final aiService = ref.read(aiServiceProvider);
                                 final desc = await aiService
                                     .generateJobDescription(
-                                      _titleController.text,
+                                      title,
+                                      categoryLabel: selectedCategory?.label,
                                     );
-                                ref.read(newJobDescProvider.notifier).state =
-                                    desc;
-                                _descController.text = desc;
+                                if (!context.mounted) return;
+
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (context) => _AIDraftPreviewSheet(
+                                    initialDraft: desc,
+                                    categoryLabel:
+                                        selectedCategory?.label ?? 'General',
+                                    isDarkMode: isDarkMode,
+                                    onAccept: (acceptedDraft) {
+                                      ref
+                                              .read(
+                                                newJobDescProvider.notifier,
+                                              )
+                                              .state =
+                                          acceptedDraft;
+                                      _descController.text = acceptedDraft;
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Draft applied! You can further edit the text.',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                );
+                              } catch (e) {
+                                if (mounted) {
+                                  final msg = e is CategoryMismatchException
+                                      ? e.message
+                                      : 'Error generating draft: ${e.toString().replaceAll('Exception: ', '')}';
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(msg),
+                                      backgroundColor: e is CategoryMismatchException
+                                          ? AppColors.red
+                                          : null,
+                                      duration: const Duration(seconds: 4),
+                                    ),
+                                  );
+                                }
                               } finally {
                                 ref
                                         .read(isGeneratingDescProvider.notifier)
@@ -2009,6 +2062,172 @@ class _AddressSearchSheetState extends State<_AddressSearchSheet> {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AIDraftPreviewSheet extends StatefulWidget {
+  final String initialDraft;
+  final String categoryLabel;
+  final bool isDarkMode;
+  final ValueChanged<String> onAccept;
+
+  const _AIDraftPreviewSheet({
+    required this.initialDraft,
+    required this.categoryLabel,
+    required this.isDarkMode,
+    required this.onAccept,
+  });
+
+  @override
+  State<_AIDraftPreviewSheet> createState() => _AIDraftPreviewSheetState();
+}
+
+class _AIDraftPreviewSheetState extends State<_AIDraftPreviewSheet> {
+  late final TextEditingController _draftController;
+
+  @override
+  void initState() {
+    super.initState();
+    _draftController = TextEditingController(text: widget.initialDraft);
+  }
+
+  @override
+  void dispose() {
+    _draftController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDarkMode;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : AppColors.lightCard,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.indigo.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome,
+                  color: AppColors.indigo,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'AI Job Description Draft',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? AppColors.darkText : AppColors.lightText,
+                      ),
+                    ),
+                    Text(
+                      'Tailored for ${widget.categoryLabel}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark
+                            ? AppColors.darkTextMuted
+                            : AppColors.lightTextMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkBg : Colors.grey[50],
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+              ),
+            ),
+            child: TextFormField(
+              controller: _draftController,
+              maxLines: 5,
+              style: TextStyle(
+                color: isDark ? AppColors.darkText : AppColors.lightText,
+                fontSize: 14,
+              ),
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Review or edit the generated text before using it.',
+            style: TextStyle(
+              fontSize: 11,
+              color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: UIHelpers.buildPrimaryButton(
+                  'Discard',
+                  () => Navigator.pop(context),
+                  isDark,
+                  isOutlined: true,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: UIHelpers.buildPrimaryButton(
+                  'Use This Draft',
+                  () {
+                    widget.onAccept(_draftController.text.trim());
+                    Navigator.pop(context);
+                  },
+                  isDark,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

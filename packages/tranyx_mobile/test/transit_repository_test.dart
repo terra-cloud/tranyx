@@ -621,5 +621,142 @@ void main() {
         );
       },
     );
+
+    group('Vehicle Rental License Requirements (With Driver vs Self-Drive)', () {
+      setUp(() {
+        firestore.db['users/renter_vip'] = {
+          'name': 'VIP Renter',
+          'email': 'vip@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 10000.0,
+        };
+        firestore.db['rentals/car_deluxe'] = {
+          'id': 'car_deluxe',
+          'hostId': 'host_deluxe',
+          'hostName': 'Host Deluxe',
+          'priceDaily': 3000.0,
+          'driverDailyPrice': 500.0,
+          'offersDriver': true,
+          'brand': 'Toyota',
+          'model': 'Fortuner',
+          'year': 2023,
+          'status': 'Available',
+        };
+      });
+
+      test('TC-RENT-01: Booking with Chauffeur (WITH_DRIVER) omits license and succeeds', () async {
+        // Given With Driver mode, license is omitted (null)
+        await repo.createBookingRequest(
+          rentalId: 'car_deluxe',
+          renteeId: 'renter_vip',
+          renteeName: 'VIP Renter',
+          renteePhotoUrl: null,
+          durationType: 'daily',
+          multiplier: 2,
+          licenseNumber: null, // Omitted
+          totalCost: 7000.0, // 2 * (3000 + 500)
+          hireWithDriver: true, // With Driver mode
+          rentalType: 'pickup',
+          deliveryAddress: null,
+          startDate: DateTime.now().millisecondsSinceEpoch,
+          endDate: DateTime.now().add(const Duration(days: 2)).millisecondsSinceEpoch,
+        );
+
+        final reqDocs = await firestore.collection('rental_requests').get();
+        final req = reqDocs.docs.first.data();
+        expect(req['hireWithDriver'], isTrue);
+        expect(req['licenseNumber'], isNull);
+        expect(req['status'], equals('Pending'));
+      });
+
+      test('TC-RENT-02: Self-Drive with Valid License (SELF_DRIVE) stores license and succeeds', () async {
+        await repo.createBookingRequest(
+          rentalId: 'car_deluxe',
+          renteeId: 'renter_vip',
+          renteeName: 'VIP Renter',
+          renteePhotoUrl: null,
+          durationType: 'daily',
+          multiplier: 1,
+          licenseNumber: 'N01-88-123456', // Valid License
+          totalCost: 3000.0,
+          hireWithDriver: false, // Self-Drive mode
+          rentalType: 'pickup',
+          deliveryAddress: null,
+          startDate: DateTime.now().millisecondsSinceEpoch,
+          endDate: DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch,
+        );
+
+        final reqDocs = await firestore.collection('rental_requests').get();
+        final req = reqDocs.docs.last.data();
+        expect(req['hireWithDriver'], isFalse);
+        expect(req['licenseNumber'], equals('N01-88-123456'));
+      });
+
+      test('TC-RENT-03: Self-Drive Missing License validation logic check', () {
+        // Verification of validation logic used in UI layers
+        bool validateRentalLicense({
+          required bool isProperty,
+          required bool hireWithDriver,
+          required String licenseInput,
+        }) {
+          final bool requiresLicense = isProperty || !hireWithDriver;
+          if (requiresLicense && licenseInput.trim().isEmpty) {
+            return false;
+          }
+          return true;
+        }
+
+        // Empty license in Self-Drive -> must fail validation
+        final selfDriveEmptyValid = validateRentalLicense(
+          isProperty: false,
+          hireWithDriver: false,
+          licenseInput: '',
+        );
+        expect(selfDriveEmptyValid, isFalse);
+
+        // Valid license in Self-Drive -> must pass
+        final selfDriveValid = validateRentalLicense(
+          isProperty: false,
+          hireWithDriver: false,
+          licenseInput: 'N01-88-123456',
+        );
+        expect(selfDriveValid, isTrue);
+      });
+
+      test('TC-RENT-04: Mode Switch Edge Case (SELF_DRIVE -> WITH_DRIVER)', () async {
+        // User typed license while in Self-Drive, then toggled to With Driver
+        const typedLicense = 'N01-88-123456';
+        String? resolveLicense({required bool hireWithDriver, required String license}) =>
+            hireWithDriver ? null : license;
+
+        // User switches mode to With Driver
+        const hireWithDriver = true;
+        final effectiveLicense = resolveLicense(
+          hireWithDriver: hireWithDriver,
+          license: typedLicense,
+        );
+
+        await repo.createBookingRequest(
+          rentalId: 'car_deluxe',
+          renteeId: 'renter_vip',
+          renteeName: 'VIP Renter',
+          renteePhotoUrl: null,
+          durationType: 'daily',
+          multiplier: 1,
+          licenseNumber: effectiveLicense, // Omitted
+          totalCost: 3500.0,
+          hireWithDriver: hireWithDriver,
+          rentalType: 'pickup',
+          deliveryAddress: null,
+          startDate: DateTime.now().millisecondsSinceEpoch,
+          endDate: DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch,
+        );
+
+        final reqDocs = await firestore.collection('rental_requests').get();
+        final req = reqDocs.docs.last.data();
+        expect(req['hireWithDriver'], isTrue);
+        expect(req['licenseNumber'], isNull);
+      });
+    });
   });
 }

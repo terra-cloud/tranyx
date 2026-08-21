@@ -137,7 +137,7 @@ class JobsViewComponent extends StatelessComponent {
               _filterChip('High Paying', s.activeJobFilter == 'High Paying', isDark, s),
               _filterChip('All', s.activeJobFilter == 'All', isDark, s),
             ]),
-            // Geofence distance row
+            // Geofence distance row & Remote toggle
             div(classes: 'flex flex-wrap items-center gap-3 mb-2', [
               div(classes: 'flex items-center gap-2 text-xs', [
                 span(
@@ -196,6 +196,55 @@ class JobsViewComponent extends StatelessComponent {
                 ],
               ),
             ]),
+
+            // Live Active Filter Summary Strip (Scenarios 1-8)
+            Builder(builder: (context) {
+              final summaryInfo = GigFilterEngine.buildSummaryInfo(
+                categoryFilter: s.activeJobFilter,
+                includeRemote: s.includeRemoteJobs,
+                maxRadiusKm: s.geofenceRadius,
+                resultCount: displayJobs.length,
+              );
+              return div(
+                classes:
+                    'p-3 rounded-2xl border ${isDark ? "bg-zinc-800/40 border-zinc-700/60" : "bg-purple-50/70 border-purple-100"} flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-sm',
+                [
+                  div(classes: 'flex items-center gap-2 text-xs', [
+                    lIcon('filter', cls: 'w-3.5 h-3.5 ${isDark ? "text-purple-400" : "text-purple-600"} flex-shrink-0'),
+                    div(classes: 'leading-tight', [
+                      span(
+                        classes: 'font-bold ${isDark ? "text-white" : "text-zinc-900"}',
+                        [Component.text('${summaryInfo.categorySummary} ')],
+                      ),
+                      span(
+                        classes: isDark ? "text-zinc-400" : "text-zinc-600",
+                        [Component.text('• ${summaryInfo.distanceSummary} • ${summaryInfo.remoteSummary}')],
+                      ),
+                      span(
+                        classes: 'ml-1 font-semibold text-purple-500',
+                        [Component.text('(${summaryInfo.count} gigs found)')],
+                      ),
+                    ]),
+                  ]),
+                  if (!summaryInfo.isDefaultState)
+                    button(
+                      classes:
+                          'self-start sm:self-auto text-xs font-bold text-purple-400 hover:text-purple-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors',
+                      events: {
+                        'click': (_) => s.setState(() {
+                          s.activeJobFilter = 'All';
+                          s.geofenceRadius = 9999.0;
+                          s.includeRemoteJobs = true;
+                        }),
+                      },
+                      [
+                        lIcon('rotate-ccw', cls: 'w-3 h-3'),
+                        Component.text('Clear All'),
+                      ],
+                    ),
+                ],
+              );
+            }),
           ],
 
           div(classes: 'space-y-3', [
@@ -239,15 +288,44 @@ class JobsViewComponent extends StatelessComponent {
                   },
                 ),
               if (displayJobs.isEmpty)
-                div(classes: 'p-4 text-center text-zinc-500 text-sm', [
-                  Component.text(
-                    s.activeJobPane == 'applied'
-                        ? 'You have not applied to any gigs yet.'
-                        : (s.activeJobPane == 'active' || s.activeJobPane == 'history'
-                              ? 'You have no active or completed gigs yet.'
-                              : 'No available gigs match your filters.'),
-                  ),
-                ])
+                div(
+                  classes:
+                      'p-8 text-center rounded-2xl border border-dashed ${isDark ? "border-zinc-800 bg-zinc-900/30" : "border-zinc-300 bg-zinc-50/50"} space-y-3',
+                  [
+                    lIcon('search-x', cls: 'w-10 h-10 mx-auto text-zinc-400 opacity-60'),
+                    h4(classes: 'font-bold text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                      Component.text(
+                        s.activeJobPane == 'applied'
+                            ? 'You have not applied to any gigs yet.'
+                            : (s.activeJobPane == 'active' || s.activeJobPane == 'history'
+                                  ? 'You have no active or completed gigs yet.'
+                                  : 'No available gigs match your current filters'),
+                      ),
+                    ]),
+                    if (s.activeJobPane == 'browse') ...[
+                      p(classes: 'text-xs text-zinc-500 max-w-xs mx-auto', [
+                        Component.text(
+                          'Try expanding your distance radius, enabling remote gigs, or viewing all job categories.',
+                        ),
+                      ]),
+                      button(
+                        classes:
+                            'px-4 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-md shadow-purple-600/20 transition-all cursor-pointer inline-flex items-center gap-1.5',
+                        events: {
+                          'click': (_) => s.setState(() {
+                            s.activeJobFilter = 'All';
+                            s.geofenceRadius = 9999.0;
+                            s.includeRemoteJobs = true;
+                          }),
+                        },
+                        [
+                          lIcon('rotate-ccw', cls: 'w-3.5 h-3.5'),
+                          Component.text('Reset Filters'),
+                        ],
+                      ),
+                    ],
+                  ],
+                )
               else
                 for (final j in displayJobs) _nyxianCard(j, isDark, s),
             ] else ...[
@@ -350,80 +428,21 @@ class JobsViewComponent extends StatelessComponent {
       return jobs;
     }
 
-    // ── Geofence + Remote filter (browse pane only) ──────────────
+    // ── Pure Dart GigFilterEngine (browse pane only) ──────────────
     if (isBrowsePane) {
-      jobs = jobs.where((j) {
-        final locationType = (j['locationType'] as String?)?.toLowerCase() ?? 'on-site';
-        final isRemote = locationType == 'remote';
-
-        if (isRemote) {
-          // Remote gigs: show only when includeRemoteJobs is enabled
-          return s.includeRemoteJobs;
-        } else {
-          // On-site gigs: apply geofence distance filter
-          final jobLat = (j['latitude'] as num?)?.toDouble() ?? (j['pickupLat'] as num?)?.toDouble();
-          final jobLng = (j['longitude'] as num?)?.toDouble() ?? (j['pickupLng'] as num?)?.toDouble();
-          if (jobLat == null || jobLng == null) {
-            // No coordinates stored — include if radius is broad enough
-            return s.geofenceRadius >= 999.0;
-          }
-          if (s.geofenceRadius < 999.0) {
-            final dist = calculateDistance(s.userLatitude, s.userLongitude, jobLat, jobLng);
-            return dist <= s.geofenceRadius;
-          }
-          return true;
-        }
-      }).toList();
-
-      // Sort: latest to oldest
-      jobs.sort((jobA, jobB) {
-        final aTime = jobA['createdAt'] as int? ?? 0;
-        final bTime = jobB['createdAt'] as int? ?? 0;
-        return bTime.compareTo(aTime);
-      });
+      final userSkills = s.userProfile?.skills ?? [];
+      return GigFilterEngine.filterGigList(
+        gigs: jobs,
+        categoryFilter: s.activeJobFilter,
+        includeRemote: s.includeRemoteJobs,
+        maxRadiusKm: s.geofenceRadius,
+        userLat: s.userLatitude,
+        userLng: s.userLongitude,
+        userSkills: userSkills,
+      );
     }
 
-    final result = <Map<String, dynamic>>[];
-    if (!isBrowsePane) {
-      result.addAll(jobs);
-    } else if (s.activeJobFilter == 'All') {
-      result.addAll(jobs);
-    } else if (s.activeJobFilter == 'Recommended') {
-      var skills = s.userProfile?.skills ?? [];
-      if (skills.isEmpty) {
-        skills = ['Electrical', 'Plumbing', 'Painting', 'Carpentry', 'Cleaning', 'IT'];
-      }
-      result.addAll(
-        jobs.where((j) {
-          final cat = (j['category'] as String?)?.toLowerCase() ?? '';
-          final catLabel = (j['categoryLabel'] as String?)?.toLowerCase() ?? '';
-          final desc = (j['description'] as String?)?.toLowerCase() ?? '';
-          final title = (j['title'] as String?)?.toLowerCase() ?? '';
-          return skills.any((skill) {
-            final sLower = skill.toLowerCase();
-            return cat.contains(sLower) || catLabel.contains(sLower) || desc.contains(sLower) || title.contains(sLower);
-          });
-        }),
-      );
-    } else if (s.activeJobFilter == 'High Paying') {
-      result.addAll(
-        jobs.where((j) {
-          final val = (j['pricingValue'] as num?)?.toDouble() ?? 0.0;
-          return val >= 1000;
-        }),
-      );
-    } else {
-      result.addAll(jobs);
-    }
-
-    // Sort all final listings from latest to oldest
-    result.sort((jobA, jobB) {
-      final aTime = jobA['createdAt'] as int? ?? 0;
-      final bTime = jobB['createdAt'] as int? ?? 0;
-      return bTime.compareTo(aTime);
-    });
-
-    return result;
+    return jobs;
   }
 
   Component _filterChip(String label, bool active, bool isDark, TranyxAppState s) {
@@ -1273,24 +1292,7 @@ class _JobDetails extends StatelessComponent {
                   div(classes: 'flex gap-3', [
                     button(
                       classes:
-                          'flex-1 py-4 rounded-2xl font-semibold text-red-500 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-all flex items-center justify-center gap-2',
-                      events: {
-                        'click': (_) {
-                          final confirmed = confirmDialog('Are you sure you want to cancel this job?');
-                          if (confirmed) {
-                            s.handleCancelJob();
-                          }
-                        },
-                      },
-                      [
-                        if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                        lIcon('x-circle', cls: 'w-5 h-5'),
-                        Component.text(s.isUpdatingJobStatus ? 'Cancelling...' : 'Cancel Job'),
-                      ],
-                    ),
-                    button(
-                      classes:
-                          'flex-1 py-4 rounded-2xl font-semibold text-white bg-green-600 hover:bg-green-500 transition-colors flex items-center justify-center gap-2',
+                          'w-full py-4 rounded-2xl font-semibold text-white bg-green-600 hover:bg-green-500 transition-colors flex items-center justify-center gap-2',
                       events: {'click': (_) => s.handleMarkJobDone()},
                       [
                         if (s.isUpdatingSubStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
@@ -1323,24 +1325,7 @@ class _JobDetails extends StatelessComponent {
                   div(classes: 'flex gap-3', [
                     button(
                       classes:
-                          'flex-1 py-4 rounded-2xl font-semibold text-red-500 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-all flex items-center justify-center gap-2',
-                      events: {
-                        'click': (_) {
-                          final confirmed = confirmDialog('Are you sure you want to cancel this job?');
-                          if (confirmed) {
-                            s.handleCancelJob();
-                          }
-                        },
-                      },
-                      [
-                        if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                        lIcon('x-circle', cls: 'w-5 h-5'),
-                        Component.text(s.isUpdatingJobStatus ? 'Cancelling...' : 'Cancel Job'),
-                      ],
-                    ),
-                    button(
-                      classes:
-                          'flex-1 py-4 rounded-2xl font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors flex items-center justify-center gap-2',
+                          'w-full py-4 rounded-2xl font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors flex items-center justify-center gap-2',
                       events: {'click': (_) => s.handleUpdateNyxianSubStatus('arrived_pickup')},
                       [
                         if (s.isUpdatingSubStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
@@ -1543,15 +1528,22 @@ class _JobDetails extends StatelessComponent {
                       ],
                     ),
                 ]);
-              } else if (status == 'Cancelled') {
+              } else if (status == 'Cancelled' || status == 'ADMIN_CANCELLED' || status == 'admin_cancelled') {
+                final isAdminCancelled = status == 'ADMIN_CANCELLED' || status == 'admin_cancelled';
                 return div(
                   classes: 'p-4 rounded-2xl border border-red-500/30 bg-red-500/10 flex items-center gap-3',
                   [
                     lIcon('x-circle', cls: 'w-6 h-6 text-red-400'),
                     div([
-                      p(classes: 'font-bold text-red-400 text-sm', [Component.text('Gig Cancelled')]),
+                      p(classes: 'font-bold text-red-400 text-sm', [
+                        Component.text(isAdminCancelled ? 'Admin Cancelled' : 'Gig Cancelled'),
+                      ]),
                       p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-                        Component.text('This gig has been cancelled.'),
+                        Component.text(
+                          isAdminCancelled
+                              ? 'This gig was cancelled by an Administrator (Admin Override).'
+                              : 'This gig has been cancelled.',
+                        ),
                       ]),
                     ]),
                   ],
@@ -1652,40 +1644,42 @@ class _JobDetails extends StatelessComponent {
                     ]),
                   ]),
                 ]),
-                Builder(
-                  builder: (context) {
-                    final statusLower = status.toLowerCase();
-                    final reachedFirstPoint =
-                        hasTracker &&
-                        (statusLower == 'arrived_pickup' ||
-                            statusLower == 'paid_cashier' ||
-                            statusLower == 'in_transit' ||
-                            statusLower == 'arrived_dropoff' ||
-                            statusLower == 'done' ||
-                            statusLower == 'completed');
-
-                    final msg = reachedFirstPoint
-                        ? 'The Nyxian has reached/passed the first point. If you cancel, the Nyxian will be compensated 20 tyxbits from the escrow, and the remaining escrow will be refunded to you. Are you sure you want to cancel?'
-                        : 'Are you sure you want to cancel this job? You will receive a 100% refund of the escrow.';
-
-                    return button(
+                div(
+                  classes:
+                      'p-4 rounded-2xl border ${isDark ? "bg-amber-950/20 border-amber-500/30" : "bg-amber-50 border-amber-200"} flex flex-col gap-3',
+                  [
+                    div(classes: 'flex items-start gap-3', [
+                      lIcon('shield-alert', cls: 'w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5'),
+                      div([
+                        p(classes: 'font-bold text-amber-500 text-sm', [Component.text('Cancellation Locked (Active Hire)')]),
+                        p(classes: 'text-xs mt-0.5 ${isDark ? "text-amber-200/70" : "text-amber-800/80"}', [
+                          Component.text(
+                            'A Nyxian has been hired for this gig. Unilateral cancellation is disabled to safeguard committed preparation and resources.',
+                          ),
+                        ]),
+                      ]),
+                    ]),
+                    button(
                       classes:
-                          'w-full py-4 rounded-2xl font-semibold text-red-500 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-all flex items-center justify-center gap-2',
+                          'w-full py-2.5 px-4 rounded-xl font-medium text-xs ${isDark ? "bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20" : "bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200"} transition-colors flex items-center justify-center gap-2 cursor-pointer',
                       events: {
                         'click': (_) {
-                          final confirmed = confirmDialog(msg);
-                          if (confirmed) {
-                            s.handleCancelJob();
+                          if (s.selectedJobData != null) {
+                            s.handleRequestJobDispute(s.selectedJobData!);
+                          } else {
+                            s.alertDialog(
+                              'Dispute & Support Assistance',
+                              'Unilateral cancellation is locked because an active Nyxian is hired. If you need assistance, please contact Tranyx Support.',
+                            );
                           }
                         },
                       },
                       [
-                        if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                        lIcon('x-circle', cls: 'w-5 h-5'),
-                        Component.text(s.isUpdatingJobStatus ? 'Cancelling...' : 'Cancel Job'),
+                        lIcon('help-circle', cls: 'w-4 h-4'),
+                        Component.text('Contact Admin / Support Dispute'),
                       ],
-                    );
-                  },
+                    ),
+                  ],
                 ),
                 if ((s.selectedJobData?['receiptUrl'] as String?) != null)
                   div(classes: 'mt-2 p-3 rounded-xl border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
@@ -1813,15 +1807,22 @@ class _JobDetails extends StatelessComponent {
               ]);
             }
 
-            if (status == 'Cancelled') {
+            if (status == 'Cancelled' || status == 'ADMIN_CANCELLED' || status == 'admin_cancelled') {
+              final isAdminCancelled = status == 'ADMIN_CANCELLED' || status == 'admin_cancelled';
               return div(
                 classes: 'p-4 rounded-2xl border border-red-500/30 bg-red-500/10 flex items-center gap-3',
                 [
                   lIcon('x-circle', cls: 'w-6 h-6 text-red-400'),
                   div([
-                    p(classes: 'font-bold text-red-400 text-sm', [Component.text('Gig Cancelled')]),
+                    p(classes: 'font-bold text-red-400 text-sm', [
+                      Component.text(isAdminCancelled ? 'Admin Cancelled' : 'Gig Cancelled'),
+                    ]),
                     p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-                      Component.text('This job posting has been cancelled.'),
+                      Component.text(
+                        isAdminCancelled
+                            ? 'This job posting was cancelled by an Administrator (Admin Override).'
+                            : 'This job posting has been cancelled.',
+                      ),
                     ]),
                   ]),
                 ],
@@ -2562,13 +2563,28 @@ class _CreateJob extends StatelessComponent {
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${isDark ? "bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30" : "bg-indigo-50 text-indigo-600 hover:bg-indigo-100"} transition-colors',
               events: {
                 'click': (_) async {
-                  if (s.isGeneratingDesc || s.newJobTitle.trim().isEmpty) return;
+                  if (s.isGeneratingDesc) return;
+                  if (s.newJobTitle.trim().isEmpty) {
+                    s.alertDialog('Job Title Required', 'Please enter a job title first before generating an AI draft.');
+                    return;
+                  }
                   s.setState(() => s.isGeneratingDesc = true);
-                  final desc = await s.generateJobDesc(s.newJobTitle);
-                  s.setState(() {
-                    s.newJobDesc = desc;
-                    s.isGeneratingDesc = false;
-                  });
+                  try {
+                    final desc = await s.generateJobDesc(
+                      s.newJobTitle,
+                      categoryLabel: s.selectedJobCategory?.label,
+                    );
+                    s.setState(() {
+                      s.aiDraftPreview = desc;
+                      s.showAIDraftModal = true;
+                      s.isGeneratingDesc = false;
+                    });
+                  } catch (e) {
+                    s.setState(() => s.isGeneratingDesc = false);
+                    final msg = e.toString().replaceAll('Exception: ', '');
+                    final title = msg.contains('Category Mismatch') ? 'Category Mismatch' : 'Draft Error';
+                    s.alertDialog(title, msg);
+                  }
                 },
               },
               [
@@ -2583,12 +2599,85 @@ class _CreateJob extends StatelessComponent {
           textarea(
             classes:
                 'w-full bg-transparent border-none outline-none text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"} min-h-[100px]',
-            attributes: {'placeholder': 'Describe the job requirements...'},
+            attributes: {
+              'placeholder': 'Describe the job requirements...',
+              'value': s.newJobDesc,
+            },
             onInput: (value) => s.setState(() => s.newJobDesc = value),
             [Component.text(s.newJobDesc)],
           ),
         ]),
       ]),
+
+      if (s.showAIDraftModal)
+        div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
+          div(
+            classes:
+                'w-full max-w-lg p-6 rounded-3xl ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"} shadow-2xl animate-fade-up flex flex-col gap-4',
+            [
+              div(classes: 'flex items-center justify-between', [
+                div(classes: 'flex items-center gap-3', [
+                  div(classes: 'p-2.5 bg-indigo-500/10 rounded-xl', [lIcon('sparkles', cls: 'w-5 h-5 text-indigo-400')]),
+                  div([
+                    h3(classes: 'text-base font-bold text-indigo-400', [Component.text('AI Job Description Draft')]),
+                    p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                      Component.text('Tailored for ${s.selectedJobCategory?.label ?? "General"}'),
+                    ]),
+                  ]),
+                ]),
+                button(
+                  classes: 'p-2 rounded-full hover:bg-zinc-500/20 transition-colors cursor-pointer',
+                  events: {'click': (_) => s.setState(() => s.showAIDraftModal = false)},
+                  [lIcon('x', cls: 'w-5 h-5 ${isDark ? "text-zinc-400" : "text-zinc-600"}')],
+                ),
+              ]),
+              div(classes: 'p-3.5 rounded-2xl border ${isDark ? "bg-zinc-800/50 border-zinc-700" : "bg-zinc-50 border-zinc-200"}', [
+                textarea(
+                  classes:
+                      'w-full bg-transparent border-none outline-none text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"} min-h-[120px]',
+                  attributes: {'value': s.aiDraftPreview},
+                  onInput: (val) => s.setState(() => s.aiDraftPreview = val),
+                  [Component.text(s.aiDraftPreview)],
+                ),
+              ]),
+              p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                Component.text('Review or edit the draft above before applying it to your job listing.'),
+              ]),
+              div(classes: 'flex gap-3 mt-2', [
+                button(
+                  classes:
+                      'flex-1 py-3 rounded-xl font-semibold border ${isDark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-zinc-300 text-zinc-700 hover:bg-zinc-100"} transition-colors cursor-pointer',
+                  events: {
+                    'click': (_) {
+                      s.setState(() {
+                        s.showAIDraftModal = false;
+                        s.aiDraftPreview = '';
+                      });
+                    },
+                  },
+                  [Component.text('Discard')],
+                ),
+                button(
+                  classes:
+                      'flex-1 py-3 px-6 rounded-xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2 cursor-pointer',
+                  events: {
+                    'click': (_) {
+                      s.setState(() {
+                        s.newJobDesc = s.aiDraftPreview;
+                        s.showAIDraftModal = false;
+                        s.aiDraftPreview = '';
+                      });
+                    },
+                  },
+                  [
+                    lIcon('check-circle', cls: 'w-4 h-4'),
+                    Component.text('Use This Draft'),
+                  ],
+                ),
+              ]),
+            ],
+          ),
+        ]),
 
       div(classes: 'space-y-2', [
         p(classes: 'text-sm font-semibold', [Component.text('Images (Optional, Max 5)')]),
@@ -2875,7 +2964,10 @@ class _ApplyJob extends StatelessComponent {
         textarea(
           classes:
               'w-full bg-transparent border-none outline-none text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"} min-h-[120px]',
-          attributes: {'placeholder': 'Write a brief cover note...'},
+          attributes: {
+            'placeholder': 'Write a brief cover note...',
+            'value': s.coverNote,
+          },
           onInput: (value) => s.setState(() => s.coverNote = value),
           [Component.text(s.coverNote)],
         ),

@@ -33,6 +33,13 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   final _plateController = TextEditingController();
   final _gpsTrackerController = TextEditingController();
 
+  // LTO Registration & Comprehensive Insurance Compliance
+  final _ltoCrController = TextEditingController();
+  final _ltoOrController = TextEditingController();
+  final _insuranceProviderController = TextEditingController(text: 'N/A');
+  final _insurancePolicyController = TextEditingController();
+  final _vehicleValueController = TextEditingController();
+
   // Property
   PropertyCategory _selectedPropertyCategory = PropertyCategory.residential;
   PropertyType _selectedPropertyType = PropertyType.house;
@@ -100,6 +107,11 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
     _yearController.dispose();
     _plateController.dispose();
     _gpsTrackerController.dispose();
+    _ltoCrController.dispose();
+    _ltoOrController.dispose();
+    _insuranceProviderController.dispose();
+    _insurancePolicyController.dispose();
+    _vehicleValueController.dispose();
     _titleController.dispose();
     _descriptionController.dispose();
     _priceDailyController.dispose();
@@ -399,11 +411,19 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           pickupLng: 120.9842 + (DateTime.now().microsecond % 100) * 0.0001,
           status: 'Available',
           createdAt: DateTime.now(),
-          vehicleValue: 0,
-          ltoCrNumber: 'PENDING',
-          ltoOrNumber: 'PENDING',
-          insuranceProvider: 'N/A',
-          insurancePolicyNumber: 'N/A',
+          vehicleValue: double.tryParse(_vehicleValueController.text.trim()) ?? 0,
+          ltoCrNumber: _ltoCrController.text.trim().isNotEmpty
+              ? _ltoCrController.text.trim().toUpperCase()
+              : 'PENDING',
+          ltoOrNumber: _ltoOrController.text.trim().isNotEmpty
+              ? _ltoOrController.text.trim().toUpperCase()
+              : 'PENDING',
+          insuranceProvider: _insuranceProviderController.text.trim().isNotEmpty
+              ? _insuranceProviderController.text.trim()
+              : 'N/A',
+          insurancePolicyNumber: _insurancePolicyController.text.trim().isNotEmpty
+              ? _insurancePolicyController.text.trim().toUpperCase()
+              : 'N/A',
           contractType: _contractType,
           contractTerms: _contractType == 'Custom Contract'
               ? _customTermsController.text.trim()
@@ -937,6 +957,134 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                           'GPS Hardware Tracker ID (Optional)',
                           isDarkMode,
                           controller: _gpsTrackerController,
+                        ),
+                        const SizedBox(height: 20),
+
+                        // ── LTO Registration & Insurance Compliance ─────────
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isDarkMode
+                                ? Colors.purple.withValues(alpha: 0.08)
+                                : Colors.purple.withValues(alpha: 0.04),
+                            border: Border.all(
+                              color: isDarkMode
+                                  ? Colors.purple.withValues(alpha: 0.2)
+                                  : Colors.purple.withValues(alpha: 0.15),
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.verified_user_rounded,
+                                    size: 18,
+                                    color: isDarkMode ? Colors.purpleAccent : Colors.purple,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'LTO Registration & Insurance',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDarkMode ? Colors.white : Colors.black87,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Official registration and insurance details are automatically embedded into your legally binding P2P rental agreement.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+
+                              UIHelpers.buildTextField(
+                                Icons.description,
+                                'LTO Certificate of Registration (CR No.)',
+                                isDarkMode,
+                                controller: _ltoCrController,
+                              ),
+                              const SizedBox(height: 12),
+
+                              UIHelpers.buildTextField(
+                                Icons.receipt_long,
+                                'LTO Official Receipt (OR No.)',
+                                isDarkMode,
+                                controller: _ltoOrController,
+                              ),
+                              const SizedBox(height: 12),
+
+                              UIHelpers.buildTextField(
+                                Icons.price_check,
+                                'Insured Vehicle Market Value (₱)',
+                                isDarkMode,
+                                controller: _vehicleValueController,
+                                keyboardType: TextInputType.number,
+                              ),
+                              const SizedBox(height: 12),
+
+                              const Text(
+                                'COMPREHENSIVE INSURANCE PROVIDER',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              DropdownButtonFormField<String>(
+                                initialValue: _insuranceProviderController.text.isEmpty
+                                    ? 'N/A'
+                                    : _insuranceProviderController.text,
+                                decoration: InputDecoration(
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(() => _insuranceProviderController.text = val);
+                                  }
+                                },
+                                items: [
+                                  'N/A',
+                                  'Standard Insurance',
+                                  'Malayan Insurance',
+                                  'FPG Insurance',
+                                  'Pioneer Insurance',
+                                  'Mercantile Insurance',
+                                  'Alpha Insurance',
+                                  'Charter Ping An',
+                                  'Other Provider',
+                                ].map((p) {
+                                  return DropdownMenuItem(
+                                    value: p,
+                                    child: Text(
+                                      p == 'N/A'
+                                          ? 'N/A (Compulsory Third Party / CTPL Only)'
+                                          : p,
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                              const SizedBox(height: 12),
+
+                              UIHelpers.buildTextField(
+                                Icons.policy,
+                                'Insurance Policy Reference Number',
+                                isDarkMode,
+                                controller: _insurancePolicyController,
+                              ),
+                            ],
+                          ),
                         ),
 
                       ],

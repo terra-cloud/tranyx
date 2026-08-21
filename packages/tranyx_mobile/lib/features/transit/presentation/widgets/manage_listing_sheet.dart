@@ -229,7 +229,7 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
   String _formatDate(int? ms) {
     if (ms == null || ms == 0) return '—';
     final dt = DateTime.fromMillisecondsSinceEpoch(ms);
-    return DateFormat('MMM dd, yyyy HH:mm').format(dt);
+    return DateFormat('MMM dd, yyyy • hh:mm a').format(dt);
   }
 
   @override

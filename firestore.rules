@@ -74,9 +74,11 @@ service cloud.firestore {
       allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid;
       
       allow update: if 
-        // 1. Creator (Employer): Can update listing details ONLY when job status is 'Open' / 'open'
+        // 1. Creator (Employer): Can update listing details ONLY when job status is 'Open' / 'open' / 'Reviewing' / 'reviewing'
+        // AND cannot alter once a Nyxian is accepted/hired unless through proper admin channels
         (isActiveUser() && resource.data.creatorId == request.auth.uid && 
-          (resource.data.status == 'Open' || resource.data.status == 'open') &&
+          (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
+          (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'title', 'description', 'category', 'categoryGroup', 'employmentType', 
             'dateRequirement', 'jobDate', 'timePreference', 'pricingType', 'pricingValue', 
@@ -87,7 +89,7 @@ service cloud.firestore {
             'employerRated', 'promoCode', 'discountAmount'
           ])
         ) ||
-        // 1b. Creator (Employer): When job is completed/active, can ONLY submit employer rating (no editing pricing, addresses or requirements!)
+        // 1b. Creator (Employer): When job is completed/active, can ONLY submit employer rating (no editing pricing, addresses, requirements or unilateral cancelling!)
         (isActiveUser() && resource.data.creatorId == request.auth.uid && 
           resource.data.status != 'Open' && resource.data.status != 'open' &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['employerRated'])
@@ -336,6 +338,11 @@ service cloud.firestore {
       allow read, write: if isActiveUser() || isAdminOrStaff();
     }
 
+    // Disputes Collection (for Admin Portal review and resolution)
+    match /disputes/{disputeId} {
+      allow read, write: if isActiveUser() || isAdminOrStaff();
+    }
+
     // Platform Fees Collection (Admin managed)
     match /platform_fees/{feeId} {
       allow read: if isAuthenticated();
@@ -355,6 +362,20 @@ service cloud.firestore {
     match /news_posts/{postId} {
       allow read: if true;
       allow write: if isAdminOrStaff();
+    }
+
+    // Job Cancellation Audit Logs Collection
+    match /job_cancellation_logs/{logId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        resource.data.cancelledBy == request.auth.uid ||
+        isAdminOrStaff()
+      );
+      allow create: if isActiveUser() && (
+        request.resource.data.cancelledBy == request.auth.uid ||
+        isAdminOrStaff()
+      );
+      allow update, delete: if isAdminOrStaff();
     }
 
     // Points History Collection

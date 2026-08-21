@@ -905,94 +905,141 @@ class _TransitViewState extends ConsumerState<TransitView> {
                             item.pickupLat,
                             item.pickupLng,
                           );
-                          return GestureDetector(
-                            onTap: () => _openDetailDialog(item.toMap(), false),
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(
+                              color: isDarkMode
+                                  ? AppColors.darkCard
+                                  : AppColors.lightCard,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
                                 color: isDarkMode
-                                    ? AppColors.darkCard
-                                    : AppColors.lightCard,
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(
-                                  color: isDarkMode
-                                      ? AppColors.darkBorder
-                                      : AppColors.lightBorder,
-                                ),
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder,
                               ),
-                              child: Row(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: Container(
-                                      width: 80,
-                                      height: 80,
-                                      color: isDarkMode
-                                          ? AppColors.darkBorder
-                                          : AppColors.lightBg,
-                                      child: (item.frontPhotoUrl.isNotEmpty)
-                                          ? Image.network(
-                                              item.frontPhotoUrl,
-                                              fit: BoxFit.cover,
-                                            )
-                                          : const Icon(
-                                              Icons.directions_car,
-                                              size: 32,
-                                              color: Colors.grey,
-                                            ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '${item.brand} ${item.model}',
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                            color: isDarkMode
-                                                ? AppColors.darkText
-                                                : AppColors.lightText,
-                                          ),
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(24),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(24),
+                                mouseCursor: SystemMouseCursors.click,
+                                onTap: () =>
+                                    _openDetailDialog(item.toMap(), false),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Row(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: Container(
+                                          width: 80,
+                                          height: 80,
+                                          color: isDarkMode
+                                              ? AppColors.darkBorder
+                                              : AppColors.lightBg,
+                                          child: (item.frontPhotoUrl.isNotEmpty)
+                                              ? Image.network(
+                                                  item.frontPhotoUrl,
+                                                  fit: BoxFit.cover,
+                                                )
+                                              : const Icon(
+                                                  Icons.directions_car,
+                                                  size: 32,
+                                                  color: Colors.grey,
+                                                ),
                                         ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '${item.transmission} • ${item.fuelType}',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             Text(
-                                              '₱ ${item.priceDaily.toStringAsFixed(0)}/day',
-                                              style: const TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.w900,
-                                                color: AppColors.indigo,
+                                              '${item.brand} ${item.model}',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                                color: isDarkMode
+                                                    ? AppColors.darkText
+                                                    : AppColors.lightText,
                                               ),
                                             ),
+                                            const SizedBox(height: 2),
                                             Text(
-                                              '${dist.toStringAsFixed(1)} km away',
+                                              '${item.transmission} • ${item.fuelType}',
                                               style: const TextStyle(
-                                                fontSize: 11,
+                                                fontSize: 12,
                                                 color: Colors.grey,
                                               ),
                                             ),
+                                            const SizedBox(height: 8),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      '₱ ${item.priceDaily.toStringAsFixed(0)}/day',
+                                                      style: const TextStyle(
+                                                        fontSize: 14,
+                                                        fontWeight: FontWeight.w900,
+                                                        color: AppColors.indigo,
+                                                      ),
+                                                    ),
+                                                    Text(
+                                                      '${dist.toStringAsFixed(1)} km away',
+                                                      style: const TextStyle(
+                                                        fontSize: 11,
+                                                        color: Colors.grey,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                ElevatedButton(
+                                                  onPressed: () =>
+                                                      _openBookingSheet(
+                                                        item.toMap(),
+                                                        false,
+                                                      ),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor:
+                                                        AppColors.indigo,
+                                                    foregroundColor: Colors.white,
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(12),
+                                                    ),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 14,
+                                                          vertical: 8,
+                                                        ),
+                                                    minimumSize: Size.zero,
+                                                    tapTargetSize:
+                                                        MaterialTapTargetSize
+                                                            .shrinkWrap,
+                                                  ),
+                                                  child: const Text(
+                                                    'Book Now',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
                                           ],
                                         ),
-                                      ],
-                                    ),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                           );
@@ -1125,98 +1172,144 @@ class _TransitViewState extends ConsumerState<TransitView> {
                             item.longitude,
                           );
                           final photoUrl = item.photoUrls.firstOrNull;
-                          return GestureDetector(
-                            onTap: () => _openDetailDialog(item.toMap(), true),
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(
+                              color: isDarkMode
+                                  ? AppColors.darkCard
+                                  : AppColors.lightCard,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
                                 color: isDarkMode
-                                    ? AppColors.darkCard
-                                    : AppColors.lightCard,
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(
-                                  color: isDarkMode
-                                      ? AppColors.darkBorder
-                                      : AppColors.lightBorder,
-                                ),
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder,
                               ),
-                              child: Row(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: Container(
-                                      width: 80,
-                                      height: 80,
-                                      color: isDarkMode
-                                          ? AppColors.darkBorder
-                                          : AppColors.lightBg,
-                                      child:
-                                          (photoUrl != null &&
-                                              photoUrl.isNotEmpty)
-                                          ? Image.network(
-                                              photoUrl,
-                                              fit: BoxFit.cover,
-                                            )
-                                          : const Icon(
-                                              Icons.home,
-                                              size: 32,
-                                              color: Colors.grey,
-                                            ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          item.title,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.bold,
-                                            color: isDarkMode
-                                                ? AppColors.darkText
-                                                : AppColors.lightText,
-                                          ),
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(24),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(24),
+                                mouseCursor: SystemMouseCursors.click,
+                                onTap: () =>
+                                    _openDetailDialog(item.toMap(), true),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Row(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: Container(
+                                          width: 80,
+                                          height: 80,
+                                          color: isDarkMode
+                                              ? AppColors.darkBorder
+                                              : AppColors.lightBg,
+                                          child:
+                                              (photoUrl != null &&
+                                                  photoUrl.isNotEmpty)
+                                              ? Image.network(
+                                                  photoUrl,
+                                                  fit: BoxFit.cover,
+                                                )
+                                              : const Icon(
+                                                  Icons.home,
+                                                  size: 32,
+                                                  color: Colors.grey,
+                                                ),
                                         ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '${item.category.label} • ${item.type.label}',
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             Text(
-                                              '₱ ${item.priceMonthly.toStringAsFixed(0)}/mo',
-                                              style: const TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.w900,
-                                                color: Colors.teal,
+                                              item.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.bold,
+                                                color: isDarkMode
+                                                    ? AppColors.darkText
+                                                    : AppColors.lightText,
                                               ),
                                             ),
+                                            const SizedBox(height: 2),
                                             Text(
-                                              '${dist.toStringAsFixed(1)} km away',
+                                              '${item.category.label} • ${item.type.label}',
                                               style: const TextStyle(
                                                 fontSize: 11,
                                                 color: Colors.grey,
                                               ),
                                             ),
+                                            const SizedBox(height: 8),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      '₱ ${item.priceMonthly.toStringAsFixed(0)}/mo',
+                                                      style: const TextStyle(
+                                                        fontSize: 14,
+                                                        fontWeight: FontWeight.w900,
+                                                        color: Colors.teal,
+                                                      ),
+                                                    ),
+                                                    Text(
+                                                      '${dist.toStringAsFixed(1)} km away',
+                                                      style: const TextStyle(
+                                                        fontSize: 11,
+                                                        color: Colors.grey,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                ElevatedButton(
+                                                  onPressed: () =>
+                                                      _openBookingSheet(
+                                                        item.toMap(),
+                                                        true,
+                                                      ),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor: Colors.teal,
+                                                    foregroundColor: Colors.white,
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(12),
+                                                    ),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 14,
+                                                          vertical: 8,
+                                                        ),
+                                                    minimumSize: Size.zero,
+                                                    tapTargetSize:
+                                                        MaterialTapTargetSize
+                                                            .shrinkWrap,
+                                                  ),
+                                                  child: const Text(
+                                                    'Rent Now',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
                                           ],
                                         ),
-                                      ],
-                                    ),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                           );

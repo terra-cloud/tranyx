@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
@@ -30,16 +31,59 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
   int _multiplier = 1;
   bool _hireWithDriver = false;
   String _rentalType = 'pickup'; // 'pickup' or 'delivery'
+  late DateTime _startDate;
 
   bool _isProcessing = false;
   Promo? _appliedPromo;
   String? _promoFeedback;
   bool _isValidatingPromo = false;
 
+  DateTime get _calculatedEndDate {
+    final int daysToAdd = _selectedDurationType == '12h'
+        ? 0
+        : (_selectedDurationType == 'weekly'
+            ? 7 * _multiplier
+            : (_selectedDurationType == 'monthly'
+                ? 30 * _multiplier
+                : (_selectedDurationType == 'yearly'
+                    ? 365 * _multiplier
+                    : 1 * _multiplier)));
+    return _selectedDurationType == '12h'
+        ? _startDate.add(Duration(hours: 12 * _multiplier))
+        : _startDate.add(Duration(days: daysToAdd));
+  }
+
   @override
   void initState() {
     super.initState();
-    _selectedDurationType = widget.isProperty ? 'monthly' : 'daily';
+    if (widget.isProperty) {
+      if ((widget.item['priceMonthly'] as num? ?? 0) > 0) {
+        _selectedDurationType = 'monthly';
+      } else if ((widget.item['priceWeekly'] as num? ?? 0) > 0) {
+        _selectedDurationType = 'weekly';
+      } else if ((widget.item['priceDaily'] as num? ?? 0) > 0) {
+        _selectedDurationType = 'daily';
+      } else {
+        _selectedDurationType = 'monthly';
+      }
+    } else {
+      if ((widget.item['priceDaily'] as num? ?? 0) > 0) {
+        _selectedDurationType = 'daily';
+      } else if ((widget.item['priceWeekly'] as num? ?? 0) > 0) {
+        _selectedDurationType = 'weekly';
+      } else if ((widget.item['priceMonthly'] as num? ?? 0) > 0) {
+        _selectedDurationType = 'monthly';
+      } else if ((widget.item['price12h'] as num? ?? 0) > 0) {
+        _selectedDurationType = '12h';
+      } else {
+        _selectedDurationType = 'daily';
+      }
+    }
+    final now = DateTime.now();
+    _startDate = DateTime(now.year, now.month, now.day, now.hour + 1, 0);
+    if (_startDate.hour == 0) {
+      _startDate = DateTime(now.year, now.month, now.day + 1, 9, 0);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadAutoApplyPromo();
     });
@@ -274,18 +318,43 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
     final model = widget.item['model'] as String? ?? '';
     final title = widget.item['title'] as String? ?? '$brand $model';
 
-    final baseRate = _getRate(_selectedDurationType);
-    final double driverCost = _hireWithDriver
-        ? ((widget.item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0)
-        : 0.0;
+    final totalDays = _selectedDurationType == '12h'
+        ? 0
+        : (_selectedDurationType == 'weekly'
+            ? 7 * _multiplier
+            : (_selectedDurationType == 'monthly'
+                ? 30 * _multiplier
+                : (_selectedDurationType == 'yearly'
+                    ? 365 * _multiplier
+                    : 1 * _multiplier)));
 
-    // Total calculation:
-    final baseTotal = (_multiplier * baseRate) + (_multiplier * driverCost);
+    final optRate = widget.isProperty
+        ? SmartRateEngine.calculateOptimizedRate(
+            totalDays: totalDays,
+            priceDaily: (widget.item['priceDaily'] as num?)?.toDouble() ?? 0.0,
+            priceWeekly: (widget.item['priceWeekly'] as num?)?.toDouble() ?? 0.0,
+            priceMonthly: (widget.item['priceMonthly'] as num?)?.toDouble() ?? 0.0,
+          )
+        : SmartRateEngine.calculateOptimizedRate(
+            totalDays: totalDays,
+            hours: _selectedDurationType == '12h' ? 12 * _multiplier : 0,
+            price12h: (widget.item['price12h'] as num?)?.toDouble() ?? 0.0,
+            priceDaily: (widget.item['priceDaily'] as num?)?.toDouble() ?? 0.0,
+            priceWeekly: (widget.item['priceWeekly'] as num?)?.toDouble() ?? 0.0,
+            priceMonthly: (widget.item['priceMonthly'] as num?)?.toDouble() ?? 0.0,
+          );
+
+    final double driverDailyRate = (widget.item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0;
+    final double driverEffectiveDays = _selectedDurationType == '12h' ? 0.5 * _multiplier : totalDays.toDouble();
+    final double driverCost = _hireWithDriver ? (driverDailyRate * driverEffectiveDays) : 0.0;
+
+    // Total calculation with SmartRateEngine base price:
+    final baseTotal = optRate.totalBasePrice + driverCost;
     
     double discountAmount = 0.0;
     if (_appliedPromo != null) {
       final subtotalForDiscount = widget.isProperty 
-          ? (baseRate * _multiplier)
+          ? optRate.totalBasePrice
           : baseTotal;
       if (_appliedPromo!.discountType == 'percentage') {
         discountAmount = subtotalForDiscount * (_appliedPromo!.discountValue / 100.0);
@@ -425,18 +494,21 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                   value: '12h',
                                   child: Text('12 Hours'),
                                 ),
-                              const DropdownMenuItem(
-                                value: 'daily',
-                                child: Text('Daily'),
-                              ),
-                              const DropdownMenuItem(
-                                value: 'weekly',
-                                child: Text('Weekly'),
-                              ),
-                              const DropdownMenuItem(
-                                value: 'monthly',
-                                child: Text('Monthly'),
-                              ),
+                              if ((widget.item['priceDaily'] as num? ?? 0) > 0)
+                                const DropdownMenuItem(
+                                  value: 'daily',
+                                  child: Text('Daily'),
+                                ),
+                              if ((widget.item['priceWeekly'] as num? ?? 0) > 0)
+                                const DropdownMenuItem(
+                                  value: 'weekly',
+                                  child: Text('Weekly'),
+                                ),
+                              if ((widget.item['priceMonthly'] as num? ?? 0) > 0)
+                                const DropdownMenuItem(
+                                  value: 'monthly',
+                                  child: Text('Monthly'),
+                                ),
                             ],
                     ),
                     const SizedBox(height: 16),
@@ -477,6 +549,243 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                     ),
                     const SizedBox(height: 16),
 
+                    // Reservation Schedule / Future Start Date & Time Picker
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: isDarkMode
+                            ? AppColors.darkCard
+                            : Colors.purple.shade50.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isDarkMode
+                              ? AppColors.darkBorder
+                              : Colors.purple.shade100,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(
+                                Icons.calendar_month,
+                                size: 16,
+                                color: AppColors.indigo,
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                'RESERVATION SCHEDULE & START DATE',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.indigo,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () async {
+                                    final now = DateTime.now();
+                                    final picked = await showDatePicker(
+                                      context: context,
+                                      initialDate: _startDate.isBefore(now)
+                                          ? now
+                                          : _startDate,
+                                      firstDate: DateTime(
+                                        now.year,
+                                        now.month,
+                                        now.day,
+                                      ),
+                                      lastDate: now.add(
+                                        const Duration(days: 365),
+                                      ),
+                                      helpText:
+                                          'Select Reservation Start Date',
+                                    );
+                                    if (picked != null) {
+                                      setState(() {
+                                        _startDate = DateTime(
+                                          picked.year,
+                                          picked.month,
+                                          picked.day,
+                                          _startDate.hour,
+                                          _startDate.minute,
+                                        );
+                                      });
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: isDarkMode
+                                            ? Colors.grey.shade700
+                                            : Colors.grey.shade300,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.event,
+                                          size: 16,
+                                          color: Colors.grey,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            DateFormat(
+                                              'MMM dd, yyyy',
+                                            ).format(_startDate),
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () async {
+                                    final picked = await showTimePicker(
+                                      context: context,
+                                      initialTime: TimeOfDay.fromDateTime(
+                                        _startDate,
+                                      ),
+                                      helpText: 'Select Start Time',
+                                    );
+                                    if (picked != null) {
+                                      setState(() {
+                                        _startDate = DateTime(
+                                          _startDate.year,
+                                          _startDate.month,
+                                          _startDate.day,
+                                          picked.hour,
+                                          picked.minute,
+                                        );
+                                      });
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: isDarkMode
+                                            ? Colors.grey.shade700
+                                            : Colors.grey.shade300,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.access_time,
+                                          size: 16,
+                                          color: Colors.grey,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            DateFormat(
+                                              'hh:mm a',
+                                            ).format(_startDate),
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: isDarkMode
+                                  ? Colors.black26
+                                  : Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Column(
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Starts:',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    Text(
+                                      DateFormat(
+                                        'MMM dd, yyyy • hh:mm a',
+                                      ).format(_startDate),
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Returns / Ends:',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    Text(
+                                      DateFormat(
+                                        'MMM dd, yyyy • hh:mm a',
+                                      ).format(_calculatedEndDate),
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.indigo,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
                     // Vehicle specific choices
                     if (!widget.isProperty) ...[
                       // Driver Option
@@ -496,6 +805,9 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                           onChanged: (val) {
                             setState(() {
                               _hireWithDriver = val;
+                              if (val) {
+                                _licenseController.clear();
+                              }
                             });
                           },
                         ),
@@ -592,16 +904,18 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                       ],
                     ],
 
-                    // Driver License Number (Required for booking request validation)
-                    UIHelpers.buildTextField(
-                      Icons.badge,
-                      widget.isProperty
-                          ? "Enter Government ID Number..."
-                          : "Enter Driver's License Number...",
-                      isDarkMode,
-                      controller: _licenseController,
-                    ),
-                    const SizedBox(height: 16),
+                    // Driver License Number (Required for self-drive vehicle booking or property booking)
+                    if (widget.isProperty || !_hireWithDriver) ...[
+                      UIHelpers.buildTextField(
+                        Icons.badge,
+                        widget.isProperty
+                            ? "Enter Government ID Number *"
+                            : "Enter Driver's License Number * (Required for Self-Drive)",
+                        isDarkMode,
+                        controller: _licenseController,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
 
                     // Promo Code Section
                     Row(
@@ -678,14 +992,82 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                '$_multiplier x Base Rate ($_selectedDurationType)',
+                              const Text(
+                                'Optimized Base Rate',
+                                style: TextStyle(fontWeight: FontWeight.bold),
                               ),
                               Text(
-                                '₱ ${(_multiplier * baseRate).toStringAsFixed(2)}',
+                                '₱ ${optRate.totalBasePrice.toStringAsFixed(2)}',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
                               ),
                             ],
                           ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  optRate.breakdownDescription,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDarkMode ? Colors.purple.shade300 : Colors.purple.shade700,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (optRate.isCapped) ...[
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '✨ ${optRate.capReason ?? "Optimized Flat Rate Applied"}',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.green,
+                                      ),
+                                    ),
+                                  ),
+                                  if (optRate.savings > 0)
+                                    Text(
+                                      'Saved ₱ ${optRate.savings.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.green,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          if (!widget.isProperty) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Rental Type'),
+                                Text(
+                                  _hireWithDriver
+                                      ? 'With Driver (Chauffeur-Driven)'
+                                      : 'Self-Drive',
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                          ],
                           if (_hireWithDriver) ...[
                             const SizedBox(height: 8),
                             Row(
@@ -779,18 +1161,21 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                 : 'Insufficient Balance',
                             hasEnoughBalance
                                 ? () async {
+                                    final bool requiresLicense =
+                                        widget.isProperty || !_hireWithDriver;
                                     final license = _licenseController.text
                                         .trim();
-                                    if (license.isEmpty) {
+                                    if (requiresLicense && license.isEmpty) {
                                       ScaffoldMessenger.of(
                                         context,
                                       ).showSnackBar(
                                         SnackBar(
                                           content: Text(
                                             widget.isProperty
-                                                ? 'Please enter your ID Number'
-                                                : 'Please enter your Driver\'s License',
+                                                ? 'Please enter your Government ID Number'
+                                                : "Driver's license number is required for self-drive bookings.",
                                           ),
+                                          backgroundColor: Colors.red,
                                         ),
                                       );
                                       return;
@@ -803,26 +1188,9 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                       );
 
                                       final start =
-                                          DateTime.now().millisecondsSinceEpoch;
-                                      final int daysToAdd =
-                                          _selectedDurationType == '12h'
-                                          ? 0
-                                          : (_selectedDurationType == 'weekly'
-                                                ? 7 * _multiplier
-                                                : (_selectedDurationType ==
-                                                          'monthly'
-                                                      ? 30 * _multiplier
-                                                      : (_selectedDurationType ==
-                                                                'yearly'
-                                                            ? 365 * _multiplier
-                                                            : 1 * _multiplier)));
-                                      final end = _selectedDurationType == '12h'
-                                          ? DateTime.now()
-                                                .add(const Duration(hours: 12))
-                                                .millisecondsSinceEpoch
-                                          : DateTime.now()
-                                                .add(Duration(days: daysToAdd))
-                                                .millisecondsSinceEpoch;
+                                          _startDate.millisecondsSinceEpoch;
+                                      final end = _calculatedEndDate
+                                          .millisecondsSinceEpoch;
 
                                        if (widget.isProperty) {
                                          await repo.createPropertyBookingRequest(
@@ -855,7 +1223,7 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                                userProfile.photoUrl ?? '',
                                            durationType: _selectedDurationType,
                                            multiplier: _multiplier,
-                                           licenseNumber: license,
+                                           licenseNumber: _hireWithDriver ? null : (license.isNotEmpty ? license : null),
                                            totalCost: baseTotal,
                                            hireWithDriver: _hireWithDriver,
                                            rentalType: _rentalType,

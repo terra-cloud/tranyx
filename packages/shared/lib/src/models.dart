@@ -593,6 +593,25 @@ class Job {
       discountAmount: discountAmount ?? this.discountAmount,
     );
   }
+  String get employerId => creatorId;
+  String? get acceptedNyxianId => acceptedApplicantId;
+  double get budget => pricingValue;
+  bool get isHired => acceptedApplicantId != null && acceptedApplicantId!.trim().isNotEmpty;
+  bool get isCancellationLocked =>
+      isHired ||
+      status.toLowerCase() == 'in progress' ||
+      status.toLowerCase() == 'in_progress' ||
+      status.toUpperCase() == 'ACCEPTED' ||
+      status == 'MUTUAL_CANCEL_PENDING' ||
+      isTerminal;
+  bool get isTerminal =>
+      status.toLowerCase() == 'completed' ||
+      status.toLowerCase() == 'cancelled' ||
+      status.toUpperCase() == 'ADMIN_CANCELLED';
+  bool get isCancelled =>
+      status.toLowerCase() == 'cancelled' ||
+      status.toUpperCase() == 'ADMIN_CANCELLED';
+  bool get isCompleted => status.toLowerCase() == 'completed';
 }
 
 class JobApplication {
@@ -605,6 +624,7 @@ class JobApplication {
   final double proposalRate;
   final bool isCounterOffer;
   final DateTime createdAt;
+  final String status;
 
   const JobApplication({
     required this.id,
@@ -616,6 +636,7 @@ class JobApplication {
     required this.proposalRate,
     required this.isCounterOffer,
     required this.createdAt,
+    this.status = 'PENDING',
   });
 
   Map<String, dynamic> toMap() {
@@ -628,6 +649,7 @@ class JobApplication {
       'proposalRate': proposalRate,
       'isCounterOffer': isCounterOffer,
       'createdAt': createdAt.millisecondsSinceEpoch,
+      'status': status,
     };
   }
 
@@ -642,6 +664,88 @@ class JobApplication {
       proposalRate: (map['proposalRate'] as num?)?.toDouble() ?? 0.0,
       isCounterOffer: map['isCounterOffer'] ?? false,
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
+      status: map['status'] ?? 'PENDING',
+    );
+  }
+
+  JobApplication copyWith({
+    String? id,
+    String? jobId,
+    String? applicantUid,
+    String? applicantName,
+    String? applicantPhotoUrl,
+    String? coverNote,
+    double? proposalRate,
+    bool? isCounterOffer,
+    DateTime? createdAt,
+    String? status,
+  }) {
+    return JobApplication(
+      id: id ?? this.id,
+      jobId: jobId ?? this.jobId,
+      applicantUid: applicantUid ?? this.applicantUid,
+      applicantName: applicantName ?? this.applicantName,
+      applicantPhotoUrl: applicantPhotoUrl ?? this.applicantPhotoUrl,
+      coverNote: coverNote ?? this.coverNote,
+      proposalRate: proposalRate ?? this.proposalRate,
+      isCounterOffer: isCounterOffer ?? this.isCounterOffer,
+      createdAt: createdAt ?? this.createdAt,
+      status: status ?? this.status,
+    );
+  }
+}
+
+class JobCancellationLog {
+  final String id;
+  final String jobId;
+  final String cancelledBy;
+  final String role; // 'employer' | 'admin'
+  final String action; // 'UNILATERAL_CANCEL' | 'ADMIN_OVERRIDE_CANCEL'
+  final String status; // 'CANCELLED' | 'ADMIN_CANCELLED'
+  final String reason;
+  final String? previousStatus;
+  final String? acceptedApplicantId;
+  final DateTime timestamp;
+
+  const JobCancellationLog({
+    required this.id,
+    required this.jobId,
+    required this.cancelledBy,
+    required this.role,
+    required this.action,
+    required this.status,
+    required this.reason,
+    this.previousStatus,
+    this.acceptedApplicantId,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'jobId': jobId,
+      'cancelledBy': cancelledBy,
+      'role': role,
+      'action': action,
+      'status': status,
+      'reason': reason,
+      'previousStatus': previousStatus,
+      'acceptedApplicantId': acceptedApplicantId,
+      'timestamp': timestamp.millisecondsSinceEpoch,
+    };
+  }
+
+  factory JobCancellationLog.fromMap(Map<String, dynamic> map, String id) {
+    return JobCancellationLog(
+      id: id,
+      jobId: map['jobId'] ?? '',
+      cancelledBy: map['cancelledBy'] ?? map['adminUid'] ?? '',
+      role: map['role'] ?? 'employer',
+      action: map['action'] ?? 'UNILATERAL_CANCEL',
+      status: map['status'] ?? 'CANCELLED',
+      reason: map['reason'] ?? '',
+      previousStatus: map['previousStatus'],
+      acceptedApplicantId: map['acceptedApplicantId'],
+      timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] ?? 0),
     );
   }
 }
@@ -775,6 +879,14 @@ class VehicleRental {
   final DateTime? signedAt;
   final bool? hireWithDriver;
 
+  // Party Verification Snapshots
+  final bool? hostIsVerified;
+  final String? hostVerificationStatus; // 'VERIFIED' | 'UNVERIFIED'
+  final String? hostVerificationTier;
+  final bool? renteeIsVerified;
+  final String? renteeVerificationStatus; // 'VERIFIED' | 'UNVERIFIED'
+  final String? renteeVerificationTier;
+
   // Live coordinates
   final double? trackingLat;
   final double? trackingLng;
@@ -829,6 +941,12 @@ class VehicleRental {
     this.renteeLicenseNumber,
     this.signedAt,
     this.hireWithDriver,
+    this.hostIsVerified,
+    this.hostVerificationStatus,
+    this.hostVerificationTier,
+    this.renteeIsVerified,
+    this.renteeVerificationStatus,
+    this.renteeVerificationTier,
     this.trackingLat,
     this.trackingLng,
     this.fuelType,
@@ -886,6 +1004,12 @@ class VehicleRental {
       'renteeLicenseNumber': renteeLicenseNumber,
       'signedAt': signedAt?.millisecondsSinceEpoch,
       'hireWithDriver': hireWithDriver,
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': hostVerificationStatus,
+      'hostVerificationTier': hostVerificationTier,
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': renteeVerificationStatus,
+      'renteeVerificationTier': renteeVerificationTier,
       'trackingLat': trackingLat,
       'trackingLng': trackingLng,
       'pickupAddress': pickupAddress,
@@ -956,6 +1080,12 @@ class VehicleRental {
           ? DateTime.fromMillisecondsSinceEpoch(map['signedAt'])
           : null,
       hireWithDriver: map['hireWithDriver'] as bool?,
+      hostIsVerified: map['hostIsVerified'] as bool?,
+      hostVerificationStatus: map['hostVerificationStatus'] as String?,
+      hostVerificationTier: map['hostVerificationTier'] as String?,
+      renteeIsVerified: map['renteeIsVerified'] as bool?,
+      renteeVerificationStatus: map['renteeVerificationStatus'] as String?,
+      renteeVerificationTier: map['renteeVerificationTier'] as String?,
       trackingLat: (map['trackingLat'] as num?)?.toDouble(),
       trackingLng: (map['trackingLng'] as num?)?.toDouble(),
       pickupAddress: map['pickupAddress'] ?? '',
@@ -992,6 +1122,14 @@ class PropertyRental {
   final bool allowChat;
   final double? securityDepositAmount;
   final double? advanceAmount;
+
+  // Party Verification Snapshots
+  final bool? hostIsVerified;
+  final String? hostVerificationStatus; // 'VERIFIED' | 'UNVERIFIED'
+  final String? hostVerificationTier;
+  final bool? renteeIsVerified;
+  final String? renteeVerificationStatus; // 'VERIFIED' | 'UNVERIFIED'
+  final String? renteeVerificationTier;
 
   // Renter details
   final String? renteeId;
@@ -1033,6 +1171,12 @@ class PropertyRental {
     this.allowChat = false,
     this.securityDepositAmount,
     this.advanceAmount,
+    this.hostIsVerified,
+    this.hostVerificationStatus,
+    this.hostVerificationTier,
+    this.renteeIsVerified,
+    this.renteeVerificationStatus,
+    this.renteeVerificationTier,
     this.renteeId,
     this.renteeName,
     this.renteePhotoUrl,
@@ -1074,6 +1218,12 @@ class PropertyRental {
       'contractTerms': contractTerms,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'allowChat': allowChat,
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': hostVerificationStatus,
+      'hostVerificationTier': hostVerificationTier,
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': renteeVerificationStatus,
+      'renteeVerificationTier': renteeVerificationTier,
       'renteeId': renteeId,
       'renteeName': renteeName,
       'renteePhotoUrl': renteePhotoUrl,
@@ -1099,6 +1249,7 @@ class PropertyRental {
       (e) => e.name == map['category'],
       orElse: () => PropertyCategory.residential,
     );
+
     return PropertyRental(
       id: id,
       hostId: map['hostId'] ?? '',
@@ -1124,6 +1275,12 @@ class PropertyRental {
       contractTerms: map['contractTerms'] ?? '',
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
       allowChat: map['allowChat'] as bool? ?? false,
+      hostIsVerified: map['hostIsVerified'] as bool?,
+      hostVerificationStatus: map['hostVerificationStatus'] as String?,
+      hostVerificationTier: map['hostVerificationTier'] as String?,
+      renteeIsVerified: map['renteeIsVerified'] as bool?,
+      renteeVerificationStatus: map['renteeVerificationStatus'] as String?,
+      renteeVerificationTier: map['renteeVerificationTier'] as String?,
       renteeId: map['renteeId'],
       renteeName: map['renteeName'],
       renteePhotoUrl: map['renteePhotoUrl'],
@@ -1141,9 +1298,73 @@ class PropertyRental {
       currentRequestId: map['currentRequestId'],
       rentalMultiplier: (map['rentalMultiplier'] as num?)?.toInt(),
       rentalDurationType: map['rentalDurationType'],
-      signatureHash: map['signatureHash'] as String?,
+      signatureHash: map['signatureHash'],
       renteeLicenseNumber: map['renteeLicenseNumber'],
     );
+  }
+}
+
+class PartyVerificationHelper {
+  static bool isPartyVerified({
+    bool? isVerified,
+    String? status,
+    int? level,
+    bool? idVerified,
+  }) {
+    if (isVerified == true) return true;
+    if (status != null && (status.toUpperCase() == 'VERIFIED' || status.toUpperCase() == 'ID_VERIFIED')) {
+      return true;
+    }
+    if (idVerified == true) return true;
+    if (level != null && level >= 2) return true;
+    return false;
+  }
+
+  static String formatVerificationTier({
+    bool? isVerified,
+    String? status,
+    int? level,
+    bool? idVerified,
+    String? explicitTier,
+  }) {
+    if (explicitTier != null && explicitTier.isNotEmpty && explicitTier != 'None' && explicitTier != 'Unverified') {
+      return explicitTier;
+    }
+    final verified = isPartyVerified(
+      isVerified: isVerified,
+      status: status,
+      level: level,
+      idVerified: idVerified,
+    );
+    if (!verified) return 'Unverified Account';
+    if (level == 3) return 'Level 3 Pro Verified';
+    if (level == 2 || idVerified == true) return 'Government ID Verified';
+    if (level == 1) return 'Basic Verified';
+    return 'Government ID Verified';
+  }
+
+  static String formatIdentityStatusLabel({
+    bool? isVerified,
+    String? status,
+    int? level,
+    bool? idVerified,
+    String? explicitTier,
+  }) {
+    final verified = isPartyVerified(
+      isVerified: isVerified,
+      status: status,
+      level: level,
+      idVerified: idVerified,
+    );
+    if (!verified) return 'Identity Status: Unverified Account';
+    final tier = formatVerificationTier(
+      isVerified: isVerified,
+      status: status,
+      level: level,
+      idVerified: idVerified,
+      explicitTier: explicitTier,
+    );
+    return 'Identity Status: Verified ($tier)';
   }
 }
 

@@ -894,192 +894,212 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final chatId = hasActiveRenter ? 'rental_${r['id']}_$renteeId' : null;
     final unreadCount = chatId != null ? s.getUnreadChatCount(chatId) : 0;
 
-    return div(classes: 'p-5 rounded-2xl border transition-all card-hover $cardCls', [
-      div(classes: 'flex items-start justify-between mb-4', [
-        div([
-          p(classes: 'font-bold text-lg', [Component.text(model)]),
-          p(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-500"} capitalize flex items-center gap-1.5', [
-            Component.text(type),
-            span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
-            span(
-              classes:
-                  'text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider',
-              [
-                Component.text(fuelType),
-              ],
-            ),
-            span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
-            span(
-              classes:
-                  'text-[10px] font-bold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider',
-              [
-                Component.text(transmission),
-              ],
-            ),
-          ]),
-        ]),
-        div(classes: 'flex items-center gap-1.5', [
-          if (isHostView) ...[
-            if (hasGps)
+    return div(
+      classes: 'p-5 rounded-2xl border transition-all card-hover cursor-pointer $cardCls',
+      events: {
+        if (!isHostView)
+          'click': (_) => s.setState(() {
+            s.selectedRentalData = r;
+            s.showBookVehicleModal = true;
+          }),
+      },
+      [
+        div(classes: 'flex items-start justify-between mb-4', [
+          div([
+            p(classes: 'font-bold text-lg', [Component.text(model)]),
+            p(classes: 'text-sm ${isDark ? "text-zinc-550" : "text-zinc-500"} capitalize flex items-center gap-1.5', [
+              Component.text(type),
+              span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
               span(
                 classes:
-                    'px-2 py-1 rounded-lg text-[10px] font-bold bg-green-500/15 text-green-400 flex items-center gap-1',
+                    'text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider',
+                [
+                  Component.text(fuelType),
+                ],
+              ),
+              span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
+              span(
+                classes:
+                    'text-[10px] font-bold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider',
+                [
+                  Component.text(transmission),
+                ],
+              ),
+            ]),
+          ]),
+          div(classes: 'flex items-center gap-1.5', [
+            if (isHostView) ...[
+              if (hasGps)
+                span(
+                  classes:
+                      'px-2 py-1 rounded-lg text-[10px] font-bold bg-green-500/15 text-green-400 flex items-center gap-1',
+                  attributes: {'title': 'GPS Tracker ID: $gpsTrackerId'},
+                  [
+                    lIcon('activity', cls: 'w-3 h-3 text-green-400 animate-pulse'),
+                    Component.text('GPS Active (Online)'),
+                  ],
+                )
+              else
+                span(
+                  classes:
+                      'px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-500/15 text-amber-400 flex items-center gap-1',
+                  [
+                    lIcon('alert-triangle', cls: 'w-3 h-3 text-amber-400'),
+                    Component.text('No GPS Registered'),
+                  ],
+                ),
+              if (unreadCount > 0)
+                span(
+                  classes:
+                      'px-2 py-1 rounded-lg text-xs font-black bg-red-500/10 text-red-500 border border-red-500/30 flex items-center gap-1 animate-pulse',
+                  [
+                    lIcon('message-square', cls: 'w-3 h-3 text-red-500'),
+                    Component.text('$unreadCount New'),
+                  ],
+                ),
+            ] else if (hasGps) ...[
+              span(
+                classes:
+                    'px-2 py-1 rounded-lg text-[10px] font-bold bg-green-500/15 text-green-400 flex items-center gap-0.5',
                 attributes: {'title': 'GPS Tracker ID: $gpsTrackerId'},
                 [
-                  lIcon('activity', cls: 'w-3 h-3 text-green-400 animate-pulse'),
-                  Component.text('GPS Active (Online)'),
+                  lIcon('map-pin', cls: 'w-2.5 h-2.5'),
+                  Component.text('GPS Tracked'),
                 ],
-              )
+              ),
+            ],
+            span(classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-400', [
+              Component.text(r['status'] ?? 'AVAILABLE'),
+            ]),
+          ]),
+        ]),
+
+        div(
+          classes:
+              'w-full h-32 rounded-xl mb-4 ${isDark ? "bg-zinc-800" : "bg-zinc-100"} flex items-center justify-center overflow-hidden relative',
+          [
+            if (hasPhoto)
+              img(src: photoUrl.toString(), classes: 'w-full h-full object-cover', attributes: {'alt': model})
             else
-              span(
-                classes:
-                    'px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-500/15 text-amber-400 flex items-center gap-1',
-                [
-                  lIcon('alert-triangle', cls: 'w-3 h-3 text-amber-400'),
-                  Component.text('No GPS Registered'),
-                ],
-              ),
-            if (unreadCount > 0)
-              span(
-                classes:
-                    'px-2 py-1 rounded-lg text-xs font-black bg-red-500/10 text-red-500 border border-red-500/30 flex items-center gap-1 animate-pulse',
-                [
-                  lIcon('message-square', cls: 'w-3 h-3 text-red-500'),
-                  Component.text('$unreadCount New'),
-                ],
-              ),
-          ] else if (hasGps) ...[
-            span(
-              classes:
-                  'px-2 py-1 rounded-lg text-[10px] font-bold bg-green-500/15 text-green-400 flex items-center gap-0.5',
-              attributes: {'title': 'GPS Tracker ID: $gpsTrackerId'},
-              [
-                lIcon('map-pin', cls: 'w-2.5 h-2.5'),
-                Component.text('GPS Tracked'),
-              ],
-            ),
+              lIcon('car', cls: 'w-10 h-10 ${isDark ? "text-zinc-600" : "text-zinc-300"}'),
           ],
-          span(classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-400', [
-            Component.text(r['status'] ?? 'AVAILABLE'),
+        ),
+
+        div(classes: 'flex items-center justify-between', [
+          div([
+            p(classes: 'font-bold text-lg text-purple-400', [Component.text('₱ $priceStr/day')]),
+            div(classes: 'flex items-center gap-1 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
+              lIcon('map-pin', cls: 'w-3 h-3'),
+              Component.text(' ${distKm.toStringAsFixed(1)} km'),
+            ]),
           ]),
-        ]),
-      ]),
 
-      div(
-        classes:
-            'w-full h-32 rounded-xl mb-4 ${isDark ? "bg-zinc-800" : "bg-zinc-100"} flex items-center justify-center overflow-hidden relative',
-        [
-          if (hasPhoto)
-            img(src: photoUrl.toString(), classes: 'w-full h-full object-cover', attributes: {'alt': model})
-          else
-            lIcon('car', cls: 'w-10 h-10 ${isDark ? "text-zinc-600" : "text-zinc-300"}'),
-        ],
-      ),
-
-      div(classes: 'flex items-center justify-between', [
-        div([
-          p(classes: 'font-bold text-lg text-purple-400', [Component.text('₱ $priceStr/day')]),
-          div(classes: 'flex items-center gap-1 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-            lIcon('map-pin', cls: 'w-3 h-3'),
-            Component.text(' ${distKm.toStringAsFixed(1)} km'),
-          ]),
-        ]),
-
-        if (isHostView)
-          Builder(
-            builder: (context) {
-              final hasRequests = s.hostPendingRequests.any((req) => req['rentalId'] == r['id']);
-              final showChat = hasActiveRenter && r['allowChat'] == true;
-              return div(classes: 'flex gap-2 items-center', [
-                button(
-                  classes:
-                      'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-                  events: {
-                    'click': (_) => s.setState(() {
-                      s.selectedRentalData = r;
-                      s.showVehicleQaModal = true;
-                    }),
-                  },
-                  [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
-                ),
-                if (showChat)
+          if (isHostView)
+            Builder(
+              builder: (context) {
+                final hasRequests = s.hostPendingRequests.any((req) => req['rentalId'] == r['id']);
+                final showChat = hasActiveRenter && r['allowChat'] == true;
+                return div(classes: 'flex gap-2 items-center', [
                   button(
                     classes:
-                        'px-3 py-2 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative flex items-center',
+                        'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
                     events: {
                       'click': (e) {
                         e.stopPropagation();
-                        s.openChat(chatId!);
+                        s.setState(() {
+                          s.selectedRentalData = r;
+                          s.showVehicleQaModal = true;
+                        });
+                      },
+                    },
+                    [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
+                  ),
+                  if (showChat)
+                    button(
+                      classes:
+                          'px-3 py-2 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative flex items-center',
+                      events: {
+                        'click': (e) {
+                          e.stopPropagation();
+                          s.openChat(chatId!);
+                        },
+                      },
+                      [
+                        lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
+                        Component.text('Chat Renter'),
+                        if (unreadCount > 0)
+                          span(
+                            classes:
+                                'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                            [Component.text('$unreadCount')],
+                          ),
+                      ],
+                    ),
+                  button(
+                    classes:
+                        'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
+                    events: {
+                      'click': (e) {
+                        e.stopPropagation();
+                        s.setState(() {
+                          s.selectedRentalData = r;
+                          s.showManageVehicleModal = true;
+                        });
                       },
                     },
                     [
-                      lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
-                      Component.text('Chat Renter'),
-                      if (unreadCount > 0)
+                      Component.text('Manage'),
+                      if (hasRequests)
                         span(
-                          classes:
-                              'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
-                          [Component.text('$unreadCount')],
+                          classes: 'absolute -top-1 -right-1 flex h-2.5 w-2.5',
+                          [
+                            span(
+                              classes:
+                                  'animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75',
+                              [],
+                            ),
+                            span(classes: 'relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500', []),
+                          ],
                         ),
                     ],
                   ),
-                button(
-                  classes:
-                      'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
-                  events: {
-                    'click': (_) {
-                      s.setState(() {
-                        s.selectedRentalData = r;
-                        s.showManageVehicleModal = true;
-                      });
-                    },
+                ]);
+              },
+            )
+          else
+            div(classes: 'flex items-center gap-2', [
+              button(
+                classes:
+                    'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-purple-400" : "border-zinc-300 hover:bg-zinc-50 text-purple-650"} transition-colors bg-transparent cursor-pointer',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    s.setState(() {
+                      s.selectedRentalData = r;
+                      s.showVehicleQaModal = true;
+                    });
                   },
-                  [
-                    Component.text('Manage'),
-                    if (hasRequests)
-                      span(
-                        classes: 'absolute -top-1 -right-1 flex h-2.5 w-2.5',
-                        [
-                          span(
-                            classes:
-                                'animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75',
-                            [],
-                          ),
-                          span(classes: 'relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500', []),
-                        ],
-                      ),
-                  ],
-                ),
-              ]);
-            },
-          )
-        else
-          div(classes: 'flex items-center gap-2', [
-            button(
-              classes:
-                  'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-purple-400" : "border-zinc-300 hover:bg-zinc-50 text-purple-650"} transition-colors bg-transparent cursor-pointer',
-              events: {
-                'click': (_) => s.setState(() {
-                  s.selectedRentalData = r;
-                  s.showVehicleQaModal = true;
-                }),
-              },
-              [lIcon('message-circle-question', cls: 'w-4 h-4')],
-            ),
-            button(
-              classes:
-                  'px-4 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
-              events: {
-                'click': (_) => s.setState(() {
-                  s.selectedRentalData = r;
-                  s.showBookVehicleModal = true;
-                }),
-              },
-              [Component.text('Book Now')],
-            ),
-          ]),
-      ]),
-    ]);
+                },
+                [lIcon('message-circle-question', cls: 'w-4 h-4')],
+              ),
+              button(
+                classes:
+                    'px-4 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    s.setState(() {
+                      s.selectedRentalData = r;
+                      s.showBookVehicleModal = true;
+                    });
+                  },
+                },
+                [Component.text('Book Now')],
+              ),
+            ]),
+        ]),
+      ],
+    );
   }
 
   Component _propertyCard(PropertyRental prop, bool isDark, {bool isHostView = false}) {
@@ -1098,145 +1118,165 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final chatId = hasActiveRenter ? 'property_${prop.id}_$renteeId' : null;
     final unreadCount = chatId != null ? s.getUnreadChatCount(chatId) : 0;
 
-    return div(classes: 'p-5 rounded-2xl border transition-all card-hover $cardCls', [
-      div(classes: 'flex items-start justify-between mb-4', [
-        div([
-          p(classes: 'font-bold text-lg leading-tight line-clamp-1', [Component.text(prop.title)]),
-          p(classes: 'text-sm ${isDark ? "text-zinc-550" : "text-zinc-500"} capitalize', [
-            Component.text('${prop.category.label} • ${prop.type.label}'),
+    return div(
+      classes: 'p-5 rounded-2xl border transition-all card-hover cursor-pointer $cardCls',
+      events: {
+        if (!isHostView)
+          'click': (_) => s.setState(() {
+            s.selectedPropertyData = prop.toMap();
+            s.showBookPropertyModal = true;
+          }),
+      },
+      [
+        div(classes: 'flex items-start justify-between mb-4', [
+          div([
+            p(classes: 'font-bold text-lg leading-tight line-clamp-1', [Component.text(prop.title)]),
+            p(classes: 'text-sm ${isDark ? "text-zinc-550" : "text-zinc-500"} capitalize', [
+              Component.text('${prop.category.label} • ${prop.type.label}'),
+            ]),
           ]),
-        ]),
-        div(classes: 'flex items-center gap-1.5', [
-          if (isHostView && unreadCount > 0)
-            span(
-              classes:
-                  'px-2 py-1 rounded-lg text-xs font-black bg-red-500/10 text-red-500 border border-red-500/30 flex items-center gap-1 animate-pulse',
-              [
-                lIcon('message-square', cls: 'w-3 h-3 text-red-500'),
-                Component.text('$unreadCount New'),
-              ],
-            ),
-          span(classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-400', [
-            Component.text(prop.status),
-          ]),
-        ]),
-      ]),
-
-      div(
-        classes:
-            'w-full h-32 rounded-xl mb-4 ${isDark ? "bg-zinc-850" : "bg-zinc-100"} flex items-center justify-center overflow-hidden relative',
-        [
-          if (hasPhoto)
-            img(src: prop.photoUrls.first, classes: 'w-full h-full object-cover', attributes: {'alt': prop.title})
-          else
-            lIcon('home', cls: 'w-10 h-10 ${isDark ? "text-zinc-650" : "text-zinc-300"}'),
-        ],
-      ),
-
-      div(classes: 'flex items-center justify-between', [
-        div([
-          p(classes: 'font-bold text-lg text-purple-400', [Component.text('₱ ${monthly.toStringAsFixed(0)}/mo')]),
-          div(classes: 'flex items-center gap-1 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-            lIcon('map-pin', cls: 'w-3 h-3'),
-            Component.text(' ${distKm.toStringAsFixed(1)} km'),
+          div(classes: 'flex items-center gap-1.5', [
+            if (isHostView && unreadCount > 0)
+              span(
+                classes:
+                    'px-2 py-1 rounded-lg text-xs font-black bg-red-500/10 text-red-500 border border-red-500/30 flex items-center gap-1 animate-pulse',
+                [
+                  lIcon('message-square', cls: 'w-3 h-3 text-red-500'),
+                  Component.text('$unreadCount New'),
+                ],
+              ),
+            span(classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-400', [
+              Component.text(prop.status),
+            ]),
           ]),
         ]),
 
-        if (isHostView)
-          Builder(
-            builder: (context) {
-              final hasRequests = s.propertyHostPendingRequests.any((req) => req['propertyId'] == prop.id);
-              final showChat = hasActiveRenter && prop.allowChat;
-              return div(classes: 'flex gap-2 items-center', [
-                button(
-                  classes:
-                      'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
-                  events: {
-                    'click': (_) => s.setState(() {
-                      s.selectedPropertyData = prop.toMap();
-                      s.showPropertyQaModal = true;
-                    }),
-                  },
-                  [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
-                ),
-                if (showChat)
+        div(
+          classes:
+              'w-full h-32 rounded-xl mb-4 ${isDark ? "bg-zinc-850" : "bg-zinc-100"} flex items-center justify-center overflow-hidden relative',
+          [
+            if (hasPhoto)
+              img(src: prop.photoUrls.first, classes: 'w-full h-full object-cover', attributes: {'alt': prop.title})
+            else
+              lIcon('home', cls: 'w-10 h-10 ${isDark ? "text-zinc-650" : "text-zinc-300"}'),
+          ],
+        ),
+
+        div(classes: 'flex items-center justify-between', [
+          div([
+            p(classes: 'font-bold text-lg text-purple-400', [Component.text('₱ ${monthly.toStringAsFixed(0)}/mo')]),
+            div(classes: 'flex items-center gap-1 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
+              lIcon('map-pin', cls: 'w-3 h-3'),
+              Component.text(' ${distKm.toStringAsFixed(1)} km'),
+            ]),
+          ]),
+
+          if (isHostView)
+            Builder(
+              builder: (context) {
+                final hasRequests = s.propertyHostPendingRequests.any((req) => req['propertyId'] == prop.id);
+                final showChat = hasActiveRenter && prop.allowChat;
+                return div(classes: 'flex gap-2 items-center', [
                   button(
                     classes:
-                        'px-3 py-2 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative flex items-center',
+                        'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer',
                     events: {
                       'click': (e) {
                         e.stopPropagation();
-                        s.openChat(chatId!);
+                        s.setState(() {
+                          s.selectedPropertyData = prop.toMap();
+                          s.showPropertyQaModal = true;
+                        });
+                      },
+                    },
+                    [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
+                  ),
+                  if (showChat)
+                    button(
+                      classes:
+                          'px-3 py-2 rounded-xl text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative flex items-center',
+                      events: {
+                        'click': (e) {
+                          e.stopPropagation();
+                          s.openChat(chatId!);
+                        },
+                      },
+                      [
+                        lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
+                        Component.text('Chat Renter'),
+                        if (unreadCount > 0)
+                          span(
+                            classes:
+                                'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                            [Component.text('$unreadCount')],
+                          ),
+                      ],
+                    ),
+                  button(
+                    classes:
+                        'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
+                    events: {
+                      'click': (e) {
+                        e.stopPropagation();
+                        s.setState(() {
+                          s.selectedPropertyData = prop.toMap();
+                          s.showManagePropertyModal = true;
+                        });
                       },
                     },
                     [
-                      lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
-                      Component.text('Chat Renter'),
-                      if (unreadCount > 0)
+                      Component.text('Manage'),
+                      if (hasRequests)
                         span(
-                          classes:
-                              'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
-                          [Component.text('$unreadCount')],
+                          classes: 'absolute -top-1 -right-1 flex h-2.5 w-2.5',
+                          [
+                            span(
+                              classes:
+                                  'animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75',
+                              [],
+                            ),
+                            span(classes: 'relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500', []),
+                          ],
                         ),
                     ],
                   ),
-                button(
-                  classes:
-                      'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors bg-transparent cursor-pointer relative',
-                  events: {
-                    'click': (_) {
-                      s.setState(() {
-                        s.selectedPropertyData = prop.toMap();
-                        s.showManagePropertyModal = true;
-                      });
-                    },
+                ]);
+              },
+            )
+          else
+            div(classes: 'flex items-center gap-2', [
+              button(
+                classes:
+                    'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-purple-400" : "border-zinc-300 hover:bg-zinc-50 text-purple-600"} transition-colors bg-transparent cursor-pointer',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    s.setState(() {
+                      s.selectedPropertyData = prop.toMap();
+                      s.showPropertyQaModal = true;
+                    });
                   },
-                  [
-                    Component.text('Manage'),
-                    if (hasRequests)
-                      span(
-                        classes: 'absolute -top-1 -right-1 flex h-2.5 w-2.5',
-                        [
-                          span(
-                            classes:
-                                'animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75',
-                            [],
-                          ),
-                          span(classes: 'relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500', []),
-                        ],
-                      ),
-                  ],
-                ),
-              ]);
-            },
-          )
-        else
-          div(classes: 'flex items-center gap-2', [
-            button(
-              classes:
-                  'p-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-purple-400" : "border-zinc-300 hover:bg-zinc-50 text-purple-600"} transition-colors bg-transparent cursor-pointer',
-              events: {
-                'click': (_) => s.setState(() {
-                  s.selectedPropertyData = prop.toMap();
-                  s.showPropertyQaModal = true;
-                }),
-              },
-              [lIcon('message-circle-question', cls: 'w-4 h-4')],
-            ),
-            button(
-              classes:
-                  'px-4 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
-              events: {
-                'click': (_) => s.setState(() {
-                  s.selectedPropertyData = prop.toMap();
-                  s.showBookPropertyModal = true;
-                }),
-              },
-              [Component.text('Rent Now')],
-            ),
-          ]),
-      ]),
-    ]);
+                },
+                [lIcon('message-circle-question', cls: 'w-4 h-4')],
+              ),
+              button(
+                classes:
+                    'px-4 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    s.setState(() {
+                      s.selectedPropertyData = prop.toMap();
+                      s.showBookPropertyModal = true;
+                    });
+                  },
+                },
+                [Component.text('Rent Now')],
+              ),
+            ]),
+        ]),
+      ],
+    );
   }
 }
 

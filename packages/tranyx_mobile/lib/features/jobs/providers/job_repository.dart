@@ -139,9 +139,16 @@ class JobRepository {
 
     await _firestore.runTransaction((transaction) async {
       final snapshot = await transaction.get(jobRef);
-      if (!snapshot.exists) return;
+      if (!snapshot.exists) throw Exception('Job not found.');
 
       final data = snapshot.data()!;
+      final status = (data['status'] as String? ?? '').toLowerCase();
+      if (status == 'cancelled' ||
+          status == 'admin_cancelled' ||
+          status == 'completed') {
+        throw Exception('Cannot apply to a $status job.');
+      }
+
       final List<String> applicantUids = List<String>.from(
         data['applicantUids'] ?? [],
       );
@@ -634,57 +641,66 @@ class JobRepository {
       if (!jobSnap.exists) throw Exception('Job not found.');
       final jobData = jobSnap.data()!;
 
+      final String currentStatus = (jobData['status'] as String? ?? '').toLowerCase();
+      if (currentStatus == 'completed') {
+        throw Exception('INVALID_STATE_TRANSITION: Cannot cancel a completed job.');
+      }
+
+      final String? acceptedNyxian = jobData['acceptedApplicantId'] as String? ?? jobData['nyxianId'] as String?;
+      final bool hasAcceptedNyxian = acceptedNyxian != null && acceptedNyxian.trim().isNotEmpty;
+      final bool isCommitted = hasAcceptedNyxian ||
+          currentStatus == 'in progress' ||
+          currentStatus == 'in_progress' ||
+          currentStatus == 'accepted' ||
+          jobData['status'] == 'MUTUAL_CANCEL_PENDING';
+
+      if (isCommitted) {
+        throw Exception('JOB_ALREADY_COMMITTED: Employer cannot unilaterally cancel a job once a Nyxian has been accepted.');
+      }
+
       final String employerId = jobData['creatorId'] as String? ?? '';
-      final String? nyxianId = jobData['acceptedApplicantId'] as String? ?? jobData['nyxianId'] as String?;
-
-      final bool hasTracker = jobData['hasTracker'] == true || jobData['hasTracker'] == 'true';
-      final String status = (jobData['status'] as String? ?? '').toLowerCase();
-
-      final bool reachedFirstPoint = hasTracker &&
-          (status == 'arrived_pickup' ||
-              status == 'paid_cashier' ||
-              status == 'in_transit' ||
-              status == 'arrived_dropoff' ||
-              status == 'done' ||
-              status == 'completed');
-
       final escrowSnap = await transaction.get(escrowRef);
       if (escrowSnap.exists) {
         final double totalEscrow = (escrowSnap.data()!['amount'] as num?)?.toDouble() ?? 0.0;
-        final double compensation = reachedFirstPoint ? (totalEscrow >= 20.0 ? 20.0 : totalEscrow) : 0.0;
-        final double refundAmount = totalEscrow - compensation;
-
-        // Refund to Employer
-        if (refundAmount > 0.0 && employerId.isNotEmpty) {
+        // 100% refund to Employer on unilateral open cancellation
+        if (totalEscrow > 0.0 && employerId.isNotEmpty) {
           final empRef = _firestore.collection('users').doc(employerId);
           final empSnap = await transaction.get(empRef);
           if (empSnap.exists) {
             final double currentBal = (empSnap.data()!['tyxBalance'] as num?)?.toDouble() ?? 0.0;
             transaction.update(empRef, {
-              'tyxBalance': currentBal + refundAmount,
+              'tyxBalance': currentBal + totalEscrow,
             });
           }
         }
-
-        // Compensation to Nyxian
-        if (compensation > 0.0 && nyxianId != null && nyxianId.isNotEmpty) {
-          final nyxRef = _firestore.collection('users').doc(nyxianId);
-          final nyxSnap = await transaction.get(nyxRef);
-          if (nyxSnap.exists) {
-            final double currentBal = (nyxSnap.data()!['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            transaction.update(nyxRef, {
-              'tyxBalance': currentBal + compensation,
-            });
-          }
-        }
-
-        // Delete escrow
         transaction.delete(escrowRef);
       }
 
       // Update status to Cancelled
       transaction.update(jobRef, {
         'status': 'Cancelled',
+      });
+
+      // Update pending applications to REJECTED_JOB_CANCELLED
+      final applicationsSnap = await _firestore.collection('jobs').doc(jobId).collection('applications').get();
+      for (final appDoc in applicationsSnap.docs) {
+        transaction.update(appDoc.reference, {
+          'status': 'REJECTED_JOB_CANCELLED',
+        });
+      }
+
+      // Write to job_cancellation_logs
+      final logRef = _firestore.collection('job_cancellation_logs').doc();
+      transaction.set(logRef, {
+        'jobId': jobId,
+        'cancelledBy': currentUserUid,
+        'role': 'employer',
+        'action': 'UNILATERAL_CANCEL',
+        'status': 'CANCELLED',
+        'reason': 'Employer cancelled open job posting',
+        'previousStatus': jobData['status'] ?? 'Open',
+        'acceptedApplicantId': null,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
 
       // Decrement promo usage if any
@@ -703,6 +719,139 @@ class JobRepository {
         }
       }
     });
+  }
+
+  Future<void> adminOverrideCancelJob({
+    required String jobId,
+    required String adminUid,
+    required String reason,
+  }) async {
+    if (reason.trim().length < 20) {
+      throw Exception('Admin override requires a justification reason of at least 20 characters.');
+    }
+
+    final jobRef = _firestore.collection('jobs').doc(jobId);
+    final escrowRef = _firestore.collection('escrow').doc(jobId);
+
+    await _firestore.runTransaction((transaction) async {
+      final jobSnap = await transaction.get(jobRef);
+      if (!jobSnap.exists) throw Exception('Job not found.');
+      final jobData = jobSnap.data()!;
+
+      final String employerId = jobData['creatorId'] as String? ?? '';
+      final String? nyxianId = jobData['acceptedApplicantId'] as String? ?? jobData['nyxianId'] as String?;
+      final String prevStatus = jobData['status'] as String? ?? 'Unknown';
+
+      final escrowSnap = await transaction.get(escrowRef);
+      if (escrowSnap.exists) {
+        final double totalEscrow = (escrowSnap.data()!['amount'] as num?)?.toDouble() ?? 0.0;
+        if (totalEscrow > 0.0 && employerId.isNotEmpty) {
+          final empRef = _firestore.collection('users').doc(employerId);
+          final empSnap = await transaction.get(empRef);
+          if (empSnap.exists) {
+            final double currentBal = (empSnap.data()!['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            transaction.update(empRef, {
+              'tyxBalance': currentBal + totalEscrow,
+            });
+          }
+        }
+        transaction.delete(escrowRef);
+      }
+
+      transaction.update(jobRef, {
+        'status': 'ADMIN_CANCELLED',
+      });
+
+      final logRef = _firestore.collection('job_cancellation_logs').doc();
+      transaction.set(logRef, {
+        'jobId': jobId,
+        'adminUid': adminUid,
+        'cancelledBy': adminUid,
+        'role': 'admin',
+        'action': 'ADMIN_OVERRIDE_CANCEL',
+        'status': 'ADMIN_CANCELLED',
+        'reason': reason.trim(),
+        'previousStatus': prevStatus,
+        'acceptedApplicantId': nyxianId,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+
+      // Notify Employer
+      if (employerId.isNotEmpty) {
+        final prefix = employerId.length > 5 ? employerId.substring(0, 5) : employerId;
+        final notifRef = _firestore.collection('notifications').doc('notif_admin_cancel_${DateTime.now().millisecondsSinceEpoch}_$prefix');
+        transaction.set(notifRef, {
+          'uid': employerId,
+          'title': 'Job Admin Cancelled ⚠️',
+          'message': 'Admin cancelled "${jobData['title']}". Reason: ${reason.trim()}',
+          'type': 'admin_job_cancelled',
+          'jobId': jobId,
+          'isRead': false,
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+
+      // Notify Nyxian if assigned
+      if (nyxianId != null && nyxianId.isNotEmpty) {
+        final prefix = nyxianId.length > 5 ? nyxianId.substring(0, 5) : nyxianId;
+        final notifRef = _firestore.collection('notifications').doc('notif_admin_cancel_nyx_${DateTime.now().millisecondsSinceEpoch}_$prefix');
+        transaction.set(notifRef, {
+          'uid': nyxianId,
+          'title': 'Gig Cancelled by Admin ⚠️',
+          'message': 'Admin has cancelled job "${jobData['title']}". Reason: ${reason.trim()}',
+          'type': 'admin_job_cancelled',
+          'jobId': jobId,
+          'isRead': false,
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+
+      // Decrement promo usage if any
+      final String? promoCode = jobData['promoCode'] as String?;
+      if (promoCode != null && promoCode.trim().isNotEmpty) {
+        final promoRef = _firestore.collection('promos').doc(promoCode.trim().toUpperCase());
+        final promoSnap = await transaction.get(promoRef);
+        if (promoSnap.exists) {
+          final usedBy = List<String>.from(promoSnap.data()?['usedBy'] ?? []);
+          usedBy.remove(employerId);
+          final usedCount = ((promoSnap.data()?['usedCount'] as num? ?? 1).toInt() - 1).clamp(0, 999999);
+          transaction.update(promoRef, {
+            'usedBy': usedBy,
+            'usedCount': usedCount,
+          });
+        }
+      }
+    });
+  }
+
+  Future<String> submitDispute({
+    required String jobId,
+    required String jobTitle,
+    required String employerId,
+    required String? acceptedNyxianId,
+    required String reason,
+    required double escrowAmount,
+    required String openedByUid,
+  }) async {
+    final disputeId = 'disp_${DateTime.now().millisecondsSinceEpoch}_${jobId.substring(0, jobId.length > 6 ? 6 : jobId.length)}';
+    await _firestore.collection('disputes').doc(disputeId).set({
+      'id': disputeId,
+      'jobId': jobId,
+      'jobTitle': jobTitle,
+      'employerId': employerId,
+      'acceptedNyxianId': acceptedNyxianId,
+      'openedBy': openedByUid,
+      'openedByRole': openedByUid == acceptedNyxianId ? 'nyxian' : 'employer',
+      'status': 'OPEN',
+      'reason': reason.trim(),
+      'escrowAmount': escrowAmount,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      'resolvedAt': null,
+      'resolutionType': null,
+      'resolutionNotes': null,
+    });
+    return disputeId;
   }
 }
 

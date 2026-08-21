@@ -92,19 +92,20 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
     return (_totalPrice - _discountAmount).clamp(0.0, 999999.0);
   }
 
+  DateTime _startDate = DateTime.now();
+
   double get _bookingFee {
     return _discountedTotalPrice * 0.03; // 3% renter fee on discounted cost
   }
 
   DateTime get _computedEndDate {
-    final start = DateTime.now();
     switch (_selectedDurationType) {
       case 'Weekly':
-        return start.add(Duration(days: 7 * _multiplier));
+        return _startDate.add(Duration(days: 7 * _multiplier));
       case 'Daily':
-        return start.add(Duration(days: 1 * _multiplier));
+        return _startDate.add(Duration(days: 1 * _multiplier));
       default:
-        return start.add(Duration(days: 30 * _multiplier));
+        return _startDate.add(Duration(days: 30 * _multiplier));
     }
   }
 
@@ -315,7 +316,6 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
       final user = component.appState.userProfile;
       if (user == null) throw Exception('User profile not loaded.');
 
-      final now = DateTime.now();
       final end = _computedEndDate;
 
       final totalRequired = _discountedTotalPrice + _bookingFee;
@@ -330,7 +330,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
             'totalCost': _totalPrice,
             'contractType': p['contractType'] ?? 'Tranyx Standard',
             'contractTerms': p['contractTerms'] ?? 'Standard lease terms',
-            'startDate': now.millisecondsSinceEpoch,
+            'startDate': _startDate.millisecondsSinceEpoch,
             'endDate': end.millisecondsSinceEpoch,
             'licenseNumber': _licenseNumber,
             'promoCode': _appliedPromo?.code,
@@ -352,7 +352,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         totalCost: _totalPrice,
         contractType: p['contractType'] ?? 'Tranyx Standard',
         contractTerms: p['contractTerms'] ?? 'Standard lease terms',
-        startDate: now.millisecondsSinceEpoch,
+        startDate: _startDate.millisecondsSinceEpoch,
         endDate: end.millisecondsSinceEpoch,
         licenseNumber: _licenseNumber,
         promoCode: _appliedPromo?.code,
@@ -602,13 +602,74 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
 
                 div(
                   classes:
-                      'mt-4 p-4 rounded-xl ${isDark ? "bg-purple-950/20 text-purple-300" : "bg-purple-50 text-purple-800"} text-xs flex justify-between',
+                      'mt-4 p-4 rounded-xl ${isDark ? "bg-purple-950/20 text-purple-300" : "bg-purple-50 text-purple-800"} text-xs space-y-3',
                   [
-                    span([Component.text('Lease Timeline:')]),
-                    span(classes: 'font-bold', [
-                      Component.text(
-                        '${DateTime.now().toString().substring(0, 10)} to ${_computedEndDate.toString().substring(0, 10)}',
-                      ),
+                    div(classes: 'grid grid-cols-1 sm:grid-cols-2 gap-3', [
+                      div([
+                        span(classes: 'block font-semibold mb-1', [Component.text('Move-in / Start Date:')]),
+                        input(
+                          type: InputType.date,
+                          classes:
+                              'w-full p-2 rounded-lg border text-xs ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 cursor-pointer',
+                          attributes: {
+                            'value':
+                                '${_startDate.year}-${_startDate.month.toString().padLeft(2, '0')}-${_startDate.day.toString().padLeft(2, '0')}',
+                            'min':
+                                '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
+                          },
+                          events: {
+                            'change': (e) {
+                              final val = getInputValue(e.target);
+                              final parsed = DateTime.tryParse(val);
+                              if (parsed != null) {
+                                setState(() => _startDate = parsed);
+                              }
+                            },
+                          },
+                        ),
+                      ]),
+                      div([
+                        span(classes: 'block font-semibold mb-1', [Component.text('Move-out / End Date:')]),
+                        input(
+                          type: InputType.date,
+                          classes:
+                              'w-full p-2 rounded-lg border text-xs ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 cursor-pointer',
+                          attributes: {
+                            'value':
+                                '${_computedEndDate.year}-${_computedEndDate.month.toString().padLeft(2, '0')}-${_computedEndDate.day.toString().padLeft(2, '0')}',
+                            'min':
+                                '${_startDate.year}-${_startDate.month.toString().padLeft(2, '0')}-${_startDate.day.toString().padLeft(2, '0')}',
+                          },
+                          events: {
+                            'change': (e) {
+                              final val = getInputValue(e.target);
+                              final parsed = DateTime.tryParse(val);
+                              if (parsed != null) {
+                                final diffDays = parsed.difference(_startDate).inDays;
+                                if (diffDays >= 1) {
+                                  setState(() {
+                                    if (_selectedDurationType == 'Daily') {
+                                      _multiplier = diffDays;
+                                    } else if (_selectedDurationType == 'Weekly') {
+                                      _multiplier = (diffDays / 7).ceil().clamp(1, 99);
+                                    } else {
+                                      _multiplier = (diffDays / 30).ceil().clamp(1, 99);
+                                    }
+                                  });
+                                }
+                              }
+                            },
+                          },
+                        ),
+                      ]),
+                    ]),
+                    div(classes: 'flex justify-between items-center pt-1 border-t border-purple-500/20', [
+                      span([Component.text('Lease Timeline:')]),
+                      span(classes: 'font-bold', [
+                        Component.text(
+                          '${_formatDate(_startDate)} to ${_formatDate(_computedEndDate)}',
+                        ),
+                      ]),
                     ]),
                   ],
                 ),
@@ -696,9 +757,15 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     contractTerms: baseProperty.contractTerms,
                     createdAt: baseProperty.createdAt,
                     allowChat: baseProperty.allowChat,
+                    hostIsVerified: baseProperty.hostIsVerified ?? (pData['hostIsVerified'] as bool? ?? (pData['hostVerificationStatus'] == 'VERIFIED')),
+                    hostVerificationStatus: baseProperty.hostVerificationStatus ?? (pData['hostVerificationStatus'] as String? ?? 'UNVERIFIED'),
+                    hostVerificationTier: baseProperty.hostVerificationTier ?? (pData['hostVerificationTier'] as String? ?? 'None'),
                     renteeName: component.appState.userProfile?.name,
                     renteePhotoUrl: component.appState.userProfile?.photoUrl,
                     renteeLicenseNumber: _licenseNumber.isNotEmpty ? _licenseNumber : null,
+                    renteeIsVerified: component.appState.userProfile?.idVerified == true || (component.appState.userProfile?.verificationLevel ?? 0) >= 2,
+                    renteeVerificationStatus: (component.appState.userProfile?.idVerified == true || (component.appState.userProfile?.verificationLevel ?? 0) >= 2) ? 'VERIFIED' : 'UNVERIFIED',
+                    renteeVerificationTier: PartyVerificationHelper.formatVerificationTier(level: component.appState.userProfile?.verificationLevel, idVerified: component.appState.userProfile?.idVerified),
                     rentalDurationType: _selectedDurationType,
                     rentalMultiplier: _multiplier,
                     totalCost: _totalPrice,
@@ -899,22 +966,52 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
   }
 
   Component _packageOption(String duration, String title, double rate, bool isDark) {
-    if (rate <= 0) return div([]);
     final isSelected = _selectedDurationType == duration;
+    final isAvailable = rate > 0;
 
     return div(
       classes:
-          'p-4 rounded-2xl border cursor-pointer text-center transition-all ${isSelected ? "border-purple-500 bg-purple-500/10 text-purple-400 font-extrabold" : (isDark ? "border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:bg-zinc-800/40" : "border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100")}',
-      events: {
-        'click': (_) => setState(() {
-          _selectedDurationType = duration;
-          _multiplier = 1;
-        }),
-      },
+          'p-4 rounded-2xl border text-center transition-all '
+          '${!isAvailable ? (isDark ? "border-zinc-800/40 bg-zinc-900/20 opacity-40 cursor-not-allowed select-none" : "border-zinc-200/40 bg-zinc-100/40 opacity-40 cursor-not-allowed select-none") : (isSelected ? "border-purple-500 bg-purple-500/10 text-purple-400 font-extrabold cursor-pointer" : (isDark ? "border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:bg-zinc-800/40 cursor-pointer" : "border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100 cursor-pointer"))}',
+      events: isAvailable
+          ? {
+              'click': (_) => setState(() {
+                _selectedDurationType = duration;
+                _multiplier = 1;
+              }),
+            }
+          : {},
       [
         p(classes: 'text-xs uppercase font-bold opacity-60 mb-1', [Component.text(title)]),
-        p(classes: 'text-sm font-extrabold', [Component.text('₱ ${rate.toStringAsFixed(0)}')]),
+        p(classes: 'text-sm font-extrabold', [
+          if (isAvailable)
+            Component.text('₱ ${rate.toStringAsFixed(0)}')
+          else
+            span(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"} font-normal', [Component.text('Not Offered')]),
+        ]),
       ],
     );
+  }
+
+  String _monthName(int month) {
+    const names = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return names[month - 1];
+  }
+
+  String _formatDate(DateTime dt) {
+    return '${_monthName(dt.month)} ${dt.day.toString().padLeft(2, '0')}, ${dt.year}';
   }
 }

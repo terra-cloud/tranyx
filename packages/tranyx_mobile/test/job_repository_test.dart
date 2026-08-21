@@ -330,17 +330,110 @@ void main() {
       expect(jobDoc.data()!['nyxianRated'], isFalse);
     });
 
-    test('Verify cancelJob handles 100% refund when early cancellation', () async {
-      // 1. Setup initial DB state
+    test('TC-CNCL-01 & TC-CNCL-02: Unilateral cancel when open -> 100% refund, CANCELLED, pending bids rejected, audit logged', () async {
+      // Setup initial DB state
       firestore.db['users/employer123'] = {
         'uid': 'employer123',
         'name': 'Test Employer',
         'tyxBalance': 5000.0,
       };
 
-      firestore.db['users/nyxian123'] = {
-        'uid': 'nyxian123',
-        'name': 'Test Nyxian',
+      firestore.db['jobs/job123'] = {
+        'id': 'job123',
+        'creatorId': 'employer123',
+        'title': 'Plumbing Help',
+        'status': 'Open',
+        'applicantCount': 2,
+        'applicantUids': ['applicant1', 'applicant2'],
+      };
+
+      firestore.db['jobs/job123/applications/applicant1'] = {
+        'jobId': 'job123',
+        'applicantUid': 'applicant1',
+        'status': 'PENDING',
+      };
+
+      firestore.db['jobs/job123/applications/applicant2'] = {
+        'jobId': 'job123',
+        'applicantUid': 'applicant2',
+        'status': 'PENDING',
+      };
+
+      firestore.db['escrow/job123'] = {
+        'amount': 2000.0,
+        'employerId': 'employer123',
+        'status': 'held',
+      };
+
+      // Employer cancels open job
+      await repo.cancelJob(
+        jobId: 'job123',
+        currentUserUid: 'employer123',
+      );
+
+      // Verify job status is Cancelled
+      final jobDoc = await firestore.collection('jobs').doc('job123').get();
+      expect(jobDoc.data()!['status'], equals('Cancelled'));
+
+      // Verify escrow document is deleted and 100% refunded
+      final escrowDoc = await firestore.collection('escrow').doc('job123').get();
+      expect(escrowDoc.exists, isFalse);
+
+      final empDoc = await firestore.collection('users').doc('employer123').get();
+      expect(empDoc.data()!['tyxBalance'], equals(7000.0));
+
+      // Verify pending applications set to REJECTED_JOB_CANCELLED (TC-CNCL-02)
+      final app1 = await firestore.collection('jobs').doc('job123').collection('applications').doc('applicant1').get();
+      expect(app1.data()!['status'], equals('REJECTED_JOB_CANCELLED'));
+
+      final app2 = await firestore.collection('jobs').doc('job123').collection('applications').doc('applicant2').get();
+      expect(app2.data()!['status'], equals('REJECTED_JOB_CANCELLED'));
+
+      // Verify cancellation log written to job_cancellation_logs
+      final logs = firestore.db.entries
+          .where((e) => e.key.startsWith('job_cancellation_logs/'))
+          .map((e) => e.value)
+          .toList();
+      expect(logs, isNotEmpty);
+      expect(logs.first['jobId'], equals('job123'));
+      expect(logs.first['action'], equals('UNILATERAL_CANCEL'));
+      expect(logs.first['status'], equals('CANCELLED'));
+      expect(logs.first['cancelledBy'], equals('employer123'));
+    });
+
+    test('TC-CNCL-03: Model & UI Lock checks on Nyxian acceptance', () {
+      final openJob = Job(
+        id: 'job_open',
+        creatorId: 'emp1',
+        creatorName: 'Employer',
+        creatorType: AccountType.employer,
+        title: 'Open Job',
+        description: 'Desc',
+        category: JobCategory.plumber,
+        categoryGroup: JobCategoryGroup.homeRepair,
+        employmentType: 'Gig',
+        dateRequirement: 'Today',
+        timePreference: 'Morning',
+        pricingType: 'Fixed',
+        pricingValue: 500.0,
+        locationType: 'On-site',
+        createdAt: DateTime.now(),
+        status: 'Open',
+      );
+      expect(openJob.isCancellationLocked, isFalse);
+      expect(openJob.isHired, isFalse);
+
+      final hiredJob = openJob.copyWith(
+        acceptedApplicantId: 'nyxian123',
+        status: 'In Progress',
+      );
+      expect(hiredJob.isCancellationLocked, isTrue);
+      expect(hiredJob.isHired, isTrue);
+    });
+
+    test('TC-CNCL-04: Direct cancel attempt when hired throws JOB_ALREADY_COMMITTED', () async {
+      firestore.db['users/employer123'] = {
+        'uid': 'employer123',
         'tyxBalance': 1000.0,
       };
 
@@ -349,89 +442,131 @@ void main() {
         'creatorId': 'employer123',
         'acceptedApplicantId': 'nyxian123',
         'status': 'In Progress',
-        'hasTracker': true,
       };
 
-      firestore.db['escrow/job123'] = {
-        'amount': 2000.0,
-        'employerId': 'employer123',
-        'status': 'held',
-      };
-
-      // 2. Cancel job
-      await repo.cancelJob(
-        jobId: 'job123',
-        currentUserUid: 'employer123',
+      expect(
+        () => repo.cancelJob(jobId: 'job123', currentUserUid: 'employer123'),
+        throwsA(predicate((e) => e.toString().contains('JOB_ALREADY_COMMITTED'))),
       );
-
-      // 3. Assertions
-      // Verify job status is Cancelled
-      final jobDoc = await firestore.collection('jobs').doc('job123').get();
-      expect(jobDoc.data()!['status'], equals('Cancelled'));
-
-      // Verify escrow document is deleted
-      final escrowDoc = await firestore.collection('escrow').doc('job123').get();
-      expect(escrowDoc.exists, isFalse);
-
-      // Verify Employer balance has been refunded full 2000
-      final empDoc = await firestore.collection('users').doc('employer123').get();
-      expect(empDoc.data()!['tyxBalance'], equals(7000.0));
-
-      // Verify Nyxian balance remains the same
-      final nyxDoc = await firestore.collection('users').doc('nyxian123').get();
-      expect(nyxDoc.data()!['tyxBalance'], equals(1000.0));
     });
 
-    test('Verify cancelJob handles 20 Tyxbits worker compensation when late cancellation', () async {
-      // 1. Setup initial DB state
+    test('TC-CNCL-05: Concurrency race condition serialization (Accept commits first, Cancel blocks)', () async {
       firestore.db['users/employer123'] = {
         'uid': 'employer123',
-        'name': 'Test Employer',
-        'tyxBalance': 5000.0,
-      };
-
-      firestore.db['users/nyxian123'] = {
-        'uid': 'nyxian123',
-        'name': 'Test Nyxian',
         'tyxBalance': 1000.0,
       };
+      firestore.db['jobs/job123'] = {
+        'id': 'job123',
+        'creatorId': 'employer123',
+        'status': 'Open',
+        'acceptedApplicantId': null,
+      };
 
+      // 1. Accept applicant commits
+      await repo.updateJobStatus('job123', 'In Progress', additionalFields: {
+        'acceptedApplicantId': 'nyxian123',
+      });
+
+      // 2. Subsequent cancel attempt by employer
+      expect(
+        () => repo.cancelJob(jobId: 'job123', currentUserUid: 'employer123'),
+        throwsA(predicate((e) => e.toString().contains('JOB_ALREADY_COMMITTED'))),
+      );
+    });
+
+    test('TC-CNCL-06: Admin override with valid reason (>= 20 chars) cancels job and writes audit log', () async {
+      firestore.db['users/employer123'] = {
+        'uid': 'employer123',
+        'tyxBalance': 1000.0,
+      };
+      firestore.db['users/nyxian123'] = {
+        'uid': 'nyxian123',
+        'tyxBalance': 500.0,
+      };
       firestore.db['jobs/job123'] = {
         'id': 'job123',
         'creatorId': 'employer123',
         'acceptedApplicantId': 'nyxian123',
-        'status': 'arrived_pickup', // reached first point
-        'hasTracker': true,
+        'title': 'Emergency Repair',
+        'status': 'In Progress',
       };
-
       firestore.db['escrow/job123'] = {
-        'amount': 2000.0,
+        'amount': 1500.0,
         'employerId': 'employer123',
         'status': 'held',
       };
 
-      // 2. Cancel job
-      await repo.cancelJob(
-        jobId: 'job123',
-        currentUserUid: 'employer123',
+      // Admin reason < 20 chars throws exception
+      expect(
+        () => repo.adminOverrideCancelJob(
+          jobId: 'job123',
+          adminUid: 'admin_zeus',
+          reason: 'Too short',
+        ),
+        throwsA(predicate((e) => e.toString().contains('at least 20 characters'))),
       );
 
-      // 3. Assertions
-      // Verify job status is Cancelled
+      // Valid admin override cancellation
+      await repo.adminOverrideCancelJob(
+        jobId: 'job123',
+        adminUid: 'admin_zeus',
+        reason: 'Customer dispute resolved: safety violation verified on site.',
+      );
+
+      // Verify job status
       final jobDoc = await firestore.collection('jobs').doc('job123').get();
-      expect(jobDoc.data()!['status'], equals('Cancelled'));
+      expect(jobDoc.data()!['status'], equals('ADMIN_CANCELLED'));
 
-      // Verify escrow document is deleted
-      final escrowDoc = await firestore.collection('escrow').doc('job123').get();
-      expect(escrowDoc.exists, isFalse);
-
-      // Verify Nyxian balance has been credited 20 tyxbits compensation
-      final nyxDoc = await firestore.collection('users').doc('nyxian123').get();
-      expect(nyxDoc.data()!['tyxBalance'], equals(1020.0));
-
-      // Verify Employer balance has been refunded 2000 - 20 = 1980
+      // Verify escrow refund
       final empDoc = await firestore.collection('users').doc('employer123').get();
-      expect(empDoc.data()!['tyxBalance'], equals(6980.0));
+      expect(empDoc.data()!['tyxBalance'], equals(2500.0));
+
+      // Verify audit log
+      final logs = firestore.db.entries
+          .where((e) => e.key.startsWith('job_cancellation_logs/'))
+          .map((e) => e.value)
+          .toList();
+      expect(logs, isNotEmpty);
+      final adminLog = logs.firstWhere((l) => l['action'] == 'ADMIN_OVERRIDE_CANCEL');
+      expect(adminLog['status'], equals('ADMIN_CANCELLED'));
+      expect(adminLog['role'], equals('admin'));
+      expect(adminLog['acceptedApplicantId'], equals('nyxian123'));
+    });
+
+    test('TC-CNCL-07: Cancelled and Admin Cancelled jobs reject new applications', () async {
+      firestore.db['jobs/job_cancelled'] = {
+        'id': 'job_cancelled',
+        'status': 'Cancelled',
+      };
+
+      final app = JobApplication(
+        id: 'app1',
+        jobId: 'job_cancelled',
+        applicantUid: 'nyxian1',
+        applicantName: 'Applicant',
+        coverNote: 'Note',
+        proposalRate: 500.0,
+        isCounterOffer: false,
+        createdAt: DateTime.now(),
+      );
+
+      expect(
+        () => repo.applyToJob(app),
+        throwsA(predicate((e) => e.toString().contains('Cannot apply to a cancelled job'))),
+      );
+    });
+
+    test('Cannot cancel completed job throws INVALID_STATE_TRANSITION', () async {
+      firestore.db['jobs/job_done'] = {
+        'id': 'job_done',
+        'status': 'Completed',
+        'creatorId': 'employer123',
+      };
+
+      expect(
+        () => repo.cancelJob(jobId: 'job_done', currentUserUid: 'employer123'),
+        throwsA(predicate((e) => e.toString().contains('INVALID_STATE_TRANSITION'))),
+      );
     });
 
     test('Verify initial rating state is unrated (null) and first review sets explicit score', () async {

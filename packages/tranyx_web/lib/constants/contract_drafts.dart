@@ -16,8 +16,8 @@ TRANYX PEER-TO-PEER VEHICLE RENTAL AGREEMENT
 
 1. PARTIES
 This Peer-to-Peer Vehicle Rental Agreement ("Agreement") is entered into by and between:
-- Host/Owner: ${rental.hostName} ("Owner")
-- Rentee/Renter: ${rental.renteeName ?? '[Renter Full Name]'} ("Renter")
+- Host/Owner (Lessor): ${rental.hostName} [${PartyVerificationHelper.formatIdentityStatusLabel(isVerified: rental.hostIsVerified, status: rental.hostVerificationStatus, explicitTier: rental.hostVerificationTier)}]
+- Rentee/Renter (Lessee): ${rental.renteeName ?? '[Renter Full Name]'} [${PartyVerificationHelper.formatIdentityStatusLabel(isVerified: rental.renteeIsVerified, status: rental.renteeVerificationStatus, explicitTier: rental.renteeVerificationTier)}]
 - Platform/Bridge: Tranyx Technology Inc. ("Tranyx" or "Platform")
 
 2. VEHICLE SPECIFICATIONS
@@ -83,8 +83,8 @@ TRANYX PEER-TO-PEER PROPERTY LEASE AGREEMENT
 
 1. PARTIES
 This Peer-to-Peer Property Lease Agreement ("Agreement") is entered into by and between:
-- Lessor/Property Owner: ${rental.hostName} ("Owner")
-- Lessee/Tenant: ${rental.renteeName ?? '[Tenant Full Name]'} ("Tenant")
+- Lessor/Property Owner: ${rental.hostName} [${PartyVerificationHelper.formatIdentityStatusLabel(isVerified: rental.hostIsVerified, status: rental.hostVerificationStatus, explicitTier: rental.hostVerificationTier)}]
+- Lessee/Tenant: ${rental.renteeName ?? '[Tenant Full Name]'} [${PartyVerificationHelper.formatIdentityStatusLabel(isVerified: rental.renteeIsVerified, status: rental.renteeVerificationStatus, explicitTier: rental.renteeVerificationTier)}]
 - Platform/Bridge: Tranyx Technology Inc. ("Tranyx" or "Platform")
 
 2. PROPERTY SPECIFICATIONS
@@ -119,6 +119,7 @@ The Tenant agrees to:
 By ticking the agreement checkbox and signing below, the Tenant executes this lease contract.
 
 Tenant Signature: ${rental.renteeSignatureName ?? '[Digital Signature Name]'}
+Tenant Identification: ${rental.renteeLicenseNumber ?? '[ID / Reference Number]'}
 Signed At (Timestamp): ${rental.signedAt != null ? rental.signedAt!.toIso8601String() : '[Timestamp]'}
 ''';
 }

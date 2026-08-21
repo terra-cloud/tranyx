@@ -10,6 +10,7 @@ import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_cards.dart';
 import 'package:tranyx_mobile/core/utils/geo_helper.dart';
+import 'package:shared/shared.dart';
 
 final jobListTabProvider = StateProvider<int>(
   (ref) => 0,
@@ -71,44 +72,24 @@ class JobListView extends ConsumerWidget {
         const userLng = 120.9842;
 
         jobsAsync = ref.watch(availableJobsProvider).whenData((list) {
-          var filtered = list.where((j) {
-            final isRemote = j.locationType.toLowerCase() == 'remote';
-            if (isRemote) return includeRemote;
-            if (j.pickupLat == null || j.pickupLng == null) {
-              return geofenceRadius >= 999.0;
-            }
-            if (geofenceRadius < 999.0) {
-              final dist = calculateDistance(
-                userLat,
-                userLng,
-                j.pickupLat,
-                j.pickupLng,
-              );
-              return dist <= geofenceRadius;
-            }
-            return true;
-          }).toList();
+          final userProfile = ref.watch(userProfileProvider).value;
+          const userLat = 14.5995;
+          const userLng = 120.9842;
+          final userSkills = userProfile?.skills ?? [];
 
-          if (activeFilter == 'Recommended') {
-            final skills = userProfile?.skills ?? [];
-            if (skills.isNotEmpty) {
-              filtered = filtered.where((j) {
-                final cat = j.category.name.toLowerCase();
-                final desc = j.description.toLowerCase();
-                final title = j.title.toLowerCase();
-                return skills.any((skill) {
-                  final sLower = skill.toLowerCase();
-                  return cat.contains(sLower) ||
-                      desc.contains(sLower) ||
-                      title.contains(sLower);
-                });
-              }).toList();
-            }
-          } else if (activeFilter == 'High Paying') {
-            filtered = filtered.where((j) => j.pricingValue >= 1000).toList();
-          }
-
-          return filtered;
+          final rawList = list.map((j) => j.toMap()).toList();
+          final filteredMaps = GigFilterEngine.filterGigList(
+            gigs: rawList,
+            categoryFilter: activeFilter,
+            includeRemote: includeRemote,
+            maxRadiusKm: geofenceRadius,
+            userLat: userLat,
+            userLng: userLng,
+            userSkills: userSkills,
+          );
+          final filteredIds =
+              filteredMaps.map((m) => m['id'] as String?).toSet();
+          return list.where((j) => filteredIds.contains(j.id)).toList();
         });
       } else if (activeTab == 1) {
         jobsAsync = ref.watch(appliedJobsProvider).whenData((list) {
@@ -169,6 +150,7 @@ class JobListView extends ConsumerWidget {
             activeTab,
             currentViewMode,
             isBrowseTab,
+            jobsAsync,
           ),
 
           // ── Tablet employer "Create" button ───────────────────────────────
@@ -189,20 +171,76 @@ class JobListView extends ConsumerWidget {
               data: (jobs) {
                 if (jobs.isEmpty) {
                   return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.work_off_outlined,
-                          size: 48,
-                          color: Colors.grey.withValues(alpha: 0.5),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No jobs found',
-                          style: TextStyle(color: Colors.grey, fontSize: 16),
-                        ),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.search_off_rounded,
+                            size: 52,
+                            color: Colors.grey.withValues(alpha: 0.5),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            isBrowseTab
+                                ? 'No available gigs match your current filters'
+                                : 'No jobs found',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          if (isBrowseTab) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              'Try expanding your distance radius, enabling remote gigs, or viewing all job categories.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.purple,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 10,
+                                ),
+                              ),
+                              onPressed: () {
+                                ref
+                                    .read(jobActiveFilterProvider.notifier)
+                                    .state = 'All';
+                                ref
+                                    .read(jobGeofenceRadiusProvider.notifier)
+                                    .state = 9999.0;
+                                ref
+                                    .read(
+                                      jobIncludeRemoteJobsProvider.notifier,
+                                    )
+                                    .state = true;
+                              },
+                              icon: const Icon(Icons.refresh_rounded, size: 16),
+                              label: const Text(
+                                'Reset Filters',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   );
                 }
@@ -277,6 +315,7 @@ class JobListView extends ConsumerWidget {
     int activeTab,
     AccountType currentViewMode,
     bool isBrowseTab,
+    AsyncValue<List<Job>> jobsAsync,
   ) {
     return Container(
       key: headerKey,
@@ -295,7 +334,7 @@ class JobListView extends ConsumerWidget {
           // Filters — only for Nyxian on Browse Gigs tab
           if (isBrowseTab) ...[
             const SizedBox(height: 10),
-            _buildFilterBar(ref, isDarkMode),
+            _buildFilterBar(ref, isDarkMode, jobsAsync.value?.length ?? 0),
           ],
         ],
       ),
@@ -402,10 +441,17 @@ class JobListView extends ConsumerWidget {
   }
 
   // ── Filter bar (Nyxian browse gigs only) ──────────────────────────────────
-  Widget _buildFilterBar(WidgetRef ref, bool isDarkMode) {
+  Widget _buildFilterBar(WidgetRef ref, bool isDarkMode, int resultCount) {
     final activeFilter = ref.watch(jobActiveFilterProvider);
     final geofenceRadius = ref.watch(jobGeofenceRadiusProvider);
     final includeRemote = ref.watch(jobIncludeRemoteJobsProvider);
+
+    final summaryInfo = GigFilterEngine.buildSummaryInfo(
+      categoryFilter: activeFilter,
+      includeRemote: includeRemote,
+      maxRadiusKm: geofenceRadius,
+      resultCount: resultCount,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -544,6 +590,88 @@ class JobListView extends ConsumerWidget {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 10),
+        // Active Filter Summary Strip (Scenarios 1-8)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: isDarkMode
+                ? AppColors.purple.withValues(alpha: 0.1)
+                : AppColors.purple.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isDarkMode
+                  ? AppColors.purple.withValues(alpha: 0.25)
+                  : AppColors.purple.withValues(alpha: 0.18),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.filter_list_rounded,
+                size: 15,
+                color: isDarkMode ? Colors.purpleAccent : AppColors.purple,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: RichText(
+                  text: TextSpan(
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDarkMode ? Colors.white70 : Colors.black87,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: '${summaryInfo.categorySummary} ',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      TextSpan(
+                        text:
+                            '• ${summaryInfo.distanceSummary} • ${summaryInfo.remoteSummary} ',
+                        style: TextStyle(
+                          color: isDarkMode
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
+                        ),
+                      ),
+                      TextSpan(
+                        text: '(${summaryInfo.count} gigs found)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: isDarkMode
+                              ? Colors.purpleAccent
+                              : AppColors.purple,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (!summaryInfo.isDefaultState)
+                GestureDetector(
+                  onTap: () {
+                    ref.read(jobActiveFilterProvider.notifier).state = 'All';
+                    ref.read(jobGeofenceRadiusProvider.notifier).state = 9999.0;
+                    ref.read(jobIncludeRemoteJobsProvider.notifier).state = true;
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Text(
+                      'Clear All',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: isDarkMode
+                            ? Colors.purpleAccent
+                            : AppColors.purple,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ],
     );

@@ -993,6 +993,164 @@ class FirestoreService {
     }
   }
 
+  Future<void> cancelJob(String jobId, String currentUserUid) async {
+    final jobDoc = await getDocument('jobs/$jobId');
+    if (jobDoc == null) throw Exception('Job not found.');
+
+    final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+    if (status == 'completed') {
+      throw Exception('INVALID_STATE_TRANSITION: Cannot cancel a completed job.');
+    }
+
+    final acceptedId = jobDoc['acceptedApplicantId'] as String?;
+    final hasAcceptedNyxian = acceptedId != null && acceptedId.trim().isNotEmpty;
+    final isCommitted = hasAcceptedNyxian ||
+        status == 'in progress' ||
+        status == 'in_progress' ||
+        status == 'accepted' ||
+        jobDoc['status'] == 'MUTUAL_CANCEL_PENDING';
+
+    if (isCommitted) {
+      throw Exception('JOB_ALREADY_COMMITTED: Employer cannot unilaterally cancel a job once a Nyxian has been accepted.');
+    }
+
+    final employerId = jobDoc['creatorId'] as String?;
+    final escrowDoc = await getEscrow(jobId);
+    if (escrowDoc != null && employerId != null) {
+      final totalEscrow = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+      if (totalEscrow > 0.0) {
+        final empDoc = await getDocument('users/$employerId');
+        if (empDoc != null) {
+          final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+          await createOrUpdate('users/$employerId', {
+            ...empDoc,
+            'tyxBalance': currentBal + totalEscrow,
+          });
+        }
+      }
+      await deleteDocument('escrow/$jobId');
+    }
+
+    await setDocument('jobs/$jobId', {'status': 'Cancelled'});
+
+    // Update pending applications to REJECTED_JOB_CANCELLED
+    final apps = await getApplications(jobId);
+    for (final app in apps) {
+      final applicantUid = app['applicantUid'] as String?;
+      if (applicantUid != null && applicantUid.isNotEmpty) {
+        await createOrUpdate('jobs/$jobId/applications/$applicantUid', {
+          ...app,
+          'status': 'REJECTED_JOB_CANCELLED',
+        });
+      }
+    }
+
+    // Write cancellation log
+    final logId = 'log_${DateTime.now().millisecondsSinceEpoch}';
+    await setDocument('job_cancellation_logs/$logId', {
+      'jobId': jobId,
+      'cancelledBy': currentUserUid,
+      'role': 'employer',
+      'action': 'UNILATERAL_CANCEL',
+      'status': 'CANCELLED',
+      'reason': 'Employer cancelled open job posting',
+      'previousStatus': jobDoc['status'] ?? 'Open',
+      'acceptedApplicantId': null,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  Future<void> adminOverrideCancelJob(String jobId, String adminUid, String reason) async {
+    if (reason.trim().length < 20) {
+      throw Exception('Admin override requires a justification reason of at least 20 characters.');
+    }
+
+    final jobDoc = await getDocument('jobs/$jobId');
+    if (jobDoc == null) throw Exception('Job not found.');
+
+    final employerId = jobDoc['creatorId'] as String?;
+    final acceptedNyxian = jobDoc['acceptedApplicantId'] as String?;
+    final prevStatus = jobDoc['status'] as String? ?? 'Unknown';
+
+    final escrowDoc = await getEscrow(jobId);
+    if (escrowDoc != null && employerId != null) {
+      final totalEscrow = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+      if (totalEscrow > 0.0) {
+        final empDoc = await getDocument('users/$employerId');
+        if (empDoc != null) {
+          final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+          await createOrUpdate('users/$employerId', {
+            ...empDoc,
+            'tyxBalance': currentBal + totalEscrow,
+          });
+        }
+      }
+      await deleteDocument('escrow/$jobId');
+    }
+
+    await setDocument('jobs/$jobId', {'status': 'ADMIN_CANCELLED'});
+
+    final adminLogId = 'log_admin_${DateTime.now().millisecondsSinceEpoch}';
+    await setDocument('job_cancellation_logs/$adminLogId', {
+      'jobId': jobId,
+      'adminUid': adminUid,
+      'cancelledBy': adminUid,
+      'role': 'admin',
+      'action': 'ADMIN_OVERRIDE_CANCEL',
+      'status': 'ADMIN_CANCELLED',
+      'reason': reason.trim(),
+      'previousStatus': prevStatus,
+      'acceptedApplicantId': acceptedNyxian,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    if (employerId != null && employerId.isNotEmpty) {
+      await createNotification(
+        uid: employerId,
+        title: 'Job Admin Cancelled ⚠️',
+        message: 'Admin cancelled "${jobDoc['title']}". Reason: ${reason.trim()}',
+      );
+    }
+
+    if (acceptedNyxian != null && acceptedNyxian.isNotEmpty) {
+      await createNotification(
+        uid: acceptedNyxian,
+        title: 'Gig Cancelled by Admin ⚠️',
+        message: 'Admin has cancelled job "${jobDoc['title']}". Reason: ${reason.trim()}',
+      );
+    }
+  }
+
+  Future<String> submitDispute({
+    required String jobId,
+    required String jobTitle,
+    required String employerId,
+    required String? acceptedNyxianId,
+    required String reason,
+    required double escrowAmount,
+    required String openedByUid,
+  }) async {
+    final disputeId = 'disp_${DateTime.now().millisecondsSinceEpoch}_${jobId.substring(0, jobId.length > 6 ? 6 : jobId.length)}';
+    await setDocument('disputes/$disputeId', {
+      'id': disputeId,
+      'jobId': jobId,
+      'jobTitle': jobTitle,
+      'employerId': employerId,
+      'acceptedNyxianId': acceptedNyxianId,
+      'openedBy': openedByUid,
+      'openedByRole': openedByUid == acceptedNyxianId ? 'nyxian' : 'employer',
+      'status': 'OPEN',
+      'reason': reason.trim(),
+      'escrowAmount': escrowAmount,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      'resolvedAt': null,
+      'resolutionType': null,
+      'resolutionNotes': null,
+    });
+    return disputeId;
+  }
+
   // ── Applications ───────────────────────────────────────────
 
   Future<void> applyToJob({
@@ -1004,6 +1162,14 @@ class FirestoreService {
     required double proposalRate,
     required bool isCounterOffer,
   }) async {
+    final jobDoc = await getDocument('jobs/$jobId');
+    if (jobDoc != null) {
+      final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+      if (status == 'cancelled' || status == 'admin_cancelled' || status == 'completed') {
+        throw Exception('Cannot apply to a $status job.');
+      }
+    }
+
     final now = DateTime.now().millisecondsSinceEpoch;
     final appData = {
       'jobId': jobId,
@@ -1019,7 +1185,6 @@ class FirestoreService {
     await createOrUpdate('jobs/$jobId/applications/$applicantUid', appData);
     await awardPointsIfEligible(applicantUid, 'apply_first_job');
     // Update job applicantCount and applicantUids (best-effort, no transactions in REST)
-    final jobDoc = await getDocument('jobs/$jobId');
     if (jobDoc != null) {
       final uids = List<String>.from(jobDoc['applicantUids'] as List? ?? []);
       if (!uids.contains(applicantUid)) {
@@ -1696,7 +1861,7 @@ class FirestoreService {
     required String? renteePhotoUrl,
     required String durationType,
     required int multiplier,
-    required String licenseNumber,
+    String? licenseNumber,
     required double totalCost,
     required bool hireWithDriver,
     required String rentalType,
@@ -1718,6 +1883,22 @@ class FirestoreService {
 
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
+
+    final hostUser = await getUser(rental.hostId);
+    final hostIsVerified = hostUser != null
+        ? (hostUser.idVerified || hostUser.verificationLevel >= 2)
+        : (rental.hostIsVerified ?? (rental.hostVerificationStatus == 'VERIFIED'));
+    final hostVerificationTier = hostUser != null
+        ? PartyVerificationHelper.formatVerificationTier(level: hostUser.verificationLevel, idVerified: hostUser.idVerified)
+        : (rental.hostVerificationTier ?? (hostIsVerified ? 'Government ID Verified' : 'None'));
+    final hostVerificationStatus = hostIsVerified ? 'VERIFIED' : 'UNVERIFIED';
+
+    final renteeIsVerified = rentee.idVerified || rentee.verificationLevel >= 2;
+    final renteeVerificationTier = PartyVerificationHelper.formatVerificationTier(
+      level: rentee.verificationLevel,
+      idVerified: rentee.idVerified,
+    );
+    final renteeVerificationStatus = renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED';
 
     final discount = discountAmount ?? 0.0;
     final discountedCost = (totalCost - discount).clamp(0.0, 999999.0);
@@ -1763,6 +1944,12 @@ class FirestoreService {
       'signatureName': '', // Signature not signed yet
       'licenseNumber': licenseNumber,
       'hireWithDriver': hireWithDriver,
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': hostVerificationStatus,
+      'hostVerificationTier': hostVerificationTier,
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': renteeVerificationStatus,
+      'renteeVerificationTier': renteeVerificationTier,
       'status': 'Pending',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
       'hostId': rental.hostId,
@@ -1872,6 +2059,12 @@ class FirestoreService {
       'deliveryAddress': deliveryAddress,
       'currentRequestId': requestId,
       'allowChat': allowChat,
+      'hostIsVerified': reqDoc['hostIsVerified'] ?? (rentalDoc['hostIsVerified'] ?? (rentalDoc['hostVerificationStatus'] == 'VERIFIED')),
+      'hostVerificationStatus': reqDoc['hostVerificationStatus'] ?? (rentalDoc['hostVerificationStatus'] ?? ((rentalDoc['hostIsVerified'] == true) ? 'VERIFIED' : 'UNVERIFIED')),
+      'hostVerificationTier': reqDoc['hostVerificationTier'] ?? (rentalDoc['hostVerificationTier'] ?? ((rentalDoc['hostIsVerified'] == true) ? 'Government ID Verified' : 'None')),
+      'renteeIsVerified': reqDoc['renteeIsVerified'] ?? (reqDoc['renteeVerificationStatus'] == 'VERIFIED'),
+      'renteeVerificationStatus': reqDoc['renteeVerificationStatus'] ?? 'UNVERIFIED',
+      'renteeVerificationTier': reqDoc['renteeVerificationTier'] ?? 'None',
     });
 
     // 4. Reject all other pending requests for the same vehicle
@@ -1913,6 +2106,38 @@ class FirestoreService {
       'signedAt': now.millisecondsSinceEpoch,
       'signatureHash': ?signatureHash,
     });
+
+    // Freeze permanent immutable contract snapshot in /rental_contracts/{contractId}
+    final contractId = 'contract_${rentalId}_${now.millisecondsSinceEpoch}';
+    final hostIsVerified = rentalDoc['hostIsVerified'] == true || rentalDoc['hostVerificationStatus'] == 'VERIFIED';
+    final renteeIsVerified = rentalDoc['renteeIsVerified'] == true || rentalDoc['renteeVerificationStatus'] == 'VERIFIED';
+    final contractDoc = {
+      'contractId': contractId,
+      'rentalId': rentalId,
+      'contractType': rentalDoc['contractType'] ?? 'tranyx',
+      'contractTerms': rentalDoc['contractTerms'] ?? 'Standard P2P terms',
+      'hostId': rentalDoc['hostId'],
+      'hostName': rentalDoc['hostName'],
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': rentalDoc['hostVerificationStatus'] ?? (hostIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'hostVerificationTier': rentalDoc['hostVerificationTier'] ?? (hostIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeId': rentalDoc['renteeId'],
+      'renteeName': rentalDoc['renteeName'],
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': rentalDoc['renteeVerificationStatus'] ?? (renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'renteeVerificationTier': rentalDoc['renteeVerificationTier'] ?? (renteeIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeLicenseNumber': rentalDoc['renteeLicenseNumber'] ?? '',
+      'renteeSignature': signatureDataUrl,
+      'signatureHash': signatureHash ?? '',
+      'signedAt': now.millisecondsSinceEpoch,
+      'totalCost': rentalDoc['totalCost'],
+      'startDate': rentalDoc['startDate'],
+      'endDate': rentalDoc['endDate'],
+      'status': 'Executed',
+      'isImmutableSnapshot': true,
+      'executedAt': now.millisecondsSinceEpoch,
+    };
+    await setDocument('rental_contracts/$contractId', contractDoc);
 
     final hostId = rentalDoc['hostId'] as String;
     final renteeName = rentalDoc['renteeName'] as String? ?? 'Renter';
@@ -2803,6 +3028,22 @@ class FirestoreService {
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
 
+    final hostUser = await getUser(property.hostId);
+    final hostIsVerified = hostUser != null
+        ? (hostUser.idVerified || hostUser.verificationLevel >= 2)
+        : (property.hostIsVerified ?? (property.hostVerificationStatus == 'VERIFIED'));
+    final hostVerificationTier = hostUser != null
+        ? PartyVerificationHelper.formatVerificationTier(level: hostUser.verificationLevel, idVerified: hostUser.idVerified)
+        : (property.hostVerificationTier ?? (hostIsVerified ? 'Government ID Verified' : 'None'));
+    final hostVerificationStatus = hostIsVerified ? 'VERIFIED' : 'UNVERIFIED';
+
+    final renteeIsVerified = rentee.idVerified || rentee.verificationLevel >= 2;
+    final renteeVerificationTier = PartyVerificationHelper.formatVerificationTier(
+      level: rentee.verificationLevel,
+      idVerified: rentee.idVerified,
+    );
+    final renteeVerificationStatus = renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED';
+
     final discount = discountAmount ?? 0.0;
     final discountedCost = (totalCost - discount).clamp(0.0, 999999.0);
     final bookingFee = discountedCost * 0.03;
@@ -2856,6 +3097,12 @@ class FirestoreService {
       'startDate': startDate,
       'endDate': endDate,
       'licenseNumber': licenseNumber ?? '',
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': hostVerificationStatus,
+      'hostVerificationTier': hostVerificationTier,
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': renteeVerificationStatus,
+      'renteeVerificationTier': renteeVerificationTier,
       'promoCode': ?promoCode,
       if (promoCode != null) 'discountAmount': discount,
     };
@@ -2945,6 +3192,12 @@ class FirestoreService {
       'currentRequestId': requestId,
       'allowChat': allowChat,
       'licenseNumber': reqDoc['licenseNumber'] ?? '',
+      'hostIsVerified': reqDoc['hostIsVerified'] ?? (propDoc['hostIsVerified'] ?? (propDoc['hostVerificationStatus'] == 'VERIFIED')),
+      'hostVerificationStatus': reqDoc['hostVerificationStatus'] ?? (propDoc['hostVerificationStatus'] ?? ((propDoc['hostIsVerified'] == true) ? 'VERIFIED' : 'UNVERIFIED')),
+      'hostVerificationTier': reqDoc['hostVerificationTier'] ?? (propDoc['hostVerificationTier'] ?? ((propDoc['hostIsVerified'] == true) ? 'Government ID Verified' : 'None')),
+      'renteeIsVerified': reqDoc['renteeIsVerified'] ?? (reqDoc['renteeVerificationStatus'] == 'VERIFIED'),
+      'renteeVerificationStatus': reqDoc['renteeVerificationStatus'] ?? 'UNVERIFIED',
+      'renteeVerificationTier': reqDoc['renteeVerificationTier'] ?? 'None',
     });
 
     // 4. Reject other requests
@@ -2992,7 +3245,6 @@ class FirestoreService {
       await decrementPromoUsage(promoCode, renteeId);
     }
 
-
     final rentee = await getUser(renteeId);
     if (rentee != null) {
       await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
@@ -3031,6 +3283,38 @@ class FirestoreService {
       'signedAt': now.millisecondsSinceEpoch,
       'signatureHash': ?signatureHash,
     });
+
+    // Freeze permanent immutable contract snapshot in /rental_contracts/{contractId}
+    final contractId = 'contract_${propertyId}_${now.millisecondsSinceEpoch}';
+    final hostIsVerified = propDoc['hostIsVerified'] == true || propDoc['hostVerificationStatus'] == 'VERIFIED';
+    final renteeIsVerified = propDoc['renteeIsVerified'] == true || propDoc['renteeVerificationStatus'] == 'VERIFIED';
+    final contractDoc = {
+      'contractId': contractId,
+      'propertyId': propertyId,
+      'contractType': propDoc['contractType'] ?? 'tranyx',
+      'contractTerms': propDoc['contractTerms'] ?? 'Standard P2P lease terms',
+      'hostId': propDoc['hostId'],
+      'hostName': propDoc['hostName'],
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': propDoc['hostVerificationStatus'] ?? (hostIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'hostVerificationTier': propDoc['hostVerificationTier'] ?? (hostIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeId': propDoc['renteeId'],
+      'renteeName': propDoc['renteeName'],
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': propDoc['renteeVerificationStatus'] ?? (renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'renteeVerificationTier': propDoc['renteeVerificationTier'] ?? (renteeIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeLicenseNumber': propDoc['licenseNumber'] ?? '',
+      'renteeSignature': signatureDataUrl,
+      'signatureHash': signatureHash ?? '',
+      'signedAt': now.millisecondsSinceEpoch,
+      'totalCost': propDoc['totalCost'],
+      'startDate': propDoc['startDate'],
+      'endDate': propDoc['endDate'],
+      'status': 'Executed',
+      'isImmutableSnapshot': true,
+      'executedAt': now.millisecondsSinceEpoch,
+    };
+    await setDocument('rental_contracts/$contractId', contractDoc);
 
     final hostId = propDoc['hostId'] as String;
     final renteeName = propDoc['renteeName'] as String? ?? 'Renter';

@@ -20,6 +20,8 @@ import 'package:tranyx_mobile/features/profile/presentation/widgets/rewards_pane
 import 'package:tranyx_mobile/features/profile/presentation/widgets/subscription_pane.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 import 'package:tranyx_mobile/core/utils/enums.dart';
+import 'package:tranyx_mobile/core/widgets/user_badge_widget.dart';
+import 'package:tranyx_mobile/core/widgets/interactive_walkthrough_overlay.dart';
 
 class ProfileView extends ConsumerStatefulWidget {
   final bool isTablet;
@@ -691,15 +693,26 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      displayName,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: isDarkMode
-                            ? AppColors.darkText
-                            : AppColors.lightText,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          displayName,
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: isDarkMode
+                                ? AppColors.darkText
+                                : AppColors.lightText,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        UserBadgeWidget.fromDynamic(
+                          verificationLevel: profile?.verificationLevel,
+                          idVerified: profile?.idVerified,
+                          size: 16,
+                          showLabel: true,
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 6),
                     Container(
@@ -760,6 +773,18 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
             buildProfileMenu(Icons.star_rounded, "Hybrid PRO Subscription", 'subscription'),
             const SizedBox(height: 12),
             buildProfileMenu(Icons.security, "Trust & Verification", 'trust'),
+            const SizedBox(height: 12),
+            buildProfileMenu(
+              Icons.explore_outlined,
+              "App Guide & Verification Levels",
+              'guide',
+              onTap: () {
+                InteractiveWalkthroughOverlay.show(
+                  context,
+                  recordAsSeen: false,
+                );
+              },
+            ),
             const SizedBox(height: 12),
             buildProfileMenu(Icons.history, "History & Earnings", 'history'),
             const SizedBox(height: 12),

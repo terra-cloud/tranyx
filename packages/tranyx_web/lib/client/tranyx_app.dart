@@ -46,6 +46,7 @@ import '../client/components/kyc_id_modal.dart';
 import '../client/components/kyc_bg_modal.dart';
 import '../client/widgets/session_expired_modal.dart';
 import '../client/widgets/withdraw_modal.dart';
+import '../client/components/interactive_walkthrough_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -63,9 +64,24 @@ class TranyxAppState extends State<TranyxApp> {
   bool isAuthLoading = false;
   String? authError;
   String? fullScreenPhotoUrl;
+  bool showWalkthroughModal = false;
 
   void showFullScreenPhoto(String url) {
     setState(() => fullScreenPhotoUrl = url);
+  }
+
+  void openWalkthroughModal() => setState(() => showWalkthroughModal = true);
+  void closeWalkthroughModal() => setState(() => showWalkthroughModal = false);
+
+  void checkAndTriggerWalkthrough() {
+    final uid = userProfile?.uid ?? SessionStorage.uid;
+    if (uid == null) return;
+    try {
+      final seen = web.window.localStorage.getItem('has_seen_onboarding_$uid');
+      if (seen != 'true') {
+        setState(() => showWalkthroughModal = true);
+      }
+    } catch (_) {}
   }
 
   AccountType accountType = AccountType.employer;
@@ -184,6 +200,8 @@ class TranyxAppState extends State<TranyxApp> {
   JobCategory? selectedJobCategory;
   JobCategoryGroup? selectedJobCategoryGroup;
   bool isGeneratingDesc = false;
+  bool showAIDraftModal = false;
+  String aiDraftPreview = '';
   JobDateType jobDateType = JobDateType.flexible;
   String jobDate = '';
   TimePref timePref = TimePref.morning;
@@ -407,6 +425,10 @@ class TranyxAppState extends State<TranyxApp> {
     Timer(const Duration(seconds: 5), () {
       setState(() => latestToastNotification = null);
     });
+  }
+
+  void alertDialog(String title, String message) {
+    showAppToast(title, message);
   }
 
   void exitJobDetails() {
@@ -744,6 +766,7 @@ class TranyxAppState extends State<TranyxApp> {
         _startListeningRentals();
         _startListeningProperties();
         await handleQrVerificationParams();
+        checkAndTriggerWalkthrough();
 
         // Auto-execute pending QR verification if one exists and we are logged in
         if (pendingQrJobId != null && pendingQrCode != null) {
@@ -1355,6 +1378,7 @@ class TranyxAppState extends State<TranyxApp> {
       });
 
       initializeProfileEditing();
+      checkAndTriggerWalkthrough();
       await loadKycSubmission();
       await loadHoldbacks();
 
@@ -1460,6 +1484,9 @@ class TranyxAppState extends State<TranyxApp> {
         authView = AuthView.login;
         activeTab = AppTab.home;
       });
+
+      // Launch walkthrough for new registered user
+      openWalkthroughModal();
 
       // Link Phantom wallet if present from sign-in flow
       if (pendingWalletPublicKey != null) {
@@ -1680,6 +1707,7 @@ class TranyxAppState extends State<TranyxApp> {
       });
 
       initializeProfileEditing();
+      openWalkthroughModal();
 
       if (pendingWalletPublicKey != null) {
         final walletKey = pendingWalletPublicKey!;
@@ -1849,23 +1877,25 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   bool checkProfanity(String text) {
-    if (text.isEmpty) return false;
-    final cleanText = text.toLowerCase();
-    final bannedWords = const [
+    if (text.trim().isEmpty) return false;
+    final bannedPhrases = const [
       'putang ina',
+      'tang ina',
       'tangina',
       'gago',
       'tarantado',
       'kupal',
       'puki',
-      'kiki',
       'puta',
       'pota',
       'bobo',
       'pakyu',
       'ulol',
       'salsal',
+      'kantot',
       'fuck',
+      'fucking',
+      'fucker',
       'shit',
       'asshole',
       'bitch',
@@ -1875,8 +1905,12 @@ class TranyxAppState extends State<TranyxApp> {
       'dick',
       'cock',
     ];
-    for (final word in bannedWords) {
-      if (cleanText.contains(word)) {
+    for (final phrase in bannedPhrases) {
+      final pattern = RegExp(
+        r'(^|[^\w])' + RegExp.escape(phrase) + r'([^\w]|$)',
+        caseSensitive: false,
+      );
+      if (pattern.hasMatch(text)) {
         return true;
       }
     }
@@ -4078,90 +4112,26 @@ class TranyxAppState extends State<TranyxApp> {
     final job = selectedJobData;
     if (token == null || job == null) return;
 
+    final acceptedId = job['acceptedApplicantId'] as String?;
+    final status = (job['status'] as String? ?? '').toLowerCase();
+    final isCommitted = (acceptedId != null && acceptedId.trim().isNotEmpty) ||
+        status == 'in progress' ||
+        status == 'in_progress' ||
+        status == 'accepted' ||
+        status == 'mutual_cancel_pending';
+
+    if (isCommitted) {
+      alertDialog(
+        'Cancellation Locked',
+        'This job has an active Nyxian hire. Unilateral cancellation is disabled to protect committed time and preparation. If you have an issue or dispute, please contact Admin / Support.',
+      );
+      return;
+    }
+
     setState(() => isUpdatingJobStatus = true);
     try {
       final svc = FirestoreService(token, _handleTokenRefresh);
-      final jobDoc = await svc.getDocument('jobs/${job['id']}');
-
-      if (jobDoc != null) {
-        final employerId = jobDoc['creatorId'] as String?;
-        final nyxianId = jobDoc['acceptedApplicantId'] as String?;
-
-        final catName = (jobDoc['category'] as String? ?? '').toLowerCase();
-        final cat = JobCategory.values.firstWhere(
-          (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
-          orElse: () => JobCategory.others,
-        );
-        final hasTracker = jobDoc['hasTracker'] == true || jobDoc['hasTracker'] == 'true' || cat.hasTracker;
-
-        final status = (jobDoc['status'] as String? ?? '').toLowerCase();
-        final reachedFirstPoint =
-            hasTracker &&
-            (status == 'arrived_pickup' ||
-                status == 'paid_cashier' ||
-                status == 'in_transit' ||
-                status == 'arrived_dropoff' ||
-                status == 'done' ||
-                status == 'completed');
-
-        // 1. Check for escrow
-        final escrowDoc = await svc.getEscrow(job['id'] as String);
-        if (escrowDoc != null && employerId != null) {
-          final totalEscrow = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
-          final double compensation = reachedFirstPoint ? (totalEscrow >= 20.0 ? 20.0 : totalEscrow) : 0.0;
-          final refundAmount = totalEscrow - compensation;
-
-          // 2. Refund to Employer
-          if (refundAmount > 0.0) {
-            final empDoc = await svc.getDocument('users/$employerId');
-            if (empDoc != null) {
-              final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-              final newBal = currentBal + refundAmount;
-
-              await svc.createOrUpdate('users/$employerId', {
-                ...empDoc,
-                'tyxBalance': newBal,
-              });
-
-              // Update local balance if current user is the employer
-              if (employerId == SessionStorage.uid) {
-                walletBalance = newBal;
-                if (userProfile != null) {
-                  userProfile = userProfile!.copyWith(tyxBalance: newBal);
-                }
-              }
-            }
-          }
-
-          // 3. Compensation to Nyxian
-          if (compensation > 0.0 && nyxianId != null) {
-            final nyxDoc = await svc.getDocument('users/$nyxianId');
-            if (nyxDoc != null) {
-              final nyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-              final newNyxBal = nyxBal + compensation;
-
-              await svc.createOrUpdate('users/$nyxianId', {
-                ...nyxDoc,
-                'tyxBalance': newNyxBal,
-              });
-
-              // Update local balance if current user is the Nyxian
-              if (nyxianId == SessionStorage.uid) {
-                walletBalance = newNyxBal;
-                if (userProfile != null) {
-                  userProfile = userProfile!.copyWith(tyxBalance: newNyxBal);
-                }
-              }
-            }
-          }
-
-          // 4. Delete escrow
-          await svc.deleteDocument('escrow/${job['id']}');
-        }
-
-        // 5. Update Job Status
-        await svc.updateJobStatus(job['id'] as String, 'Cancelled');
-      }
+      await svc.cancelJob(job['id'] as String, SessionStorage.uid ?? '');
 
       setState(() => isUpdatingJobStatus = false);
       await loadJobs();
@@ -4171,8 +4141,75 @@ class TranyxAppState extends State<TranyxApp> {
           'status': 'Cancelled',
         });
       }
+      alertDialog('Job Cancelled', 'The job has been cancelled and 100% of escrow has been refunded to your wallet.');
     } catch (e) {
       setState(() => isUpdatingJobStatus = false);
+      alertDialog('Error', 'Failed to cancel job: $e');
+    }
+  }
+
+  Future<void> handleAdminOverrideCancelJob(String jobId, String reason) async {
+    final token = SessionStorage.idToken;
+    final adminUid = SessionStorage.uid;
+    if (token == null || adminUid == null) return;
+
+    if (reason.trim().length < 20) {
+      alertDialog('Validation Error', 'Admin override requires a justification reason of at least 20 characters.');
+      return;
+    }
+
+    setState(() => isUpdatingJobStatus = true);
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      await svc.adminOverrideCancelJob(jobId, adminUid, reason);
+
+      setState(() => isUpdatingJobStatus = false);
+      await loadJobs();
+      if (selectedJobData != null && selectedJobData!['id'] == jobId) {
+        selectJobAndLoadDetails({
+          ...selectedJobData!,
+          'status': 'ADMIN_CANCELLED',
+        });
+      }
+      alertDialog('Admin Override Complete', 'The job has been administrative-cancelled with full audit logging.');
+    } catch (e) {
+      setState(() => isUpdatingJobStatus = false);
+      alertDialog('Error', 'Failed to override cancel job: $e');
+    }
+  }
+
+  Future<void> handleRequestJobDispute(Map<String, dynamic> job) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) {
+      alertDialog('Authentication Required', 'Please sign in to submit a dispute ticket.');
+      return;
+    }
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final jobId = job['id'] as String? ?? '';
+      final jobTitle = job['title'] as String? ?? 'Gig';
+      final employerId = job['creatorId'] as String? ?? uid;
+      final acceptedNyxian = job['acceptedApplicantId'] as String?;
+      final escrow = (job['pricingValue'] as num?)?.toDouble() ?? 0.0;
+
+      await svc.submitDispute(
+        jobId: jobId,
+        jobTitle: jobTitle,
+        employerId: employerId,
+        acceptedNyxianId: acceptedNyxian,
+        reason: 'Dispute review requested by user regarding active gig commitments.',
+        escrowAmount: escrow,
+        openedByUid: uid,
+      );
+
+      alertDialog(
+        'Dispute Ticket Submitted',
+        'Your dispute ticket for "$jobTitle" (Job ID: $jobId) has been dispatched to the Tranyx Admin Portal for arbitration and review.',
+      );
+    } catch (e) {
+      alertDialog('Dispute Error', 'Failed to submit dispute ticket: $e');
     }
   }
 
@@ -5258,12 +5295,14 @@ class TranyxAppState extends State<TranyxApp> {
 
   // ── Gemini ──────────────────────────────────────────────────
 
-  Future<String> generateJobDesc(String title) async {
+  Future<String> generateJobDesc(String title, {String? categoryLabel}) async {
+    if (_gemini == null) _initGemini();
     if (_gemini == null) return 'AI service not available.';
-    return _gemini!.generateJobDescription(title);
+    return _gemini!.generateJobDescription(title, categoryLabel: categoryLabel);
   }
 
   Future<String> generateCoverNote(String title) async {
+    if (_gemini == null) _initGemini();
     if (_gemini == null) return 'AI service not available.';
     return _gemini!.generateCoverNote(title);
   }
@@ -6730,6 +6769,9 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Delete confirmation modal overlay
       if (showDeleteConfirm) DeleteConfirmModalComponent(state: this),
+
+      // Walkthrough Tour overlay
+      if (showWalkthroughModal) InteractiveWalkthroughModal(state: this),
 
       // Chat overlay
       if (showChat) ChatWidget(state: this),

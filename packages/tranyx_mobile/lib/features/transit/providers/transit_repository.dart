@@ -149,7 +149,7 @@ class TransitRepository {
     required String? renteePhotoUrl,
     required String durationType,
     required int multiplier,
-    required String licenseNumber,
+    String? licenseNumber,
     required double totalCost,
     required bool hireWithDriver,
     required String rentalType,

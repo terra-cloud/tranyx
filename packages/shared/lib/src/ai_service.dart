@@ -68,6 +68,22 @@ class TranyxAIUserContext {
   }
 }
 
+/// Exception thrown when a job title does not reasonably align with the selected category.
+class CategoryMismatchException implements Exception {
+  final String message;
+  final String title;
+  final String categoryLabel;
+
+  const CategoryMismatchException({
+    required this.message,
+    required this.title,
+    required this.categoryLabel,
+  });
+
+  @override
+  String toString() => message;
+}
+
 /// Unified Tranyx AI Assistant & Generative Engine powered by Google Gemini.
 /// Shared seamlessly across both Mobile (Flutter) and Web (Jaspr).
 class TranyxAIService {
@@ -192,7 +208,7 @@ class TranyxAIService {
           // 4xx Client error (e.g. rate limit, bad payload)
           final errBody = jsonDecode(res.body);
           final msg = errBody['error']?['message'] ?? res.body;
-          throw Exception('Gemini API Error (${res.statusCode}): $msg');
+          throw Exception('Nyx Error (${res.statusCode}): $msg');
         }
       } catch (e) {
         if (attempt == 3) rethrow;
@@ -200,43 +216,368 @@ class TranyxAIService {
       }
     }
 
-    throw Exception('Gemini request failed: HTTP ${lastResponse?.statusCode}');
+    throw Exception('Request failed: HTTP ${lastResponse?.statusCode}');
   }
 
   // ── Auto-Drafting & Generative Features ───────────────────────────────────
 
+  /// Checks whether a given title has a distinct mismatch with the category label.
+  static bool isCategoryMismatch(String title, String categoryLabel) {
+    if (title.trim().isEmpty || categoryLabel.trim().isEmpty) return false;
+    final t = title.toLowerCase();
+    final c = categoryLabel.toLowerCase();
+
+    // Specific domain keywords
+    final isPlumbingTitle = RegExp(
+      r'\b(plumb|tubero|pipe|tubo|gripo|lababo|sink|inidoro|faucet|drain|leak|tumutulo|bara|kubeta)\b',
+      caseSensitive: false,
+    ).hasMatch(t);
+
+    final isElectricalTitle = RegExp(
+      r'\b(electric|kuryente|wire|wiring|outlet|breaker|ilaw|fuse|solar|ilawan|switch|kuryentista|elektrisyan)\b',
+      caseSensitive: false,
+    ).hasMatch(t);
+
+    final isCarpentryTitle = RegExp(
+      r'\b(carpenter|karpintero|karpentero|panday|woodwork|drywall|kisame|pinto|cabinet|kahoy|lamesa|upuan|tabla)\b',
+      caseSensitive: false,
+    ).hasMatch(t);
+
+    final isVehicleRentalTitle = RegExp(
+      r'\b(rent car|rent van|rent motorcycle|arkila|sarakyan|car rental|van rental|motorcycle rental|hire van|arkila ng sasakyan|arkila kotse)\b',
+      caseSensitive: false,
+    ).hasMatch(t);
+
+    final isCourierDeliveryTitle = RegExp(
+      r'\b(courier|delivery|deliver|hatid|pickup|padala|paghatod|paghakot|package delivery|maghatid|drayber ng motor|rider)\b',
+      caseSensitive: false,
+    ).hasMatch(t);
+
+    final isCleaningTitle = RegExp(
+      r'\b(clean|linis|maglinis|paglimpyo|janitor|maid|housekeeping|general cleaning)\b',
+      caseSensitive: false,
+    ).hasMatch(t);
+
+    final isCookingTitle = RegExp(
+      r'\b(cook|magluto|chef|catering|pagkaon|pagluto|kusinero|kusinera|handa)\b',
+      caseSensitive: false,
+    ).hasMatch(t);
+
+    final isMechanicTitle = RegExp(
+      r'\b(mechanic|mekaniko|talyer|makina|engine repair|motorcycle repair|car repair|gulong|preno)\b',
+      caseSensitive: false,
+    ).hasMatch(t);
+
+    final isPaintingTitle = RegExp(
+      r'\b(painter|pintor|pintura|magpintura|house paint)\b',
+      caseSensitive: false,
+    ).hasMatch(t);
+
+    final isGardeningTitle = RegExp(
+      r'\b(gardener|hardinero|halaman|tabas ng damo|landscaping|lawn mowing)\b',
+      caseSensitive: false,
+    ).hasMatch(t);
+
+    final isLaundryTitle = RegExp(
+      r'\b(laundry|labada|labandera|maglaba|plantsa|magplantsa)\b',
+      caseSensitive: false,
+    ).hasMatch(t);
+
+    final isTutorTitle = RegExp(
+      r'\b(tutor|tutoring|teacher|guro|math tutor|english tutor|piano lesson)\b',
+      caseSensitive: false,
+    ).hasMatch(t);
+
+    final isPlumbingCat = c.contains('plumb') || c.contains('tubero');
+    final isElectricalCat = c.contains('electric') || c.contains('kuryente');
+    final isCarpentryCat = c.contains('carpenter') || c.contains('panday') || c.contains('wood');
+    final isVehicleRentalCat = c.contains('vehicle') || c.contains('rental') || c.contains('transport');
+    final isCourierDeliveryCat = c.contains('courier') || c.contains('delivery');
+    final isCleaningCat = c.contains('clean') || c.contains('housekeeping');
+    final isCookingCat = c.contains('cook') || c.contains('catering');
+    final isMechanicCat = c.contains('mechanic') || c.contains('mekaniko');
+    final isPaintingCat = c.contains('paint') || c.contains('pintor');
+    final isGardeningCat = c.contains('garden') || c.contains('landscaping');
+    final isLaundryCat = c.contains('laundry') || c.contains('labandera');
+    final isTutorCat = c.contains('tutor') || c.contains('academic');
+
+    // Cross-match check: If title specifies Domain A, but Category is Domain B (where A != B), it's a mismatch!
+    if (isElectricalCat && (isPlumbingTitle || isCarpentryTitle || isVehicleRentalTitle || isCourierDeliveryTitle || isCleaningTitle || isCookingTitle || isMechanicTitle || isPaintingTitle || isGardeningTitle || isLaundryTitle || isTutorTitle)) {
+      return true;
+    }
+    if (isPlumbingCat && (isElectricalTitle || isCarpentryTitle || isVehicleRentalTitle || isCourierDeliveryTitle || isCleaningTitle || isCookingTitle || isMechanicTitle || isPaintingTitle || isGardeningTitle || isLaundryTitle || isTutorTitle)) {
+      return true;
+    }
+    if (isCarpentryCat && (isElectricalTitle || isPlumbingTitle || isVehicleRentalTitle || isCourierDeliveryTitle || isCleaningTitle || isCookingTitle || isMechanicTitle || isPaintingTitle || isGardeningTitle || isLaundryTitle || isTutorTitle)) {
+      return true;
+    }
+    if (isVehicleRentalCat && (isElectricalTitle || isPlumbingTitle || isCarpentryTitle || isCleaningTitle || isCookingTitle || isPaintingTitle || isGardeningTitle || isLaundryTitle || isTutorTitle)) {
+      return true;
+    }
+    if (isCourierDeliveryCat && (isElectricalTitle || isPlumbingTitle || isCarpentryTitle || isCookingTitle || isCleaningTitle || isPaintingTitle || isGardeningTitle || isLaundryTitle || isTutorTitle)) {
+      return true;
+    }
+    if (isCleaningCat && (isElectricalTitle || isPlumbingTitle || isCarpentryTitle || isVehicleRentalTitle || isCookingTitle || isMechanicTitle || isTutorTitle)) {
+      return true;
+    }
+    if (isCookingCat && (isElectricalTitle || isPlumbingTitle || isCarpentryTitle || isVehicleRentalTitle || isCourierDeliveryTitle || isCleaningTitle || isMechanicTitle || isPaintingTitle || isGardeningTitle || isLaundryTitle || isTutorTitle)) {
+      return true;
+    }
+    if (isMechanicCat && (isPlumbingTitle || isCarpentryTitle || isCleaningTitle || isCookingTitle || isPaintingTitle || isGardeningTitle || isLaundryTitle || isTutorTitle)) {
+      return true;
+    }
+    if (isPaintingCat && (isPlumbingTitle || isElectricalTitle || isVehicleRentalTitle || isCourierDeliveryTitle || isCookingTitle || isMechanicTitle || isLaundryTitle || isTutorTitle)) {
+      return true;
+    }
+    if (isGardeningCat && (isPlumbingTitle || isElectricalTitle || isCarpentryTitle || isVehicleRentalTitle || isCourierDeliveryTitle || isCookingTitle || isMechanicTitle || isLaundryTitle || isTutorTitle)) {
+      return true;
+    }
+    if (isLaundryCat && (isPlumbingTitle || isElectricalTitle || isCarpentryTitle || isVehicleRentalTitle || isCourierDeliveryTitle || isCookingTitle || isMechanicTitle || isPaintingTitle || isGardeningTitle || isTutorTitle)) {
+      return true;
+    }
+    if (isTutorCat && (isPlumbingTitle || isElectricalTitle || isCarpentryTitle || isVehicleRentalTitle || isCourierDeliveryTitle || isCleaningTitle || isCookingTitle || isMechanicTitle || isPaintingTitle || isGardeningTitle || isLaundryTitle)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /// Detects whether the input text is primarily in Waray-Waray, Tagalog, or English.
+  static String detectLanguage(String text) {
+    final lower = text.toLowerCase();
+
+    // Waray-Waray markers
+    final warayMarkers = [
+      'nanginginahanglan',
+      'nagkikinahanglan',
+      'kinahanglan hin',
+      'kailangan hin',
+      'para hit',
+      'ha tacloban',
+      'hit balay',
+      'drayber',
+      'paghakot',
+      'paglimpyo',
+      'tubero hit',
+      'hin motor',
+      'ngadto',
+      'bubuhaton',
+      'pag-ayad',
+      'waray',
+      'maupay',
+      'sarakyan',
+      'matatapuran',
+      'masasarigan',
+      'san panday',
+      'san tubero',
+      'san karpentero',
+      'ha catbalogan',
+      'hin tsuper',
+      'hin panday',
+      'hin tubero',
+      'hin kuryente',
+      'hit karsada',
+      'ha leyte',
+      'ha samar',
+      'ak san',
+      'nanginginahanglan ak',
+      'karpentero',
+    ];
+    for (final marker in warayMarkers) {
+      if (lower.contains(marker)) return 'waray';
+    }
+
+    // Tagalog markers
+    final tagalogMarkers = [
+      'kailangan ng',
+      'naghahanap ng',
+      'kailangan',
+      'naghahanap',
+      'para sa',
+      'sa bahay',
+      'maglinis',
+      'magluto',
+      'mag-ayos',
+      'maghatid',
+      'tubero',
+      'karpintero',
+      'sasakyan',
+      'maaasahan',
+      'maayos',
+      'gawaing',
+      'ayos',
+    ];
+    for (final marker in tagalogMarkers) {
+      if (lower.contains(marker)) return 'tagalog';
+    }
+
+    return 'english';
+  }
+
+  /// Returns a rich, category-specific job description detailing tasks, tools, and safety.
+  /// Used for rich generative descriptions and offline fallback without ever wrapping titles in raw quotes.
+  static String getCategorySpecificDraft({
+    required String categoryLabel,
+    required String language,
+    String? title,
+  }) {
+    final cat = categoryLabel.toLowerCase();
+
+    if (language == 'waray') {
+      if (cat.contains('electric') || cat.contains('kuryente')) {
+        return 'Nagkikinahanglan hin maabtik ngan eksperyensyado nga elektrisyan para hit pag-instalar, pag-check, ngan pag-ayad hit mga kable, breaker, outlets, ngan suga. Kinahanglan may-ada kompleto nga gamit sugad hit multi-tester ngan pliers, ngan nasunod ha panseguridad nga pamaagi para malikayan an disgrasya.';
+      } else if (cat.contains('plumb') || cat.contains('tubero')) {
+        return 'Nagkikinahanglan hin masasarigan nga tubero para hit pag-ayad hit tumutulo o nabara nga mga tubo, gripo, lababo, ngan drainage. Kinahanglan may-ada kalugaringon nga gamit sugad hit pipe wrench ngan andam mag-ayad dayon.';
+      } else if (cat.contains('carpenter') || cat.contains('panday') || cat.contains('wood')) {
+        return 'Nagkikinahanglan hin eksperyensyado nga panday para hit paghimo o pag-ayad hit mga kahoy nga istruktura sugad hit pinto, kisame, cabinet, o lamesa. Kinahanglan may-ada kompleto nga gamit para ha panday ngan maaram hit husto nga sukol.';
+      } else if (cat.contains('delivery') || cat.contains('courier')) {
+        return 'Nagkikinahanglan hin masasarigan nga courier o drayber para hit madagmit ngan talwas nga paghakot ngan paghatod hit package ngadto ha destinasyon. Kinahanglan may-ada kalugaringon nga sarakyan, balido nga lisensya, ngan mahibaro hit mga karsada para maabot ha saktong oras.';
+      } else if (cat.contains('vehicle') || cat.contains('rental') || cat.contains('transport')) {
+        return 'Nagbibiling hin sarakyan para arkilahan para hit biyahe o transportasyon. Kinahanglan aada ha maupay ngan talwas nga kondisyon an sarakyan, kumpleto an rehistro ngan papeles, ngan masunod ha ginkasabutan nga iskedyul ngan rota.';
+      } else if (cat.contains('clean') || cat.contains('housekeeping')) {
+        return 'Nagkikinahanglan hin maasikaso ngan masasarigan nga para-limpyo para hit bug-os nga paglimpyo hit kwarto, salog, bintana, ngan palibot. Kinahanglan maaram hit tama nga pamaagi hit paglimpyo ngan maingat ha mga gamit.';
+      } else if (cat.contains('aircon') || cat.contains('cooling')) {
+        return 'Nagkikinahanglan hin eksperyensyado nga aircon technician para hit paglimpyo, pag-check hit freon, ngan pag-ayad hit cooling system. Kinahanglan may-ada pressure washer ngan gamit para mabalik an kabugnaw.';
+      } else if (cat.contains('mechanic') || cat.contains('mekaniko')) {
+        return 'Nagkikinahanglan hin eksperyensyado nga mekaniko para hit pagsusi ngan pag-ayad hit makina, preno, ngan electrical hit sarakyan para masiguro nga talwas an pagbiyahe.';
+      } else if (cat.contains('cook') || cat.contains('catering')) {
+        return 'Nagkikinahanglan hin maabtik nga kusinero o tagaluto para hit pag-andam ngan pagluto hin manamit ngan malimpyo nga pagkaon. Kinahanglan maaram ha food safety ngan andam magluto ha oras.';
+      } else if (cat.contains('paint') || cat.contains('pintor')) {
+        return 'Nagkikinahanglan hin maantigo nga pintor para hit pagpintura hit bungbong, kisame, o gawas hit balay. Kinahanglan maaram mag-scrape, mag-primer, ngan magpatahom hit pintura.';
+      } else if (cat.contains('garden') || cat.contains('landscaping')) {
+        return 'Nagkikinahanglan hin hardinero para hit pag-ataman hit mga tanom, pagtabas hit damo, ngan pag-ayos hit palibot han natad.';
+      } else if (cat.contains('laundry') || cat.contains('labandera')) {
+        return 'Nagkikinahanglan hin maasikaso nga labandera para hit paglaba, pagbanlaw, ngan pagplantsa hit mga panapton nang maingat ngan malimpyo.';
+      }
+      return 'Nagkikinahanglan hin eksperyensyado ngan masasarigan nga trabahador para hit serbisyo ha $categoryLabel. Kinahanglan may-ada kalugaringon nga gamit, maaram ha trabaho, ngan andam magserbisyo dayon.';
+    } else if (language == 'tagalog') {
+      if (cat.contains('electric') || cat.contains('kuryente')) {
+        return 'Naghahanap kami ng maalam at may karanasang elektrisyan para sa ligtas na pagkakabit ng mga kable, pagsusuri ng circuit breaker, at pag-aayos ng mga outlet o ilaw. Siguraduhing may dalang sariling gamit tulad ng multi-tester at sumusunod sa tamang pamantayan ng kaligtasan sa kuryente.';
+      } else if (cat.contains('plumb') || cat.contains('tubero')) {
+        return 'Naghahanap kami ng maaasahang tubero para magkumpuni ng mga tumutulong tubo, baradong lababo, o sirang gripo. Dapat ay marunong magpalit ng mga fittings, may dalang sariling gamit tulad ng pipe wrench, at handang tapusin ang gawain nang maayos at mabilis.';
+      } else if (cat.contains('carpenter') || cat.contains('panday') || cat.contains('wood')) {
+        return 'Naghahanap kami ng bihasang karpintero para sa paggawa o pagkukumpuni ng mga kahoy tulad ng pinto, kisame, cabinet, o kasangkapan. Dapat ay may sariling mga gamit sa pagkakarpintero, marunong sa tamang sukat, at maingat sa pagkakagawa.';
+      } else if (cat.contains('delivery') || cat.contains('courier')) {
+        return 'Naghahanap kami ng maaasahang courier para sa mabilis at ligtas na pagkuha at paghahatid ng package sa itinakdang lokasyon. Kailangan may sariling maayos na sasakyan, balidong lisensya, at kabisado ang mga ruta para makarating sa tamang oras nang walang sira ang gamit.';
+      } else if (cat.contains('vehicle') || cat.contains('rental') || cat.contains('transport')) {
+        return 'Naghahanap ng maaasahang serbisyo ng sasakyan para sa arkila at transportasyon. Siguraduhing maayos at ligtas ang takbo ng sasakyan, may kumpletong rehistro at dokumento, at masusunod ang napagkasunduang oras at ruta.';
+      } else if (cat.contains('clean') || cat.contains('housekeeping')) {
+        return 'Naghahanap ng masipag at mapagkakatiwalaang tagalinis para sa masusing paglilinis ng mga silid, sahig, bintana, at mga kagamitan. Dapat ay maingat sa mga gamit at masinop sa pag-aayos ng buong lugar.';
+      } else if (cat.contains('aircon') || cat.contains('cooling')) {
+        return 'Naghahanap kami ng maalam na aircon technician para sa cleaning, pagdagdag ng freon, at pagsusuri ng cooling system. Dapat ay may kumpletong gamit tulad ng pressure washer at manifold gauge para manatiling malamig at maayos ang aircon.';
+      } else if (cat.contains('mechanic') || cat.contains('mekaniko')) {
+        return 'Naghahanap ng bihasang mekaniko para sa pagsusuri at pagkukumpuni ng makina, preno, at mechanical parts ng sasakyan. Dapat ay may kumpletong tools, marunong mag-troubleshoot, at masigurong ligtas itakbo ang sasakyan.';
+      } else if (cat.contains('cook') || cat.contains('catering')) {
+        return 'Naghahanap ng mahusay na kusinero para sa paghahanda at pagluluto ng masarap at malinis na pagkain. Dapat ay maalam sa food safety at kayang maghanda sa tamang oras.';
+      } else if (cat.contains('paint') || cat.contains('pintor')) {
+        return 'Naghahanap ng marunong na pintor para sa pagpipintura ng pader, kisame, o labas ng bahay. Marunong mag-scrape, mag-primer, at mag-apply ng magandang finish.';
+      } else if (cat.contains('garden') || cat.contains('landscaping')) {
+        return 'Naghahanap ng hardinero para sa pag-aalaga ng halaman, pagtabas ng damo, at paglilinis ng bakuran.';
+      } else if (cat.contains('laundry') || cat.contains('labandera')) {
+        return 'Naghahanap ng maasahang labandera para sa paglalaba, pagbabanlaw, at pamamalantsa ng mga damit nang maayos at malinis.';
+      }
+      return 'Naghahanap kami ng mahusay at maaasahang manggagawa para sa serbisyo sa $categoryLabel. Dapat ay may sapat na karanasan, may sariling gamit, at handang magsimula agad.';
+    } else {
+      if (cat.contains('electric') || cat.contains('kuryente')) {
+        return 'Seeking a qualified and experienced electrician to perform electrical wiring, inspect circuit breakers, and install or repair electrical outlets safely. The applicant must bring essential electrical tools and testing equipment, ensuring all work complies with safety standards.';
+      } else if (cat.contains('plumb') || cat.contains('tubero')) {
+        return 'Looking for a skilled plumber to inspect and repair leaking pipes, clear blocked drains, and replace damaged faucets or fixtures. Must bring complete plumbing tools such as wrenches and sealants to ensure high-quality and leak-free repairs.';
+      } else if (cat.contains('carpenter') || cat.contains('panday') || cat.contains('wood')) {
+        return 'Seeking a skilled carpenter to handle woodwork fabrication, door or ceiling repairs, framing, and furniture assembly. The ideal candidate must have their own carpentry tools, precision measuring skills, and deliver sturdy, well-finished work.';
+      } else if (cat.contains('delivery') || cat.contains('courier')) {
+        return 'Seeking a dependable courier to manage timely pickup and safe delivery of items to the designated drop-off address. Must possess a roadworthy vehicle, valid driver\'s license, and strong route knowledge to ensure secure transit.';
+      } else if (cat.contains('vehicle') || cat.contains('rental') || cat.contains('transport')) {
+        return 'Looking for a well-maintained vehicle for rental transport. The vehicle must be clean, mechanically sound, fully registered, and available according to the agreed schedule and travel route.';
+      } else if (cat.contains('clean') || cat.contains('housekeeping')) {
+        return 'Seeking a detail-oriented cleaner for comprehensive house cleaning, including sanitizing rooms, floors, windows, and surfaces. Must be trustworthy, thorough, and careful with household items.';
+      } else if (cat.contains('aircon') || cat.contains('cooling')) {
+        return 'Looking for a certified aircon technician to perform deep cleaning, freon replenishment, and cooling system diagnostic repairs. Must have dedicated cleaning pressure pumps, manifold gauges, and ensure optimal cooling performance.';
+      } else if (cat.contains('mechanic') || cat.contains('mekaniko')) {
+        return 'Seeking an experienced mechanic for engine troubleshooting, brake inspection, and general vehicle repairs. Must bring diagnostic tools and wrenches to ensure the vehicle is safe and roadworthy.';
+      } else if (cat.contains('cook') || cat.contains('catering')) {
+        return 'Looking for a skilled cook or catering assistant to prepare and cook high-quality, delicious meals. Must be knowledgeable in food hygiene and punctual in meal preparation.';
+      } else if (cat.contains('paint') || cat.contains('pintor')) {
+        return 'Seeking a professional painter for interior or exterior wall painting, surface prep, priming, and finishing. Must deliver clean, smooth, and even paint coverage.';
+      } else if (cat.contains('garden') || cat.contains('landscaping')) {
+        return 'Looking for an experienced gardener for lawn mowing, plant pruning, weeding, and yard maintenance.';
+      } else if (cat.contains('laundry') || cat.contains('labandera')) {
+        return 'Seeking a reliable laundry worker for washing, rinsing, and ironing clothes with care and attention to fabric types.';
+      }
+      return 'We are looking for a reliable worker to perform $categoryLabel services. The candidate should possess relevant experience and bring necessary tools for completing the job efficiently.';
+    }
+  }
+
   /// Generates a professional, clear, and realistic job description (3-4 sentences).
-  /// Automatically matches the language of the job title (English, Tagalog, or Waray-Waray).
+  /// Automatically validates category alignment and drafts in Waray-Waray, Tagalog, or English.
   Future<String> generateJobDescription(
     String title, {
     String? categoryLabel,
   }) async {
-    if (title.trim().isEmpty) return '';
+    final trimmedTitle = title.trim();
+    if (trimmedTitle.isEmpty) return '';
+
+    // Check category alignment if category is specified
+    if (categoryLabel != null && categoryLabel.trim().isNotEmpty) {
+      if (isCategoryMismatch(trimmedTitle, categoryLabel)) {
+        throw CategoryMismatchException(
+          message:
+              'Category Mismatch: The job title "$trimmedTitle" does not match the selected category "$categoryLabel". Please select the correct category or update your job title.',
+          title: trimmedTitle,
+          categoryLabel: categoryLabel,
+        );
+      }
+    }
 
     final categoryHint = categoryLabel != null && categoryLabel.isNotEmpty
         ? ' in category "$categoryLabel"'
         : '';
 
+    final effectiveCategory = categoryLabel ?? 'General';
+    final detectedLang = detectLanguage(trimmedTitle);
+
     const systemPrompt =
-        'You are an expert recruitment assistant for Tranyx (Philippine on-demand labor & gig marketplace).\n'
+        'You are an expert recruitment and logistics assistant for Tranyx (Philippine on-demand labor, gig & vehicle marketplace).\n'
         'Instructions:\n'
-        '- Generate a concise, clear, and professional job description (3-4 sentences).\n'
-        '- Outline the main responsibilities and specify that the worker should bring standard tools if applicable.\n'
-        '- Output ONLY the raw description text. Do NOT include markdown titles, quotes, conversational greetings, or explanations.\n'
-        '- LANGUAGE MATCHING RULE: Detect the language of the job title. If the title is in Waray-Waray, write the description in Waray-Waray. If it is in Tagalog, write in Tagalog. If in English, write in English.';
+        '- Generate a concise, clear, rich, and professional job description (3-4 sentences).\n'
+        '- CATEGORY ALIGNMENT:\n'
+        '  * Check if the job title fits the category. If there is a complete mismatch, respond with EXACTLY: "MISMATCH: The job title does not match the selected category."\n'
+        '- CATEGORY DUTIES & RICH DESCRIPTIONS:\n'
+        '  * NEVER simply repeat or quote the job title verbatim in quotes. Instead, describe the actual tasks, equipment/tools required, safety standards, and performance expectations relevant to the specified category.\n'
+        '  * If category is related to "Vehicle Rental", "Courier / Delivery", or logistics, include specific logistics terms such as vehicle type/requirements, pickup and drop-off locations, timing/schedule, and safe transit expectations.\n'
+        '  * If category is a trade/skilled service (plumbing, electrical, cleaning, carpentry, aircon, mechanic, cooking, etc.), outline the key tasks, materials, and mention bringing necessary tools/equipment.\n'
+        '- LANGUAGE MATCHING RULE (STRICT):\n'
+        '  * If the job title is in Waray-Waray (e.g. using Waray terms like "nagkikinahanglan", "para hit", "hin", "hit", "ha", "ngadto", "ak san", "san"), write the entire description in natural, fluent Waray-Waray.\n'
+        '  * If the job title is in Tagalog (e.g. using Tagalog terms like "kailangan ng", "naghahanap", "para sa", "sa"), write the entire description in natural, fluent Tagalog.\n'
+        '  * If in English, write in English.\n'
+        '- Output ONLY the raw description text. Do NOT include markdown titles, quotes, conversational greetings, or explanations.';
 
     final prompt =
-        'Job Title: "$title"$categoryHint\nGenerate the job description:';
+        'Job Title: "$trimmedTitle"$categoryHint\nLanguage: $detectedLang\nGenerate the tailored job description:';
 
     try {
       final result = await _callGemini(
         prompt: prompt,
         systemInstruction: systemPrompt,
       );
-      return _cleanOutput(result);
+      final clean = _cleanOutput(result);
+      if (clean.toUpperCase().startsWith('MISMATCH:')) {
+        throw CategoryMismatchException(
+          message:
+              'Category Mismatch: The job title "$trimmedTitle" does not match the selected category "$categoryLabel". Please select the correct category or update your job title.',
+          title: trimmedTitle,
+          categoryLabel: categoryLabel ?? 'General',
+        );
+      }
+      return clean;
+    } on CategoryMismatchException {
+      rethrow;
     } catch (e) {
-      // Clean fallback if offline
-      return 'We are looking for a reliable worker to perform $title. The candidate should possess relevant experience and bring necessary tools for completing the job efficiently.';
+      // Clean fallback if offline or in mock
+      return getCategorySpecificDraft(
+        categoryLabel: effectiveCategory,
+        language: detectedLang,
+        title: trimmedTitle,
+      );
     }
   }
 
@@ -418,10 +759,12 @@ class TranyxAIService {
       }
       return clean;
     } catch (e) {
-      final lastUserMsg = conversationHistory.lastWhere(
-        (m) => m['role'] == 'user',
-        orElse: () => {'content': ''},
-      )['content'] as String? ?? '';
+      final lastUserMsg =
+          conversationHistory.lastWhere(
+            (m) => m['role'] == 'user',
+            orElse: () => {'content': ''},
+          )['content'] ??
+          '';
       return NyxDomainKnowledgeBase.queryKnowledge(lastUserMsg);
     }
   }
