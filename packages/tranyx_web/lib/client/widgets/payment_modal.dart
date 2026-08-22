@@ -572,24 +572,90 @@ class PaymentModalComponent extends StatelessComponent {
                   ),
                 ],
               ] else ...[
-                // Solana Gateway Flow
-                div(classes: 'p-4 rounded-2xl $cardBg space-y-3 text-center', [
-                  span(classes: 'text-xs text-zinc-400 block', [Component.text('Solana Web3 Gateway')]),
-                  div(classes: 'text-2xl font-black text-white', [
-                    Component.text('${amountInSol.toStringAsFixed(4)} SOL'),
+                // ── SOLANA GATEWAY FLOW ──────────────────────────────────────────
+                // Amount input for Solana
+                div(classes: 'text-center pt-1', [
+                  span(classes: 'text-xs font-medium ${isDark ? "text-zinc-500" : "text-zinc-400"} block mb-1', [
+                    Component.text('Deposit Amount (₱)'),
                   ]),
-                  span(classes: 'text-xs text-zinc-500 block', [
-                    Component.text('1 SOL ≈ ₱${rate.toStringAsFixed(0)} PHP'),
+                  div(classes: 'flex items-center justify-center gap-2 border-b-2 border-[#512da8]/40 pb-2 mx-8', [
+                    input(
+                      type: InputType.number,
+                      classes:
+                          'w-full text-center text-3xl font-black text-[#9d74ff] bg-transparent border-none focus:outline-none placeholder:text-[#9d74ff]/30',
+                      attributes: {
+                        'placeholder': '0.00',
+                        'min': '100',
+                        'step': '1',
+                        'id': 'solana-amount-input',
+                        'name': 'amount',
+                        if (amount > 0) 'defaultValue': amount.toInt().toString(),
+                      },
+                      events: {
+                        'input': (e) {
+                          final val = getInputValue(e.target);
+                          final parsed = num.tryParse(val);
+                          s.setState(() => s.depositAmount = parsed != null ? parsed.toDouble() : 0.0);
+                        },
+                      },
+                    ),
+                  ]),
+                  div(classes: 'flex flex-col gap-1 mt-2 text-center', [
+                    span(classes: 'text-[10px] text-[#9d74ff]/70 block font-medium', [
+                      Component.text('1 Tyxbit = 1 Peso (₱)'),
+                    ]),
+                  ]),
+
+                  // Quick Select Chips
+                  div(classes: 'flex flex-wrap justify-center gap-2 mt-3', [
+                    for (final val in const [
+                      (500, '₱500'),
+                      (1000, '₱1,000'),
+                      (2000, '₱2,000'),
+                      (5000, '₱5,000'),
+                      (10000, '₱10,000')
+                    ])
+                      button(
+                        classes:
+                            'px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer '
+                            '${amount == val.$1 ? "bg-[#512da8] text-white border-[#512da8] shadow-md shadow-purple-500/20" : (isDark ? "bg-zinc-800/40 border-zinc-850 text-zinc-300 hover:bg-zinc-800" : "bg-white border-zinc-200 text-zinc-650 hover:bg-zinc-50")}',
+                        events: {
+                          'click': (_) {
+                            s.setState(() => s.depositAmount = val.$1.toDouble());
+                            final el = web.document.getElementById('solana-amount-input');
+                            if (el != null) {
+                              setInputValue(el, val.$1.toString());
+                            }
+                          }
+                        },
+                        [Component.text(val.$2)],
+                      )
                   ]),
                 ]),
 
+                // Solana Conversion Display
+                div(classes: 'p-4 rounded-2xl $cardBg space-y-2 text-center border border-[#512da8]/20', [
+                  div(classes: 'flex items-center justify-between text-xs', [
+                    span(classes: 'text-zinc-400 font-medium', [Component.text('Crypto Required:')]),
+                    span(classes: 'font-black text-lg text-white font-mono', [
+                      Component.text(amount > 0 ? '${amountInSol.toStringAsFixed(4)} SOL' : '0.0000 SOL'),
+                    ]),
+                  ]),
+                  div(classes: 'flex items-center justify-between text-[11px] text-zinc-500 pt-1 border-t border-zinc-800/50', [
+                    span([Component.text('Market Rate:')]),
+                    span([Component.text('1 SOL ≈ ₱${rate.toStringAsFixed(0)} PHP')]),
+                  ]),
+                ]),
+
+                // Solana Payment CTA Button
                 button(
                   classes:
-                      'w-full py-3.5 rounded-2xl bg-[#512da8] hover:bg-[#4527a0] text-white font-bold text-sm shadow-lg cursor-pointer transition border-0 flex items-center justify-center gap-2',
+                      'w-full py-3.5 rounded-2xl bg-[#512da8] hover:bg-[#4527a0] text-white font-bold text-sm shadow-lg shadow-purple-900/30 cursor-pointer transition border-0 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95',
+                  attributes: {if (amount <= 0 || s.isDepositing) 'disabled': 'true'},
                   events: {'click': (_) => s.processSolanaPayment(amountInSol)},
                   [
-                    lIcon('wallet', cls: 'w-4 h-4'),
-                    Component.text('Pay with Solana Wallet'),
+                    if (s.isDepositing) lIcon('loader', cls: 'w-4 h-4 animate-spin') else lIcon('wallet', cls: 'w-4 h-4'),
+                    Component.text(s.isDepositing ? 'Processing Solana Transaction...' : 'Pay with Solana Wallet'),
                   ],
                 ),
               ],
