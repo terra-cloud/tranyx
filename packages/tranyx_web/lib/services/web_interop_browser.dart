@@ -575,8 +575,6 @@ class SessionStorage {
   static const _qrJobId = 'tranyx_pending_qr_job_id';
   static const _qrCode = 'tranyx_pending_qr_code';
 
-  static const _xenditInvoiceId = 'tranyx_pending_xendit_invoice_id';
-  static const _xenditInvoiceAmount = 'tranyx_pending_xendit_invoice_amount';
   static const _pendingPropertyBooking = 'tranyx_pending_property_booking';
   static const _pendingVehicleBooking = 'tranyx_pending_vehicle_booking';
   static const _pendingJobId = 'tranyx_pending_job_id';
@@ -638,24 +636,6 @@ class SessionStorage {
     } else {
       web.window.localStorage.removeItem(_qrCode);
     }
-  }
-
-  static String? get pendingXenditInvoiceId => web.window.localStorage.getItem(_xenditInvoiceId);
-  static set pendingXenditInvoiceId(String? val) {
-    if (val != null) {
-      web.window.localStorage.setItem(_xenditInvoiceId, val);
-    } else {
-      web.window.localStorage.removeItem(_xenditInvoiceId);
-    }
-  }
-
-  static double get pendingXenditInvoiceAmount {
-    final s = web.window.localStorage.getItem(_xenditInvoiceAmount);
-    return s != null ? (double.tryParse(s) ?? 0.0) : 0.0;
-  }
-
-  static set pendingXenditInvoiceAmount(double val) {
-    web.window.localStorage.setItem(_xenditInvoiceAmount, val.toString());
   }
 
   static Map<String, dynamic>? get pendingPropertyBookingData {
@@ -730,8 +710,6 @@ class SessionStorage {
       _eml,
       _act,
       _pho,
-      _xenditInvoiceId,
-      _xenditInvoiceAmount,
       _pendingPropertyBooking,
       _pendingVehicleBooking,
       _pendingJobId,

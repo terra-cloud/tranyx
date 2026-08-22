@@ -20,10 +20,6 @@ class SessionStorage {
   static String? get pendingQrCode => null;
   static set pendingQrCode(String? val) {}
 
-  static String? get pendingXenditInvoiceId => null;
-  static set pendingXenditInvoiceId(String? val) {}
-  static double get pendingXenditInvoiceAmount => 0.0;
-  static set pendingXenditInvoiceAmount(double val) {}
   static Map<String, dynamic>? get pendingPropertyBookingData => null;
   static set pendingPropertyBookingData(Map<String, dynamic>? val) {}
   static Map<String, dynamic>? get pendingVehicleBookingData => null;

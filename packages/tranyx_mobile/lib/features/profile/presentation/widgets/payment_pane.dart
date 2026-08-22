@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
-import 'package:tranyx_mobile/features/profile/providers/profile_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:intl/intl.dart';
 import 'package:tranyx_mobile/flavors.dart';
@@ -18,6 +17,11 @@ import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/withdraw_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/transaction_details_sheet.dart';
+import 'dart:io';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:tranyx_mobile/core/providers/image_upload_provider.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 import 'package:shared/shared.dart';
 
@@ -105,9 +109,11 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
   ReownAppKitModal? _trustModal;
 
   // Deposit sheet state
-  late String _selectedPaymentMethod = F.isFiatEnabled
-      ? 'xendit'
-      : 'solana'; // 'xendit' | 'solana'
+  String _selectedDepositRail = 'manual_p2p'; // 'manual_p2p' | 'solana'
+  String _selectedP2pMethod = 'GCash'; // 'GCash' | 'Maya'
+  final _refNumberController = TextEditingController();
+  File? _proofImageFile;
+  String _selectedPaymentMethod = 'solana';
   String _selectedSolanaCurrency = 'SOL'; // 'SOL' | 'USDT'
   double _solToPhpRate = 8000.0;
   double _usdToPhpRate = 57.0;
@@ -132,6 +138,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     _stopBalancePolling();
     _amountController.dispose();
     _promoRedeemController.dispose();
+    _refNumberController.dispose();
     super.dispose();
   }
 
@@ -489,7 +496,6 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
             final isDarkMode = ref.read(themeModeProvider);
             final phpAmount =
                 double.tryParse(_amountController.text.trim()) ?? 0.0;
-            final isSolana = _selectedPaymentMethod == 'solana';
             final isSOL = _selectedSolanaCurrency == 'SOL';
             final amountInSol = phpAmount > 0 ? phpAmount / _solToPhpRate : 0.0;
             final amountInUsdt = phpAmount > 0
@@ -558,56 +564,6 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                     ),
                   );
                 }).toList(),
-              );
-            }
-
-            // ── Method selector card ──────────────────────────────────
-            Widget methodCard({
-              required String id,
-              required IconData icon,
-              required String label,
-              required Color accent,
-            }) {
-              final sel = _selectedPaymentMethod == id;
-              return Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    setSheetState(() => _selectedPaymentMethod = id);
-                    setState(() => _selectedPaymentMethod = id);
-                    if (id == 'solana') _fetchRates();
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 16,
-                      horizontal: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: sel ? accent.withValues(alpha: 0.1) : cardColor,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: sel ? accent : borderColor,
-                        width: sel ? 2 : 1,
-                      ),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(icon, color: sel ? accent : Colors.grey, size: 26),
-                        const SizedBox(height: 6),
-                        Text(
-                          label,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: sel ? accent : Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
               );
             }
 
@@ -783,8 +739,174 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
               );
             }
 
-            // ── Xendit info card ──────────────────────────────────────
-            Widget xenditCard() {
+            // ── Rail selector (Manual P2P vs Solana) ─────────────────
+            Widget depositRailSelector() {
+              return Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setSheetState(() => _selectedDepositRail = 'manual_p2p'),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _selectedDepositRail == 'manual_p2p'
+                                ? AppColors.indigo
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.qr_code_scanner,
+                                  size: 16,
+                                  color: _selectedDepositRail == 'manual_p2p'
+                                      ? Colors.white
+                                      : Colors.grey,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Manual P2P (GCash/Maya)',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: _selectedDepositRail == 'manual_p2p'
+                                        ? Colors.white
+                                        : Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setSheetState(() => _selectedDepositRail = 'solana'),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _selectedDepositRail == 'solana'
+                                ? const Color(0xFF512DA8)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.currency_bitcoin,
+                                  size: 16,
+                                  color: _selectedDepositRail == 'solana'
+                                      ? Colors.white
+                                      : Colors.grey,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Solana (SOL/USDT)',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: _selectedDepositRail == 'solana'
+                                        ? Colors.white
+                                        : Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            // ── P2P Method toggle (GCash / Maya) ─────────────────────
+            Widget p2pMethodToggle() {
+              final isGcash = _selectedP2pMethod == 'GCash';
+              return Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setSheetState(() => _selectedP2pMethod = 'GCash'),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: isGcash ? const Color(0xFF007DFE) : cardColor,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isGcash ? const Color(0xFF007DFE) : borderColor,
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'GCash Direct',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: isGcash ? Colors.white : Colors.grey,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setSheetState(() => _selectedP2pMethod = 'Maya'),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: !isGcash ? const Color(0xFF00D084) : cardColor,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: !isGcash ? const Color(0xFF00D084) : borderColor,
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'Maya Direct',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: !isGcash ? Colors.white : Colors.grey,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }
+
+            // ── P2P Account & QR Card ────────────────────────────────
+            Widget p2pAccountCard() {
+              final isGcash = _selectedP2pMethod == 'GCash';
+              final agentName = isGcash
+                  ? 'TRANYX OFFICIAL / ZEUS C.'
+                  : 'TRANYX CORP / ZEUS C.';
+              final rawNumber = isGcash ? '09178901234' : '09189012345';
+              final formattedNumber = isGcash ? '0917 890 1234' : '0918 901 2345';
+              final brandColor = isGcash ? const Color(0xFF007DFE) : const Color(0xFF00D084);
+
               return Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -794,17 +916,146 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                 ),
                 child: Column(
                   children: [
-                    _rateRow('Payment Processor', 'Xendit Gateway', isDarkMode),
-                    const SizedBox(height: 8),
-                    _rateRow(
-                      'Tyxbit Equivalent',
-                      '${phpAmount.toStringAsFixed(2)} Tyxbits',
-                      isDarkMode,
+                    // Centered QR Code
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.06),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: QrImageView(
+                        data: rawNumber,
+                        version: QrVersions.auto,
+                        size: 130.0,
+                        backgroundColor: Colors.white,
+                        eyeStyle: QrEyeStyle(
+                          eyeShape: QrEyeShape.square,
+                          color: isGcash ? const Color(0xFF007DFE) : const Color(0xFF004D40),
+                        ),
+                        dataModuleStyle: const QrDataModuleStyle(
+                          dataModuleShape: QrDataModuleShape.square,
+                          color: Color(0xFF1E1E2D),
+                        ),
+                      ),
                     ),
-                    _rateRow(
-                      'Processor Status',
-                      'Awaiting Checkout',
-                      isDarkMode,
+                    const SizedBox(height: 14),
+
+                    // Agent details
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Account Name',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.withValues(alpha: 0.8),
+                          ),
+                        ),
+                        Text(
+                          agentName,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Account Number with Copy Button
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: brandColor.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: brandColor.withValues(alpha: 0.2)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.phone_android, size: 16, color: brandColor),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              formattedNumber,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: brandColor,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () {
+                              Clipboard.setData(ClipboardData(text: rawNumber));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('$_selectedP2pMethod number ($rawNumber) copied to clipboard!'),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: brandColor,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.copy_rounded, size: 12, color: Colors.white),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Copy',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Notice Box
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.info_outline, size: 16, color: Colors.amber),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Funds will be credited to your balance only after admin verification (typically 5–15 minutes).',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                height: 1.3,
+                                fontWeight: FontWeight.w600,
+                                color: isDarkMode ? Colors.amber[200] : Colors.amber[900],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -899,104 +1150,400 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Amount input
-                            TextField(
-                              controller: _amountController,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
+                            // Deposit Rail Selector
+                            depositRailSelector(),
+                            const SizedBox(height: 18),
+
+                            if (_selectedDepositRail == 'manual_p2p') ...[
+                              // Manual P2P Flow
+                              p2pMethodToggle(),
+                              const SizedBox(height: 14),
+                              p2pAccountCard(),
+                              const SizedBox(height: 20),
+
+                              // Amount input
+                              const Text(
+                                'Deposit Amount (PHP)',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                              textAlign: TextAlign.center,
-                              decoration: InputDecoration(
-                                prefixText: '₱  ',
-                                prefixStyle: const TextStyle(
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: _amountController,
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                                decoration: InputDecoration(
+                                  prefixText: '₱ ',
+                                  prefixStyle: const TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.indigo,
+                                  ),
+                                  hintText: '0.00',
+                                  filled: true,
+                                  fillColor: cardColor,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: BorderSide(color: borderColor),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: BorderSide(color: borderColor),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: const BorderSide(color: AppColors.indigo, width: 2),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Center(
+                                child: Text(
+                                  'Min ₱100 · Max ₱50,000 per transaction',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey.withValues(alpha: 0.7),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Center(child: quickChips()),
+                              const SizedBox(height: 18),
+
+                              // Reference Number Input
+                              const Text(
+                                'Payment Reference Number',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: _refNumberController,
+                                keyboardType: TextInputType.text,
+                                decoration: InputDecoration(
+                                  prefixIcon: const Icon(Icons.receipt_long, size: 20),
+                                  hintText: 'e.g., 10029384812',
+                                  filled: true,
+                                  fillColor: cardColor,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: BorderSide(color: borderColor),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: BorderSide(color: borderColor),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: const BorderSide(color: AppColors.indigo, width: 2),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+
+                              // Proof Screenshot Upload
+                              const Text(
+                                'Upload Payment Screenshot / Receipt',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              if (_proofImageFile == null)
+                                GestureDetector(
+                                  onTap: () async {
+                                    final picker = ImagePicker();
+                                    final source = await showModalBottomSheet<ImageSource>(
+                                      context: context,
+                                      builder: (bCtx) => SafeArea(
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            ListTile(
+                                              leading: const Icon(Icons.photo_library),
+                                              title: const Text('Choose from Gallery'),
+                                              onTap: () => Navigator.pop(bCtx, ImageSource.gallery),
+                                            ),
+                                            ListTile(
+                                              leading: const Icon(Icons.camera_alt),
+                                              title: const Text('Take a Photo'),
+                                              onTap: () => Navigator.pop(bCtx, ImageSource.camera),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+
+                                    if (source != null) {
+                                      final picked = await picker.pickImage(
+                                        source: source,
+                                        imageQuality: 85,
+                                      );
+                                      if (picked != null) {
+                                        setSheetState(() {
+                                          _proofImageFile = File(picked.path);
+                                        });
+                                      }
+                                    }
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                                    decoration: BoxDecoration(
+                                      color: cardColor,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: AppColors.indigo.withValues(alpha: 0.3),
+                                        style: BorderStyle.solid,
+                                      ),
+                                    ),
+                                    child: const Center(
+                                      child: Column(
+                                        children: [
+                                          Icon(Icons.cloud_upload_outlined, size: 28, color: AppColors.indigo),
+                                          SizedBox(height: 6),
+                                          Text(
+                                            'Tap to select receipt screenshot',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: AppColors.indigo,
+                                            ),
+                                          ),
+                                          SizedBox(height: 2),
+                                          Text(
+                                            'PNG, JPG, or JPEG (Max 10MB)',
+                                            style: TextStyle(fontSize: 10, color: Colors.grey),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              else
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: cardColor,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image.file(
+                                          _proofImageFile!,
+                                          width: 50,
+                                          height: 50,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Receipt Screenshot Attached',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.green,
+                                              ),
+                                            ),
+                                            Text(
+                                              _proofImageFile!.path.split('/').last,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                        onPressed: () {
+                                          setSheetState(() {
+                                            _proofImageFile = null;
+                                          });
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              const SizedBox(height: 24),
+
+                              // Submit Manual P2P Request Button
+                              _isProcessing
+                                  ? const Center(child: CircularProgressIndicator())
+                                  : SizedBox(
+                                      width: double.infinity,
+                                      height: 52,
+                                      child: ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppColors.indigo,
+                                          foregroundColor: Colors.white,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(16),
+                                          ),
+                                          elevation: 0,
+                                        ),
+                                        onPressed: () async {
+                                          if (phpAmount < 100) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Minimum deposit amount is ₱100.00'),
+                                                backgroundColor: Colors.orange,
+                                              ),
+                                            );
+                                            return;
+                                          }
+                                          final cleanRef = _refNumberController.text.trim();
+                                          if (cleanRef.isEmpty) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Please enter the payment reference number.'),
+                                                backgroundColor: Colors.orange,
+                                              ),
+                                            );
+                                            return;
+                                          }
+                                          if (_proofImageFile == null) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Please attach your payment screenshot / receipt.'),
+                                                backgroundColor: Colors.orange,
+                                              ),
+                                            );
+                                            return;
+                                          }
+
+                                          setSheetState(() => _isProcessing = true);
+                                          try {
+                                            // Upload image to ImgBB
+                                            final imgService = ref.read(imgBBServiceProvider);
+                                            final uploadedUrl = await imgService.uploadImage(_proofImageFile!);
+                                            if (uploadedUrl == null || uploadedUrl.isEmpty) {
+                                              throw Exception('Failed to upload receipt screenshot. Please try again.');
+                                            }
+
+                                            // Submit request to Firestore
+                                            final repo = ref.read(transitRepositoryProvider);
+                                            await repo.submitManualDepositRequest(
+                                              uid: uid,
+                                              userName: userProfile?.name ?? 'TRANYX User',
+                                              userEmail: userProfile?.email ?? '',
+                                              amount: phpAmount,
+                                              paymentMethod: _selectedP2pMethod,
+                                              referenceNumber: cleanRef,
+                                              proofImageUrl: uploadedUrl,
+                                            );
+
+                                            _amountController.clear();
+                                            _refNumberController.clear();
+                                            _proofImageFile = null;
+
+                                            if (sheetContext.mounted) {
+                                              Navigator.pop(sheetContext);
+                                            }
+
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text('Deposit request submitted! Status: Pending Verification.'),
+                                                  backgroundColor: Color(0xFF059669),
+                                                ),
+                                              );
+                                            }
+                                          } catch (e) {
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(
+                                                  content: Text('Error: $e'),
+                                                  backgroundColor: Colors.red,
+                                                ),
+                                              );
+                                            }
+                                          } finally {
+                                            setSheetState(() => _isProcessing = false);
+                                          }
+                                        },
+                                        child: const Text(
+                                          'Submit Deposit Request',
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                            ] else ...[
+                              // Solana Flow
+                              // Amount input
+                              TextField(
+                                controller: _amountController,
+                                keyboardType: const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                                style: const TextStyle(
                                   fontSize: 24,
                                   fontWeight: FontWeight.bold,
-                                  color: AppColors.indigo,
                                 ),
-                                hintText: '0.00',
-                                hintStyle: TextStyle(
-                                  fontSize: 24,
-                                  color: AppColors.indigo.withValues(
-                                    alpha: 0.3,
+                                textAlign: TextAlign.center,
+                                decoration: InputDecoration(
+                                  prefixText: '₱  ',
+                                  prefixStyle: const TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.indigo,
                                   ),
-                                ),
-                                enabledBorder: UnderlineInputBorder(
-                                  borderSide: BorderSide(
+                                  hintText: '0.00',
+                                  hintStyle: TextStyle(
+                                    fontSize: 24,
                                     color: AppColors.indigo.withValues(
                                       alpha: 0.3,
                                     ),
-                                    width: 2,
                                   ),
-                                ),
-                                focusedBorder: const UnderlineInputBorder(
-                                  borderSide: BorderSide(
-                                    color: AppColors.indigo,
-                                    width: 2,
-                                  ),
-                                ),
-                                border: InputBorder.none,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Center(
-                              child: Text(
-                                'Min ₱100 · Max ₱50,000 per transaction',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.grey.withValues(alpha: 0.7),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Quick chips
-                            Center(child: quickChips()),
-                            const SizedBox(height: 24),
-
-                            // Payment method selector
-                            Row(
-                              children: [
-                                if (F.isFiatEnabled) ...[
-                                  methodCard(
-                                    id: 'xendit',
-                                    icon: Icons.credit_card_outlined,
-                                    label: 'GCash (Sandbox)',
-                                    accent: AppColors.indigo,
-                                  ),
-                                  const SizedBox(width: 12),
-                                ],
-                                methodCard(
-                                  id: 'solana',
-                                  icon: Icons.bolt,
-                                  label: 'Solana (On-Chain)',
-                                  accent: const Color(0xFF512DA8),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 20),
-
-                            // Dynamic content by method
-                            if (!isSolana) ...[
-                              xenditCard(),
-                              const SizedBox(height: 20),
-                              // Xendit CTA
-                              _isProcessing
-                                  ? const Center(
-                                      child: CircularProgressIndicator(),
-                                    )
-                                  : _buildXenditButton(
-                                      uid: uid,
-                                      phpAmount: phpAmount,
-                                      userProfile: userProfile,
-                                      sheetContext: sheetContext,
+                                  enabledBorder: UnderlineInputBorder(
+                                    borderSide: BorderSide(
+                                      color: AppColors.indigo.withValues(
+                                        alpha: 0.3,
+                                      ),
+                                      width: 2,
                                     ),
-                            ] else ...[
+                                  ),
+                                  focusedBorder: const UnderlineInputBorder(
+                                    borderSide: BorderSide(
+                                      color: AppColors.indigo,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  border: InputBorder.none,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Center(
+                                child: Text(
+                                  'Min ₱100 · Max ₱50,000 per transaction',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey.withValues(alpha: 0.7),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+
+                              // Quick chips
+                              Center(child: quickChips()),
+                              const SizedBox(height: 24),
+
                               // SOL / USDT sub-toggle
                               currencyToggle(),
                               const SizedBox(height: 16),
@@ -1047,9 +1594,9 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                       width: double.infinity,
                       child: Center(
                         child: Text(
-                          isSolana
-                              ? 'POWERED BY SOLANA SECURE'
-                              : 'POWERED BY XENDIT & TRANYX SECURE',
+                          _selectedDepositRail == 'manual_p2p'
+                              ? 'VERIFIED TRANYX P2P SETTLEMENT'
+                              : 'POWERED BY SOLANA SECURE',
                           style: TextStyle(
                             fontSize: 9,
                             letterSpacing: 1.5,
@@ -1104,97 +1651,6 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                 ),
               ),
       ],
-    );
-  }
-
-  Widget _buildXenditButton({
-    required String uid,
-    required double phpAmount,
-    required dynamic userProfile,
-    required BuildContext sheetContext,
-  }) {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.indigo,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          elevation: 0,
-        ),
-        onPressed: phpAmount < 100
-            ? null
-            : () async {
-                if (phpAmount <= 0) return;
-                setState(() => _isProcessing = true);
-                Navigator.pop(sheetContext);
-                try {
-                  final userName = userProfile?.name ?? 'User';
-                  final res = await ref
-                      .read(transitRepositoryProvider)
-                      .createXenditInvoice(
-                        uid: uid,
-                        amount: phpAmount,
-                        userName: userName,
-                      );
-                  final invoiceId = res['id'] as String;
-                  final invoiceUrl = res['invoice_url'] as String;
-                  await ref
-                      .read(firestoreProvider)
-                      .collection('users')
-                      .doc(uid)
-                      .update({
-                        'pendingXenditInvoiceId': invoiceId,
-                        'pendingXenditInvoiceAmount': phpAmount,
-                        'pendingXenditInvoiceUrl': invoiceUrl,
-                      });
-                  _amountController.clear();
-                  try {
-                    final uri = Uri.parse(invoiceUrl);
-                    if (await canLaunchUrl(uri)) {
-                      await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
-                    }
-                  } catch (_) {}
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Invoice created. Launching checkout for ₱ ${phpAmount.toStringAsFixed(2)}',
-                        ),
-                        backgroundColor: Colors.indigo,
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Error creating invoice: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                } finally {
-                  setState(() => _isProcessing = false);
-                }
-              },
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.credit_card, size: 18),
-            const SizedBox(width: 8),
-            Text(
-              phpAmount < 100
-                  ? 'Enter at least ₱100'
-                  : 'Pay ₱${phpAmount.toStringAsFixed(2)} with Xendit',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -1325,104 +1781,6 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         ),
       ),
     );
-  }
-
-  void _handleVerifyPayment(String uid, String invoiceId, double amount) async {
-    setState(() => _isProcessing = true);
-    try {
-      final isPaid = await ref
-          .read(transitRepositoryProvider)
-          .verifyXenditPayment(uid: uid, invoiceId: invoiceId, amount: amount);
-
-      if (isPaid) {
-        // Clear pending invoice from Firestore
-        await ref.read(firestoreProvider).collection('users').doc(uid).update({
-          'pendingXenditInvoiceId': FieldValue.delete(),
-          'pendingXenditInvoiceAmount': FieldValue.delete(),
-          'pendingXenditInvoiceUrl': FieldValue.delete(),
-        });
-        ref.invalidate(userProfileProvider);
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Payment Verified! Balance credited successfully.'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Invoice is still unpaid or pending.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Verification error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      setState(() => _isProcessing = false);
-    }
-  }
-
-  void _handleCancelInvoice(String uid) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cancel Pending Invoice'),
-        content: const Text(
-          'Are you sure you want to cancel and dismiss this pending Xendit invoice?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Go Back'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Cancel Invoice'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      setState(() => _isProcessing = true);
-      try {
-        await ref.read(firestoreProvider).collection('users').doc(uid).update({
-          'pendingXenditInvoiceId': FieldValue.delete(),
-          'pendingXenditInvoiceAmount': FieldValue.delete(),
-          'pendingXenditInvoiceUrl': FieldValue.delete(),
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Pending invoice dismissed.'),
-              backgroundColor: Colors.blue,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to cancel invoice: $e')),
-          );
-        }
-      } finally {
-        setState(() => _isProcessing = false);
-      }
-    }
   }
 
   void _handleConnectWallet(String uid, WalletInfo wallet) async {
@@ -2309,706 +2667,6 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     }
   }
 
-  void _handleWithdraw(double tyxBalance, String uid) async {
-    final userProfile = ref.read(userProfileProvider).value;
-    if (userProfile == null) return;
-
-    if (userProfile.walletPublicKey == null ||
-        userProfile.walletPublicKey!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Please connect a Solana wallet first before withdrawing.',
-          ),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    if (tyxBalance <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No earnings available for withdrawal')),
-      );
-      return;
-    }
-
-    final double feeRate = 0.02;
-    final feePhp = tyxBalance * feeRate;
-    final netPhp = tyxBalance - feePhp;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        String selectedCoin = 'SOL';
-        bool isWithdrawing = false;
-
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            final isDarkMode = ref.read(themeModeProvider);
-            final cardColor = isDarkMode
-                ? const Color(0xFF1A1A2E)
-                : const Color(0xFFF8F8FC);
-            final borderColor = isDarkMode
-                ? Colors.white.withValues(alpha: 0.08)
-                : Colors.black.withValues(alpha: 0.07);
-
-            final rateSol = _solToPhpRate > 0 ? _solToPhpRate : 8000.0;
-            final rateUsdt = _usdToPhpRate > 0 ? _usdToPhpRate : 57.0;
-
-            final solAmount = netPhp / rateSol;
-            final feeSolAmount = feePhp / rateSol;
-
-            final usdtAmount = netPhp / rateUsdt;
-            final feeUsdtAmount = feePhp / rateUsdt;
-
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom,
-              ),
-              child: Container(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(ctx).size.height * 0.92,
-                ),
-                decoration: BoxDecoration(
-                  color: isDarkMode ? const Color(0xFF12121C) : Colors.white,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(32),
-                  ),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Handle + Header
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 16, 16, 0),
-                      child: Column(
-                        children: [
-                          Center(
-                            child: Container(
-                              width: 40,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: Colors.grey.withValues(alpha: 0.3),
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: const Icon(
-                                  Icons.account_balance_wallet_outlined,
-                                  color: Colors.blue,
-                                  size: 22,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              const Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Withdraw Earnings',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    Text(
-                                      'Choose payout cryptocurrency',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close),
-                                onPressed: () => Navigator.pop(sheetContext),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const Divider(height: 24, thickness: 1),
-
-                    Flexible(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 8,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Current Balance Display
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(20),
-                              decoration: BoxDecoration(
-                                color: cardColor,
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(color: borderColor),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'WITHDRAWABLE BALANCE',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: isDarkMode
-                                          ? Colors.white60
-                                          : Colors.black54,
-                                      letterSpacing: 1.0,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      Text(
-                                        '₱ ${tyxBalance.toStringAsFixed(2)}',
-                                        style: const TextStyle(
-                                          fontSize: 32,
-                                          fontWeight: FontWeight.w900,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Wallet: ${userProfile.walletPublicKey!.substring(0, 8)}...${userProfile.walletPublicKey!.substring(userProfile.walletPublicKey!.length - 8)}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            const SizedBox(height: 24),
-                            const Text(
-                              'Select Payout Asset',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-
-                            // Option SOL
-                            InkWell(
-                              onTap: () {
-                                if (!isWithdrawing) {
-                                  setSheetState(() => selectedCoin = 'SOL');
-                                }
-                              },
-                              borderRadius: BorderRadius.circular(20),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 160),
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: selectedCoin == 'SOL'
-                                      ? AppColors.indigo.withValues(
-                                          alpha: isDarkMode ? 0.15 : 0.05,
-                                        )
-                                      : cardColor,
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: selectedCoin == 'SOL'
-                                        ? AppColors.indigo
-                                        : borderColor,
-                                    width: selectedCoin == 'SOL' ? 2 : 1,
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.bolt,
-                                      color: Colors.purple,
-                                      size: 32,
-                                    ),
-                                    const SizedBox(width: 16),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Text(
-                                            'Solana (SOL)',
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          Text(
-                                            '1 SOL ≈ ₱${rateSol.toStringAsFixed(2)}',
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          '${solAmount.toStringAsFixed(6)} SOL',
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.purple,
-                                          ),
-                                        ),
-                                        const Text(
-                                          'Est. Payout',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-
-                            const SizedBox(height: 12),
-
-                            // Option USDT
-                            InkWell(
-                              onTap: () {
-                                if (!isWithdrawing) {
-                                  setSheetState(() => selectedCoin = 'USDT');
-                                }
-                              },
-                              borderRadius: BorderRadius.circular(20),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 160),
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: selectedCoin == 'USDT'
-                                      ? AppColors.indigo.withValues(
-                                          alpha: isDarkMode ? 0.15 : 0.05,
-                                        )
-                                      : cardColor,
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: selectedCoin == 'USDT'
-                                        ? AppColors.indigo
-                                        : borderColor,
-                                    width: selectedCoin == 'USDT' ? 2 : 1,
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.monetization_on,
-                                      color: Colors.teal,
-                                      size: 32,
-                                    ),
-                                    const SizedBox(width: 16),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Text(
-                                            'Tether (USDT)',
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          Text(
-                                            '1 USDT ≈ ₱${rateUsdt.toStringAsFixed(2)}',
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          '${usdtAmount.toStringAsFixed(2)} USDT',
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.teal,
-                                          ),
-                                        ),
-                                        const Text(
-                                          'Est. Payout',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-
-                            const SizedBox(height: 24),
-
-                            // Fee Breakdown
-                            Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: isDarkMode
-                                    ? Colors.white.withValues(alpha: 0.03)
-                                    : Colors.black.withValues(alpha: 0.02),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Column(
-                                children: [
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text(
-                                        'Gross Balance',
-                                        style: TextStyle(
-                                          color: Colors.grey,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                      Text(
-                                        '₱ ${tyxBalance.toStringAsFixed(2)}',
-                                        style: TextStyle(
-                                          color: isDarkMode
-                                              ? Colors.white
-                                              : Colors.black,
-                                          fontWeight: FontWeight.w500,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text(
-                                        'Platform Fee (2%)',
-                                        style: TextStyle(
-                                          color: Colors.grey,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                      Text(
-                                        '₱ ${feePhp.toStringAsFixed(2)}',
-                                        style: const TextStyle(
-                                          color: Colors.redAccent,
-                                          fontWeight: FontWeight.w500,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const Divider(height: 16),
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text(
-                                        'Net Received Value',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                      Text(
-                                        '₱ ${netPhp.toStringAsFixed(2)}',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: AppColors.indigo,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            const SizedBox(height: 24),
-
-                            // CTA Button
-                            isWithdrawing
-                                ? const Center(
-                                    child: CircularProgressIndicator(),
-                                  )
-                                : SizedBox(
-                                    width: double.infinity,
-                                    height: 52,
-                                    child: ElevatedButton(
-                                      onPressed: () async {
-                                        setSheetState(
-                                          () => isWithdrawing = true,
-                                        );
-                                        try {
-                                          final firestore = ref.read(
-                                            firestoreProvider,
-                                          );
-                                          final phantomService = ref.read(
-                                            phantomServiceProvider,
-                                          );
-
-                                          // 1. Fetch treasury private key from Env / config
-                                          String? treasuryPrivKey = Env.solanaPrivateKey.isNotEmpty ? Env.solanaPrivateKey : null;
-                                          if (treasuryPrivKey == null || treasuryPrivKey.isEmpty) {
-                                            final configDoc = await firestore
-                                                .collection('system_config')
-                                                .doc('treasury')
-                                                .get();
-                                            treasuryPrivKey =
-                                                configDoc
-                                                        .data()?['privateKeyBase58']
-                                                    as String?;
-                                          }
-                                          if (treasuryPrivKey == null ||
-                                              treasuryPrivKey.isEmpty) {
-                                            throw Exception(
-                                              'Treasury wallet is not configured. Please contact support.',
-                                            );
-                                          }
-
-                                          String txSignature = '';
-
-                                          if (selectedCoin == 'SOL') {
-                                            final lamports = (solAmount * 1e9)
-                                                .round();
-                                            if (lamports <= 0) {
-                                              throw Exception(
-                                                'Withdrawal amount too small to process on-chain.',
-                                              );
-                                            }
-
-                                            // 2. Sign & broadcast Treasury -> User SOL
-                                            txSignature = await phantomService
-                                                .signAndBroadcastTransfer(
-                                                  treasuryPrivKeyBase58:
-                                                      treasuryPrivKey,
-                                                  recipientPubkey: userProfile
-                                                      .walletPublicKey!,
-                                                  lamports: lamports,
-                                                );
-                                          } else {
-                                            // selectedCoin == 'USDT'
-                                            if (usdtAmount <= 0) {
-                                              throw Exception(
-                                                'Withdrawal amount too small to process on-chain.',
-                                              );
-                                            }
-
-                                            // 2. Sign & broadcast Treasury -> User USDT
-                                            txSignature = await phantomService
-                                                .signAndBroadcastTokenTransfer(
-                                                  treasuryPrivKeyBase58:
-                                                      treasuryPrivKey,
-                                                  recipientPubkey: userProfile
-                                                      .walletPublicKey!,
-                                                  amountInUsdt: usdtAmount,
-                                                );
-                                          }
-
-                                          // 3. Confirm transaction
-                                          final txConfirmed =
-                                              await phantomService
-                                                  .confirmTransaction(
-                                                    txSignature,
-                                                  );
-                                          if (!txConfirmed) {
-                                            throw Exception(
-                                              'Transaction was broadcast but could not be confirmed. '
-                                              'Check explorer: https://explorer.solana.com/tx/$txSignature',
-                                            );
-                                          }
-
-                                          // 4. Deduct tyxBalance
-                                          await ref
-                                              .read(transitRepositoryProvider)
-                                              .updateTyxBalance(uid, 0);
-
-                                          // 5. Save history
-                                          final txId =
-                                              'tx_${DateTime.now().microsecondsSinceEpoch}';
-                                          await firestore.collection('transactions').doc(txId).set({
-                                            'uid': uid,
-                                            'type': 'withdraw',
-                                            'amount': tyxBalance,
-                                            'feeAmount': feePhp,
-                                            'netAmount': netPhp,
-                                            if (selectedCoin == 'SOL') ...{
-                                              'solAmount': solAmount,
-                                              'feeSolAmount': feeSolAmount,
-                                              'lamports': (solAmount * 1e9)
-                                                  .round(),
-                                            } else ...{
-                                              'usdtAmount': usdtAmount,
-                                              'feeUsdtAmount': feeUsdtAmount,
-                                              'microUnits': (usdtAmount * 1e6)
-                                                  .round(),
-                                            },
-                                            'title': 'Earnings Withdrawn',
-                                            'desc': selectedCoin == 'SOL'
-                                                ? 'Withdrew ₱${netPhp.toStringAsFixed(2)} (${solAmount.toStringAsFixed(6)} SOL) '
-                                                      'after 2% fee of ₱${feePhp.toStringAsFixed(2)} (${feeSolAmount.toStringAsFixed(6)} SOL) '
-                                                      'to ${userProfile.walletPublicKey}'
-                                                : 'Withdrew ₱${netPhp.toStringAsFixed(2)} (${usdtAmount.toStringAsFixed(2)} USDT) '
-                                                      'after 2% fee of ₱${feePhp.toStringAsFixed(2)} (${feeUsdtAmount.toStringAsFixed(2)} USDT) '
-                                                      'to ${userProfile.walletPublicKey}',
-                                            'method': selectedCoin,
-                                            'solanaTxSignature': txSignature,
-                                            'createdAt': DateTime.now()
-                                                .millisecondsSinceEpoch,
-                                          });
-
-                                          // 6. Record withdrawal request
-                                          final requestId =
-                                              'withdraw_${DateTime.now().microsecondsSinceEpoch}';
-                                          await firestore
-                                              .collection('withdrawalRequests')
-                                              .doc(requestId)
-                                              .set({
-                                                'uid': uid,
-                                                'userName': userProfile.name,
-                                                'amount': tyxBalance,
-                                                'feeAmount': feePhp,
-                                                'netAmount': netPhp,
-                                                if (selectedCoin == 'SOL')
-                                                  'solAmount': solAmount
-                                                else
-                                                  'usdtAmount': usdtAmount,
-                                                'status': 'Completed',
-                                                'createdAt': DateTime.now()
-                                                    .millisecondsSinceEpoch,
-                                                'method': selectedCoin,
-                                                'walletPublicKey':
-                                                    userProfile.walletPublicKey,
-                                                'solanaTxSignature':
-                                                    txSignature,
-                                              });
-
-                                          // 7. Record fee
-                                          final feeId = 'fee_$txId';
-                                          await firestore
-                                              .collection('platform_fees')
-                                              .doc(feeId)
-                                              .set({
-                                                'withdrawalId': requestId,
-                                                'txId': txId,
-                                                'uid': uid,
-                                                'amount': feePhp,
-                                                if (selectedCoin == 'SOL')
-                                                  'solAmount': feeSolAmount
-                                                else
-                                                  'usdtAmount': feeUsdtAmount,
-                                                'feeType': 'withdrawal',
-                                                'rate': selectedCoin == 'SOL'
-                                                    ? rateSol
-                                                    : rateUsdt,
-                                                'timestamp': DateTime.now()
-                                                    .millisecondsSinceEpoch,
-                                              });
-
-                                          ref.invalidate(userProfileProvider);
-                                          if (sheetContext.mounted) {
-                                            Navigator.pop(sheetContext);
-                                          }
-                                          if (mounted) {
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  '✅ Withdrawal successful! '
-                                                  '${selectedCoin == 'SOL' ? '${solAmount.toStringAsFixed(6)} SOL' : '${usdtAmount.toStringAsFixed(2)} USDT'} sent to your wallet.\n'
-                                                  'Tx: ${txSignature.substring(0, 12)}…',
-                                                ),
-                                                backgroundColor: Colors.green,
-                                              ),
-                                            );
-                                          }
-                                        } catch (e, s) {
-                                          debugPrint("Withdrawal error: $e $s");
-                                          setSheetState(
-                                            () => isWithdrawing = false,
-                                          );
-                                          if (mounted) {
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  'Withdrawal failed: $e',
-                                                ),
-                                              ),
-                                            );
-                                          }
-                                        }
-                                      },
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppColors.indigo,
-                                        foregroundColor: Colors.white,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            16,
-                                          ),
-                                        ),
-                                        elevation: 0,
-                                      ),
-                                      child: Text(
-                                        'Withdraw to ${selectedCoin == 'SOL' ? 'SOL' : 'USDT'}',
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDarkMode = ref.watch(themeModeProvider);
@@ -3045,12 +2703,6 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     }
 
     final rawUserDoc = rawUserDocAsync.value;
-    final pendingInvoiceId =
-        rawUserDoc?.data()?['pendingXenditInvoiceId'] as String?;
-    final pendingInvoiceAmount =
-        (rawUserDoc?.data()?['pendingXenditInvoiceAmount'] as num?)?.toDouble();
-    final pendingInvoiceUrl =
-        rawUserDoc?.data()?['pendingXenditInvoiceUrl'] as String?;
 
     final connectedWalletType =
         rawUserDoc?.data()?['connectedWalletType'] as String? ??
@@ -3233,205 +2885,6 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
             ],
           ),
         ),
-
-        if (pendingInvoiceId != null) ...[
-          const SizedBox(height: 24),
-          const Text(
-            'Pending Deposit',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: Colors.amber.withValues(alpha: 0.4),
-                width: 1.5,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.amber.withValues(alpha: 0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.pending_actions, color: Colors.amber),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Xendit Checkout',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: isDarkMode ? Colors.white : Colors.black,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.amber.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Text(
-                        'PENDING',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.amber,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Amount',
-                          style: TextStyle(fontSize: 11, color: Colors.grey),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '₱ ${pendingInvoiceAmount?.toStringAsFixed(2) ?? "0.00"}',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        const Text(
-                          'Invoice ID',
-                          style: TextStyle(fontSize: 11, color: Colors.grey),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${pendingInvoiceId.substring(0, min(12, pendingInvoiceId.length))}...',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontFamily: 'monospace',
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.payment, size: 14),
-                        label: const Text(
-                          'Pay Now',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        onPressed: () async {
-                          if (pendingInvoiceUrl != null) {
-                            final uri = Uri.parse(pendingInvoiceUrl);
-                            if (await canLaunchUrl(uri)) {
-                              await launchUrl(
-                                uri,
-                                mode: LaunchMode.inAppBrowserView,
-                              );
-                            }
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.indigo,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        icon: _isProcessing
-                            ? const SizedBox(
-                                width: 12,
-                                height: 12,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.check_circle_outline, size: 14),
-                        label: const Text(
-                          'Verify',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        onPressed: _isProcessing
-                            ? null
-                            : () => _handleVerifyPayment(
-                                uid,
-                                pendingInvoiceId,
-                                pendingInvoiceAmount ?? 0.0,
-                              ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      onPressed: _isProcessing
-                          ? null
-                          : () => _handleCancelInvoice(uid),
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.red.withValues(alpha: 0.1),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.all(10),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
 
         // Redeem Promo Code Section
         const SizedBox(height: 24),
@@ -3872,12 +3325,15 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                 final isDeposit =
                     record.amount >= 0 ||
                     record.transactionType == WalletTransactionType.deposit ||
-                    record.transactionType == WalletTransactionType.fiatTopup ||
                     record.transactionType == WalletTransactionType.refund;
                 final isWithdraw =
-                    record.transactionType == WalletTransactionType.withdraw ||
-                    record.transactionType ==
-                        WalletTransactionType.fiatWithdrawal;
+                    record.transactionType == WalletTransactionType.withdraw;
+                final isP2p =
+                    record.originRail == TransactionOriginRail.manualP2p;
+                final isPending =
+                    record.status.toUpperCase().contains('PENDING');
+                final isRejected =
+                    record.status.toUpperCase().contains('REJECT');
                 final amount = record.amount.abs();
                 final title = record.title;
                 final desc = record.desc;
@@ -3890,8 +3346,6 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
 
                 final isMwa =
                     record.originRail == TransactionOriginRail.mwaOnChain;
-                final isXendit =
-                    record.originRail == TransactionOriginRail.gcashXendit;
 
                 return InkWell(
                   onTap: () => TransactionDetailsSheet.show(
@@ -3919,24 +3373,36 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: isDeposit
-                                ? Colors.green.withValues(alpha: 0.1)
-                                : isWithdraw
-                                ? Colors.blue.withValues(alpha: 0.1)
-                                : Colors.orange.withValues(alpha: 0.1),
+                            color: isP2p
+                                ? (isPending
+                                    ? Colors.amber.withValues(alpha: 0.15)
+                                    : (isRejected
+                                        ? Colors.red.withValues(alpha: 0.12)
+                                        : Colors.blue.withValues(alpha: 0.12)))
+                                : (isDeposit
+                                    ? Colors.green.withValues(alpha: 0.1)
+                                    : isWithdraw
+                                        ? Colors.blue.withValues(alpha: 0.1)
+                                        : Colors.orange.withValues(alpha: 0.1)),
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
-                            isDeposit
-                                ? Icons.add_circle_outline
-                                : isWithdraw
-                                ? Icons.remove_circle_outline
-                                : Icons.swap_horiz,
-                            color: isDeposit
-                                ? Colors.green
-                                : isWithdraw
-                                ? Colors.blue
-                                : Colors.orange,
+                            isP2p
+                                ? Icons.qr_code_2
+                                : (isDeposit
+                                    ? Icons.add_circle_outline
+                                    : isWithdraw
+                                        ? Icons.remove_circle_outline
+                                        : Icons.swap_horiz),
+                            color: isP2p
+                                ? (isPending
+                                    ? Colors.amber.shade800
+                                    : (isRejected ? Colors.red : Colors.blue))
+                                : (isDeposit
+                                    ? Colors.green
+                                    : isWithdraw
+                                        ? Colors.blue
+                                        : Colors.orange),
                             size: 20,
                           ),
                         ),
@@ -3957,8 +3423,35 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                     ),
                                   ),
                                   const SizedBox(width: 6),
-                                  // Origin Rail Badge
-                                  if (isMwa)
+                                  // Origin Rail / Status Badge
+                                  if (isP2p)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isPending
+                                            ? Colors.amber.withValues(alpha: 0.15)
+                                            : (isRejected
+                                                ? Colors.red.withValues(alpha: 0.12)
+                                                : Colors.blue.withValues(alpha: 0.12)),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        isPending
+                                            ? 'Pending Verification'
+                                            : (isRejected ? 'Rejected' : '${record.method ?? "P2P"} Verified'),
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: isPending
+                                              ? Colors.amber.shade800
+                                              : (isRejected ? Colors.red : Colors.blue),
+                                        ),
+                                      ),
+                                    )
+                                  else if (isMwa)
                                     Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 6,
@@ -3988,27 +3481,6 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                                             ),
                                           ),
                                         ],
-                                      ),
-                                    )
-                                  else if (isXendit)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.green.withValues(
-                                          alpha: 0.12,
-                                        ),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: const Text(
-                                        'GCash',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.green,
-                                        ),
                                       ),
                                     ),
                                 ],
@@ -4069,7 +3541,11 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
-                                color: isDeposit ? Colors.green : Colors.red,
+                                color: isRejected
+                                    ? Colors.grey
+                                    : (isPending
+                                        ? Colors.amber.shade800
+                                        : (isDeposit ? Colors.green : Colors.red)),
                               ),
                             ),
                             const SizedBox(height: 4),

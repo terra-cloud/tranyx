@@ -234,19 +234,43 @@ This document provides a single source of truth for QA agents and automated test
 
 ---
 
-## 12. Automated Test Commands for QA Agents
+## 13. Manual P2P Deposit Rail (GCash & Maya QR) & Verification (`AC-P2P-01` to `AC-P2P-06`)
+
+### User Story
+> **As a** TRANYX user wanting to top up my in-app wallet,  
+> **I want** to scan a designated TRANYX GCash or Maya QR code and submit my payment reference and receipt,  
+> **So that** I can deposit funds via standard local e-wallets even without an automated payment gateway.
+
+### Acceptance Criteria Matrix
+
+| AC ID | Scenario | Given | When | Then (Expected Outcome) | Verification |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **AC-P2P-01** | Accessing Manual P2P Option & Instructions | User is in TRANYX Wallet > Deposit | User views deposit options and selects "Manual P2P Deposit" | Displays payment method tabs (GCash / Maya), designated TRANYX agent account name (`TRANYX OFFICIAL / ZEUS C.` or `TRANYX CORP / ZEUS C.`), mobile number with Copy button (`0917 890 1234` / `0918 901 2345`), official scan QR Code, and verification notice stating funds are credited only after admin verification. | `packages/tranyx_mobile` & `packages/tranyx_web` |
+| **AC-P2P-02** | Submitting Deposit Request | User has transferred funds via GCash/Maya | User enters Amount (≥ ₱100), Method, Reference Number, and uploads Receipt Screenshot | Creates document in Firestore `/deposit_requests/{id}` and ledger entry in `/transactions/{txId}` with status `PENDING_VERIFICATION`. User `tyxBalance` is untouched. Appears in history as "Pending Verification". | `packages/tranyx_mobile/test/manual_p2p_deposit_test.dart` & `packages/tranyx_web` |
+| **AC-P2P-03** | Admin Approval & Atomic Balance Crediting | Pending deposit request exists in database | Admin verifies reference & payment proof and calls `approveDepositRequest` | Transaction atomically credits exact amount to user's `tyxBalance`, writes reference lock to `/deposit_references/{method_ref}`, updates request to `APPROVED`, and sets transaction status to `Completed` with `adminUid` and `verifiedAt`. | `packages/tranyx_mobile/test/manual_p2p_deposit_test.dart` |
+| **AC-P2P-04** | Admin Rejection & Audit Log | Deposit request is fraudulent or unverified | Admin calls `rejectDepositRequest(reason)` | Status transitions to `REJECTED`, stores `rejectionReason`, `adminUid`, and `verifiedAt`. User balance remains untouched. Transaction detail displays rejection reason. | `packages/tranyx_mobile/test/manual_p2p_deposit_test.dart` |
+| **AC-P2P-05** | Duplicate Reference Protection | A reference number is already approved / locked in `/deposit_references` | Any user/admin attempts to approve another deposit with the same reference number | System throws `Exception('Reference number has already been claimed/approved')` and blocks crediting, preventing double-spending across the platform. | `packages/tranyx_mobile/test/manual_p2p_deposit_test.dart` |
+| **AC-P2P-06** | Double-Click & Concurrent Approval Safety | Deposit request is already approved or rejected | Admin attempts concurrent or duplicate approval | System validates `status == 'PENDING_VERIFICATION'` inside the Firestore transaction and throws exception if not pending, preventing multiple credits on double-clicks. | `packages/tranyx_mobile/test/manual_p2p_deposit_test.dart` |
+
+---
+
+## 14. Automated Test Commands for QA Agents
 
 ```bash
-# 1. Run all Shared package tests (SmartRateEngine, GigFilterEngine, AI Service, Prompt Tuning, Profanity Filter, Party Verification)
+# 1. Run all Shared package tests (SmartRateEngine, GigFilterEngine, AI Service, Prompt Tuning, Profanity Filter, Party Verification, Deposit Request)
 cd /Users/zeuscajurao/Desktop/tranyx_workspace/packages/shared && dart test
 
-# 2. Run all Mobile package tests (Job Repository, Transit Repository, AI Draft Bottom Sheet, Solana Auth, Badges & Walkthrough)
+# 2. Run all Mobile package tests (Job Repository, Transit Repository, Manual P2P Deposit, AI Draft Bottom Sheet, Solana Auth, Badges & Walkthrough)
 cd /Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_mobile && flutter test
 
-# 3. Run Static Analysis across the entire workspace
+# 3. Run all Web package tests (Firestore Integration, Job Lifecycle)
+cd /Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_web && dart test
+
+# 4. Run Static Analysis across the entire workspace
 cd /Users/zeuscajurao/Desktop/tranyx_workspace && dart analyze packages/shared packages/tranyx_web
 cd /Users/zeuscajurao/Desktop/tranyx_workspace && flutter analyze packages/tranyx_mobile
 ```
+
 
 
 

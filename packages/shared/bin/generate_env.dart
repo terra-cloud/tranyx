@@ -51,7 +51,6 @@ void main() {
   final keysToLoad = <String>[
     'CLOUDFLARE_ACCOUNT_ID',
     'CLOUDFLARE_API_TOKEN',
-    'XENDIT_SECRET_KEY',
     'IMGBB_API_KEY',
     'GEMINI_AI_API_KEY',
     'SOLANA_PRIVATE_KEY',

@@ -564,6 +564,22 @@ class FirestoreService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getCollection(String path) async {
+    try {
+      final url = '$_firestoreBase/$path';
+      final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
+      final docs = data['documents'] as List? ?? [];
+      final result = docs.map((d) {
+        final doc = d as Map<String, dynamic>;
+        final id = _docId(doc);
+        return {..._fromFirestoreDoc(doc), 'id': id};
+      }).toList();
+      return result;
+    } catch (_) {
+      return [];
+    }
+  }
+
   Future<Map<String, dynamic>?> getEscrow(String jobId) async {
     return await getDocument('escrow/$jobId');
   }
@@ -3992,6 +4008,527 @@ class FirestoreService {
       print('checkAndAwardOnboardingQuests error: $e');
     }
     return newlyAwarded;
+  }
+
+  // ─── Manual P2P Deposit Rail (GCash / Maya) & Agent Operations ───────
+  Future<P2pAgent> getActiveP2pAgent({String? agentId}) async {
+    try {
+      if (agentId != null && agentId.isNotEmpty) {
+        final doc = await getDocument('p2p_agents/$agentId');
+        if (doc != null) return P2pAgent.fromMap(doc, docId: agentId);
+      }
+      final agents = await getCollection('p2p_agents');
+      for (final m in agents) {
+        if (m['isActive'] != false) {
+          return P2pAgent.fromMap(m, docId: m['id'] ?? m['agentId']);
+        }
+      }
+    } catch (e) {
+      print('getActiveP2pAgent error: $e');
+    }
+    return P2pAgent.defaultAgent();
+  }
+
+  Future<void> saveP2pAgent(P2pAgent agent) async {
+    await createOrUpdate('p2p_agents/${agent.agentId}', agent.toMap());
+  }
+
+  Future<List<P2pAgent>> fetchAllP2pAgents() async {
+    try {
+      final list = await getCollection('p2p_agents');
+      if (list.isEmpty) {
+        return [P2pAgent.defaultAgent()];
+      }
+      return list.map((m) => P2pAgent.fromMap(m, docId: m['id'] ?? m['agentId'])).toList();
+    } catch (e) {
+      print('fetchAllP2pAgents error: $e');
+      return [P2pAgent.defaultAgent()];
+    }
+  }
+
+  Future<List<DepositRequest>> fetchDepositRequests({String? status, String? agentId}) async {
+    try {
+      final list = await getCollection('deposit_requests');
+      var parsed = list.map((m) => DepositRequest.fromMap(m, docId: m['id'])).toList();
+      if (status != null && status.isNotEmpty) {
+        parsed = parsed.where((r) => r.status.toUpperCase() == status.toUpperCase()).toList();
+      }
+      if (agentId != null && agentId.isNotEmpty) {
+        parsed = parsed.where((r) => r.agentId == null || r.agentId == agentId).toList();
+      }
+      parsed.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return parsed;
+    } catch (e) {
+      print('fetchDepositRequests error: $e');
+      return [];
+    }
+  }
+
+  Future<List<DepositRequest>> fetchUserDepositRequests(String uid) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'deposit_requests'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'uid'},
+            'op': 'EQUAL',
+            'value': {'stringValue': uid},
+          },
+        },
+      },
+    });
+
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode >= 400) return [];
+
+      final List<dynamic> results = jsonDecode(req.body);
+      final list = <DepositRequest>[];
+      for (final res in results) {
+        if (res is Map<String, dynamic> && res.containsKey('document')) {
+          final doc = res['document'] as Map<String, dynamic>;
+          final id = _docId(doc);
+          final data = _fromFirestoreDoc(doc);
+          list.add(DepositRequest.fromMap(data, docId: id));
+        }
+      }
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return list;
+    } catch (e) {
+      print('fetchUserDepositRequests error: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchUserWithdrawalRequests(String uid) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'withdrawalRequests'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'uid'},
+            'op': 'EQUAL',
+            'value': {'stringValue': uid},
+          },
+        },
+      },
+    });
+
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode >= 400) return [];
+
+      final List<dynamic> results = jsonDecode(req.body);
+      final list = <Map<String, dynamic>>[];
+      for (final res in results) {
+        if (res is Map<String, dynamic> && res.containsKey('document')) {
+          final doc = res['document'] as Map<String, dynamic>;
+          final id = _docId(doc);
+          final data = _fromFirestoreDoc(doc);
+          list.add({...data, 'id': id});
+        }
+      }
+      list.sort((a, b) => ((b['createdAt'] as num?)?.toInt() ?? 0).compareTo((a['createdAt'] as num?)?.toInt() ?? 0));
+      return list;
+    } catch (e) {
+      print('fetchUserWithdrawalRequests error: $e');
+      return [];
+    }
+  }
+
+  Future<DepositRequest?> getDepositRequest(String id) async {
+    try {
+      final doc = await getDocument('deposit_requests/$id');
+      if (doc != null) {
+        return DepositRequest.fromMap(doc, docId: id);
+      }
+    } catch (e) {
+      print('getDepositRequest error: $e');
+    }
+    return null;
+  }
+
+  /// Step 1 (User): Request P2P Top-up (informs agents to send QR code)
+  Future<String> requestP2pTopup({
+    required String uid,
+    required String userName,
+    required String userEmail,
+    required double amount,
+    required String paymentMethod,
+  }) async {
+    final cleanMethod = paymentMethod.trim();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final id = 'dep_${now}_${Random().nextInt(999999)}';
+
+    final depositReq = DepositRequest(
+      id: id,
+      uid: uid,
+      userName: userName,
+      userEmail: userEmail,
+      amount: amount,
+      paymentMethod: cleanMethod,
+      status: 'WAITING_FOR_AGENT',
+      createdAt: now,
+    );
+
+    await createOrUpdate('deposit_requests/$id', depositReq.toMap());
+
+    // Record in ledger
+    final txId = 'p2p_dep_$id';
+    await createOrUpdate('transactions/$txId', {
+      'id': txId,
+      'uid': uid,
+      'depositRequestId': id,
+      'title': '$cleanMethod P2P Top-Up Request',
+      'desc': 'Awaiting Payment Agent QR Code',
+      'amount': amount,
+      'originRail': 'manual_p2p',
+      'method': cleanMethod,
+      'type': 'deposit',
+      'status': 'WAITING_FOR_AGENT',
+      'createdAt': now,
+    });
+
+    // Notify agents of incoming topup order
+    await createOrUpdate('notifications/notif_agent_dep_$id', {
+      'title': 'New P2P Top-Up Request (₱${amount.toStringAsFixed(2)})',
+      'message': '$userName requested a $cleanMethod top-up of ₱${amount.toStringAsFixed(2)}. Tap to send your QR code.',
+      'type': 'p2p_topup_request',
+      'depositRequestId': id,
+      'uid': uid,
+      'createdAt': now,
+      'read': false,
+    });
+
+    return id;
+  }
+
+  /// Step 2 (Agent): Agent accepts order and sends their payment QR code & number
+  Future<void> agentAcceptAndSendQr({
+    required String depositRequestId,
+    required String agentId,
+    required String agentName,
+    required String agentAccountName,
+    required String agentAccountNumber,
+    required String agentQrUrl,
+  }) async {
+    final reqDoc = await getDocument('deposit_requests/$depositRequestId');
+    if (reqDoc == null) throw Exception('Deposit request not found.');
+    final currentStatus = (reqDoc['status'] as String? ?? '').toUpperCase();
+    final currentAgentId = reqDoc['agentId'] as String?;
+    if (currentStatus != 'WAITING_FOR_AGENT' || (currentAgentId != null && currentAgentId.isNotEmpty && currentAgentId != agentId)) {
+      final claimant = reqDoc['agentName'] ?? 'another agent';
+      throw Exception('This deposit order has already been claimed by $claimant.');
+    }
+
+    final uid = reqDoc['uid'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final paymentMethod = (reqDoc['paymentMethod'] ?? 'GCash').toString();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final cleanAgentName = _cleanDisplayName(agentName, fallback: 'TRANYX Agent');
+    final cleanAccountName = _cleanDisplayName(agentAccountName, fallback: cleanAgentName);
+
+    // Update request
+    await createOrUpdate('deposit_requests/$depositRequestId', {
+      ...reqDoc,
+      'status': 'AWAITING_PAYMENT',
+      'agentId': agentId,
+      'agentName': cleanAgentName,
+      'agentAccountName': cleanAccountName,
+      'agentAccountNumber': agentAccountNumber,
+      'agentQrUrl': agentQrUrl,
+      'qrSentAt': now,
+    });
+
+    // Update transaction
+    final txDoc = await getDocument('transactions/p2p_dep_$depositRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_dep_$depositRequestId', {
+        ...txDoc,
+        'status': 'AWAITING_PAYMENT',
+        'desc': 'Agent $cleanAgentName sent QR Code. Awaiting payment.',
+        'agentId': agentId,
+        'agentName': cleanAgentName,
+      });
+    }
+
+    // Notify user that QR is ready
+    await createOrUpdate('notifications/notif_user_qr_${depositRequestId}_$now', {
+      'uid': uid,
+      'title': 'Payment QR Code Ready!',
+      'message': 'Agent $cleanAgentName has sent their $paymentMethod QR code for your ₱${amount.toStringAsFixed(2)} top-up.',
+      'type': 'p2p_qr_received',
+      'depositRequestId': depositRequestId,
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  /// Step 3 (User): User submits payment reference and proof receipt
+  Future<void> submitDepositProof({
+    required String depositRequestId,
+    required String referenceNumber,
+    required String proofImageUrl,
+  }) async {
+    final cleanRef = referenceNumber.trim();
+    if (cleanRef.isEmpty) throw Exception('Reference number is required.');
+    if (proofImageUrl.isEmpty) throw Exception('Payment screenshot / proof is required.');
+
+    final reqDoc = await getDocument('deposit_requests/$depositRequestId');
+    if (reqDoc == null) throw Exception('Deposit request not found.');
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await createOrUpdate('deposit_requests/$depositRequestId', {
+      ...reqDoc,
+      'status': 'PENDING_VERIFICATION',
+      'referenceNumber': cleanRef,
+      'proofImageUrl': proofImageUrl,
+      'proofSubmittedAt': now,
+    });
+
+    final txDoc = await getDocument('transactions/p2p_dep_$depositRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_dep_$depositRequestId', {
+        ...txDoc,
+        'status': 'PENDING_VERIFICATION',
+        'referenceNumber': cleanRef,
+        'proofImageUrl': proofImageUrl,
+        'desc': 'Payment proof submitted. Awaiting agent verification.',
+      });
+    }
+  }
+
+  Future<String> submitManualDepositRequest({
+    required String uid,
+    required String userName,
+    required String userEmail,
+    required double amount,
+    required String paymentMethod,
+    required String referenceNumber,
+    required String proofImageUrl,
+    String? agentId,
+    String? agentName,
+    String? agentQrUrl,
+  }) async {
+    final cleanRef = referenceNumber.trim();
+    final cleanMethod = paymentMethod.trim();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final id = 'dep_${now}_${Random().nextInt(999999)}';
+
+    final depositReq = DepositRequest(
+      id: id,
+      uid: uid,
+      userName: userName,
+      userEmail: userEmail,
+      amount: amount,
+      paymentMethod: cleanMethod,
+      referenceNumber: cleanRef,
+      proofImageUrl: proofImageUrl,
+      status: 'PENDING_VERIFICATION',
+      agentId: agentId,
+      agentName: agentName,
+      agentQrUrl: agentQrUrl,
+      createdAt: now,
+      proofSubmittedAt: now,
+    );
+
+    await createOrUpdate('deposit_requests/$id', depositReq.toMap());
+
+    final txId = 'p2p_dep_$id';
+    await createOrUpdate('transactions/$txId', {
+      'id': txId,
+      'uid': uid,
+      'depositRequestId': id,
+      'title': '$cleanMethod P2P Top-Up',
+      'desc': 'Manual $cleanMethod Transfer (Ref: $cleanRef)',
+      'amount': amount,
+      'originRail': 'manual_p2p',
+      'method': cleanMethod,
+      'type': 'deposit',
+      'status': 'PENDING_VERIFICATION',
+      'referenceNumber': cleanRef,
+      'proofImageUrl': proofImageUrl,
+      'agentId': agentId,
+      'agentName': agentName,
+      'createdAt': now,
+    });
+
+    return id;
+  }
+
+  Future<void> cancelDepositRequest(String depositRequestId, {String? reason}) async {
+    final reqDoc = await getDocument('deposit_requests/$depositRequestId');
+    if (reqDoc == null) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await createOrUpdate('deposit_requests/$depositRequestId', {
+      ...reqDoc,
+      'status': 'CANCELLED',
+      if (reason != null) 'rejectionReason': reason,
+      'verifiedAt': now,
+    });
+
+    final txDoc = await getDocument('transactions/p2p_dep_$depositRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_dep_$depositRequestId', {
+        ...txDoc,
+        'status': 'CANCELLED',
+        'verifiedAt': now,
+      });
+    }
+  }
+
+  Future<void> approveDepositRequest({
+    required String depositRequestId,
+    required String adminUid,
+  }) async {
+    final reqDoc = await getDocument('deposit_requests/$depositRequestId');
+    if (reqDoc == null) throw Exception('Deposit request not found.');
+    final currentStatus = (reqDoc['status'] as String? ?? '').toUpperCase();
+    if (currentStatus != 'PENDING_VERIFICATION') {
+      throw Exception('Deposit request is not pending verification (Current: $currentStatus).');
+    }
+
+    final paymentMethod = (reqDoc['paymentMethod'] ?? 'GCash').toString();
+    final referenceNumber = (reqDoc['referenceNumber'] ?? '').toString().trim();
+    final uid = reqDoc['uid'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Reference lock check against double claim
+    final refDoc = await getDocument('deposit_references/${paymentMethod.toLowerCase()}_$referenceNumber');
+    if (refDoc != null) {
+      throw Exception('Reference number has already been claimed/approved');
+    }
+
+    // 1. Mark request as APPROVED
+    await createOrUpdate('deposit_requests/$depositRequestId', {
+      ...reqDoc,
+      'status': 'APPROVED',
+      'adminUid': adminUid,
+      'verifiedAt': now,
+    });
+
+    // 2. Lock reference
+    await createOrUpdate('deposit_references/${paymentMethod.toLowerCase()}_$referenceNumber', {
+      'referenceNumber': referenceNumber,
+      'paymentMethod': paymentMethod,
+      'depositRequestId': depositRequestId,
+      'uid': uid,
+      'amount': amount,
+      'approvedBy': adminUid,
+      'approvedAt': now,
+    });
+
+    // 3. Increment user wallet balance
+    final userDoc = await getDocument('users/$uid');
+    final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+    final newBalance = currentBalance + amount;
+    await createOrUpdate('users/$uid', {
+      if (userDoc != null) ...userDoc,
+      'tyxBalance': newBalance,
+    });
+
+    // 4. Update transaction status
+    final txDoc = await getDocument('transactions/p2p_dep_$depositRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_dep_$depositRequestId', {
+        ...txDoc,
+        'status': 'COMPLETED',
+        'verifiedAt': now,
+        'adminUid': adminUid,
+      });
+    }
+
+    // 5. Send notification to user
+    await createOrUpdate('notifications/notif_dep_${depositRequestId}_$now', {
+      'uid': uid,
+      'title': 'Deposit Approved & Credited!',
+      'message': 'Your $paymentMethod deposit of ₱${amount.toStringAsFixed(2)} (Ref: $referenceNumber) has been verified and credited to your wallet.',
+      'type': 'deposit_approved',
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  Future<void> rejectDepositRequest({
+    required String depositRequestId,
+    required String adminUid,
+    required String reason,
+  }) async {
+    final cleanReason = reason.trim();
+    if (cleanReason.isEmpty) throw Exception('Rejection reason is required.');
+
+    final reqDoc = await getDocument('deposit_requests/$depositRequestId');
+    if (reqDoc == null) throw Exception('Deposit request not found.');
+    final uid = reqDoc['uid'] as String;
+    final paymentMethod = reqDoc['paymentMethod'] ?? 'GCash';
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // 1. Mark request as REJECTED
+    await createOrUpdate('deposit_requests/$depositRequestId', {
+      ...reqDoc,
+      'status': 'REJECTED',
+      'adminUid': adminUid,
+      'rejectionReason': cleanReason,
+      'verifiedAt': now,
+    });
+
+    // 2. Update transaction
+    final txDoc = await getDocument('transactions/p2p_dep_$depositRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_dep_$depositRequestId', {
+        ...txDoc,
+        'status': 'REJECTED',
+        'rejectionReason': cleanReason,
+        'verifiedAt': now,
+        'adminUid': adminUid,
+      });
+    }
+
+    // 3. Send notification
+    await createOrUpdate('notifications/notif_dep_${depositRequestId}_$now', {
+      'uid': uid,
+      'title': 'Deposit Request Rejected',
+      'message': 'Your $paymentMethod deposit was not approved. Reason: $cleanReason',
+      'type': 'deposit_rejected',
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  static String _cleanDisplayName(String? raw, {String fallback = 'TRANYX AGENT'}) {
+    if (raw == null || raw.trim().isEmpty) return fallback;
+    var text = raw.trim();
+    if (text.contains('@')) {
+      final prefix = text.split('@').first;
+      text = prefix
+          .replaceAll(RegExp(r'[._\-]'), ' ')
+          .split(' ')
+          .where((s) => s.isNotEmpty)
+          .map((s) => s[0].toUpperCase() + (s.length > 1 ? s.substring(1).toLowerCase() : ''))
+          .join(' ');
+    }
+    return text.isEmpty ? fallback : text;
   }
 }
 

@@ -1419,7 +1419,9 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
     final date = tx['date'] as String? ?? '';
     final amount = record.amount.abs();
     final isMwa = record.originRail == TransactionOriginRail.mwaOnChain;
-    final isXendit = record.originRail == TransactionOriginRail.gcashXendit;
+    final isP2p = record.originRail == TransactionOriginRail.manualP2p;
+    final isPending = record.status.toUpperCase().contains('PENDING');
+    final isRejected = record.status.toUpperCase().contains('REJECT');
 
     return InkWell(
       onTap: () => TransactionDetailsSheet.show(
@@ -1443,14 +1445,26 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: isMwa
-                    ? const Color(0xFF512DA8).withValues(alpha: 0.12)
-                    : Colors.green.withValues(alpha: 0.12),
+                color: isP2p
+                    ? (isPending
+                        ? Colors.amber.withValues(alpha: 0.15)
+                        : (isRejected
+                            ? Colors.red.withValues(alpha: 0.12)
+                            : Colors.blue.withValues(alpha: 0.12)))
+                    : (isMwa
+                        ? const Color(0xFF512DA8).withValues(alpha: 0.12)
+                        : Colors.green.withValues(alpha: 0.12)),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                isMwa ? Icons.bolt : Icons.credit_card,
-                color: isMwa ? const Color(0xFF7E57C2) : Colors.green,
+                isP2p
+                    ? Icons.qr_code_2
+                    : (isMwa ? Icons.bolt : Icons.credit_card),
+                color: isP2p
+                    ? (isPending
+                        ? Colors.amber.shade800
+                        : (isRejected ? Colors.red : Colors.blue))
+                    : (isMwa ? const Color(0xFF7E57C2) : Colors.green),
                 size: 20,
               ),
             ),
@@ -1470,10 +1484,14 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                           ),
                         ),
                       ),
-                      if (isMwa)
+                      if (isP2p)
+                        (isPending
+                            ? _pill('Pending Verification', Colors.amber.shade800)
+                            : (isRejected
+                                ? _pill('Rejected', Colors.red)
+                                : _pill('${record.method ?? "P2P"} Verified', Colors.blue)))
+                      else if (isMwa)
                         _pill('MWA / On-Chain', const Color(0xFF7E57C2))
-                      else if (isXendit)
-                        _pill('GCash (Sandbox)', Colors.green)
                       else
                         _pill(record.method ?? 'Deposit', Colors.deepPurple),
                     ],
@@ -1497,10 +1515,12 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
               children: [
                 Text(
                   '+ ₱ ${amount.toStringAsFixed(2)}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w900,
                     fontSize: 14,
-                    color: Colors.green,
+                    color: isRejected
+                        ? Colors.grey
+                        : (isPending ? Colors.amber.shade800 : Colors.green),
                   ),
                 ),
                 if (record.cryptoAmount != null && record.cryptoAmount! > 0) ...[

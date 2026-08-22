@@ -72,6 +72,9 @@ class UserProfile {
   final List<String> disabledPromos;
   final int terraPoints;
   final List<String> earnedRewards;
+  final String? role;
+
+  bool get isAdmin => role == 'admin' || role == 'staff' || role == 'support';
 
   const UserProfile({
     required this.uid,
@@ -112,6 +115,7 @@ class UserProfile {
     this.disabledPromos = const [],
     this.terraPoints = 0,
     this.earnedRewards = const [],
+    this.role,
   });
 
   factory UserProfile.fromMap(String uid, Map<String, dynamic> map) {
@@ -211,6 +215,7 @@ class UserProfile {
       disabledPromos: parseStringList(map['disabledPromos']) ?? const [],
       terraPoints: parseInt(map['terraPoints']),
       earnedRewards: parseStringList(map['earnedRewards']) ?? const [],
+      role: map['role'] as String?,
     );
   }
 
@@ -253,6 +258,7 @@ class UserProfile {
     'disabledPromos': disabledPromos,
     'terraPoints': terraPoints,
     'earnedRewards': earnedRewards,
+    if (role != null) 'role': role,
   };
 
   UserProfile copyWith({
@@ -293,6 +299,7 @@ class UserProfile {
     List<String>? disabledPromos,
     int? terraPoints,
     List<String>? earnedRewards,
+    String? role,
   }) {
     return UserProfile(
       uid: uid,
@@ -333,6 +340,7 @@ class UserProfile {
       disabledPromos: disabledPromos ?? this.disabledPromos,
       terraPoints: terraPoints ?? this.terraPoints,
       earnedRewards: earnedRewards ?? this.earnedRewards,
+      role: role ?? this.role,
     );
   }
 }

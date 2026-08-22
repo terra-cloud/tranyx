@@ -3,7 +3,6 @@ import 'package:jaspr/jaspr.dart';
 import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
-import '../../state/app_state.dart';
 import '../../services/web_interop.dart';
 
 class PaymentModalComponent extends StatelessComponent {
@@ -15,7 +14,7 @@ class PaymentModalComponent extends StatelessComponent {
     final s = state;
     final isDark = s.isDark;
     final amount = s.depositAmount;
-    final isSolana = s.selectedPaymentMethod == 'solana';
+    final req = s.activeP2pDepositRequest;
 
     // Fallback safe rate
     final rate = s.solToPhpRate > 0 ? s.solToPhpRate : 8500.0;
@@ -23,6 +22,9 @@ class PaymentModalComponent extends StatelessComponent {
 
     final modalBg = isDark ? "bg-zinc-900 border-zinc-800 shadow-2xl" : "bg-white border-zinc-200 shadow-xl";
     final cardBg = isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-150";
+
+    final isP2p = s.selectedDepositRail == 'manual_p2p';
+    final isGcash = s.selectedP2pMethod == 'GCash';
 
     return div(
       classes: 'fixed inset-0 z-[100] flex items-center justify-center bg-zinc-950/80 backdrop-blur-md px-4',
@@ -36,330 +38,574 @@ class PaymentModalComponent extends StatelessComponent {
                 lIcon('wallet', cls: 'w-8 h-8 text-indigo-400'),
               ]),
               h2(classes: 'text-xl font-bold mb-1', [Component.text('Top-up Tyxbit Balance')]),
-              p(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                Component.text('Your balance is insufficient. Top up now to complete your transaction.'),
+              p(classes: 'text-xs sm:text-sm ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                Component.text(
+                  isP2p
+                      ? 'P2P Matching: Agents are notified and send their live QR code upon request.'
+                      : 'Deposit funds instantly via Solana Crypto Gateway.',
+                ),
               ]),
             ]),
 
             // Body
-            div(classes: 'p-6 space-y-6 max-h-[60vh] overflow-y-auto custom-scrollbar', [
-              // Amount section
-              div(classes: 'text-center', [
-                span(classes: 'text-xs font-medium ${isDark ? "text-zinc-500" : "text-zinc-400"} block mb-1', [
-                  Component.text('Top-up Amount (₱)'),
-                ]),
-                div(classes: 'flex items-center justify-center gap-2 border-b-2 border-indigo-500/30 pb-2 mx-8', [
-                  input(
-                    type: InputType.number,
-                    classes:
-                        'w-full text-center text-3xl font-black text-indigo-400 bg-transparent border-none focus:outline-none placeholder:text-indigo-400/30',
-                    // Do NOT use value: here — Jaspr would overwrite the DOM value on every
-                    // re-render (controlled input), causing the user's typed amount to be reset
-                    // to '' whenever any unrelated state update triggers a rebuild.
-                    // Instead, set defaultValue via attributes so it only seeds the initial value.
-                    attributes: {
-                      'placeholder': '0.00',
-                      'min': '1',
-                      'step': '1',
-                      'id': 'topup-amount-input',
-                      'name': 'amount',
-                      if (amount > 0) 'defaultValue': amount.toInt().toString(),
-                    },
-                    events: {
-                      'input': (e) {
-                        final val = getInputValue(e.target);
-                        final parsed = num.tryParse(val);
-                        s.setState(() => s.depositAmount = parsed != null ? parsed.toDouble() : 0.0);
-                      },
-                    },
-                  ),
-                ]),
-                div(classes: 'flex flex-col gap-1 mt-2 text-center', [
-                  span(classes: 'text-[10px] text-indigo-400/60 block font-medium', [
-                    Component.text('1 Tyxbit = 1 Peso (₱)'),
-                  ]),
-                  span(classes: 'text-[10px] text-zinc-500 block font-bold', [
-                    Component.text('Min ₱100 · Max ₱50,000 per transaction'),
-                  ]),
-                ]),
-
-                // Quick Select Chips
-                div(classes: 'flex flex-wrap justify-center gap-2 mt-4', [
-                  for (final val in const [
-                    (500, '₱500'),
-                    (1000, '₱1,000'),
-                    (2000, '₱2,000'),
-                    (5000, '₱5,000'),
-                    (10000, '₱10,000')
-                  ])
-                    button(
-                      classes: 'px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer '
-                          '${amount == val.$1 ? "bg-indigo-500 text-white border-indigo-500 shadow-md shadow-indigo-500/20" : (isDark ? "bg-zinc-800/40 border-zinc-850 text-zinc-300 hover:bg-zinc-800" : "bg-white border-zinc-200 text-zinc-650 hover:bg-zinc-50")}',
-                      events: {
-                        'click': (_) {
-                          s.setState(() => s.depositAmount = val.$1.toDouble());
-                          final el = web.document.getElementById('topup-amount-input');
-                          if (el != null) {
-                            setInputValue(el, val.$1.toString());
-                          }
-                        }
-                      },
-                      [Component.text(val.$2)],
-                    )
-                ]),
+            div(classes: 'p-6 space-y-5 max-h-[68vh] overflow-y-auto custom-scrollbar', [
+              // Top Rail Selector
+              div(classes: 'p-1 rounded-2xl $cardBg grid grid-cols-2 gap-1', [
+                button(
+                  classes:
+                      'py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border-0 outline-none flex items-center justify-center gap-1.5 '
+                      '${isP2p ? "bg-indigo-600 text-white shadow" : (isDark ? "text-zinc-400 hover:text-zinc-200" : "text-zinc-600 hover:text-zinc-800")}',
+                  events: {'click': (_) => s.setState(() => s.selectedDepositRail = 'manual_p2p')},
+                  [
+                    lIcon('users', cls: 'w-4 h-4'),
+                    Component.text('P2P Agent Rail'),
+                  ],
+                ),
+                button(
+                  classes:
+                      'py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border-0 outline-none flex items-center justify-center gap-1.5 '
+                      '${!isP2p ? "bg-[#512da8] text-white shadow" : (isDark ? "text-zinc-400 hover:text-zinc-200" : "text-zinc-600 hover:text-zinc-800")}',
+                  events: {'click': (_) => s.setState(() => s.selectedDepositRail = 'solana')},
+                  [
+                    lIcon('coins', cls: 'w-4 h-4'),
+                    Component.text('Solana (SOL/USDT)'),
+                  ],
+                ),
               ]),
 
-              // Payment Method Selectors
-              div(
-                classes: const String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod' ? 'flex justify-center' : 'grid grid-cols-2 gap-3',
-                [
-                  if (const String.fromEnvironment('ENV', defaultValue: 'dev') != 'prod')
-                    button(
-                      classes:
-                          'p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 cursor-pointer border-0 outline-none '
-                          '${!isSolana ? "border-2 border-indigo-500 bg-indigo-500/5 text-indigo-400 font-extrabold" : (isDark ? "bg-zinc-800/40 border-zinc-800 text-zinc-400 hover:bg-zinc-800/60" : "bg-zinc-50 border-zinc-200 text-zinc-650 hover:bg-zinc-100")}',
-                      events: {
-                        'click': (_) => s.setState(() => s.selectedPaymentMethod = 'xendit'),
-                      },
-                      [
-                        lIcon('credit-card', cls: 'w-6 h-6'),
-                        span(classes: 'text-xs', [Component.text('GCash / Card')]),
-                      ],
-                    ),
-                  button(
+              if (isP2p) ...[
+                // ── P2P SUB-STATE 1: WAITING FOR AGENT TO SEND QR ─────────────────
+                if (req != null && req.status == 'WAITING_FOR_AGENT') ...[
+                  div(
                     classes:
-                        'p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 cursor-pointer border-0 outline-none '
-                        '${const String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod' ? "w-full" : ""}'
-                        '${isSolana ? " border-2 border-[#512da8] bg-[#512da8]/5 text-indigo-400 font-extrabold" : (isDark ? " bg-zinc-800/40 border-zinc-800 text-zinc-400 hover:bg-zinc-800/60" : " bg-zinc-50 border-zinc-200 text-zinc-650 hover:bg-zinc-100")}',
-                    events: {
-                      'click': (_) {
-                        s.setState(() => s.selectedPaymentMethod = 'solana');
-                        s.fetchSolToPhpRate();
-                      },
-                    },
+                        'p-6 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-center space-y-4 animate-fadeIn',
                     [
-                      lIcon('zap', cls: 'w-6 h-6 text-[#512da8]'),
-                      span(classes: 'text-xs', [Component.text('Solana (SOL)')]),
+                      div(
+                        classes:
+                            'w-16 h-16 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto animate-pulse',
+                        [
+                          lIcon('radio', cls: 'w-8 h-8'),
+                        ],
+                      ),
+                      div(classes: 'space-y-1', [
+                        h3(classes: 'text-base font-bold text-white', [
+                          Component.text('Notifying Payment Agents...'),
+                        ]),
+                        p(classes: 'text-xs text-zinc-400 leading-relaxed', [
+                          Component.text(
+                            'Your request for ₱${req.amount.toStringAsFixed(2)} via ${req.paymentMethod} has been broadcasted. Once an online agent accepts, their custom QR code will appear here.',
+                          ),
+                        ]),
+                      ]),
+                      div(classes: 'flex items-center justify-center gap-2 text-xs text-indigo-400 font-bold', [
+                        span(classes: 'w-2 h-2 rounded-full bg-indigo-400 animate-ping', []),
+                        Component.text('Awaiting Agent QR dispatch'),
+                      ]),
+
+                      // 5-Minute Cancellation Window
+                      () {
+                        final now = DateTime.now().millisecondsSinceEpoch;
+                        final createdAt = req.createdAt;
+                        final elapsedMs = now - createdAt;
+                        final canCancel = elapsedMs >= 5 * 60 * 1000;
+                        final remainingSec = canCancel ? 0 : (((5 * 60 * 1000) - elapsedMs) / 1000).ceil();
+                        final remainMin = remainingSec ~/ 60;
+                        final remainSec = remainingSec % 60;
+                        final timeRemainingText = '${remainMin}m ${remainSec.toString().padLeft(2, '0')}s';
+
+                        if (canCancel) {
+                          return button(
+                            classes:
+                                'w-full py-2.5 rounded-xl text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition cursor-pointer',
+                            events: {'click': (_) => s.handleCancelP2pOrder(req.id)},
+                            [Component.text('Cancel Request (5m Timeout Passed)')],
+                          );
+                        } else {
+                          return div(classes: 'flex flex-col items-center gap-1 w-full', [
+                            button(
+                              classes:
+                                  'w-full py-2 rounded-xl text-xs font-semibold text-zinc-500 bg-zinc-800/40 border border-zinc-800 cursor-not-allowed opacity-60',
+                              attributes: {'disabled': 'true'},
+                              [Component.text('Cancel available in $timeRemainingText')],
+                            ),
+                            span(classes: 'text-[10px] text-zinc-500 text-center', [
+                              Component.text('P2P request can be cancelled if no agent responds within 5 minutes.'),
+                            ]),
+                          ]);
+                        }
+                      }(),
                     ],
                   ),
-                ],
-              ),
-
-              // Dynamic Payment Method Detail Card
-              if (!isSolana) ...[
-                // Xendit fiat gateway details
-                div(classes: 'p-4 rounded-2xl $cardBg space-y-3', [
-                  _infoRow('Payment Processor', 'Xendit Gateway', isDark),
-                  _infoRow('Tyxbit Equivalent', '${amount.toStringAsFixed(2)} Tyxbits', isDark),
-                  _infoRow('Processor Status', 'Awaiting Checkout', isDark),
-                ]),
-
-                div(classes: 'space-y-3', [
-                  if (s.pendingXenditInvoiceId != null) ...[
-                    button(
-                      classes:
-                          'w-full py-4 rounded-2xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center justify-center gap-2 border-0 cursor-pointer',
-                      events: {
-                        'click': (_) => s.verifyXenditPayment(),
-                      },
-                      [
-                        if (s.isVerifyingPayment) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                        Component.text(s.isVerifyingPayment ? 'Verifying...' : 'I already paid'),
-                      ],
-                    ),
-                    if (s.postJobError != null)
-                      p(classes: 'text-xs text-red-400 text-center mt-2 font-semibold', [
-                        Component.text(s.postJobError!),
-                      ]),
-                    button(
-                      classes:
-                          'w-full py-4 rounded-2xl font-bold border-0 cursor-pointer ${isDark ? "text-zinc-400 hover:text-zinc-200 bg-transparent" : "text-zinc-550 hover:text-zinc-700 bg-transparent"} transition-colors',
-                      events: {
-                        'click': (_) => s.setState(() {
-                          s.showDepositModal = false;
-                        }),
-                      },
-                      [Component.text('Cancel')],
-                    ),
-                  ] else ...[
-                    button(
-                      classes:
-                          'w-full py-4 rounded-2xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2 border-0 cursor-pointer',
-                      events: {
-                        'click': (_) => s.createXenditInvoice(),
-                      },
-                      [
-                        if (s.isDepositing) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                        Component.text(s.isDepositing ? 'Processing...' : 'Pay with Xendit'),
-                      ],
-                    ),
-                    if (s.postJobError != null)
-                      p(classes: 'text-xs text-red-400 text-center mt-2 font-semibold', [
-                        Component.text(s.postJobError!),
-                      ]),
-                    button(
-                      classes:
-                          'w-full py-4 rounded-2xl font-bold border-0 cursor-pointer ${isDark ? "text-zinc-400 hover:text-zinc-200 bg-transparent" : "text-zinc-550 hover:text-zinc-700 bg-transparent"} transition-colors',
-                      events: {
-                        'click': (_) => s.setState(() => s.showDepositModal = false),
-                      },
-                      [Component.text('Cancel')],
-                    ),
-                  ],
-                ]),
-              ] else ...[
-                // Solana currency sub-toggle (SOL vs USDT)
-                div(classes: 'grid grid-cols-2 gap-2', [
-                  button(
-                    classes:
-                        'py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer border-0 outline-none '
-                        '${s.selectedSolanaCurrency == 'SOL' ? "bg-[#512da8] text-white" : (isDark ? "bg-zinc-800/40 border-zinc-800 text-zinc-400 hover:bg-zinc-800/60" : "bg-zinc-50 border-zinc-200 text-zinc-600")}',
-                    events: {'click': (_) => s.setState(() => s.selectedSolanaCurrency = 'SOL')},
-                    [Component.text('◎ SOL')],
-                  ),
-                  button(
-                    classes:
-                        'py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer border-0 outline-none '
-                        '${s.selectedSolanaCurrency == 'USDT' ? "bg-emerald-600 text-white" : (isDark ? "bg-zinc-800/40 border-zinc-800 text-zinc-400 hover:bg-zinc-800/60" : "bg-zinc-50 border-zinc-200 text-zinc-600")}',
-                    events: {'click': (_) => s.setState(() => s.selectedSolanaCurrency = 'USDT')},
-                    [Component.text('\$ USDT')],
-                  ),
-                ]),
-
-                // Solana payment details
-                div(classes: 'p-4 rounded-2xl $cardBg space-y-3.5', [
-                  if (s.selectedSolanaCurrency == 'SOL') ...[
-                    div(classes: 'flex justify-between items-center text-xs', [
-                      span(classes: 'text-zinc-500', [Component.text('Exchange Rate')]),
-                      span(classes: 'font-semibold flex items-center gap-1', [
-                        if (s.isFetchingRate) lIcon('loader-2', cls: 'w-3 h-3 animate-spin text-purple-400'),
-                        Component.text('1 SOL = ₱${rate.toStringAsFixed(2)}'),
-                      ]),
-                    ]),
+                ]
+                // ── P2P SUB-STATE 2: AGENT SENT QR / AWAITING USER PAYMENT ─────────
+                else if (req != null && req.status == 'AWAITING_PAYMENT') ...[
+                  div(classes: 'space-y-4 animate-fadeIn', [
+                    // Agent banner
                     div(
                       classes:
-                          'flex justify-between items-center text-xs border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} pt-3',
+                          'p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-3',
                       [
-                        span(classes: 'text-zinc-500', [Component.text('Required SOL')]),
-                        span(classes: 'font-bold text-[#805ad5] text-sm', [
-                          Component.text('${amountInSol.toStringAsFixed(5)} SOL'),
-                        ]),
-                      ],
-                    ),
-                  ] else ...[
-                    div(classes: 'flex justify-between items-center text-xs', [
-                      span(classes: 'text-zinc-500', [Component.text('USDT Rate (Stablecoin)')]),
-                      span(classes: 'font-semibold', [
-                        Component.text('\$1 USDT ≈ ₱${s.usdToPhpRate.toStringAsFixed(2)}'),
-                      ]),
-                    ]),
-                    div(
-                      classes:
-                          'flex justify-between items-center text-xs border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} pt-3',
-                      [
-                        span(classes: 'text-zinc-500', [Component.text('Required USDT')]),
-                        span(classes: 'font-bold text-emerald-400 text-sm', [
-                          Component.text('\$${(amount / s.usdToPhpRate).toStringAsFixed(2)} USDT'),
-                        ]),
-                      ],
-                    ),
-                    div(classes: 'mt-1 p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20', [
-                      p(classes: 'text-[10px] text-emerald-400 font-semibold text-center', [
-                        Component.text('USDT is a stablecoin — zero volatility risk!'),
-                      ]),
-                    ]),
-                  ],
-                  // Phantom Connection status inside card
-                  div(classes: 'border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} pt-3 text-xs', [
-                    if (s.walletState == WalletState.disconnected)
-                      p(classes: 'text-zinc-400 italic text-center', [Component.text('Solana Wallet not connected.')])
-                    else if (s.walletState == WalletState.connecting)
-                      p(classes: 'text-yellow-500 font-semibold flex items-center justify-center gap-1.5', [
-                        lIcon('loader-2', cls: 'w-3.5 h-3.5 animate-spin'),
-                        Component.text('Connecting...'),
-                      ])
-                    else
-                      div(classes: 'space-y-2', [
-                        div(classes: 'flex justify-between', [
-                          span(classes: 'text-zinc-500', [Component.text('Wallet Address')]),
-                          span(classes: 'font-mono text-zinc-400', [Component.text(s.walletAddress)]),
-                        ]),
-                        div(classes: 'flex justify-between', [
-                          span(classes: 'text-zinc-500', [Component.text('SOL Balance')]),
-                          span(classes: 'font-semibold', [Component.text('${s.walletBalance.toStringAsFixed(4)} SOL')]),
-                        ]),
-                      ]),
-                  ]),
-                ]),
-
-                div(classes: 'space-y-3', [
-                  if (s.walletState == WalletState.disconnected) ...[
-                    button(
-                      classes:
-                          'w-full py-4 rounded-2xl font-bold text-white bg-[#512da8] hover:bg-[#41208a] transition-all flex items-center justify-center gap-2 border-0 cursor-pointer',
-                      events: {'click': (_) => s.handleConnectWallet()},
-                      [
-                        lIcon('wallet', cls: 'w-5 h-5'),
-                        Component.text('Connect Solana Wallet'),
-                      ],
-                    ),
-                  ] else if (s.walletState == WalletState.connected) ...[
-                    if (s.selectedSolanaCurrency == 'SOL') ...[
-                      if (s.walletBalance < amountInSol) ...[
                         div(
                           classes:
-                              'p-3 text-xs rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-semibold text-center',
+                              'w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 font-bold text-xs',
                           [
-                            Component.text(
-                              'Insufficient SOL Balance (Need: ${amountInSol.toStringAsFixed(4)} SOL, Have: ${s.walletBalance.toStringAsFixed(4)} SOL)',
+                            lIcon('check-circle', cls: 'w-5 h-5'),
+                          ],
+                        ),
+                        div(classes: 'text-left space-y-0.5', [
+                          span(classes: 'text-xs font-bold text-emerald-400 block', [
+                            Component.text('Agent ${_cleanDisplayName(req.agentName, fallback: "Desk")} Sent Payment QR'),
+                          ]),
+                          span(classes: 'text-[11px] text-zinc-400 block', [
+                            Component.text('Scan the QR code below or transfer to the mobile number.'),
+                          ]),
+                        ]),
+                      ],
+                    ),
+
+                    // QR and Account Details Box
+                    div(classes: 'p-4 rounded-2xl $cardBg space-y-3 text-center', [
+                      if (req.agentQrUrl != null && req.agentQrUrl!.isNotEmpty)
+                        div(classes: 'inline-block p-2 rounded-2xl bg-white shadow-md mx-auto', [
+                          img(
+                            src: req.agentQrUrl!,
+                            classes: 'w-36 h-36 mx-auto rounded-xl object-contain',
+                            alt: '${req.paymentMethod} Payment QR',
+                          ),
+                        ]),
+
+                      div(classes: 'flex justify-between items-center text-xs px-2 pt-1', [
+                        span(classes: 'text-zinc-500', [Component.text('Agent Account Name')]),
+                        span(classes: 'font-bold text-zinc-200', [
+                          Component.text(_cleanDisplayName(req.agentAccountName ?? req.agentName, fallback: 'TRANYX AGENT')),
+                        ]),
+                      ]),
+
+                      if (req.agentAccountNumber != null && req.agentAccountNumber!.isNotEmpty)
+                        div(
+                          classes:
+                              'flex justify-between items-center p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs',
+                          [
+                            div(classes: 'flex items-center gap-2 text-left', [
+                              lIcon('smartphone', cls: 'w-4 h-4 text-indigo-400'),
+                              span(classes: 'font-mono font-bold text-indigo-400', [
+                                Component.text(req.agentAccountNumber!),
+                              ]),
+                            ]),
+                            button(
+                              classes:
+                                  'px-2.5 py-1 rounded-lg bg-indigo-500 text-white text-[11px] font-bold cursor-pointer hover:bg-indigo-600 transition border-0',
+                              events: {
+                                'click': (_) {
+                                  web.window.navigator.clipboard.writeText(req.agentAccountNumber!);
+                                  s.showAppToast('Copied', 'Agent number copied to clipboard!');
+                                }
+                              },
+                              [Component.text('Copy')],
                             ),
                           ],
                         ),
-                      ] else ...[
-                        button(
+                    ]),
+
+                    // Payment Reference Input
+                    div(classes: 'space-y-1.5 text-left', [
+                      label(classes: 'text-xs font-bold text-zinc-400', [
+                        Component.text('Payment Reference Number (from ${req.paymentMethod})'),
+                      ]),
+                      input(
+                        type: InputType.text,
+                        classes:
+                            'w-full px-4 py-3 rounded-2xl text-sm font-semibold border ${isDark ? "bg-zinc-950/60 border-zinc-800 text-white" : "bg-zinc-50 border-zinc-200 text-zinc-800"} focus:outline-none focus:border-indigo-500',
+                        attributes: {
+                          'placeholder': 'e.g., 10029384812',
+                          if (s.p2pReferenceNumber.isNotEmpty) 'defaultValue': s.p2pReferenceNumber,
+                        },
+                        events: {
+                          'input': (e) {
+                            final val = getInputValue(e.target);
+                            s.setState(() => s.p2pReferenceNumber = val);
+                          },
+                        },
+                      ),
+                    ]),
+
+                    // Proof Screenshot Upload
+                    div(classes: 'space-y-1.5 text-left', [
+                      label(classes: 'text-xs font-bold text-zinc-400', [
+                        Component.text('Upload Transfer Screenshot / Receipt'),
+                      ]),
+                      if (s.p2pProofBytes == null)
+                        label(
                           classes:
-                              'w-full py-4 rounded-2xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center justify-center gap-2 border-0 cursor-pointer',
-                          events: {'click': (_) => s.processSolanaPayment(amountInSol)},
+                              'w-full py-4 px-4 rounded-2xl border-2 border-dashed border-indigo-500/30 flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-indigo-500/5 transition-colors',
                           [
-                            if (s.isDepositing) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                            Component.text(s.isDepositing ? 'Confirming transaction...' : 'Pay with SOL'),
+                            lIcon('upload-cloud', cls: 'w-6 h-6 text-indigo-400'),
+                            span(classes: 'text-xs font-bold text-indigo-400', [
+                              Component.text('Click to upload payment receipt'),
+                            ]),
+                            span(classes: 'text-[10px] text-zinc-500', [Component.text('PNG, JPG, or JPEG up to 10MB')]),
+                            input(
+                              type: InputType.file,
+                              classes: 'hidden',
+                              attributes: {'accept': 'image/*'},
+                              events: {
+                                'change': (e) async {
+                                  final files = await readFilesFromEvent(e);
+                                  if (files.isNotEmpty) {
+                                    s.setState(() {
+                                      s.p2pProofBytes = files.first.bytes;
+                                      s.p2pProofFileName = files.first.name;
+                                    });
+                                  }
+                                }
+                              },
+                            ),
+                          ],
+                        )
+                      else
+                        div(
+                          classes:
+                              'w-full p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between',
+                          [
+                            div(classes: 'flex items-center gap-2', [
+                              lIcon('check-circle', cls: 'w-4 h-4 text-emerald-400'),
+                              span(classes: 'text-xs font-bold text-emerald-400 truncate max-w-[200px]', [
+                                Component.text(s.p2pProofFileName ?? 'Receipt Uploaded'),
+                              ]),
+                            ]),
+                            button(
+                              classes:
+                                  'text-xs text-red-400 hover:text-red-300 font-bold bg-transparent border-0 cursor-pointer',
+                              events: {
+                                'click': (_) {
+                                  s.setState(() {
+                                    s.p2pProofBytes = null;
+                                    s.p2pProofFileName = null;
+                                  });
+                                }
+                              },
+                              [Component.text('Remove')],
+                            ),
                           ],
                         ),
+                    ]),
+
+                    // Submit Proof Button
+                    button(
+                      classes:
+                          'w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-lg shadow-indigo-600/30 cursor-pointer transition border-0 flex items-center justify-center gap-2 disabled:opacity-50',
+                      attributes: {if (s.isSubmittingP2p) 'disabled': 'true'},
+                      events: {'click': (_) => s.submitPaymentProofForP2pOrder()},
+                      [
+                        if (s.isSubmittingP2p) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                        Component.text(s.isSubmittingP2p ? 'Uploading Proof...' : 'Submit Payment Proof'),
                       ],
-                    ] else ...[
-                      button(
+                    ),
+
+                    // 5-Minute Cancellation option if user wants to abort
+                    () {
+                      final now = DateTime.now().millisecondsSinceEpoch;
+                      final createdAt = req.createdAt;
+                      final elapsedMs = now - createdAt;
+                      final canCancel = elapsedMs >= 5 * 60 * 1000;
+                      final remainingSec = canCancel ? 0 : (((5 * 60 * 1000) - elapsedMs) / 1000).ceil();
+                      final remainMin = remainingSec ~/ 60;
+                      final remainSec = remainingSec % 60;
+                      final timeRemainingText = '${remainMin}m ${remainSec.toString().padLeft(2, '0')}s';
+
+                      if (canCancel) {
+                        return button(
+                          classes:
+                              'w-full py-2.5 rounded-xl text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition cursor-pointer',
+                          events: {'click': (_) => s.handleCancelP2pOrder(req.id)},
+                          [Component.text('Cancel Request (5m Timeout Reached)')],
+                        );
+                      } else {
+                        return div(classes: 'text-center pt-1', [
+                          span(classes: 'text-[10px] text-zinc-500', [
+                            Component.text('Cancellation unlocks in $timeRemainingText if transfer is not completed.'),
+                          ]),
+                        ]);
+                      }
+                    }(),
+                  ]),
+                ]
+                // ── P2P SUB-STATE 3: PENDING VERIFICATION ──────────────────────────
+                else if (req != null && req.status == 'PENDING_VERIFICATION') ...[
+                  div(
+                    classes:
+                        'p-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center space-y-4 animate-fadeIn',
+                    [
+                      div(
                         classes:
-                            'w-full py-4 rounded-2xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 border-0 cursor-pointer',
-                        events: {'click': (_) => s.processUsdtPayment(amount / s.usdToPhpRate)},
+                            'w-16 h-16 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto',
                         [
-                          if (s.isDepositing) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                          Component.text(s.isDepositing ? 'Confirming USDT...' : 'Pay with USDT (Stablecoin)'),
+                          lIcon('clock', cls: 'w-8 h-8 animate-spin'),
                         ],
                       ),
+                      div(classes: 'space-y-1', [
+                        h3(classes: 'text-base font-bold text-white', [
+                          Component.text('Proof Submitted — Verifying Receipt'),
+                        ]),
+                        p(classes: 'text-xs text-zinc-400 leading-relaxed', [
+                          Component.text(
+                            'Your payment of ₱${req.amount.toStringAsFixed(2)} (Ref: ${req.referenceNumber}) is currently being confirmed by the agent in the admin panel. Funds will appear instantly.',
+                          ),
+                        ]),
+                      ]),
+                      if (req.proofImageUrl.isNotEmpty)
+                        div(classes: 'w-24 h-24 mx-auto rounded-xl overflow-hidden border border-zinc-700 bg-black/40', [
+                          img(src: req.proofImageUrl, classes: 'w-full h-full object-cover', alt: 'Receipt'),
+                        ]),
+
+                      div(classes: 'space-y-2', [
+                        button(
+                          classes:
+                              'w-full py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold cursor-pointer border border-zinc-700',
+                          events: {'click': (_) => s.setState(() => s.showDepositModal = false)},
+                          [Component.text('Close & Check Balance Later')],
+                        ),
+
+                        // If uncredited after 5 minutes
+                        () {
+                          final now = DateTime.now().millisecondsSinceEpoch;
+                          final createdAt = req.proofSubmittedAt ?? req.createdAt;
+                          final elapsedMs = now - createdAt;
+                          final canCancel = elapsedMs >= 5 * 60 * 1000;
+
+                          if (canCancel) {
+                            return button(
+                              classes:
+                                  'w-full py-2.5 rounded-xl text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition cursor-pointer',
+                              events: {'click': (_) => s.handleCancelP2pOrder(req.id)},
+                              [Component.text('Cancel Request & Revoke Proof')],
+                            );
+                          }
+                          return div([]);
+                        }(),
+                      ]),
                     ],
-                  ],
-                  if (s.postJobError != null)
-                    p(classes: 'text-xs text-red-400 text-center mt-2 font-semibold', [
-                      Component.text(s.postJobError!),
+                  ),
+                ]
+                // ── P2P SUB-STATE 4: APPROVED ──────────────────────────────────────
+                else if (req != null && req.status == 'APPROVED') ...[
+                  div(
+                    classes:
+                        'p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center space-y-4 animate-fadeIn',
+                    [
+                      div(
+                        classes:
+                            'w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto',
+                        [
+                          lIcon('check', cls: 'w-8 h-8'),
+                        ],
+                      ),
+                      h3(classes: 'text-lg font-bold text-white', [Component.text('Deposit Credited!')]),
+                      p(classes: 'text-xs text-zinc-400', [
+                        Component.text(
+                          '₱${req.amount.toStringAsFixed(2)} has been successfully verified and added to your Tyxbit balance.',
+                        ),
+                      ]),
+                      button(
+                        classes:
+                            'w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer border-0',
+                        events: {
+                          'click': (_) {
+                            s.setState(() {
+                              s.activeP2pDepositId = null;
+                              s.activeP2pDepositRequest = null;
+                              s.showDepositModal = false;
+                            });
+                          }
+                        },
+                        [Component.text('Done / View Balance')],
+                      ),
+                    ],
+                  ),
+                ]
+                // ── P2P SUB-STATE 5: REJECTED ──────────────────────────────────────
+                else if (req != null && req.status == 'REJECTED') ...[
+                  div(
+                    classes:
+                        'p-6 rounded-2xl bg-red-500/10 border border-red-500/30 text-center space-y-4 animate-fadeIn',
+                    [
+                      div(
+                        classes:
+                            'w-16 h-16 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center mx-auto',
+                        [
+                          lIcon('alert-triangle', cls: 'w-8 h-8'),
+                        ],
+                      ),
+                      h3(classes: 'text-base font-bold text-white', [Component.text('Deposit Not Approved')]),
+                      p(classes: 'text-xs text-red-300 leading-relaxed', [
+                        Component.text('Reason: ${req.rejectionReason ?? "Verification failed"}'),
+                      ]),
+                      button(
+                        classes:
+                            'w-full py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold cursor-pointer border border-zinc-700',
+                        events: {
+                          'click': (_) {
+                            s.setState(() {
+                              s.activeP2pDepositId = null;
+                              s.activeP2pDepositRequest = null;
+                            });
+                          }
+                        },
+                        [Component.text('Create New Request')],
+                      ),
+                    ],
+                  ),
+                ]
+                // ── P2P INITIAL FORM: USER REQUESTS TOP-UP ────────────────────────
+                else ...[
+                  // Method toggle
+                  div(classes: 'grid grid-cols-2 gap-2', [
+                    button(
+                      classes:
+                          'py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer border-0 outline-none flex items-center justify-center gap-2 '
+                          '${isGcash ? "bg-[#007DFE] text-white shadow-md shadow-blue-500/20" : (isDark ? "bg-zinc-800/40 border-zinc-800 text-zinc-400" : "bg-zinc-50 border-zinc-200 text-zinc-600")}',
+                      events: {'click': (_) => s.setState(() => s.selectedP2pMethod = 'GCash')},
+                      [
+                        div(classes: 'w-2.5 h-2.5 rounded-full bg-white', []),
+                        Component.text('GCash Direct'),
+                      ],
+                    ),
+                    button(
+                      classes:
+                          'py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer border-0 outline-none flex items-center justify-center gap-2 '
+                          '${!isGcash ? "bg-[#00D084] text-white shadow-md shadow-emerald-500/20" : (isDark ? "bg-zinc-800/40 border-zinc-800 text-zinc-400" : "bg-zinc-50 border-zinc-200 text-zinc-600")}',
+                      events: {'click': (_) => s.setState(() => s.selectedP2pMethod = 'Maya')},
+                      [
+                        div(classes: 'w-2.5 h-2.5 rounded-full bg-white', []),
+                        Component.text('Maya Direct'),
+                      ],
+                    ),
+                  ]),
+
+                  // Amount input
+                  div(classes: 'text-center pt-2', [
+                    span(classes: 'text-xs font-medium ${isDark ? "text-zinc-500" : "text-zinc-400"} block mb-1', [
+                      Component.text('Deposit Amount (₱)'),
                     ]),
+                    div(classes: 'flex items-center justify-center gap-2 border-b-2 border-indigo-500/30 pb-2 mx-8', [
+                      input(
+                        type: InputType.number,
+                        classes:
+                            'w-full text-center text-3xl font-black text-indigo-400 bg-transparent border-none focus:outline-none placeholder:text-indigo-400/30',
+                        attributes: {
+                          'placeholder': '0.00',
+                          'min': '100',
+                          'step': '1',
+                          'id': 'topup-amount-input',
+                          'name': 'amount',
+                          if (amount > 0) 'defaultValue': amount.toInt().toString(),
+                        },
+                        events: {
+                          'input': (e) {
+                            final val = getInputValue(e.target);
+                            final parsed = num.tryParse(val);
+                            s.setState(() => s.depositAmount = parsed != null ? parsed.toDouble() : 0.0);
+                          },
+                        },
+                      ),
+                    ]),
+                    div(classes: 'flex flex-col gap-1 mt-2 text-center', [
+                      span(classes: 'text-[10px] text-indigo-400/60 block font-medium', [
+                        Component.text('1 Tyxbit = 1 Peso (₱)'),
+                      ]),
+                      span(classes: 'text-[10px] text-zinc-500 block font-bold', [
+                        Component.text('Min ₱100 · Max ₱50,000 per request'),
+                      ]),
+                    ]),
+
+                    // Quick Select Chips
+                    div(classes: 'flex flex-wrap justify-center gap-2 mt-4', [
+                      for (final val in const [
+                        (500, '₱500'),
+                        (1000, '₱1,000'),
+                        (2000, '₱2,000'),
+                        (5000, '₱5,000'),
+                        (10000, '₱10,000')
+                      ])
+                        button(
+                          classes:
+                              'px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer '
+                              '${amount == val.$1 ? "bg-indigo-500 text-white border-indigo-500 shadow-md shadow-indigo-500/20" : (isDark ? "bg-zinc-800/40 border-zinc-850 text-zinc-300 hover:bg-zinc-800" : "bg-white border-zinc-200 text-zinc-650 hover:bg-zinc-50")}',
+                          events: {
+                            'click': (_) {
+                              s.setState(() => s.depositAmount = val.$1.toDouble());
+                              final el = web.document.getElementById('topup-amount-input');
+                              if (el != null) {
+                                setInputValue(el, val.$1.toString());
+                              }
+                            }
+                          },
+                          [Component.text(val.$2)],
+                        )
+                    ]),
+                  ]),
+
+                  // Notice Card
+                  div(
+                    classes:
+                        'p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-300 flex items-start gap-2.5 text-left',
+                    [
+                      lIcon('info', cls: 'w-4 h-4 shrink-0 text-indigo-400 mt-0.5'),
+                      span([
+                        Component.text(
+                          'When you click request, online agents are notified immediately to dispatch their verified ${s.selectedP2pMethod} QR code.',
+                        ),
+                      ]),
+                    ],
+                  ),
+
+                  // Submit Request Button
                   button(
                     classes:
-                        'w-full py-4 rounded-2xl font-bold border-0 cursor-pointer ${isDark ? "text-zinc-400 hover:text-zinc-200 bg-transparent" : "text-zinc-550 hover:text-zinc-700 bg-transparent"} transition-colors',
-                    events: {'click': (_) => s.setState(() => s.showDepositModal = false)},
-                    [Component.text('Cancel')],
+                        'w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-lg shadow-indigo-600/30 cursor-pointer transition border-0 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95',
+                    attributes: {if (s.isSubmittingP2p) 'disabled': 'true'},
+                    events: {'click': (_) => s.requestP2pTopupOrder()},
+                    [
+                      if (s.isSubmittingP2p) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                      Component.text(s.isSubmittingP2p ? 'Notifying Agents...' : 'Request P2P Top-up (Notify Agent)'),
+                    ],
                   ),
+                ],
+              ] else ...[
+                // Solana Gateway Flow
+                div(classes: 'p-4 rounded-2xl $cardBg space-y-3 text-center', [
+                  span(classes: 'text-xs text-zinc-400 block', [Component.text('Solana Web3 Gateway')]),
+                  div(classes: 'text-2xl font-black text-white', [
+                    Component.text('${amountInSol.toStringAsFixed(4)} SOL'),
+                  ]),
+                  span(classes: 'text-xs text-zinc-500 block', [
+                    Component.text('1 SOL ≈ ₱${rate.toStringAsFixed(0)} PHP'),
+                  ]),
                 ]),
+
+                button(
+                  classes:
+                      'w-full py-3.5 rounded-2xl bg-[#512da8] hover:bg-[#4527a0] text-white font-bold text-sm shadow-lg cursor-pointer transition border-0 flex items-center justify-center gap-2',
+                  events: {'click': (_) => s.processSolanaPayment(amountInSol)},
+                  [
+                    lIcon('wallet', cls: 'w-4 h-4'),
+                    Component.text('Pay with Solana Wallet'),
+                  ],
+                ),
               ],
+
+              if (s.postJobError != null)
+                div(classes: 'p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-400 text-center', [
+                  Component.text(s.postJobError!),
+                ]),
             ]),
 
             // Footer
-            div(classes: 'p-4 bg-zinc-500/5 text-center border-t ${isDark ? "border-zinc-800" : "border-zinc-100"}', [
-              p(
-                classes:
-                    'text-[10px] uppercase tracking-widest font-bold ${isDark ? "text-zinc-650" : "text-zinc-400"}',
-                [
-                  Component.text(isSolana ? 'Powered by Solana Secure' : 'Powered by Xendit & Tranyx Secure'),
-                ],
+            div(classes: 'p-4 border-t ${isDark ? "border-zinc-800 bg-zinc-950/40" : "border-zinc-100 bg-zinc-50"} text-center', [
+              button(
+                classes: 'text-xs font-semibold text-zinc-500 hover:text-zinc-300 transition bg-transparent border-0 cursor-pointer',
+                events: {'click': (_) => s.setState(() => s.showDepositModal = false)},
+                [Component.text('Close Window')],
               ),
             ]),
           ],
@@ -368,10 +614,18 @@ class PaymentModalComponent extends StatelessComponent {
     );
   }
 
-  Component _infoRow(String label, String value, bool isDark) {
-    return div(classes: 'flex justify-between items-center text-xs', [
-      span(classes: isDark ? "text-zinc-500" : "text-zinc-400", [Component.text(label)]),
-      span(classes: 'font-semibold', [Component.text(value)]),
-    ]);
+  String _cleanDisplayName(String? raw, {String fallback = 'TRANYX AGENT'}) {
+    if (raw == null || raw.trim().isEmpty) return fallback;
+    var text = raw.trim();
+    if (text.contains('@')) {
+      final prefix = text.split('@').first;
+      text = prefix
+          .replaceAll(RegExp(r'[._\-]'), ' ')
+          .split(' ')
+          .where((s) => s.isNotEmpty)
+          .map((s) => s[0].toUpperCase() + (s.length > 1 ? s.substring(1).toLowerCase() : ''))
+          .join(' ');
+    }
+    return text.isEmpty ? fallback : text;
   }
 }

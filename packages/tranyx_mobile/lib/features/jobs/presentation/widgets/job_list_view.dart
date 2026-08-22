@@ -9,7 +9,6 @@ import 'package:tranyx_mobile/features/jobs/models/job.dart';
 import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_cards.dart';
-import 'package:tranyx_mobile/core/utils/geo_helper.dart';
 import 'package:shared/shared.dart';
 
 final jobListTabProvider = StateProvider<int>(
@@ -67,10 +66,6 @@ class JobListView extends ConsumerWidget {
       });
     } else {
       if (activeTab == 0) {
-        final userProfile = ref.watch(userProfileProvider).value;
-        const userLat = 14.5995;
-        const userLng = 120.9842;
-
         jobsAsync = ref.watch(availableJobsProvider).whenData((list) {
           final userProfile = ref.watch(userProfileProvider).value;
           const userLat = 14.5995;

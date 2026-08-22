@@ -1,14 +1,12 @@
 enum TransactionOriginRail {
   mwaOnChain,
-  gcashXendit,
   internalBalance,
+  manualP2p,
 }
 
 enum WalletTransactionType {
   mwaEscrowRelease,
   onChainPayment,
-  fiatTopup,
-  fiatWithdrawal,
   subscription,
   listingFee,
   deposit,
@@ -28,14 +26,17 @@ class WalletTransaction {
   final double? cryptoAmount;
   final String? cryptoCurrency; // 'SOL', 'USDT', 'TYXBIT'
   final String? solanaTxSignature;
-  final String? xenditReferenceId;
-  final String? xenditChannel; // 'GCASH'
   final TransactionOriginRail originRail;
   final WalletTransactionType transactionType;
-  final String status; // 'Completed', 'Successful', 'Pending', 'Failed'
+  final String status; // 'Completed', 'Successful', 'Pending', 'PENDING_VERIFICATION', 'APPROVED', 'REJECTED', 'Failed'
   final int createdAt; // epoch ms
   final String? walletPublicKey;
   final String? method;
+  final String? referenceNumber;
+  final String? proofImageUrl;
+  final String? rejectionReason;
+  final String? adminUid;
+  final int? verifiedAt;
 
   const WalletTransaction({
     required this.id,
@@ -48,14 +49,17 @@ class WalletTransaction {
     this.cryptoAmount,
     this.cryptoCurrency,
     this.solanaTxSignature,
-    this.xenditReferenceId,
-    this.xenditChannel,
     required this.originRail,
     required this.transactionType,
     required this.status,
     required this.createdAt,
     this.walletPublicKey,
     this.method,
+    this.referenceNumber,
+    this.proofImageUrl,
+    this.rejectionReason,
+    this.adminUid,
+    this.verifiedAt,
   });
 
   /// Factory parser with backwards compatibility for legacy transaction documents.
@@ -81,19 +85,20 @@ class WalletTransaction {
             map['signature'] ??
             map['solanaSignature']) as String?;
 
-    final xenditReferenceId = (map['xenditReferenceId'] ??
-            map['invoiceId'] ??
-            map['xenditInvoiceId']) as String?;
-
-    final xenditChannel = (map['xenditChannel'] ??
-            (map['method'] == 'GCash' || map['method'] == 'Xendit' ? 'GCASH' : null)) as String?;
-
     final method = map['method'] as String?;
     final rawType = (map['type'] ?? '').toString().toLowerCase();
 
     // Determine Origin Rail
     TransactionOriginRail rail;
-    if (map['originRail'] == 'mwa_on_chain' ||
+    if (map['originRail'] == 'manual_p2p' ||
+        map['originRail'] == 'manualP2p' ||
+        map['originRail'] == 'p2p' ||
+        (method != null &&
+            (method.toLowerCase().contains('gcash') ||
+                method.toLowerCase().contains('maya') ||
+                method.toLowerCase().contains('p2p')))) {
+      rail = TransactionOriginRail.manualP2p;
+    } else if (map['originRail'] == 'mwa_on_chain' ||
         map['originRail'] == 'mwaOnChain' ||
         solanaTxSignature != null ||
         (method != null && (method.toLowerCase().contains('solana') ||
@@ -101,12 +106,6 @@ class WalletTransaction {
             method.toLowerCase().contains('solflare') ||
             method.toLowerCase().contains('trust')))) {
       rail = TransactionOriginRail.mwaOnChain;
-    } else if (map['originRail'] == 'gcash_xendit' ||
-        map['originRail'] == 'gcashXendit' ||
-        xenditReferenceId != null ||
-        (method != null && (method.toLowerCase().contains('xendit') ||
-            method.toLowerCase().contains('gcash')))) {
-      rail = TransactionOriginRail.gcashXendit;
     } else {
       rail = TransactionOriginRail.internalBalance;
     }
@@ -123,14 +122,10 @@ class WalletTransaction {
       txType = WalletTransactionType.listingFee;
     } else if (rawType == 'refund') {
       txType = WalletTransactionType.refund;
-    } else if (rawType == 'deposit' || rawType.contains('topup')) {
-      txType = rail == TransactionOriginRail.gcashXendit
-          ? WalletTransactionType.fiatTopup
-          : WalletTransactionType.deposit;
+    } else if (rawType == 'deposit' || rawType.contains('topup') || rawType.contains('p2p')) {
+      txType = WalletTransactionType.deposit;
     } else if (rawType == 'withdraw' || rawType.contains('withdrawal')) {
-      txType = rail == TransactionOriginRail.gcashXendit
-          ? WalletTransactionType.fiatWithdrawal
-          : WalletTransactionType.withdraw;
+      txType = WalletTransactionType.withdraw;
     } else {
       txType = WalletTransactionType.unknown;
     }
@@ -144,6 +139,14 @@ class WalletTransaction {
       createdAt = createdAtRaw.millisecondsSinceEpoch;
     }
 
+    final verifiedAtRaw = map['verifiedAt'] ?? map['approvedAt'] ?? map['rejectedAt'];
+    int? verifiedAt;
+    if (verifiedAtRaw is num) {
+      verifiedAt = verifiedAtRaw.toInt();
+    } else if (verifiedAtRaw is DateTime) {
+      verifiedAt = verifiedAtRaw.millisecondsSinceEpoch;
+    }
+
     return WalletTransaction(
       id: id,
       uid: uid,
@@ -155,14 +158,17 @@ class WalletTransaction {
       cryptoAmount: cryptoAmount,
       cryptoCurrency: cryptoCurrency,
       solanaTxSignature: solanaTxSignature,
-      xenditReferenceId: xenditReferenceId,
-      xenditChannel: xenditChannel,
       originRail: rail,
       transactionType: txType,
       status: status,
       createdAt: createdAt,
       walletPublicKey: map['walletPublicKey'] as String?,
       method: method,
+      referenceNumber: (map['referenceNumber'] ?? map['refNumber']) as String?,
+      proofImageUrl: (map['proofImageUrl'] ?? map['proofUrl'] ?? map['receiptUrl']) as String?,
+      rejectionReason: (map['rejectionReason'] ?? map['reason']) as String?,
+      adminUid: map['adminUid'] as String?,
+      verifiedAt: verifiedAt,
     );
   }
 
@@ -178,18 +184,21 @@ class WalletTransaction {
       if (cryptoAmount != null) 'cryptoAmount': cryptoAmount,
       if (cryptoCurrency != null) 'cryptoCurrency': cryptoCurrency,
       if (solanaTxSignature != null) 'solanaTxSignature': solanaTxSignature,
-      if (xenditReferenceId != null) 'xenditReferenceId': xenditReferenceId,
-      if (xenditChannel != null) 'xenditChannel': xenditChannel,
       'originRail': originRail == TransactionOriginRail.mwaOnChain
           ? 'mwa_on_chain'
-          : originRail == TransactionOriginRail.gcashXendit
-              ? 'gcash_xendit'
-              : 'internal_balance',
+          : (originRail == TransactionOriginRail.manualP2p
+              ? 'manual_p2p'
+              : 'internal_balance'),
       'type': transactionType.name,
       'status': status,
       'createdAt': createdAt,
       if (walletPublicKey != null) 'walletPublicKey': walletPublicKey,
       if (method != null) 'method': method,
+      if (referenceNumber != null) 'referenceNumber': referenceNumber,
+      if (proofImageUrl != null) 'proofImageUrl': proofImageUrl,
+      if (rejectionReason != null) 'rejectionReason': rejectionReason,
+      if (adminUid != null) 'adminUid': adminUid,
+      if (verifiedAt != null) 'verifiedAt': verifiedAt,
     };
   }
 

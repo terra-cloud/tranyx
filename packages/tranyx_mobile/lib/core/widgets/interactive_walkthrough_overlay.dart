@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared/shared.dart';
-import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 import 'package:tranyx_mobile/core/widgets/user_badge_widget.dart';
 
@@ -55,7 +53,7 @@ class InteractiveWalkthroughOverlay extends StatefulWidget {
       barrierDismissible: true,
       barrierLabel: 'Walkthrough',
       barrierColor: Colors.transparent,
-      transitionDuration: const Duration(milliseconds: 300),
+      transitionDuration: const Duration(milliseconds: 250),
       pageBuilder: (ctx, anim1, anim2) {
         return InteractiveWalkthroughOverlay(
           targetKeys: targetKeys,
@@ -89,15 +87,14 @@ class _InteractiveWalkthroughOverlayState
     super.initState();
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1800),
       value: 1.0,
     );
 
-    _pulseAnimation = Tween<double>(begin: 0.95, end: 1.05).animate(
+    _pulseAnimation = Tween<double>(begin: 0.98, end: 1.02).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    // Only start infinite loop in non-test mode or forward
     try {
       _pulseController.repeat(reverse: true);
     } catch (_) {}
@@ -117,81 +114,64 @@ class _InteractiveWalkthroughOverlayState
         title: 'Trust & Verification Badges',
         description:
             'Tranyx strictly identifies counterparties with verified badges so you always know who you are transacting with.',
-        icon: Icons.shield_rounded,
+        icon: Icons.verified_user_outlined,
         targetKey: keys['profile'] ?? keys['verification'],
         customContent: Container(
-          margin: const EdgeInsets.only(top: 8),
-          padding: const EdgeInsets.all(12),
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.black26,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white12),
+            color: const Color(0xFF27272A).withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  const UserBadgeWidget(
-                    level: VerificationLevel.level1Basic,
-                    showLabel: true,
-                    size: 14,
-                  ),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Level 1: Basic Gov ID Verified',
-                      style: TextStyle(color: Colors.white70, fontSize: 11),
-                    ),
-                  ),
-                ],
+              _buildBadgeRow(
+                badge: const UserBadgeWidget(
+                  level: VerificationLevel.level1Basic,
+                  showLabel: true,
+                  size: 13,
+                ),
+                label: 'Level 1: Basic Gov ID Verified',
+                desc: 'Government ID validated with facial liveness match',
               ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  const UserBadgeWidget(
-                    level: VerificationLevel.level2Pro,
-                    showLabel: true,
-                    size: 14,
-                  ),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Level 2: Merchant & Pro Verified',
-                      style: TextStyle(color: Colors.white70, fontSize: 11),
-                    ),
-                  ),
-                ],
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 6),
+                child: Divider(color: Colors.white10, height: 1),
               ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white10,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'No Badge',
-                      style: TextStyle(
-                        color: Colors.white54,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
+              _buildBadgeRow(
+                badge: const UserBadgeWidget(
+                  level: VerificationLevel.level2Pro,
+                  showLabel: true,
+                  size: 13,
+                ),
+                label: 'Level 2: Merchant & Pro Verified',
+                desc: 'Registered host & verified business standing',
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 6),
+                child: Divider(color: Colors.white10, height: 1),
+              ),
+              _buildBadgeRow(
+                badge: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: const Text(
+                    'No Badge',
+                    style: TextStyle(
+                      color: Color(0xFFA1A1AA),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Unverified: Zero badges shown',
-                      style: TextStyle(color: Colors.white54, fontSize: 11),
-                    ),
-                  ),
-                ],
+                ),
+                label: 'Unverified: Zero badges shown',
+                desc: 'Transparent status on all contracts & listings',
               ),
             ],
           ),
@@ -202,16 +182,96 @@ class _InteractiveWalkthroughOverlayState
         title: 'Rentals & Calendar Availability',
         description:
             'Explore vehicles and properties with persistent calendar availability. Booked dates are locked, and clean start dates automatically optimize rates.',
-        icon: Icons.directions_car_outlined,
+        icon: Icons.calendar_today_outlined,
         targetKey: keys['rentals'] ?? keys['transit'],
+        customContent: Container(
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF27272A).withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  _buildPill(
+                    icon: Icons.check_circle_outline,
+                    label: 'Available Dates',
+                  ),
+                  const SizedBox(width: 8),
+                  _buildPill(
+                    icon: Icons.lock_outline,
+                    label: 'Reserved Locked',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.auto_awesome, size: 13, color: const Color(0xFFA1A1AA)),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text(
+                        'Smart Rate Engine automatically applies weekly caps',
+                        style: TextStyle(
+                          color: Color(0xFFA1A1AA),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
       WalkthroughStepModel(
         id: 'jobs',
         title: 'Jobs & Live Execution Tracking',
         description:
             'Post or browse gigs with live filtering. Bidding is open to all Nyxians, and real-time live execution updates strictly activate once hired.',
-        icon: Icons.work_outline,
+        icon: Icons.work_outline_rounded,
         targetKey: keys['jobs'],
+        customContent: Container(
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF27272A).withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: _buildFeatureTile(
+                  icon: Icons.shield_outlined,
+                  title: 'Escrow Secured',
+                  desc: 'Upfront payment safety',
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildFeatureTile(
+                  icon: Icons.qr_code_rounded,
+                  title: 'QR Code Release',
+                  desc: 'Instant verification',
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
       WalkthroughStepModel(
         id: 'wallet',
@@ -220,8 +280,148 @@ class _InteractiveWalkthroughOverlayState
             'Connect your Solana wallet via Mobile Wallet Adapter to sign smart contract transactions and view unified GCash & token ledgers.',
         icon: Icons.account_balance_wallet_outlined,
         targetKey: keys['wallet'],
+        customContent: Container(
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF27272A).withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: _buildFeatureTile(
+                  icon: Icons.phone_android_rounded,
+                  title: 'GCash / Maya',
+                  desc: 'Manual P2P with QR code',
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildFeatureTile(
+                  icon: Icons.toll_outlined,
+                  title: 'Solana Web3',
+                  desc: 'SOL & USDT on-chain MWA',
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     ];
+  }
+
+  Widget _buildBadgeRow({
+    required Widget badge,
+    required String label,
+    required String desc,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: badge,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFFF4F4F5),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                desc,
+                style: const TextStyle(
+                  color: Color(0xFF71717A),
+                  fontSize: 9.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPill({
+    required IconData icon,
+    required String label,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 12, color: const Color(0xFFA1A1AA)),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFFD4D4D8),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeatureTile({
+    required IconData icon,
+    required String title,
+    required String desc,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(9),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: const Color(0xFFA1A1AA)),
+          const SizedBox(height: 5),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Color(0xFFF4F4F5),
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 1),
+          Text(
+            desc,
+            style: const TextStyle(
+              color: Color(0xFF71717A),
+              fontSize: 8.5,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Rect? _getTargetRect(GlobalKey? key) {
@@ -265,36 +465,34 @@ class _InteractiveWalkthroughOverlayState
     final currentStep = steps[_currentStepIndex];
     final targetRect = _getTargetRect(currentStep.targetKey);
     final screenSize = MediaQuery.of(context).size;
-    final padding = MediaQuery.of(context).padding;
 
     // Calculate spotlight cutout bounds
     Rect cutoutRect;
     if (targetRect != null) {
       cutoutRect = Rect.fromCenter(
         center: targetRect.center,
-        width: targetRect.width + 16,
-        height: targetRect.height + 16,
+        width: targetRect.width + 12,
+        height: targetRect.height + 12,
       );
     } else {
-      // Default fallback centered position for virtual spotlight
       cutoutRect = Rect.fromCenter(
         center: Offset(
           screenSize.width / 2,
-          screenSize.height * 0.35,
+          screenSize.height * 0.22,
         ),
-        width: screenSize.width * 0.85,
-        height: 140,
+        width: screenSize.width * 0.88,
+        height: 70,
       );
     }
 
-    // Determine tooltip vertical placement (above or below target)
-    final placeBelow = cutoutRect.bottom < (screenSize.height * 0.55);
+    final hasTarget = targetRect != null;
+    final placeBelow = cutoutRect.bottom < (screenSize.height * 0.50);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          // ── Dimmed Scrim with Spotlight Cutout ──────────────────────────
+          // ── Soft Matte Scrim with Spotlight Cutout ──────────────────────────
           GestureDetector(
             onTap: () => _dismiss(completed: false),
             child: CustomPaint(
@@ -302,6 +500,7 @@ class _InteractiveWalkthroughOverlayState
               painter: _SpotlightPainter(
                 cutoutRect: cutoutRect,
                 pulseValue: _pulseAnimation.value,
+                hasTarget: hasTarget,
               ),
             ),
           ),
@@ -319,30 +518,30 @@ class _InteractiveWalkthroughOverlayState
             ),
           ),
 
-          // ── Floating Tooltip Card ──────────────────────────────────────
+          // ── Minimalist Clean Floating Card ────────────────────────────
           Positioned(
-            left: 20,
-            right: 20,
-            top: placeBelow ? (cutoutRect.bottom + 16) : null,
+            left: 18,
+            right: 18,
+            top: placeBelow ? (cutoutRect.bottom + 12) : null,
             bottom: !placeBelow
-                ? (screenSize.height - cutoutRect.top + 16)
+                ? (screenSize.height - cutoutRect.top + 12)
                 : null,
             child: Material(
               color: Colors.transparent,
               child: Container(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E1B4B), // Deep indigo
+                  color: const Color(0xFF18181B), // Soft matte charcoal
                   borderRadius: BorderRadius.circular(24),
                   border: Border.all(
-                    color: AppColors.purple.withValues(alpha: 0.6),
-                    width: 1.5,
+                    color: Colors.white.withValues(alpha: 0.1),
+                    width: 1,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: AppColors.purple.withValues(alpha: 0.35),
-                      blurRadius: 28,
-                      offset: const Offset(0, 10),
+                      color: Colors.black.withValues(alpha: 0.45),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
                     ),
                   ],
                 ),
@@ -350,122 +549,137 @@ class _InteractiveWalkthroughOverlayState
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Header row with Icon & Step Count
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppColors.purple.withValues(alpha: 0.25),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Icon(
-                            currentStep.icon,
-                            color: AppColors.purpleLight,
-                            size: 20,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Step ${_currentStepIndex + 1} of ${steps.length}',
-                                style: TextStyle(
-                                  color: AppColors.purpleLight,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.5,
-                                ),
+                    // Top Bar: Step Pill & Close Button with spacious layout (no icon)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.07),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.1),
                               ),
-                              Text(
-                                currentStep.title,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                            ),
+                            child: Text(
+                              'Step ${_currentStepIndex + 1} of ${steps.length}',
+                              style: const TextStyle(
+                                color: Color(0xFFD4D4D8),
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.3,
                               ),
-                            ],
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.close,
-                            color: Colors.white60,
-                            size: 20,
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.close,
+                              color: Color(0xFF71717A),
+                              size: 19,
+                            ),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: () => _dismiss(completed: false),
                           ),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: () => _dismiss(completed: false),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Description text
-                    Text(
-                      currentStep.description,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                        height: 1.4,
+                        ],
                       ),
                     ),
 
-                    // Custom Step Content (e.g. Badges)
+                    // Title Header with generous spacing
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        currentStep.title,
+                        style: const TextStyle(
+                          color: Color(0xFFFAFAFA),
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+
+                    // Description text with comfortable reading line height
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        currentStep.description,
+                        style: const TextStyle(
+                          color: Color(0xFFA1A1AA),
+                          fontSize: 12,
+                          height: 1.45,
+                        ),
+                      ),
+                    ),
+
+                    // Custom Content
                     if (currentStep.customContent != null)
                       currentStep.customContent!,
 
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 14),
 
-                    // Navigation Footer
+                    // Footer: Step indicator + Action buttons
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // Step Dots
+                        // Minimalist Segment Dots
                         Row(
                           children: List.generate(
                             steps.length,
                             (index) => AnimatedContainer(
                               duration: const Duration(milliseconds: 200),
-                              margin: const EdgeInsets.only(right: 6),
-                              width: _currentStepIndex == index ? 18 : 6,
-                              height: 6,
+                              margin: const EdgeInsets.only(right: 5),
+                              width: _currentStepIndex == index ? 16 : 5,
+                              height: 4,
                               decoration: BoxDecoration(
                                 color: _currentStepIndex == index
-                                    ? AppColors.purpleLight
-                                    : Colors.white24,
-                                borderRadius: BorderRadius.circular(3),
+                                    ? const Color(0xFFFAFAFA)
+                                    : Colors.white.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(2),
                               ),
                             ),
                           ),
                         ),
 
-                        // Action buttons
+                        // Buttons
                         Row(
                           children: [
                             if (_currentStepIndex > 0)
                               TextButton(
                                 onPressed: _previousStep,
                                 style: TextButton.styleFrom(
-                                  foregroundColor: Colors.white70,
+                                  foregroundColor: const Color(0xFFA1A1AA),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
                                 ),
-                                child: const Text('Back'),
+                                child: const Text(
+                                  'Back',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             ElevatedButton(
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.purple,
-                                foregroundColor: Colors.white,
+                                backgroundColor: const Color(0xFFFAFAFA),
+                                foregroundColor: const Color(0xFF18181B),
                                 elevation: 0,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 18,
-                                  vertical: 10,
+                                  horizontal: 16,
+                                  vertical: 8,
                                 ),
                               ),
                               onPressed: () => _nextStep(steps.length),
@@ -474,8 +688,8 @@ class _InteractiveWalkthroughOverlayState
                                     ? 'Got It'
                                     : 'Next',
                                 style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
                                 ),
                               ),
                             ),
@@ -494,53 +708,59 @@ class _InteractiveWalkthroughOverlayState
   }
 }
 
-/// Custom painter to dim the screen and punch out a rounded spotlight hole
+/// Custom painter for soft matte dimming
 class _SpotlightPainter extends CustomPainter {
   final Rect cutoutRect;
   final double pulseValue;
+  final bool hasTarget;
 
   _SpotlightPainter({
     required this.cutoutRect,
     required this.pulseValue,
+    required this.hasTarget,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final backgroundPaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.78)
+      ..color = Colors.black.withValues(alpha: 0.65)
       ..style = PaintingStyle.fill;
 
     final fullPath = Path()
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
 
-    final cutoutRRect = RRect.fromRectAndRadius(
-      cutoutRect,
-      const Radius.circular(18),
-    );
+    if (hasTarget) {
+      final cutoutRRect = RRect.fromRectAndRadius(
+        cutoutRect,
+        const Radius.circular(16),
+      );
 
-    final cutoutPath = Path()..addRRect(cutoutRRect);
+      final cutoutPath = Path()..addRRect(cutoutRRect);
 
-    // Difference between full screen and cutout
-    final combinedPath = Path.combine(
-      PathOperation.difference,
-      fullPath,
-      cutoutPath,
-    );
+      final combinedPath = Path.combine(
+        PathOperation.difference,
+        fullPath,
+        cutoutPath,
+      );
 
-    canvas.drawPath(combinedPath, backgroundPaint);
+      canvas.drawPath(combinedPath, backgroundPaint);
 
-    // Draw glowing pulsing outline around the cutout
-    final glowPaint = Paint()
-      ..color = AppColors.purple.withValues(alpha: 0.6 * pulseValue)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5 * pulseValue;
+      // Subtle muted border around the cutout
+      final strokePaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.4 * pulseValue)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2;
 
-    canvas.drawRRect(cutoutRRect, glowPaint);
+      canvas.drawRRect(cutoutRRect, strokePaint);
+    } else {
+      canvas.drawPath(fullPath, backgroundPaint);
+    }
   }
 
   @override
   bool shouldRepaint(covariant _SpotlightPainter oldDelegate) {
     return oldDelegate.cutoutRect != cutoutRect ||
-        oldDelegate.pulseValue != pulseValue;
+        oldDelegate.pulseValue != pulseValue ||
+        oldDelegate.hasTarget != hasTarget;
   }
 }

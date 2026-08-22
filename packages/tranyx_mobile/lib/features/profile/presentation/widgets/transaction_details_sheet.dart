@@ -37,7 +37,6 @@ class TransactionDetailsSheet extends StatelessWidget {
     final tx = transaction;
     final isDeposit = tx.amount >= 0 ||
         tx.transactionType == WalletTransactionType.deposit ||
-        tx.transactionType == WalletTransactionType.fiatTopup ||
         tx.transactionType == WalletTransactionType.refund;
 
     final dateStr = tx.createdAt > 0
@@ -46,7 +45,6 @@ class TransactionDetailsSheet extends StatelessWidget {
         : 'Recently';
 
     final isMwa = tx.originRail == TransactionOriginRail.mwaOnChain;
-    final isXendit = tx.originRail == TransactionOriginRail.gcashXendit;
 
     final clusterLabel = F.appFlavor == Flavor.production
         ? 'Solana Mainnet-Beta'
@@ -207,7 +205,7 @@ class TransactionDetailsSheet extends StatelessWidget {
               _buildDetailRow(
                 icon: Icons.alt_route_rounded,
                 label: 'Origin Rail',
-                valueWidget: _buildRailBadge(tx.originRail, isMwa, isXendit),
+                valueWidget: _buildRailBadge(tx.originRail, isMwa),
               ),
               const SizedBox(height: 10),
 
@@ -224,6 +222,89 @@ class TransactionDetailsSheet extends StatelessWidget {
                   label: 'Payment Method',
                   value: tx.method!,
                 ),
+              ],
+
+              // Manual P2P Details (Reference Number, Proof, Rejection Reason)
+              if (tx.originRail == TransactionOriginRail.manualP2p ||
+                  (tx.referenceNumber != null && tx.referenceNumber!.isNotEmpty)) ...[
+                if (tx.referenceNumber != null && tx.referenceNumber!.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  _buildCopyableRow(
+                    context: context,
+                    icon: Icons.tag_rounded,
+                    label: 'Reference Number',
+                    value: tx.referenceNumber!,
+                    displayValue: tx.referenceNumber!,
+                  ),
+                ],
+                if (tx.proofImageUrl != null && tx.proofImageUrl!.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        launchUrl(
+                          Uri.parse(tx.proofImageUrl!),
+                          mode: LaunchMode.externalApplication,
+                        );
+                      },
+                      icon: const Icon(Icons.image_outlined, size: 16),
+                      label: const Text('View Payment Proof / Receipt'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: isDarkMode ? Colors.indigo.shade300 : AppColors.indigo,
+                        side: BorderSide(
+                          color: isDarkMode ? Colors.indigo.shade300 : AppColors.indigo,
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+                if (tx.rejectionReason != null && tx.rejectionReason!.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.error_outline, color: Colors.red, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Rejection Reason',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                tx.rejectionReason!,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDarkMode ? Colors.red.shade200 : Colors.red.shade900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
 
               // On-Chain Specific Details
@@ -271,25 +352,6 @@ class TransactionDetailsSheet extends StatelessWidget {
                 ),
               ],
 
-              // Xendit Fiat Specific Details
-              if (tx.xenditReferenceId != null &&
-                  tx.xenditReferenceId!.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                _buildCopyableRow(
-                  context: context,
-                  icon: Icons.receipt_long_rounded,
-                  label: 'Xendit Reference ID',
-                  value: tx.xenditReferenceId!,
-                  displayValue: _truncate(tx.xenditReferenceId!),
-                ),
-                const SizedBox(height: 10),
-                _buildDetailRow(
-                  icon: Icons.account_balance_wallet_outlined,
-                  label: 'Channel',
-                  value: 'GCASH (Xendit Sandbox)',
-                ),
-              ],
-
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
@@ -326,13 +388,19 @@ class TransactionDetailsSheet extends StatelessWidget {
     Color bg = Colors.green.withValues(alpha: 0.12);
     Color fg = Colors.green;
 
-    if (status.toLowerCase().contains('pending')) {
+    final s = status.toUpperCase();
+    if (s.contains('PENDING')) {
       bg = Colors.amber.withValues(alpha: 0.15);
       fg = Colors.amber.shade800;
-    } else if (status.toLowerCase().contains('fail')) {
+    } else if (s.contains('REJECT') || s.contains('FAIL')) {
       bg = Colors.red.withValues(alpha: 0.12);
       fg = Colors.red;
+    } else if (s.contains('APPROVED') || s.contains('COMPLETE')) {
+      bg = Colors.green.withValues(alpha: 0.12);
+      fg = Colors.green;
     }
+
+    final label = status == 'PENDING_VERIFICATION' ? 'Pending Verification' : status;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -341,7 +409,7 @@ class TransactionDetailsSheet extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
-        status,
+        label,
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.bold,
@@ -354,8 +422,32 @@ class TransactionDetailsSheet extends StatelessWidget {
   Widget _buildRailBadge(
     TransactionOriginRail rail,
     bool isMwa,
-    bool isXendit,
   ) {
+    if (rail == TransactionOriginRail.manualP2p) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.blue.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.qr_code_2, color: Colors.blue, size: 14),
+            SizedBox(width: 4),
+            Text(
+              'Manual P2P (GCash/Maya)',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Colors.blue,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     if (isMwa) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -374,31 +466,6 @@ class TransactionDetailsSheet extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF7E57C2),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (isXendit) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.green.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.credit_card, color: Colors.green, size: 14),
-            SizedBox(width: 4),
-            Text(
-              'GCash via Xendit',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: Colors.green,
               ),
             ),
           ],

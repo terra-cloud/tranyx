@@ -1190,6 +1190,12 @@
       "languageVersion": "3.4"
     },
     {
+      "name": "qr_flutter",
+      "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/qr_flutter-4.1.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.19"
+    },
+    {
       "name": "qr_flutter_wc",
       "rootUri": "file:///Users/zeuscajurao/.pub-cache/hosted/pub.dev/qr_flutter_wc-0.0.3",
       "packageUri": "lib/",

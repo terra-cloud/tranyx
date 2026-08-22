@@ -46,15 +46,13 @@ void main() {
       expect(explorerProd, isNot(contains('cluster=')));
     });
 
-    test('Correctly parses Xendit GCash fiat sandbox transaction', () {
+    test('Correctly parses internal deposit transaction', () {
       final data = {
-        'id': 'deposit_inv_998877',
+        'id': 'deposit_12345',
         'uid': 'user_xyz',
         'title': 'Wallet Top-Up',
-        'desc': 'Fiat deposit via Xendit',
+        'desc': 'Deposit to wallet',
         'amount': 500.0,
-        'xenditReferenceId': 'inv_998877',
-        'method': 'GCash',
         'type': 'deposit',
         'status': 'Completed',
         'createdAt': 1724056789000,
@@ -62,12 +60,10 @@ void main() {
 
       final tx = WalletTransaction.fromMap(data);
 
-      expect(tx.id, 'deposit_inv_998877');
-      expect(tx.originRail, TransactionOriginRail.gcashXendit);
-      expect(tx.transactionType, WalletTransactionType.fiatTopup);
+      expect(tx.id, 'deposit_12345');
+      expect(tx.originRail, TransactionOriginRail.internalBalance);
+      expect(tx.transactionType, WalletTransactionType.deposit);
       expect(tx.amount, 500.0);
-      expect(tx.xenditReferenceId, 'inv_998877');
-      expect(tx.xenditChannel, 'GCASH');
     });
 
     test('Handles legacy transaction without origin rail gracefully', () {
@@ -85,6 +81,66 @@ void main() {
       expect(tx.originRail, TransactionOriginRail.internalBalance);
       expect(tx.transactionType, WalletTransactionType.listingFee);
       expect(tx.amount, -50.0);
+    });
+
+    test('Correctly parses Manual P2P deposit transaction with proof and reference', () {
+      final data = {
+        'id': 'p2p_deposit_999',
+        'uid': 'user_p2p',
+        'title': 'GCash P2P Top-Up',
+        'desc': 'Manual GCash Transfer Ref: 10029384812',
+        'amount': 1000.0,
+        'type': 'deposit',
+        'originRail': 'manual_p2p',
+        'method': 'GCash',
+        'referenceNumber': '10029384812',
+        'proofImageUrl': 'https://i.ibb.co/receipt.jpg',
+        'status': 'PENDING_VERIFICATION',
+        'createdAt': 1724056789000,
+      };
+
+      final tx = WalletTransaction.fromMap(data);
+
+      expect(tx.id, 'p2p_deposit_999');
+      expect(tx.originRail, TransactionOriginRail.manualP2p);
+      expect(tx.transactionType, WalletTransactionType.deposit);
+      expect(tx.amount, 1000.0);
+      expect(tx.referenceNumber, '10029384812');
+      expect(tx.proofImageUrl, 'https://i.ibb.co/receipt.jpg');
+      expect(tx.status, 'PENDING_VERIFICATION');
+
+      final map = tx.toMap();
+      expect(map['originRail'], 'manual_p2p');
+      expect(map['referenceNumber'], '10029384812');
+      expect(map['status'], 'PENDING_VERIFICATION');
+    });
+
+    test('DepositRequest model serializes and deserializes correctly', () {
+      final req = DepositRequest(
+        id: 'dep_req_123',
+        uid: 'user_123',
+        userName: 'Zeus Cajurao',
+        userEmail: 'zeus@tranyx.com',
+        amount: 1500.0,
+        paymentMethod: 'Maya',
+        referenceNumber: 'MAYA-998877',
+        proofImageUrl: 'https://i.ibb.co/maya.jpg',
+        status: 'PENDING_VERIFICATION',
+        createdAt: 1724056789000,
+      );
+
+      final map = req.toMap();
+      expect(map['id'], 'dep_req_123');
+      expect(map['paymentMethod'], 'Maya');
+      expect(map['amount'], 1500.0);
+      expect(map['referenceNumber'], 'MAYA-998877');
+
+      final parsed = DepositRequest.fromMap(map);
+      expect(parsed.id, 'dep_req_123');
+      expect(parsed.userName, 'Zeus Cajurao');
+      expect(parsed.paymentMethod, 'Maya');
+      expect(parsed.referenceNumber, 'MAYA-998877');
+      expect(parsed.status, 'PENDING_VERIFICATION');
     });
   });
 }

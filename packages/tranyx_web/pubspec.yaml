@@ -10,6 +10,7 @@ dependencies:
   http: ^1.6.0
   jaspr: ^0.23.1
   jaspr_router: ^0.8.2
+  meta: ^1.16.0
   shared: any
   web: ^1.1.1
 

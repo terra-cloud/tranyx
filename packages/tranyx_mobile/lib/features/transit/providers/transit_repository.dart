@@ -1,8 +1,6 @@
-import 'dart:convert';
 import 'dart:math' show min;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared/shared.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 
@@ -1206,87 +1204,6 @@ class TransitRepository {
     await awardPointsIfEligible(uid, 'deposit_any_amount');
   }
 
-  Future<Map<String, dynamic>> createXenditInvoice({
-    required String uid,
-    required double amount,
-    required String userName,
-  }) async {
-    final apiKey = Env.get('XENDIT_SECRET_KEY');
-    final basicAuth = base64Encode(utf8.encode('$apiKey:'));
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-
-    final response = await http.post(
-      Uri.parse('https://api.xendit.co/v2/invoices'),
-      headers: {
-        'Authorization': 'Basic $basicAuth',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'external_id': 'topup_${uid}_$timestamp',
-        'amount': amount.round(),
-        'payer_email': userName.isNotEmpty
-            ? '${userName.replaceAll(' ', '').toLowerCase()}@example.com'
-            : 'user@example.com',
-        'description': 'Tyxbit Top-up for $userName',
-        'success_redirect_url': 'tranyx://payment-success?uid=$uid',
-        'failure_redirect_url': 'tranyx://payment-failure?uid=$uid',
-      }),
-    );
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      final data = jsonDecode(response.body);
-      return {
-        'id': data['id'] as String,
-        'invoice_url': data['invoice_url'] as String,
-      };
-    } else {
-      throw Exception('Xendit Invoice Creation Failed: ${response.statusCode}');
-    }
-  }
-
-  Future<bool> verifyXenditPayment({
-    required String uid,
-    required String invoiceId,
-    required double amount,
-  }) async {
-    final apiKey = Env.get('XENDIT_SECRET_KEY');
-    final basicAuth = base64Encode(utf8.encode('$apiKey:'));
-
-    final checkRes = await http.get(
-      Uri.parse('https://api.xendit.co/v2/invoices/$invoiceId'),
-      headers: {'Authorization': 'Basic $basicAuth'},
-    );
-
-    if (checkRes.statusCode == 200) {
-      final checkData = jsonDecode(checkRes.body);
-      final status = checkData['status'];
-      if (status == 'PAID' || status == 'SETTLED') {
-        // Credit balance
-        final user = await getUser(uid);
-        if (user != null) {
-          final newBal = user.tyxBalance + amount;
-          await updateTyxBalance(uid, newBal);
-
-          // Save transaction
-          final txId = 'deposit_$invoiceId';
-          await _firestore.collection('transactions').doc(txId).set({
-            'uid': uid,
-            'type': 'deposit',
-            'amount': amount,
-            'title': 'Wallet Top-Up',
-            'desc': 'Fiat deposit via Xendit',
-            'method': 'Xendit',
-            'createdAt': DateTime.now().millisecondsSinceEpoch,
-          });
-
-          await awardPointsIfEligible(uid, 'deposit_any_amount');
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
   Future<List<Map<String, dynamic>>> getPendingRequestsForVehicle(String rentalId) async {
     final snap = await _firestore
         .collection('rental_requests')
@@ -1586,6 +1503,375 @@ class TransitRepository {
       // ignore
     }
   }
+
+  // ─── Manual P2P Deposit Rail (GCash / Maya) & Agent Management ───────
+  Future<P2pAgent> fetchActiveP2pAgent({String? agentId}) async {
+    try {
+      if (agentId != null && agentId.isNotEmpty) {
+        final doc = await _firestore.collection('p2p_agents').doc(agentId).get();
+        if (doc.exists && doc.data() != null) {
+          return P2pAgent.fromMap(doc.data()!, docId: agentId);
+        }
+      }
+      final snap = await _firestore
+          .collection('p2p_agents')
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
+      if (snap.docs.isNotEmpty) {
+        return P2pAgent.fromMap(snap.docs.first.data(), docId: snap.docs.first.id);
+      }
+    } catch (e) {
+      // Fallback to default
+    }
+    return P2pAgent.defaultAgent();
+  }
+
+  Future<void> updateP2pAgentProfile(P2pAgent agent) async {
+    await _firestore
+        .collection('p2p_agents')
+        .doc(agent.agentId)
+        .set(agent.toMap(), SetOptions(merge: true));
+  }
+
+  /// Step 1 (User): Request P2P Top-up (informs agents to send QR code)
+  Future<String> requestP2pTopup({
+    required String uid,
+    required String userName,
+    required String userEmail,
+    required double amount,
+    required String paymentMethod,
+  }) async {
+    final cleanMethod = paymentMethod.trim();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final docRef = _firestore.collection('deposit_requests').doc();
+    final depositReq = DepositRequest(
+      id: docRef.id,
+      uid: uid,
+      userName: userName,
+      userEmail: userEmail,
+      amount: amount,
+      paymentMethod: cleanMethod,
+      status: 'WAITING_FOR_AGENT',
+      createdAt: now,
+    );
+
+    await docRef.set(depositReq.toMap());
+
+    // Record in ledger
+    final txId = 'p2p_dep_${docRef.id}';
+    await _firestore.collection('transactions').doc(txId).set({
+      'id': txId,
+      'uid': uid,
+      'depositRequestId': docRef.id,
+      'title': '$cleanMethod P2P Top-Up Request',
+      'desc': 'Awaiting Payment Agent QR Code',
+      'amount': amount,
+      'originRail': 'manual_p2p',
+      'method': cleanMethod,
+      'type': 'deposit',
+      'status': 'WAITING_FOR_AGENT',
+      'createdAt': now,
+    });
+
+    return docRef.id;
+  }
+
+  /// Step 2 (Agent): Agent accepts order and sends their payment QR code & number
+  Future<void> agentAcceptAndSendQr({
+    required String depositRequestId,
+    required String agentId,
+    required String agentName,
+    required String agentAccountName,
+    required String agentAccountNumber,
+    required String agentQrUrl,
+  }) async {
+    final reqDocRef = _firestore.collection('deposit_requests').doc(depositRequestId);
+    final reqSnapshot = await reqDocRef.get();
+    if (!reqSnapshot.exists) throw Exception('Deposit request not found.');
+
+    final reqData = reqSnapshot.data()!;
+    final currentStatus = (reqData['status'] as String? ?? '').toUpperCase();
+    final currentAgentId = reqData['agentId'] as String?;
+    if (currentStatus != 'WAITING_FOR_AGENT' || (currentAgentId != null && currentAgentId.isNotEmpty && currentAgentId != agentId)) {
+      final claimant = reqData['agentName'] ?? 'another agent';
+      throw Exception('This deposit order has already been claimed by $claimant.');
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cleanAgentName = _cleanDisplayName(agentName, fallback: 'TRANYX Agent');
+    final cleanAccountName = _cleanDisplayName(agentAccountName, fallback: cleanAgentName);
+
+    await reqDocRef.update({
+      'status': 'AWAITING_PAYMENT',
+      'agentId': agentId,
+      'agentName': cleanAgentName,
+      'agentAccountName': cleanAccountName,
+      'agentAccountNumber': agentAccountNumber,
+      'agentQrUrl': agentQrUrl,
+      'qrSentAt': now,
+    });
+
+    final txDocRef = _firestore.collection('transactions').doc('p2p_dep_$depositRequestId');
+    await txDocRef.set({
+      'status': 'AWAITING_PAYMENT',
+      'desc': 'Agent $cleanAgentName sent QR Code. Awaiting payment.',
+      'agentId': agentId,
+      'agentName': cleanAgentName,
+    }, SetOptions(merge: true));
+  }
+
+  /// Step 3 (User): User submits payment reference and proof receipt
+  Future<void> submitDepositProof({
+    required String depositRequestId,
+    required String referenceNumber,
+    required String proofImageUrl,
+  }) async {
+    final cleanRef = referenceNumber.trim();
+    if (cleanRef.isEmpty) throw Exception('Reference number is required.');
+    if (proofImageUrl.isEmpty) throw Exception('Payment screenshot / proof is required.');
+
+    final reqDocRef = _firestore.collection('deposit_requests').doc(depositRequestId);
+    final reqSnapshot = await reqDocRef.get();
+    if (!reqSnapshot.exists) throw Exception('Deposit request not found.');
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await reqDocRef.update({
+      'status': 'PENDING_VERIFICATION',
+      'referenceNumber': cleanRef,
+      'proofImageUrl': proofImageUrl,
+      'proofSubmittedAt': now,
+    });
+
+    final txDocRef = _firestore.collection('transactions').doc('p2p_dep_$depositRequestId');
+    await txDocRef.set({
+      'status': 'PENDING_VERIFICATION',
+      'referenceNumber': cleanRef,
+      'proofImageUrl': proofImageUrl,
+      'desc': 'Payment proof submitted. Awaiting agent verification.',
+    }, SetOptions(merge: true));
+  }
+
+  Future<String> submitManualDepositRequest({
+    required String uid,
+    required String userName,
+    required String userEmail,
+    required double amount,
+    required String paymentMethod,
+    required String referenceNumber,
+    required String proofImageUrl,
+    String? agentId,
+    String? agentName,
+    String? agentQrUrl,
+  }) async {
+    final cleanRef = referenceNumber.trim();
+    final cleanMethod = paymentMethod.trim();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final docRef = _firestore.collection('deposit_requests').doc();
+    final depositReq = DepositRequest(
+      id: docRef.id,
+      uid: uid,
+      userName: userName,
+      userEmail: userEmail,
+      amount: amount,
+      paymentMethod: cleanMethod,
+      referenceNumber: cleanRef,
+      proofImageUrl: proofImageUrl,
+      status: 'PENDING_VERIFICATION',
+      agentId: agentId,
+      agentName: agentName,
+      agentQrUrl: agentQrUrl,
+      createdAt: now,
+      proofSubmittedAt: now,
+    );
+
+    await docRef.set(depositReq.toMap());
+
+    // Write to user transactions ledger
+    final txId = 'p2p_dep_${docRef.id}';
+    await _firestore.collection('transactions').doc(txId).set({
+      'id': txId,
+      'uid': uid,
+      'depositRequestId': docRef.id,
+      'title': '$cleanMethod P2P Top-Up',
+      'desc': 'Manual $cleanMethod Transfer (Ref: $cleanRef)',
+      'amount': amount,
+      'originRail': 'manual_p2p',
+      'method': cleanMethod,
+      'type': 'deposit',
+      'status': 'PENDING_VERIFICATION',
+      'referenceNumber': cleanRef,
+      'proofImageUrl': proofImageUrl,
+      'createdAt': now,
+    });
+
+    return docRef.id;
+  }
+
+  Future<void> approveDepositRequest({
+    required String depositRequestId,
+    required String adminUid,
+  }) async {
+    await _firestore.runTransaction((transaction) async {
+      final reqDocRef = _firestore.collection('deposit_requests').doc(depositRequestId);
+      final reqSnapshot = await transaction.get(reqDocRef);
+
+      if (!reqSnapshot.exists) {
+        throw Exception('Deposit request not found.');
+      }
+
+      final reqData = reqSnapshot.data()!;
+      final currentStatus = reqData['status'] as String? ?? '';
+      if (currentStatus != 'PENDING_VERIFICATION') {
+        throw Exception('Deposit request is not pending verification (Current: $currentStatus).');
+      }
+
+      final paymentMethod = (reqData['paymentMethod'] ?? 'GCash').toString();
+      final referenceNumber = (reqData['referenceNumber'] ?? '').toString().trim();
+      final uid = reqData['uid'] as String;
+      final amount = (reqData['amount'] as num).toDouble();
+
+      // Duplicate reference check across approved requests
+      final refLockDocRef = _firestore
+          .collection('deposit_references')
+          .doc('${paymentMethod.toLowerCase()}_$referenceNumber');
+      final refLockSnapshot = await transaction.get(refLockDocRef);
+
+      if (refLockSnapshot.exists) {
+        throw Exception('Reference number has already been claimed/approved');
+      }
+
+      final userDocRef = _firestore.collection('users').doc(uid);
+      final userSnapshot = await transaction.get(userDocRef);
+
+      final currentBalance = (userSnapshot.data()?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+      final newBalance = currentBalance + amount;
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      // 1. Mark request as APPROVED
+      transaction.update(reqDocRef, {
+        'status': 'APPROVED',
+        'adminUid': adminUid,
+        'verifiedAt': now,
+      });
+
+      // 2. Lock reference number permanently
+      transaction.set(refLockDocRef, {
+        'depositRequestId': depositRequestId,
+        'referenceNumber': referenceNumber,
+        'paymentMethod': paymentMethod,
+        'uid': uid,
+        'amount': amount,
+        'adminUid': adminUid,
+        'approvedAt': now,
+      });
+
+      // 3. Increment user balance
+      transaction.update(userDocRef, {
+        'tyxBalance': newBalance,
+      });
+
+      // 4. Update transaction record
+      final txDocRef = _firestore.collection('transactions').doc('p2p_dep_$depositRequestId');
+      transaction.set(
+        txDocRef,
+        {
+          'id': 'p2p_dep_$depositRequestId',
+          'uid': uid,
+          'depositRequestId': depositRequestId,
+          'title': '$paymentMethod P2P Top-Up',
+          'desc': 'Manual $paymentMethod Transfer (Ref: $referenceNumber)',
+          'amount': amount,
+          'originRail': 'manual_p2p',
+          'method': paymentMethod,
+          'type': 'deposit',
+          'status': 'Completed',
+          'referenceNumber': referenceNumber,
+          'proofImageUrl': reqData['proofImageUrl'],
+          'createdAt': reqData['createdAt'] ?? now,
+          'verifiedAt': now,
+          'adminUid': adminUid,
+        },
+        SetOptions(merge: true),
+      );
+    });
+  }
+
+  Future<void> rejectDepositRequest({
+    required String depositRequestId,
+    required String adminUid,
+    required String rejectionReason,
+  }) async {
+    await _firestore.runTransaction((transaction) async {
+      final reqDocRef = _firestore.collection('deposit_requests').doc(depositRequestId);
+      final reqSnapshot = await transaction.get(reqDocRef);
+
+      if (!reqSnapshot.exists) {
+        throw Exception('Deposit request not found.');
+      }
+
+      final reqData = reqSnapshot.data()!;
+      final currentStatus = reqData['status'] as String? ?? '';
+      if (currentStatus != 'PENDING_VERIFICATION') {
+        throw Exception('Deposit request is not pending verification (Current: $currentStatus).');
+      }
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      transaction.update(reqDocRef, {
+        'status': 'REJECTED',
+        'rejectionReason': rejectionReason,
+        'adminUid': adminUid,
+        'verifiedAt': now,
+      });
+
+      final txDocRef = _firestore.collection('transactions').doc('p2p_dep_$depositRequestId');
+      transaction.set(
+        txDocRef,
+        {
+          'status': 'REJECTED',
+          'rejectionReason': rejectionReason,
+          'adminUid': adminUid,
+          'verifiedAt': now,
+        },
+        SetOptions(merge: true),
+      );
+    });
+  }
+
+  Stream<List<DepositRequest>> getPendingDepositRequestsStream() {
+    return _firestore
+        .collection('deposit_requests')
+        .where('status', isEqualTo: 'PENDING_VERIFICATION')
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => DepositRequest.fromMap(d.data(), docId: d.id)).toList());
+  }
+
+  Stream<List<DepositRequest>> getUserDepositRequestsStream(String uid) {
+    return _firestore
+        .collection('deposit_requests')
+        .where('uid', isEqualTo: uid)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => DepositRequest.fromMap(d.data(), docId: d.id)).toList());
+  }
+
+  static String _cleanDisplayName(String? raw, {String fallback = 'TRANYX Agent'}) {
+    if (raw == null || raw.trim().isEmpty) return fallback;
+    var text = raw.trim();
+    if (text.contains('@')) {
+      final prefix = text.split('@').first;
+      text = prefix
+          .replaceAll(RegExp(r'[._\-]'), ' ')
+          .split(' ')
+          .where((s) => s.isNotEmpty)
+          .map((s) => s[0].toUpperCase() + (s.length > 1 ? s.substring(1).toLowerCase() : ''))
+          .join(' ');
+    }
+    return text.isEmpty ? fallback : text;
+  }
 }
 
 final transitRepositoryProvider = Provider<TransitRepository>((ref) {
@@ -1640,4 +1926,13 @@ final escrowHoldbacksProvider = StreamProvider<List<Map<String, dynamic>>>((ref)
   if (user == null) return Stream.value([]);
   return ref.watch(transitRepositoryProvider).getEscrowHoldbacks(user.uid);
 });
+
+final activeP2pAgentProvider = FutureProvider<P2pAgent>((ref) async {
+  return ref.watch(transitRepositoryProvider).fetchActiveP2pAgent();
+});
+
+final pendingDepositRequestsProvider = StreamProvider<List<DepositRequest>>((ref) {
+  return ref.watch(transitRepositoryProvider).getPendingDepositRequestsStream();
+});
+
 

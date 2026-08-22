@@ -137,11 +137,11 @@ const Map<String, List<Map<String, String>>> _lucideShapes = {
   'zap': [{'_tag':'polygon','points':'13 2 3 14 12 14 11 22 21 10 12 10 13 2'}],
 };
 
-/// Logo component utilizing the new logo.svg.
+/// Logo component utilizing the new logo.png.
 Component svgLogo({String size = 'w-8 h-8'}) {
   return img(
-    src: '/images/logo.svg',
-    classes: '$size object-contain',
+    src: '/images/logo.png',
+    classes: '$size rounded-lg object-contain',
     attributes: {'alt': 'Tranyx Logo'},
   );
 }

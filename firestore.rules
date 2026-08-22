@@ -11,17 +11,43 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Helper to check if the user is an admin or staff member
+    // Helper to check if the user is an admin, staff member, or registered P2P agent
     function isAdminOrStaff() {
-      let path = /databases/$(database)/documents/users/$(request.auth.uid);
-      let hasDoc = exists(path);
-      let userDoc = hasDoc ? get(path).data : {};
-      return isAuthenticated() && hasDoc && (
-        'role' in userDoc && (
-          userDoc.role == 'admin' ||
-          userDoc.role == 'staff' ||
-          userDoc.role == 'support'
-        )
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      let hasUserDoc = exists(userPath);
+      let userDoc = hasUserDoc ? get(userPath).data : {};
+      
+      let agentPath = /databases/$(database)/documents/p2p_agents/$(request.auth.uid);
+      let isAgent = exists(agentPath);
+
+      return isAuthenticated() && (
+        isAgent ||
+        (request.auth.token.email != null && (
+          request.auth.token.email.matches('.*\\.(agents|agent|admin|staff)@tranyx\\.(app|com|ph)$') ||
+          request.auth.token.email.matches('.*@(admin|staff|agents|agent)\\.tranyx\\.(app|com|ph)$') ||
+          request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.ph|tranyx\\.com|terra\\.app)$')
+        )) ||
+        (request.auth.token != null && (
+          ('admin' in request.auth.token && request.auth.token.admin == true) ||
+          ('role' in request.auth.token && (
+            request.auth.token.role == 'admin' ||
+            request.auth.token.role == 'staff' ||
+            request.auth.token.role == 'agent'
+          ))
+        )) ||
+        (hasUserDoc && (
+          ('isAdmin' in userDoc && userDoc.isAdmin == true) ||
+          ('role' in userDoc && (
+            userDoc.role == 'admin' ||
+            userDoc.role == 'staff' ||
+            userDoc.role == 'support' ||
+            userDoc.role == 'agent' ||
+            userDoc.role == 'p2p_agent' ||
+            userDoc.role == 'ADMIN' ||
+            userDoc.role == 'STAFF' ||
+            userDoc.role == 'AGENT'
+          ))
+        ))
       );
     }
 
@@ -65,6 +91,18 @@ service cloud.firestore {
       match /reviews/{reviewId} {
         allow read: if true;
         allow write: if isActiveUser() && request.resource.data.authorId == request.auth.uid;
+      }
+
+      // User Ledger subcollection
+      match /ledger/{ledgerId} {
+        allow read: if isOwner(userId) || isAdminOrStaff();
+        allow write: if isOwner(userId) || isAdminOrStaff();
+      }
+
+      // User Transactions subcollection
+      match /transactions/{txId} {
+        allow read: if isOwner(userId) || isAdminOrStaff();
+        allow write: if isOwner(userId) || isAdminOrStaff();
       }
     }
 
@@ -210,11 +248,74 @@ service cloud.firestore {
       }
     }
 
-    // Transactions Collection (Immutable; prohibits clients from inserting payouts/rebates)
+    // Transactions Collection
     match /transactions/{txId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow create: if isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$');
-      allow update, delete: if false;
+      allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$'));
+      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);
+      allow delete: if isAdminOrStaff();
+    }
+
+    // Deposit Requests Collection (P2P Top-up Matching & Verification)
+    match /deposit_requests/{reqId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
+    }
+
+    // P2P Agents Collection (Publicly readable verified agent QR credentials)
+    match /p2p_agents/{agentId} {
+      allow read: if true;
+      allow write: if isAdminOrStaff();
+    }
+
+    // Deposit References & Claimed References Collections (Anti-duplicate lock for approved references)
+    match /deposit_references/{refKey} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /claimed_references/{refKey} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /claimed_p2p_references/{refKey} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /claimedReferences/{refKey} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Wallets Collection (Unified wallet storage)
+    match /wallets/{walletId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow write: if isOwner(walletId) || isAdminOrStaff();
+    }
+
+    // Audit Logs Collections (Admin & Deposit lifecycle tracking)
+    match /audit_logs/{logId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdminOrStaff();
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdminOrStaff();
+    }
+
+    match /admin_audit_logs/{logId} {
+      allow read, write: if isAdminOrStaff();
+    }
+
+    match /system_logs/{logId} {
+      allow read, write: if isAdminOrStaff();
     }
 
     // Subscriptions Collection
@@ -233,7 +334,7 @@ service cloud.firestore {
 
     // Notifications Collection
     match /notifications/{notifId} {
-      allow read, update, delete: if isActiveUser() && resource.data.uid == request.auth.uid;
+      allow read, update, delete: if isActiveUser() && (resource == null || !('uid' in resource.data) || resource.data.uid == request.auth.uid || isAdminOrStaff());
       allow create: if isActiveUser();
     }
 
