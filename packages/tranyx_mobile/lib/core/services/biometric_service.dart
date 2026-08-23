@@ -3,7 +3,7 @@ import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 
 class BiometricService {
   static final _auth = LocalAuthentication();
-  
+
   static Future<bool> isAvailable() async {
     try {
       final canCheck = await _auth.canCheckBiometrics;
@@ -13,19 +13,15 @@ class BiometricService {
       return false;
     }
   }
-  
+
   static bool isAuthenticating = false;
-  
+
   static Future<bool> authenticate() async {
     isAuthenticating = true;
     try {
       final success = await _auth.authenticate(
         localizedReason: 'Unlock Tranyx to access your DeFi wallet',
-        options: const AuthenticationOptions(
-          biometricOnly: false,
-          stickyAuth: true,
-          useErrorDialogs: true,
-        ),
+        biometricOnly: false,
       );
       return success;
     } catch (_) {
@@ -36,10 +32,10 @@ class BiometricService {
       });
     }
   }
-  
+
   static Future<bool> isBiometricEnabled() =>
       SecureStorageHelper.getBiometricEnabled();
-      
+
   static Future<void> setBiometricEnabled(bool value) =>
       SecureStorageHelper.saveBiometricEnabled(value);
 }

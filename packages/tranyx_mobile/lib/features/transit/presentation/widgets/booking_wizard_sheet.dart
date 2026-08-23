@@ -149,11 +149,12 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
         }
       }
 
-      if (bestPromo != null && mounted) {
+      final promo = bestPromo;
+      if (promo != null && mounted) {
         setState(() {
-          _appliedPromo = bestPromo;
-          _promoController.text = bestPromo!.code;
-          _promoFeedback = 'Auto-applied promo: ${bestPromo!.name ?? bestPromo!.code}';
+          _appliedPromo = promo;
+          _promoController.text = promo.code;
+          _promoFeedback = 'Auto-applied promo: ${promo.name ?? promo.code}';
         });
       }
     } catch (e) {

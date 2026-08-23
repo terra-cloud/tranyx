@@ -502,9 +502,9 @@ class FakeWriteBatch extends Fake implements WriteBatch {
   FakeWriteBatch(this.firestore);
 
   @override
-  void update(DocumentReference documentReference, Map<Object?, Object?> data) {
+  void update<T>(DocumentReference<T> documentReference, T data) {
     final ref = documentReference as FakeDocumentReference;
-    final mapData = Map<String, dynamic>.from(data);
+    final mapData = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
     operations.add(() {
       final existing = firestore.db[ref.path] ?? {};
       firestore.db[ref.path] = _resolveFieldValues(existing, mapData);
