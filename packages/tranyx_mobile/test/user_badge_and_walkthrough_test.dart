@@ -150,34 +150,40 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
-      // Step 1: Trust & Verification Badges
-      expect(find.text('Step 1 of 4'), findsOneWidget);
-      expect(find.text('Trust & Verification Badges'), findsOneWidget);
+      // Step 1: Something for Everyone
+      expect(find.text('Step 1 of 5'), findsOneWidget);
+      expect(find.text('🚀 Something for Everyone'), findsOneWidget);
+
+      // Advance to Step 2: Turn What You Have Into More
+      await tester.tap(find.text('Next →'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Step 2 of 5'), findsOneWidget);
+      expect(find.text('💡 Turn What You Have Into More'), findsOneWidget);
+
+      // Advance to Step 3: Safe. Secure. Built for You
+      await tester.tap(find.text('Next →'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Step 3 of 5'), findsOneWidget);
+      expect(find.text('🔥 Safe. Secure. Built for You 🛡️'), findsOneWidget);
       expect(find.text('Level 1: Basic Gov ID Verified'), findsOneWidget);
       expect(find.text('Level 2: Merchant & Pro Verified'), findsOneWidget);
-      expect(find.text('Unverified: Zero badges shown'), findsOneWidget);
+      expect(find.text('Unverified'), findsOneWidget);
 
-      // Advance to Step 2: Rentals
-      await tester.tap(find.text('Next'));
+      // Advance to Step 4: Make Opportunities Happen
+      await tester.tap(find.text('Next →'));
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('Step 2 of 4'), findsOneWidget);
-      expect(find.text('Rentals & Calendar Availability'), findsOneWidget);
+      expect(find.text('Step 4 of 5'), findsOneWidget);
+      expect(find.text('✨ Make Opportunities Happen'), findsOneWidget);
 
-      // Advance to Step 3: Jobs
-      await tester.tap(find.text('Next'));
+      // Advance to Step 5: Get Rewarded Along the Way
+      await tester.tap(find.text('Next →'));
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('Step 3 of 4'), findsOneWidget);
-      expect(find.text('Jobs & Live Execution Tracking'), findsOneWidget);
-
-      // Advance to Step 4: Wallet
-      await tester.tap(find.text('Next'));
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('Step 4 of 4'), findsOneWidget);
-      expect(find.text('MWA Web3 Wallet & Fiat Ledger'), findsOneWidget);
-      expect(find.text('Got It'), findsOneWidget);
+      expect(find.text('Step 5 of 5'), findsOneWidget);
+      expect(find.text('🪙 Get Rewarded Along the Way'), findsOneWidget);
+      expect(find.text("🚀 Let's Go!"), findsOneWidget);
 
       // Complete walkthrough
-      await tester.tap(find.text('Got It'));
+      await tester.tap(find.text("🚀 Let's Go!"));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pump(const Duration(milliseconds: 400));
@@ -213,7 +219,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
-      expect(find.text('Step 1 of 4'), findsOneWidget);
+      expect(find.text('Step 1 of 5'), findsOneWidget);
 
       // Tap close icon button
       await tester.tap(find.byIcon(Icons.close));

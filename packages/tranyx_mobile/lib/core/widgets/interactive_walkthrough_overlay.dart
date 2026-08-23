@@ -109,11 +109,124 @@ class _InteractiveWalkthroughOverlayState
   List<WalkthroughStepModel> _buildSteps() {
     final keys = widget.targetKeys ?? {};
     return [
+      // ── Step 1: Something for Everyone ──────────────────────────────────────
       WalkthroughStepModel(
-        id: 'verification',
-        title: 'Trust & Verification Badges',
+        id: 'step1_everyone',
+        title: '🚀 Something for Everyone',
         description:
-            'Tranyx strictly identifies counterparties with verified badges so you always know who you are transacting with.',
+            'Your next opportunity starts here.\nLooking for work? Need a service? Have something to rent? TRANYX brings opportunities together—all in one place.',
+        icon: Icons.explore_outlined,
+        targetKey: keys['home'],
+        customContent: Container(
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF27272A).withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildFeatureTile(
+                      icon: Icons.work_outline_rounded,
+                      title: 'Jobs & Services',
+                      desc: 'Find gigs or hire Nyxians',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildFeatureTile(
+                      icon: Icons.directions_car_outlined,
+                      title: 'Vehicle & Space Rentals',
+                      desc: 'Rentals with calendar lock',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Discover new possibilities built around what you need and what you can offer.',
+                style: TextStyle(
+                  color: Color(0xFFA1A1AA),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+
+      // ── Step 2: Turn What You Have Into Something More ─────────────────────
+      WalkthroughStepModel(
+        id: 'step2_turn_assets',
+        title: '💡 Turn What You Have Into More',
+        description:
+            'Skills. Time. Things you own. You have more ways to earn than you think. Turn your skills, time, services, and assets into opportunities.',
+        icon: Icons.lightbulb_outline,
+        targetKey: keys['jobs'] ?? keys['gigs'],
+        customContent: Container(
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF27272A).withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildFeatureTile(
+                      icon: Icons.handyman_outlined,
+                      title: 'Offer Expertise',
+                      desc: 'Carpentry, Tech, Courier',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildFeatureTile(
+                      icon: Icons.vpn_key_outlined,
+                      title: 'Rent What You Own',
+                      desc: 'Vehicles, tools & properties',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF59E0B).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.2)),
+                ),
+                child: const Text(
+                  'Your opportunity could be worth more than you think.',
+                  style: TextStyle(
+                    color: Color(0xFFFCD34D),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+
+      // ── Step 3: Safe. Secure. Built for You ─────────────────────────────────
+      WalkthroughStepModel(
+        id: 'step3_safety',
+        title: '🔥 Safe. Secure. Built for You 🛡️',
+        description:
+            'Transact with confidence. TRANYX uses identity verification, trust badges, and security measures so you know who you are dealing with.',
         icon: Icons.verified_user_outlined,
         targetKey: keys['profile'] ?? keys['verification'],
         customContent: Container(
@@ -170,19 +283,21 @@ class _InteractiveWalkthroughOverlayState
                     ),
                   ),
                 ),
-                label: 'Unverified: Zero badges shown',
-                desc: 'Transparent status on all contracts & listings',
+                label: 'Unverified',
+                desc: 'Make informed decisions before proceeding',
               ),
             ],
           ),
         ),
       ),
+
+      // ── Step 4: Make Opportunities Happen ──────────────────────────────────
       WalkthroughStepModel(
-        id: 'rentals',
-        title: 'Rentals & Calendar Availability',
+        id: 'step4_workflow',
+        title: '✨ Make Opportunities Happen',
         description:
-            'Explore vehicles and properties with persistent calendar availability. Booked dates are locked, and clean start dates automatically optimize rates.',
-        icon: Icons.calendar_today_outlined,
+            'From discovery to done. Apply for the job. Book the service. Accept the offer. Complete the rental. Get things done—all through TRANYX.',
+        icon: Icons.auto_awesome_outlined,
         targetKey: keys['rentals'] ?? keys['transit'],
         customContent: Container(
           margin: const EdgeInsets.only(top: 10),
@@ -195,16 +310,15 @@ class _InteractiveWalkthroughOverlayState
           child: Column(
             children: [
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildPill(
-                    icon: Icons.check_circle_outline,
-                    label: 'Available Dates',
-                  ),
-                  const SizedBox(width: 8),
-                  _buildPill(
-                    icon: Icons.lock_outline,
-                    label: 'Reserved Locked',
-                  ),
+                  _buildFlowStep(number: '1', label: 'Found'),
+                  const Icon(Icons.arrow_forward, size: 10, color: Color(0xFF71717A)),
+                  _buildFlowStep(number: '2', label: 'Connected'),
+                  const Icon(Icons.arrow_forward, size: 10, color: Color(0xFF71717A)),
+                  _buildFlowStep(number: '3', label: 'Transact'),
+                  const Icon(Icons.arrow_forward, size: 10, color: Color(0xFF71717A)),
+                  _buildFlowStep(number: '4', label: 'Done ✓', isSuccess: true),
                 ],
               ),
               const SizedBox(height: 8),
@@ -216,13 +330,13 @@ class _InteractiveWalkthroughOverlayState
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                 ),
-                child: Row(
+                child: const Row(
                   children: [
-                    Icon(Icons.auto_awesome, size: 13, color: const Color(0xFFA1A1AA)),
-                    const SizedBox(width: 6),
-                    const Expanded(
+                    Icon(Icons.star, size: 12, color: Color(0xFFFBBF24)),
+                    SizedBox(width: 6),
+                    Expanded(
                       child: Text(
-                        'Smart Rate Engine automatically applies weekly caps',
+                        'Live QR code verification, ratings & reputation score',
                         style: TextStyle(
                           color: Color(0xFFA1A1AA),
                           fontSize: 10,
@@ -237,48 +351,14 @@ class _InteractiveWalkthroughOverlayState
           ),
         ),
       ),
+
+      // ── Step 5: Get Rewarded Along the Way ──────────────────────────────────
       WalkthroughStepModel(
-        id: 'jobs',
-        title: 'Jobs & Live Execution Tracking',
+        id: 'step5_rewards',
+        title: '🪙 Get Rewarded Along the Way',
         description:
-            'Post or browse gigs with live filtering. Bidding is open to all Nyxians, and real-time live execution updates strictly activate once hired.',
-        icon: Icons.work_outline_rounded,
-        targetKey: keys['jobs'],
-        customContent: Container(
-          margin: const EdgeInsets.only(top: 10),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF27272A).withValues(alpha: 0.4),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: _buildFeatureTile(
-                  icon: Icons.shield_outlined,
-                  title: 'Escrow Secured',
-                  desc: 'Upfront payment safety',
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildFeatureTile(
-                  icon: Icons.qr_code_rounded,
-                  title: 'QR Code Release',
-                  desc: 'Instant verification',
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      WalkthroughStepModel(
-        id: 'wallet',
-        title: 'MWA Web3 Wallet & Fiat Ledger',
-        description:
-            'Connect your Solana wallet via Mobile Wallet Adapter to sign smart contract transactions and view unified GCash & token ledgers.',
-        icon: Icons.account_balance_wallet_outlined,
+            'Earn Terra Rewards Points as you participate in TRANYX. Convert points into TYXBIT utility tokens powered by the Solana blockchain.',
+        icon: Icons.toll_outlined,
         targetKey: keys['wallet'],
         customContent: Container(
           margin: const EdgeInsets.only(top: 10),
@@ -288,28 +368,79 @@ class _InteractiveWalkthroughOverlayState
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
           ),
-          child: Row(
+          child: Column(
             children: [
-              Expanded(
-                child: _buildFeatureTile(
-                  icon: Icons.phone_android_rounded,
-                  title: 'GCash / Maya',
-                  desc: 'Manual P2P with QR code',
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildFeatureTile(
+                      icon: Icons.stars_rounded,
+                      title: 'Terra Rewards',
+                      desc: '✨ Earn Points',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildFeatureTile(
+                      icon: Icons.currency_bitcoin,
+                      title: 'TYXBIT Tokens',
+                      desc: '🪙 Convert Crypto',
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildFeatureTile(
-                  icon: Icons.toll_outlined,
-                  title: 'Solana Web3',
-                  desc: 'SOL & USDT on-chain MWA',
-                ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildFeatureTile(
+                      icon: Icons.account_balance_wallet,
+                      title: 'Crypto Wallet',
+                      desc: '🔗 Solana MWA',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildFeatureTile(
+                      icon: Icons.bolt,
+                      title: 'Powered by Solana',
+                      desc: '⚡ Fast & Low Gas',
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
       ),
     ];
+  }
+
+  Widget _buildFlowStep({
+    required String number,
+    required String label,
+    bool isSuccess = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        color: isSuccess
+            ? const Color(0xFF10B981).withValues(alpha: 0.15)
+            : Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: isSuccess ? const Color(0xFF10B981).withValues(alpha: 0.3) : Colors.white12,
+        ),
+      ),
+      child: Text(
+        '$number. $label',
+        style: TextStyle(
+          color: isSuccess ? const Color(0xFF34D399) : const Color(0xFFE4E4E7),
+          fontSize: 9.5,
+          fontWeight: isSuccess ? FontWeight.w800 : FontWeight.w600,
+        ),
+      ),
+    );
   }
 
   Widget _buildBadgeRow({
@@ -685,8 +816,8 @@ class _InteractiveWalkthroughOverlayState
                               onPressed: () => _nextStep(steps.length),
                               child: Text(
                                 _currentStepIndex == steps.length - 1
-                                    ? 'Got It'
-                                    : 'Next',
+                                    ? "🚀 Let's Go!"
+                                    : 'Next →',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 12,

@@ -80,27 +80,34 @@ class WalletTransaction {
         map['coin'] as String? ??
         (map['solAmount'] != null ? 'SOL' : (map['usdtAmount'] != null ? 'USDT' : null));
 
-    final solanaTxSignature = (map['solanaTxSignature'] ??
+    final method = (map['method'] ?? map['paymentMethod']) as String?;
+    final rawType = (map['type'] ?? '').toString().toLowerCase();
+
+    final rawSolanaTxSignature = (map['solanaTxSignature'] ??
             map['txSignature'] ??
             map['signature'] ??
             map['solanaSignature']) as String?;
 
-    final method = map['method'] as String?;
-    final rawType = (map['type'] ?? '').toString().toLowerCase();
-
-    // Determine Origin Rail
-    TransactionOriginRail rail;
-    if (map['originRail'] == 'manual_p2p' ||
+    final isP2p = map['originRail'] == 'manual_p2p' ||
         map['originRail'] == 'manualP2p' ||
         map['originRail'] == 'p2p' ||
+        map['depositRequestId'] != null ||
+        id.startsWith('p2p_') ||
         (method != null &&
             (method.toLowerCase().contains('gcash') ||
                 method.toLowerCase().contains('maya') ||
-                method.toLowerCase().contains('p2p')))) {
+                method.toLowerCase().contains('p2p'))) ||
+        desc.toLowerCase().contains('gcash') ||
+        desc.toLowerCase().contains('maya') ||
+        desc.toLowerCase().contains('p2p');
+
+    // Determine Origin Rail
+    TransactionOriginRail rail;
+    if (isP2p) {
       rail = TransactionOriginRail.manualP2p;
     } else if (map['originRail'] == 'mwa_on_chain' ||
         map['originRail'] == 'mwaOnChain' ||
-        solanaTxSignature != null ||
+        rawSolanaTxSignature != null ||
         (method != null && (method.toLowerCase().contains('solana') ||
             method.toLowerCase().contains('phantom') ||
             method.toLowerCase().contains('solflare') ||
@@ -110,9 +117,13 @@ class WalletTransaction {
       rail = TransactionOriginRail.internalBalance;
     }
 
+    final solanaTxSignature = rail == TransactionOriginRail.mwaOnChain ? rawSolanaTxSignature : null;
+
     // Determine Transaction Type
     WalletTransactionType txType;
-    if (rawType.contains('escrow') || rawType == 'mwa_escrow_release') {
+    if (rawType.contains('refund') || rawType == 'refund' || rawType == 'job_escrow_refund') {
+      txType = WalletTransactionType.refund;
+    } else if (rawType.contains('escrow') || rawType == 'mwa_escrow_release') {
       txType = WalletTransactionType.mwaEscrowRelease;
     } else if (rawType == 'on_chain_payment' || rawType == 'onchain_payment') {
       txType = WalletTransactionType.onChainPayment;
@@ -120,8 +131,6 @@ class WalletTransaction {
       txType = WalletTransactionType.subscription;
     } else if (rawType == 'listing_fee') {
       txType = WalletTransactionType.listingFee;
-    } else if (rawType == 'refund') {
-      txType = WalletTransactionType.refund;
     } else if (rawType == 'deposit' || rawType.contains('topup') || rawType.contains('p2p')) {
       txType = WalletTransactionType.deposit;
     } else if (rawType == 'withdraw' || rawType.contains('withdrawal')) {

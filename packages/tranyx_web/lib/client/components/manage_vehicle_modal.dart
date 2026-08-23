@@ -149,11 +149,14 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
 
     try {
       await component.appState.firestore.deleteRental(rentalId);
+      await component.appState.loadUserProfile();
+      component.appState.walletBalance = component.appState.userProfile?.tyxBalance ?? component.appState.walletBalance;
 
       component.appState.setState(() {
         component.appState.showManageVehicleModal = false;
         component.appState.selectedRentalData = null;
       });
+      component.appState.alertDialog('Listing Cancelled', 'The vehicle listing has been cancelled and your listing fee has been refunded to your wallet.');
     } catch (e) {
       setState(() => _error = 'Failed to delete listing: $e');
     } finally {

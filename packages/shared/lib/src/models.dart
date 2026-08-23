@@ -1376,16 +1376,60 @@ class PartyVerificationHelper {
   }
 }
 
+class PromoCalculationResult {
+  final double basePrice; // Amount belonging to the provider/owner (NEVER reduced by promo)
+  final double originalPlatformFee; // TRANYX fees (platform fee, transaction fee, convenience fee, etc.)
+  final double discountAmount; // Promotional discount applied ONLY to eligible TRANYX fees
+  final double finalPlatformFee; // originalPlatformFee - discountAmount
+  final double finalCustomerAmount; // basePrice + finalPlatformFee
+  final double providerSettlement; // basePrice (100% untouched)
+  final double tranyxRevenue; // finalPlatformFee
+  final double tranyxPromoCost; // discountAmount
+
+  const PromoCalculationResult({
+    required this.basePrice,
+    required this.originalPlatformFee,
+    required this.discountAmount,
+    required this.finalPlatformFee,
+    required this.finalCustomerAmount,
+    required this.providerSettlement,
+    required this.tranyxRevenue,
+    required this.tranyxPromoCost,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'basePrice': basePrice,
+      'originalPlatformFee': originalPlatformFee,
+      'discountAmount': discountAmount,
+      'finalPlatformFee': finalPlatformFee,
+      'finalCustomerAmount': finalCustomerAmount,
+      'providerSettlement': providerSettlement,
+      'tranyxRevenue': tranyxRevenue,
+      'tranyxPromoCost': tranyxPromoCost,
+    };
+  }
+}
+
 class Promo {
   final String code;
-  final String discountType; // 'percentage' | 'flat'
+  final String? name;
+  final String? description;
+  final String discountType; // 'percentage' | 'flat' | 'fixed'
   final double discountValue;
+  final String applicableFee; // 'platform_fee' | 'transaction_fee' | 'convenience_fee' | 'service_fee' | 'all_fees'
   final String applicableTo; // 'services' | 'rentals' | 'both'
+  final List<String> eligibleModules; // ['jobs', 'services', 'rentals', 'vehicle_rentals', 'property_rentals', 'all']
+  final double? minTransactionAmount;
+  final double? maxDiscountAmount;
   final int? maxUsers;
+  final int maxUsesPerUser;
   final int usedCount;
   final bool isSingleUsePerUser;
   final bool isSingleUseGlobal;
   final List<String> usedBy;
+  final DateTime? startDate;
+  final DateTime? endDate;
   final DateTime? expirationDate;
   final bool isActive;
   final DateTime createdAt;
@@ -1394,17 +1438,29 @@ class Promo {
   final bool onlyForSubscribed;
   final bool onlyForHybrid;
   final List<String> applicableRoles;
+  final String? createdBy;
+  final String? updatedBy;
+  final DateTime? updatedAt;
 
   const Promo({
     required this.code,
+    this.name,
+    this.description,
     required this.discountType,
     required this.discountValue,
+    this.applicableFee = 'platform_fee',
     required this.applicableTo,
+    this.eligibleModules = const ['jobs', 'services', 'rentals', 'vehicle_rentals', 'property_rentals', 'all'],
+    this.minTransactionAmount,
+    this.maxDiscountAmount,
     this.maxUsers,
+    this.maxUsesPerUser = 1,
     this.usedCount = 0,
     this.isSingleUsePerUser = true,
     this.isSingleUseGlobal = false,
     this.usedBy = const [],
+    this.startDate,
+    this.endDate,
     this.expirationDate,
     this.isActive = true,
     required this.createdAt,
@@ -1413,20 +1469,98 @@ class Promo {
     this.onlyForSubscribed = false,
     this.onlyForHybrid = false,
     this.applicableRoles = const [],
+    this.createdBy,
+    this.updatedBy,
+    this.updatedAt,
   });
+
+  /// Calculates the promotion discount strictly against TRANYX-generated platform/transaction fees.
+  /// The base listing price belonging to the provider/host is NEVER discounted or modified.
+  PromoCalculationResult calculateDiscount({
+    required double basePrice,
+    required double platformFee,
+  }) {
+    final effectiveTotal = basePrice + platformFee;
+
+    // Inactive check
+    if (!isActive) {
+      return PromoCalculationResult(
+        basePrice: basePrice,
+        originalPlatformFee: platformFee,
+        discountAmount: 0.0,
+        finalPlatformFee: platformFee,
+        finalCustomerAmount: effectiveTotal,
+        providerSettlement: basePrice,
+        tranyxRevenue: platformFee,
+        tranyxPromoCost: 0.0,
+      );
+    }
+
+    // Minimum transaction requirement check
+    if (minTransactionAmount != null && effectiveTotal < minTransactionAmount!) {
+      return PromoCalculationResult(
+        basePrice: basePrice,
+        originalPlatformFee: platformFee,
+        discountAmount: 0.0,
+        finalPlatformFee: platformFee,
+        finalCustomerAmount: effectiveTotal,
+        providerSettlement: basePrice,
+        tranyxRevenue: platformFee,
+        tranyxPromoCost: 0.0,
+      );
+    }
+
+    // Calculate discount against eligible platform fee
+    double rawDiscount = 0.0;
+    if (discountType == 'percentage') {
+      rawDiscount = platformFee * (discountValue / 100.0);
+    } else {
+      rawDiscount = discountValue;
+    }
+
+    // Cap at max discount if configured
+    if (maxDiscountAmount != null && rawDiscount > maxDiscountAmount!) {
+      rawDiscount = maxDiscountAmount!;
+    }
+
+    // Core Business Rule: Promotion Discount <= Eligible TRANYX Fee
+    // The provider/listing price must remain 100% untouched.
+    final eligibleDiscount = rawDiscount.clamp(0.0, platformFee);
+    final finalFee = platformFee - eligibleDiscount;
+
+    return PromoCalculationResult(
+      basePrice: basePrice,
+      originalPlatformFee: platformFee,
+      discountAmount: eligibleDiscount,
+      finalPlatformFee: finalFee,
+      finalCustomerAmount: basePrice + finalFee,
+      providerSettlement: basePrice,
+      tranyxRevenue: finalFee,
+      tranyxPromoCost: eligibleDiscount,
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {
       'code': code,
+      'name': name ?? code,
+      'description': description,
       'discountType': discountType,
       'discountValue': discountValue,
+      'applicableFee': applicableFee,
       'applicableTo': applicableTo,
+      'eligibleModules': eligibleModules,
+      'minTransactionAmount': minTransactionAmount,
+      'maxDiscountAmount': maxDiscountAmount,
       'maxUsers': maxUsers,
+      'maxUsesPerUser': maxUsesPerUser,
       'usedCount': usedCount,
       'isSingleUsePerUser': isSingleUsePerUser,
       'isSingleUseGlobal': isSingleUseGlobal,
       'usedBy': usedBy,
-      'expirationDate': expirationDate?.millisecondsSinceEpoch,
+      'startDate': startDate?.millisecondsSinceEpoch,
+      'endDate': endDate?.millisecondsSinceEpoch,
+      'expirationDate': (endDate ?? expirationDate)?.millisecondsSinceEpoch,
       'isActive': isActive,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'isAutoApply': isAutoApply,
@@ -1434,27 +1568,43 @@ class Promo {
       'onlyForSubscribed': onlyForSubscribed,
       'onlyForHybrid': onlyForHybrid,
       'applicableRoles': applicableRoles,
+      'createdBy': createdBy,
+      'updatedBy': updatedBy,
+      'updatedAt': updatedAt?.millisecondsSinceEpoch,
     };
   }
 
   factory Promo.fromMap(Map<String, dynamic> map, String code) {
+    DateTime? parseDate(dynamic val) {
+      if (val == null) return null;
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return DateTime.tryParse(val.toString());
+    }
+
     return Promo(
       code: code,
+      name: map['name'] as String?,
+      description: map['description'] as String?,
       discountType: map['discountType'] as String? ?? 'flat',
       discountValue: (map['discountValue'] as num?)?.toDouble() ?? 0.0,
+      applicableFee: map['applicableFee'] as String? ?? 'platform_fee',
       applicableTo: map['applicableTo'] as String? ?? 'both',
+      eligibleModules: map['eligibleModules'] != null
+          ? List<String>.from(map['eligibleModules'])
+          : const ['jobs', 'services', 'rentals', 'vehicle_rentals', 'property_rentals', 'all'],
+      minTransactionAmount: (map['minTransactionAmount'] as num?)?.toDouble(),
+      maxDiscountAmount: (map['maxDiscountAmount'] as num?)?.toDouble(),
       maxUsers: map['maxUsers'] as int?,
+      maxUsesPerUser: (map['maxUsesPerUser'] as num?)?.toInt() ?? 1,
       usedCount: map['usedCount'] as int? ?? 0,
       isSingleUsePerUser: map['isSingleUsePerUser'] as bool? ?? true,
       isSingleUseGlobal: map['isSingleUseGlobal'] as bool? ?? false,
       usedBy: List<String>.from(map['usedBy'] ?? []),
-      expirationDate: map['expirationDate'] != null
-          ? (map['expirationDate'] is int
-              ? DateTime.fromMillisecondsSinceEpoch(map['expirationDate'] as int)
-              : DateTime.tryParse(map['expirationDate'].toString()))
-          : null,
+      startDate: parseDate(map['startDate']),
+      endDate: parseDate(map['endDate'] ?? map['expirationDate']),
+      expirationDate: parseDate(map['expirationDate'] ?? map['endDate']),
       isActive: map['isActive'] as bool? ?? true,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int? ?? 0),
+      createdAt: parseDate(map['createdAt']) ?? DateTime.now(),
       isAutoApply: map['isAutoApply'] as bool? ?? false,
       eligibleUserUids: map['eligibleUserUids'] != null
           ? List<String>.from(map['eligibleUserUids'])
@@ -1462,6 +1612,9 @@ class Promo {
       onlyForSubscribed: map['onlyForSubscribed'] as bool? ?? false,
       onlyForHybrid: map['onlyForHybrid'] as bool? ?? false,
       applicableRoles: List<String>.from(map['applicableRoles'] ?? []),
+      createdBy: map['createdBy'] as String?,
+      updatedBy: map['updatedBy'] as String?,
+      updatedAt: parseDate(map['updatedAt']),
     );
   }
 }

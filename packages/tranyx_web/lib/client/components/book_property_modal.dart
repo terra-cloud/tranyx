@@ -79,24 +79,34 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
     return _totalRent + _depositAmount + _advanceAmount;
   }
 
-  double get _discountAmount {
-    if (_appliedPromo == null) return 0.0;
-    if (_appliedPromo!.discountType == 'percentage') {
-      return _totalRent * (_appliedPromo!.discountValue / 100.0);
-    } else {
-      return _appliedPromo!.discountValue;
-    }
+  double get _originalPlatformFee {
+    return _totalPrice * 0.03; // 3% TRANYX Platform Booking Fee
   }
 
-  double get _discountedTotalPrice {
-    return (_totalPrice - _discountAmount).clamp(0.0, 999999.0);
+  PromoCalculationResult get _promoResult {
+    if (_appliedPromo == null) {
+      return PromoCalculationResult(
+        basePrice: _totalPrice,
+        originalPlatformFee: _originalPlatformFee,
+        discountAmount: 0.0,
+        finalPlatformFee: _originalPlatformFee,
+        finalCustomerAmount: _totalPrice + _originalPlatformFee,
+        providerSettlement: _totalPrice,
+        tranyxRevenue: _originalPlatformFee,
+        tranyxPromoCost: 0.0,
+      );
+    }
+    return _appliedPromo!.calculateDiscount(
+      basePrice: _totalPrice,
+      platformFee: _originalPlatformFee,
+    );
   }
+
+  double get _discountAmount => _promoResult.discountAmount;
+  double get _bookingFee => _promoResult.finalPlatformFee;
+  double get _totalCustomerPays => _promoResult.finalCustomerAmount;
 
   DateTime _startDate = DateTime.now();
-
-  double get _bookingFee {
-    return _discountedTotalPrice * 0.03; // 3% renter fee on discounted cost
-  }
 
   DateTime get _computedEndDate {
     switch (_selectedDurationType) {
@@ -156,19 +166,17 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         return;
       }
 
-      final subtotal = _totalRent;
+      final platformFee = _originalPlatformFee;
       Promo? bestPromo;
       double bestDiscount = -1.0;
 
       for (final promoItem in autoPromos) {
-        double currentDiscount = 0.0;
-        if (promoItem.discountType == 'percentage') {
-          currentDiscount = subtotal * (promoItem.discountValue / 100.0);
-        } else {
-          currentDiscount = promoItem.discountValue;
-        }
-        if (currentDiscount > bestDiscount) {
-          bestDiscount = currentDiscount;
+        final res = promoItem.calculateDiscount(
+          basePrice: _totalPrice,
+          platformFee: platformFee,
+        );
+        if (res.discountAmount > bestDiscount) {
+          bestDiscount = res.discountAmount;
           bestPromo = promoItem;
         }
       }
@@ -178,7 +186,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         setState(() {
           _appliedPromo = bp;
           _promoCodeInput = bp.code;
-          _promoFeedback = 'Auto-applied promo: ${bp.code}';
+          _promoFeedback = 'Auto-applied promo: ${bp.name ?? bp.code}';
         });
       }
     } catch (e) {
@@ -259,6 +267,20 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         });
         return;
       }
+      if (promo.startDate != null && promo.startDate!.isAfter(now)) {
+        setState(() {
+          _promoFeedback = 'This promo code is not active yet.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.minTransactionAmount != null && (_totalPrice + _originalPlatformFee) < promo.minTransactionAmount!) {
+        setState(() {
+          _promoFeedback = 'Minimum transaction amount of ₱ ${promo.minTransactionAmount!.toStringAsFixed(0)} required.';
+          _appliedPromo = null;
+        });
+        return;
+      }
       if (promo.onlyForSubscribed && !user.isPremium) {
         setState(() {
           _promoFeedback = 'This promo code is only for subscribed premium users.';
@@ -318,7 +340,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
 
       final end = _computedEndDate;
 
-      final totalRequired = _discountedTotalPrice + _bookingFee;
+      final totalRequired = _totalCustomerPays;
       if (user.tyxBalance < totalRequired) {
         component.appState.setState(() {
           component.appState.depositAmount = totalRequired - user.tyxBalance;
@@ -328,13 +350,15 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
             'durationType': _selectedDurationType,
             'multiplier': _multiplier,
             'totalCost': _totalPrice,
+            'bookingFee': _bookingFee,
+            'originalBookingFee': _originalPlatformFee,
+            'discountAmount': _discountAmount,
             'contractType': p['contractType'] ?? 'Tranyx Standard',
             'contractTerms': p['contractTerms'] ?? 'Standard lease terms',
             'startDate': _startDate.millisecondsSinceEpoch,
             'endDate': end.millisecondsSinceEpoch,
             'licenseNumber': _licenseNumber,
             'promoCode': _appliedPromo?.code,
-            'discountAmount': _discountAmount,
           };
           component.appState.showBookPropertyModal = false;
         });
@@ -386,9 +410,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
     final pData = component.appState.selectedPropertyData!;
 
     final currentUid = component.appState.userProfile?.uid;
-    if (pData['hostId'] != null && currentUid != null && pData['hostId'] == currentUid) {
-      return div([]);
-    }
+    final isHost = pData['hostId'] != null && currentUid != null && pData['hostId'] == currentUid;
 
     final propertyId = pData['id']?.toString();
     if (_lastPropertyId != propertyId) {
@@ -431,11 +453,19 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                   'sticky top-0 z-10 flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
               [
                 div([
-                  h2(classes: 'text-2xl font-bold', [Component.text('Rent Property')]),
+                  div(classes: 'flex items-center gap-2', [
+                    h2(classes: 'text-2xl font-bold', [Component.text(isHost ? 'Property Details' : 'Rent Property')]),
+                    if (isHost)
+                      span(
+                        classes:
+                            'px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30',
+                        [Component.text('Your Listing')],
+                      ),
+                  ]),
                   p(classes: 'text-xs text-zinc-500', [Component.text('$title • $categoryStr $pTypeStr')]),
                 ]),
                 button(
-                  classes: 'p-2 rounded-full hover:bg-zinc-105 dark:hover:bg-zinc-800 transition-colors',
+                  classes: 'p-2 rounded-full hover:bg-zinc-105 dark:hover:bg-zinc-800 transition-colors cursor-pointer',
                   events: {
                     'click': (_) => component.appState.setState(() {
                       component.appState.showBookPropertyModal = false;
@@ -856,35 +886,6 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                       Component.text("Applied to first month's rent upon move-in"),
                     ]),
                   ],
-                  // Promo discount
-                  if (_appliedPromo != null) ...[
-                    div(classes: 'flex justify-between text-sm text-emerald-500', [
-                      div(classes: 'flex items-center gap-1.5', [
-                        lIcon('tag', cls: 'w-3.5 h-3.5 text-emerald-500'),
-                        span([Component.text('Promo Discount (${_appliedPromo!.code})')]),
-                      ]),
-                      span(classes: 'font-bold', [
-                        Component.text('- ₱ ${_discountAmount.toStringAsFixed(2)}'),
-                      ]),
-                    ]),
-                  ],
-                  // Security deposit
-                  if (_depositAmount > 0) ...[
-                    div(classes: 'flex justify-between text-sm', [
-                      div(classes: 'flex items-center gap-1.5', [
-                        lIcon('shield-check', cls: 'w-3.5 h-3.5 text-purple-400'),
-                        span(classes: isDark ? 'text-zinc-400' : 'text-zinc-650', [
-                          Component.text('Security Deposit'),
-                        ]),
-                      ]),
-                      span(classes: 'font-bold text-purple-400', [
-                        Component.text('₱ ${_depositAmount.toStringAsFixed(2)}'),
-                      ]),
-                    ]),
-                    p(classes: 'text-[10px] ${isDark ? "text-zinc-600" : "text-zinc-400"} -mt-1 ml-5', [
-                      Component.text('Fully refundable at end of lease'),
-                    ]),
-                  ],
                   // Platform fee
                   div(classes: 'flex justify-between text-sm', [
                     div(classes: 'flex items-center gap-1.5', [
@@ -893,8 +894,26 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                         Component.text('Platform Service Fee (3%)'),
                       ]),
                     ]),
-                    span(classes: 'font-bold text-zinc-400', [Component.text('₱ ${_bookingFee.toStringAsFixed(2)}')]),
+                    span(classes: 'font-bold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                      Component.text('₱ ${_originalPlatformFee.toStringAsFixed(2)}'),
+                    ]),
                   ]),
+                  // Promo discount (applied to platform fee only)
+                  if (_appliedPromo != null && _discountAmount > 0) ...[
+                    div(classes: 'flex justify-between text-sm text-emerald-500 font-semibold', [
+                      div(classes: 'flex items-center gap-1.5', [
+                        lIcon('tag', cls: 'w-3.5 h-3.5 text-emerald-500'),
+                        span([Component.text('Platform Fee Discount (${_appliedPromo!.code})')]),
+                      ]),
+                      span([
+                        Component.text('- ₱ ${_discountAmount.toStringAsFixed(2)}'),
+                      ]),
+                    ]),
+                    div(classes: 'flex justify-between text-xs text-purple-400', [
+                      span([Component.text('Net Platform Fee Charged')]),
+                      span(classes: 'font-bold', [Component.text('₱ ${_bookingFee.toStringAsFixed(2)}')]),
+                    ]),
+                  ],
                   // Divider
                   div(classes: 'h-px w-full bg-purple-500/20 my-1', []),
                   // Total escrow
@@ -902,11 +921,17 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     div([
                       span(classes: 'font-bold text-sm', [Component.text('Total Escrow Hold')]),
                       p(classes: 'text-[10px] ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                        Component.text('Locked until lease completion'),
+                        Component.text('Customer Total Payment'),
                       ]),
                     ]),
                     span(classes: 'font-black text-xl text-purple-400', [
-                      Component.text('₱ ${(_discountedTotalPrice + _bookingFee).toStringAsFixed(2)}'),
+                      Component.text('₱ ${_totalCustomerPays.toStringAsFixed(2)}'),
+                    ]),
+                  ]),
+                  div(classes: 'flex justify-between text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"} pt-1', [
+                    span([Component.text('Landlord / Host Settlement (100% Guaranteed)')]),
+                    span(classes: 'font-bold text-emerald-500', [
+                      Component.text('₱ ${_totalPrice.toStringAsFixed(2)}'),
                     ]),
                   ]),
                 ]),
@@ -920,44 +945,90 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
 
             // Footer
             div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between', [
-              if (_step > 1)
+              if (isHost) ...[
                 button(
                   classes:
-                      'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
-                  events: {'click': (_) => setState(() => _step--)},
-                  [Component.text('Back')],
-                )
-              else
-                div([]),
-
-              if (_step < 2)
-                button(
-                  classes:
-                      'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
+                      'px-6 py-2.5 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors cursor-pointer',
                   events: {
-                    'click': (_) {
-                      if (_basePrice <= 0) {
-                        setState(() => _error = 'Rate option is not configured for this property.');
-                        return;
-                      }
-                      setState(() {
-                        _error = null;
-                        _step++;
-                      });
-                    },
+                    'click': (_) => component.appState.setState(() {
+                      component.appState.showBookPropertyModal = false;
+                      component.appState.selectedPropertyData = null;
+                    }),
                   },
-                  [Component.text('Review Terms')],
-                )
-              else
-                button(
-                  classes:
-                      'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
-                  events: {'click': (_) => _book()},
-                  [
-                    if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                    Component.text(_isBooking ? 'Locking Escrow...' : 'Submit Request'),
-                  ],
+                  [Component.text('Close')],
                 ),
+                div(classes: 'flex items-center gap-3', [
+                  if ((pData['status'] == null || pData['status'] == 'Available') &&
+                      (pData['renteeId'] == null || (pData['renteeId'] as String).isEmpty))
+                    button(
+                      classes:
+                          'px-6 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-indigo-500/20',
+                      events: {
+                        'click': (_) => component.appState.setState(() {
+                          component.appState.showBookPropertyModal = false;
+                          component.appState.showEditPropertyModal = true;
+                        }),
+                      },
+                      [
+                        lIcon('edit-3', cls: 'w-4 h-4'),
+                        Component.text('Edit Listing'),
+                      ],
+                    ),
+                  button(
+                    classes:
+                        'px-6 py-2.5 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-purple-500/20',
+                    events: {
+                      'click': (_) => component.appState.setState(() {
+                        component.appState.showBookPropertyModal = false;
+                        component.appState.showManagePropertyModal = true;
+                      }),
+                    },
+                    [
+                      lIcon('sliders', cls: 'w-4 h-4'),
+                      Component.text('Manage Listing'),
+                    ],
+                  ),
+                ]),
+              ] else ...[
+                if (_step > 1)
+                  button(
+                    classes:
+                        'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors cursor-pointer',
+                    events: {'click': (_) => setState(() => _step--)},
+                    [Component.text('Back')],
+                  )
+                else
+                  div([]),
+
+                if (_step < 2)
+                  button(
+                    classes:
+                        'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
+                    events: {
+                      'click': (_) {
+                        if (_basePrice <= 0) {
+                          setState(() => _error = 'Rate option is not configured for this property.');
+                          return;
+                        }
+                        setState(() {
+                          _error = null;
+                          _step++;
+                        });
+                      },
+                    },
+                    [Component.text('Review Terms')],
+                  )
+                else
+                  button(
+                    classes:
+                        'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
+                    events: {'click': (_) => _book()},
+                    [
+                      if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                      Component.text(_isBooking ? 'Locking Escrow...' : 'Submit Request'),
+                    ],
+                  ),
+              ],
             ]),
           ],
         ),

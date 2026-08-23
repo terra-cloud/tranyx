@@ -1420,8 +1420,12 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
     final amount = record.amount.abs();
     final isMwa = record.originRail == TransactionOriginRail.mwaOnChain;
     final isP2p = record.originRail == TransactionOriginRail.manualP2p;
-    final isPending = record.status.toUpperCase().contains('PENDING');
-    final isRejected = record.status.toUpperCase().contains('REJECT');
+    final statusUpper = record.status.toUpperCase();
+    final isPending = statusUpper.contains('PENDING');
+    final isRejected = statusUpper.contains('REJECT');
+    final isCancelled = statusUpper == 'CANCELLED' || isRejected;
+
+    final reason = record.rejectionReason ?? tx['rejectionReason'] as String? ?? tx['reason'] as String?;
 
     return InkWell(
       onTap: () => TransactionDetailsSheet.show(
@@ -1437,7 +1441,9 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
           color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
-            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+            color: isCancelled
+                ? Colors.red.withValues(alpha: 0.3)
+                : (isDarkMode ? AppColors.darkBorder : AppColors.lightBorder),
           ),
         ),
         child: Row(
@@ -1445,26 +1451,28 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: isP2p
-                    ? (isPending
-                        ? Colors.amber.withValues(alpha: 0.15)
-                        : (isRejected
-                            ? Colors.red.withValues(alpha: 0.12)
-                            : Colors.blue.withValues(alpha: 0.12)))
-                    : (isMwa
-                        ? const Color(0xFF512DA8).withValues(alpha: 0.12)
-                        : Colors.green.withValues(alpha: 0.12)),
+                color: isCancelled
+                    ? Colors.red.withValues(alpha: 0.12)
+                    : (isP2p
+                        ? (isPending
+                            ? Colors.amber.withValues(alpha: 0.15)
+                            : Colors.blue.withValues(alpha: 0.12))
+                        : (isMwa
+                            ? const Color(0xFF512DA8).withValues(alpha: 0.12)
+                            : Colors.green.withValues(alpha: 0.12))),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                isP2p
-                    ? Icons.qr_code_2
-                    : (isMwa ? Icons.bolt : Icons.credit_card),
-                color: isP2p
-                    ? (isPending
-                        ? Colors.amber.shade800
-                        : (isRejected ? Colors.red : Colors.blue))
-                    : (isMwa ? const Color(0xFF7E57C2) : Colors.green),
+                isCancelled
+                    ? (isRejected ? Icons.warning_amber_rounded : Icons.cancel_outlined)
+                    : (isP2p
+                        ? Icons.qr_code_2
+                        : (isMwa ? Icons.bolt : Icons.credit_card)),
+                color: isCancelled
+                    ? Colors.red
+                    : (isP2p
+                        ? (isPending ? Colors.amber.shade800 : Colors.blue)
+                        : (isMwa ? const Color(0xFF7E57C2) : Colors.green)),
                 size: 20,
               ),
             ),
@@ -1478,18 +1486,21 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                       Expanded(
                         child: Text(
                           title,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
+                            color: isCancelled
+                                ? (isDarkMode ? Colors.grey.shade400 : Colors.grey.shade700)
+                                : null,
                           ),
                         ),
                       ),
-                      if (isP2p)
+                      if (isCancelled)
+                        _pill(isRejected ? 'Rejected' : 'Cancelled', Colors.red)
+                      else if (isP2p)
                         (isPending
                             ? _pill('Pending Verification', Colors.amber.shade800)
-                            : (isRejected
-                                ? _pill('Rejected', Colors.red)
-                                : _pill('${record.method ?? "P2P"} Verified', Colors.blue)))
+                            : _pill('${record.method ?? "P2P"} Verified', Colors.blue))
                       else if (isMwa)
                         _pill('MWA / On-Chain', const Color(0xFF7E57C2))
                       else
@@ -1506,6 +1517,35 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                           : AppColors.lightTextMuted,
                     ),
                   ),
+                  if (reason != null && reason.trim().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6.0),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red.withValues(alpha: 0.2)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.info_outline, size: 12, color: Colors.redAccent),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                'Reason: $reason',
+                                style: const TextStyle(
+                                  color: Colors.redAccent,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1513,16 +1553,25 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(
-                  '+ ₱ ${amount.toStringAsFixed(2)}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 14,
-                    color: isRejected
-                        ? Colors.grey
-                        : (isPending ? Colors.amber.shade800 : Colors.green),
+                if (isCancelled)
+                  Text(
+                    '₱ ${amount.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      color: Colors.grey,
+                      decoration: TextDecoration.lineThrough,
+                    ),
+                  )
+                else
+                  Text(
+                    '+ ₱ ${amount.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 14,
+                      color: isPending ? Colors.amber.shade800 : Colors.green,
+                    ),
                   ),
-                ),
                 if (record.cryptoAmount != null && record.cryptoAmount! > 0) ...[
                   const SizedBox(height: 2),
                   Text(
@@ -2002,21 +2051,38 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
       }
     }
 
-    // 3. Process Deposits
+    // 3. Process Deposits & Cancelled Top-ups
     for (final tx in userTransactions) {
+      final status = (tx['status'] as String? ?? '').toUpperCase();
+      final isCancelled = status == 'CANCELLED' || status == 'REJECTED';
       final type = tx['type'] as String?;
       final createdAt = tx['createdAt'];
       final createdAtMs = createdAt is int
           ? createdAt
           : (createdAt is Timestamp ? createdAt.millisecondsSinceEpoch : 0);
 
-      if (type == 'deposit') {
+      if (type == 'deposit' || type == 'refund' || type == 'job_escrow_refund' || isCancelled) {
+        final reason = tx['rejectionReason'] ?? tx['reason'];
         dTrans.add({
-          'title': tx['title'] ?? 'Top-Up',
-          'desc': tx['desc'] ?? 'Deposit',
+          'id': tx['id'] ?? 'tx_$createdAtMs',
+          'title': tx['title'] ??
+              (isCancelled
+                  ? (status == 'REJECTED' ? 'Rejected Top-Up' : 'Cancelled Top-Up')
+                  : (type == 'refund' || type == 'job_escrow_refund' ? 'Job Escrow Refund' : 'Top-Up')),
+          'desc': tx['desc'] ??
+              (isCancelled
+                  ? (status == 'REJECTED' ? 'Top-Up request rejected' : 'Top-Up request cancelled')
+                  : (type == 'refund' || type == 'job_escrow_refund'
+                      ? '100% Escrow refund for cancelled job'
+                      : 'Deposit')),
           'date': _formatDate(createdAtMs),
           'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
-          'method': tx['method'] ?? 'Unknown',
+          'method': tx['method'] ?? 'Tranyx Escrow',
+          'status': tx['status'] ?? (isCancelled ? status : 'Completed'),
+          'rejectionReason': reason,
+          'category': isCancelled
+              ? status.toLowerCase()
+              : ((type == 'refund' || type == 'job_escrow_refund') ? 'refund' : 'topup'),
           'timestamp': createdAtMs,
         });
       } else if (type == 'listing_fee') {
@@ -2103,7 +2169,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
             ),
             const SizedBox(width: 8),
             const Text(
-              'History & Earnings',
+              'Transaction History',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
             const Spacer(),

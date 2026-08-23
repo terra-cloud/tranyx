@@ -1,5 +1,6 @@
 import 'dart:math' show min;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared/shared.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
@@ -119,6 +120,8 @@ class TransitRepository {
       throw Exception('Cannot delete a vehicle listing that is currently booked or active.');
     }
 
+    final rental = VehicleRental.fromMap(data, rentalId);
+
     // Reject all pending requests
     final requests = await _firestore
         .collection('rental_requests')
@@ -128,6 +131,27 @@ class TransitRepository {
 
     for (final r in requests.docs) {
       await rejectBookingRequest(r.id);
+    }
+
+    // Refund listing fee (1.5% of daily price) to host
+    final host = await getUser(rental.hostId);
+    final listingFee = 0.015 * rental.priceDaily;
+    if (host != null && listingFee > 0.0) {
+      await updateTyxBalance(rental.hostId, host.tyxBalance + listingFee);
+      final txId = 'refund_veh_$rentalId';
+      await _firestore.collection('transactions').doc(txId).set({
+        'id': txId,
+        'uid': rental.hostId,
+        'type': 'refund',
+        'category': 'refund',
+        'amount': listingFee,
+        'title': 'Vehicle Listing Fee Refund',
+        'desc': '100% refund of listing fee for cancelled vehicle "${rental.year} ${rental.brand} ${rental.model}"',
+        'method': 'Tranyx Wallet',
+        'originRail': 'internal_balance',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'status': 'Completed',
+      });
     }
 
     await _firestore.collection('rentals').doc(rentalId).delete();
@@ -594,7 +618,68 @@ class TransitRepository {
       await rejectPropertyBookingRequest(r.id);
     }
 
+    // Refund listing fee (1.5% of monthly price) to host
+    final host = await getUser(property.hostId);
+    final listingFee = 0.015 * property.priceMonthly;
+    if (host != null && listingFee > 0.0) {
+      await updateTyxBalance(property.hostId, host.tyxBalance + listingFee);
+      final txId = 'refund_prop_$propertyId';
+      await _firestore.collection('transactions').doc(txId).set({
+        'id': txId,
+        'uid': property.hostId,
+        'type': 'refund',
+        'category': 'refund',
+        'amount': listingFee,
+        'title': 'Property Listing Fee Refund',
+        'desc': '100% refund of listing fee for cancelled property "${property.title}"',
+        'method': 'Tranyx Wallet',
+        'originRail': 'internal_balance',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'status': 'Completed',
+      });
+    }
+
     await _firestore.collection('properties').doc(propertyId).delete();
+  }
+
+  Future<void> updatePropertyRental(String propertyId, PropertyRental updatedProperty) async {
+    final doc = await _firestore.collection('properties').doc(propertyId).get();
+    if (!doc.exists) throw Exception('Property listing not found.');
+
+    final existing = PropertyRental.fromMap(doc.data()!, propertyId);
+    if (existing.status != 'Available' || (existing.renteeId != null && existing.renteeId!.isNotEmpty)) {
+      throw Exception('Cannot edit a property listing that is currently booked or active.');
+    }
+
+    final pending = await _firestore
+        .collection('property_requests')
+        .where('propertyId', isEqualTo: propertyId)
+        .where('status', isEqualTo: 'Pending')
+        .get();
+
+    if (pending.docs.isNotEmpty) {
+      throw Exception('Cannot edit property listing while pending booking requests exist. Please review or reject pending requests first.');
+    }
+
+    final updatedMap = updatedProperty.toMap()
+      ..['id'] = propertyId
+      ..['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+    await _firestore.collection('properties').doc(propertyId).update(updatedMap);
+  }
+
+  Future<void> updateRental(String rentalId, Map<String, dynamic> updatedData) async {
+    final doc = await _firestore.collection('rentals').doc(rentalId).get();
+    if (!doc.exists) throw Exception('Rental listing not found.');
+
+    final existing = doc.data()!;
+    if (existing['status'] != 'Available' || (existing['renteeId'] != null && (existing['renteeId'] as String).isNotEmpty)) {
+      throw Exception('Cannot edit a vehicle listing that is currently booked or active.');
+    }
+
+    final copy = Map<String, dynamic>.from(updatedData)
+      ..['id'] = rentalId
+      ..['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+    await _firestore.collection('rentals').doc(rentalId).update(copy);
   }
 
   Stream<List<PropertyRental>> getRealtimeProperties() {
@@ -809,6 +894,56 @@ class TransitRepository {
       uid: renteeId,
       title: 'Booking Request Rejected',
       message: 'Your request to rent "${data['title']}" was rejected. Funds have been refunded.',
+    );
+  }
+
+  Future<void> cancelPropertyBookingRequest(String requestId) async {
+    final doc = await _firestore.collection('property_requests').doc(requestId).get();
+    if (!doc.exists) return;
+
+    final data = doc.data()!;
+    if (data['status'] != 'Pending') return;
+
+    final renteeId = data['renteeId'] as String;
+    final hostId = data['hostId'] as String;
+    final totalCost = (data['totalCost'] as num).toDouble();
+    final bookingFee = (data['bookingFee'] as num? ?? totalCost * 0.03).toDouble();
+    final refundAmount = totalCost + bookingFee;
+
+    await _firestore.collection('property_requests').doc(requestId).update({'status': 'Cancelled'});
+
+    // Revert promo usage
+    final promoCode = data['promoCode'] as String?;
+    if (promoCode != null && promoCode.trim().isNotEmpty) {
+      await decrementPromoUsage(promoCode, renteeId);
+    }
+
+    final rentee = await getUser(renteeId);
+    if (rentee != null) {
+      await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
+
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      await _firestore.collection('transactions').doc(txId).set({
+        'id': txId,
+        'uid': renteeId,
+        'type': 'refund',
+        'category': 'refund',
+        'amount': refundAmount,
+        'title': 'Property Booking Cancelled',
+        'desc': 'Refund for cancelled request of property "${data['title']}"',
+        'method': 'Tranyx Wallet',
+        'originRail': 'internal_balance',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'status': 'Completed',
+      });
+    }
+
+    await _firestore.collection('property_escrows').doc(requestId).delete();
+
+    await createNotification(
+      uid: hostId,
+      title: 'Property Booking Request Cancelled',
+      message: '${data['renteeName'] ?? "Renter"} has cancelled their booking request for your property "${data['title']}".',
     );
   }
 
@@ -1436,6 +1571,57 @@ class TransitRepository {
     });
   }
 
+  Future<void> seedAutoZeroFeePromoIfMissing() async {
+    try {
+      final docRef = _firestore.collection('promos').doc('ZEROFEES1000');
+      final doc = await docRef.get();
+      if (!doc.exists) {
+        final now = DateTime.now();
+        final zeroFeePromo = Promo(
+          code: 'ZEROFEES1000',
+          name: 'Auto Zero Platform Fees - First 1,000 Users',
+          description: 'Automatic 100% platform fee and transaction fee waiver for the first 1,000 users.',
+          discountType: 'percentage',
+          discountValue: 100.0,
+          applicableFee: 'all_fees',
+          applicableTo: 'both',
+          eligibleModules: ['jobs', 'services', 'rentals', 'vehicle_rentals', 'property_rentals', 'all'],
+          maxUsers: 1000,
+          maxUsesPerUser: 1,
+          usedCount: 0,
+          isSingleUsePerUser: true,
+          isAutoApply: true,
+          isActive: true,
+          createdAt: now,
+          startDate: now,
+          endDate: now.add(const Duration(days: 365)),
+          createdBy: 'system_admin',
+        );
+        await docRef.set(zeroFeePromo.toMap());
+      }
+    } catch (e) {
+      debugPrint('seedAutoZeroFeePromoIfMissing error: $e');
+    }
+  }
+
+  Future<void> savePromo(Promo promo, {String? adminUid}) async {
+    final cleanCode = promo.code.trim().toUpperCase();
+    final docRef = _firestore.collection('promos').doc(cleanCode);
+    final previousDoc = await docRef.get();
+    await docRef.set(promo.toMap());
+
+    // Audit trail
+    final auditId = 'audit_${cleanCode}_${DateTime.now().millisecondsSinceEpoch}';
+    await _firestore.collection('promo_audit_logs').doc(auditId).set({
+      'promoCode': cleanCode,
+      'action': !previousDoc.exists ? 'create' : 'update',
+      'performedBy': adminUid ?? 'admin',
+      'previousState': previousDoc.data(),
+      'newState': promo.toMap(),
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
   Future<void> redeemPromoToProfile(String userId, Promo promo) async {
     final userRef = _firestore.collection('users').doc(userId);
     await userRef.update({
@@ -1601,7 +1787,7 @@ class TransitRepository {
 
     final now = DateTime.now().millisecondsSinceEpoch;
     final cleanAgentName = _cleanDisplayName(agentName, fallback: 'TRANYX Agent');
-    final cleanAccountName = _cleanDisplayName(agentAccountName, fallback: cleanAgentName);
+    final cleanAccountName = agentAccountName.trim().isNotEmpty ? agentAccountName.trim() : cleanAgentName;
 
     await reqDocRef.update({
       'status': 'AWAITING_PAYMENT',
@@ -1774,6 +1960,11 @@ class TransitRepository {
         'tyxBalance': newBalance,
       });
 
+      final cleanAgent = cleanAgentDisplayName(adminUid, fallback: 'TRANYX Agent');
+      final descText = referenceNumber.isNotEmpty
+          ? 'Reference #$referenceNumber approved by $cleanAgent'
+          : 'P2P Transfer approved by $cleanAgent';
+
       // 4. Update transaction record
       final txDocRef = _firestore.collection('transactions').doc('p2p_dep_$depositRequestId');
       transaction.set(
@@ -1783,7 +1974,7 @@ class TransitRepository {
           'uid': uid,
           'depositRequestId': depositRequestId,
           'title': '$paymentMethod P2P Top-Up',
-          'desc': 'Manual $paymentMethod Transfer (Ref: $referenceNumber)',
+          'desc': descText,
           'amount': amount,
           'originRail': 'manual_p2p',
           'method': paymentMethod,
@@ -1791,6 +1982,7 @@ class TransitRepository {
           'status': 'Completed',
           'referenceNumber': referenceNumber,
           'proofImageUrl': reqData['proofImageUrl'],
+          'agentName': cleanAgent,
           'createdAt': reqData['createdAt'] ?? now,
           'verifiedAt': now,
           'adminUid': adminUid,
@@ -1803,28 +1995,22 @@ class TransitRepository {
   Future<void> rejectDepositRequest({
     required String depositRequestId,
     required String adminUid,
-    required String rejectionReason,
+    required String reason,
   }) async {
+    final cleanReason = reason.trim();
+    if (cleanReason.isEmpty) throw Exception('Rejection reason is required.');
+
+    final reqDocRef = _firestore.collection('deposit_requests').doc(depositRequestId);
+    final reqSnap = await reqDocRef.get();
+    if (!reqSnap.exists) throw Exception('Deposit request not found.');
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+
     await _firestore.runTransaction((transaction) async {
-      final reqDocRef = _firestore.collection('deposit_requests').doc(depositRequestId);
-      final reqSnapshot = await transaction.get(reqDocRef);
-
-      if (!reqSnapshot.exists) {
-        throw Exception('Deposit request not found.');
-      }
-
-      final reqData = reqSnapshot.data()!;
-      final currentStatus = reqData['status'] as String? ?? '';
-      if (currentStatus != 'PENDING_VERIFICATION') {
-        throw Exception('Deposit request is not pending verification (Current: $currentStatus).');
-      }
-
-      final now = DateTime.now().millisecondsSinceEpoch;
-
       transaction.update(reqDocRef, {
         'status': 'REJECTED',
-        'rejectionReason': rejectionReason,
         'adminUid': adminUid,
+        'rejectionReason': cleanReason,
         'verifiedAt': now,
       });
 
@@ -1833,9 +2019,9 @@ class TransitRepository {
         txDocRef,
         {
           'status': 'REJECTED',
-          'rejectionReason': rejectionReason,
-          'adminUid': adminUid,
+          'rejectionReason': cleanReason,
           'verifiedAt': now,
+          'adminUid': adminUid,
         },
         SetOptions(merge: true),
       );
@@ -1859,18 +2045,7 @@ class TransitRepository {
   }
 
   static String _cleanDisplayName(String? raw, {String fallback = 'TRANYX Agent'}) {
-    if (raw == null || raw.trim().isEmpty) return fallback;
-    var text = raw.trim();
-    if (text.contains('@')) {
-      final prefix = text.split('@').first;
-      text = prefix
-          .replaceAll(RegExp(r'[._\-]'), ' ')
-          .split(' ')
-          .where((s) => s.isNotEmpty)
-          .map((s) => s[0].toUpperCase() + (s.length > 1 ? s.substring(1).toLowerCase() : ''))
-          .join(' ');
-    }
-    return text.isEmpty ? fallback : text;
+    return cleanAgentDisplayName(raw, fallback: fallback);
   }
 }
 

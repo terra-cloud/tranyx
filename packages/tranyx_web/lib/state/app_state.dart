@@ -1,7 +1,7 @@
 // App State — mirrors React useState hooks from the reference React app.
 // All enums and the AppState class are plain Dart, imported by the @client component.
 
-enum AppTab { home, jobs, transit, profile }
+enum AppTab { home, jobs, transit, messages, profile }
 
 // Uses AccountType from package:core
 

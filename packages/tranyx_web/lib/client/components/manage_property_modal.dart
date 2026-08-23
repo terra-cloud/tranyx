@@ -95,11 +95,14 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
 
     try {
       await component.appState.firestore.deletePropertyRental(propertyId);
+      await component.appState.loadUserProfile();
+      component.appState.walletBalance = component.appState.userProfile?.tyxBalance ?? component.appState.walletBalance;
 
       component.appState.setState(() {
         component.appState.showManagePropertyModal = false;
         component.appState.selectedPropertyData = null;
       });
+      component.appState.alertDialog('Listing Cancelled', 'The property listing has been cancelled and your listing fee has been refunded to your wallet.');
     } catch (e) {
       setState(() => _error = 'Failed to delete listing: $e');
     } finally {
@@ -235,7 +238,27 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                     ]),
                   ])
                 else
-                  div(classes: 'mb-6 flex justify-end', [
+                  div(classes: 'mb-6 flex justify-between items-center', [
+                    if (_requests.isEmpty)
+                      button(
+                        classes:
+                            'px-4 py-2 text-xs font-bold text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/10 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer bg-transparent',
+                        events: {
+                          'click': (_) {
+                            component.appState.setState(() {
+                              component.appState.showManagePropertyModal = false;
+                              component.appState.showEditPropertyModal = true;
+                            });
+                          },
+                        },
+                        disabled: _isProcessing,
+                        [
+                          lIcon('edit-3', cls: 'w-4 h-4 text-indigo-400'),
+                          Component.text('Edit Listing'),
+                        ],
+                      )
+                    else
+                      div([]),
                     button(
                       classes:
                           'px-4 py-2 text-xs font-bold text-red-500 border border-red-500/20 hover:bg-red-500/10 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer bg-transparent',

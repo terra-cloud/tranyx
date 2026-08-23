@@ -21,6 +21,7 @@ import '../client/views/auth_view.dart';
 import '../client/views/home_view.dart';
 import '../client/views/jobs_view.dart';
 import '../client/views/transit_view.dart';
+import '../client/views/messages_view.dart';
 import '../client/views/profile_view.dart';
 import '../client/widgets/sidebar.dart';
 import '../client/widgets/bottom_nav.dart';
@@ -41,6 +42,7 @@ import '../client/components/list_property_modal.dart';
 import '../client/components/book_property_modal.dart';
 import '../client/components/manage_property_modal.dart';
 import '../client/components/property_qa_modal.dart';
+import '../client/components/edit_property_modal.dart';
 import '../client/components/sign_contract_modal.dart';
 import '../client/components/kyc_id_modal.dart';
 import '../client/components/kyc_bg_modal.dart';
@@ -148,6 +150,7 @@ class TranyxAppState extends State<TranyxApp> {
   bool showListPropertyModal = false;
   bool showBookPropertyModal = false;
   bool showManagePropertyModal = false;
+  bool showEditPropertyModal = false;
   bool showPropertyQaModal = false;
   bool showSignContractModal = false;
   Map<String, dynamic>? selectedPropertyData;
@@ -339,6 +342,11 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Chat ─────────────────────────────────────────────────────
   bool showChat = false;
   String currentChatId = '';
+  String currentChatTitle = '';
+  String currentChatStatus = '';
+  bool currentChatIsArchived = false;
+  String currentChatClosedDate = '';
+  String currentChatCounterpartyName = '';
   List<Map<String, dynamic>> chatMessages = [];
   String chatInputText = '';
   bool chatPiiBlocked = false;
@@ -2017,30 +2025,43 @@ class TranyxAppState extends State<TranyxApp> {
       final jobId = await svc.createJob(jobData);
 
       // Automatically add new job category/skills to employer's preferred skills list
-      final newSkill = selectedJobCategory?.name ?? JobCategory.others.name;
-      final currentSkills = List<String>.from(userProfile?.skills ?? []);
-      if (!currentSkills.contains(newSkill)) {
-        currentSkills.add(newSkill);
-        if (userProfile != null) {
-          final updatedProfile = userProfile!.copyWith(skills: currentSkills);
-          await svc.createOrUpdate('users/$uid', updatedProfile.toMap());
-          userProfile = updatedProfile;
+      try {
+        final newSkill = selectedJobCategory?.name ?? JobCategory.others.name;
+        final currentSkills = List<String>.from(userProfile?.skills ?? []);
+        if (!currentSkills.contains(newSkill)) {
+          currentSkills.add(newSkill);
+          if (userProfile != null) {
+            final updatedProfile = userProfile!.copyWith(skills: currentSkills);
+            await svc.createOrUpdate('users/$uid', updatedProfile.toMap());
+            userProfile = updatedProfile;
+          }
         }
+      } catch (skillErr) {
+        print('Notice updating employer skills list: $skillErr');
       }
 
       // Create escrow record with holdback metadata if chosen
-      await svc.createOrUpdate('escrow/$jobId', {
-        'amount': discountedPrice,
-        'employerId': uid,
-        'status': 'held',
-        'createdAt': now.millisecondsSinceEpoch,
-        'hasInspectionHoldback': hasInspectionHoldback,
-        if (hasInspectionHoldback) 'holdbackAmount': price * 0.10,
-      });
+      try {
+        await svc.createOrUpdate('escrow/$jobId', {
+          'amount': discountedPrice,
+          'employerId': uid,
+          'creatorId': uid,
+          'status': 'held',
+          'createdAt': now.millisecondsSinceEpoch,
+          'hasInspectionHoldback': hasInspectionHoldback,
+          if (hasInspectionHoldback) 'holdbackAmount': price * 0.10,
+        });
+      } catch (escrowErr) {
+        print('Notice creating escrow record: $escrowErr');
+      }
 
       // Increment promo usage
       if (jobPromoCode != null) {
-        await svc.incrementPromoUsage(jobPromoCode!, uid);
+        try {
+          await svc.incrementPromoUsage(jobPromoCode!, uid);
+        } catch (promoErr) {
+          print('Notice incrementing promo usage: $promoErr');
+        }
       }
 
       // Add to sessionPostedJobs to display instantly on posting page
@@ -3115,12 +3136,38 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   // ── Chat Actions ──────────────────────────────────────────────
-  void openChat(String chatId) {
+  void openChat(
+    String chatId, {
+    String? title,
+    String? status,
+    bool? isArchived,
+    String? closedDate,
+    String? counterpartyName,
+  }) {
     final uid = SessionStorage.uid;
     if (uid == null || chatId.isEmpty) return;
 
-    // Check if chatting is allowed for vehicle rentals
-    if (chatId.startsWith('rental_')) {
+    // Detect if chat belongs to a closed transaction automatically if not passed
+    bool archived = isArchived ?? false;
+    String chatTitle = title ?? '';
+    String chatStatus = status ?? '';
+    String closeDateStr = closedDate ?? '';
+
+    if (!archived) {
+      // Check jobs list
+      final job = myJobs.firstWhere((j) => j['id'] == chatId, orElse: () => <String, dynamic>{});
+      if (job.isNotEmpty) {
+        if (chatTitle.isEmpty) chatTitle = job['title'] as String? ?? '';
+        final st = (job['status'] as String? ?? '').toLowerCase();
+        if (chatStatus.isEmpty) chatStatus = job['status'] as String? ?? '';
+        if (st == 'completed' || st == 'complete' || st == 'cancelled' || st == 'expired' || st == 'closed' || st == 'done') {
+          archived = true;
+        }
+      }
+    }
+
+    // Check if chatting is allowed for vehicle rentals (only if active)
+    if (!archived && chatId.startsWith('rental_')) {
       final parts = chatId.split('_');
       if (parts.length >= 2) {
         final rentalId = parts[1];
@@ -3139,8 +3186,8 @@ class TranyxAppState extends State<TranyxApp> {
       }
     }
 
-    // Check if chatting is allowed for properties
-    if (chatId.startsWith('property_')) {
+    // Check if chatting is allowed for properties (only if active)
+    if (!archived && chatId.startsWith('property_')) {
       final parts = chatId.split('_');
       if (parts.length >= 2) {
         final propertyId = parts[1];
@@ -3183,6 +3230,11 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() {
       showChat = true;
       currentChatId = chatId;
+      currentChatTitle = chatTitle;
+      currentChatStatus = chatStatus;
+      currentChatIsArchived = archived;
+      currentChatClosedDate = closeDateStr;
+      currentChatCounterpartyName = counterpartyName ?? '';
       chatMessages = [];
       chatInputText = '';
       chatPiiBlocked = false;
@@ -3220,15 +3272,26 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() {
       showChat = false;
       currentChatId = '';
+      currentChatTitle = '';
+      currentChatStatus = '';
+      currentChatIsArchived = false;
+      currentChatClosedDate = '';
+      currentChatCounterpartyName = '';
       chatMessages = [];
       chatInputText = '';
       chatPiiBlocked = false;
+      chatDisintermediationBlocked = false;
     });
   }
 
   void sendChatMessage() {
     final uid = SessionStorage.uid;
     if (uid == null || currentChatId.isEmpty || chatInputText.trim().isEmpty) return;
+
+    if (currentChatIsArchived) {
+      print('Message blocked: This conversation is archived.');
+      return;
+    }
 
     if (isChatLocked || MessageViolationTracker.isMessagingLocked(uid)) {
       setState(() => isChatLocked = true);
@@ -4184,7 +4247,9 @@ class TranyxAppState extends State<TranyxApp> {
       final svc = FirestoreService(token, _handleTokenRefresh);
       await svc.cancelJob(job['id'] as String, SessionStorage.uid ?? '');
 
-      setState(() => isUpdatingJobStatus = false);
+      // Refresh balance and profile immediately
+      await loadUserProfile();
+      walletBalance = userProfile?.tyxBalance ?? walletBalance;
       await loadJobs();
       if (selectedJobData != null) {
         selectJobAndLoadDetails({
@@ -4192,6 +4257,7 @@ class TranyxAppState extends State<TranyxApp> {
           'status': 'Cancelled',
         });
       }
+      setState(() => isUpdatingJobStatus = false);
       alertDialog('Job Cancelled', 'The job has been cancelled and 100% of escrow has been refunded to your wallet.');
     } catch (e) {
       setState(() => isUpdatingJobStatus = false);
@@ -4214,7 +4280,8 @@ class TranyxAppState extends State<TranyxApp> {
       final svc = FirestoreService(token, _handleTokenRefresh);
       await svc.adminOverrideCancelJob(jobId, adminUid, reason);
 
-      setState(() => isUpdatingJobStatus = false);
+      await loadUserProfile();
+      walletBalance = userProfile?.tyxBalance ?? walletBalance;
       await loadJobs();
       if (selectedJobData != null && selectedJobData!['id'] == jobId) {
         selectJobAndLoadDetails({
@@ -4222,7 +4289,8 @@ class TranyxAppState extends State<TranyxApp> {
           'status': 'ADMIN_CANCELLED',
         });
       }
-      alertDialog('Admin Override Complete', 'The job has been administrative-cancelled with full audit logging.');
+      setState(() => isUpdatingJobStatus = false);
+      alertDialog('Admin Override Complete', 'The job has been administrative-cancelled with full audit logging and escrow refund.');
     } catch (e) {
       setState(() => isUpdatingJobStatus = false);
       alertDialog('Error', 'Failed to override cancel job: $e');
@@ -6626,6 +6694,7 @@ class TranyxAppState extends State<TranyxApp> {
             if (activeTab == AppTab.home) HomeViewComponent(state: this),
             if (activeTab == AppTab.jobs) JobsViewComponent(state: this),
             if (activeTab == AppTab.transit) TransitViewComponent(state: this),
+            if (activeTab == AppTab.messages) MessagesViewComponent(state: this),
             if (activeTab == AppTab.profile) ProfileViewComponent(state: this),
           ]),
         ]),
@@ -6712,6 +6781,10 @@ class TranyxAppState extends State<TranyxApp> {
       // Manage Property modal overlay
       if (showManagePropertyModal)
         ManagePropertyModalComponent(appState: this, key: const ValueKey('manage-property-modal')),
+
+      // Edit Property modal overlay
+      if (showEditPropertyModal)
+        EditPropertyModalComponent(appState: this, key: const ValueKey('edit-property-modal')),
 
       // Public Property Q&A modal overlay
       if (showPropertyQaModal) PropertyQaModalComponent(appState: this, key: const ValueKey('property-qa-modal')),

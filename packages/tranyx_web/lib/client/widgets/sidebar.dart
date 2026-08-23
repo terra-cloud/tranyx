@@ -25,6 +25,7 @@ class SidebarComponent extends StatelessComponent {
           _navItem(AppTab.home, 'home', 'Dashboard', s),
           _navItem(AppTab.jobs, 'briefcase', 'Jobs', s),
           _navItem(AppTab.transit, 'key', 'Rentals', s),
+          _navItem(AppTab.messages, 'message-circle', 'Messages', s),
           _navItem(AppTab.profile, 'user', 'Profile', s),
         ]),
 
@@ -58,6 +59,8 @@ class SidebarComponent extends StatelessComponent {
       unreadCount = s.unreadJobChatsCount;
     } else if (tab == AppTab.transit) {
       unreadCount = s.unreadRentalChatsCount;
+    } else if (tab == AppTab.messages) {
+      unreadCount = s.unreadJobChatsCount + s.unreadRentalChatsCount;
     }
 
     return button(

@@ -763,13 +763,6 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
               'professional',
             ),
             const SizedBox(height: 12),
-            buildProfileMenu(
-              Icons.arrow_upward_rounded,
-              "Withdraw Funds",
-              'withdraw',
-              onTap: () => WithdrawPane.show(context),
-            ),
-            const SizedBox(height: 12),
             buildProfileMenu(Icons.star_rounded, "Hybrid PRO Subscription", 'subscription'),
             const SizedBox(height: 12),
             buildProfileMenu(Icons.security, "Trust & Verification", 'trust'),
@@ -786,7 +779,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
               },
             ),
             const SizedBox(height: 12),
-            buildProfileMenu(Icons.history, "History & Earnings", 'history'),
+            buildProfileMenu(Icons.history, "Transaction History", 'history'),
             const SizedBox(height: 12),
             buildProfileMenu(
               Icons.star_outline,

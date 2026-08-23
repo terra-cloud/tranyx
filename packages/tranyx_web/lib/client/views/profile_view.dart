@@ -63,13 +63,12 @@ class _ProfileMenu extends StatelessComponent {
     final isDark = s.isDark;
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
 
-    final String historyLabel = 'History & Earnings';
+    final String historyLabel = 'Transaction History';
 
     final items = [
       (ProfileView.personal, 'user', 'Personal Information'),
       (ProfileView.professional, 'briefcase', 'Professional Info'),
       (ProfileView.payment, 'credit-card', 'Payment Methods'),
-      (ProfileView.withdraw, 'arrow-up-right', 'Withdraw Funds'),
       (ProfileView.trust, 'shield-check', 'Trust & Verification'),
       (ProfileView.support, 'help-circle', 'Help & Support'),
       (ProfileView.history, 'activity', historyLabel),
@@ -3405,9 +3404,12 @@ class _HistoryView extends StatefulComponent {
 }
 
 class _HistoryViewState extends State<_HistoryView> {
-  String activeTab = 'earnings';
+  String activeTab = 'all_transactions';
   String activeFilter = 'daily';
+  String ledgerFilter = 'all'; // 'all', 'income', 'expenses', 'topups', 'withdrawals', 'jobs', 'purchases'
   int hoveredBarIndex = -1;
+  int currentPage = 1;
+  int itemsPerPage = 10;
 
   // Earnings dataset (kept static for graphs temporarily)
   final Map<String, List<Map<String, dynamic>>> earningsData = {
@@ -3441,6 +3443,7 @@ class _HistoryViewState extends State<_HistoryView> {
     ],
   };
 
+  List<Map<String, dynamic>> allUnifiedLedger = [];
   List<Map<String, dynamic>> earningsTransactions = [];
   List<Map<String, dynamic>> purchaseTransactions = [];
   List<Map<String, dynamic>> depositTransactions = [];
@@ -3449,7 +3452,10 @@ class _HistoryViewState extends State<_HistoryView> {
   String p2pFilter = 'all'; // 'all', 'deposits', 'withdrawals'
   List<Map<String, dynamic>> _dbRentalHistory = [];
   double totalEarningsSum = 0.0;
+  double totalInflowSum = 0.0;
+  double totalOutflowSum = 0.0;
   int completedGigsCount = 0;
+  bool _isLoading = true;
 
   String _cleanAgentName(String? raw) {
     if (raw == null || raw.trim().isEmpty) return 'Payment Agent';
@@ -3467,19 +3473,29 @@ class _HistoryViewState extends State<_HistoryView> {
 
   void _loadRentalHistory() async {
     final uid = component.state.userProfile?.uid;
-    if (uid == null) return;
+    if (uid == null) {
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
+    setState(() {
+      _isLoading = true;
+    });
     try {
       final list = await component.state.firestore.getMyRentalHistory(uid);
       final p2pList = await component.state.firestore.fetchUserDepositRequests(uid);
       final withList = await component.state.firestore.fetchUserWithdrawalRequests(uid);
-      setState(() {
-        _dbRentalHistory = list;
-        userP2pDeposits = p2pList;
-        userWithdrawalRequests = withList;
-        _loadDbHistory();
-      });
+      _dbRentalHistory = list;
+      userP2pDeposits = p2pList;
+      userWithdrawalRequests = withList;
+      _loadDbHistory();
     } catch (e) {
       print('Error loading db rental history: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -3858,23 +3874,108 @@ class _HistoryViewState extends State<_HistoryView> {
     for (final tx in component.state.userTransactions) {
       final record = WalletTransaction.fromMap(tx);
       final createdAt = record.createdAt;
+      final rawStatus = (tx['status'] as String? ?? record.status).toUpperCase();
+      final isCancelled = rawStatus == 'CANCELLED' || rawStatus == 'REJECTED';
+
       final isDeposit = record.amount >= 0 ||
           record.transactionType == WalletTransactionType.deposit ||
-          record.transactionType == WalletTransactionType.refund;
+          record.transactionType == WalletTransactionType.refund ||
+          isCancelled;
 
       if (isDeposit) {
+        final rawMethod = (tx['paymentMethod'] ?? tx['method'] ?? record.method ?? '').toString();
+        final rawProof = record.proofImageUrl ??
+            (tx['proofImageUrl'] ?? tx['proofUrl'] ?? tx['receiptUrl'] ?? tx['proof_image_url'] ?? tx['imageUrl']) as String?;
+        final rawRef = record.referenceNumber ??
+            (tx['referenceNumber'] ?? tx['refNumber'] ?? tx['ref']) as String?;
+        var rawDesc = (tx['desc'] ?? tx['description'] ?? record.desc ?? '').toString();
+        final rawReason = (tx['rejectionReason'] ?? tx['reason'] ?? record.rejectionReason) as String?;
+
+        final isRefund = record.transactionType == WalletTransactionType.refund ||
+            (tx['type'] ?? '').toString().contains('refund') ||
+            (tx['category'] ?? '') == 'refund';
+
+        final isP2p = !isRefund && (record.originRail == TransactionOriginRail.manualP2p ||
+            tx['depositRequestId'] != null ||
+            (tx['id'] as String? ?? '').startsWith('p2p_') ||
+            rawMethod.toLowerCase().contains('gcash') ||
+            rawMethod.toLowerCase().contains('maya') ||
+            rawMethod.toLowerCase().contains('p2p') ||
+            rawDesc.toLowerCase().contains('gcash') ||
+            rawDesc.toLowerCase().contains('maya') ||
+            rawDesc.toLowerCase().contains('p2p'));
+
+        String method;
+        String originRail;
+        if (isRefund) {
+          originRail = 'internal_balance';
+          method = rawMethod.isNotEmpty ? rawMethod : 'Tranyx Escrow';
+        } else if (isP2p) {
+          originRail = 'manual_p2p';
+          method = rawMethod.toLowerCase().contains('maya')
+              ? 'Maya'
+              : (rawMethod.toLowerCase().contains('gcash') ? 'GCash' : (rawMethod.isNotEmpty ? rawMethod : 'GCash'));
+        } else if (record.originRail == TransactionOriginRail.mwaOnChain || record.solanaTxSignature != null || tx['solanaTxSignature'] != null) {
+          originRail = 'mwa_on_chain';
+          method = rawMethod.isNotEmpty ? rawMethod : 'Solana';
+        } else {
+          originRail = 'internal_balance';
+          method = rawMethod.isNotEmpty ? rawMethod : 'Tyxbit Balance';
+        }
+
+        if (rawDesc.isEmpty) {
+          if (isCancelled) {
+            rawDesc = rawStatus == 'REJECTED'
+                ? 'P2P Top-Up request rejected by agent'
+                : 'P2P Top-Up request cancelled';
+          } else if (isRefund) {
+            rawDesc = '100% Escrow refund for cancelled job';
+          } else {
+            rawDesc = isP2p
+                ? (rawRef != null && rawRef.isNotEmpty ? 'Manual $method Transfer (Ref: $rawRef)' : 'P2P Top-Up')
+                : 'Funds added to Tyxbit balance';
+          }
+        }
+
+        // Clean any email address inside rawDesc to friendly agent name (e.g. agent.juana2@tranyx.app -> Agent Juana)
+        final cleanDesc = rawDesc.replaceAllMapped(
+          RegExp(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
+          (m) => cleanAgentDisplayName(m.group(0)),
+        );
+
+        final title = (tx['title'] as String?) ??
+            (isCancelled
+                ? (rawStatus == 'REJECTED' ? 'P2P Top-Up (Rejected)' : 'P2P Top-Up (Cancelled)')
+                : (isRefund
+                    ? 'Job Escrow Refund'
+                    : (originRail == 'manual_p2p'
+                        ? 'P2P Top-Up ($method)'
+                        : (originRail == 'mwa_on_chain' ? 'Solana Top-Up' : 'Wallet Top-Up'))));
+
+        final categoryLabel = isCancelled
+            ? (rawStatus == 'REJECTED' ? 'Rejected' : 'Cancelled')
+            : (isRefund ? 'Escrow Refund' : (isP2p ? 'P2P Top-Up' : 'Added Funds'));
+
         dTrans.add({
-          'title': record.title,
-          'desc': record.desc,
+          'id': record.id.isNotEmpty ? record.id : (tx['id'] as String? ?? 'dep_${createdAt}'),
+          'depositRequestId': tx['depositRequestId'] as String? ?? (tx['id'] as String? ?? '').replaceAll('p2p_dep_', ''),
+          'title': title,
+          'desc': cleanDesc,
           'date': _formatDate(createdAt),
           'amount': record.amount.abs(),
-          'cryptoAmount': record.cryptoAmount,
-          'cryptoCurrency': record.cryptoCurrency,
-          'solanaTxSignature': record.solanaTxSignature,
-          'originRail': record.originRail == TransactionOriginRail.mwaOnChain
-              ? 'mwa_on_chain'
-              : 'internal_balance',
-          'method': record.method ?? (record.originRail == TransactionOriginRail.mwaOnChain ? 'Solana' : 'Internal'),
+          'cryptoAmount': originRail == 'mwa_on_chain' ? record.cryptoAmount : null,
+          'cryptoCurrency': originRail == 'mwa_on_chain' ? record.cryptoCurrency : null,
+          'solanaTxSignature': originRail == 'mwa_on_chain' ? record.solanaTxSignature : null,
+          'originRail': originRail,
+          'method': method,
+          'type': isCancelled ? 'cancelled' : 'credit',
+          'category': isCancelled ? rawStatus.toLowerCase() : (isRefund ? 'refund' : 'topup'),
+          'categoryLabel': categoryLabel,
+          'status': record.status.isNotEmpty ? record.status : (isCancelled ? rawStatus : 'Completed'),
+          'referenceNumber': rawRef,
+          'proofImageUrl': rawProof,
+          'rejectionReason': rawReason,
+          'agentName': cleanAgentDisplayName(tx['agentName'] as String?),
           'timestamp': createdAt,
         });
       } else if (record.transactionType == WalletTransactionType.listingFee) {
@@ -3890,29 +3991,92 @@ class _HistoryViewState extends State<_HistoryView> {
       }
     }
 
-    // Merge User P2P Deposits into dTrans
+    // Merge User P2P Deposits into dTrans (matching by id, depositRequestId, referenceNumber, or timestamp/amount proximity)
     for (final p2p in userP2pDeposits) {
-      final already = dTrans.any((d) => d['id'] == p2p.id || (d['referenceNumber'] != null && d['referenceNumber'] == p2p.referenceNumber && p2p.referenceNumber.isNotEmpty));
-      if (!already) {
-        dTrans.add({
-          'id': p2p.id,
-          'title': 'P2P Top-up (${p2p.paymentMethod})',
-          'desc': 'GCash / Maya P2P Top-up',
-          'date': _formatDate(p2p.createdAt),
-          'amount': p2p.amount,
-          'originRail': 'manual_p2p',
-          'method': p2p.paymentMethod,
-          'status': p2p.status,
-          'referenceNumber': p2p.referenceNumber,
-          'proofImageUrl': p2p.proofImageUrl,
-          'agentName': p2p.agentName,
-          'agentAccountName': p2p.agentAccountName,
-          'agentAccountNumber': p2p.agentAccountNumber,
-          'agentQrUrl': p2p.agentQrUrl,
-          'rejectionReason': p2p.rejectionReason,
-          'createdAt': p2p.createdAt,
-          'timestamp': p2p.createdAt,
-        });
+      final p2pStatus = p2p.status.toUpperCase();
+      final isCancelled = p2pStatus == 'CANCELLED' || p2pStatus == 'REJECTED';
+      final method = p2p.paymentMethod.isNotEmpty ? p2p.paymentMethod : 'GCash';
+      final existingIndex = dTrans.indexWhere((d) {
+        if (d['id'] == p2p.id ||
+            d['depositRequestId'] == p2p.id ||
+            d['id'] == 'p2p_dep_${p2p.id}' ||
+            d['id'] == 'dep_${p2p.id}') {
+          return true;
+        }
+        if (d['referenceNumber'] != null &&
+            p2p.referenceNumber.isNotEmpty &&
+            d['referenceNumber'] == p2p.referenceNumber) {
+          return true;
+        }
+        // Match same amount P2P deposit within 15 minutes
+        if (d['originRail'] == 'manual_p2p' &&
+            ((d['amount'] as num).toDouble() - p2p.amount).abs() < 0.01) {
+          final diff = ((d['timestamp'] as int) - p2p.createdAt).abs();
+          if (diff < 15 * 60 * 1000) {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      final existingProof = existingIndex >= 0 ? dTrans[existingIndex]['proofImageUrl'] as String? : null;
+      final existingRef = existingIndex >= 0 ? dTrans[existingIndex]['referenceNumber'] as String? : null;
+      final proofImg = p2p.proofImageUrl.isNotEmpty ? p2p.proofImageUrl : (existingProof ?? '');
+      final refNum = p2p.referenceNumber.isNotEmpty ? p2p.referenceNumber : (existingRef ?? '');
+
+      final cleanAgent = cleanAgentDisplayName((p2p.agentName?.isNotEmpty ?? false) ? p2p.agentName : p2p.adminUid);
+      final isApproved = p2p.status == 'APPROVED' || p2p.status == 'COMPLETED';
+      String p2pDesc;
+      if (isCancelled) {
+        p2pDesc = p2pStatus == 'REJECTED'
+            ? 'P2P Top-Up request rejected by agent'
+            : 'P2P Top-Up request cancelled';
+      } else if (isApproved) {
+        p2pDesc = refNum.isNotEmpty ? 'Reference #$refNum approved by $cleanAgent' : 'P2P Transfer approved by $cleanAgent';
+      } else {
+        p2pDesc = '$method P2P Top-Up';
+      }
+
+      final p2pTitle = isCancelled
+          ? (p2pStatus == 'REJECTED' ? 'P2P Top-Up (Rejected)' : 'P2P Top-Up (Cancelled)')
+          : 'P2P Top-Up ($method)';
+
+      final p2pCategoryLabel = isCancelled
+          ? (p2pStatus == 'REJECTED' ? 'Rejected' : 'Cancelled')
+          : 'P2P Top-Up';
+
+      final p2pMap = {
+        'id': p2p.id,
+        'depositRequestId': p2p.id,
+        'title': p2pTitle,
+        'desc': p2pDesc,
+        'date': _formatDate(p2p.createdAt),
+        'amount': p2p.amount,
+        'originRail': 'manual_p2p',
+        'method': method,
+        'type': isCancelled ? 'cancelled' : 'credit',
+        'category': isCancelled ? p2pStatus.toLowerCase() : 'topup',
+        'categoryLabel': p2pCategoryLabel,
+        'status': p2p.status,
+        'referenceNumber': refNum,
+        'proofImageUrl': proofImg,
+        'agentName': cleanAgent,
+        'agentAccountName': p2p.agentAccountName,
+        'agentAccountNumber': p2p.agentAccountNumber,
+        'agentQrUrl': p2p.agentQrUrl,
+        'rejectionReason': p2p.rejectionReason,
+        'createdAt': p2p.createdAt,
+        'timestamp': p2p.createdAt,
+      };
+
+      if (existingIndex >= 0) {
+        final prevStatus = (dTrans[existingIndex]['status'] as String? ?? '').toUpperCase();
+        if (prevStatus == 'APPROVED' || prevStatus == 'COMPLETED' || prevStatus == 'SUCCESSFUL') {
+          p2pMap['status'] = prevStatus;
+        }
+        dTrans[existingIndex] = p2pMap;
+      } else {
+        dTrans.add(p2pMap);
       }
     }
 
@@ -3926,11 +4090,209 @@ class _HistoryViewState extends State<_HistoryView> {
     pTrans.sort((t1, t2) => (t2['timestamp'] as int).compareTo(t1['timestamp'] as int));
     dTrans.sort((t1, t2) => (t2['timestamp'] as int).compareTo(t1['timestamp'] as int));
 
+    // ── BUILD UNIFIED TRANSACTION LEDGER ─────────────────────────────────────
+    final unified = <Map<String, dynamic>>[];
+    double inflowSum = 0.0;
+    double outflowSum = 0.0;
+
+    // 1. Inflows from Completed Earnings (Jobs, Vehicle Rentals, Property Rentals)
+    for (final e in eTrans) {
+      final amt = (e['amount'] as num).toDouble();
+      inflowSum += amt;
+      unified.add({
+        'id': e['id'] ?? 'earn_${e['timestamp']}_${e['title'].hashCode}',
+        'type': 'credit',
+        'category': 'job_payout',
+        'categoryLabel': 'Job & Gig Earning',
+        'title': e['title'] ?? 'Earning Payout',
+        'desc': e['desc'] ?? 'Completed contract payout',
+        'date': e['date'] ?? _formatDate(e['timestamp'] as int?),
+        'amount': amt,
+        'status': e['status'] ?? 'Released',
+        'method': e['method'] ?? 'Escrow Release',
+        'timestamp': e['timestamp'] ?? 0,
+        'commissionFee': e['commissionFee'],
+        'isCompleted': true,
+      });
+    }
+
+    // 2. Inflows from Deposits / Top-ups (Solana Crypto, GCash/Maya P2P) & Cancelled Items
+    for (final d in dTrans) {
+      final status = (d['status'] as String? ?? 'Completed').toUpperCase();
+      final isCancelled = status == 'CANCELLED' || status == 'REJECTED' || d['type'] == 'cancelled';
+      final amt = (d['amount'] as num).toDouble();
+      final isCompleted = status == 'APPROVED' ||
+          status == 'COMPLETED' ||
+          status == 'RELEASED' ||
+          status == 'SUCCESSFUL';
+      if (isCompleted && !isCancelled) {
+        inflowSum += amt;
+      }
+      final method = (d['method'] as String? ?? '').isNotEmpty
+          ? (d['method'] as String)
+          : (d['originRail'] == 'manual_p2p' ? 'GCash' : (d['originRail'] == 'mwa_on_chain' ? 'Solana' : 'Tyxbit Balance'));
+
+      // If proofImageUrl is still empty, look up in userP2pDeposits
+      var proofImg = (d['proofImageUrl'] as String? ?? '').trim();
+      if (proofImg.isEmpty && d['originRail'] == 'manual_p2p') {
+        final reqId = (d['depositRequestId'] as String? ?? d['id'] as String? ?? '').replaceAll('p2p_dep_', '').replaceAll('dep_', '');
+        final matchedP2p = userP2pDeposits.where((p) =>
+            p.id == reqId ||
+            p.id == d['id'] ||
+            (p.referenceNumber.isNotEmpty && p.referenceNumber == d['referenceNumber'])).firstOrNull;
+        if (matchedP2p != null && matchedP2p.proofImageUrl.isNotEmpty) {
+          proofImg = matchedP2p.proofImageUrl;
+        }
+      }
+
+      final unifiedDesc = (d['desc'] as String? ?? 'Funds added to Tyxbit balance').replaceAllMapped(
+        RegExp(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
+        (m) => cleanAgentDisplayName(m.group(0)),
+      );
+
+      final categoryLabel = isCancelled
+          ? (status == 'REJECTED' ? 'Rejected' : 'Cancelled')
+          : (d['categoryLabel'] ?? (d['category'] == 'refund' ? 'Escrow Refund' : 'Added Funds'));
+
+      unified.add({
+        'id': d['id'] ?? 'dep_${d['timestamp']}_${d['title'].hashCode}',
+        'depositRequestId': d['depositRequestId'],
+        'type': isCancelled ? 'cancelled' : 'credit',
+        'category': isCancelled ? status.toLowerCase() : (d['category'] ?? 'topup'),
+        'categoryLabel': categoryLabel,
+        'title': d['title'] ?? 'P2P Top-Up ($method)',
+        'desc': unifiedDesc,
+        'date': d['date'] ?? _formatDate(d['timestamp'] as int?),
+        'amount': amt,
+        'cryptoAmount': d['originRail'] == 'mwa_on_chain' ? d['cryptoAmount'] : null,
+        'cryptoCurrency': d['originRail'] == 'mwa_on_chain' ? d['cryptoCurrency'] : null,
+        'solanaTxSignature': d['originRail'] == 'mwa_on_chain' ? d['solanaTxSignature'] : null,
+        'status': d['status'] ?? (isCancelled ? status : 'Completed'),
+        'method': method,
+        'originRail': d['originRail'],
+        'referenceNumber': d['referenceNumber'],
+        'proofImageUrl': proofImg,
+        'agentName': d['agentName'],
+        'agentAccountName': d['agentAccountName'],
+        'agentAccountNumber': d['agentAccountNumber'],
+        'agentQrUrl': d['agentQrUrl'],
+        'rejectionReason': d['rejectionReason'],
+        'createdAt': d['createdAt'] ?? d['timestamp'],
+        'timestamp': d['timestamp'] ?? 0,
+        'isCompleted': isCompleted && !isCancelled,
+      });
+    }
+
+    // 3. Outflows from Purchases, Bookings, Subscriptions & Listing Fees
+    for (final p in pTrans) {
+      final amt = (p['amount'] as num).toDouble();
+      outflowSum += amt;
+      unified.add({
+        'id': p['id'] ?? 'pur_${p['timestamp']}_${p['title'].hashCode}',
+        'type': 'debit',
+        'category': p['kind'] == 'listing_fee' ? 'fee' : 'purchase',
+        'categoryLabel': p['kind'] == 'listing_fee' ? 'Listing Fee' : 'Purchase / Booking',
+        'title': p['title'] ?? 'Payment',
+        'desc': p['desc'] ?? 'Platform payment',
+        'date': p['date'] ?? _formatDate(p['timestamp'] as int?),
+        'amount': amt,
+        'status': p['status'] ?? 'Successful',
+        'method': p['method'] ?? 'Tyxbit Balance',
+        'timestamp': p['timestamp'] ?? 0,
+        'isCompleted': true,
+      });
+    }
+
+    // 4. Outflows from Withdrawals / Payout Requests
+    for (final w in userWithdrawalRequests) {
+      final amt = (w['amount'] as num?)?.toDouble() ?? 0.0;
+      final createdAt = (w['createdAt'] as num?)?.toInt() ?? 0;
+      final method = w['payoutMethod'] ?? w['method'] ?? 'Bank Transfer';
+      final status = w['status'] ?? 'PENDING';
+      final isCompleted = status.toString().toUpperCase() == 'APPROVED' ||
+          status.toString().toUpperCase() == 'COMPLETED';
+      if (isCompleted) {
+        outflowSum += amt;
+      }
+      unified.add({
+        'id': w['id'] ?? 'with_${createdAt}',
+        'type': 'debit',
+        'category': 'withdrawal',
+        'categoryLabel': 'Withdrawal / Payout',
+        'title': 'Withdrawal ($method)',
+        'desc': 'Disbursement to $method account',
+        'date': _formatDate(createdAt),
+        'amount': amt,
+        'status': status,
+        'method': method,
+        'accountNumber': w['accountNumber'],
+        'accountName': w['accountName'],
+        'timestamp': createdAt,
+        'isCompleted': isCompleted,
+      });
+    }
+
+    // Deduplicate by composite key so identical topup/payout is never listed twice
+    final seenKeys = <String>{};
+    final deduped = <Map<String, dynamic>>[];
+    for (final item in unified) {
+      String key;
+      if (item['originRail'] == 'manual_p2p' || item['category'] == 'topup') {
+        final ref = (item['referenceNumber'] as String? ?? '').trim();
+        final reqId = (item['depositRequestId'] as String? ?? item['id'] as String? ?? '')
+            .replaceAll('p2p_dep_', '')
+            .replaceAll('dep_', '');
+        if (ref.isNotEmpty) {
+          key = 'p2p_ref_$ref';
+        } else if (reqId.isNotEmpty) {
+          key = 'p2p_req_$reqId';
+        } else {
+          key = 'p2p_${item['amount']}_${(item['timestamp'] as int) ~/ (10 * 60 * 1000)}';
+        }
+      } else {
+        key = '${item['type']}_${item['category']}_${item['amount']}_${item['title']}_${(item['timestamp'] as int) ~/ (60 * 1000)}';
+      }
+
+      if (seenKeys.add(key)) {
+        deduped.add(item);
+      }
+    }
+
+    // Sort chronologically descending (latest first)
+    deduped.sort((a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int));
+
+    // Compute line-by-line running balance from current live tyxBalance
+    final liveTyxBalance = component.state.userProfile?.tyxBalance ?? 0.0;
+    double currentRunning = liveTyxBalance;
+
+    for (int i = 0; i < deduped.length; i++) {
+      final item = deduped[i];
+      final isCompleted = item['isCompleted'] != false &&
+          item['status'] != 'REJECTED' &&
+          item['status'] != 'CANCELLED';
+
+      item['runningBalance'] = currentRunning;
+
+      // Reverse this transaction's effect to get the balance before it:
+      if (isCompleted) {
+        final amt = item['amount'] as double;
+        if (item['type'] == 'credit') {
+          currentRunning -= amt;
+        } else {
+          currentRunning += amt;
+        }
+        if (currentRunning < 0) currentRunning = 0.0;
+      }
+    }
+
     setState(() {
       earningsTransactions = eTrans;
       purchaseTransactions = pTrans;
       depositTransactions = dTrans;
+      allUnifiedLedger = deduped;
       totalEarningsSum = earningsSum;
+      totalInflowSum = inflowSum;
+      totalOutflowSum = outflowSum;
       completedGigsCount = gigsCount;
     });
   }
@@ -3938,12 +4300,7 @@ class _HistoryViewState extends State<_HistoryView> {
   @override
   void initState() {
     super.initState();
-    final type = component.state.accountType;
-    if (type == AccountType.employer) {
-      activeTab = 'purchases';
-    } else {
-      activeTab = 'earnings';
-    }
+    activeTab = 'all_transactions';
     _loadRentalHistory();
     component.state.loadUserProfile();
   }
@@ -4019,770 +4376,366 @@ class _HistoryViewState extends State<_HistoryView> {
     );
   }
 
-  @override
-  Component build(BuildContext context) {
-    final s = component.state;
-    final isDark = s.isDark;
-    final type = s.accountType;
+  Component _buildTransactionHistoryShimmer(bool isDark, String cardCls) {
+    final shimmerCls = isDark ? 'shimmer-dark' : 'shimmer-light';
+    final bgPlaceholder = isDark ? 'bg-zinc-800/80' : 'bg-zinc-200/80';
 
-    final hasPurchaseHistory = purchaseTransactions.isNotEmpty;
-    final showEarnings = true;
-    final showPurchases =
-        (type == AccountType.employer ||
-        type == AccountType.hybrid ||
-        (type == AccountType.nyxian && hasPurchaseHistory));
-    final showDeposits =
-        (type == AccountType.employer ||
-        type == AccountType.hybrid ||
-        (type == AccountType.nyxian && hasPurchaseHistory));
-    final showP2pAdmin = s.userProfile?.isAdmin == true || s.userProfile?.role == 'admin' || s.userProfile?.role == 'staff';
+    return div(classes: 'space-y-6 animate-fade-in', [
+      // 1. TOP SUMMARY CARDS SHIMMER
+      div(classes: 'grid grid-cols-1 sm:grid-cols-3 gap-4', [
+        for (int i = 0; i < 3; i++)
+          div(classes: 'p-5 rounded-[1.75rem] border $cardCls flex items-center justify-between', [
+            div(classes: 'space-y-2 flex-1', [
+              div(classes: 'h-3 w-28 rounded-md $bgPlaceholder $shimmerCls', []),
+              div(classes: 'h-7 w-36 rounded-lg $bgPlaceholder $shimmerCls', []),
+              div(classes: 'h-4 w-24 rounded-full $bgPlaceholder $shimmerCls', []),
+            ]),
+            div(classes: 'w-12 h-12 rounded-2xl $bgPlaceholder $shimmerCls flex-shrink-0 ml-3', []),
+          ]),
+      ]),
 
-    final activeData = earningsData[activeFilter] ?? [];
-    double totalEarnedInFilter = 0.0;
-    double maxVal = 1.0;
-    for (final item in activeData) {
-      final v = (item['value'] as num).toDouble();
-      totalEarnedInFilter += v;
-      if (v > maxVal) maxVal = v;
-    }
+      // 2. FILTER PILLS SHIMMER
+      div(classes: 'flex flex-wrap items-center justify-between gap-3', [
+        div(classes: 'flex flex-wrap items-center gap-1.5', [
+          for (final width in ['w-16', 'w-20', 'w-20', 'w-18', 'w-24', 'w-22', 'w-32'])
+            div(classes: 'h-7 $width rounded-xl $bgPlaceholder $shimmerCls', []),
+        ]),
+        div(classes: 'h-3.5 w-64 rounded-md $bgPlaceholder $shimmerCls hidden sm:block', []),
+      ]),
 
-    final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
-
-    return div(classes: 'space-y-6', [
-      subViewHeader(
-        title: type == AccountType.employer
-            ? 'Purchase History'
-            : ((type == AccountType.nyxian && !hasPurchaseHistory) ? 'Earning History' : 'History & Earnings'),
-        isDark: isDark,
-        onBack: () => s.setState(() => s.profileView = ProfileView.main),
-      ),
-
+      // 3. TRANSACTION ROWS SHIMMER
       div(
-        classes: 'flex border-b ${isDark ? "border-zinc-800" : "border-zinc-200"} gap-6',
+        classes: 'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
         [
-          if (showEarnings)
-            button(
-              classes:
-                  'pb-3 text-sm font-bold transition-all border-b-2 '
-                  '${activeTab == 'earnings' ? "border-indigo-500 text-indigo-400" : "border-transparent text-zinc-400 hover:text-zinc-200"}',
-              events: {'click': (_) => setState(() => activeTab = 'earnings')},
-              [Component.text('Earnings & Analytics')],
-            ),
-          if (showPurchases)
-            button(
-              classes:
-                  'pb-3 text-sm font-bold transition-all border-b-2 '
-                  '${activeTab == 'purchases' ? "border-indigo-500 text-indigo-400" : "border-transparent text-zinc-400 hover:text-zinc-200"}',
-              events: {'click': (_) => setState(() => activeTab = 'purchases')},
-              [Component.text('Subscriptions & Purchases')],
-            ),
-          if (showDeposits)
-            button(
-              classes:
-                  'pb-3 text-sm font-bold transition-all border-b-2 '
-                  '${activeTab == 'deposits' ? "border-indigo-500 text-indigo-400" : "border-transparent text-zinc-400 hover:text-zinc-200"}',
-              events: {'click': (_) => setState(() => activeTab = 'deposits')},
-              [Component.text('Added Funds')],
-            ),
-          button(
-            classes:
-                'pb-3 text-sm font-bold transition-all border-b-2 '
-                '${activeTab == 'p2p_history' ? "border-indigo-500 text-indigo-400" : "border-transparent text-zinc-400 hover:text-zinc-200"}',
-            events: {'click': (_) => setState(() => activeTab = 'p2p_history')},
-            [
-              div(classes: 'flex items-center gap-1.5', [
-                lIcon('arrow-left-right', cls: 'w-4 h-4 text-cyan-400'),
-                Component.text('P2P Transactions'),
-                if (userP2pDeposits.where((r) => r.status.toUpperCase() == 'WAITING_FOR_AGENT' || r.status.toUpperCase() == 'AWAITING_PAYMENT' || r.status.toUpperCase() == 'PENDING_VERIFICATION').isNotEmpty)
-                  span(
-                    classes:
-                        'px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30',
-                    [
-                      Component.text(
-                        '${userP2pDeposits.where((r) => r.status.toUpperCase() == "WAITING_FOR_AGENT" || r.status.toUpperCase() == "AWAITING_PAYMENT" || r.status.toUpperCase() == "PENDING_VERIFICATION").length}',
-                      ),
-                    ],
-                  ),
-              ]),
-            ],
-          ),
-          if (showP2pAdmin)
-            button(
-              classes:
-                  'pb-3 text-sm font-bold transition-all border-b-2 '
-                  '${activeTab == 'p2p_admin' ? "border-indigo-500 text-indigo-400" : "border-transparent text-zinc-400 hover:text-zinc-200"}',
-              events: {'click': (_) => setState(() => activeTab = 'p2p_admin')},
+          for (int i = 0; i < 6; i++)
+            div(
+              classes: 'p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4',
               [
-                div(classes: 'flex items-center gap-1.5', [
-                  lIcon('shield-check', cls: 'w-4 h-4 text-emerald-400'),
-                  Component.text('P2P Desk & Admin'),
-                  if (s.pendingDepositRequests.where((r) => r.status.toUpperCase() == 'PENDING_VERIFICATION').isNotEmpty)
-                    span(
-                      classes:
-                          'px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30',
-                      [
-                        Component.text(
-                          '${s.pendingDepositRequests.where((r) => r.status.toUpperCase() == "PENDING_VERIFICATION").length}',
-                        ),
-                      ],
-                    ),
+                div(classes: 'flex items-start gap-4 flex-1', [
+                  // Icon placeholder
+                  div(classes: 'w-11 h-11 rounded-2xl $bgPlaceholder $shimmerCls flex-shrink-0', []),
+                  // Content lines
+                  div(classes: 'space-y-2 flex-1', [
+                    div(classes: 'flex items-center gap-2', [
+                      div(classes: 'h-4.5 ${i % 2 == 0 ? "w-36" : "w-48"} rounded-md $bgPlaceholder $shimmerCls', []),
+                      div(classes: 'h-4 w-16 rounded-full $bgPlaceholder $shimmerCls', []),
+                      div(classes: 'h-4 w-12 rounded-full $bgPlaceholder $shimmerCls', []),
+                    ]),
+                    div(classes: 'h-3.5 ${i % 2 == 0 ? "w-64" : "w-52"} rounded-md $bgPlaceholder $shimmerCls', []),
+                    div(classes: 'h-3 w-32 rounded-md $bgPlaceholder $shimmerCls', []),
+                  ]),
+                ]),
+                // Right side: amount and status
+                div(classes: 'flex sm:flex-col items-start sm:items-end justify-between w-full sm:w-auto gap-2', [
+                  div(classes: 'h-5 w-24 rounded-md $bgPlaceholder $shimmerCls', []),
+                  div(classes: 'h-4 w-28 rounded-lg $bgPlaceholder $shimmerCls', []),
+                  div(classes: 'h-4 w-16 rounded-full $bgPlaceholder $shimmerCls', []),
                 ]),
               ],
             ),
         ],
       ),
+    ]);
+  }
 
-      if (activeTab == 'p2p_admin' && showP2pAdmin) ...[
-        P2pAdminPanelComponent(state: s),
-      ] else if (activeTab == 'earnings' && showEarnings) ...[
-        div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
-          div(classes: 'p-6 rounded-[2rem] border $cardCls flex items-center gap-4', [
-            div(classes: 'w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400', [
-              lIcon('dollar-sign', cls: 'w-6 h-6'),
+  Component _buildAllTransactionsLedger(bool isDark, TranyxAppState s, String cardCls) {
+    if (_isLoading) {
+      return _buildTransactionHistoryShimmer(isDark, cardCls);
+    }
+
+    final liveTyxBalance = s.userProfile?.tyxBalance ?? 0.0;
+
+    // Filter transactions based on selected category pill
+    final filtered = allUnifiedLedger.where((item) {
+      if (ledgerFilter == 'all') return true;
+      if (ledgerFilter == 'income') return item['type'] == 'credit';
+      if (ledgerFilter == 'expenses') return item['type'] == 'debit';
+      if (ledgerFilter == 'topups') return item['category'] == 'topup' || (item['type'] == 'credit' && item['category'] != 'job_payout');
+      if (ledgerFilter == 'withdrawals') return item['category'] == 'withdrawal';
+      if (ledgerFilter == 'jobs') return item['category'] == 'job_payout';
+      if (ledgerFilter == 'purchases') return item['category'] == 'purchase' || item['category'] == 'fee';
+      if (ledgerFilter == 'cancelled') return item['type'] == 'cancelled' || item['status'] == 'CANCELLED' || item['status'] == 'REJECTED';
+      return true;
+    }).toList();
+
+    // Pagination calculations
+    final totalItems = filtered.length;
+    final totalPages = (totalItems / itemsPerPage).ceil().clamp(1, 999999);
+    final safePage = currentPage.clamp(1, totalPages);
+    final startIndex = (safePage - 1) * itemsPerPage;
+    final endIndex = (startIndex + itemsPerPage).clamp(0, totalItems);
+    final pagedTransactions = startIndex < totalItems
+        ? filtered.sublist(startIndex, endIndex)
+        : <Map<String, dynamic>>[];
+
+    return div(classes: 'space-y-6', [
+      // 1. TOP SUMMARY BANNER
+      div(classes: 'grid grid-cols-1 sm:grid-cols-3 gap-4', [
+        // Available Balance Card
+        div(classes: 'p-5 rounded-[1.75rem] border $cardCls flex items-center justify-between', [
+          div([
+            span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
+              Component.text('Wallet Available Balance'),
             ]),
-            div([
-              span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
-                Component.text(
-                  activeFilter == 'daily'
-                      ? 'This Week\'s Earnings'
-                      : activeFilter == 'weekly'
-                      ? 'This Month\'s Earnings'
-                      : activeFilter == 'monthly'
-                      ? 'This Year\'s Earnings'
-                      : 'Total Earnings',
-                ),
-              ]),
-              p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text(formatCurrency(totalEarnedInFilter)),
-              ]),
+            p(classes: 'text-2xl font-black ${isDark ? "text-white" : "text-zinc-900"} mt-1', [
+              Component.text(formatCurrency(liveTyxBalance)),
             ]),
-          ]),
-          div(classes: 'p-6 rounded-[2rem] border $cardCls flex items-center gap-4', [
-            div(classes: 'w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400', [
-              lIcon('wallet', cls: 'w-6 h-6'),
-            ]),
-            div([
-              span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
-                Component.text('Available TyxBalance'),
-              ]),
-              p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text(formatCurrency(s.userProfile?.tyxBalance ?? 0.0)),
-              ]),
-              Builder(
-                builder: (context) {
-                  final pendingTotal = s.pendingHoldbacks.fold<double>(0.0, (sum, item) {
-                    final amt = (item['amount'] as num?)?.toDouble() ?? 0.0;
-                    return sum + amt;
-                  });
-                  if (pendingTotal > 0) {
-                    return div(classes: 'mt-1.5 space-y-1', [
-                      span(classes: 'text-xs text-amber-500 font-bold flex items-center gap-1', [
-                        lIcon('clock', cls: 'w-3.5 h-3.5'),
-                        Component.text('+ ${formatCurrency(pendingTotal)} Pending Release'),
-                      ]),
-                      for (final holdback in s.pendingHoldbacks)
-                        Builder(
-                          builder: (context) {
-                            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
-                            final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
-                            final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
-                            final hrsStr = hrs <= 0
-                                ? 'processing release'
-                                : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
-                            return p(classes: 'text-[10px] text-amber-500/80 font-bold pl-4', [
-                              Component.text('• Php ${amt.toStringAsFixed(2)} $hrsStr'),
-                            ]);
-                          },
-                        ),
-                    ]);
-                  }
-                  return div([]);
-                },
-              ),
+            span(classes: 'inline-block mt-1 text-[11px] font-semibold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20', [
+              Component.text('Live Tyxbit Balance'),
             ]),
           ]),
-          div(classes: 'p-6 rounded-[2rem] border $cardCls flex items-center gap-4', [
-            div(classes: 'w-12 h-12 rounded-2xl bg-violet-500/10 flex items-center justify-center text-violet-400', [
-              lIcon('check-circle', cls: 'w-6 h-6'),
-            ]),
-            div([
-              span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
-                Component.text('Completed Gigs & Rentals'),
-              ]),
-              p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text('$completedGigsCount Total'),
-              ]),
-            ]),
+          div(classes: 'w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400', [
+            lIcon('wallet', cls: 'w-6 h-6'),
           ]),
         ]),
 
-        div(classes: 'p-6 rounded-[2rem] border $cardCls space-y-6', [
-          div(classes: 'flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4', [
-            div([
-              h4(classes: 'text-lg font-black tracking-tight ${isDark ? "text-zinc-150" : "text-zinc-800"}', [
-                Component.text('Earnings Chart'),
-              ]),
-              p(classes: 'text-xs text-zinc-500 font-medium', [
-                Component.text('Interactive visualization of your Nyxian revenue stream'),
-              ]),
+        // Lifetime Inflow Card
+        div(classes: 'p-5 rounded-[1.75rem] border $cardCls flex items-center justify-between', [
+          div([
+            span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
+              Component.text('Total Inflows (+ Credits)'),
             ]),
-
-            div(classes: 'flex gap-1.5 p-1 rounded-xl bg-zinc-950/20 border border-zinc-800/40', [
-              for (final filter in ['daily', 'weekly', 'monthly', 'yearly'])
-                button(
-                  classes:
-                      'px-3 py-1.5 text-xs font-bold rounded-lg transition-all '
-                      '${activeFilter == filter ? "bg-indigo-600 text-white shadow-md" : "text-zinc-400 hover:text-zinc-200"}',
-                  events: {'click': (_) => setState(() => activeFilter = filter)},
-                  [Component.text(filter.substring(0, 1).toUpperCase() + filter.substring(1))],
-                ),
+            p(classes: 'text-2xl font-black text-emerald-400 mt-1', [
+              Component.text('+ ${formatCurrency(totalInflowSum)}'),
+            ]),
+            span(classes: 'text-[11px] text-zinc-500 mt-1 block', [
+              Component.text('Top-ups, Job & Rental Payouts'),
             ]),
           ]),
-
-          div(
-            classes:
-                'relative h-64 w-full flex items-end justify-between px-2 pt-8 pb-8 rounded-2xl bg-zinc-950/30 overflow-visible',
-            [
-              div(classes: 'absolute inset-x-0 bottom-8 top-4 flex flex-col justify-between pointer-events-none', [
-                for (int grid = 0; grid < 4; grid++)
-                  div(
-                    classes:
-                        'w-full border-b border-dashed ${isDark ? "border-zinc-900/80" : "border-zinc-200/50"} h-0',
-                    [],
-                  ),
-              ]),
-
-              for (int i = 0; i < activeData.length; i++) _buildBar(i, activeData[i], maxVal),
-            ],
-          ),
-
-          div(
-            classes:
-                'flex justify-between items-center pt-2 text-xs font-bold text-zinc-500 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"}',
-            [
-              Component.text('Total in selected period:'),
-              span(classes: '${isDark ? "text-white" : "text-zinc-800"} text-sm font-black', [
-                Component.text(formatCurrency(totalEarnedInFilter)),
-              ]),
-            ],
-          ),
-        ]),
-
-        div(classes: 'space-y-3', [
-          p(classes: 'text-xs font-black uppercase tracking-[0.2em] opacity-60', [
-            Component.text('Completed Gig & Rental Payouts'),
+          div(classes: 'w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400', [
+            lIcon('arrow-down-left', cls: 'w-6 h-6'),
           ]),
-          div(
-            classes:
-                'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
-            [
-              for (final tx in earningsTransactions)
-                div(classes: 'p-5 flex justify-between items-center hover:bg-zinc-500/5 transition-colors', [
-                  div(classes: 'flex items-center gap-4', [
-                    div(
-                      classes:
-                          'w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400',
-                      [
-                        lIcon('arrow-down-left', cls: 'w-5 h-5'),
-                      ],
-                    ),
-                    div([
-                      p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
-                        Component.text(tx['title'] as String),
-                      ]),
-                      p(classes: 'text-xs text-zinc-500 mt-0.5', [
-                        Component.text('${tx['desc']} • ${tx['date']}'),
-                      ]),
-                      if (tx['commissionFee'] != null) ...[
-                        p(classes: 'text-xs text-zinc-500 mt-1', [
-                          Component.text('Base Payout: ${formatCurrency((tx['baseAmount'] as num).toDouble())}'),
-                        ]),
-                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
-                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
-                          Component.text(
-                            '${tx['commissionLabel'] ?? "Platform Commission (3%)"}: − ${formatCurrency((tx['commissionFee'] as num).toDouble())}',
-                          ),
-                        ]),
-                        if (tx['listingFee'] != null)
-                          p(classes: 'text-xs text-red-400 mt-0.5', [
-                            lIcon('tag', cls: 'w-3 h-3 inline mr-0.5'),
-                            Component.text(
-                              'Listing Fee (1.5% paid upfront): − ${formatCurrency((tx['listingFee'] as num).toDouble())}',
-                            ),
-                          ]),
-                      ],
-                    ]),
-                  ]),
-                  div(classes: 'text-right', [
-                    p(classes: 'font-black text-sm text-emerald-400', [
-                      Component.text('+ ${formatCurrency((tx['amount'] as num).toDouble())}'),
-                    ]),
-                    span(
-                      classes:
-                          'inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400',
-                      [
-                        Component.text(tx['status'] as String),
-                      ],
-                    ),
-                  ]),
-                ]),
-            ],
-          ),
         ]),
-      ] else if (activeTab == 'purchases' && showPurchases) ...[
-        div(classes: 'space-y-3', [
-          p(classes: 'text-xs font-black uppercase tracking-[0.2em] opacity-60', [
-            Component.text('Subscription & Platform Payments'),
-          ]),
-          div(
-            classes:
-                'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
-            [
-              for (final tx in purchaseTransactions)
-                div(classes: 'p-5 flex justify-between items-start hover:bg-zinc-500/5 transition-colors', [
-                  div(classes: 'flex items-center gap-4', [
-                    div(classes: 'w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-400', [
-                      lIcon('arrow-up-right', cls: 'w-5 h-5'),
-                    ]),
-                    div([
-                      p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
-                        Component.text(tx['title'] as String),
-                      ]),
-                      p(classes: 'text-xs text-zinc-500 mt-0.5', [
-                        Component.text('${tx['desc']} • ${tx['date']}'),
-                      ]),
-                      // Fee breakdown if available
-                      if (tx['bookingFee'] != null) ...[
-                        p(classes: 'text-xs text-zinc-500 mt-1', [
-                          Component.text('Rental: ${formatCurrency((tx['baseAmount'] as num).toDouble())}'),
-                        ]),
-                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
-                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
-                          Component.text(
-                            'Platform fee (3%): − ${formatCurrency((tx['bookingFee'] as num).toDouble())}',
-                          ),
-                        ]),
-                      ],
-                      if (tx['txFee'] != null) ...[
-                        p(classes: 'text-xs text-zinc-500 mt-1', [
-                          Component.text('Base Gig Price: ${formatCurrency((tx['baseAmount'] as num).toDouble())}'),
-                        ]),
-                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
-                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
-                          Component.text(
-                            'Transaction Fee (7%): + ${formatCurrency((tx['txFee'] as num).toDouble())}',
-                          ),
-                        ]),
-                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
-                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
-                          Component.text(
-                            'Convenience Fee (3%): + ${formatCurrency((tx['convFee'] as num).toDouble())}',
-                          ),
-                        ]),
-                      ],
-                    ]),
-                  ]),
-                  div(classes: 'text-right', [
-                    p(classes: 'font-black text-sm ${isDark ? "text-zinc-100" : "text-zinc-900"}', [
-                      Component.text('− ${formatCurrency((tx['amount'] as num).toDouble())}'),
-                    ]),
-                    span(
-                      classes:
-                          'inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400',
-                      [
-                        Component.text(tx['status'] as String),
-                      ],
-                    ),
-                  ]),
-                ]),
-            ],
-          ),
-        ]),
-      ] else if (activeTab == 'deposits' && showDeposits) ...[
-        div(classes: 'space-y-3', [
-          p(classes: 'text-xs font-black uppercase tracking-[0.2em] opacity-60', [
-            Component.text('Top-Up & Deposit History'),
-          ]),
-          div(
-            classes:
-                'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
-            [
-              for (final tx in depositTransactions)
-                div(classes: 'p-5 flex justify-between items-center hover:bg-zinc-500/5 transition-colors', [
-                  div(classes: 'flex items-center gap-4', [
-                    div(
-                      classes:
-                          'w-10 h-10 rounded-xl ${tx['originRail'] == 'manual_p2p' ? (tx['status'] == 'PENDING_VERIFICATION' ? "bg-amber-500/10 text-amber-400" : (tx['status'] == 'REJECTED' ? "bg-rose-500/10 text-rose-400" : "bg-blue-500/10 text-blue-400")) : (tx['originRail'] == 'mwa_on_chain' ? "bg-indigo-500/10 text-indigo-400" : "bg-emerald-500/10 text-emerald-400")} flex items-center justify-center',
-                      [
-                        lIcon(tx['originRail'] == 'manual_p2p' ? 'qr-code' : (tx['originRail'] == 'mwa_on_chain' ? 'zap' : 'credit-card'), cls: 'w-5 h-5'),
-                      ],
-                    ),
-                    div([
-                      div(classes: 'flex items-center gap-2', [
-                        p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
-                          Component.text(tx['title'] as String),
-                        ]),
-                        if (tx['originRail'] == 'manual_p2p')
-                          span(
-                            classes:
-                                'text-[10px] font-extrabold px-2 py-0.5 rounded-full ${tx['status'] == 'PENDING_VERIFICATION' ? "bg-amber-500/15 text-amber-400 border border-amber-500/30" : (tx['status'] == 'REJECTED' ? "bg-rose-500/15 text-rose-400 border border-rose-500/30" : "bg-blue-500/15 text-blue-400 border border-blue-500/30")}',
-                            [
-                              Component.text(
-                                tx['status'] == 'PENDING_VERIFICATION'
-                                    ? 'Pending Verification'
-                                    : (tx['status'] == 'REJECTED' ? 'Rejected' : '${tx['method'] ?? "P2P"} Verified'),
-                              ),
-                            ],
-                          )
-                        else if (tx['originRail'] == 'mwa_on_chain')
-                          span(
-                            classes:
-                                'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/30',
-                            [Component.text('MWA / On-Chain')],
-                          ),
-                      ]),
-                      p(classes: 'text-xs text-zinc-500 mt-0.5', [
-                        Component.text('${tx['desc']} • ${tx['date']}'),
-                      ]),
-                      if (tx['referenceNumber'] != null && (tx['referenceNumber'] as String).isNotEmpty)
-                        p(classes: 'text-[11px] font-mono text-zinc-400 mt-0.5', [
-                          Component.text('Ref: ${tx['referenceNumber']}'),
-                        ]),
-                      if (tx['proofImageUrl'] != null && (tx['proofImageUrl'] as String).isNotEmpty)
-                        a(
-                          href: tx['proofImageUrl'] as String,
-                          target: Target.blank,
-                          classes:
-                              'inline-flex items-center gap-1 text-[11px] font-bold text-indigo-400 hover:text-indigo-300 mt-1 mr-3',
-                          [
-                            Component.text('View Receipt Proof'),
-                            lIcon('external-link', cls: 'w-3 h-3'),
-                          ],
-                        ),
-                      if (tx['rejectionReason'] != null && (tx['rejectionReason'] as String).isNotEmpty)
-                        p(classes: 'text-[11px] font-semibold text-rose-400 mt-1', [
-                          Component.text('Reason: ${tx['rejectionReason']}'),
-                        ]),
-                      if (tx['solanaTxSignature'] != null && (tx['solanaTxSignature'] as String).isNotEmpty)
-                        a(
-                          href: WalletTransaction.getSolanaExplorerUrl(
-                            signature: tx['solanaTxSignature'] as String,
-                            environment: 'dev',
-                          ),
-                          target: Target.blank,
-                          classes:
-                              'inline-flex items-center gap-1 text-[11px] font-bold text-indigo-400 hover:text-indigo-300 mt-1',
-                          [
-                            Component.text('View on Solana Explorer'),
-                            lIcon('external-link', cls: 'w-3 h-3'),
-                          ],
-                        ),
 
-                      // 5-Minute Cancellation Action for Active P2P Deposits
-                      if (tx['originRail'] == 'manual_p2p' &&
-                          (tx['status'] == 'WAITING_FOR_AGENT' ||
-                              tx['status'] == 'AWAITING_PAYMENT' ||
-                              tx['status'] == 'PENDING_VERIFICATION')) ...[
-                        () {
-                          final now = DateTime.now().millisecondsSinceEpoch;
-                          final createdAt = (tx['createdAt'] as num?)?.toInt() ?? (tx['timestamp'] as num?)?.toInt() ?? now;
-                          final elapsedMs = now - createdAt;
-                          final canCancel = elapsedMs >= 5 * 60 * 1000;
-                          final remainingSec = canCancel ? 0 : (((5 * 60 * 1000) - elapsedMs) / 1000).ceil();
-                          final remainMin = remainingSec ~/ 60;
-                          final remainSec = remainingSec % 60;
-                          final timeRemainingText = '${remainMin}m ${remainSec.toString().padLeft(2, '0')}s';
-                          final reqId = tx['id'] as String? ?? '';
-
-                          if (canCancel && reqId.isNotEmpty) {
-                            return button(
-                              classes:
-                                  'mt-2 px-3 py-1.5 rounded-lg text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition cursor-pointer',
-                              events: {
-                                'click': (_) async {
-                                  await s.handleCancelP2pOrder(reqId);
-                                  _loadRentalHistory();
-                                },
-                              },
-                              [
-                                div(classes: 'flex items-center gap-1.5', [
-                                  lIcon('x-circle', cls: 'w-3.5 h-3.5'),
-                                  Component.text('Cancel Request (5m Timeout Passed)'),
-                                ]),
-                              ],
-                            );
-                          } else {
-                            return span(
-                              classes:
-                                  'inline-block mt-2 px-2.5 py-1 rounded-md text-[10px] font-semibold text-zinc-500 bg-zinc-800/40 border border-zinc-800',
-                              [
-                                Component.text('Cancel unlocks in $timeRemainingText if not credited'),
-                              ],
-                            );
-                          }
-                        }(),
-                      ],
-                    ]),
-                  ]),
-                  div(classes: 'text-right', [
-                    p(
-                      classes:
-                          'font-black text-sm ${tx['status'] == 'REJECTED' || tx['status'] == 'CANCELLED' ? "text-zinc-500" : (tx['status'] == 'PENDING_VERIFICATION' || tx['status'] == 'WAITING_FOR_AGENT' || tx['status'] == 'AWAITING_PAYMENT' ? "text-amber-400" : "text-emerald-400")}',
-                      [
-                        Component.text('+ ${formatCurrency((tx['amount'] as num).toDouble())}'),
-                      ],
-                    ),
-                    if (tx['cryptoAmount'] != null && (tx['cryptoAmount'] as num) > 0)
-                      p(classes: 'text-[11px] font-bold text-indigo-400 mt-0.5', [
-                        Component.text('≈ ${(tx['cryptoAmount'] as num).toStringAsFixed(4)} ${tx['cryptoCurrency'] ?? "SOL"}'),
-                      ])
-                    else
-                      span(
-                        classes:
-                            'inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-500/10 text-zinc-400',
-                        [
-                          Component.text(tx['method'] as String? ?? 'P2P Deposit'),
-                        ],
-                      ),
-                  ]),
-                ]),
-            ],
-          ),
-        ]),
-      ] else if (activeTab == 'p2p_history') ...[
-        // ── P2P ONLY HISTORY VIEW ─────────────────────────────────────────────
-        div(classes: 'space-y-6', [
-          // Filter pills
-          div(classes: 'flex flex-wrap items-center justify-between gap-4', [
-            div(classes: 'flex items-center gap-2', [
-              button(
-                classes:
-                    'px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${p2pFilter == 'all' ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30" : "bg-zinc-800/80 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-700/60"}',
-                events: {'click': (_) => setState(() => p2pFilter = 'all')},
-                [Component.text('All P2P (${userP2pDeposits.length + userWithdrawalRequests.length})')],
-              ),
-              button(
-                classes:
-                    'px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${p2pFilter == 'deposits' ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30" : "bg-zinc-800/80 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-700/60"}',
-                events: {'click': (_) => setState(() => p2pFilter = 'deposits')},
-                [Component.text('Top-ups (${userP2pDeposits.length})')],
-              ),
-              button(
-                classes:
-                    'px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${p2pFilter == 'withdrawals' ? "bg-rose-600 text-white shadow-md shadow-rose-600/30" : "bg-zinc-800/80 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-700/60"}',
-                events: {'click': (_) => setState(() => p2pFilter = 'withdrawals')},
-                [Component.text('Withdrawals (${userWithdrawalRequests.length})')],
-              ),
+        // Lifetime Outflow Card
+        div(classes: 'p-5 rounded-[1.75rem] border $cardCls flex items-center justify-between', [
+          div([
+            span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
+              Component.text('Total Outflows (- Debits)'),
             ]),
+            p(classes: 'text-2xl font-black text-rose-400 mt-1', [
+              Component.text('- ${formatCurrency(totalOutflowSum)}'),
+            ]),
+            span(classes: 'text-[11px] text-zinc-500 mt-1 block', [
+              Component.text('Purchases, Escrows & Withdrawals'),
+            ]),
+          ]),
+          div(classes: 'w-12 h-12 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-400', [
+            lIcon('arrow-up-right', cls: 'w-6 h-6'),
+          ]),
+        ]),
+      ]),
+
+      // 2. FILTER PILLS BAR
+      div(classes: 'flex flex-wrap items-center justify-between gap-3', [
+        div(classes: 'flex flex-wrap items-center gap-1.5', [
+          for (final filterOption in [
+            {'id': 'all', 'label': 'All (${allUnifiedLedger.length})'},
+            {'id': 'income', 'label': 'Income (+)'},
+            {'id': 'expenses', 'label': 'Expenses (-)'},
+            {'id': 'topups', 'label': 'Top-ups'},
+            {'id': 'withdrawals', 'label': 'Withdrawals'},
+            {'id': 'jobs', 'label': 'Job Payouts'},
+            {'id': 'purchases', 'label': 'Purchases & Subscriptions'},
+            {'id': 'cancelled', 'label': 'Cancelled / Rejected'},
+          ])
             button(
               classes:
-                  'px-4 py-2 rounded-xl text-xs font-bold bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 transition cursor-pointer flex items-center gap-1.5',
-              events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
-              [
-                lIcon('plus-circle', cls: 'w-4 h-4'),
-                Component.text('New P2P Top-up'),
-              ],
+                  'px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${ledgerFilter == filterOption['id'] ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30" : "bg-zinc-800/80 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-700/60"}',
+              events: {
+                'click': (_) => setState(() {
+                  ledgerFilter = filterOption['id']!;
+                  currentPage = 1;
+                })
+              },
+              [Component.text(filterOption['label']!)],
             ),
-          ]),
+        ]),
+        span(classes: 'text-xs text-zinc-500 font-medium', [
+          Component.text('Chronological wallet ledger with running balance'),
+        ]),
+      ]),
 
-          // P2P Items List
-          () {
-            final showDeps = (p2pFilter == 'all' || p2pFilter == 'deposits');
-            final showWiths = (p2pFilter == 'all' || p2pFilter == 'withdrawals');
+      // 3. TRANSACTION LIST
+      if (filtered.isEmpty)
+        div(
+          classes:
+              'p-12 text-center rounded-[2rem] border border-dashed ${isDark ? "border-zinc-800" : "border-zinc-300"}',
+          [
+            div(classes: 'w-12 h-12 mx-auto mb-3 rounded-2xl bg-zinc-800/50 flex items-center justify-center text-zinc-500', [
+              lIcon('wallet', cls: 'w-6 h-6'),
+            ]),
+            p(classes: 'text-sm font-bold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+              Component.text('No transactions found in this category'),
+            ]),
+            p(classes: 'text-xs text-zinc-500 mt-1', [
+              Component.text('Your top-ups, earnings, purchases, withdrawals, and cancelled requests will be displayed here.'),
+            ]),
+          ],
+        )
+      else ...[
+        div(
+          classes:
+              'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
+          [
+            for (final tx in pagedTransactions)
+              () {
+                final isTxCancelled = tx['type'] == 'cancelled' || tx['status'] == 'CANCELLED' || tx['status'] == 'REJECTED';
+                final isTxRejected = tx['status'] == 'REJECTED';
 
-            final items = <Map<String, dynamic>>[];
-
-            if (showDeps) {
-              for (final r in userP2pDeposits) {
-                items.add({
-                  'kind': 'deposit',
-                  'id': r.id,
-                  'title': 'P2P Top-up (${r.paymentMethod})',
-                  'amount': r.amount,
-                  'status': r.status,
-                  'method': r.paymentMethod,
-                  'referenceNumber': r.referenceNumber,
-                  'proofImageUrl': r.proofImageUrl,
-                  'agentName': r.agentName,
-                  'agentAccountName': r.agentAccountName,
-                  'agentAccountNumber': r.agentAccountNumber,
-                  'agentQrUrl': r.agentQrUrl,
-                  'rejectionReason': r.rejectionReason,
-                  'createdAt': r.createdAt,
-                  'proofSubmittedAt': r.proofSubmittedAt,
-                  'timestamp': r.createdAt,
-                });
-              }
-            }
-
-            if (showWiths) {
-              for (final w in userWithdrawalRequests) {
-                items.add({
-                  'kind': 'withdrawal',
-                  'id': w['id'] ?? '',
-                  'title': 'Withdrawal (${w['method'] ?? w['coin'] ?? "Solana"})',
-                  'amount': ((w['amount'] as num?)?.toDouble() ?? 0.0),
-                  'status': w['status'] ?? 'Pending',
-                  'method': w['method'] ?? 'Solana',
-                  'coin': w['coin'] ?? 'SOL',
-                  'cryptoAmount': (w['cryptoAmount'] as num?)?.toDouble() ?? 0.0,
-                  'feeAmount': (w['feeAmount'] as num?)?.toDouble() ?? 0.0,
-                  'netAmount': (w['netAmount'] as num?)?.toDouble() ?? 0.0,
-                  'walletPublicKey': w['walletPublicKey'] ?? '',
-                  'solanaTxSignature': w['solanaTxSignature'] ?? '',
-                  'createdAt': (w['createdAt'] as num?)?.toInt() ?? 0,
-                  'timestamp': (w['createdAt'] as num?)?.toInt() ?? 0,
-                });
-              }
-            }
-
-            items.sort((a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int));
-
-            if (items.isEmpty) {
-              return div(
-                classes:
-                    'p-12 text-center rounded-[2rem] border border-dashed ${isDark ? "border-zinc-800 bg-zinc-900/40" : "border-zinc-300 bg-zinc-50"} space-y-3',
-                [
-                  div(
-                    classes:
-                        'w-12 h-12 rounded-2xl bg-zinc-800 text-zinc-500 flex items-center justify-center mx-auto',
-                    [lIcon('receipt', cls: 'w-6 h-6')],
-                  ),
-                  p(classes: 'text-sm font-bold text-zinc-400', [
-                    Component.text('No P2P transactions recorded yet.'),
-                  ]),
-                  p(classes: 'text-xs text-zinc-500 max-w-sm mx-auto', [
-                    Component.text('Request a GCash or Maya top-up from verified payment agents to get started.'),
-                  ]),
-                  button(
-                    classes:
-                        'mt-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition cursor-pointer',
-                    events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
-                    [Component.text('Request Top-up Now')],
-                  ),
-                ],
-              );
-            }
-
-            return div(
-              classes:
-                  'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
-              [
-                for (final item in items)
-                  div(classes: 'p-5 flex flex-col md:flex-row justify-between md:items-center gap-4 hover:bg-zinc-500/5 transition-colors', [
-                    div(classes: 'flex items-start gap-4', [
+                return div(
+                  classes:
+                      'p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:bg-zinc-500/5 transition-colors ${isTxCancelled ? "opacity-80" : ""}',
+                  [
+                    div(classes: 'flex items-start gap-4 flex-1', [
+                      // Icon based on type (Cancelled vs Credit vs Debit)
                       div(
                         classes:
-                            'w-11 h-11 rounded-2xl shrink-0 ${item['kind'] == 'deposit' ? (item['status'] == 'APPROVED' ? "bg-emerald-500/15 text-emerald-400" : (item['status'] == 'CANCELLED' || item['status'] == 'REJECTED' ? "bg-zinc-800 text-zinc-500" : "bg-cyan-500/15 text-cyan-400")) : "bg-rose-500/15 text-rose-400"} flex items-center justify-center',
+                            'w-11 h-11 rounded-2xl flex-shrink-0 flex items-center justify-center ${isTxCancelled ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" : (tx['type'] == 'credit' ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20")}',
                         [
-                          lIcon(item['kind'] == 'deposit' ? 'qr-code' : 'arrow-up-right', cls: 'w-5 h-5'),
+                          lIcon(
+                            isTxCancelled
+                                ? (isTxRejected ? 'alert-triangle' : 'x-circle')
+                                : (tx['type'] == 'credit'
+                                    ? (tx['category'] == 'topup' ? 'arrow-down-left' : 'dollar-sign')
+                                    : (tx['category'] == 'withdrawal' ? 'arrow-up-right' : 'shopping-bag')),
+                            cls: 'w-5 h-5',
+                          ),
                         ],
                       ),
-                      div(classes: 'space-y-1', [
+                      div(classes: 'space-y-1 flex-1', [
                         div(classes: 'flex flex-wrap items-center gap-2', [
-                          p(classes: 'font-bold text-sm ${isDark ? "text-zinc-100" : "text-zinc-800"}', [
-                            Component.text(item['title'] as String),
+                          p(classes: 'font-bold text-sm ${isDark ? "text-zinc-100" : "text-zinc-800"} ${isTxCancelled ? "text-zinc-400" : ""}', [
+                            Component.text(tx['title'] as String),
                           ]),
-                          // Status chip
+                          span(
+                            classes:
+                                'text-[10px] font-extrabold px-2 py-0.5 rounded-full ${isTxCancelled ? "bg-rose-500/15 text-rose-400 border border-rose-500/30" : (tx['type'] == 'credit' ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-zinc-800 text-zinc-300 border border-zinc-700")}',
+                            [
+                              Component.text(tx['categoryLabel'] as String),
+                            ],
+                          ),
+                          if (tx['method'] != null && (tx['method'] as String).isNotEmpty)
+                            span(
+                              classes:
+                                  'text-[10px] font-extrabold px-2 py-0.5 rounded-full ${tx['method'].toString().toLowerCase().contains('gcash') ? "bg-blue-500/15 text-blue-400 border border-blue-500/30" : (tx['method'].toString().toLowerCase().contains('maya') ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : (tx['method'].toString().toLowerCase().contains('solana') ? "bg-purple-500/15 text-purple-400 border border-purple-500/30" : "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"))}',
+                              [
+                                Component.text(tx['method'] as String),
+                              ],
+                            ),
+                        ]),
+                        p(classes: 'text-xs text-zinc-400', [
+                          Component.text('${tx['desc']} • ${tx['date']}'),
+                        ]),
+                        if (tx['referenceNumber'] != null && (tx['referenceNumber'] as String).isNotEmpty)
+                          div(classes: 'flex items-center gap-1.5 text-[11px] font-mono text-zinc-400 mt-1', [
+                            span(classes: 'text-zinc-500 font-sans font-semibold', [Component.text('Ref:')]),
+                            Component.text(tx['referenceNumber'] as String),
+                          ]),
+                        // Proof of Receipt for P2P Transactions
+                        if (tx['originRail'] == 'manual_p2p') ...[
                           () {
-                            final st = (item['status'] as String? ?? '').toUpperCase();
-                            if (st == 'WAITING_FOR_AGENT') {
-                              return span(
+                            final proofUrl = tx['proofImageUrl'] as String?;
+                            final hasProofImg = proofUrl != null && proofUrl.isNotEmpty;
+                            final isCompleted = tx['isCompleted'] == true ||
+                                tx['status'] == 'APPROVED' ||
+                                tx['status'] == 'COMPLETED' ||
+                                tx['status'] == 'SUCCESSFUL';
+
+                            if (hasProofImg) {
+                              return a(
+                                href: proofUrl,
+                                target: Target.blank,
                                 classes:
-                                    'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center gap-1',
+                                    'inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors mt-1 mr-3',
                                 [
-                                  span(classes: 'w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping', []),
-                                  Component.text('Waiting for Agent'),
+                                  lIcon('receipt', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                                  Component.text('View Proof of Receipt'),
+                                  lIcon('external-link', cls: 'w-3 h-3 text-indigo-400/70'),
                                 ],
                               );
-                            } else if (st == 'AWAITING_PAYMENT') {
-                              return span(
+                            } else if (isCompleted) {
+                              return a(
+                                href: '#',
+                                events: {
+                                  'click': (e) {
+                                    e.preventDefault();
+                                    component.state.alertDialog(
+                                      'P2P Transaction Receipt',
+                                      'Transaction: ${tx['title']}\nMethod: ${tx['method']}\nAmount: ₱${(tx['amount'] as num).toDouble().toStringAsFixed(2)}\nReference: ${tx['referenceNumber'] ?? "Verified by Payment Agent"}\nStatus: Verified & Credited to Balance',
+                                    );
+                                  }
+                                },
                                 classes:
-                                    'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30',
-                                [Component.text('QR Ready • Awaiting Payment')],
-                              );
-                            } else if (st == 'PENDING_VERIFICATION' || st == 'PENDING') {
-                              return span(
-                                classes:
-                                    'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30',
-                                [Component.text('Verifying Proof')],
-                              );
-                            } else if (st == 'APPROVED' || st == 'SUCCESSFUL') {
-                              return span(
-                                classes:
-                                    'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30',
-                                [Component.text('Completed & Credited')],
-                              );
-                            } else if (st == 'CANCELLED') {
-                              return span(
-                                classes:
-                                    'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700',
-                                [Component.text('Cancelled')],
-                              );
-                            } else {
-                              return span(
-                                classes:
-                                    'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30',
-                                [Component.text('Rejected')],
+                                    'inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors mt-1 mr-3 cursor-pointer',
+                                [
+                                  lIcon('receipt', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                                  Component.text('View Proof of Receipt'),
+                                ],
                               );
                             }
+                            return Component.empty();
                           }(),
-                        ]),
-
-                        // Details meta
-                        p(classes: 'text-xs text-zinc-500', [
-                          Component.text('${_formatDate(item['timestamp'] as int)} • Order ID: ${item['id']}'),
-                        ]),
-
-                        // Agent info (sanitized, no email)
-                        if (item['agentName'] != null && (item['agentName'] as String).isNotEmpty)
-                          div(classes: 'flex items-center gap-2 text-xs text-zinc-400', [
-                            lIcon('user-check', cls: 'w-3.5 h-3.5 text-cyan-400'),
-                            Component.text('Agent: ${_cleanAgentName(item['agentName'] as String)}'),
-                            if (item['agentAccountNumber'] != null && (item['agentAccountNumber'] as String).isNotEmpty)
-                              Component.text('(${item['agentAccountNumber']})'),
-                          ]),
-
-                        // Reference Number
-                        if (item['referenceNumber'] != null && (item['referenceNumber'] as String).isNotEmpty)
-                          div(classes: 'flex items-center gap-2 text-xs text-zinc-300 font-mono', [
-                            Component.text('Ref: ${item['referenceNumber']}'),
-                          ]),
-
-                        // Proof image or QR link
-                        if (item['proofImageUrl'] != null && (item['proofImageUrl'] as String).isNotEmpty)
+                        ] else if (tx['proofImageUrl'] != null && (tx['proofImageUrl'] as String).isNotEmpty) ...[
                           a(
-                            href: item['proofImageUrl'] as String,
+                            href: tx['proofImageUrl'] as String,
                             target: Target.blank,
                             classes:
-                                'inline-flex items-center gap-1 text-[11px] font-bold text-indigo-400 hover:text-indigo-300 mr-3',
+                                    'inline-flex items-center gap-1 text-[11px] font-bold text-indigo-400 hover:text-indigo-300 mt-1 mr-3',
                             [
-                              Component.text('View Receipt Proof'),
+                              lIcon('receipt', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                              Component.text('View Proof of Receipt'),
+                              lIcon('external-link', cls: 'w-3 h-3'),
+                            ],
+                          ),
+                        ],
+                        // Prominent Rejection Reason Callout Banner
+                        if (tx['rejectionReason'] != null && (tx['rejectionReason'] as String).trim().isNotEmpty)
+                          div(
+                            classes:
+                                'mt-2 px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-400 text-xs font-medium flex items-start gap-2 max-w-lg',
+                            [
+                              lIcon('alert-circle', cls: 'w-4 h-4 flex-shrink-0 text-rose-400 mt-0.5'),
+                              div([
+                                span(classes: 'font-bold mr-1', [Component.text('Rejection Reason:')]),
+                                span([Component.text(tx['rejectionReason'] as String)]),
+                              ]),
+                            ],
+                          ),
+                        if (tx['originRail'] == 'mwa_on_chain' &&
+                            tx['solanaTxSignature'] != null &&
+                            (tx['solanaTxSignature'] as String).isNotEmpty &&
+                            !tx['method'].toString().toLowerCase().contains('gcash') &&
+                            !tx['method'].toString().toLowerCase().contains('maya'))
+                          a(
+                            href: WalletTransaction.getSolanaExplorerUrl(
+                              signature: tx['solanaTxSignature'] as String,
+                              environment: 'dev',
+                            ),
+                            target: Target.blank,
+                            classes:
+                                'inline-flex items-center gap-1 text-[11px] font-bold text-purple-400 hover:text-purple-300 mt-1',
+                            [
+                              Component.text('View on Solana Explorer'),
                               lIcon('external-link', cls: 'w-3 h-3'),
                             ],
                           ),
 
-                        // Rejection Reason
-                        if (item['rejectionReason'] != null && (item['rejectionReason'] as String).isNotEmpty)
-                          div(classes: 'p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300', [
-                            Component.text('Rejection Reason: ${item['rejectionReason']}'),
-                          ]),
-
-                        // ── 5-MINUTE CANCELLATION BUTTON (Deposit) ─────────────────────
-                        if (item['kind'] == 'deposit' &&
-                            (item['status'] == 'WAITING_FOR_AGENT' ||
-                                item['status'] == 'AWAITING_PAYMENT' ||
-                                item['status'] == 'PENDING_VERIFICATION')) ...[
+                        // 5-Minute Cancellation Action for Active P2P Deposits
+                        if (tx['originRail'] == 'manual_p2p' &&
+                            (tx['status'] == 'WAITING_FOR_AGENT' ||
+                                tx['status'] == 'AWAITING_PAYMENT' ||
+                                tx['status'] == 'PENDING_VERIFICATION')) ...[
                           () {
                             final now = DateTime.now().millisecondsSinceEpoch;
-                            final createdAt = item['createdAt'] as int? ?? now;
+                            final createdAt = (tx['createdAt'] as num?)?.toInt() ?? (tx['timestamp'] as num?)?.toInt() ?? now;
                             final elapsedMs = now - createdAt;
                             final canCancel = elapsedMs >= 5 * 60 * 1000;
                             final remainingSec = canCancel ? 0 : (((5 * 60 * 1000) - elapsedMs) / 1000).ceil();
                             final remainMin = remainingSec ~/ 60;
                             final remainSec = remainingSec % 60;
                             final timeRemainingText = '${remainMin}m ${remainSec.toString().padLeft(2, '0')}s';
-                            final reqId = item['id'] as String? ?? '';
+                            final reqId = tx['id'] as String? ?? '';
 
                             if (canCancel && reqId.isNotEmpty) {
                               return button(
@@ -4815,36 +4768,183 @@ class _HistoryViewState extends State<_HistoryView> {
                       ]),
                     ]),
 
-                    // Amount & Rail
-                    div(classes: 'text-left md:text-right shrink-0', [
-                      p(
-                        classes:
-                            'font-black text-base ${item['kind'] == 'deposit' ? (item['status'] == 'APPROVED' ? "text-emerald-400" : (item['status'] == 'CANCELLED' || item['status'] == 'REJECTED' ? "text-zinc-500" : "text-amber-400")) : "text-rose-400"}',
-                        [
-                          Component.text(
-                            '${item['kind'] == 'deposit' ? '+' : '−'} ${formatCurrency((item['amount'] as num).toDouble())}',
-                          ),
-                        ],
-                      ),
-                      if (item['cryptoAmount'] != null && (item['cryptoAmount'] as num) > 0)
-                        p(classes: 'text-[11px] font-bold text-indigo-400 mt-0.5', [
-                          Component.text('≈ ${(item['cryptoAmount'] as num).toStringAsFixed(4)} ${item['coin'] ?? "SOL"}'),
-                        ])
+                    // Amount and Running Balance on Right
+                    div(classes: 'text-left sm:text-right flex-shrink-0 space-y-1', [
+                      if (isTxCancelled)
+                        p(
+                          classes: 'font-bold text-base text-zinc-500 line-through',
+                          [
+                            Component.text(formatCurrency((tx['amount'] as num).toDouble())),
+                          ],
+                        )
                       else
+                        p(
+                          classes:
+                              'font-black text-base ${tx['type'] == 'credit' ? "text-emerald-400" : "text-rose-400"}',
+                          [
+                            Component.text(
+                              '${tx['type'] == 'credit' ? "+" : "−"} ${formatCurrency((tx['amount'] as num).toDouble())}',
+                            ),
+                          ],
+                        ),
+                      // Running Balance Badge (for active/completed transactions)
+                      if (!isTxCancelled)
+                        div(classes: 'flex items-center sm:justify-end gap-1.5', [
+                          span(
+                            classes:
+                                'text-[11px] font-bold px-2.5 py-0.5 rounded-lg ${isDark ? "bg-zinc-800/80 text-zinc-300 border border-zinc-700/60" : "bg-zinc-100 text-zinc-700 border border-zinc-200"}',
+                            [
+                              Component.text(
+                                'Balance: ${formatCurrency((tx['runningBalance'] as num?)?.toDouble() ?? liveTyxBalance)}',
+                              ),
+                            ],
+                          ),
+                        ]),
+                      if (tx['status'] != null)
                         span(
                           classes:
-                              'inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-500/10 text-zinc-400',
+                              'inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${isTxCancelled ? "bg-rose-500/15 text-rose-400 border border-rose-500/30 font-extrabold uppercase" : (tx['status'] == 'Completed' || tx['status'] == 'Released' || tx['status'] == 'Successful' || tx['status'] == 'APPROVED' ? "bg-emerald-500/10 text-emerald-400" : (tx['status'] == 'PENDING' || tx['status'] == 'PENDING_VERIFICATION' ? "bg-amber-500/10 text-amber-400" : "bg-zinc-500/10 text-zinc-400"))}',
                           [
-                            Component.text(item['method'] as String? ?? 'P2P Rail'),
+                            Component.text(tx['status'] as String),
                           ],
                         ),
                     ]),
+                  ],
+                );
+              }(),
+          ],
+        ),
+
+        // 4. PAGINATION CONTROLS
+        if (totalItems > 0)
+          div(
+            classes:
+                'p-4 rounded-[1.75rem] border $cardCls flex flex-col sm:flex-row items-center justify-between gap-4 mt-2 shadow-sm',
+            [
+              // Showing range and page size selector
+              div(classes: 'flex flex-wrap items-center gap-3', [
+                span(classes: 'text-xs text-zinc-400 font-medium flex items-center gap-1.5', [
+                  Component.text('Showing'),
+                  span(classes: 'font-bold ${isDark ? "text-white" : "text-zinc-900"}', [
+                    Component.text('${totalItems == 0 ? 0 : startIndex + 1}–$endIndex'),
                   ]),
-              ],
-            );
-          }(),
-        ]),
+                  Component.text('of'),
+                  span(classes: 'font-bold ${isDark ? "text-white" : "text-zinc-900"}', [
+                    Component.text('$totalItems'),
+                  ]),
+                  Component.text('records'),
+                ]),
+                div(classes: 'flex items-center gap-1.5 text-xs text-zinc-500 font-medium', [
+                  Component.text('• Per page:'),
+                  for (final size in [10, 25, 50])
+                    button(
+                      classes:
+                          'px-2 py-0.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${itemsPerPage == size ? "bg-indigo-600 text-white shadow-sm" : "bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-700/60"}',
+                      events: {
+                        'click': (_) => setState(() {
+                          itemsPerPage = size;
+                          currentPage = 1;
+                        })
+                      },
+                      [Component.text('$size')],
+                    ),
+                ]),
+              ]),
+
+              // Page navigation buttons
+              if (totalPages > 1)
+                div(classes: 'flex items-center gap-2', [
+                  // Previous button
+                  button(
+                    classes:
+                        'px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${safePage > 1 ? "bg-zinc-800 hover:bg-zinc-700 text-white cursor-pointer border border-zinc-700" : "bg-zinc-800/40 text-zinc-600 border border-zinc-800/60 cursor-not-allowed"}',
+                    events: safePage > 1
+                        ? {'click': (_) => setState(() => currentPage = safePage - 1)}
+                        : {},
+                    [
+                      lIcon('chevron-left', cls: 'w-4 h-4'),
+                      Component.text('Previous'),
+                    ],
+                  ),
+
+                  // Page numbers chips
+                  div(classes: 'flex items-center gap-1', [
+                    for (int p = 1; p <= totalPages; p++)
+                      if (totalPages <= 7 ||
+                          p == 1 ||
+                          p == totalPages ||
+                          (p >= safePage - 1 && p <= safePage + 1))
+                        button(
+                          classes:
+                              'w-8 h-8 rounded-xl text-xs font-bold transition-all flex items-center justify-center cursor-pointer ${p == safePage ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-black" : "bg-zinc-800/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700/60"}',
+                          events: {'click': (_) => setState(() => currentPage = p)},
+                          [Component.text('$p')],
+                        )
+                      else if (p == safePage - 2 || p == safePage + 2)
+                        span(classes: 'w-5 text-center text-xs text-zinc-500 font-bold', [
+                          Component.text('…'),
+                        ]),
+                  ]),
+
+                  // Next button
+                  button(
+                    classes:
+                        'px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${safePage < totalPages ? "bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer shadow-md shadow-indigo-600/20" : "bg-zinc-800/40 text-zinc-600 border border-zinc-800/60 cursor-not-allowed"}',
+                    events: safePage < totalPages
+                        ? {'click': (_) => setState(() => currentPage = safePage + 1)}
+                        : {},
+                    [
+                      Component.text('Next'),
+                      lIcon('chevron-right', cls: 'w-4 h-4'),
+                    ],
+                  ),
+                ]),
+            ],
+          ),
       ],
+    ]);
+  }
+
+  @override
+  Component build(BuildContext context) {
+    final s = component.state;
+    final isDark = s.isDark;
+    final showP2pAdmin = s.userProfile?.isAdmin == true || s.userProfile?.role == 'admin' || s.userProfile?.role == 'staff';
+    final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+
+    return div(classes: 'space-y-6', [
+      div(classes: 'flex items-center justify-between gap-4 flex-wrap', [
+        subViewHeader(
+          title: activeTab == 'p2p_admin' ? 'P2P Desk & Admin' : 'Wallet Ledger & Transactions',
+          isDark: isDark,
+          onBack: () => s.setState(() => s.profileView = ProfileView.main),
+        ),
+        if (showP2pAdmin)
+          button(
+            classes:
+                'px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${activeTab == 'p2p_admin' ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30" : "bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700"}',
+            events: {'click': (_) => setState(() => activeTab = activeTab == 'p2p_admin' ? 'all_transactions' : 'p2p_admin')},
+            [
+              lIcon(activeTab == 'p2p_admin' ? 'wallet' : 'shield-check', cls: 'w-4 h-4 ${activeTab == 'p2p_admin' ? "text-white" : "text-emerald-400"}'),
+              Component.text(activeTab == 'p2p_admin' ? 'Back to Wallet Ledger' : 'P2P Desk & Admin'),
+              if (s.pendingDepositRequests.where((r) => r.status.toUpperCase() == 'PENDING_VERIFICATION').isNotEmpty)
+                span(
+                  classes:
+                      'px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30',
+                  [
+                    Component.text(
+                      '${s.pendingDepositRequests.where((r) => r.status.toUpperCase() == "PENDING_VERIFICATION").length}',
+                    ),
+                  ],
+                ),
+            ],
+          ),
+      ]),
+
+      if (activeTab == 'p2p_admin' && showP2pAdmin)
+        P2pAdminPanelComponent(state: s)
+      else
+        _buildAllTransactionsLedger(isDark, s, cardCls),
     ]);
   }
 }

@@ -237,19 +237,29 @@ class TransactionDetailsSheet extends StatelessWidget {
                     displayValue: tx.referenceNumber!,
                   ),
                 ],
-                if (tx.proofImageUrl != null && tx.proofImageUrl!.isNotEmpty) ...[
+                if (tx.originRail == TransactionOriginRail.manualP2p || (tx.proofImageUrl != null && tx.proofImageUrl!.isNotEmpty)) ...[
                   const SizedBox(height: 14),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: () {
-                        launchUrl(
-                          Uri.parse(tx.proofImageUrl!),
-                          mode: LaunchMode.externalApplication,
-                        );
+                        if (tx.proofImageUrl != null && tx.proofImageUrl!.isNotEmpty) {
+                          launchUrl(
+                            Uri.parse(tx.proofImageUrl!),
+                            mode: LaunchMode.externalApplication,
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'P2P Receipt: Verified by Payment Agent (Ref: ${tx.referenceNumber ?? "Official Ledger Entry"})',
+                              ),
+                            ),
+                          );
+                        }
                       },
-                      icon: const Icon(Icons.image_outlined, size: 16),
-                      label: const Text('View Payment Proof / Receipt'),
+                      icon: const Icon(Icons.receipt_long_rounded, size: 16),
+                      label: const Text('View Proof of Receipt'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: isDarkMode ? Colors.indigo.shade300 : AppColors.indigo,
                         side: BorderSide(
@@ -308,7 +318,8 @@ class TransactionDetailsSheet extends StatelessWidget {
               ],
 
               // On-Chain Specific Details
-              if (tx.solanaTxSignature != null &&
+              if (tx.originRail == TransactionOriginRail.mwaOnChain &&
+                  tx.solanaTxSignature != null &&
                   tx.solanaTxSignature!.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 _buildDetailRow(

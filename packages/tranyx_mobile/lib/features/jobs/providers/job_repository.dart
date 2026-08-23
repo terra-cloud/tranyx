@@ -645,6 +645,9 @@ class JobRepository {
       if (currentStatus == 'completed') {
         throw Exception('INVALID_STATE_TRANSITION: Cannot cancel a completed job.');
       }
+      if (currentStatus == 'cancelled' || currentStatus == 'admin_cancelled') {
+        throw Exception('INVALID_STATE_TRANSITION: Job is already cancelled.');
+      }
 
       final String? acceptedNyxian = jobData['acceptedApplicantId'] as String? ?? jobData['nyxianId'] as String?;
       final bool hasAcceptedNyxian = acceptedNyxian != null && acceptedNyxian.trim().isNotEmpty;
@@ -660,10 +663,20 @@ class JobRepository {
 
       final String employerId = jobData['creatorId'] as String? ?? '';
       final escrowSnap = await transaction.get(escrowRef);
-      if (escrowSnap.exists) {
-        final double totalEscrow = (escrowSnap.data()!['amount'] as num?)?.toDouble() ?? 0.0;
-        // 100% refund to Employer on unilateral open cancellation
-        if (totalEscrow > 0.0 && employerId.isNotEmpty) {
+      final bool isAlreadyRefunded = escrowSnap.exists && (escrowSnap.data()!['status'] as String? ?? '').toLowerCase() == 'refunded';
+
+      if (!isAlreadyRefunded && employerId.isNotEmpty) {
+        double totalEscrow = 0.0;
+        if (escrowSnap.exists) {
+          totalEscrow = (escrowSnap.data()!['amount'] as num?)?.toDouble() ?? 0.0;
+        }
+        if (totalEscrow <= 0.0) {
+          final double price = (jobData['pricingValue'] as num?)?.toDouble() ?? 0.0;
+          final double discount = (jobData['discountAmount'] as num?)?.toDouble() ?? 0.0;
+          totalEscrow = (price - discount).clamp(0.0, 999999.0);
+        }
+
+        if (totalEscrow > 0.0) {
           final empRef = _firestore.collection('users').doc(employerId);
           final empSnap = await transaction.get(empRef);
           if (empSnap.exists) {
@@ -672,8 +685,37 @@ class JobRepository {
               'tyxBalance': currentBal + totalEscrow,
             });
           }
+
+          // Update escrow status to refunded
+          transaction.set(escrowRef, {
+            if (escrowSnap.exists) ...escrowSnap.data()!,
+            'jobId': jobId,
+            'employerId': employerId,
+            'amount': totalEscrow,
+            'refundAmount': totalEscrow,
+            'status': 'refunded',
+            'refundedAt': DateTime.now().millisecondsSinceEpoch,
+            'refundedTo': employerId,
+          });
+
+          // Write refund transaction
+          final txRef = _firestore.collection('transactions').doc('refund_job_$jobId');
+          final jobTitle = (jobData['title'] as String?) ?? 'Job';
+          transaction.set(txRef, {
+            'id': 'refund_job_$jobId',
+            'uid': employerId,
+            'jobId': jobId,
+            'type': 'refund',
+            'category': 'refund',
+            'amount': totalEscrow,
+            'title': 'Job Escrow Refund',
+            'desc': '100% Escrow refund for cancelled job "$jobTitle"',
+            'status': 'Completed',
+            'method': 'Tranyx Escrow',
+            'originRail': 'internal_balance',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+          });
         }
-        transaction.delete(escrowRef);
       }
 
       // Update status to Cancelled
@@ -743,9 +785,20 @@ class JobRepository {
       final String prevStatus = jobData['status'] as String? ?? 'Unknown';
 
       final escrowSnap = await transaction.get(escrowRef);
-      if (escrowSnap.exists) {
-        final double totalEscrow = (escrowSnap.data()!['amount'] as num?)?.toDouble() ?? 0.0;
-        if (totalEscrow > 0.0 && employerId.isNotEmpty) {
+      final bool isAlreadyRefunded = escrowSnap.exists && (escrowSnap.data()!['status'] as String? ?? '').toLowerCase() == 'refunded';
+
+      if (!isAlreadyRefunded && employerId.isNotEmpty) {
+        double totalEscrow = 0.0;
+        if (escrowSnap.exists) {
+          totalEscrow = (escrowSnap.data()!['amount'] as num?)?.toDouble() ?? 0.0;
+        }
+        if (totalEscrow <= 0.0) {
+          final double price = (jobData['pricingValue'] as num?)?.toDouble() ?? 0.0;
+          final double discount = (jobData['discountAmount'] as num?)?.toDouble() ?? 0.0;
+          totalEscrow = (price - discount).clamp(0.0, 999999.0);
+        }
+
+        if (totalEscrow > 0.0) {
           final empRef = _firestore.collection('users').doc(employerId);
           final empSnap = await transaction.get(empRef);
           if (empSnap.exists) {
@@ -754,8 +807,35 @@ class JobRepository {
               'tyxBalance': currentBal + totalEscrow,
             });
           }
+
+          transaction.set(escrowRef, {
+            if (escrowSnap.exists) ...escrowSnap.data()!,
+            'jobId': jobId,
+            'employerId': employerId,
+            'amount': totalEscrow,
+            'refundAmount': totalEscrow,
+            'status': 'refunded',
+            'refundedAt': DateTime.now().millisecondsSinceEpoch,
+            'refundedTo': employerId,
+          });
+
+          final txRef = _firestore.collection('transactions').doc('refund_job_$jobId');
+          final jobTitle = (jobData['title'] as String?) ?? 'Job';
+          transaction.set(txRef, {
+            'id': 'refund_job_$jobId',
+            'uid': employerId,
+            'jobId': jobId,
+            'type': 'refund',
+            'category': 'refund',
+            'amount': totalEscrow,
+            'title': 'Job Escrow Refund (Admin Override)',
+            'desc': '100% Escrow refund via admin override for cancelled job "$jobTitle"',
+            'status': 'Completed',
+            'method': 'Tranyx Escrow',
+            'originRail': 'internal_balance',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+          });
         }
-        transaction.delete(escrowRef);
       }
 
       transaction.update(jobRef, {

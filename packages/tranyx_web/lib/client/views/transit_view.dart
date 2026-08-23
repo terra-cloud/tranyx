@@ -1121,11 +1121,10 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     return div(
       classes: 'p-5 rounded-2xl border transition-all card-hover cursor-pointer $cardCls',
       events: {
-        if (!isHostView)
-          'click': (_) => s.setState(() {
-            s.selectedPropertyData = prop.toMap();
-            s.showBookPropertyModal = true;
-          }),
+        'click': (_) => s.setState(() {
+          s.selectedPropertyData = prop.toMap();
+          s.showBookPropertyModal = true;
+        }),
       },
       [
         div(classes: 'flex items-start justify-between mb-4', [
@@ -1176,6 +1175,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               builder: (context) {
                 final hasRequests = s.propertyHostPendingRequests.any((req) => req['propertyId'] == prop.id);
                 final showChat = hasActiveRenter && prop.allowChat;
+                final isEditable = prop.status == 'Available' && !hasActiveRenter && !hasRequests;
+
                 return div(classes: 'flex gap-2 items-center', [
                   button(
                     classes:
@@ -1191,6 +1192,24 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                     },
                     [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
                   ),
+                  if (isEditable)
+                    button(
+                      classes:
+                          'px-3 py-2 rounded-xl text-xs font-bold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors bg-transparent cursor-pointer flex items-center gap-1',
+                      events: {
+                        'click': (e) {
+                          e.stopPropagation();
+                          s.setState(() {
+                            s.selectedPropertyData = prop.toMap();
+                            s.showEditPropertyModal = true;
+                          });
+                        },
+                      },
+                      [
+                        lIcon('edit-3', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                        Component.text('Edit'),
+                      ],
+                    ),
                   if (showChat)
                     button(
                       classes:

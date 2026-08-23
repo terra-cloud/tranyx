@@ -136,3 +136,28 @@ class P2pAgent {
     );
   }
 }
+
+/// Cleans raw agent display name or email into a human-friendly title.
+/// e.g. "agent.juana2@tranyx.app" -> "Agent Juana", "juana.agent@tranyx.app" -> "Agent Juana"
+String cleanAgentDisplayName(String? raw, {String fallback = 'TRANYX Agent'}) {
+  if (raw == null || raw.trim().isEmpty) return fallback;
+  var text = raw.trim();
+  if (text.contains('@')) {
+    text = text.split('@').first;
+  }
+  // Strip trailing digits (e.g. juana2 -> juana, agent1 -> agent)
+  text = text.replaceAll(RegExp(r'\d+$'), '');
+  final parts = text.split(RegExp(r'[._\-\s]+')).where((s) => s.isNotEmpty).toList();
+  if (parts.isEmpty) return fallback;
+
+  final formatted = parts
+      .map((s) => s[0].toUpperCase() + (s.length > 1 ? s.substring(1).toLowerCase() : ''))
+      .toList();
+
+  if (formatted.any((p) => p.toLowerCase() == 'agent')) {
+    formatted.removeWhere((p) => p.toLowerCase() == 'agent');
+    if (formatted.isEmpty) return 'TRANYX Agent';
+    return 'Agent ${formatted.join(' ')}';
+  }
+  return 'Agent ${formatted.join(' ')}';
+}

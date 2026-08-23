@@ -22,6 +22,7 @@ class InteractiveWalkthroughModal extends StatefulComponent {
 
 class _InteractiveWalkthroughModalState extends State<InteractiveWalkthroughModal> {
   int _currentStep = 0;
+  static const int _totalSteps = 5;
 
   void _complete() {
     try {
@@ -36,7 +37,7 @@ class _InteractiveWalkthroughModalState extends State<InteractiveWalkthroughModa
   }
 
   void _next() {
-    if (_currentStep < 3) {
+    if (_currentStep < _totalSteps - 1) {
       setState(() => _currentStep++);
     } else {
       _complete();
@@ -51,35 +52,29 @@ class _InteractiveWalkthroughModalState extends State<InteractiveWalkthroughModa
 
   @override
   Component build(BuildContext context) {
-    final widthCls = _currentStep == 0
-        ? 'w-1/4'
-        : _currentStep == 1
-            ? 'w-2/4'
-            : _currentStep == 2
-                ? 'w-3/4'
-                : 'w-full';
+    final widthPercent = ((_currentStep + 1) / _totalSteps * 100).toStringAsFixed(0);
 
     return div(
       classes:
-          'fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/65 backdrop-blur-md animate-fadeIn select-none',
+          'fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fadeIn select-none',
       [
         div(
           classes:
-              'relative w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl shadow-xl overflow-hidden text-white flex flex-col',
+              'relative w-full max-w-xl bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden text-white flex flex-col',
           [
-            // Header with comfortable breathing room (no decorative icons or images)
+            // Header
             div(
               classes:
-                  'px-7 py-5 border-b border-zinc-800/80 bg-zinc-900/90 flex items-center justify-between',
+                  'px-7 py-4.5 border-b border-zinc-800/80 bg-zinc-900/90 flex items-center justify-between',
               [
                 div(classes: 'flex items-center gap-2.5', [
                   span(
                     classes:
-                        'text-[10px] font-bold tracking-wide text-zinc-400 bg-zinc-800 px-2.5 py-1 rounded-full border border-zinc-700/50',
+                        'text-[10px] font-bold tracking-wide text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-full border border-indigo-500/20',
                     [Component.text('Walkthrough')],
                   ),
                   span(classes: 'text-xs text-zinc-400 font-medium', [
-                    Component.text('Step ${_currentStep + 1} of 4'),
+                    Component.text('Step ${_currentStep + 1} of $_totalSteps'),
                   ]),
                 ]),
                 button(
@@ -94,37 +89,42 @@ class _InteractiveWalkthroughModalState extends State<InteractiveWalkthroughModa
             ),
 
             // Step Progress Line
-            div(classes: 'w-full bg-zinc-800 h-0.5', [
+            div(classes: 'w-full bg-zinc-800 h-1', [
               div(
                 classes:
-                    'bg-zinc-300 h-0.5 transition-all duration-300 $widthCls',
+                    'logo-gradient h-1 transition-all duration-300',
+                styles: Styles(
+                  raw: {'width': '$widthPercent%'},
+                ),
                 [],
               ),
             ]),
 
-            // Body Content with spacious layout
+            // Body Content
             div(
               classes:
-                  'p-7 sm:p-8 flex-1 overflow-y-auto max-h-[60vh] custom-scrollbar space-y-5',
+                  'p-6 sm:p-7 flex-1 overflow-y-auto max-h-[65vh] custom-scrollbar space-y-4',
               [
-                if (_currentStep == 0) ..._buildStep1Verification(),
-                if (_currentStep == 1) ..._buildStep2Rentals(),
-                if (_currentStep == 2) ..._buildStep3Jobs(),
-                if (_currentStep == 3) ..._buildStep4Wallet(),
+                if (_currentStep == 0) ..._buildStep1Everyone(),
+                if (_currentStep == 1) ..._buildStep2TurnAssets(),
+                if (_currentStep == 2) ..._buildStep3Safety(),
+                if (_currentStep == 3) ..._buildStep4Workflow(),
+                if (_currentStep == 4) ..._buildStep5Rewards(),
               ],
             ),
 
             // Footer
             div(
               classes:
-                  'p-6 border-t border-zinc-800/80 bg-zinc-950/40 flex items-center justify-between',
+                  'px-7 py-4.5 border-t border-zinc-800/80 bg-zinc-950/60 flex items-center justify-between',
               [
-                // Minimalist Pill Indicators
+                // Pill Step Indicators
                 div(classes: 'flex items-center gap-1.5', [
-                  for (int i = 0; i < 4; i++)
+                  for (int i = 0; i < _totalSteps; i++)
                     div(
                       classes:
-                          'h-1.5 rounded-full transition-all duration-200 ${i == _currentStep ? "w-6 bg-zinc-200" : "w-1.5 bg-zinc-700"}',
+                          'h-1.5 rounded-full transition-all duration-300 cursor-pointer ${i == _currentStep ? "w-6 bg-indigo-500" : "w-1.5 bg-zinc-700 hover:bg-zinc-600"}',
+                      events: {'click': (_) => setState(() => _currentStep = i)},
                       [],
                     ),
                 ]),
@@ -134,16 +134,16 @@ class _InteractiveWalkthroughModalState extends State<InteractiveWalkthroughModa
                   if (_currentStep > 0)
                     button(
                       classes:
-                          'px-4 py-2 text-xs font-semibold text-zinc-400 hover:text-zinc-200 bg-transparent hover:bg-zinc-800 rounded-xl transition cursor-pointer border-0',
+                          'px-4 py-2 text-xs font-semibold text-zinc-400 hover:text-zinc-200 bg-transparent hover:bg-zinc-800 rounded-xl transition cursor-pointer border border-zinc-800',
                       events: {'click': (_) => _prev()},
                       [Component.text('Back')],
                     ),
                   button(
                     classes:
-                        'px-6 py-2.5 text-xs font-bold text-zinc-900 bg-zinc-100 hover:bg-white rounded-xl shadow transition cursor-pointer border-0 active:scale-95',
+                        'px-5 py-2.5 text-xs font-bold text-white ${_currentStep == _totalSteps - 1 ? "logo-gradient shadow-lg shadow-indigo-600/30" : "bg-indigo-600 hover:bg-indigo-500"} rounded-xl transition cursor-pointer border-0 active:scale-95 flex items-center gap-1.5',
                     events: {'click': (_) => _next()},
                     [
-                      Component.text(_currentStep == 3 ? 'Got It' : 'Next'),
+                      Component.text(_currentStep == _totalSteps - 1 ? "🚀 Let's Go!" : 'Next →'),
                     ],
                   ),
                 ]),
@@ -155,26 +155,158 @@ class _InteractiveWalkthroughModalState extends State<InteractiveWalkthroughModa
     );
   }
 
-  List<Component> _buildStep1Verification() {
+  // ── Step 1: Something for Everyone ──────────────────────────────────────────
+  List<Component> _buildStep1Everyone() {
     return [
-      div(classes: 'space-y-2 mb-2', [
-        h4(classes: 'text-xl font-bold tracking-tight text-zinc-100', [
-          Component.text('Trust & Verification Badges'),
+      div(classes: 'space-y-1.5', [
+        div(classes: 'flex items-center gap-2', [
+          span(classes: 'text-lg', [Component.text('🚀')]),
+          h4(classes: 'text-xl font-black tracking-tight text-white', [
+            Component.text('Something for Everyone'),
+          ]),
         ]),
-        p(classes: 'text-xs text-zinc-400 leading-relaxed', [
-          Component.text('Tranyx strictly identifies counterparties with authenticated tier badges so you always transact with verified profiles.'),
+        p(classes: 'text-xs font-semibold text-indigo-400', [
+          Component.text('Your next opportunity starts here.'),
+        ]),
+        p(classes: 'text-xs text-zinc-300 leading-relaxed pt-1', [
+          Component.text(
+            'Looking for work? Need a service? Have something to rent? TRANYX brings opportunities together—all in one place.',
+          ),
+        ]),
+      ]),
+
+      div(classes: 'grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2', [
+        div(
+          classes:
+              'p-3.5 rounded-2xl bg-zinc-800/60 border border-zinc-700/60 flex items-start gap-3 hover:border-indigo-500/40 transition',
+          [
+            div(classes: 'w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center flex-shrink-0', [
+              span(classes: 'lucide lucide-briefcase text-sm', []),
+            ]),
+            div(classes: 'space-y-0.5', [
+              p(classes: 'text-xs font-bold text-zinc-100', [Component.text('Jobs & Freelance Gigs')]),
+              p(classes: 'text-[11px] text-zinc-400', [
+                Component.text('Browse open contracts, post gig requirements, or bid on tasks.'),
+              ]),
+            ]),
+          ],
+        ),
+        div(
+          classes:
+              'p-3.5 rounded-2xl bg-zinc-800/60 border border-zinc-700/60 flex items-start gap-3 hover:border-indigo-500/40 transition',
+          [
+            div(classes: 'w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center flex-shrink-0', [
+              span(classes: 'lucide lucide-car text-sm', []),
+            ]),
+            div(classes: 'space-y-0.5', [
+              p(classes: 'text-xs font-bold text-zinc-100', [Component.text('Vehicle & Space Rentals')]),
+              p(classes: 'text-[11px] text-zinc-400', [
+                Component.text('Rent vehicles, equipment, and properties with calendar availability.'),
+              ]),
+            ]),
+          ],
+        ),
+      ]),
+
+      div(classes: 'p-3 rounded-xl bg-indigo-500/5 border border-indigo-500/20 text-xs text-zinc-300 flex items-center gap-2.5', [
+        span(classes: 'lucide lucide-sparkles text-indigo-400 text-sm shrink-0', []),
+        p(classes: 'text-[11px] leading-relaxed', [
+          Component.text(
+            'From jobs and services to rentals and hiring opportunities, discover new possibilities built around what you need and what you can offer.',
+          ),
+        ]),
+      ]),
+    ];
+  }
+
+  // ── Step 2: Turn What You Have Into Something More ─────────────────────────
+  List<Component> _buildStep2TurnAssets() {
+    return [
+      div(classes: 'space-y-1.5', [
+        div(classes: 'flex items-center gap-2', [
+          span(classes: 'text-lg', [Component.text('💡')]),
+          h4(classes: 'text-xl font-black tracking-tight text-white', [
+            Component.text('Turn What You Have Into Something More'),
+          ]),
+        ]),
+        p(classes: 'text-xs font-semibold text-amber-400', [
+          Component.text('Skills. Time. Things you own.'),
+        ]),
+        p(classes: 'text-xs text-zinc-300 leading-relaxed pt-1', [
+          Component.text(
+            'You have more ways to earn than you think. Turn your skills, time, services, and assets into opportunities.',
+          ),
         ]),
       ]),
 
       div(classes: 'space-y-2 pt-1', [
         div(
-          classes:
-              'p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/60 flex items-center justify-between gap-3',
+          classes: 'p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/60 flex items-center gap-3',
           [
-            div(classes: 'space-y-0.5', [
+            div(classes: 'w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center flex-shrink-0', [
+              span(classes: 'lucide lucide-wrench text-xs', []),
+            ]),
+            div(classes: 'flex-1', [
+              p(classes: 'text-xs font-bold text-zinc-200', [Component.text('Find Gigs & Offer Expertise')]),
+              p(classes: 'text-[11px] text-zinc-400', [Component.text('Monetize your carpentry, design, plumbing, or courier capabilities.')]),
+            ]),
+          ],
+        ),
+        div(
+          classes: 'p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/60 flex items-center gap-3',
+          [
+            div(classes: 'w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center flex-shrink-0', [
+              span(classes: 'lucide lucide-key text-xs', []),
+            ]),
+            div(classes: 'flex-1', [
+              p(classes: 'text-xs font-bold text-zinc-200', [Component.text('Rent Out What You Own')]),
+              p(classes: 'text-[11px] text-zinc-400', [Component.text('List motorcycles, cars, commercial spaces, and idle tools safely.')]),
+            ]),
+          ],
+        ),
+      ]),
+
+      div(classes: 'p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between text-xs', [
+        div(classes: 'flex items-center gap-2 text-amber-300 font-bold', [
+          span(classes: 'lucide lucide-trending-up text-sm', []),
+          Component.text('Your opportunity could be worth more than you think.'),
+        ]),
+      ]),
+    ];
+  }
+
+  // ── Step 3: Safe. Secure. Built for You ─────────────────────────────────────
+  List<Component> _buildStep3Safety() {
+    return [
+      div(classes: 'space-y-1.5', [
+        div(classes: 'flex items-center gap-2', [
+          span(classes: 'text-lg', [Component.text('🔥')]),
+          h4(classes: 'text-xl font-black tracking-tight text-white', [
+            Component.text('Safe. Secure. Built for You. 🛡️'),
+          ]),
+        ]),
+        p(classes: 'text-xs font-semibold text-emerald-400', [
+          Component.text('Transact with confidence. Your safety matters.'),
+        ]),
+        p(classes: 'text-xs text-zinc-400 leading-relaxed pt-1', [
+          Component.text(
+            'TRANYX uses identity verification, trust badges, and security measures to help you know who you\'re dealing with before you transact.',
+          ),
+        ]),
+      ]),
+
+      div(classes: 'space-y-2 pt-1', [
+        div(classes: 'text-[11px] font-bold text-zinc-400 uppercase tracking-wider', [
+          Component.text('Trust & Verification Badges'),
+        ]),
+        div(
+          classes:
+              'p-3 rounded-2xl bg-zinc-800/60 border border-zinc-700/60 flex items-center justify-between gap-3',
+          [
+            div(classes: 'space-y-0.5 flex-1', [
               div(classes: 'flex items-center gap-2', [
-                span(classes: 'text-xs font-bold text-zinc-300', [
-                  Component.text('Level 1: Basic Gov ID Verified'),
+                span(classes: 'text-xs font-bold text-zinc-200', [
+                  Component.text('🔵 Level 1: Basic Gov ID Verified'),
                 ]),
                 const UserBadgeComponent(level: VerificationLevel.level1Basic, showLabel: false),
               ]),
@@ -186,29 +318,29 @@ class _InteractiveWalkthroughModalState extends State<InteractiveWalkthroughModa
         ),
         div(
           classes:
-              'p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/60 flex items-center justify-between gap-3',
+              'p-3 rounded-2xl bg-zinc-800/60 border border-zinc-700/60 flex items-center justify-between gap-3',
           [
-            div(classes: 'space-y-0.5', [
+            div(classes: 'space-y-0.5 flex-1', [
               div(classes: 'flex items-center gap-2', [
-                span(classes: 'text-xs font-bold text-zinc-300', [
-                  Component.text('Level 2: Merchant & Pro Verified'),
+                span(classes: 'text-xs font-bold text-zinc-200', [
+                  Component.text('🟡 Level 2: Merchant & Pro Verified'),
                 ]),
                 const UserBadgeComponent(level: VerificationLevel.level2Pro, showLabel: false),
               ]),
               p(classes: 'text-[11px] text-zinc-400', [
-                Component.text('Registered host, merchant credentials, and verified standing.'),
+                Component.text('Registered hosts, merchants, and professionals with verified credentials.'),
               ]),
             ]),
           ],
         ),
         div(
           classes:
-              'p-3 rounded-2xl bg-zinc-800/30 border border-zinc-800 flex items-center justify-between gap-3 opacity-75',
+              'p-2.5 rounded-2xl bg-zinc-800/30 border border-zinc-800 flex items-center justify-between gap-3 opacity-75',
           [
-            div(classes: 'space-y-0.5', [
+            div(classes: 'space-y-0.5 flex-1', [
               div(classes: 'flex items-center gap-2', [
                 span(classes: 'text-xs font-semibold text-zinc-400', [
-                  Component.text('Unverified: Zero badges shown'),
+                  Component.text('⚪ Unverified'),
                 ]),
                 span(
                   classes: 'text-[10px] font-semibold text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded',
@@ -216,133 +348,150 @@ class _InteractiveWalkthroughModalState extends State<InteractiveWalkthroughModa
                 ),
               ]),
               p(classes: 'text-[11px] text-zinc-500', [
-                Component.text('Clear notice displayed across rental & job agreements.'),
+                Component.text('No verification badge shown, so you can make informed decisions before proceeding.'),
               ]),
             ]),
           ],
         ),
       ]),
-    ];
-  }
 
-  List<Component> _buildStep2Rentals() {
-    return [
-      div(classes: 'space-y-1', [
-        h4(classes: 'text-xl font-bold tracking-tight text-zinc-100', [
-          Component.text('Rentals & Calendar Availability'),
-        ]),
-        p(classes: 'text-xs text-zinc-400 leading-relaxed', [
-          Component.text('Explore vehicles and properties with persistent calendar availability. Booked dates are locked, and clean start dates automatically optimize rates.'),
-        ]),
-      ]),
-
-      div(classes: 'grid grid-cols-2 gap-2 pt-1', [
-        div(classes: 'p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/60 flex flex-col gap-1', [
-          div(classes: 'flex items-center gap-1.5 text-zinc-300', [
-            span(classes: 'lucide lucide-check-circle text-xs', []),
-            span(classes: 'text-xs font-bold', [Component.text('Availability Lock')]),
-          ]),
-          p(classes: 'text-[11px] text-zinc-400', [
-            Component.text('Persistent date checks prevent overlaps.'),
-          ]),
-        ]),
-        div(classes: 'p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/60 flex flex-col gap-1', [
-          div(classes: 'flex items-center gap-1.5 text-zinc-300', [
-            span(classes: 'lucide lucide-sparkles text-xs', []),
-            span(classes: 'text-xs font-bold', [Component.text('Smart Rate Cap')]),
-          ]),
-          p(classes: 'text-[11px] text-zinc-400', [
-            Component.text('Applies weekly caps on 7-day bookings.'),
-          ]),
-        ]),
-      ]),
-
-      div(classes: 'p-2.5 rounded-xl bg-zinc-800/30 border border-zinc-800 flex items-center gap-2 text-xs text-zinc-400', [
-        span(classes: 'lucide lucide-file-text text-zinc-400 text-sm shrink-0', []),
-        span([
-          Component.text('Full LTO CR/OR and insurance details embedded directly into agreements.'),
+      div(classes: 'text-center pt-1', [
+        p(classes: 'text-xs font-bold text-zinc-400', [
+          Component.text('Your trust matters. Your transactions matter.'),
         ]),
       ]),
     ];
   }
 
-  List<Component> _buildStep3Jobs() {
+  // ── Step 4: Make Opportunities Happen ──────────────────────────────────────
+  List<Component> _buildStep4Workflow() {
     return [
-      div(classes: 'space-y-1', [
-        h4(classes: 'text-xl font-bold tracking-tight text-zinc-100', [
-          Component.text('Jobs & Live Execution Tracking'),
+      div(classes: 'space-y-1.5', [
+        div(classes: 'flex items-center gap-2', [
+          span(classes: 'text-lg', [Component.text('✨')]),
+          h4(classes: 'text-xl font-black tracking-tight text-white', [
+            Component.text('Make Opportunities Happen'),
+          ]),
         ]),
-        p(classes: 'text-xs text-zinc-400 leading-relaxed', [
-          Component.text('Post gigs or apply with live filtering. Bidding is open to all Nyxians, and real-time live execution updates strictly activate once hired.'),
+        p(classes: 'text-xs font-semibold text-indigo-400', [
+          Component.text('From discovery to done.'),
+        ]),
+        p(classes: 'text-xs text-zinc-300 leading-relaxed pt-1', [
+          Component.text(
+            'Found an opportunity? Take the next step: Apply for the job. Book the service. Accept the offer. Complete the rental. Get things done—all through TRANYX.',
+          ),
         ]),
       ]),
 
-      div(classes: 'grid grid-cols-2 gap-2 pt-1', [
-        div(classes: 'p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/60 flex flex-col gap-1', [
-          div(classes: 'flex items-center gap-1.5 text-zinc-300', [
-            span(classes: 'lucide lucide-shield text-xs', []),
-            span(classes: 'text-xs font-bold', [Component.text('Escrow Protection')]),
-          ]),
-          p(classes: 'text-[11px] text-zinc-400', [
-            Component.text('Funds secured safely before gig execution.'),
+      // Visual workflow concept: Progressing through TRANYX ecosystem
+      div(classes: 'p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2.5', [
+        div(classes: 'flex items-center justify-between text-[11px] font-bold text-zinc-400 px-1', [
+          span([Component.text('Opportunity Lifecycle')]),
+          span(classes: 'text-emerald-400 flex items-center gap-1', [
+            span(classes: 'lucide lucide-shield-check text-xs', []),
+            Component.text('Escrow Protected'),
           ]),
         ]),
-        div(classes: 'p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/60 flex flex-col gap-1', [
-          div(classes: 'flex items-center gap-1.5 text-zinc-300', [
-            span(classes: 'lucide lucide-qr-code text-xs', []),
-            span(classes: 'text-xs font-bold', [Component.text('QR Release')]),
+
+        div(classes: 'grid grid-cols-4 gap-1.5 text-center', [
+          div(classes: 'p-2 rounded-xl bg-zinc-800/80 border border-zinc-700/60 flex flex-col items-center gap-1', [
+            span(classes: 'lucide lucide-search text-indigo-400 text-xs', []),
+            span(classes: 'text-[10px] font-bold text-zinc-200', [Component.text('1. Found')]),
           ]),
-          p(classes: 'text-[11px] text-zinc-400', [
-            Component.text('Instant payout release upon completion code scan.'),
+          div(classes: 'p-2 rounded-xl bg-zinc-800/80 border border-zinc-700/60 flex flex-col items-center gap-1', [
+            span(classes: 'lucide lucide-message-square text-cyan-400 text-xs', []),
+            span(classes: 'text-[10px] font-bold text-zinc-200', [Component.text('2. Connected')]),
           ]),
+          div(classes: 'p-2 rounded-xl bg-zinc-800/80 border border-zinc-700/60 flex flex-col items-center gap-1', [
+            span(classes: 'lucide lucide-lock text-amber-400 text-xs', []),
+            span(classes: 'text-[10px] font-bold text-zinc-200', [Component.text('3. Transact')]),
+          ]),
+          div(classes: 'p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex flex-col items-center gap-1', [
+            span(classes: 'lucide lucide-check-circle text-emerald-400 text-xs', []),
+            span(classes: 'text-[10px] font-black text-emerald-300', [Component.text('4. Done ✓')]),
+          ]),
+        ]),
+
+        div(classes: 'p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-between text-[11px]', [
+          div(classes: 'flex items-center gap-2', [
+            span(classes: 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse', []),
+            span(classes: 'text-zinc-300 font-medium', [Component.text('Live QR Completion & Reputation Score ★')]),
+          ]),
+          span(classes: 'text-xs font-bold text-indigo-400', [Component.text('+ 5.0 Rating')]),
         ]),
       ]),
 
-      div(classes: 'p-2.5 rounded-xl bg-zinc-800/30 border border-zinc-800 flex items-center gap-2 text-xs text-zinc-400', [
-        span(classes: 'lucide lucide-sliders text-zinc-400 text-sm shrink-0', []),
-        span([
-          Component.text('Summary strip displays active category, radius distance, and remote status.'),
-        ]),
+      p(classes: 'text-center text-xs font-semibold text-zinc-400 pt-1', [
+        Component.text('One connection can become your next opportunity.'),
       ]),
     ];
   }
 
-  List<Component> _buildStep4Wallet() {
+  // ── Step 5: Get Rewarded Along the Way ──────────────────────────────────────
+  List<Component> _buildStep5Rewards() {
     return [
-      div(classes: 'space-y-1', [
-        h4(classes: 'text-xl font-bold tracking-tight text-zinc-100', [
-          Component.text('MWA Web3 Wallet & Fiat Ledger'),
-        ]),
-        p(classes: 'text-xs text-zinc-400 leading-relaxed', [
-          Component.text('Connect your Solana wallet via Mobile Wallet Adapter to sign smart contract transactions and view unified GCash & token ledgers.'),
-        ]),
-      ]),
-
-      div(classes: 'grid grid-cols-2 gap-2 pt-1', [
-        div(classes: 'p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/60 flex flex-col gap-1', [
-          div(classes: 'flex items-center gap-1.5 text-zinc-300', [
-            span(classes: 'lucide lucide-smartphone text-xs', []),
-            span(classes: 'text-xs font-bold', [Component.text('GCash & Maya')]),
-          ]),
-          p(classes: 'text-[11px] text-zinc-400', [
-            Component.text('Manual P2P top-up with QR code receipts.'),
+      div(classes: 'space-y-1.5', [
+        div(classes: 'flex items-center gap-2', [
+          span(classes: 'text-lg', [Component.text('🪙')]),
+          h4(classes: 'text-xl font-black tracking-tight text-white', [
+            Component.text('Get Rewarded Along the Way'),
           ]),
         ]),
-        div(classes: 'p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/60 flex flex-col gap-1', [
-          div(classes: 'flex items-center gap-1.5 text-zinc-300', [
-            span(classes: 'lucide lucide-coins text-xs', []),
-            span(classes: 'text-xs font-bold', [Component.text('Solana (SOL & USDT)')]),
-          ]),
-          p(classes: 'text-[11px] text-zinc-400', [
-            Component.text('On-chain instant settlement with zero fees.'),
-          ]),
+        p(classes: 'text-xs font-semibold text-purple-400', [
+          Component.text('Your activity can take you further.'),
+        ]),
+        p(classes: 'text-xs text-zinc-300 leading-relaxed pt-1', [
+          Component.text(
+            'Every opportunity is more than just a transaction. As you participate in the TRANYX ecosystem, you can earn Terra Rewards Points.',
+          ),
         ]),
       ]),
 
-      div(classes: 'p-2.5 rounded-xl bg-zinc-800/30 border border-zinc-800 flex items-center gap-2 text-xs text-zinc-400', [
-        span(classes: 'lucide lucide-check-check text-zinc-400 text-sm shrink-0', []),
-        span([
-          Component.text('Atomic Firestore transactions protect every deposit with duplicate reference locks.'),
+      // Rewards Flow Diagram
+      div(classes: 'p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2.5', [
+        div(classes: 'flex items-center justify-between text-[11px] font-bold text-zinc-400 px-1', [
+          span([Component.text('Earn. Build. Unlock More.')]),
+          span(classes: 'text-purple-400 font-bold', [Component.text('⚡ Powered by Solana')]),
+        ]),
+
+        div(classes: 'grid grid-cols-2 gap-2 text-xs', [
+          div(classes: 'p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center gap-2', [
+            span(classes: 'text-sm', [Component.text('✨')]),
+            div([
+              p(classes: 'font-bold text-zinc-200 text-[11px]', [Component.text('Terra Rewards')]),
+              p(classes: 'text-[10px] text-zinc-400', [Component.text('Earned on transactions')]),
+            ]),
+          ]),
+          div(classes: 'p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center gap-2', [
+            span(classes: 'text-sm', [Component.text('🪙')]),
+            div([
+              p(classes: 'font-bold text-zinc-200 text-[11px]', [Component.text('TYXBIT Tokens')]),
+              p(classes: 'text-[10px] text-zinc-400', [Component.text('Utility cryptocurrency')]),
+            ]),
+          ]),
+          div(classes: 'p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center gap-2', [
+            span(classes: 'text-sm', [Component.text('🔗')]),
+            div([
+              p(classes: 'font-bold text-zinc-200 text-[11px]', [Component.text('Crypto Wallet')]),
+              p(classes: 'text-[10px] text-zinc-400', [Component.text('MWA & Phantom support')]),
+            ]),
+          ]),
+          div(classes: 'p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center gap-2', [
+            span(classes: 'text-sm', [Component.text('⚡')]),
+            div([
+              p(classes: 'font-bold text-zinc-200 text-[11px]', [Component.text('Fast & Low Fees')]),
+              p(classes: 'text-[10px] text-zinc-400', [Component.text('Sub-second settlement')]),
+            ]),
+          ]),
+        ]),
+      ]),
+
+      div(classes: 'p-3 rounded-2xl logo-gradient text-white text-center shadow-lg shadow-indigo-600/20 space-y-0.5', [
+        p(classes: 'text-xs font-black tracking-wide uppercase', [
+          Component.text('One platform. Endless opportunities.'),
+        ]),
+        p(classes: 'text-[11px] opacity-90', [
+          Component.text('Your opportunities. Your rewards. Your TRANYX.'),
         ]),
       ]),
     ];

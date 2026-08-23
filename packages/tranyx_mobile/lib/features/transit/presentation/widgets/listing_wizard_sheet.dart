@@ -10,8 +10,13 @@ import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane
 
 class ListingWizardSheet extends ConsumerStatefulWidget {
   final bool isProperty;
+  final Map<String, dynamic>? initialItem;
 
-  const ListingWizardSheet({super.key, required this.isProperty});
+  const ListingWizardSheet({
+    super.key,
+    required this.isProperty,
+    this.initialItem,
+  });
 
   @override
   ConsumerState<ListingWizardSheet> createState() => _ListingWizardSheetState();
@@ -21,6 +26,8 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   int _step = 1;
   bool _isProcessing = false;
   String? _error;
+
+  bool get _isEditMode => widget.initialItem != null;
 
   // STEP 1 FIELDS (Specs)
   // Vehicle
@@ -84,20 +91,62 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   @override
   void initState() {
     super.initState();
-    if (widget.isProperty) {
-      _photoUrl1Controller.text =
-          'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=600&q=80';
-      _photoUrl2Controller.text =
-          'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=600&q=80';
+    if (widget.initialItem != null) {
+      final item = widget.initialItem!;
+      if (widget.isProperty) {
+        _titleController.text = item['title'] as String? ?? '';
+        _descriptionController.text = item['description'] as String? ?? '';
+        final catStr = item['category'] as String? ?? 'residential';
+        _selectedPropertyCategory = PropertyCategory.values.firstWhere(
+          (c) => c.name == catStr,
+          orElse: () => PropertyCategory.residential,
+        );
+        final typeStr = item['type'] as String? ?? 'house';
+        _selectedPropertyType = PropertyType.values.firstWhere(
+          (t) => t.name == typeStr,
+          orElse: () => PropertyType.house,
+        );
+        final rawAmenities = item['amenities'] as List? ?? [];
+        _selectedAmenities.addAll(rawAmenities.map((e) => e.toString()));
+
+        final monthly = (item['priceMonthly'] as num?)?.toDouble() ?? 0.0;
+        final weekly = (item['priceWeekly'] as num?)?.toDouble() ?? 0.0;
+        final daily = (item['priceDaily'] as num?)?.toDouble() ?? 0.0;
+        _priceMonthlyController.text = monthly > 0 ? monthly.toStringAsFixed(0) : '';
+        _priceWeeklyController.text = weekly > 0 ? weekly.toStringAsFixed(0) : '';
+        _priceDailyController.text = daily > 0 ? daily.toStringAsFixed(0) : '';
+
+        final secDeposit = (item['securityDepositAmount'] as num?)?.toDouble() ?? 0.0;
+        _securityDepositController.text = secDeposit.toStringAsFixed(0);
+
+        final advAmount = (item['advanceAmount'] as num?)?.toDouble() ?? 0.0;
+        _advancePaymentController.text = advAmount.toStringAsFixed(0);
+
+        _addressController.text = item['address'] as String? ?? '';
+
+        final photos = (item['photoUrls'] as List?)?.map((e) => e.toString()).toList() ?? [];
+        if (photos.isNotEmpty) _photoUrl1Controller.text = photos[0];
+        if (photos.length > 1) _photoUrl2Controller.text = photos[1];
+
+        _contractType = item['contractType'] as String? ?? 'Tranyx Standard';
+        _customTermsController.text = item['contractTerms'] as String? ?? '';
+      }
     } else {
-      _photoUrl1Controller.text =
-          'https://images.unsplash.com/photo-1542282088-fe8426682b8f?auto=format&fit=crop&w=600&q=80';
-      _photoUrl2Controller.text =
-          'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=600&q=80';
-      _photoUrl3Controller.text =
-          'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=600&q=80';
+      if (widget.isProperty) {
+        _photoUrl1Controller.text =
+            'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=600&q=80';
+        _photoUrl2Controller.text =
+            'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=600&q=80';
+      } else {
+        _photoUrl1Controller.text =
+            'https://images.unsplash.com/photo-1542282088-fe8426682b8f?auto=format&fit=crop&w=600&q=80';
+        _photoUrl2Controller.text =
+            'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=600&q=80';
+        _photoUrl3Controller.text =
+            'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=600&q=80';
+      }
+      _addressController.text = '1280 Silicon Ave, BGC, Metro Manila';
     }
-    _addressController.text = '1280 Silicon Ave, BGC, Metro Manila';
   }
 
   @override
@@ -133,6 +182,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   }
 
   double get _listingFee {
+    if (_isEditMode) return 0.0;
     if (widget.isProperty) {
       final monthly = double.tryParse(_priceMonthlyController.text) ?? 0.0;
       return monthly * 0.015;
@@ -198,46 +248,52 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
     if (widget.isProperty) {
       final title = _titleController.text.trim();
       final desc = _descriptionController.text.trim();
+
       if (title.isEmpty) {
-        setState(() => _error = 'Please enter a property title');
+        setState(() => _error = 'Please enter a listing title.');
         _scrollToTop(scrollController);
         return false;
       }
       if (desc.isEmpty) {
-        setState(() => _error = 'Please enter a property description');
+        setState(() => _error = 'Please enter a description.');
         _scrollToTop(scrollController);
         return false;
       }
       if (checkProfanity(title) || checkProfanity(desc)) {
-        setState(() => _error = 'Your title or description contains inappropriate language. Please review and try again.');
+        setState(
+          () => _error =
+              'Title or description contains inappropriate language.',
+        );
         _scrollToTop(scrollController);
         return false;
       }
     } else {
       final brand = _brandController.text.trim();
       final model = _modelController.text.trim();
-      if (brand.isEmpty) {
-        setState(() => _error = 'Please enter vehicle brand');
+      final plate = _plateController.text.trim();
+
+      if (brand.isEmpty || model.isEmpty || plate.isEmpty) {
+        setState(() => _error = 'Please fill out all vehicle specifications.');
         _scrollToTop(scrollController);
         return false;
       }
-      if (model.isEmpty) {
-        setState(() => _error = 'Please enter vehicle model');
+
+      if (!_isValidPhilippinePlate(plate)) {
+        setState(
+          () => _error =
+              'Please enter a valid Philippine plate (e.g. ABC-1234, ABC 1234, or 1234-5678901).',
+        );
         _scrollToTop(scrollController);
         return false;
       }
-      if (checkProfanity(brand) || checkProfanity(model)) {
-        setState(() => _error = 'Your vehicle brand or model contains inappropriate language. Please review and try again.');
-        _scrollToTop(scrollController);
-        return false;
-      }
-      if (_yearController.text.trim().isEmpty) {
-        setState(() => _error = 'Please select a vehicle year');
-        _scrollToTop(scrollController);
-        return false;
-      }
-      if (!_isValidPhilippinePlate(_plateController.text)) {
-        setState(() => _error = 'Please enter a valid Philippine Plate Number (e.g. ABC-1234, MC-12345) or MV File Number.');
+
+      if (checkProfanity(brand) ||
+          checkProfanity(model) ||
+          checkProfanity(plate)) {
+        setState(
+          () => _error =
+              'Specifications contain inappropriate language.',
+        );
         _scrollToTop(scrollController);
         return false;
       }
@@ -248,55 +304,62 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   bool _validateStep2(ScrollController scrollController) {
     setState(() => _error = null);
     if (widget.isProperty) {
-      final monthly =
-          double.tryParse(_priceMonthlyController.text.trim()) ?? 0.0;
-      if (monthly <= 0) {
-        setState(() => _error = 'Please enter a valid monthly rent amount');
+      final monthly = double.tryParse(_priceMonthlyController.text.trim());
+      if (monthly == null || monthly <= 0) {
+        setState(() => _error = 'Please enter a valid monthly rental rate.');
+        _scrollToTop(scrollController);
+        return false;
+      }
+      if (_addressController.text.trim().isEmpty) {
+        setState(() => _error = 'Please enter the property address.');
         _scrollToTop(scrollController);
         return false;
       }
     } else {
-      final daily = double.tryParse(_priceDailyController.text.trim()) ?? 0.0;
-      if (daily <= 0) {
-        setState(() => _error = 'Please enter a valid daily rate');
+      final daily = double.tryParse(_priceDailyController.text.trim());
+      if (daily == null || daily <= 0) {
+        setState(() => _error = 'Please enter a valid daily rate.');
         _scrollToTop(scrollController);
         return false;
       }
-      if (_offersDriver) {
-        final driverDaily =
-            double.tryParse(_driverDailyPriceController.text.trim()) ?? 0.0;
-        if (driverDaily <= 0) {
-          setState(() => _error = 'Please enter a driver daily rate');
-          _scrollToTop(scrollController);
-          return false;
-        }
-        if (_driverLicenseController.text.trim().isEmpty) {
-          setState(() => _error = 'Please enter driver\'s license number');
-          _scrollToTop(scrollController);
-          return false;
-        }
+      if (_addressController.text.trim().isEmpty) {
+        setState(() => _error = 'Please enter the vehicle pickup address.');
+        _scrollToTop(scrollController);
+        return false;
       }
-    }
-
-    if (_addressController.text.trim().isEmpty) {
-      setState(() => _error = 'Please enter an address location');
-      _scrollToTop(scrollController);
-      return false;
     }
     return true;
   }
 
   void _submitListing(ScrollController scrollController) async {
+    final userProfile = ref.read(userProfileProvider).value;
+    if (userProfile == null) return;
+
     setState(() {
       _isProcessing = true;
       _error = null;
     });
 
-    final userProfile = ref.read(userProfileProvider).value;
-    if (userProfile == null) {
+    if (_photoUrl1Controller.text.trim().isEmpty) {
       setState(() {
         _isProcessing = false;
-        _error = 'User profile not loaded';
+        _error = 'Please provide the Interior photo URL.';
+      });
+      _scrollToTop(scrollController);
+      return;
+    }
+    if (_photoUrl2Controller.text.trim().isEmpty) {
+      setState(() {
+        _isProcessing = false;
+        _error = 'Please provide the Front / Exterior photo URL.';
+      });
+      _scrollToTop(scrollController);
+      return;
+    }
+    if (!widget.isProperty && _photoUrl3Controller.text.trim().isEmpty) {
+      setState(() {
+        _isProcessing = false;
+        _error = 'Please provide the Back photo URL.';
       });
       _scrollToTop(scrollController);
       return;
@@ -313,7 +376,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
 
     final fee = _listingFee;
 
-    if (userProfile.tyxBalance < fee) {
+    if (!_isEditMode && userProfile.tyxBalance < fee) {
       setState(() {
         _isProcessing = false;
         _error =
@@ -339,7 +402,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         final depositMonths = monthly > 0 ? (depositAmt / monthly).round() : 0;
 
         final property = PropertyRental(
-          id: '',
+          id: _isEditMode ? (widget.initialItem!['id'] as String) : '',
           hostId: userProfile.uid,
           hostName: userProfile.name,
           hostPhotoUrl: userProfile.photoUrl ?? '',
@@ -354,11 +417,10 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           securityDepositAmount: depositAmt,
           advanceAmount: advanceAmt,
           address: _addressController.text.trim(),
-          latitude:
-              14.5995 +
-              (DateTime.now().millisecond % 100) *
-                  0.0001, // Mock local coordinate
-          longitude: 120.9842 + (DateTime.now().microsecond % 100) * 0.0001,
+          latitude: (widget.initialItem?['latitude'] as num?)?.toDouble() ??
+              (14.5995 + (DateTime.now().millisecond % 100) * 0.0001),
+          longitude: (widget.initialItem?['longitude'] as num?)?.toDouble() ??
+              (120.9842 + (DateTime.now().microsecond % 100) * 0.0001),
           photoUrls: [
             _photoUrl1Controller.text.trim(),
             _photoUrl2Controller.text.trim(),
@@ -372,7 +434,11 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           createdAt: DateTime.now(),
         );
 
-        await repo.createPropertyRental(property);
+        if (_isEditMode) {
+          await repo.updatePropertyRental(widget.initialItem!['id'] as String, property);
+        } else {
+          await repo.createPropertyRental(property);
+        }
       } else {
         final daily = double.tryParse(_priceDailyController.text.trim()) ?? 0.0;
         final hourly12 =
@@ -386,7 +452,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
             (daily / 24 * 1.5);
 
         final rental = VehicleRental(
-          id: '',
+          id: _isEditMode ? (widget.initialItem!['id'] as String) : '',
           hostId: userProfile.uid,
           hostName: userProfile.name,
           type: _selectedVehicleType,
@@ -407,8 +473,10 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           extensionRatePerHour: extPenalty,
           latePenaltyRatePerHour: extPenalty,
           pickupAddress: _addressController.text.trim(),
-          pickupLat: 14.5995 + (DateTime.now().millisecond % 100) * 0.0001,
-          pickupLng: 120.9842 + (DateTime.now().microsecond % 100) * 0.0001,
+          pickupLat: (widget.initialItem?['pickupLat'] as num?)?.toDouble() ??
+              (14.5995 + (DateTime.now().millisecond % 100) * 0.0001),
+          pickupLng: (widget.initialItem?['pickupLng'] as num?)?.toDouble() ??
+              (120.9842 + (DateTime.now().microsecond % 100) * 0.0001),
           status: 'Available',
           createdAt: DateTime.now(),
           vehicleValue: double.tryParse(_vehicleValueController.text.trim()) ?? 0,
@@ -439,7 +507,12 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         if (_gpsTrackerController.text.trim().isNotEmpty) {
           mapData['gpsTrackerId'] = _gpsTrackerController.text.trim();
         }
-        await repo.createRentalFromMap(mapData);
+
+        if (_isEditMode) {
+          await repo.updateRental(widget.initialItem!['id'] as String, mapData);
+        } else {
+          await repo.createRentalFromMap(mapData);
+        }
       }
 
       ref.invalidate(userProfileProvider);
@@ -453,7 +526,9 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${widget.isProperty ? "Property" : "Vehicle"} listed successfully! Posting fee deducted.',
+              _isEditMode
+                  ? 'Property listing updated successfully!'
+                  : '${widget.isProperty ? "Property" : "Vehicle"} listed successfully! Posting fee deducted.',
             ),
             backgroundColor: Colors.green,
           ),
@@ -528,9 +603,11 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.isProperty
-                                ? 'List a Property'
-                                : 'List a Vehicle',
+                            _isEditMode
+                                ? 'Edit Property Listing'
+                                : (widget.isProperty
+                                    ? 'List a Property'
+                                    : 'List a Vehicle'),
                             style: const TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -1597,7 +1674,11 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                     child: CircularProgressIndicator(),
                                   )
                                 : UIHelpers.buildPrimaryButton(
-                                  _step == 3 ? 'Publish Listing' : 'Next Step',
+                                  _step == 3
+                                      ? (_isEditMode
+                                          ? 'Save Changes'
+                                          : 'Publish Listing')
+                                      : 'Next Step',
                                   () {
                                     if (_step == 1) {
                                       if (_validateStep1(scrollController)) {

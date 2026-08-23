@@ -199,6 +199,41 @@ body {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer-dark {
+  background: linear-gradient(
+    90deg,
+    rgba(39, 39, 42, 0.7) 0%,
+    rgba(63, 63, 70, 0.4) 25%,
+    rgba(82, 82, 91, 0.65) 50%,
+    rgba(63, 63, 70, 0.4) 75%,
+    rgba(39, 39, 42, 0.7) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite ease-in-out;
+}
+
+.shimmer-light {
+  background: linear-gradient(
+    90deg,
+    rgba(244, 244, 245, 0.9) 0%,
+    rgba(228, 228, 231, 0.5) 25%,
+    rgba(212, 212, 216, 0.85) 50%,
+    rgba(228, 228, 231, 0.5) 75%,
+    rgba(244, 244, 245, 0.9) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite ease-in-out;
+}
+
 /* ── Metaball Canvas Container ──────────────────────────────────────────────
    The JS canvas engine creates its own wrapper + canvas inside this container.
    This element is just a full-screen positioner.

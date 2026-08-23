@@ -340,8 +340,9 @@ service cloud.firestore {
 
     // Escrow Holdbacks Collection
     match /escrow_holdbacks/{holdbackId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow write: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || isAdminOrStaff());
+      allow create, update: if isActiveUser() && (request.resource.data.uid == request.auth.uid || request.resource.data.employerId == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
     }
 
     // Rental Requests Collection
@@ -380,25 +381,71 @@ service cloud.firestore {
       allow write: if (isActiveUser() && (request.auth.uid == submissionId)) || isAdminOrStaff();
     }
 
-    // Escrow Collections (Restricted to Admin / Staff for state mutations)
+    // Escrow Collections (Job & Rental Escrows)
     match /escrow/{jobId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.creatorId == request.auth.uid || resource.data.workerId == request.auth.uid || isAdminOrStaff());
-      allow write: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        resource.data.creatorId == request.auth.uid || 
+        resource.data.employerId == request.auth.uid || 
+        resource.data.workerId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow create: if isActiveUser() && (
+        request.resource.data.employerId == request.auth.uid || 
+        request.resource.data.creatorId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow update: if isActiveUser() && (
+        resource.data.employerId == request.auth.uid || 
+        resource.data.creatorId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow delete: if isAdminOrStaff();
     }
 
     match /rental_escrows/{rentalId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.renterId == request.auth.uid || resource.data.hostId == request.auth.uid || isAdminOrStaff());
-      allow write: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        resource.data.renterId == request.auth.uid || 
+        resource.data.hostId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow create, update: if isActiveUser() && (
+        request.resource.data.renterId == request.auth.uid || 
+        request.resource.data.hostId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow delete: if isAdminOrStaff();
     }
 
     match /rental_extension_escrows/{extensionId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.renterId == request.auth.uid || resource.data.hostId == request.auth.uid || isAdminOrStaff());
-      allow write: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        resource.data.renterId == request.auth.uid || 
+        resource.data.hostId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow create, update: if isActiveUser() && (
+        request.resource.data.renterId == request.auth.uid || 
+        request.resource.data.hostId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow delete: if isAdminOrStaff();
     }
 
     match /property_escrows/{requestId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.renterId == request.auth.uid || resource.data.hostId == request.auth.uid || isAdminOrStaff());
-      allow write: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        resource.data.renterId == request.auth.uid || 
+        resource.data.hostId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow create, update: if isActiveUser() && (
+        request.resource.data.renterId == request.auth.uid || 
+        request.resource.data.hostId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow delete: if isAdminOrStaff();
     }
 
     // Wallet Links Collection

@@ -144,19 +144,18 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
 
       final subtotal = ref.read(pricingValueProvider);
       if (subtotal <= 0) return;
+      final platformFee = subtotal * 0.10; // 10% total employer fees (7% tx + 3% conv)
 
       Promo? bestPromo;
       double bestDiscount = -1.0;
 
       for (final p in autoPromos) {
-        double currentDiscount = 0.0;
-        if (p.discountType == 'percentage') {
-          currentDiscount = subtotal * (p.discountValue / 100.0);
-        } else {
-          currentDiscount = p.discountValue;
-        }
-        if (currentDiscount > bestDiscount) {
-          bestDiscount = currentDiscount;
+        final res = p.calculateDiscount(
+          basePrice: subtotal,
+          platformFee: platformFee,
+        );
+        if (res.discountAmount > bestDiscount) {
+          bestDiscount = res.discountAmount;
           bestPromo = p;
         }
       }
@@ -165,7 +164,7 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
         setState(() {
           _appliedPromo = bestPromo;
           _promoController.text = bestPromo!.code;
-          _promoFeedback = 'Auto-applied promo: ${bestPromo.code}';
+          _promoFeedback = 'Auto-applied promo: ${bestPromo!.name ?? bestPromo!.code}';
         });
       }
     } catch (e) {
@@ -216,6 +215,13 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
         });
         return;
       }
+      if (promo.startDate != null && promo.startDate!.isAfter(now)) {
+        setState(() {
+          _promoFeedback = 'This promo code is not active yet.';
+          _appliedPromo = null;
+        });
+        return;
+      }
       if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) {
         setState(() {
           _promoFeedback = 'This promo code has expired.';
@@ -243,6 +249,15 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
           !promo.eligibleUserUids!.contains(user.uid)) {
         setState(() {
           _promoFeedback = 'You are not eligible for this promo code.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      final subtotal = ref.read(pricingValueProvider);
+      final platformFee = subtotal * 0.10;
+      if (promo.minTransactionAmount != null && (subtotal + platformFee) < promo.minTransactionAmount!) {
+        setState(() {
+          _promoFeedback = 'Minimum transaction amount of ₱ ${promo.minTransactionAmount!.toStringAsFixed(0)} required.';
           _appliedPromo = null;
         });
         return;
@@ -736,39 +751,55 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text("Job Base Price"),
+                    const Text("Job Base Price (Belongs to Worker)"),
                     Text(
                       "₱ ${(ref.watch(pricingValueProvider)).toStringAsFixed(2)}",
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Employer Platform Fees (10%)"),
+                    Text(
+                      "₱ ${(ref.watch(pricingValueProvider) * 0.10).toStringAsFixed(2)}",
                     ),
                   ],
                 ),
                 if (_appliedPromo != null) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        "Promo Discount (${_appliedPromo!.code})",
-                        style: const TextStyle(
-                          color: Colors.green,
-                          fontWeight: FontWeight.bold,
-                        ),
+                  () {
+                    final subtotal = ref.watch(pricingValueProvider);
+                    final platformFee = subtotal * 0.10;
+                    final res = _appliedPromo!.calculateDiscount(
+                      basePrice: subtotal,
+                      platformFee: platformFee,
+                    );
+                    if (res.discountAmount <= 0) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            "Platform Fee Promo (${_appliedPromo!.code})",
+                            style: const TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            "- ₱ ${res.discountAmount.toStringAsFixed(2)}",
+                            style: const TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        "- ₱ ${(() {
-                          final subtotal = ref.watch(pricingValueProvider);
-                          if (_appliedPromo!.discountType == 'percentage') {
-                            return (subtotal * (_appliedPromo!.discountValue / 100.0)).toStringAsFixed(2);
-                          }
-                          return _appliedPromo!.discountValue.toStringAsFixed(2);
-                        })()}",
-                        style: const TextStyle(
-                          color: Colors.green,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
+                    );
+                  }(),
                 ],
                 const Divider(height: 24),
                 Row(
@@ -779,18 +810,7 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     Text(
-                      "₱ ${(() {
-                        final subtotal = ref.watch(pricingValueProvider);
-                        double discountAmt = 0.0;
-                        if (_appliedPromo != null) {
-                          if (_appliedPromo!.discountType == 'percentage') {
-                            discountAmt = subtotal * (_appliedPromo!.discountValue / 100.0);
-                          } else {
-                            discountAmt = _appliedPromo!.discountValue;
-                          }
-                        }
-                        return (subtotal - discountAmt).clamp(0.0, 999999.0).toStringAsFixed(2);
-                      })()}",
+                      "₱ ${(ref.watch(pricingValueProvider)).toStringAsFixed(2)}",
                       style: const TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 16,
@@ -1707,12 +1727,12 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                     double discountAmount = 0.0;
                     if (_appliedPromo != null) {
                       final subtotal = ref.read(pricingValueProvider);
-                      if (_appliedPromo!.discountType == 'percentage') {
-                        discountAmount =
-                            subtotal * (_appliedPromo!.discountValue / 100.0);
-                      } else {
-                        discountAmount = _appliedPromo!.discountValue;
-                      }
+                      final platformFee = subtotal * 0.10;
+                      final res = _appliedPromo!.calculateDiscount(
+                        basePrice: subtotal,
+                        platformFee: platformFee,
+                      );
+                      discountAmount = res.discountAmount;
                     }
 
                     final newJob = Job(

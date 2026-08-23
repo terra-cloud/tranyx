@@ -125,7 +125,7 @@ void main() {
       await repo.rejectDepositRequest(
         depositRequestId: reqId,
         adminUid: 'admin_verifier_1',
-        rejectionReason: 'Reference number not found in GCash merchant account records.',
+        reason: 'Reference number not found in GCash merchant account records.',
       );
 
       // 1. Status updated to REJECTED with reason

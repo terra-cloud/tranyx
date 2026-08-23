@@ -6,6 +6,7 @@ import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:intl/intl.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
+import 'listing_wizard_sheet.dart';
 
 class ManageListingSheet extends ConsumerStatefulWidget {
   final Map<String, dynamic> item;
@@ -149,7 +150,7 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Listing deleted successfully!')),
+          const SnackBar(content: Text('Listing cancelled and listing fee refunded to your wallet!')),
         );
       }
     } catch (e) {
@@ -658,9 +659,47 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                         ),
                       const SizedBox(height: 24),
 
-                      // Delete listing button
+                      // Actions when Available (Edit & Delete listing)
                       Row(
                         children: [
+                          if (_requests.isEmpty) ...[
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _isProcessing
+                                    ? null
+                                    : () {
+                                        Navigator.pop(context);
+                                        showModalBottomSheet(
+                                          context: context,
+                                          isScrollControlled: true,
+                                          backgroundColor: Colors.transparent,
+                                          builder: (context) =>
+                                              ListingWizardSheet(
+                                            isProperty: widget.isProperty,
+                                            initialItem: widget.item,
+                                          ),
+                                        );
+                                      },
+                                icon: const Icon(
+                                  Icons.edit_outlined,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                label: const Text(
+                                  'Edit Listing',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.indigo,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
                           Expanded(
                             child: OutlinedButton.icon(
                               onPressed: _isProcessing ? null : _deleteListing,
@@ -671,6 +710,7 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                               ),
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(color: Colors.red),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
                               ),
                             ),
                           ),

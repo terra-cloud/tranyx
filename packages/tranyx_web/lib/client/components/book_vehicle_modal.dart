@@ -162,22 +162,32 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     return _basePrice + _driverPrice;
   }
 
-  double get _discountAmount {
-    if (_appliedPromo == null) return 0.0;
-    if (_appliedPromo!.discountType == 'percentage') {
-      return _totalPrice * (_appliedPromo!.discountValue / 100.0);
-    } else {
-      return _appliedPromo!.discountValue;
+  double get _originalPlatformFee {
+    return _totalPrice * 0.03; // 3% TRANYX Platform Booking Fee
+  }
+
+  PromoCalculationResult get _promoResult {
+    if (_appliedPromo == null) {
+      return PromoCalculationResult(
+        basePrice: _totalPrice,
+        originalPlatformFee: _originalPlatformFee,
+        discountAmount: 0.0,
+        finalPlatformFee: _originalPlatformFee,
+        finalCustomerAmount: _totalPrice + _originalPlatformFee,
+        providerSettlement: _totalPrice,
+        tranyxRevenue: _originalPlatformFee,
+        tranyxPromoCost: 0.0,
+      );
     }
+    return _appliedPromo!.calculateDiscount(
+      basePrice: _totalPrice,
+      platformFee: _originalPlatformFee,
+    );
   }
 
-  double get _discountedTotalPrice {
-    return (_totalPrice - _discountAmount).clamp(0.0, 999999.0);
-  }
-
-  double get _bookingFee {
-    return _discountedTotalPrice * 0.03; // 3% renter fee on discounted cost
-  }
+  double get _discountAmount => _promoResult.discountAmount;
+  double get _bookingFee => _promoResult.finalPlatformFee;
+  double get _totalCustomerPays => _promoResult.finalCustomerAmount;
 
   DateTime _computeEndDateFor(DateTime start) {
     switch (_selectedPackage) {
@@ -357,19 +367,17 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         return;
       }
 
-      final subtotal = _totalPrice;
+      final platformFee = _originalPlatformFee;
       Promo? bestPromo;
       double bestDiscount = -1.0;
 
       for (final promoItem in autoPromos) {
-        double currentDiscount = 0.0;
-        if (promoItem.discountType == 'percentage') {
-          currentDiscount = subtotal * (promoItem.discountValue / 100.0);
-        } else {
-          currentDiscount = promoItem.discountValue;
-        }
-        if (currentDiscount > bestDiscount) {
-          bestDiscount = currentDiscount;
+        final res = promoItem.calculateDiscount(
+          basePrice: _totalPrice,
+          platformFee: platformFee,
+        );
+        if (res.discountAmount > bestDiscount) {
+          bestDiscount = res.discountAmount;
           bestPromo = promoItem;
         }
       }
@@ -379,7 +387,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         setState(() {
           _appliedPromo = bp;
           _promoCodeInput = bp.code;
-          _promoFeedback = 'Auto-applied promo: ${bp.code}';
+          _promoFeedback = 'Auto-applied promo: ${bp.name ?? bp.code}';
         });
       }
     } catch (e) {
@@ -430,6 +438,13 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         });
         return;
       }
+      if (promo.startDate != null && promo.startDate!.isAfter(now)) {
+        setState(() {
+          _promoFeedback = 'This promo code is not active yet.';
+          _appliedPromo = null;
+        });
+        return;
+      }
       if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) {
         setState(() {
           _promoFeedback = 'This promo code has expired.';
@@ -456,6 +471,13 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
           !promo.eligibleUserUids!.contains(currentUid)) {
         setState(() {
           _promoFeedback = 'You are not eligible for this promo code.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.minTransactionAmount != null && (_totalPrice + _originalPlatformFee) < promo.minTransactionAmount!) {
+        setState(() {
+          _promoFeedback = 'Minimum transaction amount of ₱ ${promo.minTransactionAmount!.toStringAsFixed(0)} required.';
           _appliedPromo = null;
         });
         return;
@@ -539,7 +561,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         return;
       }
 
-      final totalRequired = _discountedTotalPrice + _bookingFee;
+      final totalRequired = _totalCustomerPays;
       if (user.tyxBalance < totalRequired) {
         component.appState.setState(() {
           component.appState.depositAmount = totalRequired - user.tyxBalance;
@@ -550,6 +572,9 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
             'multiplier': _quantity,
             'licenseNumber': effectiveLicense,
             'totalCost': _totalPrice,
+            'bookingFee': _bookingFee,
+            'originalBookingFee': _originalPlatformFee,
+            'discountAmount': _discountAmount,
             'hireWithDriver': _hireWithDriver,
             'rentalType': _rentalType,
             'deliveryAddress': _rentalType == 'deliver' ? _deliveryAddress.trim() : null,
@@ -558,7 +583,6 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
             'startDate': _startDate!.millisecondsSinceEpoch,
             'endDate': _computedEndDate.millisecondsSinceEpoch,
             'promoCode': _appliedPromo?.code,
-            'discountAmount': _discountAmount,
           };
           component.appState.showBookVehicleModal = false;
         });
@@ -1313,22 +1337,35 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                     span([Component.text('Driver Service (Included)')]),
                     span(classes: 'font-bold', [Component.text('₱ ${_driverPrice.toStringAsFixed(2)}')]),
                   ]),
-                if (_appliedPromo != null)
-                  div(classes: 'flex justify-between text-sm text-emerald-500', [
-                    span([Component.text('Promo Discount (${_appliedPromo!.code})')]),
-                    span(classes: 'font-bold', [Component.text('- ₱ ${_discountAmount.toStringAsFixed(2)}')]),
-                  ]),
                 div(classes: 'flex justify-between text-sm', [
                   span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
-                    Component.text('Platform Booking Fee (3%)'),
+                    Component.text('TRANYX Platform Fee (3%)'),
                   ]),
-                  span(classes: 'font-bold text-purple-400', [Component.text('₱ ${_bookingFee.toStringAsFixed(2)}')]),
+                  span(classes: 'font-bold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                    Component.text('₱ ${_originalPlatformFee.toStringAsFixed(2)}'),
+                  ]),
                 ]),
+                if (_appliedPromo != null && _discountAmount > 0)
+                  div(classes: 'flex justify-between text-sm text-emerald-500 font-semibold', [
+                    span([Component.text('Platform Fee Discount (${_appliedPromo!.code})')]),
+                    span([Component.text('- ₱ ${_discountAmount.toStringAsFixed(2)}')]),
+                  ]),
+                if (_appliedPromo != null && _discountAmount > 0)
+                  div(classes: 'flex justify-between text-xs text-purple-400', [
+                    span([Component.text('Net Platform Fee Charged')]),
+                    span(classes: 'font-bold', [Component.text('₱ ${_bookingFee.toStringAsFixed(2)}')]),
+                  ]),
                 div(classes: 'h-px w-full bg-purple-500/20 my-2', []),
                 div(classes: 'flex justify-between', [
-                  span(classes: 'font-bold', [Component.text('Total Amount')]),
+                  span(classes: 'font-bold', [Component.text('Total Customer Pays')]),
                   span(classes: 'font-black text-xl text-purple-400', [
-                    Component.text('₱ ${(_discountedTotalPrice + _bookingFee).toStringAsFixed(2)}'),
+                    Component.text('₱ ${_totalCustomerPays.toStringAsFixed(2)}'),
+                  ]),
+                ]),
+                div(classes: 'flex justify-between text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"} pt-1', [
+                  span([Component.text('Host Settlement (100% Guaranteed)')]),
+                  span(classes: 'font-bold text-emerald-500', [
+                    Component.text('₱ ${_totalPrice.toStringAsFixed(2)}'),
                   ]),
                 ]),
               ]),

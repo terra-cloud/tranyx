@@ -375,12 +375,22 @@ void main() {
       final jobDoc = await firestore.collection('jobs').doc('job123').get();
       expect(jobDoc.data()!['status'], equals('Cancelled'));
 
-      // Verify escrow document is deleted and 100% refunded
+      // Verify escrow document status transitioned to refunded and 100% refunded
       final escrowDoc = await firestore.collection('escrow').doc('job123').get();
-      expect(escrowDoc.exists, isFalse);
+      expect(escrowDoc.exists, isTrue);
+      expect(escrowDoc.data()!['status'], equals('refunded'));
+      expect(escrowDoc.data()!['refundAmount'], equals(2000.0));
 
       final empDoc = await firestore.collection('users').doc('employer123').get();
       expect(empDoc.data()!['tyxBalance'], equals(7000.0));
+
+      // Verify refund transaction document created in transactions collection
+      final txDoc = await firestore.collection('transactions').doc('refund_job_job123').get();
+      expect(txDoc.exists, isTrue);
+      expect(txDoc.data()!['type'], equals('refund'));
+      expect(txDoc.data()!['category'], equals('refund'));
+      expect(txDoc.data()!['amount'], equals(2000.0));
+      expect(txDoc.data()!['status'], equals('Completed'));
 
       // Verify pending applications set to REJECTED_JOB_CANCELLED (TC-CNCL-02)
       final app1 = await firestore.collection('jobs').doc('job123').collection('applications').doc('applicant1').get();
@@ -521,6 +531,15 @@ void main() {
       final empDoc = await firestore.collection('users').doc('employer123').get();
       expect(empDoc.data()!['tyxBalance'], equals(2500.0));
 
+      final escrowDoc = await firestore.collection('escrow').doc('job123').get();
+      expect(escrowDoc.exists, isTrue);
+      expect(escrowDoc.data()!['status'], equals('refunded'));
+
+      final txDoc = await firestore.collection('transactions').doc('refund_job_job123').get();
+      expect(txDoc.exists, isTrue);
+      expect(txDoc.data()!['type'], equals('refund'));
+      expect(txDoc.data()!['amount'], equals(1500.0));
+
       // Verify audit log
       final logs = firestore.db.entries
           .where((e) => e.key.startsWith('job_cancellation_logs/'))
@@ -553,6 +572,44 @@ void main() {
       expect(
         () => repo.applyToJob(app),
         throwsA(predicate((e) => e.toString().contains('Cannot apply to a cancelled job'))),
+      );
+    });
+
+    test('TC-CNCL-08: Escrow refund fallback and duplicate cancellation protection', () async {
+      firestore.db['users/employer999'] = {
+        'uid': 'employer999',
+        'tyxBalance': 1000.0,
+      };
+      firestore.db['jobs/job999'] = {
+        'id': 'job999',
+        'creatorId': 'employer999',
+        'title': 'Plumbing Repair',
+        'status': 'Open',
+        'pricingValue': 1200.0,
+        'discountAmount': 200.0,
+      };
+      // No escrow document in db initially (fallback test)
+
+      await repo.cancelJob(jobId: 'job999', currentUserUid: 'employer999');
+
+      // Balance refunded via fallback (1200 - 200 = 1000) -> 1000 + 1000 = 2000
+      final empDoc = await firestore.collection('users').doc('employer999').get();
+      expect(empDoc.data()!['tyxBalance'], equals(2000.0));
+
+      final escrowDoc = await firestore.collection('escrow').doc('job999').get();
+      expect(escrowDoc.exists, isTrue);
+      expect(escrowDoc.data()!['status'], equals('refunded'));
+      expect(escrowDoc.data()!['amount'], equals(1000.0));
+
+      final txDoc = await firestore.collection('transactions').doc('refund_job_job999').get();
+      expect(txDoc.exists, isTrue);
+      expect(txDoc.data()!['type'], equals('refund'));
+      expect(txDoc.data()!['amount'], equals(1000.0));
+
+      // Attempting to cancel again should fail with INVALID_STATE_TRANSITION
+      expect(
+        () => repo.cancelJob(jobId: 'job999', currentUserUid: 'employer999'),
+        throwsA(predicate((e) => e.toString().contains('Job is already cancelled'))),
       );
     });
 

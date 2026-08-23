@@ -1017,6 +1017,9 @@ class FirestoreService {
     if (status == 'completed') {
       throw Exception('INVALID_STATE_TRANSITION: Cannot cancel a completed job.');
     }
+    if (status == 'cancelled' || status == 'admin_cancelled') {
+      throw Exception('INVALID_STATE_TRANSITION: Job is already cancelled.');
+    }
 
     final acceptedId = jobDoc['acceptedApplicantId'] as String?;
     final hasAcceptedNyxian = acceptedId != null && acceptedId.trim().isNotEmpty;
@@ -1032,8 +1035,17 @@ class FirestoreService {
 
     final employerId = jobDoc['creatorId'] as String?;
     final escrowDoc = await getEscrow(jobId);
-    if (escrowDoc != null && employerId != null) {
-      final totalEscrow = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+    final isAlreadyRefunded = escrowDoc != null && (escrowDoc['status'] as String? ?? '').toLowerCase() == 'refunded';
+
+    if (!isAlreadyRefunded && employerId != null && employerId.isNotEmpty) {
+      double totalEscrow = (escrowDoc?['amount'] as num?)?.toDouble() ?? 0.0;
+      if (totalEscrow <= 0.0) {
+        // Fallback to job pricing value minus any discount amount
+        final pricing = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
+        final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+        totalEscrow = (pricing - discount).clamp(0.0, 999999.0);
+      }
+
       if (totalEscrow > 0.0) {
         final empDoc = await getDocument('users/$employerId');
         if (empDoc != null) {
@@ -1043,8 +1055,36 @@ class FirestoreService {
             'tyxBalance': currentBal + totalEscrow,
           });
         }
+
+        // Update escrow document status from held to refunded
+        await createOrUpdate('escrow/$jobId', {
+          if (escrowDoc != null) ...escrowDoc,
+          'jobId': jobId,
+          'employerId': employerId,
+          'amount': totalEscrow,
+          'refundAmount': totalEscrow,
+          'status': 'refunded',
+          'refundedAt': DateTime.now().millisecondsSinceEpoch,
+          'refundedTo': employerId,
+        });
+
+        // Record refund in transactions collection
+        final jobTitle = (jobDoc['title'] as String?) ?? 'Job';
+        await setDocument('transactions/refund_job_$jobId', {
+          'id': 'refund_job_$jobId',
+          'uid': employerId,
+          'jobId': jobId,
+          'type': 'refund',
+          'category': 'refund',
+          'amount': totalEscrow,
+          'title': 'Job Escrow Refund',
+          'desc': '100% Escrow refund for cancelled job "$jobTitle"',
+          'status': 'Completed',
+          'method': 'Tranyx Escrow',
+          'originRail': 'internal_balance',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        });
       }
-      await deleteDocument('escrow/$jobId');
     }
 
     await setDocument('jobs/$jobId', {'status': 'Cancelled'});
@@ -1089,8 +1129,16 @@ class FirestoreService {
     final prevStatus = jobDoc['status'] as String? ?? 'Unknown';
 
     final escrowDoc = await getEscrow(jobId);
-    if (escrowDoc != null && employerId != null) {
-      final totalEscrow = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+    final isAlreadyRefunded = escrowDoc != null && (escrowDoc['status'] as String? ?? '').toLowerCase() == 'refunded';
+
+    if (!isAlreadyRefunded && employerId != null && employerId.isNotEmpty) {
+      double totalEscrow = (escrowDoc?['amount'] as num?)?.toDouble() ?? 0.0;
+      if (totalEscrow <= 0.0) {
+        final pricing = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
+        final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+        totalEscrow = (pricing - discount).clamp(0.0, 999999.0);
+      }
+
       if (totalEscrow > 0.0) {
         final empDoc = await getDocument('users/$employerId');
         if (empDoc != null) {
@@ -1100,8 +1148,36 @@ class FirestoreService {
             'tyxBalance': currentBal + totalEscrow,
           });
         }
+
+        // Update escrow document status from held to refunded
+        await createOrUpdate('escrow/$jobId', {
+          if (escrowDoc != null) ...escrowDoc,
+          'jobId': jobId,
+          'employerId': employerId,
+          'amount': totalEscrow,
+          'refundAmount': totalEscrow,
+          'status': 'refunded',
+          'refundedAt': DateTime.now().millisecondsSinceEpoch,
+          'refundedTo': employerId,
+        });
+
+        // Record refund in transactions collection
+        final jobTitle = (jobDoc['title'] as String?) ?? 'Job';
+        await setDocument('transactions/refund_job_$jobId', {
+          'id': 'refund_job_$jobId',
+          'uid': employerId,
+          'jobId': jobId,
+          'type': 'refund',
+          'category': 'refund',
+          'amount': totalEscrow,
+          'title': 'Job Escrow Refund (Admin Override)',
+          'desc': '100% Escrow refund via admin override for cancelled job "$jobTitle"',
+          'status': 'Completed',
+          'method': 'Tranyx Escrow',
+          'originRail': 'internal_balance',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        });
       }
-      await deleteDocument('escrow/$jobId');
     }
 
     await setDocument('jobs/$jobId', {'status': 'ADMIN_CANCELLED'});
@@ -1609,6 +1685,26 @@ class FirestoreService {
       } catch (e) {
         print('Error rejecting request $requestId during vehicle deletion: $e');
       }
+    }
+
+    // Refund listing fee (1.5% of daily price) to host
+    final host = await getUser(rental.hostId);
+    final listingFee = 0.015 * rental.priceDaily;
+    if (host != null && listingFee > 0.0) {
+      await updateTyxBalance(rental.hostId, host.tyxBalance + listingFee);
+      await setDocument('transactions/refund_veh_$rentalId', {
+        'id': 'refund_veh_$rentalId',
+        'uid': rental.hostId,
+        'type': 'refund',
+        'category': 'refund',
+        'amount': listingFee,
+        'title': 'Vehicle Listing Fee Refund',
+        'desc': '100% refund of listing fee for cancelled vehicle "${rental.year} ${rental.brand} ${rental.model}"',
+        'method': 'Tranyx Wallet',
+        'originRail': 'internal_balance',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'status': 'Completed',
+      });
     }
 
     await deleteDocument('rentals/$rentalId');
@@ -2967,7 +3063,7 @@ class FirestoreService {
     return docId;
   }
 
-  /// Delete property rental posting and reject pending requests
+  /// Delete property rental posting, refund listing fee, and reject pending requests
   Future<void> deletePropertyRental(String propertyId) async {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
@@ -2988,7 +3084,49 @@ class FirestoreService {
       }
     }
 
+    // Refund listing fee (1.5% of monthly price) to host
+    final host = await getUser(property.hostId);
+    final listingFee = 0.015 * property.priceMonthly;
+    if (host != null && listingFee > 0.0) {
+      await updateTyxBalance(property.hostId, host.tyxBalance + listingFee);
+      await setDocument('transactions/refund_prop_$propertyId', {
+        'id': 'refund_prop_$propertyId',
+        'uid': property.hostId,
+        'type': 'refund',
+        'category': 'refund',
+        'amount': listingFee,
+        'title': 'Property Listing Fee Refund',
+        'desc': '100% refund of listing fee for cancelled property "${property.title}"',
+        'method': 'Tranyx Wallet',
+        'originRail': 'internal_balance',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'status': 'Completed',
+      });
+    }
+
     await deleteDocument('properties/$propertyId');
+  }
+
+  /// Update an existing property rental posting (only if no active or pending bookings exist)
+  Future<void> updatePropertyRental(String propertyId, PropertyRental updatedProperty) async {
+    final propDoc = await getDocument('properties/$propertyId');
+    if (propDoc == null) throw Exception('Property listing not found.');
+
+    final existing = PropertyRental.fromMap(propDoc, propertyId);
+    if (existing.status != 'Available' || (existing.renteeId != null && existing.renteeId!.isNotEmpty)) {
+      throw Exception('Cannot edit property listing that is currently booked or active.');
+    }
+
+    final pendingRequests = await getPropertyPendingRequestsForProperty(propertyId);
+    if (pendingRequests.isNotEmpty) {
+      throw Exception('Cannot edit property terms while pending lease booking requests exist. Please review or reject pending requests first.');
+    }
+
+    final updatedMap = updatedProperty.toMap();
+    updatedMap['id'] = propertyId;
+    updatedMap['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+
+    await setDocument('properties/$propertyId', updatedMap);
   }
 
   /// Fetch all properties
@@ -3284,6 +3422,61 @@ class FirestoreService {
       uid: renteeId,
       title: 'Booking Request Rejected',
       message: 'Your request to rent "${reqDoc['title']}" was rejected. Funds have been refunded.',
+    );
+  }
+
+  /// Cancel a pending property booking request by the rentee and refund their wallet
+  Future<void> cancelPropertyBookingRequest(String requestId) async {
+    final reqDoc = await getDocument('property_requests/$requestId');
+    if (reqDoc == null) return;
+    if (reqDoc['status'] != 'Pending') return;
+
+    final renteeId = reqDoc['renteeId'] as String;
+    final hostId = reqDoc['hostId'] as String;
+    final totalCost = (reqDoc['totalCost'] as num).toDouble();
+    final bookingFee = (reqDoc['bookingFee'] as num).toDouble();
+    final refundAmount = totalCost + bookingFee;
+
+    // Set request status to Cancelled
+    await setDocument('property_requests/$requestId', {'status': 'Cancelled'});
+
+    // Revert promo usage
+    final promoCode = reqDoc['promoCode'] as String?;
+    if (promoCode != null) {
+      await decrementPromoUsage(promoCode, renteeId);
+    }
+
+    // Refund rentee
+    final rentee = await getUser(renteeId);
+    if (rentee != null) {
+      await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
+
+      // Save transaction record for refund
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'uid': renteeId,
+        'type': 'refund',
+        'category': 'refund',
+        'amount': refundAmount,
+        'title': 'Property Booking Cancelled',
+        'desc': 'Refund for cancelled request of property "${reqDoc['title']}"',
+        'method': 'Tranyx Wallet',
+        'originRail': 'internal_balance',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'status': 'Completed',
+      };
+      await setDocument('transactions/$txId', txData);
+    }
+
+    // Release/delete the held escrow
+    await deleteDocument('property_escrows/$requestId');
+
+    // Notify host
+    await createNotification(
+      uid: hostId,
+      title: 'Property Booking Request Cancelled',
+      message:
+          '${reqDoc['renteeName'] ?? "Renter"} has cancelled their booking request for your property "${reqDoc['title']}".',
     );
   }
 
@@ -3782,6 +3975,56 @@ class FirestoreService {
       ...promoDoc,
       'usedBy': usedBy,
       'usedCount': usedCount,
+    });
+  }
+
+  Future<void> seedAutoZeroFeePromoIfMissing() async {
+    try {
+      final doc = await getDocument('promos/ZEROFEES1000');
+      if (doc == null) {
+        final now = DateTime.now();
+        final zeroFeePromo = Promo(
+          code: 'ZEROFEES1000',
+          name: 'Auto Zero Platform Fees - First 1,000 Users',
+          description: 'Automatic 100% platform fee and transaction fee waiver for the first 1,000 users.',
+          discountType: 'percentage',
+          discountValue: 100.0,
+          applicableFee: 'all_fees',
+          applicableTo: 'both',
+          eligibleModules: ['jobs', 'services', 'rentals', 'vehicle_rentals', 'property_rentals', 'all'],
+          maxUsers: 1000,
+          maxUsesPerUser: 1,
+          usedCount: 0,
+          isSingleUsePerUser: true,
+          isAutoApply: true,
+          isActive: true,
+          createdAt: now,
+          startDate: now,
+          endDate: now.add(const Duration(days: 365)),
+          createdBy: 'system_admin',
+        );
+        await setDocument('promos/ZEROFEES1000', zeroFeePromo.toMap());
+        print('INFO: Seeded default ZEROFEES1000 promotion into Firestore.');
+      }
+    } catch (e) {
+      print('WARN: seedAutoZeroFeePromoIfMissing encountered error: $e');
+    }
+  }
+
+  Future<void> savePromo(Promo promo, {String? adminUid}) async {
+    final cleanCode = promo.code.trim().toUpperCase();
+    final previousDoc = await getDocument('promos/$cleanCode');
+    await setDocument('promos/$cleanCode', promo.toMap());
+
+    // Audit trail
+    final auditId = 'audit_${cleanCode}_${DateTime.now().millisecondsSinceEpoch}';
+    await setDocument('promo_audit_logs/$auditId', {
+      'promoCode': cleanCode,
+      'action': previousDoc == null ? 'create' : 'update',
+      'performedBy': adminUid ?? 'admin',
+      'previousState': previousDoc,
+      'newState': promo.toMap(),
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
   }
 
@@ -4449,13 +4692,22 @@ class FirestoreService {
     });
 
     // 4. Update transaction status
+    final cleanAgent = _cleanDisplayName(adminUid, fallback: 'Agent Desk');
+    final descText = referenceNumber.isNotEmpty
+        ? 'Reference #$referenceNumber approved by $cleanAgent'
+        : 'P2P Transfer approved by $cleanAgent';
+    final proofUrl = (reqDoc['proofImageUrl'] ?? reqDoc['proofUrl'] ?? reqDoc['receiptUrl'] ?? '') as String;
+
     final txDoc = await getDocument('transactions/p2p_dep_$depositRequestId');
     if (txDoc != null) {
       await createOrUpdate('transactions/p2p_dep_$depositRequestId', {
         ...txDoc,
         'status': 'COMPLETED',
+        'desc': descText,
         'verifiedAt': now,
         'adminUid': adminUid,
+        'agentName': cleanAgent,
+        if (proofUrl.isNotEmpty) 'proofImageUrl': proofUrl,
       });
     }
 
@@ -4463,7 +4715,7 @@ class FirestoreService {
     await createOrUpdate('notifications/notif_dep_${depositRequestId}_$now', {
       'uid': uid,
       'title': 'Deposit Approved & Credited!',
-      'message': 'Your $paymentMethod deposit of ₱${amount.toStringAsFixed(2)} (Ref: $referenceNumber) has been verified and credited to your wallet.',
+      'message': 'Your $paymentMethod deposit of ₱${amount.toStringAsFixed(2)} (Ref: $referenceNumber) has been verified by $cleanAgent and credited to your wallet.',
       'type': 'deposit_approved',
       'createdAt': now,
       'read': false,
@@ -4516,19 +4768,27 @@ class FirestoreService {
     });
   }
 
-  static String _cleanDisplayName(String? raw, {String fallback = 'TRANYX AGENT'}) {
+  static String _cleanDisplayName(String? raw, {String fallback = 'TRANYX Agent'}) {
     if (raw == null || raw.trim().isEmpty) return fallback;
     var text = raw.trim();
     if (text.contains('@')) {
-      final prefix = text.split('@').first;
-      text = prefix
-          .replaceAll(RegExp(r'[._\-]'), ' ')
-          .split(' ')
-          .where((s) => s.isNotEmpty)
-          .map((s) => s[0].toUpperCase() + (s.length > 1 ? s.substring(1).toLowerCase() : ''))
-          .join(' ');
+      text = text.split('@').first;
     }
-    return text.isEmpty ? fallback : text;
+    // Strip trailing digits (e.g. juana2 -> juana, agent1 -> agent)
+    text = text.replaceAll(RegExp(r'\d+$'), '');
+    final parts = text.split(RegExp(r'[._\-]')).where((s) => s.isNotEmpty).toList();
+    if (parts.isEmpty) return fallback;
+
+    final formatted = parts
+        .map((s) => s[0].toUpperCase() + (s.length > 1 ? s.substring(1).toLowerCase() : ''))
+        .toList();
+
+    if (formatted.any((p) => p.toLowerCase() == 'agent')) {
+      formatted.removeWhere((p) => p.toLowerCase() == 'agent');
+      if (formatted.isEmpty) return 'TRANYX Agent';
+      return 'Agent ${formatted.join(' ')}';
+    }
+    return 'Agent ${formatted.join(' ')}';
   }
 }
 

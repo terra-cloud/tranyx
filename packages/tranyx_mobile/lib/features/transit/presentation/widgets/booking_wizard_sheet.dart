@@ -130,22 +130,21 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
       final double driverCost = _hireWithDriver
           ? ((widget.item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0)
           : 0.0;
-      final subtotal = widget.isProperty 
+      final baseTotal = widget.isProperty 
           ? (baseRate * _multiplier)
           : ((_multiplier * baseRate) + (_multiplier * driverCost));
+      final platformFee = baseTotal * 0.03;
 
       Promo? bestPromo;
       double bestDiscount = -1.0;
 
       for (final p in autoPromos) {
-        double currentDiscount = 0.0;
-        if (p.discountType == 'percentage') {
-          currentDiscount = subtotal * (p.discountValue / 100.0);
-        } else {
-          currentDiscount = p.discountValue;
-        }
-        if (currentDiscount > bestDiscount) {
-          bestDiscount = currentDiscount;
+        final res = p.calculateDiscount(
+          basePrice: baseTotal,
+          platformFee: platformFee,
+        );
+        if (res.discountAmount > bestDiscount) {
+          bestDiscount = res.discountAmount;
           bestPromo = p;
         }
       }
@@ -154,7 +153,7 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
         setState(() {
           _appliedPromo = bestPromo;
           _promoController.text = bestPromo!.code;
-          _promoFeedback = 'Auto-applied promo: ${bestPromo.code}';
+          _promoFeedback = 'Auto-applied promo: ${bestPromo!.name ?? bestPromo!.code}';
         });
       }
     } catch (e) {
@@ -205,6 +204,13 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
         });
         return;
       }
+      if (promo.startDate != null && promo.startDate!.isAfter(now)) {
+        setState(() {
+          _promoFeedback = 'This promo code is not active yet.';
+          _appliedPromo = null;
+        });
+        return;
+      }
       if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) {
         setState(() {
           _promoFeedback = 'This promo code has expired.';
@@ -231,6 +237,21 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
           !promo.eligibleUserUids!.contains(user.uid)) {
         setState(() {
           _promoFeedback = 'You are not eligible for this promo code.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      final baseRate = _getRate(_selectedDurationType);
+      final double driverCost = _hireWithDriver
+          ? ((widget.item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0)
+          : 0.0;
+      final baseTotal = widget.isProperty 
+          ? (baseRate * _multiplier)
+          : ((_multiplier * baseRate) + (_multiplier * driverCost));
+      final platformFee = baseTotal * 0.03;
+      if (promo.minTransactionAmount != null && (baseTotal + platformFee) < promo.minTransactionAmount!) {
+        setState(() {
+          _promoFeedback = 'Minimum transaction amount of ₱ ${promo.minTransactionAmount!.toStringAsFixed(0)} required.';
           _appliedPromo = null;
         });
         return;
@@ -350,21 +371,27 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
 
     // Total calculation with SmartRateEngine base price:
     final baseTotal = optRate.totalBasePrice + driverCost;
+    final originalPlatformFee = baseTotal * 0.03;
     
-    double discountAmount = 0.0;
-    if (_appliedPromo != null) {
-      final subtotalForDiscount = widget.isProperty 
-          ? optRate.totalBasePrice
-          : baseTotal;
-      if (_appliedPromo!.discountType == 'percentage') {
-        discountAmount = subtotalForDiscount * (_appliedPromo!.discountValue / 100.0);
-      } else {
-        discountAmount = _appliedPromo!.discountValue;
-      }
-    }
-    final discountedBaseTotal = (baseTotal - discountAmount).clamp(0.0, 999999.0);
-    final bookingFee = discountedBaseTotal * 0.03;
-    final totalRequired = discountedBaseTotal + bookingFee;
+    final promoResult = _appliedPromo != null
+        ? _appliedPromo!.calculateDiscount(
+            basePrice: baseTotal,
+            platformFee: originalPlatformFee,
+          )
+        : PromoCalculationResult(
+            basePrice: baseTotal,
+            originalPlatformFee: originalPlatformFee,
+            discountAmount: 0.0,
+            finalPlatformFee: originalPlatformFee,
+            finalCustomerAmount: baseTotal + originalPlatformFee,
+            providerSettlement: baseTotal,
+            tranyxRevenue: originalPlatformFee,
+            tranyxPromoCost: 0.0,
+          );
+
+    final discountAmount = promoResult.discountAmount;
+    final bookingFee = promoResult.finalPlatformFee;
+    final totalRequired = promoResult.finalCustomerAmount;
     final balance = userProfile.tyxBalance;
     final hasEnoughBalance = balance >= totalRequired;
 
@@ -1080,13 +1107,23 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                               ],
                             ),
                           ],
-                          if (_appliedPromo != null) ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('TRANYX Platform Fee (3%)'),
+                              Text(
+                                '₱ ${originalPlatformFee.toStringAsFixed(2)}',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                          if (_appliedPromo != null && discountAmount > 0) ...[
                             const SizedBox(height: 8),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  'Promo Discount (${_appliedPromo!.code})',
+                                  'Platform Fee Promo (${_appliedPromo!.code})',
                                   style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
                                 ),
                                 Text(
@@ -1095,18 +1132,21 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                 ),
                               ],
                             ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Net Platform Fee Charged',
+                                  style: TextStyle(color: AppColors.indigo, fontSize: 12),
+                                ),
+                                Text(
+                                  '₱ ${bookingFee.toStringAsFixed(2)}',
+                                  style: const TextStyle(color: AppColors.indigo, fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                              ],
+                            ),
                           ],
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Platform Escrow Fee (3%)'),
-                              Text(
-                                '+ ₱ ${bookingFee.toStringAsFixed(2)}',
-                                style: const TextStyle(color: Colors.green),
-                              ),
-                            ],
-                          ),
                           const Divider(height: 24),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1121,6 +1161,24 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                   fontWeight: FontWeight.w900,
                                   fontSize: 16,
                                   color: AppColors.indigo,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Host Settlement (100% Guaranteed)',
+                                style: TextStyle(fontSize: 11, color: Colors.grey),
+                              ),
+                              Text(
+                                '₱ ${baseTotal.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green,
                                 ),
                               ),
                             ],

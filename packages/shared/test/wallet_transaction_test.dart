@@ -142,5 +142,47 @@ void main() {
       expect(parsed.referenceNumber, 'MAYA-998877');
       expect(parsed.status, 'PENDING_VERIFICATION');
     });
+
+    test('Correctly parses Escrow Refund transaction', () {
+      final data = {
+        'id': 'refund_job_abc',
+        'uid': 'user_emp',
+        'title': 'Job Escrow Refund',
+        'desc': '100% Escrow refund for cancelled job "Delivery Task"',
+        'amount': 1500.0,
+        'type': 'refund',
+        'status': 'Completed',
+        'method': 'Tranyx Escrow',
+        'createdAt': 1724056789000,
+      };
+
+      final tx = WalletTransaction.fromMap(data);
+
+      expect(tx.id, 'refund_job_abc');
+      expect(tx.originRail, TransactionOriginRail.internalBalance);
+      expect(tx.transactionType, WalletTransactionType.refund);
+      expect(tx.amount, 1500.0);
+      expect(tx.title, 'Job Escrow Refund');
+      expect(tx.status, 'Completed');
+    });
+
+    test('Correctly parses job_escrow_refund type', () {
+      final data = {
+        'id': 'refund_job_xyz',
+        'uid': 'user_emp',
+        'title': 'Job Escrow Refund',
+        'desc': '100% Escrow refund',
+        'amount': 850.0,
+        'type': 'job_escrow_refund',
+        'status': 'Completed',
+        'createdAt': 1724056789000,
+      };
+
+      final tx = WalletTransaction.fromMap(data);
+
+      expect(tx.id, 'refund_job_xyz');
+      expect(tx.transactionType, WalletTransactionType.refund);
+      expect(tx.amount, 850.0);
+    });
   });
 }
