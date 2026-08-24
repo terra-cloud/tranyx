@@ -387,16 +387,42 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
     final driverFee = hireWithDriver ? (driverDailyPrice * multInt) : 0.0;
     final baseRentalCost = totalCost - driverFee;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
-        ),
+    final record = WalletTransaction(
+      id: (item['id'] ?? 'veh_${item['contractId'] ?? 0}').toString(),
+      uid: myUid,
+      title: '$brand $model Rental',
+      desc: '$plate • $multiplier $durationType(s)',
+      amount: myRole == 'host' ? finalPaid : -finalPaid,
+      baseAmount: baseRentalCost,
+      driverFee: driverFee > 0 ? driverFee : null,
+      bookingFee: myRole != 'host' ? bookingFee : null,
+      commissionFee: myRole == 'host' ? commission : null,
+      listingFee: myRole == 'host' ? listingFee : null,
+      originRail: TransactionOriginRail.internalBalance,
+      transactionType: myRole == 'host'
+          ? WalletTransactionType.payout
+          : WalletTransactionType.onChainPayment,
+      status: 'Successful',
+      createdAt: startDate ?? DateTime.now().millisecondsSinceEpoch,
+    );
+
+    return InkWell(
+      onTap: () => TransactionDetailsSheet.show(
+        context,
+        transaction: record,
+        isDarkMode: isDarkMode,
       ),
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+          ),
+        ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -664,6 +690,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
           ),
         ],
       ),
+      ),
     );
   }
 
@@ -693,21 +720,46 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
 
     final listingFee = priceMonthly * 0.015;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
-        ),
+    final record = WalletTransaction(
+      id: (item['id'] ?? 'prop_${item['contractId'] ?? 0}').toString(),
+      uid: myUid,
+      title: title,
+      desc: address,
+      amount: myRole == 'host' ? finalPaid : -finalPaid,
+      baseAmount: totalCost,
+      bookingFee: myRole != 'host' ? bookingFee : null,
+      commissionFee: myRole == 'host' ? commission : null,
+      listingFee: myRole == 'host' ? listingFee : null,
+      originRail: TransactionOriginRail.internalBalance,
+      transactionType: myRole == 'host'
+          ? WalletTransactionType.payout
+          : WalletTransactionType.onChainPayment,
+      status: 'Successful',
+      createdAt: startDate ?? DateTime.now().millisecondsSinceEpoch,
+    );
+
+    return InkWell(
+      onTap: () => TransactionDetailsSheet.show(
+        context,
+        transaction: record,
+        isDarkMode: isDarkMode,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
@@ -955,6 +1007,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
           ),
         ],
       ),
+      ),
     );
   }
 
@@ -1201,21 +1254,54 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
     final isSuccessful =
         tx['status'] == 'Released' || tx['status'] == 'Successful';
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
-        ),
+    final myUid = ref.read(userProfileProvider).value?.uid ?? '';
+    final record = WalletTransaction(
+      id: (tx['id'] ?? 'gig_tx_${tx['timestamp'] ?? 0}').toString(),
+      uid: tx['uid']?.toString() ?? myUid,
+      title: title,
+      desc: desc,
+      amount: isEarningTab ? amount : -amount,
+      baseAmount: baseAmount > 0 ? baseAmount : null,
+      transactionFee: (tx['txFee'] as num?)?.toDouble(),
+      convenienceFee: (tx['convFee'] as num?)?.toDouble(),
+      commissionFee: (tx['commissionFee'] as num?)?.toDouble(),
+      holdbackAmount: (tx['holdbackAmount'] as num?)?.toDouble(),
+      originRail: TransactionOriginRail.internalBalance,
+      transactionType: isEarningTab
+          ? WalletTransactionType.payout
+          : (tx['kind'] == 'service_fee'
+              ? WalletTransactionType.feeDeduction
+              : (tx['kind'] == 'listing_fee'
+                  ? WalletTransactionType.listingFee
+                  : (tx['kind'] == 'subscription'
+                      ? WalletTransactionType.subscription
+                      : WalletTransactionType.onChainPayment))),
+      status: isSuccessful ? 'Successful' : 'Pending',
+      createdAt: (tx['timestamp'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
+    );
+
+    return InkWell(
+      onTap: () => TransactionDetailsSheet.show(
+        context,
+        transaction: record,
+        isDarkMode: isDarkMode,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
@@ -1332,6 +1418,33 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                           '₱ ${amount.toStringAsFixed(2)}',
                           style: const TextStyle(fontSize: 11),
                         ),
+                      ] else if (tx['kind'] == 'service_fee') ...[
+                        const Text(
+                          'Platform Fees (10% Total)',
+                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                        Text(
+                          '₱ ${amount.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ] else if (tx['kind'] == 'subscription') ...[
+                        const Text(
+                          'Subscription Plan',
+                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                        Text(
+                          '₱ ${amount.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ] else if (tx['kind'] == 'withdrawal') ...[
+                        const Text(
+                          'Disbursed Amount',
+                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                        Text(
+                          '₱ ${amount.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
                       ] else ...[
                         const Text(
                           'Base Budget',
@@ -1408,6 +1521,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -2088,12 +2202,42 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
       } else if (type == 'listing_fee') {
         pTrans.add({
           'title': tx['title'] ?? 'Listing Fee',
-          'desc': tx['desc'] ?? 'Platform Listing Fee',
+          'desc': tx['desc'] ?? 'Platform Listing Fee (1.5%)',
           'date': _formatDate(createdAtMs),
           'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
           'status': 'Successful',
           'timestamp': createdAtMs,
           'kind': 'listing_fee',
+        });
+      } else if (type == 'fee_deduction' || type == 'service_fee' || type == 'fee') {
+        pTrans.add({
+          'title': tx['title'] ?? 'Job Completion Fees (10%)',
+          'desc': tx['desc'] ?? '7% Transaction Fee & 3% Convenience Fee',
+          'date': _formatDate(createdAtMs),
+          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
+          'status': 'Successful',
+          'timestamp': createdAtMs,
+          'kind': 'service_fee',
+        });
+      } else if (type == 'subscription') {
+        pTrans.add({
+          'title': tx['title'] ?? 'Hybrid PRO Subscription',
+          'desc': tx['desc'] ?? 'Monthly Platform Subscription',
+          'date': _formatDate(createdAtMs),
+          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
+          'status': 'Successful',
+          'timestamp': createdAtMs,
+          'kind': 'subscription',
+        });
+      } else if (type == 'withdraw' || type == 'withdrawal') {
+        pTrans.add({
+          'title': tx['title'] ?? 'Wallet Withdrawal',
+          'desc': tx['desc'] ?? 'On-Chain / Bank Withdrawal',
+          'date': _formatDate(createdAtMs),
+          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
+          'status': tx['status'] ?? 'Completed',
+          'timestamp': createdAtMs,
+          'kind': 'withdrawal',
         });
       }
     }

@@ -1,3 +1,5 @@
+import 'platform_fee_config.dart';
+
 enum TransactionOriginRail {
   mwaOnChain,
   internalBalance,
@@ -9,6 +11,8 @@ enum WalletTransactionType {
   onChainPayment,
   subscription,
   listingFee,
+  feeDeduction,
+  payout,
   deposit,
   withdraw,
   refund,
@@ -38,6 +42,30 @@ class WalletTransaction {
   final String? adminUid;
   final int? verifiedAt;
 
+  // Detailed Fee & Breakdown Fields
+  final double? baseAmount;
+  final double? transactionFee;
+  final double? convenienceFee;
+  final double? commissionFee;
+  final double? serviceFeeAmount;
+  final double? markupAmount;
+  final double? bookingFee;
+  final double? listingFee;
+  final double? holdbackAmount;
+  final double? discountAmount;
+  final String? promoCode;
+  final double? driverFee;
+
+  // Snapshotted Fee Rates (Exact rates applied at transaction time)
+  final double? transactionFeeRate;
+  final double? convenienceFeeRate;
+  final double? commissionRate;
+  final double? serviceFeeRate;
+  final double? markupRate;
+  final double? bookingFeeRate;
+  final double? listingFeeRate;
+  final double? holdbackRate;
+
   const WalletTransaction({
     required this.id,
     required this.uid,
@@ -60,6 +88,26 @@ class WalletTransaction {
     this.rejectionReason,
     this.adminUid,
     this.verifiedAt,
+    this.baseAmount,
+    this.transactionFee,
+    this.convenienceFee,
+    this.commissionFee,
+    this.serviceFeeAmount,
+    this.markupAmount,
+    this.bookingFee,
+    this.listingFee,
+    this.holdbackAmount,
+    this.discountAmount,
+    this.promoCode,
+    this.driverFee,
+    this.transactionFeeRate,
+    this.convenienceFeeRate,
+    this.commissionRate,
+    this.serviceFeeRate,
+    this.markupRate,
+    this.bookingFeeRate,
+    this.listingFeeRate,
+    this.holdbackRate,
   });
 
   /// Factory parser with backwards compatibility for legacy transaction documents.
@@ -123,6 +171,10 @@ class WalletTransaction {
     WalletTransactionType txType;
     if (rawType.contains('refund') || rawType == 'refund' || rawType == 'job_escrow_refund') {
       txType = WalletTransactionType.refund;
+    } else if (rawType.contains('fee_deduction') || rawType == 'fee' || rawType == 'fees' || rawType == 'fee_deductions') {
+      txType = WalletTransactionType.feeDeduction;
+    } else if (rawType.contains('payout') || rawType == 'payout_released') {
+      txType = WalletTransactionType.payout;
     } else if (rawType.contains('escrow') || rawType == 'mwa_escrow_release') {
       txType = WalletTransactionType.mwaEscrowRelease;
     } else if (rawType == 'on_chain_payment' || rawType == 'onchain_payment') {
@@ -156,6 +208,43 @@ class WalletTransaction {
       verifiedAt = verifiedAtRaw.millisecondsSinceEpoch;
     }
 
+    final baseAmount = (map['baseAmount'] as num?)?.toDouble() ??
+        (map['principal'] as num?)?.toDouble() ??
+        (map['budget'] as num?)?.toDouble();
+    final transactionFee = (map['transactionFee'] as num?)?.toDouble() ??
+        (map['txFee'] as num?)?.toDouble();
+    final convenienceFee = (map['convenienceFee'] as num?)?.toDouble() ??
+        (map['convFee'] as num?)?.toDouble();
+    final commissionFee = (map['commissionFee'] as num?)?.toDouble() ??
+        (map['platformCommission'] as num?)?.toDouble() ??
+        (map['nyxianFee'] as num?)?.toDouble();
+    final serviceFeeAmount = (map['serviceFeeAmount'] as num?)?.toDouble() ??
+        (map['serviceFee'] as num?)?.toDouble();
+    final markupAmount = (map['markupAmount'] as num?)?.toDouble() ??
+        (map['markup'] as num?)?.toDouble();
+    final bookingFee = (map['bookingFee'] as num?)?.toDouble();
+    final listingFee = (map['listingFee'] as num?)?.toDouble();
+    final holdbackAmount = (map['holdbackAmount'] as num?)?.toDouble() ??
+        (map['inspectionHoldback'] as num?)?.toDouble();
+    final discountAmount = (map['discountAmount'] as num?)?.toDouble() ??
+        (map['discount'] as num?)?.toDouble();
+    final promoCode = map['promoCode'] as String?;
+    final driverFee = (map['driverFee'] as num?)?.toDouble() ??
+        (map['driverServicesFee'] as num?)?.toDouble();
+
+    // Snapshotted rate percentages
+    final transactionFeeRate = (map['transactionFeeRate'] as num?)?.toDouble() ??
+        (map['txFeeRate'] as num?)?.toDouble();
+    final convenienceFeeRate = (map['convenienceFeeRate'] as num?)?.toDouble() ??
+        (map['convFeeRate'] as num?)?.toDouble();
+    final commissionRate = (map['commissionRate'] as num?)?.toDouble() ??
+        (map['platformCommissionRate'] as num?)?.toDouble();
+    final serviceFeeRate = (map['serviceFeeRate'] as num?)?.toDouble();
+    final markupRate = (map['markupRate'] as num?)?.toDouble();
+    final bookingFeeRate = (map['bookingFeeRate'] as num?)?.toDouble();
+    final listingFeeRate = (map['listingFeeRate'] as num?)?.toDouble();
+    final holdbackRate = (map['holdbackRate'] as num?)?.toDouble();
+
     return WalletTransaction(
       id: id,
       uid: uid,
@@ -178,7 +267,161 @@ class WalletTransaction {
       rejectionReason: (map['rejectionReason'] ?? map['reason']) as String?,
       adminUid: map['adminUid'] as String?,
       verifiedAt: verifiedAt,
+      baseAmount: baseAmount,
+      transactionFee: transactionFee,
+      convenienceFee: convenienceFee,
+      commissionFee: commissionFee,
+      serviceFeeAmount: serviceFeeAmount,
+      markupAmount: markupAmount,
+      bookingFee: bookingFee,
+      listingFee: listingFee,
+      holdbackAmount: holdbackAmount,
+      discountAmount: discountAmount,
+      promoCode: promoCode,
+      driverFee: driverFee,
+      transactionFeeRate: transactionFeeRate,
+      convenienceFeeRate: convenienceFeeRate,
+      commissionRate: commissionRate,
+      serviceFeeRate: serviceFeeRate,
+      markupRate: markupRate,
+      bookingFeeRate: bookingFeeRate,
+      listingFeeRate: listingFeeRate,
+      holdbackRate: holdbackRate,
     );
+  }
+
+  /// Whether this transaction has any fee breakdown or pricing components
+  bool get hasBreakdown =>
+      baseAmount != null ||
+      transactionFee != null ||
+      convenienceFee != null ||
+      commissionFee != null ||
+      serviceFeeAmount != null ||
+      markupAmount != null ||
+      bookingFee != null ||
+      listingFee != null ||
+      holdbackAmount != null ||
+      driverFee != null ||
+      discountAmount != null ||
+      transactionType == WalletTransactionType.feeDeduction ||
+      transactionType == WalletTransactionType.payout ||
+      transactionType == WalletTransactionType.listingFee ||
+      title.toLowerCase().contains('fee') ||
+      title.toLowerCase().contains('payout');
+
+  double get computedBaseAmount {
+    if (baseAmount != null && baseAmount! > 0) return baseAmount!;
+    if (transactionType == WalletTransactionType.feeDeduction || title.toLowerCase().contains('completion fee')) {
+      final totalRate = effectiveTxFeeRate + effectiveConvFeeRate;
+      return amount > 0 ? (amount / (totalRate > 0 ? totalRate : 0.10)) : 0.0;
+    }
+    if (transactionType == WalletTransactionType.payout || title.toLowerCase().contains('payout')) {
+      final netRate = 1.0 - effectiveCommissionRate;
+      return amount > 0 ? (amount / (netRate > 0 ? netRate : 0.97)) : 0.0;
+    }
+    return amount.abs();
+  }
+
+  // --- Effective Snapshotted Rates & Formatted Labels ---
+
+  double get effectiveTxFeeRate {
+    if (transactionFeeRate != null) return transactionFeeRate!;
+    if (baseAmount != null && baseAmount! > 0 && transactionFee != null) {
+      return transactionFee! / baseAmount!;
+    }
+    return 0.07;
+  }
+
+  double get effectiveConvFeeRate {
+    if (convenienceFeeRate != null) return convenienceFeeRate!;
+    if (baseAmount != null && baseAmount! > 0 && convenienceFee != null) {
+      return convenienceFee! / baseAmount!;
+    }
+    return 0.03;
+  }
+
+  double get effectiveCommissionRate {
+    if (commissionRate != null) return commissionRate!;
+    if (baseAmount != null && baseAmount! > 0 && commissionFee != null) {
+      return commissionFee! / baseAmount!;
+    }
+    return 0.03;
+  }
+
+  double get effectiveServiceFeeRate {
+    if (serviceFeeRate != null) return serviceFeeRate!;
+    if (baseAmount != null && baseAmount! > 0 && serviceFeeAmount != null) {
+      return serviceFeeAmount! / baseAmount!;
+    }
+    return 0.01;
+  }
+
+  double get effectiveMarkupRate {
+    if (markupRate != null) return markupRate!;
+    if (baseAmount != null && baseAmount! > 0 && markupAmount != null) {
+      return markupAmount! / baseAmount!;
+    }
+    return 0.03;
+  }
+
+  double get effectiveBookingFeeRate {
+    if (bookingFeeRate != null) return bookingFeeRate!;
+    if (baseAmount != null && baseAmount! > 0 && bookingFee != null) {
+      return bookingFee! / baseAmount!;
+    }
+    return 0.03;
+  }
+
+  double get effectiveListingFeeRate {
+    if (listingFeeRate != null) return listingFeeRate!;
+    if (baseAmount != null && baseAmount! > 0 && listingFee != null) {
+      return listingFee! / baseAmount!;
+    }
+    return 0.015;
+  }
+
+  String get txFeePercentLabel => PlatformFeeConfig.formatPercent(effectiveTxFeeRate);
+  String get convFeePercentLabel => PlatformFeeConfig.formatPercent(effectiveConvFeeRate);
+  String get commissionPercentLabel => PlatformFeeConfig.formatPercent(effectiveCommissionRate);
+  String get serviceFeePercentLabel => PlatformFeeConfig.formatPercent(effectiveServiceFeeRate);
+  String get markupPercentLabel => PlatformFeeConfig.formatPercent(effectiveMarkupRate);
+  String get bookingFeePercentLabel => PlatformFeeConfig.formatPercent(effectiveBookingFeeRate);
+  String get listingFeePercentLabel => PlatformFeeConfig.formatPercent(effectiveListingFeeRate);
+  String get totalEmployerFeesPercentLabel =>
+      PlatformFeeConfig.formatPercent(effectiveTxFeeRate + effectiveConvFeeRate);
+
+  double get computedTxFee {
+    if (transactionFee != null && transactionFee! > 0) return transactionFee!;
+    if (transactionType == WalletTransactionType.feeDeduction || title.toLowerCase().contains('completion fee')) {
+      return computedBaseAmount * effectiveTxFeeRate;
+    }
+    return 0.0;
+  }
+
+  double get computedConvFee {
+    if (convenienceFee != null && convenienceFee! > 0) return convenienceFee!;
+    if (transactionType == WalletTransactionType.feeDeduction || title.toLowerCase().contains('completion fee')) {
+      return computedBaseAmount * effectiveConvFeeRate;
+    }
+    return 0.0;
+  }
+
+  double get computedCommissionFee {
+    if (commissionFee != null && commissionFee! > 0) return commissionFee!;
+    if (transactionType == WalletTransactionType.payout || title.toLowerCase().contains('payout')) {
+      return computedBaseAmount * effectiveCommissionRate;
+    }
+    return 0.0;
+  }
+
+  double get computedServiceFee {
+    if (serviceFeeAmount != null && serviceFeeAmount! > 0) return serviceFeeAmount!;
+    return computedBaseAmount * effectiveServiceFeeRate;
+  }
+
+  double get computedMarkup {
+    if (markupAmount != null && markupAmount! > 0) return markupAmount!;
+    return computedBaseAmount * effectiveMarkupRate;
   }
 
   Map<String, dynamic> toMap() {
@@ -208,6 +451,26 @@ class WalletTransaction {
       if (rejectionReason != null) 'rejectionReason': rejectionReason,
       if (adminUid != null) 'adminUid': adminUid,
       if (verifiedAt != null) 'verifiedAt': verifiedAt,
+      if (baseAmount != null) 'baseAmount': baseAmount,
+      if (transactionFee != null) 'transactionFee': transactionFee,
+      if (convenienceFee != null) 'convenienceFee': convenienceFee,
+      if (commissionFee != null) 'commissionFee': commissionFee,
+      if (serviceFeeAmount != null) 'serviceFeeAmount': serviceFeeAmount,
+      if (markupAmount != null) 'markupAmount': markupAmount,
+      if (bookingFee != null) 'bookingFee': bookingFee,
+      if (listingFee != null) 'listingFee': listingFee,
+      if (holdbackAmount != null) 'holdbackAmount': holdbackAmount,
+      if (discountAmount != null) 'discountAmount': discountAmount,
+      if (promoCode != null) 'promoCode': promoCode,
+      if (driverFee != null) 'driverFee': driverFee,
+      if (transactionFeeRate != null) 'transactionFeeRate': transactionFeeRate,
+      if (convenienceFeeRate != null) 'convenienceFeeRate': convenienceFeeRate,
+      if (commissionRate != null) 'commissionRate': commissionRate,
+      if (serviceFeeRate != null) 'serviceFeeRate': serviceFeeRate,
+      if (markupRate != null) 'markupRate': markupRate,
+      if (bookingFeeRate != null) 'bookingFeeRate': bookingFeeRate,
+      if (listingFeeRate != null) 'listingFeeRate': listingFeeRate,
+      if (holdbackRate != null) 'holdbackRate': holdbackRate,
     };
   }
 

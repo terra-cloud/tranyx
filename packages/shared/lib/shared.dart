@@ -16,4 +16,5 @@ export 'src/deposit_request.dart';
 export 'src/smart_rate_engine.dart';
 export 'src/gig_filter_engine.dart';
 export 'src/p2p_agent.dart';
+export 'src/platform_fee_config.dart';
 

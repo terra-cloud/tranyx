@@ -118,13 +118,15 @@ service cloud.firestore {
           (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
           (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'title', 'description', 'category', 'categoryGroup', 'employmentType', 
+            'id', 'title', 'description', 'category', 'categoryGroup', 'employmentType', 
             'dateRequirement', 'jobDate', 'timePreference', 'pricingType', 'pricingValue', 
             'locationType', 'address', 'landmark', 'status', 'applicantCount', 
             'recentApplicantPhotos', 'applicantUids', 'pickupAddress', 'pickupLat', 
             'pickupLng', 'destinationAddress', 'destinationLat', 'destinationLng', 
-            'hasTracker', 'acceptedApplicantId', 'completionCode', 'receiptUrl', 
-            'employerRated', 'promoCode', 'discountAmount'
+            'hasTracker', 'hasInspectionHoldback', 'imageUrls', 'acceptedApplicantId', 
+            'acceptedApplicantName', 'completionCode', 'receiptUrl', 'employerRated', 
+            'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl', 
+            'creatorName', 'creatorType', 'createdAt'
           ])
         ) ||
         // 1b. Creator (Employer): When job is completed/active, can ONLY submit employer rating (no editing pricing, addresses, requirements or unilateral cancelling!)
@@ -141,7 +143,12 @@ service cloud.firestore {
         // 3. Admin / Staff
         isAdminOrStaff();
 
-      allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid && (resource.data.status == 'Open' || resource.data.status == 'open')) || isAdminOrStaff();
+      allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid && (
+        resource.data.status == 'Open' || 
+        resource.data.status == 'open' || 
+        resource.data.status == 'Cancelled' || 
+        resource.data.status == 'cancelled'
+      )) || isAdminOrStaff();
 
       // Subcollection: Applications
       match /applications/{applicantId} {
@@ -400,7 +407,10 @@ service cloud.firestore {
         resource.data.creatorId == request.auth.uid || 
         isAdminOrStaff()
       );
-      allow delete: if isAdminOrStaff();
+      allow delete: if (isActiveUser() && (
+        resource.data.employerId == request.auth.uid || 
+        resource.data.creatorId == request.auth.uid
+      )) || isAdminOrStaff();
     }
 
     match /rental_escrows/{rentalId} {
@@ -415,7 +425,10 @@ service cloud.firestore {
         request.resource.data.hostId == request.auth.uid || 
         isAdminOrStaff()
       );
-      allow delete: if isAdminOrStaff();
+      allow delete: if (isActiveUser() && (
+        resource.data.renterId == request.auth.uid || 
+        resource.data.hostId == request.auth.uid
+      )) || isAdminOrStaff();
     }
 
     match /rental_extension_escrows/{extensionId} {
@@ -430,7 +443,10 @@ service cloud.firestore {
         request.resource.data.hostId == request.auth.uid || 
         isAdminOrStaff()
       );
-      allow delete: if isAdminOrStaff();
+      allow delete: if (isActiveUser() && (
+        resource.data.renterId == request.auth.uid || 
+        resource.data.hostId == request.auth.uid
+      )) || isAdminOrStaff();
     }
 
     match /property_escrows/{requestId} {
@@ -445,7 +461,10 @@ service cloud.firestore {
         request.resource.data.hostId == request.auth.uid || 
         isAdminOrStaff()
       );
-      allow delete: if isAdminOrStaff();
+      allow delete: if (isActiveUser() && (
+        resource.data.renterId == request.auth.uid || 
+        resource.data.hostId == request.auth.uid
+      )) || isAdminOrStaff();
     }
 
     // Wallet Links Collection

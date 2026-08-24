@@ -2032,7 +2032,7 @@ class TranyxAppState extends State<TranyxApp> {
           currentSkills.add(newSkill);
           if (userProfile != null) {
             final updatedProfile = userProfile!.copyWith(skills: currentSkills);
-            await svc.createOrUpdate('users/$uid', updatedProfile.toMap());
+            await svc.setDocument('users/$uid', {'skills': currentSkills});
             userProfile = updatedProfile;
           }
         }
@@ -3671,6 +3671,11 @@ class TranyxAppState extends State<TranyxApp> {
                 'title': 'Gig Payout Released',
                 'desc': 'Payout for completing job ${job['id']} (3% commission deducted)',
                 'amount': immediatePayout,
+                'baseAmount': price,
+                'commissionFee': platformFee,
+                'commissionRate': 0.03,
+                'holdbackAmount': holdbackAmount,
+                'holdbackRate': 0.10,
                 'status': 'Successful',
                 'method': 'Tranyx Wallet',
                 'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -3693,17 +3698,22 @@ class TranyxAppState extends State<TranyxApp> {
           });
         }
 
-        // Deduct fees from Employer Wallet (7% Transaction Fee + 3% Convenience Fee = 10%)
+        // Deduct fees from Employer Wallet using snapshotted rates
         final employerId = jobDoc['creatorId'] as String?;
+        final txFeeRate = (jobDoc['transactionFeeRate'] as num?)?.toDouble() ?? 0.07;
+        final convFeeRate = (jobDoc['convenienceFeeRate'] as num?)?.toDouble() ?? 0.03;
+        final serviceFeeRate = (jobDoc['serviceFeeRate'] as num?)?.toDouble() ?? 0.01;
+        final markupRate = (jobDoc['markupRate'] as num?)?.toDouble() ?? 0.03;
+        final txFee = price * txFeeRate;
+        final convFee = price * convFeeRate;
+        final totalFees = txFee + convFee;
+
         if (employerId != null) {
           final txEmpDoc = await svc.getDocument('transactions/fees_emp_${job['id']}');
           if (txEmpDoc == null) {
             final empDoc = await svc.getDocument('users/$employerId');
             if (empDoc != null) {
               final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-              final txFee = price * 0.07;
-              final convFee = price * 0.03;
-              final totalFees = txFee + convFee;
               await svc.createOrUpdate('users/$employerId', {
                 ...empDoc,
                 'tyxBalance': currentBal - totalFees,
@@ -3712,10 +3722,17 @@ class TranyxAppState extends State<TranyxApp> {
               // Log fee deduction transaction for Employer
               await svc.createOrUpdate('transactions/fees_emp_${job['id']}', {
                 'uid': employerId,
-                'title': 'Job Completion Fees (10%)',
+                'title': 'Job Completion Fees (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
                 'desc':
-                    '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job ${job['id']}',
+                    '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) for job ${job['id']}',
                 'amount': totalFees,
+                'baseAmount': price,
+                'transactionFee': txFee,
+                'convenienceFee': convFee,
+                'transactionFeeRate': txFeeRate,
+                'convenienceFeeRate': convFeeRate,
+                'serviceFeeRate': serviceFeeRate,
+                'markupRate': markupRate,
                 'status': 'Successful',
                 'method': 'Tranyx Wallet',
                 'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -3725,19 +3742,19 @@ class TranyxAppState extends State<TranyxApp> {
           }
         }
 
-        // Record all platform fees and company income (total 13% of base price)
-        final txFee = price * 0.07;
-        final convFee = price * 0.03;
+        // Record all platform fees and company income with snapshotted rates
         final totalCompanyIncome = platformFee + txFee + convFee;
         await svc.createOrUpdate('platform_fees/${job['id']}', {
           'jobId': job['id'],
           'amount': totalCompanyIncome,
-          'commissionFee': platformFee, // 3% from Nyxian
-          'transactionFee': txFee, // 7% from Employer
-          'convenienceFee': convFee, // 3% from Employer
-          'employerFees': txFee + convFee, // 10% total from Employer
-          'nyxianFee': platformFee, // 3% total from Nyxian
-          'totalFees': totalCompanyIncome, // 13% total Company Funds
+          'commissionFee': platformFee,
+          'transactionFee': txFee,
+          'convenienceFee': convFee,
+          'transactionFeeRate': txFeeRate,
+          'convenienceFeeRate': convFeeRate,
+          'employerFees': txFee + convFee,
+          'nyxianFee': platformFee,
+          'totalFees': totalCompanyIncome,
           'timestamp': DateTime.now().millisecondsSinceEpoch,
         });
 
@@ -3995,12 +4012,20 @@ class TranyxAppState extends State<TranyxApp> {
             }
 
             // Log payout transaction for Nyxian
+            final commissionRate = (jobDoc['commissionRate'] as num?)?.toDouble() ?? 0.03;
+            final holdbackRate = (jobDoc['holdbackRate'] as num?)?.toDouble() ?? 0.10;
             await svc.createOrUpdate('transactions/payout_nyx_$jobId', {
               'uid': nyxianId,
               'title': 'Gig Payout Released',
               'desc':
-                  'Payout for completing job $jobId (3% commission deducted${redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : ''})',
+                  'Payout for completing job $jobId (${PlatformFeeConfig.formatPercent(commissionRate)} commission deducted${redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : ''})',
               'amount': immediatePayout,
+              'baseAmount': price,
+              'commissionFee': actualPlatformFee,
+              'commissionRate': commissionRate,
+              'holdbackAmount': holdbackAmount,
+              'holdbackRate': holdbackRate,
+              if (redeemedPromoCode != null) 'promoCode': redeemedPromoCode,
               'status': 'Successful',
               'method': 'Tranyx Wallet',
               'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -4010,18 +4035,23 @@ class TranyxAppState extends State<TranyxApp> {
         }
       }
 
-      // 2.1 Deduct fees from Employer Wallet (7% Transaction Fee + 3% Convenience Fee = 10%)
+      // 2.1 Deduct fees from Employer Wallet using snapshotted rates
+      final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+      final discountedPrice = (price - discount).clamp(0.0, 999999.0);
+      final txFeeRate = (jobDoc['transactionFeeRate'] as num?)?.toDouble() ?? 0.07;
+      final convFeeRate = (jobDoc['convenienceFeeRate'] as num?)?.toDouble() ?? 0.03;
+      final serviceFeeRate = (jobDoc['serviceFeeRate'] as num?)?.toDouble() ?? 0.01;
+      final markupRate = (jobDoc['markupRate'] as num?)?.toDouble() ?? 0.03;
+      final txFee = discountedPrice * txFeeRate;
+      final convFee = discountedPrice * convFeeRate;
+      final totalFees = txFee + convFee;
+
       if (employerId != null) {
         final txEmpDoc = await svc.getDocument('transactions/fees_emp_$jobId');
         if (txEmpDoc == null) {
           final empDoc = await svc.getDocument('users/$employerId');
           if (empDoc != null) {
             final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
-            final discountedPrice = (price - discount).clamp(0.0, 999999.0);
-            final txFee = discountedPrice * 0.07;
-            final convFee = discountedPrice * 0.03;
-            final totalFees = txFee + convFee;
             await svc.createOrUpdate('users/$employerId', {
               ...empDoc,
               'tyxBalance': currentBal - totalFees,
@@ -4030,10 +4060,18 @@ class TranyxAppState extends State<TranyxApp> {
             // Log fee deduction transaction for Employer
             await svc.createOrUpdate('transactions/fees_emp_$jobId', {
               'uid': employerId,
-              'title': 'Job Completion Fees (10%)',
+              'title': 'Job Completion Fees (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
               'desc':
-                  '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
+                  '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
               'amount': totalFees,
+              'baseAmount': discountedPrice,
+              'transactionFee': txFee,
+              'convenienceFee': convFee,
+              'transactionFeeRate': txFeeRate,
+              'convenienceFeeRate': convFeeRate,
+              'serviceFeeRate': serviceFeeRate,
+              'markupRate': markupRate,
+              'discountAmount': discount,
               'status': 'Successful',
               'method': 'Tranyx Wallet',
               'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -4043,21 +4081,19 @@ class TranyxAppState extends State<TranyxApp> {
         }
       }
 
-      // 3. Record all platform fees and company income (total 13% of base price)
-      final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
-      final discountedPrice = (price - discount).clamp(0.0, 999999.0);
-      final txFee = discountedPrice * 0.07;
-      final convFee = discountedPrice * 0.03;
+      // 3. Record all platform fees and company income with snapshotted rates
       final totalCompanyIncome = actualPlatformFee + txFee + convFee;
       await svc.createOrUpdate('platform_fees/$jobId', {
         'jobId': jobId,
         'amount': totalCompanyIncome,
-        'commissionFee': actualPlatformFee, // 3% from Nyxian
-        'transactionFee': txFee, // 7% from Employer
-        'convenienceFee': convFee, // 3% from Employer
-        'employerFees': txFee + convFee, // 10% total from Employer
-        'nyxianFee': actualPlatformFee, // 3% total from Nyxian
-        'totalFees': totalCompanyIncome, // 13% total Company Funds
+        'commissionFee': actualPlatformFee,
+        'transactionFee': txFee,
+        'convenienceFee': convFee,
+        'transactionFeeRate': txFeeRate,
+        'convenienceFeeRate': convFeeRate,
+        'employerFees': txFee + convFee,
+        'nyxianFee': actualPlatformFee,
+        'totalFees': totalCompanyIncome,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
 
@@ -4504,19 +4540,26 @@ class TranyxAppState extends State<TranyxApp> {
         throw 'You are not authorized to delete this posting';
       }
 
-      // Check status: only Open jobs can be deleted/cancelled
+      // Check status: Open or Cancelled jobs can be deleted
       final status = (jobDoc['status'] as String? ?? '').toLowerCase();
-      if (status != 'open') {
-        throw 'Only open job postings can be deleted';
+      if (status != 'open' && status != 'cancelled') {
+        throw 'Only open or cancelled job postings can be deleted';
       }
 
-      // 1. Check for escrow
+      // 1. Check for escrow and calculate refundable amount
       final escrowDoc = await svc.getEscrow(jobId);
       double refundAmount = 0.0;
-      if (escrowDoc != null) {
+      if (escrowDoc != null && (escrowDoc['status'] as String? ?? '').toLowerCase() != 'refunded') {
         refundAmount = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+      }
+      if (refundAmount <= 0.0 && status == 'open') {
+        final pricing = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
+        final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+        refundAmount = (pricing - discount).clamp(0.0, 999999.0);
+      }
 
-        // 2. Refund to Employer
+      // 2. Refund to Employer if open and unrefunded
+      if (refundAmount > 0.0) {
         final empDoc = await svc.getDocument('users/$uid');
         if (empDoc != null) {
           final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
@@ -4525,6 +4568,23 @@ class TranyxAppState extends State<TranyxApp> {
           await svc.createOrUpdate('users/$uid', {
             ...empDoc,
             'tyxBalance': newBal,
+          });
+
+          // Record refund in transactions collection
+          final jobTitle = (jobDoc['title'] as String?) ?? 'Job';
+          await svc.createOrUpdate('transactions/refund_job_$jobId', {
+            'id': 'refund_job_$jobId',
+            'uid': uid,
+            'jobId': jobId,
+            'type': 'refund',
+            'category': 'refund',
+            'amount': refundAmount,
+            'title': 'Job Escrow Refund',
+            'desc': '100% Escrow refund for deleted job "$jobTitle"',
+            'status': 'Completed',
+            'method': 'Tranyx Escrow',
+            'originRail': 'internal_balance',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
           });
 
           // Update local balance
@@ -4539,9 +4599,13 @@ class TranyxAppState extends State<TranyxApp> {
         if (promoCode != null) {
           await svc.decrementPromoUsage(promoCode, uid);
         }
+      }
 
-        // 3. Delete escrow document
-        await svc.deleteDocument('escrow/$jobId');
+      // 3. Delete escrow document if exists
+      if (escrowDoc != null) {
+        try {
+          await svc.deleteDocument('escrow/$jobId');
+        } catch (_) {}
       }
 
       // 4. Delete the job document

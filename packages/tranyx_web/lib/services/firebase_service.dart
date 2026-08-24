@@ -763,7 +763,6 @@ class FirestoreService {
       onTokenRefresh: _refreshToken,
     );
     final docId = _docId(result);
-    await setDocument('jobs/$docId', {'id': docId});
 
     final creatorId = jobData['creatorId'] as String?;
     if (creatorId != null) {
@@ -1070,7 +1069,7 @@ class FirestoreService {
 
         // Record refund in transactions collection
         final jobTitle = (jobDoc['title'] as String?) ?? 'Job';
-        await setDocument('transactions/refund_job_$jobId', {
+        await createOrUpdate('transactions/refund_job_$jobId', {
           'id': 'refund_job_$jobId',
           'uid': employerId,
           'jobId': jobId,
@@ -1087,7 +1086,10 @@ class FirestoreService {
       }
     }
 
-    await setDocument('jobs/$jobId', {'status': 'Cancelled'});
+    await createOrUpdate('jobs/$jobId', {
+      ...jobDoc,
+      'status': 'Cancelled',
+    });
 
     // Update pending applications to REJECTED_JOB_CANCELLED
     final apps = await getApplications(jobId);
@@ -1103,7 +1105,7 @@ class FirestoreService {
 
     // Write cancellation log
     final logId = 'log_${DateTime.now().millisecondsSinceEpoch}';
-    await setDocument('job_cancellation_logs/$logId', {
+    await createOrUpdate('job_cancellation_logs/$logId', {
       'jobId': jobId,
       'cancelledBy': currentUserUid,
       'role': 'employer',
@@ -1163,7 +1165,7 @@ class FirestoreService {
 
         // Record refund in transactions collection
         final jobTitle = (jobDoc['title'] as String?) ?? 'Job';
-        await setDocument('transactions/refund_job_$jobId', {
+        await createOrUpdate('transactions/refund_job_$jobId', {
           'id': 'refund_job_$jobId',
           'uid': employerId,
           'jobId': jobId,
@@ -1180,10 +1182,13 @@ class FirestoreService {
       }
     }
 
-    await setDocument('jobs/$jobId', {'status': 'ADMIN_CANCELLED'});
+    await createOrUpdate('jobs/$jobId', {
+      ...jobDoc,
+      'status': 'ADMIN_CANCELLED',
+    });
 
     final adminLogId = 'log_admin_${DateTime.now().millisecondsSinceEpoch}';
-    await setDocument('job_cancellation_logs/$adminLogId', {
+    await createOrUpdate('job_cancellation_logs/$adminLogId', {
       'jobId': jobId,
       'adminUid': adminUid,
       'cancelledBy': adminUid,
@@ -1606,7 +1611,6 @@ class FirestoreService {
 
     final result = jsonDecode(req.body) as Map<String, dynamic>;
     final docId = _docId(result);
-    await setDocument('rentals/$docId', {'id': docId});
     return docId;
   }
 
@@ -1660,7 +1664,6 @@ class FirestoreService {
 
     final result = jsonDecode(req.body) as Map<String, dynamic>;
     final docId = _docId(result);
-    await setDocument('rentals/$docId', {'id': docId});
     return docId;
   }
 
@@ -3059,7 +3062,6 @@ class FirestoreService {
 
     final result = jsonDecode(req.body) as Map<String, dynamic>;
     final docId = _docId(result);
-    await setDocument('properties/$docId', {'id': docId});
     return docId;
   }
 
@@ -3956,7 +3958,6 @@ class FirestoreService {
     final usedCount = (promoDoc['usedCount'] as num? ?? 0).toInt() + 1;
 
     await setDocument('promos/$cleanCode', {
-      ...promoDoc,
       'usedBy': usedBy,
       'usedCount': usedCount,
     });
@@ -3972,7 +3973,6 @@ class FirestoreService {
     final usedCount = ((promoDoc['usedCount'] as num? ?? 0).toInt() - 1).clamp(0, 999999);
 
     await setDocument('promos/$cleanCode', {
-      ...promoDoc,
       'usedBy': usedBy,
       'usedCount': usedCount,
     });

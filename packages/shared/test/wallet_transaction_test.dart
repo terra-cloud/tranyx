@@ -184,5 +184,91 @@ void main() {
       expect(tx.transactionType, WalletTransactionType.refund);
       expect(tx.amount, 850.0);
     });
+
+    test('Snapshotted fee rates retain exact historical values (1% vs 2% service fee)', () {
+      // Historical Transaction 1: Executed when admin set service fee = 1% & markup = 3%
+      final tx1Data = {
+        'id': 'tx_hist_1',
+        'uid': 'user_emp_1',
+        'title': 'Job Completion Fees (4%)',
+        'desc': 'Fee deduction with 1% service fee and 3% markup',
+        'amount': 40.0,
+        'baseAmount': 1000.0,
+        'serviceFeeAmount': 10.0,
+        'markupAmount': 30.0,
+        'serviceFeeRate': 0.01,
+        'markupRate': 0.03,
+        'transactionFeeRate': 0.07,
+        'convenienceFeeRate': 0.03,
+        'type': 'fee_deduction',
+        'status': 'Successful',
+        'createdAt': 1700000000000,
+      };
+
+      // Newer Transaction 2: Executed when admin updated service fee = 2% & markup = 4%
+      final tx2Data = {
+        'id': 'tx_new_2',
+        'uid': 'user_emp_2',
+        'title': 'Job Completion Fees (6%)',
+        'desc': 'Fee deduction with 2% service fee and 4% markup',
+        'amount': 60.0,
+        'baseAmount': 1000.0,
+        'serviceFeeAmount': 20.0,
+        'markupAmount': 40.0,
+        'serviceFeeRate': 0.02,
+        'markupRate': 0.04,
+        'transactionFeeRate': 0.07,
+        'convenienceFeeRate': 0.03,
+        'type': 'fee_deduction',
+        'status': 'Successful',
+        'createdAt': 1710000000000,
+      };
+
+      final tx1 = WalletTransaction.fromMap(tx1Data);
+      final tx2 = WalletTransaction.fromMap(tx2Data);
+
+      // Verify Tx 1 displays 1% service fee and 3% markup
+      expect(tx1.serviceFeeRate, 0.01);
+      expect(tx1.markupRate, 0.03);
+      expect(tx1.serviceFeePercentLabel, '1%');
+      expect(tx1.markupPercentLabel, '3%');
+      expect(tx1.computedServiceFee, 10.0);
+      expect(tx1.computedMarkup, 30.0);
+
+      // Verify Tx 2 displays 2% service fee and 4% markup
+      expect(tx2.serviceFeeRate, 0.02);
+      expect(tx2.markupRate, 0.04);
+      expect(tx2.serviceFeePercentLabel, '2%');
+      expect(tx2.markupPercentLabel, '4%');
+      expect(tx2.computedServiceFee, 20.0);
+      expect(tx2.computedMarkup, 40.0);
+
+      // Both retain their respective rates concurrently without clobbering each other
+      expect(tx1.serviceFeePercentLabel, isNot(equals(tx2.serviceFeePercentLabel)));
+      expect(tx1.markupPercentLabel, isNot(equals(tx2.markupPercentLabel)));
+    });
+
+    test('Derives effective rate from base and fee amounts for legacy transactions', () {
+      final legacyData = {
+        'id': 'tx_legacy_fee',
+        'uid': 'user_emp',
+        'title': 'Job Completion Fees',
+        'amount': 100.0,
+        'baseAmount': 1000.0,
+        'transactionFee': 70.0,
+        'convenienceFee': 30.0,
+        'type': 'fee_deduction',
+        'status': 'Successful',
+        'createdAt': 1690000000000,
+      };
+
+      final tx = WalletTransaction.fromMap(legacyData);
+      expect(tx.effectiveTxFeeRate, 0.07);
+      expect(tx.effectiveConvFeeRate, 0.03);
+      expect(tx.txFeePercentLabel, '7%');
+      expect(tx.convFeePercentLabel, '3%');
+      expect(tx.totalEmployerFeesPercentLabel, '10%');
+    });
   });
 }
+

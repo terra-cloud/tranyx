@@ -3980,13 +3980,46 @@ class _HistoryViewState extends State<_HistoryView> {
         });
       } else if (record.transactionType == WalletTransactionType.listingFee) {
         pTrans.add({
-          'title': record.title,
-          'desc': record.desc,
+          'title': record.title.isNotEmpty ? record.title : 'Listing Fee',
+          'desc': record.desc.isNotEmpty ? record.desc : 'Platform Listing Fee (1.5%)',
           'date': _formatDate(createdAt),
           'amount': record.amount.abs(),
           'status': 'Successful',
           'timestamp': createdAt,
           'kind': 'listing_fee',
+        });
+      } else if (record.transactionType == WalletTransactionType.feeDeduction ||
+          (tx['type'] ?? '').toString().contains('fee')) {
+        pTrans.add({
+          'title': record.title.isNotEmpty ? record.title : 'Job Completion Fees (10%)',
+          'desc': record.desc.isNotEmpty ? record.desc : '7% Transaction Fee & 3% Convenience Fee',
+          'date': _formatDate(createdAt),
+          'amount': record.amount.abs(),
+          'status': 'Successful',
+          'timestamp': createdAt,
+          'kind': 'service_fee',
+        });
+      } else if (record.transactionType == WalletTransactionType.subscription ||
+          (tx['type'] ?? '').toString() == 'subscription') {
+        pTrans.add({
+          'title': record.title.isNotEmpty ? record.title : 'Hybrid PRO Subscription',
+          'desc': record.desc.isNotEmpty ? record.desc : 'Monthly Platform Membership',
+          'date': _formatDate(createdAt),
+          'amount': record.amount.abs(),
+          'status': 'Successful',
+          'timestamp': createdAt,
+          'kind': 'subscription',
+        });
+      } else if (record.transactionType == WalletTransactionType.withdraw ||
+          (tx['type'] ?? '').toString().contains('withdraw')) {
+        pTrans.add({
+          'title': record.title.isNotEmpty ? record.title : 'Wallet Withdrawal',
+          'desc': record.desc.isNotEmpty ? record.desc : 'Disbursed Funds',
+          'date': _formatDate(createdAt),
+          'amount': record.amount.abs(),
+          'status': record.status.isNotEmpty ? record.status : 'Completed',
+          'timestamp': createdAt,
+          'kind': 'withdrawal',
         });
       }
     }
@@ -4111,7 +4144,11 @@ class _HistoryViewState extends State<_HistoryView> {
         'status': e['status'] ?? 'Released',
         'method': e['method'] ?? 'Escrow Release',
         'timestamp': e['timestamp'] ?? 0,
+        'baseAmount': e['baseAmount'],
         'commissionFee': e['commissionFee'],
+        'holdbackAmount': e['holdbackAmount'],
+        'listingFee': e['listingFee'],
+        'kind': e['kind'],
         'isCompleted': true,
       });
     }
@@ -4190,8 +4227,8 @@ class _HistoryViewState extends State<_HistoryView> {
       unified.add({
         'id': p['id'] ?? 'pur_${p['timestamp']}_${p['title'].hashCode}',
         'type': 'debit',
-        'category': p['kind'] == 'listing_fee' ? 'fee' : 'purchase',
-        'categoryLabel': p['kind'] == 'listing_fee' ? 'Listing Fee' : 'Purchase / Booking',
+        'category': p['kind'] == 'listing_fee' ? 'fee' : (p['kind'] == 'service_fee' ? 'fee' : 'purchase'),
+        'categoryLabel': p['kind'] == 'listing_fee' ? 'Listing Fee' : (p['kind'] == 'service_fee' ? 'Completion Fees' : (p['kind'] == 'subscription' ? 'Subscription' : 'Purchase / Booking')),
         'title': p['title'] ?? 'Payment',
         'desc': p['desc'] ?? 'Platform payment',
         'date': p['date'] ?? _formatDate(p['timestamp'] as int?),
@@ -4199,6 +4236,16 @@ class _HistoryViewState extends State<_HistoryView> {
         'status': p['status'] ?? 'Successful',
         'method': p['method'] ?? 'Tyxbit Balance',
         'timestamp': p['timestamp'] ?? 0,
+        'baseAmount': p['baseAmount'],
+        'txFee': p['txFee'],
+        'convFee': p['convFee'],
+        'commissionFee': p['commissionFee'],
+        'bookingFee': p['bookingFee'],
+        'listingFee': p['listingFee'],
+        'holdbackAmount': p['holdbackAmount'],
+        'discountAmount': p['discountAmount'],
+        'driverFee': p['driverFee'],
+        'kind': p['kind'],
         'isCompleted': true,
       });
     }
@@ -4632,6 +4679,113 @@ class _HistoryViewState extends State<_HistoryView> {
                             span(classes: 'text-zinc-500 font-sans font-semibold', [Component.text('Ref:')]),
                             Component.text(tx['referenceNumber'] as String),
                           ]),
+                        // Itemized Fee & Service Charge Breakdown Card
+                        () {
+                          final cat = tx['category'] as String?;
+                          final amt = (tx['amount'] as num?)?.toDouble() ?? 0.0;
+                          final base = (tx['baseAmount'] as num?)?.toDouble() ?? (tx['txFee'] != null ? (amt / 1.10) : (tx['commissionFee'] != null ? (amt / 0.97) : amt));
+                          final txFee = (tx['txFee'] as num?)?.toDouble() ?? (tx['title'].toString().toLowerCase().contains('completion fee') ? base * 0.07 : null);
+                          final convFee = (tx['convFee'] as num?)?.toDouble() ?? (tx['title'].toString().toLowerCase().contains('completion fee') ? base * 0.03 : null);
+                          final commission = (tx['commissionFee'] as num?)?.toDouble() ?? (cat == 'earning' || cat == 'job_payout' ? base * 0.03 : null);
+                          final serviceFee = (tx['serviceFeeAmount'] as num?)?.toDouble() ?? (tx['serviceFee'] as num?)?.toDouble();
+                          final markup = (tx['markupAmount'] as num?)?.toDouble() ?? (tx['markup'] as num?)?.toDouble();
+                          final bookingFee = (tx['bookingFee'] as num?)?.toDouble();
+                          final listingFee = (tx['listingFee'] as num?)?.toDouble();
+                          final holdback = (tx['holdbackAmount'] as num?)?.toDouble();
+                          final driverFee = (tx['driverFee'] as num?)?.toDouble();
+
+                          final txFeeRate = (tx['transactionFeeRate'] as num?)?.toDouble() ??
+                              (tx['txFeeRate'] as num?)?.toDouble() ??
+                              (txFee != null && base > 0 ? (txFee / base) : 0.07);
+                          final convFeeRate = (tx['convenienceFeeRate'] as num?)?.toDouble() ??
+                              (tx['convFeeRate'] as num?)?.toDouble() ??
+                              (convFee != null && base > 0 ? (convFee / base) : 0.03);
+                          final commissionRate = (tx['commissionRate'] as num?)?.toDouble() ??
+                              (commission != null && base > 0 ? (commission / base) : 0.03);
+                          final serviceFeeRate = (tx['serviceFeeRate'] as num?)?.toDouble() ??
+                              (serviceFee != null && base > 0 ? (serviceFee / base) : 0.01);
+                          final markupRate = (tx['markupRate'] as num?)?.toDouble() ??
+                              (markup != null && base > 0 ? (markup / base) : 0.03);
+                          final bookingFeeRate = (tx['bookingFeeRate'] as num?)?.toDouble() ??
+                              (bookingFee != null && base > 0 ? (bookingFee / base) : 0.03);
+                          final listingFeeRate = (tx['listingFeeRate'] as num?)?.toDouble() ?? 0.015;
+
+                          final hasFees = txFee != null || convFee != null || commission != null || serviceFee != null || markup != null || bookingFee != null || listingFee != null || (holdback != null && holdback > 0) || (driverFee != null && driverFee > 0);
+
+                          if (!hasFees && cat != 'refund' && cat != 'topup') {
+                            return Component.empty();
+                          }
+
+                          return div(
+                            classes: 'mt-2 p-3 rounded-xl ${isDark ? "bg-zinc-900/90 border border-zinc-800/80" : "bg-zinc-100/90 border border-zinc-200/80"} text-xs space-y-1.5 max-w-lg',
+                            [
+                              div(classes: 'flex items-center justify-between text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1', [
+                                span([Component.text('Itemized Fee Breakdown')]),
+                                span(classes: 'text-indigo-400', [Component.text('Official Breakdown')]),
+                              ]),
+                              if (base > 0 && hasFees)
+                                div(classes: 'flex justify-between text-zinc-400 text-[11px]', [
+                                  span([Component.text('Base Contract / Rental Value:')]),
+                                  span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [Component.text(formatCurrency(base))]),
+                                ]),
+                              if (txFee != null && txFee > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Transaction Processing Fee (${PlatformFeeConfig.formatPercent(txFeeRate)}):')]),
+                                  span(classes: 'font-semibold text-rose-400', [Component.text('+ ${formatCurrency(txFee)}')]),
+                                ]),
+                              if (convFee != null && convFee > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Platform Convenience Fee (${PlatformFeeConfig.formatPercent(convFeeRate)}):')]),
+                                  span(classes: 'font-semibold text-rose-400', [Component.text('+ ${formatCurrency(convFee)}')]),
+                                ]),
+                              if (serviceFee != null && serviceFee > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Service Fee (${PlatformFeeConfig.formatPercent(serviceFeeRate)}):')]),
+                                  span(classes: 'font-semibold text-rose-400', [Component.text('+ ${formatCurrency(serviceFee)}')]),
+                                ]),
+                              if (markup != null && markup > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Markup (${PlatformFeeConfig.formatPercent(markupRate)}):')]),
+                                  span(classes: 'font-semibold text-rose-400', [Component.text('+ ${formatCurrency(markup)}')]),
+                                ]),
+                              if (commission != null && commission > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Platform Commission (${PlatformFeeConfig.formatPercent(commissionRate)}):')]),
+                                  span(classes: 'font-semibold text-rose-400', [Component.text('− ${formatCurrency(commission)}')]),
+                                ]),
+                              if (bookingFee != null && bookingFee > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Platform Booking Fee (${PlatformFeeConfig.formatPercent(bookingFeeRate)}):')]),
+                                  span(classes: 'font-semibold text-rose-400', [Component.text('+ ${formatCurrency(bookingFee)}')]),
+                                ]),
+                              if (listingFee != null && listingFee > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Listing Fee (${PlatformFeeConfig.formatPercent(listingFeeRate)} Upfront):')]),
+                                  span(classes: 'font-semibold text-zinc-300', [Component.text(formatCurrency(listingFee))]),
+                                ]),
+                              if (driverFee != null && driverFee > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Driver Services Add-on:')]),
+                                  span(classes: 'font-semibold text-indigo-400', [Component.text('+ ${formatCurrency(driverFee)}')]),
+                                ]),
+                              if (holdback != null && holdback > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-amber-400', [Component.text('Inspection Holdback (10% - 48h):')]),
+                                  span(classes: 'font-semibold text-amber-400', [Component.text('− ${formatCurrency(holdback)}')]),
+                                ]),
+                              if (cat == 'refund')
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-emerald-400', [Component.text('Full Escrow Refund:')]),
+                                  span(classes: 'font-semibold text-emerald-400', [Component.text('100% Principal (0% Fee)')]),
+                                ]),
+                              if (cat == 'topup' && !hasFees)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-emerald-400', [Component.text('Top-Up Processing:')]),
+                                  span(classes: 'font-semibold text-emerald-400', [Component.text('0% Fee (Free)')]),
+                                ]),
+                            ],
+                          );
+                        }(),
                         // Proof of Receipt for P2P Transactions
                         if (tx['originRail'] == 'manual_p2p') ...[
                           () {

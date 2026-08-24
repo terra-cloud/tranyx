@@ -188,6 +188,10 @@ class TransactionDetailsSheet extends StatelessWidget {
               ),
               const SizedBox(height: 24),
 
+              // Itemized Fee & Service Charge Breakdown
+              _buildFeeBreakdownSection(tx, isDarkMode),
+              const SizedBox(height: 24),
+
               // Rail Origin Details
               Text(
                 'TRANSACTION ORIGIN & METADATA',
@@ -607,6 +611,310 @@ class TransactionDetailsSheet extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFeeBreakdownSection(WalletTransaction tx, bool isDarkMode) {
+    final isFeeDeduction = tx.transactionType == WalletTransactionType.feeDeduction ||
+        tx.title.toLowerCase().contains('fee') ||
+        tx.title.toLowerCase().contains('completion fee');
+    final isPayout = tx.transactionType == WalletTransactionType.payout ||
+        tx.title.toLowerCase().contains('payout');
+    final isListingFee = tx.transactionType == WalletTransactionType.listingFee ||
+        tx.title.toLowerCase().contains('listing fee');
+    final isDeposit = tx.amount >= 0 ||
+        tx.transactionType == WalletTransactionType.deposit ||
+        tx.transactionType == WalletTransactionType.refund;
+    final isRefund = tx.transactionType == WalletTransactionType.refund ||
+        tx.title.toLowerCase().contains('refund');
+
+    final base = tx.computedBaseAmount;
+    final txFee = tx.computedTxFee;
+    final convFee = tx.computedConvFee;
+    final commission = tx.computedCommissionFee;
+    final holdback = tx.holdbackAmount ?? 0.0;
+    final discount = tx.discountAmount ?? 0.0;
+    final driverFee = tx.driverFee ?? 0.0;
+    final bookingFee = tx.bookingFee ?? (tx.transactionType == WalletTransactionType.onChainPayment ? (base * 0.03) : 0.0);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'ITEMIZED FEE & SERVICE BREAKDOWN',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.8,
+                color: isDarkMode
+                    ? AppColors.darkTextMuted
+                    : AppColors.lightTextMuted,
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.indigo.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                'OFFICIAL RECEIPT',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.indigo,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isDarkMode ? AppColors.darkBg : const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (isFeeDeduction) ...[
+                // Employer Completion Fees breakdown
+                _buildBreakdownLine(
+                  label: 'Contract Base Amount',
+                  value: '₱ ${base.toStringAsFixed(2)}',
+                  isDarkMode: isDarkMode,
+                ),
+                if (discount > 0) ...[
+                  const SizedBox(height: 6),
+                  _buildBreakdownLine(
+                    label: 'Promo Code Discount',
+                    value: '− ₱ ${discount.toStringAsFixed(2)}',
+                    valueColor: Colors.green,
+                    isDarkMode: isDarkMode,
+                  ),
+                  const SizedBox(height: 6),
+                  _buildBreakdownLine(
+                    label: 'Discounted Subtotal',
+                    value: '₱ ${(base - discount).clamp(0.0, 999999.0).toStringAsFixed(2)}',
+                    isDarkMode: isDarkMode,
+                  ),
+                ],
+                const SizedBox(height: 6),
+                _buildBreakdownLine(
+                  label: 'Transaction Processing Fee (${tx.txFeePercentLabel})',
+                  value: '+ ₱ ${txFee.toStringAsFixed(2)}',
+                  valueColor: Colors.red.shade400,
+                  isDarkMode: isDarkMode,
+                ),
+                const SizedBox(height: 6),
+                _buildBreakdownLine(
+                  label: 'Platform Convenience Fee (${tx.convFeePercentLabel})',
+                  value: '+ ₱ ${convFee.toStringAsFixed(2)}',
+                  valueColor: Colors.red.shade400,
+                  isDarkMode: isDarkMode,
+                ),
+                if (tx.serviceFeeAmount != null && tx.serviceFeeAmount! > 0) ...[
+                  const SizedBox(height: 6),
+                  _buildBreakdownLine(
+                    label: 'Service Fee (${tx.serviceFeePercentLabel})',
+                    value: '+ ₱ ${tx.computedServiceFee.toStringAsFixed(2)}',
+                    valueColor: Colors.red.shade400,
+                    isDarkMode: isDarkMode,
+                  ),
+                ],
+                if (tx.markupAmount != null && tx.markupAmount! > 0) ...[
+                  const SizedBox(height: 6),
+                  _buildBreakdownLine(
+                    label: 'Markup (${tx.markupPercentLabel})',
+                    value: '+ ₱ ${tx.computedMarkup.toStringAsFixed(2)}',
+                    valueColor: Colors.red.shade400,
+                    isDarkMode: isDarkMode,
+                  ),
+                ],
+                const Divider(height: 18),
+                _buildBreakdownLine(
+                  label: 'Total Employer Fees (${tx.totalEmployerFeesPercentLabel})',
+                  value: '₱ ${tx.amount.abs().toStringAsFixed(2)}',
+                  isBold: true,
+                  isDarkMode: isDarkMode,
+                ),
+              ] else if (isPayout) ...[
+                // Worker Payout breakdown
+                _buildBreakdownLine(
+                  label: 'Gross Contract Value',
+                  value: '₱ ${base.toStringAsFixed(2)}',
+                  isDarkMode: isDarkMode,
+                ),
+                const SizedBox(height: 6),
+                _buildBreakdownLine(
+                  label: 'Platform Commission (${tx.commissionPercentLabel})',
+                  value: '− ₱ ${commission.toStringAsFixed(2)}',
+                  valueColor: Colors.red.shade400,
+                  isDarkMode: isDarkMode,
+                ),
+                if (holdback > 0) ...[
+                  const SizedBox(height: 6),
+                  _buildBreakdownLine(
+                    label: 'Inspection Holdback (10% - 48h Guarantee)',
+                    value: '− ₱ ${holdback.toStringAsFixed(2)}',
+                    valueColor: Colors.amber.shade700,
+                    isDarkMode: isDarkMode,
+                  ),
+                ],
+                const Divider(height: 18),
+                _buildBreakdownLine(
+                  label: 'Net Released Payout',
+                  value: '+ ₱ ${tx.amount.abs().toStringAsFixed(2)}',
+                  isBold: true,
+                  valueColor: Colors.green,
+                  isDarkMode: isDarkMode,
+                ),
+              ] else if (isListingFee) ...[
+                // Listing Fee breakdown
+                _buildBreakdownLine(
+                  label: 'Listing Base Value',
+                  value: '₱ ${(base > 0 ? base : tx.amount / tx.effectiveListingFeeRate).toStringAsFixed(2)}',
+                  isDarkMode: isDarkMode,
+                ),
+                const SizedBox(height: 6),
+                _buildBreakdownLine(
+                  label: 'Upfront Activation Rate',
+                  value: tx.listingFeePercentLabel,
+                  isDarkMode: isDarkMode,
+                ),
+                const Divider(height: 18),
+                _buildBreakdownLine(
+                  label: 'Total Listing Fee Paid',
+                  value: '₱ ${tx.amount.abs().toStringAsFixed(2)}',
+                  isBold: true,
+                  isDarkMode: isDarkMode,
+                ),
+              ] else if (isRefund) ...[
+                // Refund breakdown
+                _buildBreakdownLine(
+                  label: 'Original Escrow Locked Principal',
+                  value: '₱ ${tx.amount.abs().toStringAsFixed(2)}',
+                  isDarkMode: isDarkMode,
+                ),
+                const SizedBox(height: 6),
+                _buildBreakdownLine(
+                  label: 'Cancellation Penalty / Surcharge',
+                  value: '₱ 0.00 (0% Fee)',
+                  valueColor: Colors.green,
+                  isDarkMode: isDarkMode,
+                ),
+                const Divider(height: 18),
+                _buildBreakdownLine(
+                  label: '100% Full Refund Returned',
+                  value: '+ ₱ ${tx.amount.abs().toStringAsFixed(2)}',
+                  isBold: true,
+                  valueColor: Colors.green,
+                  isDarkMode: isDarkMode,
+                ),
+              ] else if (isDeposit) ...[
+                // Top-Up / Deposit breakdown
+                _buildBreakdownLine(
+                  label: 'Principal Top-Up Amount',
+                  value: '₱ ${tx.amount.abs().toStringAsFixed(2)}',
+                  isDarkMode: isDarkMode,
+                ),
+                const SizedBox(height: 6),
+                _buildBreakdownLine(
+                  label: 'Deposit Processing Fee',
+                  value: '₱ 0.00 (0% Free)',
+                  valueColor: Colors.green,
+                  isDarkMode: isDarkMode,
+                ),
+                const Divider(height: 18),
+                _buildBreakdownLine(
+                  label: 'Total Net Credited to Balance',
+                  value: '+ ₱ ${tx.amount.abs().toStringAsFixed(2)}',
+                  isBold: true,
+                  valueColor: Colors.green,
+                  isDarkMode: isDarkMode,
+                ),
+              ] else ...[
+                // Generic / Rental booking breakdown
+                _buildBreakdownLine(
+                  label: 'Base Transaction Amount',
+                  value: '₱ ${base.toStringAsFixed(2)}',
+                  isDarkMode: isDarkMode,
+                ),
+                if (driverFee > 0) ...[
+                  const SizedBox(height: 6),
+                  _buildBreakdownLine(
+                    label: 'Driver Services Add-on',
+                    value: '+ ₱ ${driverFee.toStringAsFixed(2)}',
+                    isDarkMode: isDarkMode,
+                  ),
+                ],
+                if (bookingFee > 0) ...[
+                  const SizedBox(height: 6),
+                  _buildBreakdownLine(
+                    label: 'Platform Booking Fee (${tx.bookingFeePercentLabel})',
+                    value: '+ ₱ ${bookingFee.toStringAsFixed(2)}',
+                    valueColor: Colors.red.shade400,
+                    isDarkMode: isDarkMode,
+                  ),
+                ],
+                const Divider(height: 18),
+                _buildBreakdownLine(
+                  label: 'Total Settled Amount',
+                  value: '₱ ${tx.amount.abs().toStringAsFixed(2)}',
+                  isBold: true,
+                  isDarkMode: isDarkMode,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBreakdownLine({
+    required String label,
+    required String value,
+    Color? valueColor,
+    bool isBold = false,
+    required bool isDarkMode,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Flexible(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: isBold ? 13 : 12,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              color: isDarkMode
+                  ? (isBold ? Colors.white : AppColors.darkTextMuted)
+                  : (isBold ? Colors.black87 : AppColors.lightTextMuted),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: isBold ? 14 : 12,
+            fontWeight: isBold ? FontWeight.w900 : FontWeight.w600,
+            color: valueColor ??
+                (isDarkMode
+                    ? (isBold ? Colors.white : Colors.grey.shade300)
+                    : (isBold ? Colors.black : Colors.grey.shade800)),
           ),
         ),
       ],
