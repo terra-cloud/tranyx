@@ -33,78 +33,69 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
   bool _isBooking = false;
   String? _error;
 
-  double get _basePrice {
-    final p = component.appState.selectedPropertyData;
-    if (p == null) return 0;
-
+  int get _calculatedTotalDays {
     switch (_selectedDurationType) {
       case 'Weekly':
-        return ((p['priceWeekly'] ?? 0) as num).toDouble();
+        return _multiplier * 7;
       case 'Daily':
-        return ((p['priceDaily'] ?? 0) as num).toDouble();
+        return _multiplier * 1;
       default:
-        return ((p['priceMonthly'] ?? 0) as num).toDouble();
+        return _multiplier * 30;
     }
   }
 
-  int get _depositMonths {
+  BookingFinancials get _financials {
     final p = component.appState.selectedPropertyData;
-    if (p == null) return 0;
-    return ((p['depositMonths'] ?? 0) as num).toInt();
-  }
-
-  double get _totalRent {
-    return _basePrice * _multiplier;
-  }
-
-  double get _depositAmount {
-    final p = component.appState.selectedPropertyData;
-    if (p == null) return 0;
-    final customAmt = p['securityDepositAmount'] as num?;
-    if (customAmt != null) {
-      return customAmt.toDouble();
+    if (p == null) {
+      return const BookingFinancials(
+        appliedTier: DurationTier.daily,
+        totalDays: 1,
+        unitRate: 0.0,
+        baseRent: 0.0,
+        securityDeposit: 0.0,
+        depositType: DepositType.none,
+        depositValue: 0.0,
+        customerPlatformFeeRate: 0.03,
+        customerPlatformFee: 0.0,
+        totalCustomerPayable: 0.0,
+        hostCommissionRate: 0.07,
+        hostCommission: 0.0,
+        hostNetIncome: 0.0,
+      );
     }
-    final monthlyRent = ((p['priceMonthly'] ?? 0) as num).toDouble();
-    return monthlyRent * _depositMonths;
+    final model = PropertyPricingModel.fromPropertyMap(p);
+    return model.calculate(totalDays: _calculatedTotalDays);
   }
 
-  double get _advanceAmount {
-    final p = component.appState.selectedPropertyData;
-    if (p == null) return 0;
-    final customAmt = p['advanceAmount'] as num?;
-    return customAmt?.toDouble() ?? 0.0;
-  }
-
-  double get _totalPrice {
-    return _totalRent + _depositAmount + _advanceAmount;
-  }
-
-  double get _originalPlatformFee {
-    return _totalPrice * 0.03; // 3% TRANYX Platform Booking Fee
-  }
+  double get _basePrice => _financials.unitRate;
+  double get _totalRent => _financials.baseRent;
+  double get _depositAmount => _financials.securityDeposit;
+  double get _advanceAmount => 0.0;
+  double get _totalPrice => _totalRent + _depositAmount;
+  double get _originalPlatformFee => _financials.customerPlatformFee;
 
   PromoCalculationResult get _promoResult {
     if (_appliedPromo == null) {
       return PromoCalculationResult(
-        basePrice: _totalPrice,
+        basePrice: _totalRent + _depositAmount,
         originalPlatformFee: _originalPlatformFee,
         discountAmount: 0.0,
         finalPlatformFee: _originalPlatformFee,
-        finalCustomerAmount: _totalPrice + _originalPlatformFee,
-        providerSettlement: _totalPrice,
+        finalCustomerAmount: _totalRent + _depositAmount + _originalPlatformFee,
+        providerSettlement: _totalRent + _depositAmount,
         tranyxRevenue: _originalPlatformFee,
         tranyxPromoCost: 0.0,
       );
     }
     return _appliedPromo!.calculateDiscount(
-      basePrice: _totalPrice,
+      basePrice: _totalRent + _depositAmount,
       platformFee: _originalPlatformFee,
     );
   }
 
   double get _discountAmount => _promoResult.discountAmount;
   double get _bookingFee => _promoResult.finalPlatformFee;
-  double get _totalCustomerPays => _promoResult.finalCustomerAmount;
+  double get _totalCustomerPays => _totalRent + _depositAmount + _bookingFee;
 
   DateTime _startDate = DateTime.now();
 
@@ -350,6 +341,10 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
             'durationType': _selectedDurationType,
             'multiplier': _multiplier,
             'totalCost': _totalPrice,
+            'baseRentAmount': _totalRent,
+            'securityDepositAmount': _depositAmount,
+            'customerPlatformFeeRate': _financials.customerPlatformFeeRate,
+            'hostCommissionRate': _financials.hostCommissionRate,
             'bookingFee': _bookingFee,
             'originalBookingFee': _originalPlatformFee,
             'discountAmount': _discountAmount,
@@ -374,6 +369,10 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         durationType: _selectedDurationType,
         multiplier: _multiplier,
         totalCost: _totalPrice,
+        baseRentAmount: _totalRent,
+        securityDepositAmount: _depositAmount,
+        customerPlatformFeeRate: _financials.customerPlatformFeeRate,
+        hostCommissionRate: _financials.hostCommissionRate,
         contractType: p['contractType'] ?? 'Tranyx Standard',
         contractTerms: p['contractTerms'] ?? 'Standard lease terms',
         startDate: _startDate.millisecondsSinceEpoch,
@@ -865,25 +864,22 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                   // Rental cost
                   div(classes: 'flex justify-between text-sm', [
                     span(classes: isDark ? 'text-zinc-400' : 'text-zinc-650', [
-                      Component.text('$_multiplier × $_selectedDurationType Rental'),
+                      Component.text('$_multiplier × $_selectedDurationType Rent (${_financials.appliedTier.name.toUpperCase()} Tier)'),
                     ]),
                     span(classes: 'font-bold', [Component.text('₱ ${_totalRent.toStringAsFixed(2)}')]),
                   ]),
-                  // Advance payment
-                  if (_advanceAmount > 0) ...[
+                  // Security Deposit
+                  if (_depositAmount > 0) ...[
                     div(classes: 'flex justify-between text-sm', [
                       div(classes: 'flex items-center gap-1.5', [
-                        lIcon('calendar-check', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                        lIcon('shield-check', cls: 'w-3.5 h-3.5 text-purple-400'),
                         span(classes: isDark ? 'text-zinc-400' : 'text-zinc-650', [
-                          Component.text('Advance Payment'),
+                          Component.text('Security Deposit (${_financials.depositType == DepositType.percentage ? "${_financials.depositValue.toStringAsFixed(0)}% of Rent" : "Refundable"})'),
                         ]),
                       ]),
-                      span(classes: 'font-bold text-indigo-400', [
-                        Component.text('₱ ${_advanceAmount.toStringAsFixed(2)}'),
+                      span(classes: 'font-bold text-purple-400', [
+                        Component.text('₱ ${_depositAmount.toStringAsFixed(2)}'),
                       ]),
-                    ]),
-                    p(classes: 'text-[10px] ${isDark ? "text-zinc-600" : "text-zinc-400"} -mt-1 ml-5', [
-                      Component.text("Applied to first month's rent upon move-in"),
                     ]),
                   ],
                   // Platform fee
@@ -891,7 +887,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     div(classes: 'flex items-center gap-1.5', [
                       lIcon('percent', cls: 'w-3.5 h-3.5 text-zinc-400'),
                       span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
-                        Component.text('Platform Service Fee (3%)'),
+                        Component.text('Platform Service Fee (${PlatformFeeConfig.formatPercent(_financials.customerPlatformFeeRate)})'),
                       ]),
                     ]),
                     span(classes: 'font-bold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
@@ -921,7 +917,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     div([
                       span(classes: 'font-bold text-sm', [Component.text('Total Escrow Hold')]),
                       p(classes: 'text-[10px] ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                        Component.text('Customer Total Payment'),
+                        Component.text('Customer Total Payable (Base + Platform Fee + Deposit)'),
                       ]),
                     ]),
                     span(classes: 'font-black text-xl text-purple-400', [
@@ -929,15 +925,15 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     ]),
                   ]),
                   div(classes: 'flex justify-between text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"} pt-1', [
-                    span([Component.text('Landlord / Host Settlement (100% Guaranteed)')]),
+                    span([Component.text('Host Net Payout on Completion (${PlatformFeeConfig.formatPercent(1 - _financials.hostCommissionRate)})')]),
                     span(classes: 'font-bold text-emerald-500', [
-                      Component.text('₱ ${_totalPrice.toStringAsFixed(2)}'),
+                      Component.text('₱ ${_financials.hostNetIncome.toStringAsFixed(2)}'),
                     ]),
                   ]),
                 ]),
                 p(classes: 'text-[10px] text-zinc-500 mt-2', [
                   Component.text(
-                    'Funds are locked securely in escrow and released only when both parties confirm lease completion. Advance and deposit are governed by contract terms.',
+                    'Funds are held securely in escrow. On lease completion, TRANYX automatically deducts the 7% host commission and deposits net rent to host. Security deposits are released per inspection terms.',
                   ),
                 ]),
               ],

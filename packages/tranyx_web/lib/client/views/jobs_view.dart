@@ -2972,6 +2972,11 @@ class _ApplyJob extends StatelessComponent {
           [Component.text(s.coverNote)],
         ),
       ]),
+      if (s.applyError != null && s.applyError!.isNotEmpty)
+        div(classes: 'p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs font-medium flex items-center gap-2', [
+          lIcon('alert-circle', cls: 'w-4 h-4 shrink-0'),
+          Component.text(s.applyError!),
+        ]),
       button(
         classes:
             'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',

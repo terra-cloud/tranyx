@@ -370,9 +370,16 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
     final double driverEffectiveDays = _selectedDurationType == '12h' ? 0.5 * _multiplier : totalDays.toDouble();
     final double driverCost = _hireWithDriver ? (driverDailyRate * driverEffectiveDays) : 0.0;
 
-    // Total calculation with SmartRateEngine base price:
-    final baseTotal = optRate.totalBasePrice + driverCost;
-    final originalPlatformFee = baseTotal * 0.03;
+    final propertyFinancials = widget.isProperty
+        ? PropertyPricingModel.fromPropertyMap(widget.item).calculate(totalDays: totalDays)
+        : null;
+
+    final baseTotal = widget.isProperty
+        ? (propertyFinancials!.baseRent + propertyFinancials.securityDeposit)
+        : (optRate.totalBasePrice + driverCost);
+    final originalPlatformFee = widget.isProperty
+        ? propertyFinancials!.customerPlatformFee
+        : (baseTotal * 0.03);
     
     final promoResult = _appliedPromo != null
         ? _appliedPromo!.calculateDiscount(
@@ -1261,6 +1268,10 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                            durationType: _selectedDurationType,
                                            multiplier: _multiplier,
                                            totalCost: baseTotal,
+                                           baseRentAmount: propertyFinancials?.baseRent,
+                                           securityDepositAmount: propertyFinancials?.securityDeposit,
+                                           customerPlatformFeeRate: propertyFinancials?.customerPlatformFeeRate,
+                                           hostCommissionRate: propertyFinancials?.hostCommissionRate,
                                            contractType:
                                                widget.item['contractType'] ??
                                                'tranyx',

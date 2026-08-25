@@ -308,17 +308,16 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        // 1. Create Property Listing (Listing fee: 1.5% of monthly price = 150.0)
+        // 1. Create Property Listing (0% Free Listing: ₱0.00 upfront fee)
         final propertyId = await repo.createPropertyRental(property);
         expect(propertyId, isNotEmpty);
 
         final hostAfterListing = await repo.getUser('host123');
-        expect(hostAfterListing!.tyxBalance, equals(1000.0 - 150.0));
+        expect(hostAfterListing!.tyxBalance, equals(1000.0)); // 0% listing fee
 
         expect(firestore.collectionQueries, contains('properties'));
-        expect(firestore.collectionQueries, contains('transactions'));
 
-        // 2. Request Booking (totalCost = 10000.0, bookingFee = 3% = 300.0, required = 10300.0)
+        // 2. Request Booking (totalCost = 10000.0, customer booking fee = 3% = 300.0, total required = 10300.0)
         await repo.createPropertyBookingRequest(
           propertyId: propertyId,
           renteeId: 'renter123',
@@ -349,22 +348,25 @@ void main() {
           'title': 'Modern Condo',
           'status': 'Booked',
           'totalCost': 10000.0,
+          'baseRentAmount': 10000.0,
           'renteeId': 'renter123',
         };
         firestore.db['property_escrows/$propertyId'] = {
           'propertyId': propertyId,
           'renteeId': 'renter123',
           'hostId': 'host123',
-          'amount': 10000.0,
+          'amount': 10300.0,
+          'baseRentAmount': 10000.0,
+          'hostCommissionRate': 0.07,
           'status': 'Held',
         };
 
-        // 4. Complete Property lease (Platform commission = 3% of 10000 = 300, payout = 9700)
+        // 4. Complete Property lease (7% host commission of 10000 = 700, net payout = 9300)
         await repo.completePropertyRental(propertyId);
 
-        // Verify host wallet has payout
+        // Verify host wallet has payout (1000 initial + 9300 net earnings)
         final hostFinal = await repo.getUser('host123');
-        expect(hostFinal!.tyxBalance, equals((1000.0 - 150.0) + 9700.0));
+        expect(hostFinal!.tyxBalance, equals(1000.0 + 9300.0));
 
         // Verify property_history doc created
         final histDocs = await firestore.collection('property_history').get();

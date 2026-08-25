@@ -29,11 +29,11 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
   final List<String> _amenities = [];
 
   // Pricing
-  String _priceMonthly = '';
-  String _priceWeekly = '';
   String _priceDaily = '';
-  int _depositMonths = 1;
-  String _securityDepositAmount = '0';
+  String _priceWeekly = '';
+  String _priceMonthly = '';
+  DepositType _depositType = DepositType.fixed;
+  String _depositValue = '1000';
   String _advanceAmount = '0';
 
   // Location
@@ -86,17 +86,28 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
       final monthly = (prop['priceMonthly'] as num?)?.toDouble() ?? 0.0;
       final weekly = (prop['priceWeekly'] as num?)?.toDouble() ?? 0.0;
       final daily = (prop['priceDaily'] as num?)?.toDouble() ?? 0.0;
-      _priceMonthly = monthly > 0 ? monthly.toStringAsFixed(0) : '';
-      _priceWeekly = weekly > 0 ? weekly.toStringAsFixed(0) : '';
       _priceDaily = daily > 0 ? daily.toStringAsFixed(0) : '';
+      _priceWeekly = weekly > 0 ? weekly.toStringAsFixed(0) : '';
+      _priceMonthly = monthly > 0 ? monthly.toStringAsFixed(0) : '';
 
       final secDeposit = (prop['securityDepositAmount'] as num?)?.toDouble() ?? 0.0;
-      _securityDepositAmount = secDeposit.toStringAsFixed(0);
+      final depTypeStr = prop['depositType'] as String?;
+      if (depTypeStr != null) {
+        _depositType = DepositTypeHelper.fromString(depTypeStr);
+        final dVal = (prop['depositValue'] as num?)?.toDouble() ?? secDeposit;
+        _depositValue = dVal.toStringAsFixed(0);
+      } else {
+        if (secDeposit > 0) {
+          _depositType = DepositType.fixed;
+          _depositValue = secDeposit.toStringAsFixed(0);
+        } else {
+          _depositType = DepositType.none;
+          _depositValue = '0';
+        }
+      }
 
       final advAmount = (prop['advanceAmount'] as num?)?.toDouble() ?? 0.0;
       _advanceAmount = advAmount.toStringAsFixed(0);
-
-      _depositMonths = (prop['depositMonths'] as num?)?.toInt() ?? (monthly > 0 ? (secDeposit / monthly).round() : 1);
 
       // Location
       _address = prop['address'] as String? ?? '';
@@ -160,9 +171,12 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
       return;
     }
 
-    final monthly = double.tryParse(_priceMonthly) ?? 0;
-    if (monthly <= 0) {
-      setState(() => _error = 'Please provide a valid monthly rate.');
+    final daily = double.tryParse(_priceDaily) ?? 0.0;
+    final weekly = double.tryParse(_priceWeekly) ?? 0.0;
+    final monthly = double.tryParse(_priceMonthly) ?? 0.0;
+
+    if (daily <= 0 && weekly <= 0 && monthly <= 0) {
+      setState(() => _error = 'Please provide at least one rental rate (Daily, Weekly, or Monthly).');
       return;
     }
 
@@ -198,9 +212,14 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
       final user = component.appState.userProfile;
       if (user == null) throw Exception('User profile not loaded.');
 
-      final depositAmt = double.tryParse(_securityDepositAmount) ?? 0.0;
+      final dVal = double.tryParse(_depositValue) ?? 0.0;
       final advanceAmt = double.tryParse(_advanceAmount) ?? 0.0;
-      _depositMonths = monthly > 0 ? (depositAmt / monthly).round() : 0;
+
+      final allowedDurations = <String>[];
+      if (daily > 0) allowedDurations.add('DAILY');
+      if (weekly > 0) allowedDurations.add('WEEKLY');
+      if (monthly > 0) allowedDurations.add('MONTHLY');
+      if (allowedDurations.isEmpty) allowedDurations.addAll(['DAILY', 'WEEKLY', 'MONTHLY']);
 
       final updatedProperty = PropertyRental(
         id: _propertyId!,
@@ -212,11 +231,15 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
         type: _selectedType,
         category: _selectedCategory,
         priceMonthly: monthly,
-        priceWeekly: double.tryParse(_priceWeekly) ?? 0.0,
-        priceDaily: double.tryParse(_priceDaily) ?? 0.0,
-        depositMonths: _depositMonths,
-        securityDepositAmount: depositAmt,
+        priceWeekly: weekly,
+        priceDaily: daily,
+        depositMonths: monthly > 0 && _depositType == DepositType.fixed ? (dVal / monthly).round() : 0,
+        securityDepositAmount: _depositType == DepositType.fixed ? dVal : null,
         advanceAmount: advanceAmt,
+        depositType: _depositType,
+        depositValue: dVal,
+        isListingFeeWaived: true,
+        allowedDurations: allowedDurations,
         address: _address,
         latitude: _latitude ?? 14.5995,
         longitude: _longitude ?? 120.9842,
@@ -452,130 +475,93 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
               ]),
             ] else if (_step == 2) ...[
               // Step 2: Pricing & Location
-              h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Location')]),
-              div(classes: 'grid grid-cols-2 gap-4', [
+              h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Deposit Terms')]),
+              div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-6', [
                 _inputField(
-                  'Monthly Rent (₱)',
-                  _priceMonthly,
-                  (v) => setState(() => _priceMonthly = v),
-                  isDark,
-                  placeholder: '25000',
-                  type: InputType.number,
-                ),
-                div([]),
-                // Security Deposit
-                div([
-                  _inputField(
-                    'Security Deposit (₱)',
-                    _securityDepositAmount,
-                    (v) => setState(() => _securityDepositAmount = v),
-                    isDark,
-                    placeholder: 'e.g. 50000',
-                    type: InputType.number,
-                  ),
-                  Builder(
-                    builder: (context) {
-                      final monthly = double.tryParse(_priceMonthly) ?? 0.0;
-                      if (monthly <= 0) return div([]);
-                      return div(classes: 'flex flex-wrap gap-1.5 mb-4', [
-                        span(classes: 'text-[10px] text-zinc-500 font-semibold my-auto mr-1', [
-                          Component.text('Quick:'),
-                        ]),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_securityDepositAmount == "0" ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _securityDepositAmount = '0')},
-                          [Component.text('None')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_securityDepositAmount == monthly.toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _securityDepositAmount = monthly.toInt().toString())},
-                          [Component.text('1 mo')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_securityDepositAmount == (monthly * 2).toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {
-                            'click': (_) => setState(() => _securityDepositAmount = (monthly * 2).toInt().toString()),
-                          },
-                          [Component.text('2 mo')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_securityDepositAmount == (monthly * 3).toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {
-                            'click': (_) => setState(() => _securityDepositAmount = (monthly * 3).toInt().toString()),
-                          },
-                          [Component.text('3 mo')],
-                        ),
-                      ]);
-                    },
-                  ),
-                ]),
-                // Advance Payment
-                div([
-                  _inputField(
-                    'Advance Payment (₱)',
-                    _advanceAmount,
-                    (v) => setState(() => _advanceAmount = v),
-                    isDark,
-                    placeholder: 'e.g. 25000',
-                    type: InputType.number,
-                  ),
-                  Builder(
-                    builder: (context) {
-                      final monthly = double.tryParse(_priceMonthly) ?? 0.0;
-                      if (monthly <= 0) return div([]);
-                      return div(classes: 'flex flex-wrap gap-1.5 mb-4', [
-                        span(classes: 'text-[10px] text-zinc-500 font-semibold my-auto mr-1', [
-                          Component.text('Quick:'),
-                        ]),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_advanceAmount == "0" ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _advanceAmount = '0')},
-                          [Component.text('None')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_advanceAmount == monthly.toInt().toString() ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _advanceAmount = monthly.toInt().toString())},
-                          [Component.text('1 mo')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_advanceAmount == (monthly * 2).toInt().toString() ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _advanceAmount = (monthly * 2).toInt().toString())},
-                          [Component.text('2 mo')],
-                        ),
-                      ]);
-                    },
-                  ),
-                ]),
-                _inputField(
-                  'Weekly Rate (Optional)',
-                  _priceWeekly,
-                  (v) => setState(() => _priceWeekly = v),
-                  isDark,
-                  placeholder: 'e.g. 7000',
-                  type: InputType.number,
-                ),
-                _inputField(
-                  'Daily Rate (Optional)',
+                  'Daily Rate (₱/day)',
                   _priceDaily,
                   (v) => setState(() => _priceDaily = v),
                   isDark,
                   placeholder: 'e.g. 1500',
                   type: InputType.number,
                 ),
+                _inputField(
+                  'Weekly Rate (₱/week)',
+                  _priceWeekly,
+                  (v) => setState(() => _priceWeekly = v),
+                  isDark,
+                  placeholder: 'e.g. 8000',
+                  type: InputType.number,
+                ),
+                _inputField(
+                  'Monthly Rent (₱/month)',
+                  _priceMonthly,
+                  (v) => setState(() => _priceMonthly = v),
+                  isDark,
+                  placeholder: 'e.g. 30000',
+                  type: InputType.number,
+                ),
+              ]),
+
+              // Security Deposit Policy Selector
+              div(classes: 'p-4 rounded-xl border mb-6 ${isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-zinc-50 border-zinc-200"}', [
+                label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                  Component.text('Security Deposit Policy'),
+                ]),
+                p(classes: 'text-xs mb-3 ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                  Component.text('Held securely in escrow as non-revenue trust funds and refunded upon inspection.'),
+                ]),
+                div(classes: 'flex flex-wrap gap-2 mb-3', [
+                  button(
+                    classes:
+                        'px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer '
+                        '${_depositType == DepositType.fixed ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-100")}',
+                    events: {'click': (_) => setState(() => _depositType = DepositType.fixed)},
+                    [Component.text('Fixed Amount (₱)')],
+                  ),
+                  button(
+                    classes:
+                        'px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer '
+                        '${_depositType == DepositType.percentage ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-100")}',
+                    events: {'click': (_) => setState(() => _depositType = DepositType.percentage)},
+                    [Component.text('Percentage of Rent (%)')],
+                  ),
+                  button(
+                    classes:
+                        'px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer '
+                        '${_depositType == DepositType.none ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-100")}',
+                    events: {'click': (_) => setState(() {
+                      _depositType = DepositType.none;
+                      _depositValue = '0';
+                    })},
+                    [Component.text('No Deposit (₱0)')],
+                  ),
+                ]),
+                if (_depositType != DepositType.none)
+                  div(classes: 'max-w-xs mt-2', [
+                    _inputField(
+                      _depositType == DepositType.fixed ? 'Deposit Amount (₱)' : 'Deposit Rate (%)',
+                      _depositValue,
+                      (v) => setState(() => _depositValue = v),
+                      isDark,
+                      placeholder: _depositType == DepositType.fixed ? '1000' : '20',
+                      type: InputType.number,
+                    ),
+                  ]),
+              ]),
+
+              div(classes: 'p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 mb-6', [
+                div(classes: 'flex justify-between text-sm mb-1', [
+                  span(classes: isDark ? 'text-zinc-300' : 'text-zinc-700', [
+                    Component.text('Property Listing Fee (Free Tier)'),
+                  ]),
+                  span(classes: 'font-bold text-emerald-400', [Component.text('₱0.00 (100% Free)')]),
+                ]),
+                p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                  Component.text(
+                    'Updating your property is completely free. TRANYX only retains a 7% success commission upon completed rental term.',
+                  ),
+                ]),
               ]),
 
               div(classes: 'mt-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"} pt-6', [
@@ -705,9 +691,12 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
                           priceMonthly: double.tryParse(_priceMonthly) ?? 0,
                           priceWeekly: double.tryParse(_priceWeekly) ?? 0,
                           priceDaily: double.tryParse(_priceDaily) ?? 0,
-                          depositMonths: _depositMonths,
-                          securityDepositAmount: double.tryParse(_securityDepositAmount) ?? 0.0,
+                          depositMonths: 0,
+                          securityDepositAmount: _depositType == DepositType.fixed ? double.tryParse(_depositValue) : null,
+                          depositType: _depositType,
+                          depositValue: double.tryParse(_depositValue) ?? 0.0,
                           advanceAmount: double.tryParse(_advanceAmount) ?? 0.0,
+                          isListingFeeWaived: true,
                           address: _address.isNotEmpty ? _address : component.appState.pickupAddress,
                           latitude: _latitude ?? component.appState.pickupLat ?? 0.0,
                           longitude: _longitude ?? component.appState.pickupLng ?? 0.0,

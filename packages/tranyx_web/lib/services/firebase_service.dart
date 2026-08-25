@@ -1281,16 +1281,21 @@ class FirestoreService {
     // Write application sub-document
     await createOrUpdate('jobs/$jobId/applications/$applicantUid', appData);
     await awardPointsIfEligible(applicantUid, 'apply_first_job');
-    // Update job applicantCount and applicantUids (best-effort, no transactions in REST)
+    // Update job applicantCount, applicantUids, and recentApplicantPhotos
     if (jobDoc != null) {
       final uids = List<String>.from(jobDoc['applicantUids'] as List? ?? []);
+      final photos = List<String>.from(jobDoc['recentApplicantPhotos'] as List? ?? []);
+      if (applicantPhotoUrl != null && applicantPhotoUrl.isNotEmpty && !photos.contains(applicantPhotoUrl)) {
+        photos.insert(0, applicantPhotoUrl);
+        if (photos.length > 5) photos.removeLast();
+      }
       if (!uids.contains(applicantUid)) {
         uids.add(applicantUid);
         final count = (jobDoc['applicantCount'] as int? ?? 0) + 1;
-        await createOrUpdate('jobs/$jobId', {
-          ...jobDoc,
+        await setDocument('jobs/$jobId', {
           'applicantUids': uids,
           'applicantCount': count,
+          'recentApplicantPhotos': photos,
         });
       }
 
@@ -3013,35 +3018,51 @@ class FirestoreService {
 
   // ── Property Rentals ──────────────────────────────────────────
 
-  /// Create a new property rental posting, deducting 1.5% listing fee
+  /// Fetch dynamic platform fee configuration from Firestore (or return default)
+  Future<PlatformFeeConfig> getPlatformFeeConfig() async {
+    try {
+      final doc = await getDocument('settings/platform_fees');
+      if (doc != null) {
+        return PlatformFeeConfig.fromMap(doc);
+      }
+    } catch (_) {}
+    return const PlatformFeeConfig();
+  }
+
+  /// Create a new property rental posting (0% Free Listing - ₱0.00 upfront fee)
   Future<String> createPropertyRental(PropertyRental property) async {
     final host = await getUser(property.hostId);
     if (host == null) {
       throw Exception('Host profile not found.');
     }
-    final listingFee = 0.015 * property.priceMonthly;
-    if (host.tyxBalance < listingFee) {
-      throw Exception(
-        'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
+
+    final feeConfig = await getPlatformFeeConfig();
+    final listingFeeRate = feeConfig.listingFeeRate; // 0.0 (Free tier)
+    final monthlyEquiv = property.monthlyRate > 0 ? property.monthlyRate : (property.dailyRate * 30);
+    final listingFee = listingFeeRate * monthlyEquiv;
+
+    if (listingFee > 0.0) {
+      if (host.tyxBalance < listingFee) {
+        throw Exception(
+          'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+        );
+      }
+      final newBalance = host.tyxBalance - listingFee;
+      await updateTyxBalance(property.hostId, newBalance);
+
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'uid': property.hostId,
+        'type': 'listing_fee',
+        'amount': listingFee,
+        'listingFeeRate': listingFeeRate,
+        'title': 'Property Listing Fee',
+        'desc': '${PlatformFeeConfig.formatPercent(listingFeeRate)} posting fee for property: ${property.title}',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      await setDocument('transactions/$txId', txData);
     }
-
-    // Deduct fee
-    final newBalance = host.tyxBalance - listingFee;
-    await updateTyxBalance(property.hostId, newBalance);
-
-    // Save transaction record
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': property.hostId,
-      'type': 'listing_fee',
-      'amount': listingFee,
-      'title': 'Property Listing Fee',
-      'desc': '1.5% posting fee for property: ${property.title}',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
 
     // Post property document
     final url = '$_firestoreBase/properties';
@@ -3065,7 +3086,7 @@ class FirestoreService {
     return docId;
   }
 
-  /// Delete property rental posting, refund listing fee, and reject pending requests
+  /// Delete property rental posting, refund listing fee if paid, and reject pending requests
   Future<void> deletePropertyRental(String propertyId) async {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
@@ -3086,9 +3107,10 @@ class FirestoreService {
       }
     }
 
-    // Refund listing fee (1.5% of monthly price) to host
+    // Refund listing fee if one was charged (legacy listings)
     final host = await getUser(property.hostId);
-    final listingFee = 0.015 * property.priceMonthly;
+    final isWaived = propDoc['isListingFeeWaived'] as bool? ?? false;
+    final listingFee = isWaived ? 0.0 : (0.015 * property.priceMonthly);
     if (host != null && listingFee > 0.0) {
       await updateTyxBalance(property.hostId, host.tyxBalance + listingFee);
       await setDocument('transactions/refund_prop_$propertyId', {
@@ -3172,6 +3194,10 @@ class FirestoreService {
     String? licenseNumber,
     String? promoCode,
     double? discountAmount,
+    double? baseRentAmount,
+    double? securityDepositAmount,
+    double? customerPlatformFeeRate,
+    double? hostCommissionRate,
   }) async {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
@@ -3200,14 +3226,48 @@ class FirestoreService {
     );
     final renteeVerificationStatus = renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED';
 
+    // Calculate duration in days
+    final int calculatedDays;
+    if (endDate > startDate) {
+      final diff = ((endDate - startDate) / (1000 * 60 * 60 * 24)).round();
+      calculatedDays = diff > 0 ? diff : 1;
+    } else {
+      switch (durationType) {
+        case 'Daily':
+          calculatedDays = multiplier * 1;
+          break;
+        case 'Weekly':
+          calculatedDays = multiplier * 7;
+          break;
+        default:
+          calculatedDays = multiplier * 30;
+          break;
+      }
+    }
+
+    // Dynamic fee rates
+    final feeConfig = await getPlatformFeeConfig();
+    final effCustFeeRate = customerPlatformFeeRate ?? feeConfig.propertyCustomerFeeRate;
+    final effHostCommRate = hostCommissionRate ?? feeConfig.propertyHostCommissionRate;
+
+    final pricingModel = PropertyPricingModel.fromPropertyMap(propDoc);
+    final financials = pricingModel.calculate(
+      totalDays: calculatedDays,
+      customerPlatformFeeRate: effCustFeeRate,
+      hostCommissionRate: effHostCommRate,
+    );
+
+    final effBaseRent = baseRentAmount ?? financials.baseRent;
+    final effSecDeposit = securityDepositAmount ?? financials.securityDeposit;
+    final originalBookingFee = financials.customerPlatformFee;
+
     final discount = discountAmount ?? 0.0;
-    final discountedCost = (totalCost - discount).clamp(0.0, 999999.0);
-    final bookingFee = discountedCost * 0.03;
-    final totalRequired = discountedCost + bookingFee;
+    final effBookingFee = (originalBookingFee - discount).clamp(0.0, 999999.0);
+    final totalRequired = effBaseRent + effBookingFee + effSecDeposit;
 
     if (rentee.tyxBalance < totalRequired) {
       throw Exception(
-        'Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+        'Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including ${PlatformFeeConfig.formatPercent(effCustFeeRate)} platform fee & deposit), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
       );
     }
 
@@ -3221,8 +3281,15 @@ class FirestoreService {
       'uid': renteeId,
       'type': 'payment',
       'amount': totalRequired,
+      'baseRentAmount': effBaseRent,
+      'securityDepositAmount': effSecDeposit,
+      'customerPlatformFeeAmount': effBookingFee,
+      'customerPlatformFeeRate': effCustFeeRate,
+      'hostCommissionRate': effHostCommRate,
+      'appliedTier': financials.appliedTier.name.toUpperCase(),
+      'totalDays': calculatedDays,
       'title': 'Property Booking Request',
-      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)${promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''}',
+      'desc': 'Requested property "${property.title}" for $calculatedDays day(s) (${PlatformFeeConfig.formatPercent(effCustFeeRate)} platform fee included)${promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''}',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -3238,9 +3305,20 @@ class FirestoreService {
       'renteePhotoUrl': renteePhotoUrl ?? '',
       'durationType': durationType,
       'multiplier': multiplier,
-      'totalCost': discountedCost,
+      'totalDays': calculatedDays,
+      'baseRentAmount': effBaseRent,
+      'securityDepositAmount': effSecDeposit,
+      'depositType': financials.depositType.nameString,
+      'depositValue': financials.depositValue,
+      'bookingFee': effBookingFee,
+      'customerPlatformFeeRate': effCustFeeRate,
+      'customerPlatformFeeAmount': effBookingFee,
+      'hostCommissionRate': effHostCommRate,
+      'totalCost': totalRequired,
       'originalCost': totalCost,
-      'bookingFee': bookingFee,
+      'totalCustomerPaid': totalRequired,
+      'appliedTier': financials.appliedTier.name.toUpperCase(),
+      'unitRate': financials.unitRate,
       'signatureName': '', // unsigned
       'status': 'Pending',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -3270,7 +3348,12 @@ class FirestoreService {
       'propertyId': propertyId,
       'renteeId': renteeId,
       'hostId': property.hostId,
-      'amount': discountedCost,
+      'amount': totalRequired,
+      'baseRentAmount': effBaseRent,
+      'securityDepositAmount': effSecDeposit,
+      'customerPlatformFeeAmount': effBookingFee,
+      'customerPlatformFeeRate': effCustFeeRate,
+      'hostCommissionRate': effHostCommRate,
       'status': 'Held',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -3306,7 +3389,12 @@ class FirestoreService {
     final renteeName = reqDoc['renteeName'] as String;
     final durationType = reqDoc['durationType'] as String;
     final multiplier = (reqDoc['multiplier'] as num).toInt();
-    final totalCost = (reqDoc['totalCost'] as num).toDouble();
+    final totalPaid = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ?? (reqDoc['totalCost'] as num).toDouble();
+    final baseRent = (reqDoc['baseRentAmount'] as num?)?.toDouble() ?? totalPaid;
+    final secDeposit = (reqDoc['securityDepositAmount'] as num?)?.toDouble() ?? 0.0;
+    final bookingFee = (reqDoc['customerPlatformFeeAmount'] as num?)?.toDouble() ?? (reqDoc['bookingFee'] as num? ?? 0.0).toDouble();
+    final custFeeRate = (reqDoc['customerPlatformFeeRate'] as num?)?.toDouble() ?? 0.03;
+    final hostCommRate = (reqDoc['hostCommissionRate'] as num?)?.toDouble() ?? 0.07;
     final startDate = (reqDoc['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
     final endDate =
         (reqDoc['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 30)).millisecondsSinceEpoch;
@@ -3316,15 +3404,19 @@ class FirestoreService {
 
     // 2. Move escrow
     final reqEscrowDoc = await getDocument('property_escrows/$requestId');
-    final reqBookingFee = (reqDoc['bookingFee'] as num? ?? totalCost * 0.03).toDouble();
     if (reqEscrowDoc != null) {
       await setDocument('property_escrows/$propertyId', {
         'propertyId': propertyId,
         'renteeId': renteeId,
         'hostId': property.hostId,
-        'amount': totalCost,
-        'bookingFee': reqBookingFee,
-        'totalPaid': totalCost + reqBookingFee,
+        'amount': totalPaid,
+        'baseRentAmount': baseRent,
+        'securityDepositAmount': secDeposit,
+        'customerPlatformFeeAmount': bookingFee,
+        'customerPlatformFeeRate': custFeeRate,
+        'hostCommissionRate': hostCommRate,
+        'bookingFee': bookingFee,
+        'totalPaid': totalPaid,
         'status': 'Held',
         'createdAt': DateTime.now().millisecondsSinceEpoch,
       });
@@ -3341,8 +3433,12 @@ class FirestoreService {
       'rentalMultiplier': multiplier,
       'startDate': startDate,
       'endDate': endDate,
-      'totalCost': totalCost,
-      'bookingFee': reqBookingFee,
+      'totalCost': totalPaid,
+      'baseRentAmount': baseRent,
+      'securityDepositAmount': secDeposit,
+      'bookingFee': bookingFee,
+      'customerPlatformFeeRate': custFeeRate,
+      'hostCommissionRate': hostCommRate,
       'renteeSignatureName': '',
       'signedAt': 0,
       'currentRequestId': requestId,
@@ -3389,9 +3485,8 @@ class FirestoreService {
     if (reqDoc['status'] != 'Pending') return;
 
     final renteeId = reqDoc['renteeId'] as String;
-    final totalCost = (reqDoc['totalCost'] as num).toDouble();
-    final bookingFee = (reqDoc['bookingFee'] as num).toDouble();
-    final refundAmount = totalCost + bookingFee;
+    final totalRefund = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ??
+        ((reqDoc['totalCost'] as num).toDouble() + ((reqDoc['bookingFee'] as num?)?.toDouble() ?? 0.0));
 
     await setDocument('property_requests/$requestId', {'status': 'Rejected'});
 
@@ -3403,13 +3498,13 @@ class FirestoreService {
 
     final rentee = await getUser(renteeId);
     if (rentee != null) {
-      await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
+      await updateTyxBalance(renteeId, rentee.tyxBalance + totalRefund);
 
       final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
       final txData = {
         'uid': renteeId,
         'type': 'refund',
-        'amount': refundAmount,
+        'amount': totalRefund,
         'title': 'Property Booking Refund',
         'desc': 'Refund for rejected request of property "${reqDoc['title']}"',
         'method': 'Tranyx Wallet',
@@ -3435,9 +3530,8 @@ class FirestoreService {
 
     final renteeId = reqDoc['renteeId'] as String;
     final hostId = reqDoc['hostId'] as String;
-    final totalCost = (reqDoc['totalCost'] as num).toDouble();
-    final bookingFee = (reqDoc['bookingFee'] as num).toDouble();
-    final refundAmount = totalCost + bookingFee;
+    final totalRefund = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ??
+        ((reqDoc['totalCost'] as num).toDouble() + ((reqDoc['bookingFee'] as num?)?.toDouble() ?? 0.0));
 
     // Set request status to Cancelled
     await setDocument('property_requests/$requestId', {'status': 'Cancelled'});
@@ -3451,7 +3545,7 @@ class FirestoreService {
     // Refund rentee
     final rentee = await getUser(renteeId);
     if (rentee != null) {
-      await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
+      await updateTyxBalance(renteeId, rentee.tyxBalance + totalRefund);
 
       // Save transaction record for refund
       final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
@@ -3459,7 +3553,7 @@ class FirestoreService {
         'uid': renteeId,
         'type': 'refund',
         'category': 'refund',
-        'amount': refundAmount,
+        'amount': totalRefund,
         'title': 'Property Booking Cancelled',
         'desc': 'Refund for cancelled request of property "${reqDoc['title']}"',
         'method': 'Tranyx Wallet',
@@ -3519,6 +3613,8 @@ class FirestoreService {
       'signatureHash': signatureHash ?? '',
       'signedAt': now.millisecondsSinceEpoch,
       'totalCost': propDoc['totalCost'],
+      'baseRentAmount': propDoc['baseRentAmount'],
+      'securityDepositAmount': propDoc['securityDepositAmount'],
       'startDate': propDoc['startDate'],
       'endDate': propDoc['endDate'],
       'status': 'Executed',
@@ -3560,7 +3656,7 @@ class FirestoreService {
     }
   }
 
-  /// Complete property rental (releases escrow to host minus 3% commission, archives to history, sets status to Completed)
+  /// Complete property rental (releases escrow to host minus TRANYX commission, archives to history, sets status to Completed)
   Future<void> completePropertyRental(String propertyId) async {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
@@ -3577,9 +3673,23 @@ class FirestoreService {
       throw Exception('Escrow is not in Held status. Current status: ${escrowDoc['status']}. Payout aborted.');
     }
 
-    final cost = property.totalCost ?? 0.0;
-    final commission = cost * 0.03;
-    final hostPayout = cost - commission;
+    // Determine Base Rent and Host Commission (excluding security deposits)
+    final secDeposit = (escrowDoc['securityDepositAmount'] as num?)?.toDouble() ??
+        (propDoc['securityDepositAmount'] as num?)?.toDouble() ??
+        0.0;
+    final totalPaid = (escrowDoc['amount'] as num?)?.toDouble() ?? (property.totalCost ?? 0.0);
+    final bookingFee = (escrowDoc['customerPlatformFeeAmount'] as num?)?.toDouble() ?? 0.0;
+    final baseRent = (escrowDoc['baseRentAmount'] as num?)?.toDouble() ??
+        (propDoc['baseRentAmount'] as num?)?.toDouble() ??
+        (totalPaid - secDeposit - bookingFee).clamp(0.0, 9999999.0);
+
+    final feeConfig = await getPlatformFeeConfig();
+    final hostCommRate = (escrowDoc['hostCommissionRate'] as num?)?.toDouble() ??
+        (propDoc['hostCommissionRate'] as num?)?.toDouble() ??
+        feeConfig.propertyHostCommissionRate;
+
+    final commission = double.parse((baseRent * hostCommRate).toStringAsFixed(2));
+    final hostPayout = double.parse((baseRent - commission).toStringAsFixed(2));
 
     // Release payout
     final newHostBalance = host.tyxBalance + hostPayout;
@@ -3591,12 +3701,13 @@ class FirestoreService {
       'uid': property.hostId,
       'type': 'payment',
       'amount': hostPayout,
-      'baseAmount': cost,
+      'baseAmount': baseRent,
       'commissionFee': commission,
-      'commissionLabel': 'Platform Commission (3%)',
+      'commissionRate': hostCommRate,
+      'commissionLabel': 'TRANYX Host Commission (${PlatformFeeConfig.formatPercent(hostCommRate)})',
       'title': 'Property Rental Payout',
       'desc':
-          'Earnings payout for "${property.title}" (3% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+          'Earnings payout for "${property.title}" (${PlatformFeeConfig.formatPercent(hostCommRate)} TRANYX commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -3605,6 +3716,8 @@ class FirestoreService {
     // Update escrow
     await setDocument('property_escrows/$propertyId', {
       'status': 'Released',
+      'hostCommissionDeducted': commission,
+      'hostPayout': hostPayout,
       'releasedAt': DateTime.now().millisecondsSinceEpoch,
     });
 
@@ -3614,6 +3727,8 @@ class FirestoreService {
       ...propDoc,
       'status': 'Completed',
       'completedAt': DateTime.now().millisecondsSinceEpoch,
+      'hostCommissionAmount': commission,
+      'hostNetPayout': hostPayout,
     };
     await setDocument('property_history/$historyId', historyDoc);
 

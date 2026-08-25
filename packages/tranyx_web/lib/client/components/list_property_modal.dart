@@ -36,11 +36,11 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
   final List<String> _amenities = [];
 
   // Pricing
-  String _priceMonthly = '';
-  String _priceWeekly = '';
   String _priceDaily = '';
-  int _depositMonths = 1; // standard: 1 month deposit
-  String _securityDepositAmount = '0';
+  String _priceWeekly = '';
+  String _priceMonthly = '';
+  DepositType _depositType = DepositType.fixed;
+  String _depositValue = '1000';
   String _advanceAmount = '0';
 
   // Location
@@ -61,10 +61,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
   bool _isSubmitting = false;
   String? _error;
 
-  double get _listingFee {
-    final monthly = double.tryParse(_priceMonthly) ?? 0;
-    return monthly * 0.015; // 1.5% of monthly rent listing fee
-  }
+  double get _listingFee => 0.0; // 0% Free Property Listing
 
   final List<String> _amenitiesList = ['WiFi', 'Aircon', 'Parking', 'Furnished', 'Gym', 'Swimming Pool'];
 
@@ -97,9 +94,12 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
       return;
     }
 
-    final monthly = double.tryParse(_priceMonthly) ?? 0;
-    if (monthly <= 0) {
-      setState(() => _error = 'Please provide a valid monthly rate.');
+    final daily = double.tryParse(_priceDaily) ?? 0.0;
+    final weekly = double.tryParse(_priceWeekly) ?? 0.0;
+    final monthly = double.tryParse(_priceMonthly) ?? 0.0;
+
+    if (daily <= 0 && weekly <= 0 && monthly <= 0) {
+      setState(() => _error = 'Please provide at least one rental rate (Daily, Weekly, or Monthly).');
       return;
     }
 
@@ -135,9 +135,14 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
       final user = component.appState.userProfile;
       if (user == null) throw Exception('User profile not loaded.');
 
-      final depositAmt = double.tryParse(_securityDepositAmount) ?? 0.0;
+      final dVal = double.tryParse(_depositValue) ?? 0.0;
       final advanceAmt = double.tryParse(_advanceAmount) ?? 0.0;
-      _depositMonths = monthly > 0 ? (depositAmt / monthly).round() : 0;
+
+      final allowedDurations = <String>[];
+      if (daily > 0) allowedDurations.add('DAILY');
+      if (weekly > 0) allowedDurations.add('WEEKLY');
+      if (monthly > 0) allowedDurations.add('MONTHLY');
+      if (allowedDurations.isEmpty) allowedDurations.addAll(['DAILY', 'WEEKLY', 'MONTHLY']);
 
       final property = PropertyRental(
         id: '',
@@ -149,11 +154,15 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
         type: _selectedType,
         category: _selectedCategory,
         priceMonthly: monthly,
-        priceWeekly: double.tryParse(_priceWeekly) ?? 0.0,
-        priceDaily: double.tryParse(_priceDaily) ?? 0.0,
-        depositMonths: _depositMonths,
-        securityDepositAmount: depositAmt,
+        priceWeekly: weekly,
+        priceDaily: daily,
+        depositMonths: monthly > 0 && _depositType == DepositType.fixed ? (dVal / monthly).round() : 0,
+        securityDepositAmount: _depositType == DepositType.fixed ? dVal : null,
         advanceAmount: advanceAmt,
+        depositType: _depositType,
+        depositValue: dVal,
+        isListingFeeWaived: true,
+        allowedDurations: allowedDurations,
         address: _address,
         latitude: _latitude ?? 14.5995,
         longitude: _longitude ?? 120.9842,
@@ -169,7 +178,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
       // Create property listing
       await component.appState.firestore.createPropertyRental(property);
 
-      // Reload profile & transactions to display balance deduction and transaction log promptly
+      // Reload profile & transactions promptly
       await component.appState.loadUserProfile();
       await component.appState.loadTransactions();
 
@@ -377,142 +386,91 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
               ]),
             ] else if (_step == 2) ...[
               // Step 2: Pricing & Location
-              h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Proximity')]),
-              div(classes: 'grid grid-cols-2 gap-4', [
+              h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Deposit Terms')]),
+              div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-6', [
                 _inputField(
-                  'Monthly Rent (Required)',
-                  _priceMonthly,
-                  (v) => setState(() => _priceMonthly = v),
-                  isDark,
-                  placeholder: '25000',
-                  type: InputType.number,
-                ),
-                div([]),
-                // Security Deposit
-                div([
-                  _inputField(
-                    'Security Deposit (₱)',
-                    _securityDepositAmount,
-                    (v) => setState(() => _securityDepositAmount = v),
-                    isDark,
-                    placeholder: 'e.g. 50000',
-                    type: InputType.number,
-                  ),
-                  Builder(
-                    builder: (context) {
-                      final monthly = double.tryParse(_priceMonthly) ?? 0.0;
-                      if (monthly <= 0) return div([]);
-                      return div(classes: 'flex flex-wrap gap-1.5 mb-4', [
-                        span(classes: 'text-[10px] text-zinc-500 font-semibold my-auto mr-1', [
-                          Component.text('Quick:'),
-                        ]),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_securityDepositAmount == "0" ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _securityDepositAmount = '0')},
-                          [Component.text('None')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_securityDepositAmount == monthly.toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _securityDepositAmount = monthly.toInt().toString())},
-                          [Component.text('1 mo')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_securityDepositAmount == (monthly * 2).toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {
-                            'click': (_) => setState(() => _securityDepositAmount = (monthly * 2).toInt().toString()),
-                          },
-                          [Component.text('2 mo')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_securityDepositAmount == (monthly * 3).toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {
-                            'click': (_) => setState(() => _securityDepositAmount = (monthly * 3).toInt().toString()),
-                          },
-                          [Component.text('3 mo')],
-                        ),
-                      ]);
-                    },
-                  ),
-                ]),
-                // Advance Payment
-                div([
-                  _inputField(
-                    'Advance Payment (₱)',
-                    _advanceAmount,
-                    (v) => setState(() => _advanceAmount = v),
-                    isDark,
-                    placeholder: 'e.g. 25000',
-                    type: InputType.number,
-                  ),
-                  Builder(
-                    builder: (context) {
-                      final monthly = double.tryParse(_priceMonthly) ?? 0.0;
-                      if (monthly <= 0) return div([]);
-                      return div(classes: 'flex flex-wrap gap-1.5 mb-4', [
-                        span(classes: 'text-[10px] text-zinc-500 font-semibold my-auto mr-1', [
-                          Component.text('Quick:'),
-                        ]),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_advanceAmount == "0" ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _advanceAmount = '0')},
-                          [Component.text('None')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_advanceAmount == monthly.toInt().toString() ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _advanceAmount = monthly.toInt().toString())},
-                          [Component.text('1 mo')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_advanceAmount == (monthly * 2).toInt().toString() ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _advanceAmount = (monthly * 2).toInt().toString())},
-                          [Component.text('2 mo')],
-                        ),
-                      ]);
-                    },
-                  ),
-                ]),
-                _inputField(
-                  'Weekly Rate (Optional)',
-                  _priceWeekly,
-                  (v) => setState(() => _priceWeekly = v),
-                  isDark,
-                  placeholder: 'e.g. 7000',
-                  type: InputType.number,
-                ),
-                _inputField(
-                  'Daily Rate (Optional)',
+                  'Daily Rate (₱/day)',
                   _priceDaily,
                   (v) => setState(() => _priceDaily = v),
                   isDark,
                   placeholder: 'e.g. 1500',
                   type: InputType.number,
                 ),
+                _inputField(
+                  'Weekly Rate (₱/week)',
+                  _priceWeekly,
+                  (v) => setState(() => _priceWeekly = v),
+                  isDark,
+                  placeholder: 'e.g. 8000',
+                  type: InputType.number,
+                ),
+                _inputField(
+                  'Monthly Rent (₱/month)',
+                  _priceMonthly,
+                  (v) => setState(() => _priceMonthly = v),
+                  isDark,
+                  placeholder: 'e.g. 30000',
+                  type: InputType.number,
+                ),
               ]),
 
-              div(classes: 'mt-6 p-4 rounded-xl bg-purple-500/10 border border-purple-500/20 mb-6', [
-                div(classes: 'flex justify-between text-sm mb-2', [
-                  span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
-                    Component.text('Platform Listing Fee (1.5% of Monthly)'),
-                  ]),
-                  span(classes: 'font-bold text-purple-400', [Component.text('${_listingFee.toStringAsFixed(2)} TYX')]),
+              // Security Deposit Policy Selector
+              div(classes: 'p-4 rounded-xl border mb-6 ${isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-zinc-50 border-zinc-200"}', [
+                label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                  Component.text('Security Deposit Policy'),
                 ]),
-                p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                p(classes: 'text-xs mb-3 ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                  Component.text('Held securely in escrow as non-revenue trust funds and refunded upon inspection.'),
+                ]),
+                div(classes: 'flex flex-wrap gap-2 mb-3', [
+                  button(
+                    classes:
+                        'px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer '
+                        '${_depositType == DepositType.fixed ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-100")}',
+                    events: {'click': (_) => setState(() => _depositType = DepositType.fixed)},
+                    [Component.text('Fixed Amount (₱)')],
+                  ),
+                  button(
+                    classes:
+                        'px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer '
+                        '${_depositType == DepositType.percentage ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-100")}',
+                    events: {'click': (_) => setState(() => _depositType = DepositType.percentage)},
+                    [Component.text('Percentage of Rent (%)')],
+                  ),
+                  button(
+                    classes:
+                        'px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer '
+                        '${_depositType == DepositType.none ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-100")}',
+                    events: {'click': (_) => setState(() {
+                      _depositType = DepositType.none;
+                      _depositValue = '0';
+                    })},
+                    [Component.text('No Deposit (₱0)')],
+                  ),
+                ]),
+                if (_depositType != DepositType.none)
+                  div(classes: 'max-w-xs mt-2', [
+                    _inputField(
+                      _depositType == DepositType.fixed ? 'Deposit Amount (₱)' : 'Deposit Rate (%)',
+                      _depositValue,
+                      (v) => setState(() => _depositValue = v),
+                      isDark,
+                      placeholder: _depositType == DepositType.fixed ? '1000' : '20',
+                      type: InputType.number,
+                    ),
+                  ]),
+              ]),
+
+              div(classes: 'p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 mb-6', [
+                div(classes: 'flex justify-between text-sm mb-1', [
+                  span(classes: isDark ? 'text-zinc-300' : 'text-zinc-700', [
+                    Component.text('Property Listing Fee (Free Tier)'),
+                  ]),
+                  span(classes: 'font-bold text-emerald-400', [Component.text('₱0.00 (100% Free)')]),
+                ]),
+                p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
                   Component.text(
-                    'To prevent listing spam, a small fee is deducted from your wallet to post your property.',
+                    'Posting your property is completely free. TRANYX only retains a 7% success commission upon completed rental term.',
                   ),
                 ]),
               ]),
@@ -644,9 +602,12 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                           priceMonthly: double.tryParse(_priceMonthly) ?? 0,
                           priceWeekly: double.tryParse(_priceWeekly) ?? 0,
                           priceDaily: double.tryParse(_priceDaily) ?? 0,
-                          depositMonths: _depositMonths,
-                          securityDepositAmount: double.tryParse(_securityDepositAmount) ?? 0.0,
+                          depositMonths: 0,
+                          securityDepositAmount: _depositType == DepositType.fixed ? double.tryParse(_depositValue) : null,
+                          depositType: _depositType,
+                          depositValue: double.tryParse(_depositValue) ?? 0.0,
                           advanceAmount: double.tryParse(_advanceAmount) ?? 0.0,
+                          isListingFeeWaived: true,
                           address: _address.isNotEmpty ? _address : component.appState.pickupAddress,
                           latitude: _latitude ?? component.appState.pickupLat ?? 0.0,
                           longitude: _longitude ?? component.appState.pickupLng ?? 0.0,
@@ -683,99 +644,73 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                   final monthlyRate = double.tryParse(_priceMonthly) ?? 0.0;
                   final weeklyRate = double.tryParse(_priceWeekly) ?? 0.0;
                   final dailyRate = double.tryParse(_priceDaily) ?? 0.0;
-                  final depositAmt = double.tryParse(_securityDepositAmount) ?? 0.0;
-                  final advanceAmt = double.tryParse(_advanceAmount) ?? 0.0;
+                  final dVal = double.tryParse(_depositValue) ?? 0.0;
 
-                  // Listing Fee (1.5% of Monthly)
-                  final listingFee = monthlyRate * 0.015;
-
-                  // Commission (3% deducted from rent)
-                  final commissionMonthly = monthlyRate * 0.03;
+                  // Commission (7% deducted from rent on completion)
+                  final commissionMonthly = monthlyRate * 0.07;
                   final payoutMonthly = monthlyRate - commissionMonthly;
 
-                  final commissionWeekly = weeklyRate * 0.03;
+                  final commissionWeekly = weeklyRate * 0.07;
                   final payoutWeekly = weeklyRate - commissionWeekly;
 
-                  final commissionDaily = dailyRate * 0.03;
+                  final commissionDaily = dailyRate * 0.07;
                   final payoutDaily = dailyRate - commissionDaily;
 
-                  if (monthlyRate <= 0) return div([]);
+                  if (monthlyRate <= 0 && weeklyRate <= 0 && dailyRate <= 0) return div([]);
 
                   return div(
                     classes: 'mt-6 p-5 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900/50" : "border-zinc-200 bg-zinc-50"} space-y-3.5',
                     [
                       p(classes: 'text-xs font-bold text-indigo-400 uppercase tracking-wider', [Component.text('Listing Payment & Earnings Breakdown')]),
                       div(classes: 'space-y-2.5', [
-                        // Rates
                         div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
-                          span([Component.text('Monthly Rent (Base):')]),
-                          span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                            Component.text('₱ ${monthlyRate.toStringAsFixed(2)}')
+                          span([Component.text('Property Listing Upfront Fee:')]),
+                          span(classes: 'font-semibold text-emerald-400', [
+                            Component.text('₱ 0.00 (100% Free)')
                           ]),
                         ]),
+                        if (monthlyRate > 0)
+                          div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                            span([Component.text('Monthly Rent (Base): ₱${monthlyRate.toStringAsFixed(2)}')]),
+                            span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
+                              Component.text('Net Payout: ₱${payoutMonthly.toStringAsFixed(2)}')
+                            ]),
+                          ]),
                         if (weeklyRate > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                             span([Component.text('Weekly Rent: ₱${weeklyRate.toStringAsFixed(2)}')]),
                             span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                              Component.text('Payout: ₱${payoutWeekly.toStringAsFixed(2)} (Net)')
+                              Component.text('Net Payout: ₱${payoutWeekly.toStringAsFixed(2)}')
                             ]),
                           ]),
                         if (dailyRate > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                             span([Component.text('Daily Rent: ₱${dailyRate.toStringAsFixed(2)}')]),
                             span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                              Component.text('Payout: ₱${payoutDaily.toStringAsFixed(2)} (Net)')
+                              Component.text('Net Payout: ₱${payoutDaily.toStringAsFixed(2)}')
                             ]),
                           ]),
-                        if (depositAmt > 0)
+                        if (_depositType != DepositType.none && dVal > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
-                            span([Component.text('Security Deposit (Refundable):')]),
-                            span(classes: 'font-semibold text-green-500', [
-                              Component.text('₱ ${depositAmt.toStringAsFixed(2)}')
-                            ]),
-                          ]),
-                        if (advanceAmt > 0)
-                          div(classes: 'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800 pb-2" : "border-zinc-200 pb-2"}', [
-                            span([Component.text('Advance Rent Payment:')]),
-                            span(classes: 'font-semibold text-green-500', [
-                              Component.text('₱ ${advanceAmt.toStringAsFixed(2)}')
+                            span([Component.text('Security Deposit (${_depositType == DepositType.fixed ? "Fixed Amount" : "${dVal.toStringAsFixed(0)}% Rate"}):')]),
+                            span(classes: 'font-semibold text-purple-400', [
+                              Component.text(_depositType == DepositType.fixed ? '₱ ${dVal.toStringAsFixed(2)}' : '${dVal.toStringAsFixed(0)}% of Rent')
                             ]),
                           ]),
 
-                        // Commission & Earnings summary
-                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
-                          span([Component.text('Host Commission (3%):')]),
+                        // Commission summary
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400 pt-1 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+                          span([Component.text('TRANYX Host Success Commission (7%):')]),
                           span(classes: 'font-semibold text-amber-500', [
-                            Component.text('- ₱ ${commissionMonthly.toStringAsFixed(2)}')
+                            Component.text('Deducted only from Base Rent upon completion')
                           ]),
                         ]),
-                        div(classes: 'flex justify-between items-center pt-1.5', [
-                          span(classes: 'text-xs font-semibold text-indigo-400', [Component.text('Est. Monthly Net Payout:')]),
-                          span(classes: 'text-base font-bold text-green-500', [
-                            Component.text('₱ ${payoutMonthly.toStringAsFixed(2)}')
-                          ]),
-                        ]),
-
-                        // Separator
-                        div(classes: 'border-t ${isDark ? "border-zinc-800" : "border-zinc-200"} my-2', []),
-
-                        // Listing anti-spam fee
-                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
-                          span([Component.text('Anti-Spam Listing Fee (1.5% of Monthly):')]),
-                          span(classes: 'font-semibold text-purple-400', [
-                            Component.text('${listingFee.toStringAsFixed(2)} TYX')
-                          ]),
-                        ]),
-                      ]),
-                      p(classes: 'text-[10px] text-zinc-500 leading-normal', [
-                        Component.text(
-                          'Notice: A listing fee of ${listingFee.toStringAsFixed(2)} TYX will be charged to your wallet now to host the property. Standard platform commission of 3% is only charged on rent payouts.',
-                        ),
                       ]),
                     ],
                   );
                 },
               ),
+
             ],
           ]),
 

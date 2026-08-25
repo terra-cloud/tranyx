@@ -19,8 +19,14 @@ class PlatformFeeConfig {
   /// Rentee / Guest booking fee (default 0.03 / 3%)
   final double bookingFeeRate;
 
-  /// Upfront listing fee for host listings (default 0.015 / 1.5%)
+  /// Upfront listing fee for host listings (default 0.0 / 0% for free property listings)
   final double listingFeeRate;
+
+  /// Property customer platform booking fee (default 0.03 / 3%)
+  final double propertyCustomerFeeRate;
+
+  /// Property host success commission rate (default 0.07 / 7%)
+  final double propertyHostCommissionRate;
 
   /// Quality inspection escrow holdback rate (default 0.10 / 10%)
   final double holdbackRate;
@@ -32,7 +38,9 @@ class PlatformFeeConfig {
     this.serviceFeeRate = 0.01,
     this.markupRate = 0.03,
     this.bookingFeeRate = 0.03,
-    this.listingFeeRate = 0.015,
+    this.propertyCustomerFeeRate = 0.03,
+    this.propertyHostCommissionRate = 0.07,
+    this.listingFeeRate = 0.0,
     this.holdbackRate = 0.10,
   });
 
@@ -51,8 +59,16 @@ class PlatformFeeConfig {
           0.03,
       serviceFeeRate: (map['serviceFeeRate'] as num?)?.toDouble() ?? 0.01,
       markupRate: (map['markupRate'] as num?)?.toDouble() ?? 0.03,
-      bookingFeeRate: (map['bookingFeeRate'] as num?)?.toDouble() ?? 0.03,
-      listingFeeRate: (map['listingFeeRate'] as num?)?.toDouble() ?? 0.015,
+      bookingFeeRate: (map['bookingFeeRate'] as num?)?.toDouble() ??
+          (map['propertyCustomerFeeRate'] as num?)?.toDouble() ??
+          0.03,
+      propertyCustomerFeeRate: (map['propertyCustomerFeeRate'] as num?)?.toDouble() ??
+          (map['bookingFeeRate'] as num?)?.toDouble() ??
+          0.03,
+      propertyHostCommissionRate: (map['propertyHostCommissionRate'] as num?)?.toDouble() ??
+          (map['hostCommissionRate'] as num?)?.toDouble() ??
+          0.07,
+      listingFeeRate: (map['listingFeeRate'] as num?)?.toDouble() ?? 0.0,
       holdbackRate: (map['holdbackRate'] as num?)?.toDouble() ?? 0.10,
     );
   }
@@ -65,6 +81,8 @@ class PlatformFeeConfig {
       'serviceFeeRate': serviceFeeRate,
       'markupRate': markupRate,
       'bookingFeeRate': bookingFeeRate,
+      'propertyCustomerFeeRate': propertyCustomerFeeRate,
+      'propertyHostCommissionRate': propertyHostCommissionRate,
       'listingFeeRate': listingFeeRate,
       'holdbackRate': holdbackRate,
     };

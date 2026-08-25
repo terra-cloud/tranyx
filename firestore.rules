@@ -140,7 +140,15 @@ service cloud.firestore {
             'status', 'completionCode', 'receiptUrl', 'nyxianRated'
           ])
         ) ||
-        // 3. Admin / Staff
+        // 3. Any Active Applicant: Can apply to or withdraw from an Open/Reviewing job
+        (isActiveUser() && 
+          (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
+          (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'applicantCount', 'applicantUids', 'recentApplicantPhotos'
+          ])
+        ) ||
+        // 4. Admin / Staff
         isAdminOrStaff();
 
       allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid && (

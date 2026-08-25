@@ -2534,6 +2534,10 @@ class TranyxAppState extends State<TranyxApp> {
           durationType: data['durationType'] as String,
           multiplier: data['multiplier'] as int,
           totalCost: (data['totalCost'] as num).toDouble(),
+          baseRentAmount: (data['baseRentAmount'] as num?)?.toDouble(),
+          securityDepositAmount: (data['securityDepositAmount'] as num?)?.toDouble(),
+          customerPlatformFeeRate: (data['customerPlatformFeeRate'] as num?)?.toDouble(),
+          hostCommissionRate: (data['hostCommissionRate'] as num?)?.toDouble(),
           contractType: data['contractType'] as String,
           contractTerms: data['contractTerms'] as String,
           startDate: data['startDate'] as int,
@@ -2784,6 +2788,10 @@ class TranyxAppState extends State<TranyxApp> {
           durationType: data['durationType'] as String,
           multiplier: data['multiplier'] as int,
           totalCost: (data['totalCost'] as num).toDouble(),
+          baseRentAmount: (data['baseRentAmount'] as num?)?.toDouble(),
+          securityDepositAmount: (data['securityDepositAmount'] as num?)?.toDouble(),
+          customerPlatformFeeRate: (data['customerPlatformFeeRate'] as num?)?.toDouble(),
+          hostCommissionRate: (data['hostCommissionRate'] as num?)?.toDouble(),
           contractType: data['contractType'] as String,
           contractTerms: data['contractTerms'] as String,
           startDate: data['startDate'] as int,
@@ -4851,7 +4859,20 @@ class TranyxAppState extends State<TranyxApp> {
     final uid = SessionStorage.uid;
     final token = SessionStorage.idToken;
     final jobId = selectedJobData?['id'] as String? ?? '';
-    if (uid == null || token == null || jobId.isEmpty) return;
+    if (uid == null || token == null) {
+      showAppToast('Authentication Required', 'Please sign in to apply for this job.');
+      return;
+    }
+    if (jobId.isEmpty) {
+      showAppToast('Error', 'Invalid job selected.');
+      return;
+    }
+
+    final creatorId = selectedJobData?['creatorId'] as String?;
+    if (creatorId == uid) {
+      showAppToast('Invalid Action', 'You cannot apply to your own job posting.');
+      return;
+    }
 
     setState(() {
       isSubmittingApplication = true;
@@ -4868,9 +4889,8 @@ class TranyxAppState extends State<TranyxApp> {
         isCounterOffer: isCounterOffer,
       );
 
-      final creatorId = selectedJobData?['creatorId'] as String?;
-      if (creatorId != null && creatorId.isNotEmpty) {
-        final jobTitle = selectedJobData?['title'] as String? ?? 'Job';
+      final jobTitle = selectedJobData?['title'] as String? ?? 'Job';
+      if (creatorId != null && creatorId.isNotEmpty && creatorId != uid) {
         final appName = userName.isEmpty ? 'Anonymous' : userName;
         await FirestoreService(token, _handleTokenRefresh).createNotification(
           uid: creatorId,
@@ -4891,6 +4911,7 @@ class TranyxAppState extends State<TranyxApp> {
         applyError = e.toString();
         isSubmittingApplication = false;
       });
+      showAppToast('Application Error', e.toString());
     }
   }
 

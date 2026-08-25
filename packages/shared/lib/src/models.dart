@@ -1,7 +1,9 @@
 // Core data models for Tranyx (Shared between Mobile and Web)
 import 'enums.dart';
+import 'property_pricing_model.dart';
 
 export 'enums.dart';
+export 'property_pricing_model.dart';
 
 enum AccountType {
   nyxian,
@@ -1130,6 +1132,10 @@ class PropertyRental {
   final bool allowChat;
   final double? securityDepositAmount;
   final double? advanceAmount;
+  final DepositType depositType;
+  final double depositValue;
+  final bool isListingFeeWaived;
+  final List<String> allowedDurations;
 
   // Party Verification Snapshots
   final bool? hostIsVerified;
@@ -1153,6 +1159,10 @@ class PropertyRental {
   final String? rentalDurationType;
   final String? signatureHash;
   final String? renteeLicenseNumber;
+
+  double get dailyRate => priceDaily;
+  double get weeklyRate => priceWeekly;
+  double get monthlyRate => priceMonthly;
 
   const PropertyRental({
     required this.id,
@@ -1179,6 +1189,10 @@ class PropertyRental {
     this.allowChat = false,
     this.securityDepositAmount,
     this.advanceAmount,
+    this.depositType = DepositType.none,
+    this.depositValue = 0.0,
+    this.isListingFeeWaived = true,
+    this.allowedDurations = const ['DAILY', 'WEEKLY', 'MONTHLY'],
     this.hostIsVerified,
     this.hostVerificationStatus,
     this.hostVerificationTier,
@@ -1216,6 +1230,14 @@ class PropertyRental {
       'depositMonths': depositMonths,
       'securityDepositAmount': securityDepositAmount,
       'advanceAmount': advanceAmount,
+      'depositType': depositType.nameString,
+      'depositValue': depositValue,
+      'securityDepositPolicy': {
+        'type': depositType.nameString,
+        'value': depositValue,
+      },
+      'isListingFeeWaived': isListingFeeWaived,
+      'allowedDurations': allowedDurations,
       'address': address,
       'latitude': latitude,
       'longitude': longitude,
@@ -1258,6 +1280,28 @@ class PropertyRental {
       orElse: () => PropertyCategory.residential,
     );
 
+    final monthly = (map['priceMonthly'] as num?)?.toDouble() ?? 0.0;
+    final weekly = (map['priceWeekly'] as num?)?.toDouble() ?? 0.0;
+    final daily = (map['priceDaily'] as num?)?.toDouble() ?? 0.0;
+
+    DepositType dType = DepositType.none;
+    double dVal = 0.0;
+
+    if (map['securityDepositPolicy'] is Map) {
+      final policy = map['securityDepositPolicy'] as Map<String, dynamic>;
+      dType = DepositTypeHelper.fromString(policy['type'] as String?);
+      dVal = (policy['value'] as num?)?.toDouble() ?? 0.0;
+    } else if (map['depositType'] != null) {
+      dType = DepositTypeHelper.fromString(map['depositType'] as String?);
+      dVal = (map['depositValue'] as num?)?.toDouble() ?? 0.0;
+    } else if (map['securityDepositAmount'] != null && (map['securityDepositAmount'] as num) > 0) {
+      dType = DepositType.fixed;
+      dVal = (map['securityDepositAmount'] as num).toDouble();
+    } else if (map['depositMonths'] != null && (map['depositMonths'] as num) > 0 && monthly > 0) {
+      dType = DepositType.fixed;
+      dVal = (map['depositMonths'] as num).toDouble() * monthly;
+    }
+
     return PropertyRental(
       id: id,
       hostId: map['hostId'] ?? '',
@@ -1267,12 +1311,16 @@ class PropertyRental {
       description: map['description'] ?? '',
       type: pType,
       category: pCat,
-      priceMonthly: (map['priceMonthly'] as num?)?.toDouble() ?? 0.0,
-      priceWeekly: (map['priceWeekly'] as num?)?.toDouble() ?? 0.0,
-      priceDaily: (map['priceDaily'] as num?)?.toDouble() ?? 0.0,
+      priceMonthly: monthly,
+      priceWeekly: weekly,
+      priceDaily: daily,
       depositMonths: (map['depositMonths'] as num?)?.toInt() ?? 0,
-      securityDepositAmount: (map['securityDepositAmount'] as num?)?.toDouble(),
+      securityDepositAmount: (map['securityDepositAmount'] as num?)?.toDouble() ?? (dType == DepositType.fixed ? dVal : null),
       advanceAmount: (map['advanceAmount'] as num?)?.toDouble(),
+      depositType: dType,
+      depositValue: dVal,
+      isListingFeeWaived: map['isListingFeeWaived'] as bool? ?? true,
+      allowedDurations: List<String>.from(map['allowedDurations'] ?? ['DAILY', 'WEEKLY', 'MONTHLY']),
       address: map['address'] ?? '',
       latitude: (map['latitude'] as num?)?.toDouble() ?? 0.0,
       longitude: (map['longitude'] as num?)?.toDouble() ?? 0.0,
