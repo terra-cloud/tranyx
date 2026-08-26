@@ -37,6 +37,7 @@ service cloud.firestore {
         )) ||
         (hasUserDoc && (
           ('isAdmin' in userDoc && userDoc.isAdmin == true) ||
+          ('isP2pAgent' in userDoc && userDoc.isP2pAgent == true) ||
           ('role' in userDoc && (
             userDoc.role == 'admin' ||
             userDoc.role == 'staff' ||
@@ -279,6 +280,14 @@ service cloud.firestore {
       allow delete: if isAdminOrStaff();
     }
 
+    // Withdrawal Requests Collection (P2P Cashout Matching & Verification)
+    match /withdrawal_requests/{reqId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
+    }
+
     // P2P Agents Collection (Publicly readable verified agent QR credentials)
     match /p2p_agents/{agentId} {
       allow read: if true;
@@ -306,10 +315,16 @@ service cloud.firestore {
       allow write: if isAuthenticated();
     }
 
-    // Wallets Collection (Unified wallet storage)
+    // Wallets Collection (Unified wallet storage & user ledger sub-collections)
     match /wallets/{walletId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
       allow write: if isOwner(walletId) || isAdminOrStaff();
+
+      match /transactions/{txId} {
+        allow read: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
+        allow create, update: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
+        allow delete: if isAdminOrStaff();
+      }
     }
 
     // Audit Logs Collections (Admin & Deposit lifecycle tracking)
@@ -340,11 +355,20 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Withdrawal Requests Collection
+    // Withdrawal Requests Collection (Dual-collection sync with withdrawal_requests)
     match /withdrawalRequests/{requestId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow create: if isActiveUser() && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if false;
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
+    }
+
+    // Deposit Requests Collection (Dual-collection sync with deposit_requests)
+    match /depositRequests/{requestId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
     }
 
     // Notifications Collection

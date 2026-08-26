@@ -18,4 +18,4 @@ export 'src/gig_filter_engine.dart';
 export 'src/p2p_agent.dart';
 export 'src/platform_fee_config.dart';
 export 'src/property_pricing_model.dart';
-
+export 'src/withdrawal_request.dart';

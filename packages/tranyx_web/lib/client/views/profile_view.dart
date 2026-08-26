@@ -3457,20 +3457,6 @@ class _HistoryViewState extends State<_HistoryView> {
   int completedGigsCount = 0;
   bool _isLoading = true;
 
-  String _cleanAgentName(String? raw) {
-    if (raw == null || raw.trim().isEmpty) return 'Payment Agent';
-    final trimmed = raw.trim();
-    if (trimmed.contains('@')) {
-      final local = trimmed.split('@').first;
-      return local
-          .split(RegExp(r'[._\-]'))
-          .where((s) => s.isNotEmpty)
-          .map((s) => s[0].toUpperCase() + (s.length > 1 ? s.substring(1).toLowerCase() : ''))
-          .join(' ');
-    }
-    return trimmed;
-  }
-
   void _loadRentalHistory() async {
     final uid = component.state.userProfile?.uid;
     if (uid == null) {
@@ -3485,10 +3471,17 @@ class _HistoryViewState extends State<_HistoryView> {
     try {
       final list = await component.state.firestore.getMyRentalHistory(uid);
       final p2pList = await component.state.firestore.fetchUserDepositRequests(uid);
+      final p2pWithList = await component.state.firestore.fetchUserP2pWithdrawalRequests(uid);
       final withList = await component.state.firestore.fetchUserWithdrawalRequests(uid);
+      final walletTxList = await component.state.firestore.getCollection('wallets/$uid/transactions');
+      final combinedWithdrawals = <Map<String, dynamic>>[
+        ...withList,
+        ...p2pWithList.map((r) => r.toMap()),
+        ...walletTxList.where((tx) => (tx['type'] ?? '').toString().toUpperCase() == 'WITHDRAWAL' || (tx['type'] ?? '').toString().contains('withdraw')),
+      ];
       _dbRentalHistory = list;
       userP2pDeposits = p2pList;
-      userWithdrawalRequests = withList;
+      userWithdrawalRequests = combinedWithdrawals;
       _loadDbHistory();
     } catch (e) {
       print('Error loading db rental history: $e');
@@ -3957,7 +3950,7 @@ class _HistoryViewState extends State<_HistoryView> {
             : (isRefund ? 'Escrow Refund' : (isP2p ? 'P2P Top-Up' : 'Added Funds'));
 
         dTrans.add({
-          'id': record.id.isNotEmpty ? record.id : (tx['id'] as String? ?? 'dep_${createdAt}'),
+          'id': record.id.isNotEmpty ? record.id : (tx['id'] as String? ?? 'dep_$createdAt'),
           'depositRequestId': tx['depositRequestId'] as String? ?? (tx['id'] as String? ?? '').replaceAll('p2p_dep_', ''),
           'title': title,
           'desc': cleanDesc,
@@ -4009,17 +4002,6 @@ class _HistoryViewState extends State<_HistoryView> {
           'status': 'Successful',
           'timestamp': createdAt,
           'kind': 'subscription',
-        });
-      } else if (record.transactionType == WalletTransactionType.withdraw ||
-          (tx['type'] ?? '').toString().contains('withdraw')) {
-        pTrans.add({
-          'title': record.title.isNotEmpty ? record.title : 'Wallet Withdrawal',
-          'desc': record.desc.isNotEmpty ? record.desc : 'Disbursed Funds',
-          'date': _formatDate(createdAt),
-          'amount': record.amount.abs(),
-          'status': record.status.isNotEmpty ? record.status : 'Completed',
-          'timestamp': createdAt,
-          'kind': 'withdrawal',
         });
       }
     }
@@ -4173,10 +4155,10 @@ class _HistoryViewState extends State<_HistoryView> {
       var proofImg = (d['proofImageUrl'] as String? ?? '').trim();
       if (proofImg.isEmpty && d['originRail'] == 'manual_p2p') {
         final reqId = (d['depositRequestId'] as String? ?? d['id'] as String? ?? '').replaceAll('p2p_dep_', '').replaceAll('dep_', '');
-        final matchedP2p = userP2pDeposits.where((p) =>
-            p.id == reqId ||
-            p.id == d['id'] ||
-            (p.referenceNumber.isNotEmpty && p.referenceNumber == d['referenceNumber'])).firstOrNull;
+        final matchedP2p = userP2pDeposits.where((depositReq) =>
+            depositReq.id == reqId ||
+            depositReq.id == d['id'] ||
+            (depositReq.referenceNumber.isNotEmpty && depositReq.referenceNumber == d['referenceNumber'])).firstOrNull;
         if (matchedP2p != null && matchedP2p.proofImageUrl.isNotEmpty) {
           proofImg = matchedP2p.proofImageUrl;
         }
@@ -4252,28 +4234,38 @@ class _HistoryViewState extends State<_HistoryView> {
 
     // 4. Outflows from Withdrawals / Payout Requests
     for (final w in userWithdrawalRequests) {
-      final amt = (w['amount'] as num?)?.toDouble() ?? 0.0;
-      final createdAt = (w['createdAt'] as num?)?.toInt() ?? 0;
-      final method = w['payoutMethod'] ?? w['method'] ?? 'Bank Transfer';
-      final status = w['status'] ?? 'PENDING';
-      final isCompleted = status.toString().toUpperCase() == 'APPROVED' ||
-          status.toString().toUpperCase() == 'COMPLETED';
+      final amt = (w['amount'] as num?)?.toDouble().abs() ?? 0.0;
+      final createdAt = (w['createdAt'] as num?)?.toInt() ?? (w['timestamp'] as num?)?.toInt() ?? 0;
+      final method = (w['payoutMethod'] ?? w['paymentMethod'] ?? w['method'] ?? 'GCash').toString();
+      final rawStatus = (w['status'] ?? 'PENDING_REVIEW').toString();
+      final isCompleted = rawStatus.toUpperCase() == 'APPROVED' ||
+          rawStatus.toUpperCase() == 'COMPLETED' ||
+          rawStatus.toUpperCase() == 'SUCCESSFUL';
       if (isCompleted) {
         outflowSum += amt;
       }
+      final cleanAccountName = (w['userAccountName'] ?? w['accountName'] ?? '').toString();
+      final cleanAccountNumber = (w['userAccountNumber'] ?? w['accountNumber'] ?? '').toString();
+      final desc = (w['desc'] ?? w['description'] ?? (cleanAccountNumber.isNotEmpty ? 'Withdrawal via $method ($cleanAccountNumber)' : 'Withdrawal via $method account')).toString();
+      final refNum = (w['referenceNumber'] ?? (w['id'] != null && (w['id'] as String).length >= 8 ? (w['id'] as String).substring(0, 8).toUpperCase() : '')).toString();
+
       unified.add({
-        'id': w['id'] ?? 'with_${createdAt}',
+        'id': w['id'] ?? 'with_$createdAt',
         'type': 'debit',
         'category': 'withdrawal',
         'categoryLabel': 'Withdrawal / Payout',
-        'title': 'Withdrawal ($method)',
-        'desc': 'Disbursement to $method account',
+        'title': w['title'] ?? 'Withdrawal ($method)',
+        'desc': desc,
         'date': _formatDate(createdAt),
         'amount': amt,
-        'status': status,
+        'status': rawStatus,
         'method': method,
-        'accountNumber': w['accountNumber'],
-        'accountName': w['accountName'],
+        'accountNumber': cleanAccountNumber,
+        'accountName': cleanAccountName,
+        'proofImageUrl': w['proofImageUrl'],
+        'referenceNumber': refNum,
+        'rejectionReason': w['rejectionReason'],
+        'originRail': w['originRail'] ?? 'manual_p2p',
         'timestamp': createdAt,
         'isCompleted': isCompleted,
       });
@@ -4284,7 +4276,17 @@ class _HistoryViewState extends State<_HistoryView> {
     final deduped = <Map<String, dynamic>>[];
     for (final item in unified) {
       String key;
-      if (item['originRail'] == 'manual_p2p' || item['category'] == 'topup') {
+      if (item['category'] == 'withdrawal') {
+        final ref = (item['referenceNumber'] as String? ?? '').trim();
+        final reqId = (item['id'] as String? ?? '').replaceAll('p2p_with_', '').replaceAll('with_', '');
+        if (ref.isNotEmpty) {
+          key = 'with_ref_$ref';
+        } else if (reqId.isNotEmpty) {
+          key = 'with_req_$reqId';
+        } else {
+          key = 'with_${item['amount']}_${(item['timestamp'] as int) ~/ (10 * 60 * 1000)}';
+        }
+      } else if (item['originRail'] == 'manual_p2p' || item['category'] == 'topup') {
         final ref = (item['referenceNumber'] as String? ?? '').trim();
         final reqId = (item['depositRequestId'] as String? ?? item['id'] as String? ?? '')
             .replaceAll('p2p_dep_', '')
@@ -4306,7 +4308,7 @@ class _HistoryViewState extends State<_HistoryView> {
     }
 
     // Sort chronologically descending (latest first)
-    deduped.sort((a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int));
+    deduped.sort((itemA, itemB) => (itemB['timestamp'] as int).compareTo(itemA['timestamp'] as int));
 
     // Compute line-by-line running balance from current live tyxBalance
     final liveTyxBalance = component.state.userProfile?.tyxBalance ?? 0.0;
@@ -4386,41 +4388,6 @@ class _HistoryViewState extends State<_HistoryView> {
       return '₱${buffer.toString()}$decimalPart';
     }
     return '₱$parts';
-  }
-
-  Component _buildBar(int i, Map<String, dynamic> item, double maxVal) {
-    final val = (item['value'] as num).toDouble();
-    final pct = maxVal > 0 ? (val / maxVal) * 100 : 0.0;
-    final barHeight = pct < 8.0 ? 8.0 : pct;
-
-    return div(
-      classes: 'h-full flex-1 flex flex-col justify-end items-center group relative z-10',
-      [
-        // Tooltip
-        div(
-          classes:
-              'absolute top-[-36px] opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none z-20 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-lg whitespace-nowrap',
-          [
-            Component.text('${item['label']}: ${formatCurrency(val)}'),
-          ],
-        ),
-        div(
-          classes:
-              'w-8 sm:w-10 rounded-t-lg transition-all duration-300 logo-gradient hover:opacity-90 relative cursor-pointer',
-          styles: Styles(
-            raw: {
-              'height': '${barHeight.toStringAsFixed(1)}%',
-            },
-          ),
-          [],
-        ),
-        span(
-          classes:
-              'absolute bottom-[-24px] text-[10px] sm:text-xs font-bold ${component.state.isDark ? "text-zinc-500" : "text-zinc-400"} mt-2',
-          [Component.text(item['label'] as String)],
-        ),
-      ],
-    );
   }
 
   Component _buildTransactionHistoryShimmer(bool isDark, String cardCls) {
@@ -4919,6 +4886,67 @@ class _HistoryViewState extends State<_HistoryView> {
                             }
                           }(),
                         ],
+                        // Action Buttons for Active P2P Withdrawals
+                        if (tx['category'] == 'withdrawal' &&
+                            (tx['status'] == 'WAITING_FOR_AGENT' ||
+                                tx['status'] == 'PENDING_REVIEW' ||
+                                tx['status'] == 'PENDING' ||
+                                tx['status'] == 'AWAITING_AGENT_PAYMENT' ||
+                                tx['status'] == 'PENDING_CONFIRMATION')) ...[
+                          div(classes: 'flex flex-wrap items-center gap-2 mt-2', [
+                            if (tx['status'] == 'PENDING_CONFIRMATION')
+                              button(
+                                classes:
+                                    'px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-md shadow-emerald-600/30 transition cursor-pointer flex items-center gap-1.5',
+                                events: {
+                                  'click': (_) async {
+                                    await s.handleConfirmP2pWithdrawalReceived(tx['id'] as String);
+                                    _loadRentalHistory();
+                                  }
+                                },
+                                [
+                                  lIcon('check-circle', cls: 'w-3.5 h-3.5'),
+                                  Component.text('Confirm Received'),
+                                ],
+                              ),
+                            if (tx['status'] == 'WAITING_FOR_AGENT' ||
+                                tx['status'] == 'PENDING_REVIEW' ||
+                                tx['status'] == 'PENDING')
+                              button(
+                                classes:
+                                    'px-3 py-1.5 rounded-lg text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition cursor-pointer flex items-center gap-1.5',
+                                events: {
+                                  'click': (_) async {
+                                    await s.handleCancelP2pWithdrawal(tx['id'] as String);
+                                    _loadRentalHistory();
+                                  }
+                                },
+                                [
+                                  lIcon('x-circle', cls: 'w-3.5 h-3.5'),
+                                  Component.text('Cancel & Refund'),
+                                ],
+                              ),
+                            button(
+                              classes:
+                                  'px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-md shadow-purple-600/30 transition cursor-pointer flex items-center gap-1.5',
+                              events: {
+                                'click': (_) {
+                                  s.setState(() {
+                                    s.selectedWithdrawRail = 'manual_p2p';
+                                    final txId = (tx['id'] ?? '').toString();
+                                    s.activeP2pWithdrawalId = txId;
+                                    s.activeP2pWithdrawalRequest = WithdrawalRequest.fromMap(tx, docId: txId);
+                                    s.showWithdrawModal = true;
+                                  });
+                                }
+                              },
+                              [
+                                lIcon('external-link', cls: 'w-3.5 h-3.5'),
+                                Component.text('Track Cashout'),
+                              ],
+                            ),
+                          ]),
+                        ],
                       ]),
                     ]),
 
@@ -4955,13 +4983,41 @@ class _HistoryViewState extends State<_HistoryView> {
                           ),
                         ]),
                       if (tx['status'] != null)
-                        span(
-                          classes:
-                              'inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${isTxCancelled ? "bg-rose-500/15 text-rose-400 border border-rose-500/30 font-extrabold uppercase" : (tx['status'] == 'Completed' || tx['status'] == 'Released' || tx['status'] == 'Successful' || tx['status'] == 'APPROVED' ? "bg-emerald-500/10 text-emerald-400" : (tx['status'] == 'PENDING' || tx['status'] == 'PENDING_VERIFICATION' ? "bg-amber-500/10 text-amber-400" : "bg-zinc-500/10 text-zinc-400"))}',
-                          [
-                            Component.text(tx['status'] as String),
-                          ],
-                        ),
+                        () {
+                          final st = tx['status'].toString();
+                          final stUpper = st.toUpperCase();
+                          final isApproved = stUpper == 'COMPLETED' || stUpper == 'RELEASED' || stUpper == 'SUCCESSFUL' || stUpper == 'APPROVED';
+                          final isPending = stUpper == 'PENDING' || stUpper == 'PENDING_REVIEW' || stUpper == 'WAITING_FOR_AGENT' || stUpper == 'AWAITING_PAYMENT' || stUpper == 'AWAITING_AGENT_PAYMENT' || stUpper == 'PENDING_CONFIRMATION' || stUpper == 'PENDING_VERIFICATION';
+
+                          String statusDisplay;
+                          if (stUpper == 'PENDING_REVIEW') {
+                            statusDisplay = 'Pending Review';
+                          } else if (stUpper == 'WAITING_FOR_AGENT') {
+                            statusDisplay = 'Waiting for Agent';
+                          } else if (stUpper == 'AWAITING_AGENT_PAYMENT') {
+                            statusDisplay = 'Agent Processing';
+                          } else if (stUpper == 'PENDING_CONFIRMATION') {
+                            statusDisplay = 'Pending Confirmation';
+                          } else if (stUpper == 'PENDING_VERIFICATION') {
+                            statusDisplay = 'Pending Verification';
+                          } else if (stUpper == 'AWAITING_PAYMENT') {
+                            statusDisplay = 'Awaiting Payment';
+                          } else if (isApproved) {
+                            statusDisplay = 'Completed';
+                          } else if (isTxCancelled) {
+                            statusDisplay = isTxRejected ? 'Rejected' : 'Cancelled';
+                          } else {
+                            statusDisplay = st;
+                          }
+
+                          return span(
+                            classes:
+                                'inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${isTxCancelled ? "bg-rose-500/15 text-rose-400 border border-rose-500/30 font-extrabold uppercase" : (isApproved ? "bg-emerald-500/10 text-emerald-400" : (isPending ? "bg-amber-500/15 text-amber-400 border border-amber-500/30" : "bg-zinc-500/10 text-zinc-400"))}',
+                            [
+                              Component.text(statusDisplay),
+                            ],
+                          );
+                        }(),
                     ]),
                   ],
                 );

@@ -284,6 +284,20 @@ class TranyxAppState extends State<TranyxApp> {
   String? activeP2pDepositId;
   DepositRequest? activeP2pDepositRequest;
   Timer? p2pPollTimer;
+
+  // P2P Withdrawal State
+  String selectedWithdrawRail = 'manual_p2p'; // 'manual_p2p' | 'solana'
+  String selectedP2pWithdrawMethod = 'GCash'; // 'GCash' | 'Maya'
+  String p2pWithdrawAccountName = '';
+  String p2pWithdrawAccountNumber = '';
+  String p2pWithdrawQrUrl = '';
+  List<int>? p2pWithdrawQrBytes;
+  String? p2pWithdrawQrFileName;
+  bool isSubmittingP2pWithdraw = false;
+  String? activeP2pWithdrawalId;
+  WithdrawalRequest? activeP2pWithdrawalRequest;
+  Timer? p2pWithdrawPollTimer;
+  List<WithdrawalRequest> pendingWithdrawalRequests = [];
   String selectedPaymentMethod = 'solana';
   String selectedSolanaCurrency = 'SOL'; // 'SOL' or 'USDT'
   double solToPhpRate = 8500.0;
@@ -769,6 +783,8 @@ class TranyxAppState extends State<TranyxApp> {
         await loadTransactions();
         await loadRenterPendingRequests();
         await loadHostPendingRequests();
+        await checkActivePendingP2pOrders();
+        _startP2pHeartbeat();
         _startListeningNotifications();
         _startListeningJobs();
         _startListeningRentals();
@@ -1283,6 +1299,7 @@ class TranyxAppState extends State<TranyxApp> {
         initializeProfileEditing();
         await loadKycSubmission();
         await loadHoldbacks();
+        await checkActivePendingP2pOrders();
       }
     } catch (_) {}
   }
@@ -2213,17 +2230,24 @@ class TranyxAppState extends State<TranyxApp> {
     final svc = FirestoreService(token, _handleTokenRefresh);
     try {
       final agent = await svc.getActiveP2pAgent();
-      final isAdmin = userProfile?.isAdmin == true || userProfile?.role == 'admin' || userProfile?.role == 'staff';
-      if (isAdmin) {
+      final isAgentOrAdmin = userProfile?.isAdmin == true ||
+          userProfile?.role == 'admin' ||
+          userProfile?.role == 'staff' ||
+          userProfile?.role == 'agent' ||
+          userProfile?.role == 'p2p_agent';
+      if (isAgentOrAdmin) {
         final reqs = await svc.fetchDepositRequests();
+        final withReqs = await svc.fetchP2pWithdrawalRequests();
         setState(() {
           activeP2pAgent = agent;
           pendingDepositRequests = reqs;
+          pendingWithdrawalRequests = withReqs;
         });
       } else {
         setState(() {
           activeP2pAgent = agent;
           pendingDepositRequests = [];
+          pendingWithdrawalRequests = [];
         });
       }
     } catch (e) {
@@ -2260,6 +2284,15 @@ class TranyxAppState extends State<TranyxApp> {
 
     if (depositAmount < 100) {
       setState(() => postJobError = 'Minimum deposit amount is ₱100.00');
+      return;
+    }
+
+    final activeDep = activeP2pDepositRequest;
+    if (activeDep != null &&
+        activeDep.status != 'APPROVED' &&
+        activeDep.status != 'CANCELLED' &&
+        activeDep.status != 'REJECTED') {
+      setState(() => postJobError = 'You already have an active P2P Top-up in progress. Please complete or cancel it first.');
       return;
     }
 
@@ -2413,6 +2446,269 @@ class TranyxAppState extends State<TranyxApp> {
     showAppToast('Order Cancelled', 'Deposit request has been cancelled.');
   }
 
+  Future<void> requestP2pWithdrawalOrder({
+    required double amount,
+    required String paymentMethod,
+    required String userAccountName,
+    required String userAccountNumber,
+    String userQrUrl = '',
+  }) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) {
+      setState(() => postJobError = 'Please log in to submit a withdrawal request.');
+      return;
+    }
+
+    if (amount < 100) {
+      setState(() => postJobError = 'Minimum withdrawal amount is ₱100.00');
+      return;
+    }
+
+    final tyxBal = userProfile?.tyxBalance ?? 0.0;
+    if (amount > tyxBal) {
+      setState(() => postJobError = 'Requested amount exceeds your available balance.');
+      return;
+    }
+
+    final activeWith = activeP2pWithdrawalRequest;
+    if (activeWith != null &&
+        activeWith.status != 'APPROVED' &&
+        activeWith.status != 'CANCELLED' &&
+        activeWith.status != 'REJECTED') {
+      setState(() => postJobError = 'You already have an active P2P Cashout in progress. Please wait for it to complete or cancel it first.');
+      return;
+    }
+
+    setState(() {
+      isSubmittingP2pWithdraw = true;
+      postJobError = null;
+    });
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final reqId = await svc.requestP2pWithdrawal(
+        uid: uid,
+        userName: userProfile?.name ?? 'TRANYX User',
+        userEmail: userProfile?.email ?? '',
+        amount: amount,
+        paymentMethod: paymentMethod,
+        userAccountName: userAccountName,
+        userAccountNumber: userAccountNumber,
+        userQrUrl: userQrUrl,
+      );
+
+      final req = await svc.getP2pWithdrawalRequest(reqId);
+      setState(() {
+        activeP2pWithdrawalId = reqId;
+        activeP2pWithdrawalRequest = req;
+        isSubmittingP2pWithdraw = false;
+      });
+
+      _startP2pWithdrawalPolling(reqId);
+      await loadTransactions();
+      await loadUserProfile();
+      showAppToast('Cashout Requested', 'P2P Agents have been notified to fulfill your $paymentMethod payout.');
+    } catch (e) {
+      setState(() {
+        isSubmittingP2pWithdraw = false;
+        postJobError = 'Withdrawal request failed: $e';
+      });
+    }
+  }
+
+  void _startP2pWithdrawalPolling(String withdrawalRequestId) {
+    p2pWithdrawPollTimer?.cancel();
+    p2pWithdrawPollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+      final token = SessionStorage.idToken;
+      if (token == null || activeP2pWithdrawalId != withdrawalRequestId) {
+        p2pWithdrawPollTimer?.cancel();
+        return;
+      }
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final req = await svc.getP2pWithdrawalRequest(withdrawalRequestId);
+      if (req != null) {
+        setState(() {
+          activeP2pWithdrawalRequest = req;
+        });
+        if (req.status == 'APPROVED' || req.status == 'REJECTED' || req.status == 'CANCELLED') {
+          p2pWithdrawPollTimer?.cancel();
+          if (req.status == 'APPROVED') {
+            loadTransactions();
+            loadUserProfile();
+            showAppToast('Cashout Completed!', '₱${req.amount.toStringAsFixed(2)} has been successfully paid out.');
+          } else if (req.status == 'CANCELLED' || req.status == 'REJECTED') {
+            loadTransactions();
+            loadUserProfile();
+            showAppToast('Cashout Refunded', '₱${req.amount.toStringAsFixed(2)} has been returned to your balance.');
+          }
+        }
+      }
+    });
+  }
+
+  Timer? _p2pBackgroundHeartbeat;
+
+  void _startP2pHeartbeat() {
+    _p2pBackgroundHeartbeat?.cancel();
+    _p2pBackgroundHeartbeat = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (isAuthenticated) {
+        checkActivePendingP2pOrders();
+      }
+    });
+  }
+
+  Future<void> checkActivePendingP2pOrders() async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final deposits = await svc.fetchUserDepositRequests(uid);
+      DepositRequest? pendingDep;
+      for (final d in deposits) {
+        final st = d.status.toUpperCase();
+        if (st == 'WAITING_FOR_AGENT' || st == 'AWAITING_PAYMENT' || st == 'PENDING_VERIFICATION') {
+          pendingDep = d;
+          break;
+        }
+      }
+
+      if (pendingDep != null) {
+        if (activeP2pDepositId != pendingDep.id || activeP2pDepositRequest?.status != pendingDep.status) {
+          activeP2pDepositId = pendingDep.id;
+          activeP2pDepositRequest = pendingDep;
+          _startP2pOrderPolling(pendingDep.id);
+        }
+      } else if (activeP2pDepositRequest != null &&
+          (activeP2pDepositRequest!.status == 'APPROVED' ||
+              activeP2pDepositRequest!.status == 'CANCELLED' ||
+              activeP2pDepositRequest!.status == 'REJECTED')) {
+        if (!showDepositModal) {
+          activeP2pDepositId = null;
+          activeP2pDepositRequest = null;
+          p2pPollTimer?.cancel();
+        }
+      }
+
+      final withdrawals = await svc.fetchUserP2pWithdrawalRequests(uid);
+      WithdrawalRequest? pendingWith;
+      for (final w in withdrawals) {
+        final isSolana = w.paymentMethod.toLowerCase().contains('solana');
+        if (isSolana) continue; // Solana is direct on-chain crypto, not a manual P2P agent request!
+
+        final st = w.status.toUpperCase();
+        if (st == 'WAITING_FOR_AGENT' || st == 'PENDING_REVIEW' || st == 'PENDING' || st == 'AWAITING_AGENT_PAYMENT' || st == 'PENDING_CONFIRMATION') {
+          pendingWith = w;
+          break;
+        }
+      }
+
+      if (pendingWith != null) {
+        if (activeP2pWithdrawalId != pendingWith.id || activeP2pWithdrawalRequest?.status != pendingWith.status) {
+          activeP2pWithdrawalId = pendingWith.id;
+          activeP2pWithdrawalRequest = pendingWith;
+          _startP2pWithdrawalPolling(pendingWith.id);
+        }
+      } else if (activeP2pWithdrawalRequest != null &&
+          (activeP2pWithdrawalRequest!.status == 'APPROVED' ||
+              activeP2pWithdrawalRequest!.status == 'CANCELLED' ||
+              activeP2pWithdrawalRequest!.status == 'REJECTED')) {
+        if (!showWithdrawModal) {
+          activeP2pWithdrawalId = null;
+          activeP2pWithdrawalRequest = null;
+          p2pWithdrawPollTimer?.cancel();
+        }
+      }
+
+      if (mounted) setState(() {});
+    } catch (e) {
+      print('checkActivePendingP2pOrders error: $e');
+    }
+  }
+
+  Future<void> handleAgentClaimWithdrawalOrder(String withdrawalRequestId) async {
+    final token = SessionStorage.idToken;
+    final agentUid = SessionStorage.uid ?? 'official_agent';
+    final svc = FirestoreService(token, _handleTokenRefresh);
+
+    await svc.agentClaimP2pWithdrawal(
+      withdrawalRequestId: withdrawalRequestId,
+      agentId: agentUid,
+      agentName: activeP2pAgent.name,
+      agentPhone: activeP2pAgent.phone,
+    );
+
+    await loadP2pAdminData();
+    showAppToast('Order Claimed', 'You have claimed this cashout order. Please transfer payment to user.');
+  }
+
+  Future<void> handleAgentSubmitWithdrawalProof({
+    required String withdrawalRequestId,
+    required String referenceNumber,
+    required String proofImageUrl,
+  }) async {
+    final token = SessionStorage.idToken;
+    final svc = FirestoreService(token, _handleTokenRefresh);
+
+    await svc.submitWithdrawalProof(
+      withdrawalRequestId: withdrawalRequestId,
+      referenceNumber: referenceNumber,
+      proofImageUrl: proofImageUrl,
+    );
+
+    await loadP2pAdminData();
+    showAppToast('Payout Proof Dispatched', 'Proof and reference sent. Awaiting user confirmation.');
+  }
+
+  Future<void> handleConfirmP2pWithdrawalReceived(String withdrawalRequestId) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid ?? 'user';
+    final svc = FirestoreService(token, _handleTokenRefresh);
+
+    await svc.confirmP2pWithdrawalCompleted(
+      withdrawalRequestId: withdrawalRequestId,
+      confirmedByUid: uid,
+    );
+
+    p2pWithdrawPollTimer?.cancel();
+    setState(() {
+      activeP2pWithdrawalId = null;
+      activeP2pWithdrawalRequest = null;
+      showWithdrawModal = false;
+    });
+
+    await loadTransactions();
+    await loadUserProfile();
+    showAppToast('Withdrawal Confirmed', 'Thank you for confirming receipt of your funds.');
+  }
+
+  Future<void> handleCancelP2pWithdrawal(String withdrawalRequestId) async {
+    final token = SessionStorage.idToken;
+    final svc = FirestoreService(token, _handleTokenRefresh);
+    await svc.cancelP2pWithdrawalRequest(withdrawalRequestId);
+    p2pWithdrawPollTimer?.cancel();
+    setState(() {
+      activeP2pWithdrawalId = null;
+      activeP2pWithdrawalRequest = null;
+      showWithdrawModal = false;
+    });
+    await loadTransactions();
+    await loadUserProfile();
+    showAppToast('Cashout Cancelled', 'Your withdrawal was cancelled and funds refunded to your balance.');
+  }
+
+  Future<void> handleRejectWithdrawalRequest(String withdrawalRequestId, String reason) async {
+    final token = SessionStorage.idToken;
+    final adminUid = SessionStorage.uid ?? 'admin';
+    final svc = FirestoreService(token, _handleTokenRefresh);
+    await svc.rejectP2pWithdrawalOrder(withdrawalRequestId: withdrawalRequestId, adminUid: adminUid, reason: reason);
+    await loadP2pAdminData();
+    await loadTransactions();
+    await loadUserProfile();
+    showAppToast('Withdrawal Rejected', 'Request rejected and funds refunded to user.');
+  }
+
   Future<void> handleSaveP2pAgentSettings(P2pAgent agent) async {
     final token = SessionStorage.idToken;
     final svc = FirestoreService(token, _handleTokenRefresh);
@@ -2441,18 +2737,31 @@ class TranyxAppState extends State<TranyxApp> {
         throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
-      var fromPubKey = userProfile?.walletPublicKey;
-      if (fromPubKey == null || fromPubKey.trim().isEmpty) {
-        fromPubKey = await connectSolanaWallet(activeWalletType);
-        if (fromPubKey == null) {
-          throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
+      final connectedPubKey = await connectSolanaWallet(activeWalletType);
+      if (connectedPubKey == null || connectedPubKey.trim().isEmpty) {
+        throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection in your wallet popup.';
+      }
+
+      // Check cross-account conflict: is this wallet already linked to another Tranyx account?
+      final linkData = await FirestoreService().getWalletLink(connectedPubKey);
+      if (linkData != null) {
+        final existingUid = linkData['uid'] as String?;
+        if (existingUid != null && existingUid != uid) {
+          throw 'This Solana wallet ($connectedPubKey) is already linked to another Tranyx account.';
         }
+      }
+
+      final profileWallet = userProfile?.walletPublicKey;
+      if (profileWallet == null || profileWallet.trim().isEmpty || profileWallet != connectedPubKey) {
         await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
           uid,
-          fromPubKey,
+          connectedPubKey,
           refreshToken: SessionStorage.refreshToken,
         );
+        await loadUserProfile();
       }
+
+      final fromPubKey = connectedPubKey;
 
       // 2. Platform target Solana address
       final adminSolanaAddress = Env.solanaPublicKey.isNotEmpty
@@ -2598,18 +2907,31 @@ class TranyxAppState extends State<TranyxApp> {
         throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
-      var fromPubKey = userProfile?.walletPublicKey;
-      if (fromPubKey == null || fromPubKey.trim().isEmpty) {
-        fromPubKey = await connectSolanaWallet(activeWalletType);
-        if (fromPubKey == null) {
-          throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
+      final connectedPubKey = await connectSolanaWallet(activeWalletType);
+      if (connectedPubKey == null || connectedPubKey.trim().isEmpty) {
+        throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection in your wallet popup.';
+      }
+
+      // Check cross-account conflict
+      final linkData = await FirestoreService().getWalletLink(connectedPubKey);
+      if (linkData != null) {
+        final existingUid = linkData['uid'] as String?;
+        if (existingUid != null && existingUid != uid) {
+          throw 'This Solana wallet ($connectedPubKey) is already linked to another Tranyx account.';
         }
+      }
+
+      final profileWallet = userProfile?.walletPublicKey;
+      if (profileWallet == null || profileWallet.trim().isEmpty || profileWallet != connectedPubKey) {
         await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
           uid,
-          fromPubKey,
+          connectedPubKey,
           refreshToken: SessionStorage.refreshToken,
         );
+        await loadUserProfile();
       }
+
+      final fromPubKey = connectedPubKey;
 
       // 2. Platform target Solana address
       final adminSolanaAddress = Env.solanaPublicKey;
@@ -2690,18 +3012,31 @@ class TranyxAppState extends State<TranyxApp> {
         throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
-      var fromPubKey = userProfile?.walletPublicKey;
-      if (fromPubKey == null || fromPubKey.trim().isEmpty) {
-        fromPubKey = await connectSolanaWallet(activeWalletType);
-        if (fromPubKey == null) {
-          throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
+      final connectedPubKey = await connectSolanaWallet(activeWalletType);
+      if (connectedPubKey == null || connectedPubKey.trim().isEmpty) {
+        throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection in your wallet popup.';
+      }
+
+      // Check cross-account conflict
+      final linkData = await FirestoreService().getWalletLink(connectedPubKey);
+      if (linkData != null) {
+        final existingUid = linkData['uid'] as String?;
+        if (existingUid != null && existingUid != uid) {
+          throw 'This Solana wallet ($connectedPubKey) is already linked to another Tranyx account.';
         }
+      }
+
+      final profileWallet = userProfile?.walletPublicKey;
+      if (profileWallet == null || profileWallet.trim().isEmpty || profileWallet != connectedPubKey) {
         await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
           uid,
-          fromPubKey,
+          connectedPubKey,
           refreshToken: SessionStorage.refreshToken,
         );
+        await loadUserProfile();
       }
+
+      final fromPubKey = connectedPubKey;
 
       final adminSolanaAddress = Env.solanaPublicKey.isNotEmpty
           ? Env.solanaPublicKey
@@ -4033,7 +4368,7 @@ class TranyxAppState extends State<TranyxApp> {
               'commissionRate': commissionRate,
               'holdbackAmount': holdbackAmount,
               'holdbackRate': holdbackRate,
-              if (redeemedPromoCode != null) 'promoCode': redeemedPromoCode,
+              'promoCode': ?redeemedPromoCode,
               'status': 'Successful',
               'method': 'Tranyx Wallet',
               'createdAt': DateTime.now().millisecondsSinceEpoch,

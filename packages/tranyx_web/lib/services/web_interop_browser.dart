@@ -747,13 +747,14 @@ Future<List<WebFile>> readFilesFromEvent(dynamic event) async {
   if (event == null) return [];
   try {
     web.HTMLInputElement? inputEl;
-    if (event is JSObject) {
-      if (event.isA<web.HTMLInputElement>()) {
-        inputEl = event as web.HTMLInputElement;
-      } else if (event.isA<web.Event>()) {
-        final ev = event as web.Event;
+    final jsObj = event as JSAny?;
+    if (jsObj != null) {
+      if (jsObj.isA<web.HTMLInputElement>()) {
+        inputEl = jsObj as web.HTMLInputElement;
+      } else if (jsObj.isA<web.Event>()) {
+        final ev = jsObj as web.Event;
         final target = ev.target;
-        if (target != null && (target as JSObject).isA<web.HTMLInputElement>()) {
+        if (target != null && target.isA<web.HTMLInputElement>()) {
           inputEl = target as web.HTMLInputElement;
         }
       }
@@ -1145,17 +1146,32 @@ void clearUrlParams() {
 String getInputValue(dynamic target) {
   if (target == null) return '';
   try {
-    final jsObj = target as JSAny?;
-    if (jsObj != null && jsObj.isA<JSObject>()) {
-      final obj = jsObj as JSObject;
-      if (obj.hasProperty('value'.toJS).toDart) {
+    final jsAny = target as JSAny?;
+    if (jsAny != null) {
+      if (jsAny.isA<web.HTMLInputElement>()) {
+        return (jsAny as web.HTMLInputElement).value;
+      }
+      if (jsAny.isA<web.HTMLTextAreaElement>()) {
+        return (jsAny as web.HTMLTextAreaElement).value;
+      }
+      if (jsAny.isA<web.HTMLSelectElement>()) {
+        return (jsAny as web.HTMLSelectElement).value;
+      }
+      if (jsAny.isA<JSObject>()) {
+        final obj = jsAny as JSObject;
         final val = obj.getProperty('value'.toJS);
-        if (val.isA<JSString>()) {
-          return (val as JSString).toDart;
+        if (val != null && !val.isUndefinedOrNull) {
+          if (val.isA<JSString>()) {
+            return (val as JSString).toDart;
+          }
+          return val.toString();
         }
-        return val.toString();
       }
     }
+  } catch (_) {}
+  try {
+    final v = (target as dynamic).value;
+    if (v != null) return v.toString();
   } catch (_) {}
   return '';
 }
@@ -1163,26 +1179,51 @@ String getInputValue(dynamic target) {
 void setInputValue(dynamic target, String value) {
   if (target == null) return;
   try {
-    final jsObj = target as JSAny?;
-    if (jsObj != null && jsObj.isA<JSObject>()) {
-      (jsObj as JSObject).setProperty('value'.toJS, value.toJS);
+    final jsAny = target as JSAny?;
+    if (jsAny != null) {
+      if (jsAny.isA<web.HTMLInputElement>()) {
+        (jsAny as web.HTMLInputElement).value = value;
+        return;
+      }
+      if (jsAny.isA<web.HTMLTextAreaElement>()) {
+        (jsAny as web.HTMLTextAreaElement).value = value;
+        return;
+      }
+      if (jsAny.isA<web.HTMLSelectElement>()) {
+        (jsAny as web.HTMLSelectElement).value = value;
+        return;
+      }
+      if (jsAny.isA<JSObject>()) {
+        (jsAny as JSObject).setProperty('value'.toJS, value.toJS);
+        return;
+      }
     }
+  } catch (_) {}
+  try {
+    (target as dynamic).value = value;
   } catch (_) {}
 }
 
 bool getInputChecked(dynamic target) {
   if (target == null) return false;
   try {
-    final jsObj = target as JSAny?;
-    if (jsObj != null && jsObj.isA<JSObject>()) {
-      final obj = jsObj as JSObject;
-      if (obj.hasProperty('checked'.toJS).toDart) {
+    final jsAny = target as JSAny?;
+    if (jsAny != null) {
+      if (jsAny.isA<web.HTMLInputElement>()) {
+        return (jsAny as web.HTMLInputElement).checked;
+      }
+      if (jsAny.isA<JSObject>()) {
+        final obj = jsAny as JSObject;
         final val = obj.getProperty('checked'.toJS);
-        if (val.isA<JSBoolean>()) {
+        if (val != null && !val.isUndefinedOrNull && val.isA<JSBoolean>()) {
           return (val as JSBoolean).toDart;
         }
       }
     }
+  } catch (_) {}
+  try {
+    final c = (target as dynamic).checked;
+    if (c is bool) return c;
   } catch (_) {}
   return false;
 }

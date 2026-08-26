@@ -190,7 +190,7 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
     }
 
     // Sort descending by timestamp
-    list.sort((a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int));
+    list.sort((itemA, itemB) => (itemB['timestamp'] as int).compareTo(itemA['timestamp'] as int));
 
     return list;
   }

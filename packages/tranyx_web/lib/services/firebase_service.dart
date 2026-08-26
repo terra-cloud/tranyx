@@ -4524,6 +4524,138 @@ class FirestoreService {
     return null;
   }
 
+  Future<List<WithdrawalRequest>> fetchP2pWithdrawalRequests({String? status, String? agentId}) async {
+    try {
+      final list = await getCollection('withdrawal_requests');
+      var parsed = list.map((m) => WithdrawalRequest.fromMap(m, docId: m['id'])).toList();
+      if (status != null && status.isNotEmpty) {
+        parsed = parsed.where((r) => r.status.toUpperCase() == status.toUpperCase()).toList();
+      }
+      if (agentId != null && agentId.isNotEmpty) {
+        parsed = parsed.where((r) => r.agentId == null || r.agentId == agentId).toList();
+      }
+      parsed.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return parsed;
+    } catch (e) {
+      print('fetchP2pWithdrawalRequests error: $e');
+      return [];
+    }
+  }
+
+  Future<List<WithdrawalRequest>> fetchUserP2pWithdrawalRequests(String uid) async {
+    final list = <WithdrawalRequest>[];
+    final seen = <String>{};
+
+    try {
+      final url =
+          'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+      final body = jsonEncode({
+        'structuredQuery': {
+          'from': [
+            {'collectionId': 'withdrawal_requests'},
+          ],
+          'where': {
+            'fieldFilter': {
+              'field': {'fieldPath': 'uid'},
+              'op': 'EQUAL',
+              'value': {'stringValue': uid},
+            },
+          },
+        },
+      });
+
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode < 400) {
+        final List<dynamic> results = jsonDecode(req.body);
+        for (final res in results) {
+          if (res is Map<String, dynamic> && res.containsKey('document')) {
+            final doc = res['document'] as Map<String, dynamic>;
+            final id = _docId(doc);
+            final data = _fromFirestoreDoc(doc);
+            if (seen.add(id)) {
+              list.add(WithdrawalRequest.fromMap(data, docId: id));
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('fetchUserP2pWithdrawalRequests error: $e');
+    }
+
+    try {
+      final url =
+          'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+      final body = jsonEncode({
+        'structuredQuery': {
+          'from': [
+            {'collectionId': 'withdrawalRequests'},
+          ],
+          'where': {
+            'fieldFilter': {
+              'field': {'fieldPath': 'uid'},
+              'op': 'EQUAL',
+              'value': {'stringValue': uid},
+            },
+          },
+        },
+      });
+
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode < 400) {
+        final List<dynamic> results = jsonDecode(req.body);
+        for (final res in results) {
+          if (res is Map<String, dynamic> && res.containsKey('document')) {
+            final doc = res['document'] as Map<String, dynamic>;
+            final id = _docId(doc);
+            final data = _fromFirestoreDoc(doc);
+            if (seen.add(id)) {
+              list.add(WithdrawalRequest.fromMap(data, docId: id));
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    try {
+      final walletTxs = await getCollection('wallets/$uid/transactions');
+      for (final tx in walletTxs) {
+        final type = (tx['type'] ?? '').toString().toUpperCase();
+        if (type == 'WITHDRAWAL' || type.contains('WITHDRAW')) {
+          final id = (tx['id'] ?? '').toString();
+          if (id.isNotEmpty && seen.add(id)) {
+            list.add(WithdrawalRequest.fromMap(tx, docId: id));
+          }
+        }
+      }
+    } catch (_) {}
+
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return list;
+  }
+
+  Future<WithdrawalRequest?> getP2pWithdrawalRequest(String id) async {
+    try {
+      final doc = await getDocument('withdrawal_requests/$id') ??
+          await getDocument('withdrawalRequests/$id');
+      if (doc != null) {
+        return WithdrawalRequest.fromMap(doc, docId: id);
+      }
+    } catch (e) {
+      print('getP2pWithdrawalRequest error: $e');
+    }
+    return null;
+  }
+
   /// Step 1 (User): Request P2P Top-up (informs agents to send QR code)
   Future<String> requestP2pTopup({
     required String uid,
@@ -4533,6 +4665,16 @@ class FirestoreService {
     required String paymentMethod,
   }) async {
     final cleanMethod = paymentMethod.trim();
+
+    // Concurrency guard: Only 1 active deposit request at a time
+    final activeDeposits = await fetchUserDepositRequests(uid);
+    for (final d in activeDeposits) {
+      final st = d.status.toUpperCase();
+      if (st == 'WAITING_FOR_AGENT' || st == 'AWAITING_PAYMENT' || st == 'PENDING_VERIFICATION') {
+        throw Exception('You already have an active P2P Top-up request in progress. Please complete or cancel it before submitting a new one.');
+      }
+    }
+
     final now = DateTime.now().millisecondsSinceEpoch;
     final id = 'dep_${now}_${Random().nextInt(999999)}';
 
@@ -4547,7 +4689,9 @@ class FirestoreService {
       createdAt: now,
     );
 
-    await createOrUpdate('deposit_requests/$id', depositReq.toMap());
+    final reqMap = depositReq.toMap();
+    await createOrUpdate('deposit_requests/$id', reqMap);
+    await createOrUpdate('depositRequests/$id', reqMap);
 
     // Record in ledger
     final txId = 'p2p_dep_$id';
@@ -4741,7 +4885,7 @@ class FirestoreService {
     await createOrUpdate('deposit_requests/$depositRequestId', {
       ...reqDoc,
       'status': 'CANCELLED',
-      if (reason != null) 'rejectionReason': reason,
+      'rejectionReason': ?reason,
       'verifiedAt': now,
     });
 
@@ -4878,6 +5022,486 @@ class FirestoreService {
       'title': 'Deposit Request Rejected',
       'message': 'Your $paymentMethod deposit was not approved. Reason: $cleanReason',
       'type': 'deposit_rejected',
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // P2P WITHDRAWAL SYSTEM (GCash / Maya)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /// Step 1 (User): Request P2P Cashout via GCash or Maya
+  /// Locks requested amount into withdrawal escrow immediately.
+  Future<String> requestP2pWithdrawal({
+    required String uid,
+    required String userName,
+    required String userEmail,
+    required double amount,
+    required String paymentMethod,
+    required String userAccountName,
+    required String userAccountNumber,
+    String userQrUrl = '',
+  }) async {
+    final cleanMethod = paymentMethod.trim();
+    final cleanAccountName = userAccountName.trim();
+    final cleanAccountNumber = userAccountNumber.trim();
+
+    if (cleanAccountName.isEmpty) throw Exception('Recipient Account Name is required.');
+    if (cleanAccountNumber.isEmpty) throw Exception('Recipient Account / Mobile Number is required.');
+    if (amount < 100) throw Exception('Minimum withdrawal amount is ₱ 100.00.');
+
+    // Concurrency guard: Only 1 active withdrawal request at a time
+    final activeWithdrawals = await fetchUserP2pWithdrawalRequests(uid);
+    for (final w in activeWithdrawals) {
+      final st = w.status.toUpperCase();
+      if (st == 'WAITING_FOR_AGENT' || st == 'AWAITING_AGENT_PAYMENT' || st == 'PENDING_CONFIRMATION') {
+        throw Exception('You already have an active P2P Cashout request in progress. Please wait for it to complete or cancel it before submitting a new one.');
+      }
+    }
+
+    // 1. Verify and deduct balance (escrow lock)
+    final userDoc = await getDocument('users/$uid');
+    final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+    if (amount > currentBalance) {
+      throw Exception('Requested withdrawal amount exceeds your available balance.');
+    }
+
+    final newBalance = currentBalance - amount;
+    await createOrUpdate('users/$uid', {
+      if (userDoc != null) ...userDoc,
+      'tyxBalance': newBalance,
+    });
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final id = 'with_${now}_${Random().nextInt(999999)}';
+    final refNumber = id.length >= 8 ? id.substring(0, 8).toUpperCase() : id;
+
+    final withdrawalReq = WithdrawalRequest(
+      id: id,
+      uid: uid,
+      userName: userName,
+      userEmail: userEmail,
+      amount: amount,
+      paymentMethod: cleanMethod,
+      userAccountName: cleanAccountName,
+      userAccountNumber: cleanAccountNumber,
+      userQrUrl: userQrUrl,
+      status: 'PENDING_REVIEW',
+      createdAt: now,
+    );
+
+    // 1. Dual-write to both withdrawal_requests and withdrawalRequests for seamless admin portal & client sync
+    final reqMap = {
+      ...withdrawalReq.toMap(),
+      'userId': uid,
+      'payoutMethod': cleanMethod,
+      'accountName': cleanAccountName,
+      'accountNumber': cleanAccountNumber,
+      'referenceNumber': refNumber,
+      'status': 'PENDING_REVIEW',
+      'p2pStatus': 'WAITING_FOR_AGENT',
+      'updatedAt': now,
+    };
+    await createOrUpdate('withdrawal_requests/$id', reqMap);
+    await createOrUpdate('withdrawalRequests/$id', reqMap);
+
+    // 2. User Sub-collection Ledger Reference: /wallets/{userId}/transactions/{txId}
+    final ledgerTxData = {
+      'id': id,
+      'userId': uid,
+      'uid': uid,
+      'type': 'WITHDRAWAL',
+      'direction': 'DEBIT',
+      'amount': amount,
+      'payoutMethod': cleanMethod,
+      'paymentMethod': cleanMethod,
+      'accountName': cleanAccountName,
+      'accountNumber': cleanAccountNumber,
+      'userAccountName': cleanAccountName,
+      'userAccountNumber': cleanAccountNumber,
+      'referenceNumber': refNumber,
+      'status': 'PENDING_REVIEW',
+      'title': 'Withdrawal ($cleanMethod)',
+      'description': 'Withdrawal via $cleanMethod ($cleanAccountNumber)',
+      'desc': 'Withdrawal via $cleanMethod ($cleanAccountNumber)',
+      'originRail': 'manual_p2p',
+      if (userQrUrl.isNotEmpty) 'userQrUrl': userQrUrl,
+      'createdAt': now,
+      'updatedAt': now,
+    };
+    await createOrUpdate('wallets/$uid/transactions/$id', ledgerTxData);
+
+    // 3. Top-Level Global Ledger Reference: /transactions/{txId}
+    final txId = 'p2p_with_$id';
+    await createOrUpdate('transactions/$txId', {
+      ...ledgerTxData,
+      'id': txId,
+      'withdrawalRequestId': id,
+      'amount': -amount,
+    });
+
+    // Notify agents of incoming cashout order
+    await createOrUpdate('notifications/notif_agent_with_$id', {
+      'title': 'New P2P Cashout Request (₱${amount.toStringAsFixed(2)})',
+      'message': '$userName requested a $cleanMethod cashout of ₱${amount.toStringAsFixed(2)}. Tap to claim and fulfill payout.',
+      'type': 'p2p_cashout_request',
+      'withdrawalRequestId': id,
+      'uid': uid,
+      'userId': uid,
+      'createdAt': now,
+      'read': false,
+    });
+
+    return id;
+  }
+
+  /// Step 2 (Agent): Agent accepts/claims cashout order and begins payout processing
+  Future<void> agentClaimP2pWithdrawal({
+    required String withdrawalRequestId,
+    required String agentId,
+    required String agentName,
+    required String agentPhone,
+  }) async {
+    final reqDoc = await getDocument('withdrawal_requests/$withdrawalRequestId') ??
+        await getDocument('withdrawalRequests/$withdrawalRequestId');
+    if (reqDoc == null) throw Exception('Withdrawal request not found.');
+    final currentStatus = (reqDoc['status'] as String? ?? '').toUpperCase();
+    final currentAgentId = reqDoc['agentId'] as String?;
+    if ((currentStatus != 'WAITING_FOR_AGENT' && currentStatus != 'PENDING_REVIEW' && currentStatus != 'PENDING') || (currentAgentId != null && currentAgentId.isNotEmpty && currentAgentId != agentId)) {
+      final claimant = reqDoc['agentName'] ?? 'another agent';
+      throw Exception('This withdrawal order has already been claimed by $claimant.');
+    }
+
+    final uid = reqDoc['uid'] as String? ?? reqDoc['userId'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final paymentMethod = (reqDoc['paymentMethod'] ?? reqDoc['payoutMethod'] ?? 'GCash').toString();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cleanAgentName = _cleanDisplayName(agentName, fallback: 'TRANYX Agent');
+
+    final updatedDoc = {
+      ...reqDoc,
+      'status': 'AWAITING_AGENT_PAYMENT',
+      'p2pStatus': 'AWAITING_AGENT_PAYMENT',
+      'agentId': agentId,
+      'agentName': cleanAgentName,
+      'agentPhone': agentPhone,
+      'claimedAt': now,
+      'updatedAt': now,
+    };
+
+    // Update request across both collections
+    await createOrUpdate('withdrawal_requests/$withdrawalRequestId', updatedDoc);
+    await createOrUpdate('withdrawalRequests/$withdrawalRequestId', updatedDoc);
+
+    // Update user wallet sub-collection
+    await createOrUpdate('wallets/$uid/transactions/$withdrawalRequestId', {
+      'status': 'AWAITING_AGENT_PAYMENT',
+      'desc': 'Agent $cleanAgentName has claimed your order and is transferring ₱${amount.toStringAsFixed(2)} to your $paymentMethod.',
+      'description': 'Agent $cleanAgentName has claimed your order and is transferring ₱${amount.toStringAsFixed(2)} to your $paymentMethod.',
+      'agentId': agentId,
+      'agentName': cleanAgentName,
+      'updatedAt': now,
+    });
+
+    // Update transaction
+    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_with_$withdrawalRequestId', {
+        ...txDoc,
+        'status': 'AWAITING_AGENT_PAYMENT',
+        'desc': 'Agent $cleanAgentName has claimed your order and is transferring ₱${amount.toStringAsFixed(2)} to your $paymentMethod.',
+        'description': 'Agent $cleanAgentName has claimed your order and is transferring ₱${amount.toStringAsFixed(2)} to your $paymentMethod.',
+        'agentId': agentId,
+        'agentName': cleanAgentName,
+        'updatedAt': now,
+      });
+    }
+
+    // Notify user that agent is processing payment
+    await createOrUpdate('notifications/notif_user_with_claimed_${withdrawalRequestId}_$now', {
+      'uid': uid,
+      'userId': uid,
+      'title': 'Agent Claimed Cashout Request',
+      'message': 'Agent $cleanAgentName is now sending ₱${amount.toStringAsFixed(2)} to your $paymentMethod account.',
+      'type': 'p2p_cashout_claimed',
+      'withdrawalRequestId': withdrawalRequestId,
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  /// Step 3 (Agent): Agent submits payout proof screenshot and reference number
+  Future<void> submitWithdrawalProof({
+    required String withdrawalRequestId,
+    required String referenceNumber,
+    required String proofImageUrl,
+  }) async {
+    final cleanRef = referenceNumber.trim();
+    if (cleanRef.isEmpty) throw Exception('Reference number is required.');
+    if (proofImageUrl.isEmpty) throw Exception('Payment receipt screenshot is required.');
+
+    final reqDoc = await getDocument('withdrawal_requests/$withdrawalRequestId') ??
+        await getDocument('withdrawalRequests/$withdrawalRequestId');
+    if (reqDoc == null) throw Exception('Withdrawal request not found.');
+    final uid = reqDoc['uid'] as String? ?? reqDoc['userId'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final paymentMethod = (reqDoc['paymentMethod'] ?? reqDoc['payoutMethod'] ?? 'GCash').toString();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final updatedDoc = {
+      ...reqDoc,
+      'status': 'PENDING_CONFIRMATION',
+      'p2pStatus': 'PENDING_CONFIRMATION',
+      'referenceNumber': cleanRef,
+      'proofImageUrl': proofImageUrl,
+      'proofSubmittedAt': now,
+      'updatedAt': now,
+    };
+
+    await createOrUpdate('withdrawal_requests/$withdrawalRequestId', updatedDoc);
+    await createOrUpdate('withdrawalRequests/$withdrawalRequestId', updatedDoc);
+
+    await createOrUpdate('wallets/$uid/transactions/$withdrawalRequestId', {
+      'status': 'PENDING_CONFIRMATION',
+      'referenceNumber': cleanRef,
+      'proofImageUrl': proofImageUrl,
+      'desc': 'Agent transferred ₱${amount.toStringAsFixed(2)} via $paymentMethod (Ref: $cleanRef). Awaiting confirmation.',
+      'description': 'Agent transferred ₱${amount.toStringAsFixed(2)} via $paymentMethod (Ref: $cleanRef). Awaiting confirmation.',
+      'updatedAt': now,
+    });
+
+    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_with_$withdrawalRequestId', {
+        ...txDoc,
+        'status': 'PENDING_CONFIRMATION',
+        'referenceNumber': cleanRef,
+        'proofImageUrl': proofImageUrl,
+        'desc': 'Agent transferred ₱${amount.toStringAsFixed(2)} via $paymentMethod (Ref: $cleanRef). Awaiting confirmation.',
+        'description': 'Agent transferred ₱${amount.toStringAsFixed(2)} via $paymentMethod (Ref: $cleanRef). Awaiting confirmation.',
+        'updatedAt': now,
+      });
+    }
+
+    // Notify user to confirm receipt of funds
+    await createOrUpdate('notifications/notif_user_with_proof_${withdrawalRequestId}_$now', {
+      'uid': uid,
+      'userId': uid,
+      'title': 'Payout Sent — Please Confirm Receipt',
+      'message': 'Agent has sent ₱${amount.toStringAsFixed(2)} to your $paymentMethod (Ref: $cleanRef). Please check your account and confirm.',
+      'type': 'p2p_cashout_proof_submitted',
+      'withdrawalRequestId': withdrawalRequestId,
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  /// Step 4 (User or Admin): Confirm funds received, finalize withdrawal
+  Future<void> confirmP2pWithdrawalCompleted({
+    required String withdrawalRequestId,
+    required String confirmedByUid,
+  }) async {
+    final reqDoc = await getDocument('withdrawal_requests/$withdrawalRequestId') ??
+        await getDocument('withdrawalRequests/$withdrawalRequestId');
+    if (reqDoc == null) throw Exception('Withdrawal request not found.');
+    final currentStatus = (reqDoc['status'] as String? ?? '').toUpperCase();
+    if (currentStatus != 'PENDING_CONFIRMATION' && currentStatus != 'AWAITING_AGENT_PAYMENT' && currentStatus != 'PENDING_REVIEW') {
+      throw Exception('Withdrawal request is not pending confirmation (Current: $currentStatus).');
+    }
+
+    final uid = reqDoc['uid'] as String? ?? reqDoc['userId'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final paymentMethod = (reqDoc['paymentMethod'] ?? reqDoc['payoutMethod'] ?? 'GCash').toString();
+    final referenceNumber = (reqDoc['referenceNumber'] ?? '').toString().trim();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final updatedDoc = {
+      ...reqDoc,
+      'status': 'APPROVED',
+      'p2pStatus': 'COMPLETED',
+      'adminUid': confirmedByUid,
+      'verifiedAt': now,
+      'updatedAt': now,
+    };
+
+    // 1. Mark request as APPROVED / COMPLETED across both collections
+    await createOrUpdate('withdrawal_requests/$withdrawalRequestId', updatedDoc);
+    await createOrUpdate('withdrawalRequests/$withdrawalRequestId', updatedDoc);
+
+    // 2. Update user wallet sub-collection
+    await createOrUpdate('wallets/$uid/transactions/$withdrawalRequestId', {
+      'status': 'COMPLETED',
+      'desc': referenceNumber.isNotEmpty
+          ? 'Cashout completed via $paymentMethod (Ref: #$referenceNumber)'
+          : 'Cashout completed via $paymentMethod',
+      'description': referenceNumber.isNotEmpty
+          ? 'Cashout completed via $paymentMethod (Ref: #$referenceNumber)'
+          : 'Cashout completed via $paymentMethod',
+      'verifiedAt': now,
+      'adminUid': confirmedByUid,
+      'updatedAt': now,
+    });
+
+    // 3. Update transaction status in global transactions
+    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_with_$withdrawalRequestId', {
+        ...txDoc,
+        'status': 'COMPLETED',
+        'desc': referenceNumber.isNotEmpty
+            ? 'Cashout completed via $paymentMethod (Ref: #$referenceNumber)'
+            : 'Cashout completed via $paymentMethod',
+        'description': referenceNumber.isNotEmpty
+            ? 'Cashout completed via $paymentMethod (Ref: #$referenceNumber)'
+            : 'Cashout completed via $paymentMethod',
+        'verifiedAt': now,
+        'adminUid': confirmedByUid,
+        'updatedAt': now,
+      });
+    }
+
+    // 4. Send notification to user
+    await createOrUpdate('notifications/notif_with_success_${withdrawalRequestId}_$now', {
+      'uid': uid,
+      'userId': uid,
+      'title': 'Withdrawal Completed!',
+      'message': 'Your $paymentMethod cashout of ₱${amount.toStringAsFixed(2)} has been completed successfully.',
+      'type': 'withdrawal_completed',
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  /// Cancel P2P Withdrawal (Refunds locked funds back to user's wallet)
+  Future<void> cancelP2pWithdrawalRequest(String withdrawalRequestId, {String? reason}) async {
+    final reqDoc = await getDocument('withdrawal_requests/$withdrawalRequestId') ??
+        await getDocument('withdrawalRequests/$withdrawalRequestId');
+    if (reqDoc == null) return;
+    final currentStatus = (reqDoc['status'] as String? ?? '').toUpperCase();
+    if (currentStatus == 'APPROVED' || currentStatus == 'COMPLETED' || currentStatus == 'CANCELLED') return;
+
+    final uid = reqDoc['uid'] as String? ?? reqDoc['userId'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // 1. Refund locked amount back to user's available balance
+    final userDoc = await getDocument('users/$uid');
+    final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+    final restoredBalance = currentBalance + amount;
+    await createOrUpdate('users/$uid', {
+      if (userDoc != null) ...userDoc,
+      'tyxBalance': restoredBalance,
+    });
+
+    final updatedDoc = {
+      ...reqDoc,
+      'status': 'CANCELLED',
+      'p2pStatus': 'CANCELLED',
+      if (reason != null && reason.isNotEmpty) 'rejectionReason': reason,
+      'verifiedAt': now,
+      'updatedAt': now,
+    };
+
+    // 2. Mark request as CANCELLED across both collections
+    await createOrUpdate('withdrawal_requests/$withdrawalRequestId', updatedDoc);
+    await createOrUpdate('withdrawalRequests/$withdrawalRequestId', updatedDoc);
+
+    // 3. Update user wallet sub-collection
+    await createOrUpdate('wallets/$uid/transactions/$withdrawalRequestId', {
+      'status': 'CANCELLED',
+      'desc': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
+      'description': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
+      'verifiedAt': now,
+      'updatedAt': now,
+    });
+
+    // 4. Update transaction
+    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_with_$withdrawalRequestId', {
+        ...txDoc,
+        'status': 'CANCELLED',
+        'desc': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
+        'description': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
+        'verifiedAt': now,
+        'updatedAt': now,
+      });
+    }
+  }
+
+  /// Reject P2P Withdrawal (Admin / Agent reject with reason, refunds user balance)
+  Future<void> rejectP2pWithdrawalOrder({
+    required String withdrawalRequestId,
+    required String adminUid,
+    required String reason,
+  }) async {
+    final cleanReason = reason.trim();
+    if (cleanReason.isEmpty) throw Exception('Rejection reason is required.');
+
+    final reqDoc = await getDocument('withdrawal_requests/$withdrawalRequestId') ??
+        await getDocument('withdrawalRequests/$withdrawalRequestId');
+    if (reqDoc == null) throw Exception('Withdrawal request not found.');
+    final uid = reqDoc['uid'] as String? ?? reqDoc['userId'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final paymentMethod = reqDoc['paymentMethod'] ?? reqDoc['payoutMethod'] ?? 'GCash';
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // 1. Refund locked balance
+    final userDoc = await getDocument('users/$uid');
+    final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+    final restoredBalance = currentBalance + amount;
+    await createOrUpdate('users/$uid', {
+      if (userDoc != null) ...userDoc,
+      'tyxBalance': restoredBalance,
+    });
+
+    final updatedDoc = {
+      ...reqDoc,
+      'status': 'REJECTED',
+      'p2pStatus': 'REJECTED',
+      'adminUid': adminUid,
+      'rejectionReason': cleanReason,
+      'verifiedAt': now,
+      'updatedAt': now,
+    };
+
+    // 2. Mark request as REJECTED across both collections
+    await createOrUpdate('withdrawal_requests/$withdrawalRequestId', updatedDoc);
+    await createOrUpdate('withdrawalRequests/$withdrawalRequestId', updatedDoc);
+
+    // 3. Update user wallet sub-collection
+    await createOrUpdate('wallets/$uid/transactions/$withdrawalRequestId', {
+      'status': 'REJECTED',
+      'rejectionReason': cleanReason,
+      'desc': 'Cashout rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} refunded.',
+      'description': 'Cashout rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} refunded.',
+      'verifiedAt': now,
+      'adminUid': adminUid,
+      'updatedAt': now,
+    });
+
+    // 4. Update transaction
+    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_with_$withdrawalRequestId', {
+        ...txDoc,
+        'status': 'REJECTED',
+        'rejectionReason': cleanReason,
+        'desc': 'Cashout rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} refunded.',
+        'description': 'Cashout rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} refunded.',
+        'verifiedAt': now,
+        'adminUid': adminUid,
+        'updatedAt': now,
+      });
+    }
+
+    // 4. Send notification
+    await createOrUpdate('notifications/notif_with_${withdrawalRequestId}_$now', {
+      'uid': uid,
+      'title': 'Withdrawal Request Rejected',
+      'message': 'Your $paymentMethod cashout was rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} has been returned to your wallet.',
+      'type': 'withdrawal_rejected',
       'createdAt': now,
       'read': false,
     });

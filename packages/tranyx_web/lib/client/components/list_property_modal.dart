@@ -61,8 +61,6 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
   bool _isSubmitting = false;
   String? _error;
 
-  double get _listingFee => 0.0; // 0% Free Property Listing
-
   final List<String> _amenitiesList = ['WiFi', 'Aircon', 'Parking', 'Furnished', 'Gym', 'Swimming Pool'];
 
   void _submit() async {
@@ -449,13 +447,21 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                   ),
                 ]),
                 if (_depositType != DepositType.none)
-                  div(classes: 'max-w-xs mt-2', [
+                  div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4 mt-2', [
                     _inputField(
                       _depositType == DepositType.fixed ? 'Deposit Amount (₱)' : 'Deposit Rate (%)',
                       _depositValue,
                       (v) => setState(() => _depositValue = v),
                       isDark,
                       placeholder: _depositType == DepositType.fixed ? '1000' : '20',
+                      type: InputType.number,
+                    ),
+                    _inputField(
+                      'Advance Rent (₱, Optional)',
+                      _advanceAmount,
+                      (v) => setState(() => _advanceAmount = v),
+                      isDark,
+                      placeholder: '0',
                       type: InputType.number,
                     ),
                   ]),

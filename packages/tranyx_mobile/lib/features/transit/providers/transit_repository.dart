@@ -2122,6 +2122,156 @@ class TransitRepository {
         .map((snap) => snap.docs.map((d) => DepositRequest.fromMap(d.data(), docId: d.id)).toList());
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // P2P WITHDRAWAL SYSTEM (GCash / Maya)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  Future<String> requestP2pWithdrawal({
+    required String uid,
+    required String userName,
+    required String userEmail,
+    required double amount,
+    required String paymentMethod,
+    required String userAccountName,
+    required String userAccountNumber,
+    String userQrUrl = '',
+  }) async {
+    final cleanMethod = paymentMethod.trim();
+    final cleanAccountName = userAccountName.trim();
+    final cleanAccountNumber = userAccountNumber.trim();
+
+    if (cleanAccountName.isEmpty) throw Exception('Recipient Account Name is required.');
+    if (cleanAccountNumber.isEmpty) throw Exception('Recipient Account / Mobile Number is required.');
+    if (amount < 100) throw Exception('Minimum withdrawal amount is ₱ 100.00.');
+
+    final userDocRef = _firestore.collection('users').doc(uid);
+    final userSnap = await userDocRef.get();
+    final currentBalance = (userSnap.data()?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+    if (amount > currentBalance) {
+      throw Exception('Requested withdrawal amount exceeds your available balance.');
+    }
+
+    final newBalance = currentBalance - amount;
+    await userDocRef.set({'tyxBalance': newBalance}, SetOptions(merge: true));
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final docRef = _firestore.collection('withdrawal_requests').doc();
+
+    final withdrawalReq = WithdrawalRequest(
+      id: docRef.id,
+      uid: uid,
+      userName: userName,
+      userEmail: userEmail,
+      amount: amount,
+      paymentMethod: cleanMethod,
+      userAccountName: cleanAccountName,
+      userAccountNumber: cleanAccountNumber,
+      userQrUrl: userQrUrl,
+      status: 'WAITING_FOR_AGENT',
+      createdAt: now,
+    );
+
+    await docRef.set(withdrawalReq.toMap());
+
+    final txId = 'p2p_with_${docRef.id}';
+    await _firestore.collection('transactions').doc(txId).set({
+      'id': txId,
+      'uid': uid,
+      'withdrawalRequestId': docRef.id,
+      'title': '$cleanMethod P2P Cashout Request',
+      'desc': 'Awaiting Payment Agent fulfillment to $cleanAccountNumber ($cleanAccountName)',
+      'amount': -amount,
+      'originRail': 'manual_p2p',
+      'method': cleanMethod,
+      'type': 'withdraw',
+      'status': 'WAITING_FOR_AGENT',
+      'userAccountName': cleanAccountName,
+      'userAccountNumber': cleanAccountNumber,
+      if (userQrUrl.isNotEmpty) 'userQrUrl': userQrUrl,
+      'createdAt': now,
+    });
+
+    return docRef.id;
+  }
+
+  Future<void> cancelP2pWithdrawalRequest(String withdrawalRequestId, {String? reason}) async {
+    final docRef = _firestore.collection('withdrawal_requests').doc(withdrawalRequestId);
+    final snap = await docRef.get();
+    if (!snap.exists) return;
+    final data = snap.data()!;
+    final status = (data['status'] as String? ?? '').toUpperCase();
+    if (status == 'APPROVED' || status == 'CANCELLED') return;
+
+    final uid = data['uid'] as String;
+    final amount = (data['amount'] as num).toDouble();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final userDocRef = _firestore.collection('users').doc(uid);
+    final userSnap = await userDocRef.get();
+    final currentBalance = (userSnap.data()?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+    final restoredBalance = currentBalance + amount;
+    await userDocRef.set({'tyxBalance': restoredBalance}, SetOptions(merge: true));
+
+    await docRef.set({
+      'status': 'CANCELLED',
+      'rejectionReason': ?reason,
+      'verifiedAt': now,
+    }, SetOptions(merge: true));
+
+    final txDocRef = _firestore.collection('transactions').doc('p2p_with_$withdrawalRequestId');
+    await txDocRef.set({
+      'status': 'CANCELLED',
+      'desc': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
+      'verifiedAt': now,
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> confirmP2pWithdrawalCompleted({
+    required String withdrawalRequestId,
+    required String confirmedByUid,
+  }) async {
+    final docRef = _firestore.collection('withdrawal_requests').doc(withdrawalRequestId);
+    final snap = await docRef.get();
+    if (!snap.exists) throw Exception('Withdrawal request not found.');
+    final data = snap.data()!;
+
+    final paymentMethod = (data['paymentMethod'] ?? 'GCash').toString();
+    final referenceNumber = (data['referenceNumber'] ?? '').toString().trim();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await docRef.set({
+      'status': 'APPROVED',
+      'adminUid': confirmedByUid,
+      'verifiedAt': now,
+    }, SetOptions(merge: true));
+
+    final txDocRef = _firestore.collection('transactions').doc('p2p_with_$withdrawalRequestId');
+    await txDocRef.set({
+      'status': 'COMPLETED',
+      'desc': referenceNumber.isNotEmpty
+          ? 'Cashout completed via $paymentMethod (Ref: #$referenceNumber)'
+          : 'Cashout completed via $paymentMethod',
+      'verifiedAt': now,
+      'adminUid': confirmedByUid,
+    }, SetOptions(merge: true));
+  }
+
+  Stream<List<WithdrawalRequest>> getPendingWithdrawalRequestsStream() {
+    return _firestore
+        .collection('withdrawal_requests')
+        .where('status', isEqualTo: 'WAITING_FOR_AGENT')
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => WithdrawalRequest.fromMap(d.data(), docId: d.id)).toList());
+  }
+
+  Stream<List<WithdrawalRequest>> getUserWithdrawalRequestsStream(String uid) {
+    return _firestore
+        .collection('withdrawal_requests')
+        .where('uid', isEqualTo: uid)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => WithdrawalRequest.fromMap(d.data(), docId: d.id)).toList());
+  }
+
   static String _cleanDisplayName(String? raw, {String fallback = 'TRANYX Agent'}) {
     return cleanAgentDisplayName(raw, fallback: fallback);
   }
@@ -2186,6 +2336,10 @@ final activeP2pAgentProvider = FutureProvider<P2pAgent>((ref) async {
 
 final pendingDepositRequestsProvider = StreamProvider<List<DepositRequest>>((ref) {
   return ref.watch(transitRepositoryProvider).getPendingDepositRequestsStream();
+});
+
+final pendingWithdrawalRequestsProvider = StreamProvider<List<WithdrawalRequest>>((ref) {
+  return ref.watch(transitRepositoryProvider).getPendingWithdrawalRequestsStream();
 });
 
 

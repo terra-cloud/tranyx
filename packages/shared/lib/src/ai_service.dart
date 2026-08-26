@@ -192,7 +192,7 @@ class TranyxAIService {
           return '';
         } else if (res.statusCode == 404 && model != fallbackModel) {
           // Fallback to secondary model if model name changed
-          return _callGemini(
+          return await _callGemini(
             prompt: prompt,
             systemInstruction: systemInstruction,
             conversationHistory: conversationHistory,

@@ -787,7 +787,7 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
         value: value,
         classes:
             'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
-        attributes: {if (placeholder != null) 'placeholder': placeholder!},
+        attributes: {'placeholder': ?placeholder},
         events: {'input': (e) => onChanged(getInputValue(e.target))},
       ),
     ]);

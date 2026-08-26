@@ -633,6 +633,49 @@ class PaymentModalComponent extends StatelessComponent {
                   ]),
                 ]),
 
+                // Connected / Selected Wallet Info Card
+                () {
+                  final activeType = s.selectedWalletType ?? 'phantom';
+                  final isInstalled = isSolanaWalletInstalled(activeType);
+                  final friendlyName = activeType.substring(0, 1).toUpperCase() + activeType.substring(1);
+                  final linkedKey = (s.userProfile?.walletPublicKey != null && s.userProfile!.walletPublicKey!.isNotEmpty)
+                      ? s.userProfile!.walletPublicKey!
+                      : s.walletAddress;
+                  final hasLinkedKey = linkedKey.isNotEmpty;
+
+                  return div(
+                    classes: 'p-3.5 rounded-2xl $cardBg border ${isDark ? "border-zinc-800" : "border-zinc-200"} flex items-center justify-between',
+                    [
+                      div(classes: 'flex items-center gap-3 min-w-0', [
+                        div(
+                          classes: 'w-9 h-9 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400 shrink-0',
+                          [lIcon('wallet', cls: 'w-4 h-4')],
+                        ),
+                        div(classes: 'min-w-0 text-left', [
+                          div(classes: 'flex items-center gap-1.5', [
+                            span(classes: 'text-xs font-bold ${isDark ? "text-white" : "text-zinc-900"}', [Component.text('$friendlyName Wallet')]),
+                            span(
+                              classes:
+                                  'text-[10px] px-1.5 py-0.2 rounded font-bold ${isInstalled ? "bg-emerald-500/20 text-emerald-400" : "bg-zinc-500/20 text-zinc-400"}',
+                              [Component.text(isInstalled ? 'Ready' : 'Not Detected')],
+                            ),
+                          ]),
+                          p(
+                            classes: 'text-[11px] font-mono text-zinc-500 truncate max-w-[180px] sm:max-w-[220px]',
+                            [Component.text(hasLinkedKey ? linkedKey : 'Connect & Pay via $friendlyName')],
+                          ),
+                        ]),
+                      ]),
+                      button(
+                        classes:
+                            'px-2.5 py-1.5 rounded-xl text-xs font-bold text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition border border-purple-500/30 cursor-pointer shrink-0',
+                        events: {'click': (_) => s.setState(() => s.showWalletSelectionModal = true)},
+                        [Component.text('Change')],
+                      ),
+                    ],
+                  );
+                }(),
+
                 // Solana Conversion Display
                 div(classes: 'p-4 rounded-2xl $cardBg space-y-2 text-center border border-[#512da8]/20', [
                   div(classes: 'flex items-center justify-between text-xs', [
@@ -688,8 +731,8 @@ class PaymentModalComponent extends StatelessComponent {
       text = prefix
           .replaceAll(RegExp(r'[._\-]'), ' ')
           .split(' ')
-          .where((s) => s.isNotEmpty)
-          .map((s) => s[0].toUpperCase() + (s.length > 1 ? s.substring(1).toLowerCase() : ''))
+          .where((part) => part.isNotEmpty)
+          .map((part) => part[0].toUpperCase() + (part.length > 1 ? part.substring(1).toLowerCase() : ''))
           .join(' ');
     }
     return text.isEmpty ? fallback : text;
