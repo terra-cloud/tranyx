@@ -184,8 +184,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   double get _listingFee {
     if (_isEditMode) return 0.0;
     if (widget.isProperty) {
-      final monthly = double.tryParse(_priceMonthlyController.text) ?? 0.0;
-      return monthly * 0.015;
+      return 0.0; // Property listings are 100% FREE (0% upfront fee)
     } else {
       final daily = double.tryParse(_priceDailyController.text) ?? 0.0;
       return daily * 0.015;
@@ -304,9 +303,12 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   bool _validateStep2(ScrollController scrollController) {
     setState(() => _error = null);
     if (widget.isProperty) {
-      final monthly = double.tryParse(_priceMonthlyController.text.trim());
-      if (monthly == null || monthly <= 0) {
-        setState(() => _error = 'Please enter a valid monthly rental rate.');
+      final monthly = double.tryParse(_priceMonthlyController.text.trim()) ?? 0.0;
+      final weekly = double.tryParse(_priceWeeklyController.text.trim()) ?? 0.0;
+      final daily = double.tryParse(_priceDailyController.text.trim()) ?? 0.0;
+
+      if (monthly <= 0 && weekly <= 0 && daily <= 0) {
+        setState(() => _error = 'Please provide at least one rental rate (Daily, Weekly, or Monthly).');
         _scrollToTop(scrollController);
         return false;
       }
@@ -1168,17 +1170,51 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                     ] else if (_step == 2) ...[
                       // STEP 2: Pricing & Location
                       if (widget.isProperty) ...[
+                        const Text(
+                          'RENTAL RATES (PROVIDE AT LEAST ONE)',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
                         UIHelpers.buildTextField(
-                          Icons.monetization_on,
-                          "Monthly Rent Rate (₱, Required)",
+                          Icons.wb_sunny_outlined,
+                          "Daily Rental Rate (₱)",
+                          isDarkMode,
+                          controller: _priceDailyController,
+                          keyboardType: TextInputType.number,
+                        ),
+                        const SizedBox(height: 12),
+                        UIHelpers.buildTextField(
+                          Icons.calendar_view_week,
+                          "Weekly Rental Rate (₱)",
+                          isDarkMode,
+                          controller: _priceWeeklyController,
+                          keyboardType: TextInputType.number,
+                        ),
+                        const SizedBox(height: 12),
+                        UIHelpers.buildTextField(
+                          Icons.calendar_month,
+                          "Monthly Rental Rate (₱)",
                           isDarkMode,
                           controller: _priceMonthlyController,
                           keyboardType: TextInputType.number,
                         ),
                         const SizedBox(height: 16),
+                        const Text(
+                          'SECURITY DEPOSIT & ADVANCE',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
                         UIHelpers.buildTextField(
                           Icons.security,
-                          "Security Deposit Amount (₱)",
+                          "Security Deposit Amount (₱, Optional)",
                           isDarkMode,
                           controller: _securityDepositController,
                           keyboardType: TextInputType.number,
@@ -1194,60 +1230,29 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            for (int m in [1, 2, 3]) ...[
-                              GestureDetector(
-                                onTap: () {
-                                  final monthly =
-                                      double.tryParse(
-                                        _priceMonthlyController.text,
-                                      ) ??
-                                      0.0;
-                                  _securityDepositController.text =
-                                      (monthly * m).toInt().toString();
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  margin: const EdgeInsets.only(right: 6),
-                                  decoration: BoxDecoration(
-                                    color: isDarkMode
-                                        ? AppColors.darkCard
-                                        : Colors.grey[200],
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    '$m Month${m > 1 ? "s" : ""}',
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                            GestureDetector(
+                              onTap: () => _securityDepositController.text = '0',
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                margin: const EdgeInsets.only(right: 6),
+                                decoration: BoxDecoration(
+                                  color: isDarkMode
+                                      ? AppColors.darkCard
+                                      : Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  'None (₱0)',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        UIHelpers.buildTextField(
-                          Icons.payment,
-                          "Advance Payment Amount (₱)",
-                          isDarkMode,
-                          controller: _advancePaymentController,
-                          keyboardType: TextInputType.number,
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Text(
-                              'Quick Advance:',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.grey,
-                              ),
                             ),
-                            const SizedBox(width: 8),
                             for (int m in [1, 2]) ...[
                               GestureDetector(
                                 onTap: () {
@@ -1256,9 +1261,10 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                         _priceMonthlyController.text,
                                       ) ??
                                       0.0;
-                                  _advancePaymentController.text = (monthly * m)
-                                      .toInt()
-                                      .toString();
+                                  if (monthly > 0) {
+                                    _securityDepositController.text =
+                                        (monthly * m).toInt().toString();
+                                  }
                                 },
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
@@ -1273,7 +1279,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
-                                    '$m Month${m > 1 ? "s" : ""}',
+                                    '$m Mo. Rent',
                                     style: const TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
@@ -1284,22 +1290,15 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                             ],
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
                         UIHelpers.buildTextField(
-                          Icons.monetization_on_outlined,
-                          "Weekly Rate (Optional)",
+                          Icons.payment,
+                          "Advance Payment Amount (₱, Optional)",
                           isDarkMode,
-                          controller: _priceWeeklyController,
+                          controller: _advancePaymentController,
                           keyboardType: TextInputType.number,
                         ),
                         const SizedBox(height: 16),
-                        UIHelpers.buildTextField(
-                          Icons.monetization_on_outlined,
-                          "Daily Rate (Optional)",
-                          isDarkMode,
-                          controller: _priceDailyController,
-                          keyboardType: TextInputType.number,
-                        ),
                       ] else ...[
                         UIHelpers.buildTextField(
                           Icons.monetization_on,
@@ -1491,19 +1490,23 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                               ),
                               const SizedBox(height: 12),
                               if (widget.isProperty) ...[
-                                _buildBreakdownRow(
-                                  'Monthly Rent (Base)',
-                                  double.tryParse(_priceMonthlyController.text) ?? 0.0,
-                                ),
-                                if ((double.tryParse(_priceWeeklyController.text) ?? 0.0) > 0)
-                                  _buildBreakdownRow(
-                                    'Weekly Rent',
-                                    double.tryParse(_priceWeeklyController.text) ?? 0.0,
-                                  ),
                                 if ((double.tryParse(_priceDailyController.text) ?? 0.0) > 0)
-                                  _buildBreakdownRow(
-                                    'Daily Rent',
+                                  _buildPayoutRow(
+                                    'Daily Rental',
                                     double.tryParse(_priceDailyController.text) ?? 0.0,
+                                    commissionRate: 0.07,
+                                  ),
+                                if ((double.tryParse(_priceWeeklyController.text) ?? 0.0) > 0)
+                                  _buildPayoutRow(
+                                    'Weekly Rental',
+                                    double.tryParse(_priceWeeklyController.text) ?? 0.0,
+                                    commissionRate: 0.07,
+                                  ),
+                                if ((double.tryParse(_priceMonthlyController.text) ?? 0.0) > 0)
+                                  _buildPayoutRow(
+                                    'Monthly Rental',
+                                    double.tryParse(_priceMonthlyController.text) ?? 0.0,
+                                    commissionRate: 0.07,
                                   ),
                                 if ((double.tryParse(_securityDepositController.text) ?? 0.0) > 0)
                                   _buildBreakdownRow(
@@ -1511,40 +1514,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                     double.tryParse(_securityDepositController.text) ?? 0.0,
                                     isGreen: true,
                                   ),
-                                if ((double.tryParse(_advancePaymentController.text) ?? 0.0) > 0)
-                                  _buildBreakdownRow(
-                                    'Advance Rent Payment',
-                                    double.tryParse(_advancePaymentController.text) ?? 0.0,
-                                    isGreen: true,
-                                  ),
-                                const Divider(height: 16),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'Host Commission (3%)',
-                                      style: TextStyle(fontSize: 13, color: Colors.grey),
-                                    ),
-                                    Text(
-                                      '- ₱ ${((double.tryParse(_priceMonthlyController.text) ?? 0.0) * 0.03).toStringAsFixed(2)}',
-                                      style: const TextStyle(fontSize: 13, color: Colors.amber),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'Est. Monthly Net Payout',
-                                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                                    ),
-                                    Text(
-                                      '₱ ${((double.tryParse(_priceMonthlyController.text) ?? 0.0) * 0.97).toStringAsFixed(2)}',
-                                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green),
-                                    ),
-                                  ],
-                                ),
                               ] else ...[
                                 if ((double.tryParse(_price12hController.text) ?? 0.0) > 0)
                                   _buildPayoutRow(
@@ -1577,45 +1546,68 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    widget.isProperty
-                                        ? 'Anti-Spam Listing Fee (1.5% of Monthly)'
-                                        : 'Anti-Spam Listing Fee (1.5% of Daily)',
-                                    style: const TextStyle(fontSize: 13),
-                                  ),
-                                  Text(
-                                    '₱ ${_listingFee.toStringAsFixed(2)} TYXBIT',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: AppColors.indigo,
+                              if (widget.isProperty) ...[
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: const [
+                                    Text(
+                                      'Property Listing Fee (Free Tier)',
+                                      style: TextStyle(fontSize: 13),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    'Your Wallet Balance:',
-                                    style: TextStyle(fontSize: 13),
-                                  ),
-                                  Text(
-                                    '₱ ${userProfile.tyxBalance.toStringAsFixed(2)} TYXBIT',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: userProfile.tyxBalance >= _listingFee
-                                          ? Colors.green
-                                          : Colors.red,
+                                    Text(
+                                      '₱ 0.00 (100% Free)',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                        color: Colors.green,
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Publishing your property is 100% free. TRANYX only collects a 7% commission upon a successful completed transaction.',
+                                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                                ),
+                              ] else ...[
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Anti-Spam Listing Fee (1.5% of Daily)',
+                                      style: TextStyle(fontSize: 13),
+                                    ),
+                                    Text(
+                                      '₱ ${_listingFee.toStringAsFixed(2)} TYXBIT',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                        color: AppColors.indigo,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Your Wallet Balance:',
+                                      style: TextStyle(fontSize: 13),
+                                    ),
+                                    Text(
+                                      '₱ ${userProfile.tyxBalance.toStringAsFixed(2)} TYXBIT',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                        color: userProfile.tyxBalance >= _listingFee
+                                            ? Colors.green
+                                            : Colors.red,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -1731,9 +1723,10 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
     );
   }
 
-  Widget _buildPayoutRow(String label, double amount) {
-    final commission = amount * 0.03;
+  Widget _buildPayoutRow(String label, double amount, {double commissionRate = 0.03}) {
+    final commission = amount * commissionRate;
     final payout = amount - commission;
+    final pct = (commissionRate * 100).toInt();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -1744,7 +1737,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
             children: [
               Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
               Text(
-                'Rate: ₱ ${amount.toStringAsFixed(2)} | Comm (3%): - ₱ ${commission.toStringAsFixed(2)}',
+                'Rate: ₱ ${amount.toStringAsFixed(2)} | Comm ($pct%): - ₱ ${commission.toStringAsFixed(2)}',
                 style: const TextStyle(fontSize: 11, color: Colors.grey),
               ),
             ],

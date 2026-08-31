@@ -711,14 +711,19 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
     final startDate = (item['startDate'] as num?)?.toInt();
     final endDate = (item['endDate'] as num?)?.toInt();
 
+    final baseRent = (item['baseRentAmount'] as num?)?.toDouble() ?? totalCost;
+    final securityDeposit = (item['securityDepositAmount'] as num?)?.toDouble() ?? 0.0;
+    final custFeeRate = (item['customerPlatformFeeRate'] as num?)?.toDouble() ?? 0.03;
+    final hostCommRate = (item['hostCommissionRate'] as num?)?.toDouble() ?? 0.07;
     final bookingFee =
-        (item['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03);
-    final commission = totalCost * 0.03;
+        (item['customerPlatformFeeAmount'] as num?)?.toDouble() ?? (item['bookingFee'] as num?)?.toDouble() ?? (baseRent * custFeeRate);
+    final commission =
+        (item['hostCommissionAmount'] as num?)?.toDouble() ?? (baseRent * hostCommRate);
     final finalPaid = myRole == 'host'
-        ? (totalCost - commission)
-        : (totalCost + bookingFee);
+        ? ((item['hostPayoutAmount'] as num?)?.toDouble() ?? (baseRent - commission))
+        : ((item['totalCustomerPaid'] as num?)?.toDouble() ?? (baseRent + bookingFee + securityDeposit));
 
-    final listingFee = priceMonthly * 0.015;
+    final listingFee = 0.0;
 
     final record = WalletTransaction(
       id: (item['id'] ?? 'prop_${item['contractId'] ?? 0}').toString(),
@@ -726,10 +731,10 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
       title: title,
       desc: address,
       amount: myRole == 'host' ? finalPaid : -finalPaid,
-      baseAmount: totalCost,
+      baseAmount: baseRent,
       bookingFee: myRole != 'host' ? bookingFee : null,
       commissionFee: myRole == 'host' ? commission : null,
-      listingFee: myRole == 'host' ? listingFee : null,
+      listingFee: null,
       originRail: TransactionOriginRail.internalBalance,
       transactionType: myRole == 'host'
           ? WalletTransactionType.payout
@@ -894,27 +899,43 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      'Base Cost',
+                      'Base Rent',
                       style: TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                     Text(
-                      '₱ ${totalCost.toStringAsFixed(2)}',
+                      '₱ ${baseRent.toStringAsFixed(2)}',
                       style: const TextStyle(fontSize: 11),
                     ),
                   ],
                 ),
+                if (securityDeposit > 0) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Security Deposit (Refundable)',
+                        style: TextStyle(fontSize: 11, color: Colors.purple),
+                      ),
+                      Text(
+                        '₱ ${securityDeposit.toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 11, color: Colors.purple),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 4),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
                       myRole == 'host'
-                          ? 'Platform Commission (3%)'
-                          : 'Booking Fee (3%)',
+                          ? 'TRANYX Commission (${(hostCommRate * 100).toInt()}%)'
+                          : 'Platform Fee (${(custFeeRate * 100).toInt()}%)',
                       style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                     Text(
-                      '${myRole == "host" ? "-" : "+"} ₱ ${(myRole == "host" ? commission : bookingFee).toStringAsFixed(2)}',
+                      '${myRole == "host" ? "−" : "+"} ₱ ${(myRole == "host" ? commission : bookingFee).toStringAsFixed(2)}',
                       style: TextStyle(
                         fontSize: 11,
                         color: myRole == 'host' ? Colors.red : Colors.green,
@@ -926,14 +947,14 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                 if (myRole == 'host') ...[
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Listing Fee (1.5% paid upfront)',
+                    children: const [
+                      Text(
+                        'Property Listing Fee',
                         style: TextStyle(fontSize: 11, color: Colors.grey),
                       ),
                       Text(
-                        '− ₱ ${listingFee.toStringAsFixed(2)}',
-                        style: const TextStyle(fontSize: 11, color: Colors.red),
+                        '₱0.00 (100% Free)',
+                        style: TextStyle(fontSize: 11, color: Colors.green),
                       ),
                     ],
                   ),

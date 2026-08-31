@@ -1,6 +1,7 @@
 library;
 
 import 'dart:math' as math;
+import 'date_utils.dart';
 
 /// Calculates the Haversine distance in kilometers between two geographic coordinates.
 double calculateHaversineDistance(
@@ -210,6 +211,7 @@ class GigFilterEngine {
     required double? userLng,
     List<String> userSkills = const [],
     double highPayingThreshold = defaultHighPayingThreshold,
+    String sortBy = 'Newest', // 'Newest' or 'Oldest'
   }) {
     final matches = gigs.where((gig) {
       return evaluateGigMatch(
@@ -224,10 +226,13 @@ class GigFilterEngine {
       );
     }).toList();
 
-    // Sort by latest first
+    // Sort by latest or oldest
     matches.sort((a, b) {
-      final aTime = a['createdAt'] as int? ?? 0;
-      final bTime = b['createdAt'] as int? ?? 0;
+      final aTime = getEpochMs(a['createdAt']);
+      final bTime = getEpochMs(b['createdAt']);
+      if (sortBy == 'Oldest') {
+        return aTime.compareTo(bTime);
+      }
       return bTime.compareTo(aTime);
     });
 

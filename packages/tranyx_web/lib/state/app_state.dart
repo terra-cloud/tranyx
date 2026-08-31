@@ -1,3 +1,5 @@
+import 'package:shared/shared.dart';
+
 // App State — mirrors React useState hooks from the reference React app.
 // All enums and the AppState class are plain Dart, imported by the @client component.
 
@@ -35,6 +37,8 @@ class SelectedJob {
   final String urgency;
   final String status;
   final int applicants;
+  final dynamic createdAt;
+
   const SelectedJob({
     this.id,
     required this.title,
@@ -43,7 +47,13 @@ class SelectedJob {
     required this.urgency,
     this.status = 'Active',
     this.applicants = 0,
+    this.createdAt,
   });
+
+  String get formattedPostingDate => formatPostingDate(createdAt);
+  String get postedDateLabel => formatPostingDate(createdAt, withPrefix: true);
+  String get formattedPostingDateTime => formatPostingDateTime(createdAt);
+  bool get isPostedToday => isPostedTodayDate(createdAt);
 }
 
 class SelectedCategory {

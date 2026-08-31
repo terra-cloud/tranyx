@@ -205,12 +205,12 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
         return;
       }
     } else if (_step == 2) {
-      if (_priceMonthly.trim().isEmpty) {
-        setState(() => _error = 'Please provide a monthly rate.');
-        return;
-      }
-      if (double.tryParse(_priceMonthly) == null || double.parse(_priceMonthly) <= 0) {
-        setState(() => _error = 'Monthly rate must be a valid number greater than 0.');
+      final daily = double.tryParse(_priceDaily) ?? 0.0;
+      final weekly = double.tryParse(_priceWeekly) ?? 0.0;
+      final monthly = double.tryParse(_priceMonthly) ?? 0.0;
+
+      if (daily <= 0 && weekly <= 0 && monthly <= 0) {
+        setState(() => _error = 'Please provide at least one rental rate (Daily, Weekly, or Monthly).');
         return;
       }
       if (component.appState.pickupAddress.isEmpty) {

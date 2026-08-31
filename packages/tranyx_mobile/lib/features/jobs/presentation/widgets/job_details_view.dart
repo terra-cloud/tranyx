@@ -885,16 +885,34 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                                 ),
                               ),
                               const Spacer(),
-                              Text(
-                                DateFormat(
-                                  'MMM d, y',
-                                ).format(activeJob.createdAt),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: isDarkMode
-                                      ? AppColors.darkTextMuted
-                                      : AppColors.lightTextMuted,
-                                ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.access_time_rounded,
+                                    size: 13,
+                                    color: activeJob.isPostedToday
+                                        ? AppColors.green
+                                        : (isDarkMode
+                                            ? AppColors.darkTextMuted
+                                            : AppColors.lightTextMuted),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    activeJob.postedDateLabel,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: activeJob.isPostedToday
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
+                                      color: activeJob.isPostedToday
+                                          ? AppColors.green
+                                          : (isDarkMode
+                                              ? AppColors.darkTextMuted
+                                              : AppColors.lightTextMuted),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -905,6 +923,11 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                             spacing: 8,
                             runSpacing: 8,
                             children: [
+                              _metaChip(
+                                Icons.calendar_today_outlined,
+                                activeJob.postedDateLabel,
+                                isDarkMode,
+                              ),
                               _metaChip(
                                 Icons.location_on,
                                 _formatLocation(activeJob),
@@ -961,6 +984,28 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                             ? AppColors.darkTextMuted
                             : AppColors.lightTextMuted,
                       ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.schedule_outlined,
+                          size: 13,
+                          color: isDarkMode
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          activeJob.formattedPostingDateTime,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDarkMode
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted,
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 24),
 

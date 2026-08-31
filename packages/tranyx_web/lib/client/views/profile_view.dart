@@ -3795,7 +3795,8 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the host -> earnings
         if (creatorId == uid) {
-          final payout = price * 0.97; // 3% host commission fee deducted
+          final commission = price * 0.07; // 7% host commission fee deducted
+          final payout = price - commission;
           earningsSum += payout;
           gigsCount++;
 
@@ -3807,9 +3808,9 @@ class _HistoryViewState extends State<_HistoryView> {
               'date': _formatDate(createdAtMs),
               'amount': payout,
               'baseAmount': price,
-              'commissionFee': price * 0.03,
-              'commissionLabel': 'Platform Commission (3%)',
-              'listingFee': rental.priceMonthly * 0.015,
+              'commissionFee': commission,
+              'commissionLabel': 'TRANYX Host Commission (7%)',
+              'listingFee': 0.0,
               'status': 'Released',
               'timestamp': createdAtMs,
             });

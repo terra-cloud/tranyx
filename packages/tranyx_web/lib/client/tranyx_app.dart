@@ -181,6 +181,7 @@ class TranyxAppState extends State<TranyxApp> {
   bool isLoadingJobs = false;
   String? jobsError;
   String activeJobFilter = 'Recommended';
+  String jobSortOrder = 'Newest'; // 'Newest' or 'Oldest'
   String activeJobPane = 'active'; // 'active'/'history' for employer, 'browse'/'my_gigs' for nyxian
   Map<String, dynamic>? ongoingJob; // first 'In Progress' job
   String homeSearchQuery = '';
@@ -3315,12 +3316,14 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() {
       selectedJobData = jobMap;
       selectedJob = SelectedJob(
+        id: jobMap['id'] as String?,
         title: title,
         rate: rate,
         distance: '—',
         urgency: urgency,
         status: status,
         applicants: applicants,
+        createdAt: jobMap['createdAt'],
       );
       selectedJobImageCarouselIndex = 0;
       activeTab = AppTab.jobs;

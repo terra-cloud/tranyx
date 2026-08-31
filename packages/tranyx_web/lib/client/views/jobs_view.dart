@@ -103,6 +103,31 @@ class JobsViewComponent extends StatelessComponent {
             ],
           ),
 
+          if (!isNyxian)
+            div(classes: 'flex items-center justify-between gap-2 px-1 pt-1 text-xs', [
+              span(
+                classes: 'font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"} flex items-center gap-1',
+                [
+                  lIcon('arrow-up-down', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                  Component.text('Sort:'),
+                ],
+              ),
+              select(
+                classes:
+                    'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
+                events: {
+                  'change': (e) {
+                    final val = getInputValue(e.target);
+                    s.setState(() => s.jobSortOrder = val);
+                  },
+                },
+                [
+                  option(value: 'Newest', selected: s.jobSortOrder == 'Newest', [Component.text('Newest First')]),
+                  option(value: 'Oldest', selected: s.jobSortOrder == 'Oldest', [Component.text('Oldest First')]),
+                ],
+              ),
+            ]),
+
           if (s.homeSearchQuery.isNotEmpty)
             div(
               classes: 'p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-between',
@@ -137,7 +162,7 @@ class JobsViewComponent extends StatelessComponent {
               _filterChip('High Paying', s.activeJobFilter == 'High Paying', isDark, s),
               _filterChip('All', s.activeJobFilter == 'All', isDark, s),
             ]),
-            // Geofence distance row & Remote toggle
+            // Geofence distance row, Remote toggle & Sort order
             div(classes: 'flex flex-wrap items-center gap-3 mb-2', [
               div(classes: 'flex items-center gap-2 text-xs', [
                 span(
@@ -179,6 +204,29 @@ class JobsViewComponent extends StatelessComponent {
                       selected: s.geofenceRadius >= 999.0,
                       [Component.text('Any Distance')],
                     ),
+                  ],
+                ),
+              ]),
+              div(classes: 'flex items-center gap-2 text-xs', [
+                span(
+                  classes: 'font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"} flex items-center gap-1',
+                  [
+                    lIcon('arrow-up-down', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                    Component.text('Sort:'),
+                  ],
+                ),
+                select(
+                  classes:
+                      'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
+                  events: {
+                    'change': (e) {
+                      final val = getInputValue(e.target);
+                      s.setState(() => s.jobSortOrder = val);
+                    },
+                  },
+                  [
+                    option(value: 'Newest', selected: s.jobSortOrder == 'Newest', [Component.text('Newest First')]),
+                    option(value: 'Oldest', selected: s.jobSortOrder == 'Oldest', [Component.text('Oldest First')]),
                   ],
                 ),
               ]),
@@ -424,6 +472,18 @@ class JobsViewComponent extends StatelessComponent {
       }).toList();
     }
 
+    // Apply sorting to all job lists (employer, history, applied)
+    if (!isBrowsePane) {
+      jobs.sort((jobA, jobB) {
+        final aTime = getEpochMs(jobA['createdAt']);
+        final bTime = getEpochMs(jobB['createdAt']);
+        if (s.jobSortOrder == 'Oldest') {
+          return aTime.compareTo(bTime);
+        }
+        return bTime.compareTo(aTime);
+      });
+    }
+
     if (!isNyxian) {
       return jobs;
     }
@@ -439,6 +499,7 @@ class JobsViewComponent extends StatelessComponent {
         userLat: s.userLatitude,
         userLng: s.userLongitude,
         userSkills: userSkills,
+        sortBy: s.jobSortOrder,
       );
     }
 
@@ -524,6 +585,9 @@ class JobsViewComponent extends StatelessComponent {
     final statusCls = status == 'Completed'
         ? 'bg-zinc-700/50 text-zinc-400'
         : (isActive ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400');
+    final postedDateStr = formatPostingDate(j['createdAt'], withPrefix: true);
+    final isToday = isPostedToday(j['createdAt']);
+
     final cardCls = isDark
         ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
         : 'bg-white border-zinc-200 shadow-sm hover:shadow-md';
@@ -531,10 +595,29 @@ class JobsViewComponent extends StatelessComponent {
       div(classes: 'flex items-start justify-between mb-3', [
         div(classes: 'flex-1 pr-2', [
           p(classes: 'font-semibold text-sm', [Component.text(title)]),
-          if (categoryNameNormalized.isNotEmpty)
-            p(classes: 'text-xs text-zinc-550 dark:text-zinc-400 font-medium mt-0.5', [
-              Component.text(categoryNameNormalized),
-            ]),
+          div(classes: 'flex items-center gap-2 mt-1 flex-wrap', [
+            if (categoryNameNormalized.isNotEmpty)
+              span(classes: 'text-xs text-zinc-550 dark:text-zinc-400 font-medium', [
+                Component.text(categoryNameNormalized),
+              ]),
+            span(
+              classes:
+                  'text-[11px] ${isToday ? (isDark ? "text-emerald-400 font-semibold" : "text-emerald-600 font-semibold") : (isDark ? "text-zinc-400" : "text-zinc-500")} flex items-center gap-1',
+              [
+                lIcon(
+                  'clock',
+                  cls: 'w-3 h-3 ${isToday ? (isDark ? "text-emerald-400" : "text-emerald-500") : "text-zinc-400"}',
+                ),
+                Component.text(postedDateStr),
+              ],
+            ),
+            if (isToday)
+              span(
+                classes:
+                    'px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 animate-pulse',
+                [Component.text('NEW')],
+              ),
+          ]),
         ]),
         span(classes: 'px-2 py-0.5 rounded text-[10px] font-bold $statusCls', [Component.text(status.toUpperCase())]),
       ]),
@@ -590,11 +673,19 @@ class JobsViewComponent extends StatelessComponent {
           },
         ),
       div(classes: 'flex items-center justify-between', [
-        div(classes: 'flex items-center gap-2 text-xs', [
+        div(classes: 'flex items-center gap-3 text-xs', [
           div(classes: 'flex items-center gap-1 text-zinc-500', [
             lIcon('users', cls: 'w-3 h-3'),
             Component.text(' $applicants applicants'),
           ]),
+          div(
+            classes:
+                'flex items-center gap-1 ${isToday ? (isDark ? "text-emerald-400 font-semibold" : "text-emerald-600 font-semibold") : (isDark ? "text-zinc-400" : "text-zinc-500")}',
+            [
+              lIcon('clock', cls: 'w-3 h-3'),
+              Component.text(postedDateStr),
+            ],
+          ),
           if (applicants > 0 && (status == 'Open' || status == 'Active'))
             span(
               classes: 'flex h-2 w-2 relative',
@@ -637,6 +728,8 @@ class JobsViewComponent extends StatelessComponent {
     final category = j['category'] as String? ?? '';
     final categoryLabel = j['categoryLabel'] as String? ?? '';
     final categoryNameNormalized = normalizeCategoryName(category.isNotEmpty ? category : categoryLabel);
+    final postedDateStr = formatPostingDate(j['createdAt'], withPrefix: true);
+    final isToday = isPostedToday(j['createdAt']);
 
     // Compute distance for on-site gigs
     String? distanceLabel;
@@ -685,10 +778,29 @@ class JobsViewComponent extends StatelessComponent {
       div(classes: 'flex items-start justify-between mb-3', [
         div(classes: 'flex-1 pr-2', [
           p(classes: 'font-semibold text-sm', [Component.text(title)]),
-          if (categoryNameNormalized.isNotEmpty)
-            p(classes: 'text-xs text-zinc-550 dark:text-zinc-400 font-medium mt-0.5', [
-              Component.text(categoryNameNormalized),
-            ]),
+          div(classes: 'flex items-center gap-2 mt-1 flex-wrap', [
+            if (categoryNameNormalized.isNotEmpty)
+              span(classes: 'text-xs text-zinc-550 dark:text-zinc-400 font-medium', [
+                Component.text(categoryNameNormalized),
+              ]),
+            span(
+              classes:
+                  'text-[11px] ${isToday ? (isDark ? "text-emerald-400 font-semibold" : "text-emerald-600 font-semibold") : (isDark ? "text-zinc-400" : "text-zinc-500")} flex items-center gap-1',
+              [
+                lIcon(
+                  'clock',
+                  cls: 'w-3 h-3 ${isToday ? (isDark ? "text-emerald-400" : "text-emerald-500") : "text-zinc-400"}',
+                ),
+                Component.text(postedDateStr),
+              ],
+            ),
+            if (isToday)
+              span(
+                classes:
+                    'px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 animate-pulse',
+                [Component.text('NEW')],
+              ),
+          ]),
         ]),
         div(classes: 'flex flex-col items-end gap-1.5', [
           span(classes: 'px-2 py-0.5 rounded text-[10px] font-bold $badgeCls', [Component.text(badgeText)]),
@@ -786,6 +898,7 @@ class JobsViewComponent extends StatelessComponent {
     final category = j['category'] as String? ?? '';
     final categoryLabel = j['categoryLabel'] as String? ?? '';
     final categoryNameNormalized = normalizeCategoryName(category.isNotEmpty ? category : categoryLabel);
+    final postedDateStr = formatPostingDate(j['createdAt'], withPrefix: true);
 
     final cardCls = isDark
         ? 'bg-purple-950/20 border-purple-500/30 hover:border-purple-500/50 text-white'
@@ -807,6 +920,10 @@ class JobsViewComponent extends StatelessComponent {
                     'px-1.5 py-0.5 rounded text-[9px] font-semibold bg-zinc-500/10 ${isDark ? "text-zinc-400" : "text-zinc-650"}',
                 [Component.text(categoryNameNormalized)],
               ),
+            span(
+              classes: 'text-[9px] text-zinc-400 flex items-center gap-1',
+              [lIcon('clock', cls: 'w-2.5 h-2.5'), Component.text(postedDateStr)],
+            ),
           ]),
           p(classes: 'font-semibold text-xs truncate', [Component.text(title)]),
           if (categoryNameNormalized.isNotEmpty)
@@ -999,6 +1116,7 @@ class _JobDetails extends StatelessComponent {
         tagChip(job.rate, isDark),
         tagChip(job.status, isDark),
         tagChip(job.urgency, isDark),
+        tagChip(job.postedDateLabel, isDark),
         if (s.selectedJobData?['locationType'] != null) tagChip(s.selectedJobData!['locationType'] as String, isDark),
         if (s.selectedJobData?['employmentType'] != null)
           tagChip(s.selectedJobData!['employmentType'] as String, isDark),
@@ -1220,26 +1338,33 @@ class _JobDetails extends StatelessComponent {
         ],
         Builder(
           builder: (context) {
-            final createdAt = s.selectedJobData?['createdAt'] as int?;
-            final updatedAt = s.selectedJobData?['updatedAt'] as int?;
-            if (createdAt == null) return span([]);
-            final cd = DateTime.fromMillisecondsSinceEpoch(createdAt);
-            final cStr =
-                'Posted on ${cd.year}-${cd.month.toString().padLeft(2, '0')}-${cd.day.toString().padLeft(2, '0')} at ${cd.hour.toString().padLeft(2, '0')}:${cd.minute.toString().padLeft(2, '0')}';
+            final createdAtVal = s.selectedJobData?['createdAt'] ?? job.createdAt;
+            final createdAtDt = parseDateTime(createdAtVal);
+            if (createdAtDt == null) return span([]);
+            final cStr = formatPostingDateTime(createdAtDt);
 
+            final updatedAtVal = s.selectedJobData?['updatedAt'];
+            final updatedAtDt = parseDateTime(updatedAtVal);
             String? uStr;
-            if (updatedAt != null && updatedAt != createdAt) {
-              final ud = DateTime.fromMillisecondsSinceEpoch(updatedAt);
+            if (updatedAtDt != null && updatedAtDt.millisecondsSinceEpoch != createdAtDt.millisecondsSinceEpoch) {
+              final ud = updatedAtDt;
+              final hour12 = ud.hour == 0 ? 12 : (ud.hour > 12 ? ud.hour - 12 : ud.hour);
+              final amPm = ud.hour >= 12 ? 'PM' : 'AM';
+              final minStr = ud.minute.toString().padLeft(2, '0');
               uStr =
-                  'Edited on ${ud.year}-${ud.month.toString().padLeft(2, '0')}-${ud.day.toString().padLeft(2, '0')} at ${ud.hour.toString().padLeft(2, '0')}:${ud.minute.toString().padLeft(2, '0')}';
+                  'Edited on ${kShortMonths[ud.month - 1]} ${ud.day}, ${ud.year} at $hour12:$minStr $amPm';
             }
 
             return div(
               classes:
-                  'mt-4 pt-4 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex flex-col gap-1 text-[10px] ${isDark ? "text-zinc-500" : "text-zinc-400"}',
+                  'mt-4 pt-4 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex flex-col gap-1 text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}',
               [
-                span([Component.text(cStr)]),
-                if (uStr != null) span([Component.text(uStr)]),
+                div(classes: 'flex items-center gap-1.5 font-medium', [
+                  lIcon('clock', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                  span([Component.text(cStr)]),
+                ]),
+                if (uStr != null)
+                  span(classes: 'text-[11px] ${isDark ? "text-zinc-500" : "text-zinc-400"}', [Component.text(uStr)]),
               ],
             );
           },

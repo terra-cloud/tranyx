@@ -3718,8 +3718,30 @@ class FirestoreService {
       'status': 'Released',
       'hostCommissionDeducted': commission,
       'hostPayout': hostPayout,
+      'securityDepositRefunded': secDeposit,
       'releasedAt': DateTime.now().millisecondsSinceEpoch,
     });
+
+    // Refund security deposit to rentee upon lease completion
+    if (property.renteeId != null && property.renteeId!.isNotEmpty && secDeposit > 0.0) {
+      final rentee = await getUser(property.renteeId!);
+      if (rentee != null) {
+        await updateTyxBalance(property.renteeId!, rentee.tyxBalance + secDeposit);
+        final depTxId = 'dep_ref_${DateTime.now().microsecondsSinceEpoch}';
+        await setDocument('transactions/$depTxId', {
+          'uid': property.renteeId!,
+          'type': 'refund',
+          'category': 'refund',
+          'amount': secDeposit,
+          'title': 'Security Deposit Refund',
+          'desc': '100% refund of security deposit for completed lease "${property.title}"',
+          'method': 'Tranyx Wallet',
+          'originRail': 'internal_balance',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+          'status': 'Completed',
+        });
+      }
+    }
 
     // Save to history
     final historyId = 'ph_${DateTime.now().microsecondsSinceEpoch}';
@@ -3729,6 +3751,7 @@ class FirestoreService {
       'completedAt': DateTime.now().millisecondsSinceEpoch,
       'hostCommissionAmount': commission,
       'hostNetPayout': hostPayout,
+      'securityDepositRefunded': secDeposit,
     };
     await setDocument('property_history/$historyId', historyDoc);
 

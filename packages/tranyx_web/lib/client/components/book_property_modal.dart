@@ -417,8 +417,18 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
       _activeImageIndex = 0;
       _step = 1;
       _licenseNumber = '';
-      _multiplier = 1;
-      _selectedDurationType = 'Monthly';
+      final monthlyRate = (pData['priceMonthly'] as num?)?.toDouble() ?? 0.0;
+      final weeklyRate = (pData['priceWeekly'] as num?)?.toDouble() ?? 0.0;
+      final dailyRate = (pData['priceDaily'] as num?)?.toDouble() ?? 0.0;
+      if (monthlyRate > 0) {
+        _selectedDurationType = 'Monthly';
+      } else if (weeklyRate > 0) {
+        _selectedDurationType = 'Weekly';
+      } else if (dailyRate > 0) {
+        _selectedDurationType = 'Daily';
+      } else {
+        _selectedDurationType = 'Monthly';
+      }
       _appliedPromo = null;
       _promoCodeInput = '';
       _promoFeedback = null;

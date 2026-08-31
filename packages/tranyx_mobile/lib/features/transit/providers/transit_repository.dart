@@ -1102,7 +1102,29 @@ class TransitRepository {
       'hostCommissionRate': hostCommRate,
       'hostCommissionAmount': hostCommission,
       'hostPayoutAmount': hostPayout,
+      'securityDepositRefunded': securityDeposit,
     });
+
+    // Refund security deposit to rentee upon lease completion
+    if (property.renteeId != null && property.renteeId!.isNotEmpty && securityDeposit > 0.0) {
+      final rentee = await getUser(property.renteeId!);
+      if (rentee != null) {
+        await updateTyxBalance(property.renteeId!, rentee.tyxBalance + securityDeposit);
+        final depTxId = 'dep_ref_${DateTime.now().microsecondsSinceEpoch}';
+        await _firestore.collection('transactions').doc(depTxId).set({
+          'uid': property.renteeId!,
+          'type': 'refund',
+          'category': 'refund',
+          'amount': securityDeposit,
+          'title': 'Security Deposit Refund',
+          'desc': '100% refund of security deposit for completed lease "${property.title}"',
+          'method': 'Tranyx Wallet',
+          'originRail': 'internal_balance',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+          'status': 'Completed',
+        });
+      }
+    }
 
     final historyId = 'ph_${DateTime.now().microsecondsSinceEpoch}';
     final historyDoc = {
@@ -1112,6 +1134,7 @@ class TransitRepository {
       'hostCommissionRate': hostCommRate,
       'hostCommissionAmount': hostCommission,
       'hostPayoutAmount': hostPayout,
+      'securityDepositRefunded': securityDeposit,
     };
     await _firestore.collection('property_history').doc(historyId).set(historyDoc);
 

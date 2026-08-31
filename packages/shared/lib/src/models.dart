@@ -1,9 +1,11 @@
 // Core data models for Tranyx (Shared between Mobile and Web)
 import 'enums.dart';
 import 'property_pricing_model.dart';
+import 'date_utils.dart';
 
 export 'enums.dart';
 export 'property_pricing_model.dart';
+export 'date_utils.dart';
 
 enum AccountType {
   nyxian,
@@ -427,6 +429,21 @@ class Job {
     this.discountAmount,
   });
 
+  /// Formats the original posting date in a user-friendly format (e.g. "Today", "Yesterday", "2 days ago", "Aug 25, 2026").
+  String get formattedPostingDate => formatPostingDate(createdAt);
+
+  /// Formats the original posting date with "Posted " prefix (e.g. "Posted Today", "Posted 2 days ago", "Posted Aug 25, 2026").
+  String get postedDateLabel => formatPostingDate(createdAt, withPrefix: true);
+
+  /// Formats full posting date and time for detail screens (e.g. "Posted on Aug 25, 2026 at 5:05 PM").
+  String get formattedPostingDateTime => formatPostingDateTime(createdAt);
+
+  /// True if posted today.
+  bool get isPostedToday => isRecentlyPosted(createdAt, maxDays: 0);
+
+  /// True if posted within 2 days.
+  bool get isRecent => isRecentlyPosted(createdAt, maxDays: 2);
+
   Map<String, dynamic> toMap() {
     return {
       'creatorId': creatorId,
@@ -490,16 +507,14 @@ class Job {
       ),
       employmentType: map['employmentType'] ?? '',
       dateRequirement: map['dateRequirement'] ?? '',
-      jobDate: map['jobDate'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['jobDate'])
-          : null,
+      jobDate: parseDateTime(map['jobDate']),
       timePreference: map['timePreference'] ?? '',
       pricingType: map['pricingType'] ?? '',
       pricingValue: (map['pricingValue'] as num?)?.toDouble() ?? 0.0,
       locationType: map['locationType'] ?? '',
       address: map['address'],
       landmark: map['landmark'],
-      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
+      createdAt: parseDateTime(map['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
       status: map['status'] ?? 'Open',
       applicantCount: map['applicantCount'] ?? 0,
       recentApplicantPhotos: List<String>.from(

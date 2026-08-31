@@ -525,7 +525,7 @@ class JobNyxianCard extends StatelessWidget {
                               : AppColors.lightText,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
                       Row(
                         children: [
                           Icon(
@@ -536,17 +536,72 @@ class JobNyxianCard extends StatelessWidget {
                                 : AppColors.lightTextMuted,
                           ),
                           const SizedBox(width: 4),
-                          Text(
-                            job.locationType == 'Remote'
-                                ? 'Remote'
-                                : (job.address ?? 'No address'),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isDarkMode
-                                  ? AppColors.darkTextMuted
-                                  : AppColors.lightTextMuted,
+                          Expanded(
+                            child: Text(
+                              job.locationType == 'Remote'
+                                  ? 'Remote'
+                                  : (job.address ?? 'No address'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDarkMode
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted,
+                              ),
                             ),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.access_time_rounded,
+                            size: 13,
+                            color: job.isPostedToday
+                                ? AppColors.green
+                                : (isDarkMode
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            job.postedDateLabel,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: job.isPostedToday
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                              color: job.isPostedToday
+                                  ? AppColors.green
+                                  : (isDarkMode
+                                      ? AppColors.darkTextMuted
+                                      : AppColors.lightTextMuted),
+                            ),
+                          ),
+                          if (job.isPostedToday) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1.5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.green.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'NEW',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w900,
+                                  color: AppColors.green,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ],
@@ -634,7 +689,7 @@ class JobEmployerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     bool isActive = job.status == 'Open';
-    String postedStr = "Posted ${DateFormat('MMM d').format(job.createdAt)}";
+    String postedStr = job.postedDateLabel;
 
     return GestureDetector(
       onTap: onClick,
