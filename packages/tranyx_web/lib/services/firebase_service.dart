@@ -1620,35 +1620,39 @@ class FirestoreService {
 
   // ── Vehicle Rentals ──────────────────────────────────────────
 
-  /// Create a new vehicle rental posting, deducting 1.5% listing fee
+  /// Create a new vehicle rental posting (0% Free Listing - ₱0.00 upfront fee)
   Future<String> createRental(VehicleRental rental) async {
     final host = await getUser(rental.hostId);
     if (host == null) {
       throw Exception('Host profile not found.');
     }
-    final listingFee = 0.015 * rental.priceDaily;
-    if (host.tyxBalance < listingFee) {
-      throw Exception(
-        'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
+
+    final feeConfig = await getPlatformFeeConfig();
+    final listingFeeRate = feeConfig.listingFeeRate; // 0.0 (Free tier)
+    final listingFee = listingFeeRate * rental.priceDaily;
+
+    if (listingFee > 0.0) {
+      if (host.tyxBalance < listingFee) {
+        throw Exception(
+          'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+        );
+      }
+      final newBalance = host.tyxBalance - listingFee;
+      await updateTyxBalance(rental.hostId, newBalance);
+
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'uid': rental.hostId,
+        'type': 'listing_fee',
+        'amount': listingFee,
+        'listingFeeRate': listingFeeRate,
+        'title': 'Vehicle Listing Fee',
+        'desc': '${PlatformFeeConfig.formatPercent(listingFeeRate)} posting fee for ${rental.brand} ${rental.model} (${rental.year})',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      await setDocument('transactions/$txId', txData);
     }
-
-    // Deduct fee
-    final newBalance = host.tyxBalance - listingFee;
-    await updateTyxBalance(rental.hostId, newBalance);
-
-    // Save transaction record
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': rental.hostId,
-      'type': 'listing_fee',
-      'amount': listingFee,
-      'title': 'Vehicle Listing Fee',
-      'desc': '1.5% posting fee for ${rental.brand} ${rental.model} (${rental.year})',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
 
     // Post rental document
     final url = '$_firestoreBase/rentals';
@@ -1658,7 +1662,7 @@ class FirestoreService {
     final req = await _client.post(
       Uri.parse(url),
       headers: headers,
-      body: jsonEncode(_toFirestoreFields(rental.toMap())),
+      body: jsonEncode(_toFirestoreFields({...rental.toMap(), 'listingFeePaid': listingFee})),
     );
 
     if (req.statusCode >= 400) {
@@ -1683,26 +1687,31 @@ class FirestoreService {
     final host = await getUser(hostId);
     if (host == null) throw Exception('Host profile not found.');
 
-    final listingFee = 0.015 * priceDaily;
-    if (host.tyxBalance < listingFee) {
-      throw Exception(
-        'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
+    final feeConfig = await getPlatformFeeConfig();
+    final listingFeeRate = feeConfig.listingFeeRate; // 0.0 (Free tier)
+    final listingFee = listingFeeRate * priceDaily;
+
+    if (listingFee > 0.0) {
+      if (host.tyxBalance < listingFee) {
+        throw Exception(
+          'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+        );
+      }
+      final newBalance = host.tyxBalance - listingFee;
+      await updateTyxBalance(hostId, newBalance);
+
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      await setDocument('transactions/$txId', {
+        'uid': hostId,
+        'type': 'listing_fee',
+        'amount': listingFee,
+        'listingFeeRate': listingFeeRate,
+        'title': 'Vehicle Listing Fee',
+        'desc': '${PlatformFeeConfig.formatPercent(listingFeeRate)} posting fee for $brand $model ($year)',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      });
     }
-
-    final newBalance = host.tyxBalance - listingFee;
-    await updateTyxBalance(hostId, newBalance);
-
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    await setDocument('transactions/$txId', {
-      'uid': hostId,
-      'type': 'listing_fee',
-      'amount': listingFee,
-      'title': 'Vehicle Listing Fee',
-      'desc': '1.5% posting fee for $brand $model ($year)',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    });
 
     final url = '$_firestoreBase/rentals';
     final headers = <String, String>{'Content-Type': 'application/json'};
@@ -1711,7 +1720,7 @@ class FirestoreService {
     final req = await _client.post(
       Uri.parse(url),
       headers: headers,
-      body: jsonEncode(_toFirestoreFields(rentalMap)),
+      body: jsonEncode(_toFirestoreFields({...rentalMap, 'listingFeePaid': listingFee})),
     );
 
     if (req.statusCode >= 400) {
@@ -1725,15 +1734,12 @@ class FirestoreService {
     return docId;
   }
 
-  /// Delete rental posting and refund listing fee
+  /// Deletes a vehicle rental listing if it's Available (not Booked or Active).
   Future<void> deleteRental(String rentalId) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
 
-    final rental = VehicleRental.fromMap(rentalDoc, rentalId);
-
-    // Safety check: Cannot delete booked or ongoing rentals
-    if (rental.status != 'Available') {
+    if (rentalDoc['status'] != 'Available') {
       throw Exception('Cannot delete a vehicle listing that is currently booked or active.');
     }
 
@@ -1748,19 +1754,23 @@ class FirestoreService {
       }
     }
 
-    // Refund listing fee (1.5% of daily price) to host
-    final host = await getUser(rental.hostId);
-    final listingFee = 0.015 * rental.priceDaily;
+    // Refund listing fee only if one was originally paid (> 0.0)
+    final host = await getUser(rentalDoc['hostId'] as String? ?? '');
+    final listingFee = (rentalDoc['listingFeePaid'] as num?)?.toDouble() ?? 0.0;
     if (host != null && listingFee > 0.0) {
-      await updateTyxBalance(rental.hostId, host.tyxBalance + listingFee);
+      final hostId = rentalDoc['hostId'] as String;
+      final year = rentalDoc['year'] ?? '';
+      final brand = rentalDoc['brand'] ?? '';
+      final model = rentalDoc['model'] ?? '';
+      await updateTyxBalance(hostId, host.tyxBalance + listingFee);
       await setDocument('transactions/refund_veh_$rentalId', {
         'id': 'refund_veh_$rentalId',
-        'uid': rental.hostId,
+        'uid': hostId,
         'type': 'refund',
         'category': 'refund',
         'amount': listingFee,
         'title': 'Vehicle Listing Fee Refund',
-        'desc': '100% refund of listing fee for cancelled vehicle "${rental.year} ${rental.brand} ${rental.model}"',
+        'desc': '100% refund of listing fee for cancelled vehicle "$year $brand $model"',
         'method': 'Tranyx Wallet',
         'originRail': 'internal_balance',
         'createdAt': DateTime.now().millisecondsSinceEpoch,

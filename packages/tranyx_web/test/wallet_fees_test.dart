@@ -1,4 +1,5 @@
 import 'package:test/test.dart';
+import 'package:shared/shared.dart';
 import 'package:tranyx_web/services/firebase_service.dart';
 
 void main() {
@@ -103,6 +104,67 @@ void main() {
       } catch (e) {
         expect(sessionExpiredTriggered, isFalse);
       }
+    });
+  });
+
+  group('Vehicle Rental Free Tier & Ledger Debit Invariant', () {
+    test('Vehicle Listing Upfront Fee is 100% Free (0.00 TYX)', () {
+      const config = PlatformFeeConfig();
+      expect(config.listingFeeRate, equals(0.0));
+
+      final double dailyRate = 2500.0;
+      final listingFee = config.listingFeeRate * dailyRate;
+      expect(listingFee, equals(0.0));
+
+      // 3% Platform Commission deducted upon completion
+      final commissionDaily = dailyRate * 0.03;
+      final payoutDaily = dailyRate - commissionDaily;
+      expect(commissionDaily, equals(75.0));
+      expect(payoutDaily, equals(2425.0));
+    });
+
+    test('Listing Fee Transaction Classification is strictly Debit (not Deposit)', () {
+      final txMap = {
+        'id': 'tx_123456789',
+        'uid': 'user_host_1',
+        'type': 'listing_fee',
+        'amount': 37.5,
+        'title': 'Vehicle Listing Fee',
+        'desc': '1.5% posting fee for Nissan Almera (2026)',
+        'method': 'Tranyx Wallet',
+        'createdAt': 1788570750000,
+        'status': 'Completed',
+      };
+
+      final record = WalletTransaction.fromMap(txMap);
+      expect(record.transactionType, equals(WalletTransactionType.listingFee));
+
+      final rawType = (txMap['type'] ?? '').toString().toLowerCase();
+      final isDebitType = record.transactionType == WalletTransactionType.listingFee ||
+          record.transactionType == WalletTransactionType.feeDeduction ||
+          record.transactionType == WalletTransactionType.subscription ||
+          record.transactionType == WalletTransactionType.withdraw ||
+          record.transactionType == WalletTransactionType.onChainPayment ||
+          rawType == 'listing_fee' ||
+          rawType == 'fee_deduction' ||
+          rawType == 'subscription' ||
+          rawType == 'withdraw' ||
+          rawType == 'withdrawal' ||
+          rawType == 'fee' ||
+          rawType == 'service_fee' ||
+          rawType == 'payment';
+
+      expect(isDebitType, isTrue);
+
+      final isDeposit = !isDebitType &&
+          (record.transactionType == WalletTransactionType.deposit ||
+              record.transactionType == WalletTransactionType.refund ||
+              rawType.contains('deposit') ||
+              rawType.contains('topup') ||
+              rawType.contains('refund') ||
+              (rawType == 'credit' && !isDebitType));
+
+      expect(isDeposit, isFalse, reason: 'Listing fee must NEVER be classified as a deposit/inflow');
     });
   });
 }

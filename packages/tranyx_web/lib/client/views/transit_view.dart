@@ -1567,8 +1567,7 @@ class _RentalHistoryViewState extends State<_RentalHistoryView> {
     final endDate = (item['endDate'] as num?)?.toInt();
     final completedAt = (item['completedAt'] as num?)?.toInt();
 
-    final priceDaily = (item['priceDaily'] as num?)?.toDouble() ?? 0.0;
-    final listingFee = priceDaily * 0.015;
+    final listingFeePaid = (item['listingFeePaid'] as num?)?.toDouble() ?? 0.0;
 
     final hireWithDriver = item['hireWithDriver'] as bool? ?? false;
     final driverDailyPrice = (item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0;
@@ -1679,10 +1678,11 @@ class _RentalHistoryViewState extends State<_RentalHistoryView> {
               span(classes: 'text-orange-400', [Component.text('Platform Commission (3%):')]),
               span(classes: 'text-orange-400 font-medium', [Component.text('- ₱${(totalCost * 0.03).toStringAsFixed(2)}')]),
             ]),
-            div(classes: 'flex justify-between items-center text-xs', [
-              span(classes: 'text-red-400', [Component.text('Listing Fee (1.5% paid upfront):')]),
-              span(classes: 'text-red-400 font-medium', [Component.text('- ₱${listingFee.toStringAsFixed(2)}')]),
-            ]),
+            if (listingFeePaid > 0)
+              div(classes: 'flex justify-between items-center text-xs', [
+                span(classes: 'text-red-400', [Component.text('Listing Fee (Paid upfront):')]),
+                span(classes: 'text-red-400 font-medium', [Component.text('- ₱${listingFeePaid.toStringAsFixed(2)}')]),
+              ]),
           ],
           div(classes: 'flex justify-between items-center text-xs pt-1 border-t ${isDark ? "border-zinc-800/50" : "border-zinc-100"}', [
             span(classes: 'font-bold ${myRole == 'host' ? "text-green-400" : (isDark ? "text-white" : "text-zinc-900")}', [Component.text(myRole == 'host' ? 'Net Earnings:' : 'Total Paid:')]),

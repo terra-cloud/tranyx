@@ -299,13 +299,28 @@ This memory document acts as an immutable ledger to prevent regressions across `
   - **Documented & Verified**:
     - Unit tested in `packages/shared/test/property_pricing_model_test.dart` ("Deserialization from untyped Map<dynamic, dynamic> with nested policy succeeds").
 
+---
 
-
-
-
-
-
-
-
-
-
+## 19. Zero-Fee Vehicle Listing Parity & Ledger Debit Invariant
+- **Context & Problem Statement**:
+  - QA/User reported that when listing a vehicle, an "Anti-Spam Listing Fee (1.5% of Daily)" was still deducted from the host's wallet.
+  - Furthermore, in the "Wallet Ledger & Transactions" history, this deducted fee appeared incorrectly as `+ ₱37.50` with an emerald `[Added Funds]` badge instead of a debit (`- ₱37.50`).
+  - User required removing vehicle listing fees entirely, matching the 0% Free Tier property rental format.
+- **Core Invariants & Rules**:
+  - **100% Free Tier Vehicle Listings (Parity with Property Rentals)**:
+    - Vehicle listing upfront fee is ₱0.00 (0%). TRANYX only collects a 3% platform commission from host payout upon completed rental.
+    - `createRental` and `createRentalFromMap` in both `FirebaseService` (`packages/tranyx_web`) and `TransitRepository` (`packages/tranyx_mobile`) dynamically use `feeConfig.listingFeeRate` (0.0). When `listingFee == 0.0`, no balance is deducted and no listing fee transaction is created.
+    - Stamped fields: `listingFeePaid: listingFee` and `isListingFeeWaived: listingFee == 0.0`.
+  - **Exact UI Copy & Component Parity**:
+    - Web [`list_vehicle_modal.dart`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_web/lib/client/components/list_vehicle_modal.dart):
+      - Step 2: Emerald Free Tier banner: `"Vehicle Listing Fee (Free Tier): ₱0.00 (100% Free)"` with description `"Posting your vehicle is completely free. TRANYX only retains a 3% platform commission upon completed rental term."`
+      - Step 3: Breakdown displays `"Vehicle Listing Upfront Fee: ₱ 0.00 (100% Free)"`, Net Payouts, and `"TRANYX Host Success Commission (3%): Deducted only from Base Rent upon completion"`.
+    - Mobile [`listing_wizard_sheet.dart`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_mobile/lib/features/transit/presentation/widgets/listing_wizard_sheet.dart):
+      - Replaced anti-spam row and balance check with the Free Tier card: `"Vehicle Listing Fee (Free Tier): ₱ 0.00 (100% Free)"`.
+  - **Wallet Ledger Debit Invariant (Strict Non-Inflow Classification)**:
+    - In [`profile_view.dart`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_web/lib/client/views/profile_view.dart), `isDebitType` explicitly checks:
+      - `WalletTransactionType.listingFee`, `WalletTransactionType.feeDeduction`, `WalletTransactionType.subscription`, `WalletTransactionType.withdraw`, `WalletTransactionType.onChainPayment`, and raw string types (`listing_fee`, `fee_deduction`, `subscription`, `withdraw`, `fee`, `service_fee`, `payment`).
+    - `isDeposit` is strictly guarded by `!isDebitType`. Positive debit amounts (`amount > 0`) must **NEVER** evaluate to `isDeposit = true` or be pushed to `dTrans` (`credit` / `Added Funds`).
+    - Debits correctly route to `pTrans` and render in the unified ledger as `- ₱amount` in red/rose with category label `"Listing Fee"`.
+  - **Safe Legacy Rental Deletion & Refunds**:
+    - In `deleteRental`, refunds are only issued if `listingFeePaid > 0.0`. For free listings (`listingFeePaid == 0.0`), no phantom 0 TYX refund transaction is recorded.

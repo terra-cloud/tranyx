@@ -3656,7 +3656,7 @@ class _HistoryViewState extends State<_HistoryView> {
             'baseAmount': price,
             'commissionFee': price * 0.03,
             'commissionLabel': 'Platform Commission (3%)',
-            'listingFee': rental.priceDaily * 0.015,
+            'listingFee': (rentalMap['listingFeePaid'] as num?)?.toDouble() ?? 0.0,
             'status': 'Released',
             'timestamp': createdAtMs,
           });
@@ -3733,7 +3733,7 @@ class _HistoryViewState extends State<_HistoryView> {
               'baseAmount': price,
               'commissionFee': price * 0.03,
               'commissionLabel': 'Platform Commission (3%)',
-              'listingFee': rental.priceDaily * 0.015,
+              'listingFee': (rentalMap['listingFeePaid'] as num?)?.toDouble() ?? 0.0,
               'status': 'Released',
               'timestamp': createdAtMs,
             });
@@ -3870,11 +3870,30 @@ class _HistoryViewState extends State<_HistoryView> {
       final createdAt = record.createdAt;
       final rawStatus = (tx['status'] as String? ?? record.status).toUpperCase();
       final isCancelled = rawStatus == 'CANCELLED' || rawStatus == 'REJECTED';
+      final rawType = (tx['type'] ?? '').toString().toLowerCase();
 
-      final isDeposit = record.amount >= 0 ||
-          record.transactionType == WalletTransactionType.deposit ||
-          record.transactionType == WalletTransactionType.refund ||
-          isCancelled;
+      final isDebitType = record.transactionType == WalletTransactionType.listingFee ||
+          record.transactionType == WalletTransactionType.feeDeduction ||
+          record.transactionType == WalletTransactionType.subscription ||
+          record.transactionType == WalletTransactionType.withdraw ||
+          record.transactionType == WalletTransactionType.onChainPayment ||
+          rawType == 'listing_fee' ||
+          rawType == 'fee_deduction' ||
+          rawType == 'subscription' ||
+          rawType == 'withdraw' ||
+          rawType == 'withdrawal' ||
+          rawType == 'fee' ||
+          rawType == 'service_fee' ||
+          rawType == 'payment';
+
+      final isDeposit = !isDebitType &&
+          (record.transactionType == WalletTransactionType.deposit ||
+              record.transactionType == WalletTransactionType.refund ||
+              rawType.contains('deposit') ||
+              rawType.contains('topup') ||
+              rawType.contains('refund') ||
+              (rawType == 'credit' && !isDebitType) ||
+              (isCancelled && !isDebitType));
 
       if (isDeposit) {
         final rawMethod = (tx['paymentMethod'] ?? tx['method'] ?? record.method ?? '').toString();
@@ -3972,35 +3991,38 @@ class _HistoryViewState extends State<_HistoryView> {
           'agentName': cleanAgentDisplayName(tx['agentName'] as String?),
           'timestamp': createdAt,
         });
-      } else if (record.transactionType == WalletTransactionType.listingFee) {
+      } else if (record.transactionType == WalletTransactionType.listingFee || rawType == 'listing_fee') {
         pTrans.add({
-          'title': record.title.isNotEmpty ? record.title : 'Listing Fee',
-          'desc': record.desc.isNotEmpty ? record.desc : 'Platform Listing Fee (1.5%)',
+          'id': record.id.isNotEmpty ? record.id : (tx['id'] as String? ?? 'listfee_$createdAt'),
+          'title': record.title.isNotEmpty ? record.title : 'Vehicle Listing Fee',
+          'desc': record.desc.isNotEmpty ? record.desc : 'Platform Listing Fee',
           'date': _formatDate(createdAt),
           'amount': record.amount.abs(),
-          'status': 'Successful',
+          'status': record.status.isNotEmpty ? record.status : 'Successful',
           'timestamp': createdAt,
           'kind': 'listing_fee',
         });
       } else if (record.transactionType == WalletTransactionType.feeDeduction ||
-          (tx['type'] ?? '').toString().contains('fee')) {
+          rawType.contains('fee')) {
         pTrans.add({
+          'id': record.id.isNotEmpty ? record.id : (tx['id'] as String? ?? 'fee_$createdAt'),
           'title': record.title.isNotEmpty ? record.title : 'Job Completion Fees (10%)',
           'desc': record.desc.isNotEmpty ? record.desc : '7% Transaction Fee & 3% Convenience Fee',
           'date': _formatDate(createdAt),
           'amount': record.amount.abs(),
-          'status': 'Successful',
+          'status': record.status.isNotEmpty ? record.status : 'Successful',
           'timestamp': createdAt,
           'kind': 'service_fee',
         });
       } else if (record.transactionType == WalletTransactionType.subscription ||
-          (tx['type'] ?? '').toString() == 'subscription') {
+          rawType == 'subscription') {
         pTrans.add({
+          'id': record.id.isNotEmpty ? record.id : (tx['id'] as String? ?? 'sub_$createdAt'),
           'title': record.title.isNotEmpty ? record.title : 'Hybrid PRO Subscription',
           'desc': record.desc.isNotEmpty ? record.desc : 'Monthly Platform Membership',
           'date': _formatDate(createdAt),
           'amount': record.amount.abs(),
-          'status': 'Successful',
+          'status': record.status.isNotEmpty ? record.status : 'Successful',
           'timestamp': createdAt,
           'kind': 'subscription',
         });

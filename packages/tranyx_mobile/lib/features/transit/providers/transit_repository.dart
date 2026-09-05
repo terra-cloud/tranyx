@@ -41,31 +41,37 @@ class TransitRepository {
     final host = await getUser(rental.hostId);
     if (host == null) throw Exception('Host profile not found.');
 
-    final listingFee = 0.015 * rental.priceDaily;
-    if (host.tyxBalance < listingFee) {
-      throw Exception(
-        'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
+    final feeConfig = await getPlatformFeeConfig();
+    final listingFeeRate = feeConfig.listingFeeRate; // 0.0 (Free Tier)
+    final listingFee = listingFeeRate * rental.priceDaily;
+
+    if (listingFee > 0.0) {
+      if (host.tyxBalance < listingFee) {
+        throw Exception(
+          'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+        );
+      }
+      await updateTyxBalance(rental.hostId, host.tyxBalance - listingFee);
+
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      await _firestore.collection('transactions').doc(txId).set({
+        'uid': rental.hostId,
+        'type': 'listing_fee',
+        'amount': listingFee,
+        'listingFeeRate': listingFeeRate,
+        'title': 'Vehicle Listing Fee',
+        'desc': '${PlatformFeeConfig.formatPercent(listingFeeRate)} posting fee for ${rental.brand} ${rental.model} (${rental.year})',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      });
     }
-
-    // Deduct listing fee
-    await updateTyxBalance(rental.hostId, host.tyxBalance - listingFee);
-
-    // Save transaction record
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    await _firestore.collection('transactions').doc(txId).set({
-      'uid': rental.hostId,
-      'type': 'listing_fee',
-      'amount': listingFee,
-      'title': 'Vehicle Listing Fee',
-      'desc': '1.5% posting fee for ${rental.brand} ${rental.model} (${rental.year})',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    });
 
     // Save rental document
     final docRef = _firestore.collection('rentals').doc();
-    final updatedRental = rental.toMap()..['id'] = docRef.id;
+    final updatedRental = rental.toMap()
+      ..['id'] = docRef.id
+      ..['listingFeePaid'] = listingFee
+      ..['isListingFeeWaived'] = listingFee == 0.0;
     await docRef.set(updatedRental);
     return docRef.id;
   }
@@ -80,32 +86,37 @@ class TransitRepository {
     final host = await getUser(hostId);
     if (host == null) throw Exception('Host profile not found.');
 
-    final listingFee = 0.015 * priceDaily;
-    if (host.tyxBalance < listingFee) {
-      throw Exception(
-        'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
+    final feeConfig = await getPlatformFeeConfig();
+    final listingFeeRate = feeConfig.listingFeeRate; // 0.0 (Free Tier)
+    final listingFee = listingFeeRate * priceDaily;
+
+    if (listingFee > 0.0) {
+      if (host.tyxBalance < listingFee) {
+        throw Exception(
+          'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+        );
+      }
+      await updateTyxBalance(hostId, host.tyxBalance - listingFee);
+
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      await _firestore.collection('transactions').doc(txId).set({
+        'uid': hostId,
+        'type': 'listing_fee',
+        'amount': listingFee,
+        'listingFeeRate': listingFeeRate,
+        'title': 'Vehicle Listing Fee',
+        'desc': '${PlatformFeeConfig.formatPercent(listingFeeRate)} posting fee for $brand $model ($year)',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      });
     }
-
-    // Deduct listing fee
-    await updateTyxBalance(hostId, host.tyxBalance - listingFee);
-
-    // Save transaction record
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    await _firestore.collection('transactions').doc(txId).set({
-      'uid': hostId,
-      'type': 'listing_fee',
-      'amount': listingFee,
-      'title': 'Vehicle Listing Fee',
-      'desc': '1.5% posting fee for $brand $model ($year)',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    });
 
     // Save rental document
     final docRef = _firestore.collection('rentals').doc();
     final updatedRental = Map<String, dynamic>.from(rentalMap)
       ..['id'] = docRef.id
+      ..['listingFeePaid'] = listingFee
+      ..['isListingFeeWaived'] = listingFee == 0.0
       ..['createdAt'] = DateTime.now().millisecondsSinceEpoch;
     await docRef.set(updatedRental);
     return docRef.id;
@@ -133,18 +144,19 @@ class TransitRepository {
       await rejectBookingRequest(r.id);
     }
 
-    // Refund listing fee (1.5% of daily price) to host
+    // Only refund listing fee if a fee was actually paid (listingFeePaid > 0 and not waived)
     final host = await getUser(rental.hostId);
-    final listingFee = 0.015 * rental.priceDaily;
-    if (host != null && listingFee > 0.0) {
-      await updateTyxBalance(rental.hostId, host.tyxBalance + listingFee);
+    final listingFeePaid = (data['listingFeePaid'] as num?)?.toDouble() ??
+        (data['isListingFeeWaived'] == true ? 0.0 : (0.015 * rental.priceDaily));
+    if (host != null && listingFeePaid > 0.0) {
+      await updateTyxBalance(rental.hostId, host.tyxBalance + listingFeePaid);
       final txId = 'refund_veh_$rentalId';
       await _firestore.collection('transactions').doc(txId).set({
         'id': txId,
         'uid': rental.hostId,
         'type': 'refund',
         'category': 'refund',
-        'amount': listingFee,
+        'amount': listingFeePaid,
         'title': 'Vehicle Listing Fee Refund',
         'desc': '100% refund of listing fee for cancelled vehicle "${rental.year} ${rental.brand} ${rental.model}"',
         'method': 'Tranyx Wallet',

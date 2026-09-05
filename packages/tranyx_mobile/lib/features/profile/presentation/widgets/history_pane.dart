@@ -375,8 +375,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
         ? (totalCost - commission)
         : (totalCost + bookingFee);
 
-    final priceDaily = (item['priceDaily'] as num?)?.toDouble() ?? 0.0;
-    final listingFee = priceDaily * 0.015;
+    final listingFeePaid = (item['listingFeePaid'] as num?)?.toDouble() ?? 0.0;
 
     final hireWithDriver = item['hireWithDriver'] as bool? ?? false;
     final driverDailyPrice =
@@ -397,7 +396,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
       driverFee: driverFee > 0 ? driverFee : null,
       bookingFee: myRole != 'host' ? bookingFee : null,
       commissionFee: myRole == 'host' ? commission : null,
-      listingFee: myRole == 'host' ? listingFee : null,
+      listingFee: (myRole == 'host' && listingFeePaid > 0) ? listingFeePaid : null,
       originRail: TransactionOriginRail.internalBalance,
       transactionType: myRole == 'host'
           ? WalletTransactionType.payout
@@ -606,16 +605,16 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                if (myRole == 'host') ...[
+                if (myRole == 'host' && listingFeePaid > 0) ...[
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'Listing Fee (1.5% paid upfront)',
+                        'Listing Fee (Paid upfront)',
                         style: TextStyle(fontSize: 11, color: Colors.grey),
                       ),
                       Text(
-                        '− ₱ ${listingFee.toStringAsFixed(2)}',
+                        '− ₱ ${listingFeePaid.toStringAsFixed(2)}',
                         style: const TextStyle(fontSize: 11, color: Colors.red),
                       ),
                     ],
@@ -722,8 +721,6 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
     final finalPaid = myRole == 'host'
         ? ((item['hostPayoutAmount'] as num?)?.toDouble() ?? (baseRent - commission))
         : ((item['totalCustomerPaid'] as num?)?.toDouble() ?? (baseRent + bookingFee + securityDeposit));
-
-    final listingFee = 0.0;
 
     final record = WalletTransaction(
       id: (item['id'] ?? 'prop_${item['contractId'] ?? 0}').toString(),

@@ -181,15 +181,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
     super.dispose();
   }
 
-  double get _listingFee {
-    if (_isEditMode) return 0.0;
-    if (widget.isProperty) {
-      return 0.0; // Property listings are 100% FREE (0% upfront fee)
-    } else {
-      final daily = double.tryParse(_priceDailyController.text) ?? 0.0;
-      return daily * 0.015;
-    }
-  }
+  double get _listingFee => 0.0; // Vehicle & Property listings are 100% FREE (0% upfront fee)
 
   void _scrollToTop(ScrollController scrollController) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -378,7 +370,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
 
     final fee = _listingFee;
 
-    if (!_isEditMode && userProfile.tyxBalance < fee) {
+    if (!_isEditMode && fee > 0 && userProfile.tyxBalance < fee) {
       setState(() {
         _isProcessing = false;
         _error =
@@ -1572,40 +1564,25 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                               ] else ...[
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'Anti-Spam Listing Fee (1.5% of Daily)',
+                                  children: const [
+                                    Text(
+                                      'Vehicle Listing Fee (Free Tier)',
                                       style: TextStyle(fontSize: 13),
                                     ),
                                     Text(
-                                      '₱ ${_listingFee.toStringAsFixed(2)} TYXBIT',
-                                      style: const TextStyle(
+                                      '₱ 0.00 (100% Free)',
+                                      style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 13,
-                                        color: AppColors.indigo,
+                                        color: Colors.green,
                                       ),
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'Your Wallet Balance:',
-                                      style: TextStyle(fontSize: 13),
-                                    ),
-                                    Text(
-                                      '₱ ${userProfile.tyxBalance.toStringAsFixed(2)} TYXBIT',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                        color: userProfile.tyxBalance >= _listingFee
-                                            ? Colors.green
-                                            : Colors.red,
-                                      ),
-                                    ),
-                                  ],
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Publishing your vehicle is 100% free. TRANYX only collects a 3% platform commission upon a successful completed transaction.',
+                                  style: TextStyle(fontSize: 11, color: Colors.grey),
                                 ),
                               ],
                             ],
