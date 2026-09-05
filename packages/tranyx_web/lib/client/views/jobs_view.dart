@@ -1117,6 +1117,12 @@ class _JobDetails extends StatelessComponent {
         tagChip(job.status, isDark),
         tagChip(job.urgency, isDark),
         tagChip(job.postedDateLabel, isDark),
+        if (s.selectedJobData?['updatedAt'] != null)
+          span(
+            classes:
+                'px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-500 border border-amber-500/25 flex items-center gap-1',
+            [lIcon('edit-2', cls: 'w-3 h-3 text-amber-500'), Component.text('Edited')],
+          ),
         if (s.selectedJobData?['locationType'] != null) tagChip(s.selectedJobData!['locationType'] as String, isDark),
         if (s.selectedJobData?['employmentType'] != null)
           tagChip(s.selectedJobData!['employmentType'] as String, isDark),
@@ -1955,6 +1961,8 @@ class _JobDetails extends StatelessComponent {
             }
 
             // Default: Open job employer management buttons
+            final isPreHire = (acceptedId == null || acceptedId.isEmpty) &&
+                (status.toLowerCase() == 'open' || status.toLowerCase() == 'reviewing');
             return div(classes: 'flex gap-3', [
               button(
                 classes:
@@ -1964,11 +1972,13 @@ class _JobDetails extends StatelessComponent {
                 },
                 [lIcon('trash-2', cls: 'w-5 h-5')],
               ),
-              if (job.applicants == 0)
+              if (isEmployer && isPreHire)
                 button(
                   classes:
                       'flex-1 py-4 rounded-2xl font-semibold ${isDark ? "bg-zinc-800 hover:bg-zinc-700 text-zinc-200" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"} transition-colors flex items-center justify-center gap-2 cursor-pointer',
-                  events: {},
+                  events: {
+                    'click': (_) => s.openEditJobModal(),
+                  },
                   [lIcon('edit-2', cls: 'w-4 h-4'), Component.text(' Edit')],
                 ),
               button(

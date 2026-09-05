@@ -156,3 +156,12 @@ String formatPostingDateTime(dynamic dateOrEpoch, {DateTime? now}) {
     return 'Posted on $monthName ${dt.day}, ${dt.year} at $timeStr';
   }
 }
+
+/// Formats an edited date for job details and applicant badges.
+/// Example: "Edited on Aug 25, 2026"
+String formatEditedDate(dynamic dateOrEpoch) {
+  final dt = parseDateTime(dateOrEpoch);
+  if (dt == null) return 'Edited recently';
+  final monthName = kShortMonths[dt.month - 1];
+  return 'Edited on $monthName ${dt.day}, ${dt.year}';
+}

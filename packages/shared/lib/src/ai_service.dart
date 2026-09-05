@@ -179,7 +179,7 @@ class TranyxAIService {
         lastResponse = res;
 
         if (res.statusCode == 200) {
-          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final data = jsonDecode(res.body) as Map;
           final candidates = data['candidates'] as List?;
           if (candidates != null && candidates.isNotEmpty) {
             final content = candidates[0]['content'] as Map?;

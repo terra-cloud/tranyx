@@ -245,9 +245,60 @@ This memory document acts as an immutable ledger to prevent regressions across `
 
 ---
 
-## 15. QA Acceptance Criteria Reference
+## 16. Pre-Hire Job Editing & Anti-Exploitation Contract Guardrails (`firestore.rules:L110-137`)
+- **Context & Problem Statement**:
+  - QA observed that clicking "Edit" on a job posting had no effect (empty event handler in `jobs_view.dart`, missing edit action in mobile `job_details_view.dart`).
+  - No designated `updateJobDetails` existed in `FirebaseService` (web) or `JobRepository` (mobile).
+- **Core Invariants & Rules**:
+  - **Strict Post-Hire Lockout (Anti-Exploitation Contract)**:
+    - If `job.acceptedApplicantId != null` or status is `In Progress`, `Done`, `Completed`, `Cancelled`, or `Admin Cancelled`, editing is strictly forbidden.
+    - Attempting to update a post-hire gig throws an exception immediately at the service/repository layer and is blocked by `firestore.rules`.
+    - Client UI unconditionally hides the Edit button or displays a disabled state when post-hire.
+  - **Allowed Lifecycle States**:
+    - Editing is strictly permitted only when `status.toLowerCase() in ['open', 'reviewing'] && acceptedApplicantId == null`.
+  - **Strict Whitelist Alignment (`firestore.rules`)**:
+    - Update payload is strictly filtered to whitelisted keys: `['title', 'description', 'category', 'categoryGroup', 'dateRequirement', 'jobDate', 'timePreference', 'locationType', 'address', 'landmark', 'pickupAddress', 'destinationAddress', 'pickupLat', 'pickupLng', 'destinationLat', 'destinationLng', 'imageUrls', 'updatedAt']`.
+    - Pricing (`pricingValue`, `pricingType`) and ownership/escrow keys are locked read-only to safeguard escrow balances.
+  - **Pre-Hire Edit Badge**:
+    - Any successful update stamps `updatedAt` with the current timestamp.
+    - When `job.isEdited` (`updatedAt != null`), both Web and Mobile show an `"Edited on [Date]"` badge chip to keep applicants informed of requirement updates.
+- **Components & Implementations**:
+  - **Shared Domain**: `Job.isPreHire`, `Job.canEdit`, `Job.isEdited`, `Job.formattedEditedDate`, `formatEditedDate(dynamic)`.
+  - **Web**: [`EditJobModal`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_web/lib/client/components/edit_job_modal.dart), `FirebaseService.updateJobDetails`, state management in `AppState` / `tranyx_app.dart`, and wired edit button in `jobs_view.dart`.
+  - **Mobile**: [`EditJobSheet`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_mobile/lib/features/jobs/presentation/widgets/edit_job_sheet.dart), `JobRepository.updateJobDetails`, and edit action bar button in `job_details_view.dart`.
+  - **Rules**: Appended `'updatedAt'` to `firestore.rules` affected keys for employer job updates.
+- **Test Coverage**:
+  - `packages/tranyx_mobile/test/job_repository_test.dart` (Scenarios 1-5 verifying pre-hire edits, whitelisting, status lockout, post-hire rejection).
+  - `packages/tranyx_web/test/job_edit_contract_test.dart` (Scenarios verifying model pre-hire checks, status lockout, edited badge formatting, and whitelist filtering).
+
+---
+
+## 17. QA Acceptance Criteria Reference
 * Detailed specifications, user stories, state matrices, and test case mappings are recorded in:
   - [`qa_acceptance_criteria_matrix.md`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/.agents/memory/qa_acceptance_criteria_matrix.md)
+
+---
+
+## 18. Web & Dart2js Safe Map Deserialization Invariant (Prevention of `minified:c6<dynamic, dynamic>` TypeErrors)
+- **Context & Problem Statement**:
+  - In web production builds compiled via `dart2js`, generic `Map<dynamic, dynamic>` instances decoded from JSON or Firestore REST API are minified as `minified:c6<dynamic, dynamic>`.
+  - In Dart 3+ strong typing, `<dynamic, dynamic>` is NOT a subtype of `<String, dynamic>`. Direct casts like `map as Map<String, dynamic>` or `val['securityDepositPolicy'] as Map<String, dynamic>` immediately trigger runtime `TypeError: Instance of 'minified:c6<dynamic, dynamic>': type 'minified:c6<dynamic, dynamic>' is not a subtype of type 'Map<String, dynamic>'`.
+  - This occurred when renting a property in `BookPropertyModalComponent` during `PropertyPricingModel.fromPropertyMap` and `createPropertyBookingRequest` / `getPropertyPendingRequestsForRenter`.
+- **Core Invariants & Rules**:
+  - **Relax Model Factory Parameter Types**:
+    - Domain deserializers (`PropertyRental.fromMap`, `PropertyPricingModel.fromPropertyMap`, `PlatformFeeConfig.fromMap`) must accept `Map` (untyped) rather than `Map<String, dynamic>`.
+  - **Safe Nested Map Access**:
+    - Never write `map['nested'] as Map<String, dynamic>`.
+    - Check with `if (map['nested'] is Map)` and cast to untyped `final nested = map['nested'] as Map;` before accessing keys.
+  - **No Hard Casts on Decoded JSON**:
+    - When handling results from `jsonDecode(...)` or Firestore REST:
+      - Use `as Map` instead of `as Map<String, dynamic>`.
+      - If a typed `Map<String, dynamic>` is required by state or component signatures, construct it safely with `Map<String, dynamic>.from(rawMap as Map)` or `<String, dynamic>{ for (final e in rawMap.entries) e.key.toString(): e.value }`.
+  - **Realtime Stream Decoders**:
+    - In `tranyx_app.dart` JS interop callbacks (`listenToPropertiesJs`, `listenToRentalsJs`, `listenToJobsJs`, `listenToNotificationsJs`), parse array entries using `Map<String, dynamic>.from(e as Map)` or pass `e as Map` directly to factory constructors.
+  - **Documented & Verified**:
+    - Unit tested in `packages/shared/test/property_pricing_model_test.dart` ("Deserialization from untyped Map<dynamic, dynamic> with nested policy succeeds").
+
 
 
 

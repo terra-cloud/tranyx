@@ -127,7 +127,7 @@ service cloud.firestore {
             'hasTracker', 'hasInspectionHoldback', 'imageUrls', 'acceptedApplicantId', 
             'acceptedApplicantName', 'completionCode', 'receiptUrl', 'employerRated', 
             'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl', 
-            'creatorName', 'creatorType', 'createdAt'
+            'creatorName', 'creatorType', 'createdAt', 'updatedAt'
           ])
         ) ||
         // 1b. Creator (Employer): When job is completed/active, can ONLY submit employer rating (no editing pricing, addresses, requirements or unilateral cancelling!)

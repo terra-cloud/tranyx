@@ -126,7 +126,7 @@ class PropertyPricingModel {
   });
 
   /// Factory from a property listing map or model
-  factory PropertyPricingModel.fromPropertyMap(Map<String, dynamic> map) {
+  factory PropertyPricingModel.fromPropertyMap(Map map) {
     final daily = (map['priceDaily'] as num?)?.toDouble() ??
         (map['dailyRate'] as num?)?.toDouble();
     final weekly = (map['priceWeekly'] as num?)?.toDouble() ??
@@ -138,11 +138,11 @@ class PropertyPricingModel {
     double dVal = 0.0;
 
     if (map['securityDepositPolicy'] is Map) {
-      final policy = map['securityDepositPolicy'] as Map<String, dynamic>;
-      dType = DepositTypeHelper.fromString(policy['type'] as String?);
+      final policy = map['securityDepositPolicy'] as Map;
+      dType = DepositTypeHelper.fromString(policy['type']?.toString());
       dVal = (policy['value'] as num?)?.toDouble() ?? 0.0;
     } else if (map['depositType'] != null) {
-      dType = DepositTypeHelper.fromString(map['depositType'] as String?);
+      dType = DepositTypeHelper.fromString(map['depositType']?.toString());
       dVal = (map['depositValue'] as num?)?.toDouble() ?? 0.0;
     } else if (map['securityDepositAmount'] != null && (map['securityDepositAmount'] as num) > 0) {
       dType = DepositType.fixed;

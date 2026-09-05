@@ -38,6 +38,7 @@ class SelectedJob {
   final String status;
   final int applicants;
   final dynamic createdAt;
+  final String? acceptedApplicantId;
 
   const SelectedJob({
     this.id,
@@ -48,6 +49,7 @@ class SelectedJob {
     this.status = 'Active',
     this.applicants = 0,
     this.createdAt,
+    this.acceptedApplicantId,
   });
 
   String get formattedPostingDate => formatPostingDate(createdAt);

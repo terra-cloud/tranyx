@@ -937,7 +937,7 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         ],
       );
     } else {
-      final r = item as Map<String, dynamic>;
+      final r = item as Map;
       final model = r['model'] ?? 'Vehicle';
       final brand = r['brand'] ?? 'Unknown';
       final photoUrl = r['frontPhotoUrl'] ?? r['frontPhoto'] ?? r['photoUrl'];
@@ -951,7 +951,7 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         classes: 'p-4 rounded-2xl border transition-all cursor-pointer $cardCls',
         events: {
           'click': (_) => s.setState(() {
-            s.selectedRentalData = r;
+            s.selectedRentalData = Map<String, dynamic>.from(r);
             s.showBookVehicleModal = true;
           }),
         },

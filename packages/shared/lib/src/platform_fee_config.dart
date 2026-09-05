@@ -45,7 +45,7 @@ class PlatformFeeConfig {
   });
 
   /// Factory parser from Firestore map
-  factory PlatformFeeConfig.fromMap(Map<String, dynamic>? map) {
+  factory PlatformFeeConfig.fromMap(Map? map) {
     if (map == null) return const PlatformFeeConfig();
     return PlatformFeeConfig(
       transactionFeeRate: (map['transactionFeeRate'] as num?)?.toDouble() ??

@@ -15,6 +15,7 @@ import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_cards.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_sub_header.dart';
+import 'package:tranyx_mobile/features/jobs/presentation/widgets/edit_job_sheet.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:tranyx_mobile/core/providers/image_upload_provider.dart';
@@ -686,6 +687,24 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
     );
   }
 
+  void _openEditJobSheet(Job job) {
+    if (job.isHired || !job.isPreHire) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Editing Locked: A Nyxian has already been hired for this gig.'),
+          backgroundColor: AppColors.red,
+        ),
+      );
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => EditJobSheet(job: job),
+    );
+  }
+
   Future<void> _handleCancelJob(Job job) async {
     if (job.isCancellationLocked || job.isHired) {
       _showSupportDisputeDialog(context, job);
@@ -928,6 +947,13 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                                 activeJob.postedDateLabel,
                                 isDarkMode,
                               ),
+                              if (activeJob.isEdited)
+                                _metaChip(
+                                  Icons.edit_note,
+                                  activeJob.formattedEditedDate ?? 'Edited',
+                                  isDarkMode,
+                                  color: AppColors.amber,
+                                ),
                               _metaChip(
                                 Icons.location_on,
                                 _formatLocation(activeJob),
@@ -1749,21 +1775,33 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
     if (currentViewMode == AccountType.employer && isEmployer) {
       if (status.toLowerCase() == 'open' ||
           status.toLowerCase() == 'reviewing') {
+        final bool isPreHire = job.isPreHire;
         return Row(
           children: [
             Expanded(
               child: UIHelpers.buildPrimaryButton(
-                "Cancel Job",
+                "Cancel",
                 () => _handleCancelJob(job),
                 isDarkMode,
                 isOutlined: true,
               ),
             ),
-            const SizedBox(width: 16),
+            if (isPreHire) ...[
+              const SizedBox(width: 8),
+              Expanded(
+                child: UIHelpers.buildPrimaryButton(
+                  "Edit",
+                  () => _openEditJobSheet(job),
+                  isDarkMode,
+                  isOutlined: true,
+                ),
+              ),
+            ],
+            const SizedBox(width: 8),
             Expanded(
-              flex: 2,
+              flex: isPreHire ? 2 : 2,
               child: UIHelpers.buildPrimaryButton(
-                "Review Applicants (${job.applicantCount})",
+                "Review (${job.applicantCount})",
                 () => ref.read(jobsViewProvider.notifier).state = 'review',
                 isDarkMode,
               ),

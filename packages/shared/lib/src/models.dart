@@ -388,6 +388,8 @@ class Job {
   final bool nyxianRated;
   final String? promoCode;
   final double? discountAmount;
+  final List<String> imageUrls;
+  final DateTime? updatedAt;
 
   const Job({
     required this.id,
@@ -427,6 +429,8 @@ class Job {
     this.nyxianRated = false,
     this.promoCode,
     this.discountAmount,
+    this.imageUrls = const [],
+    this.updatedAt,
   });
 
   /// Formats the original posting date in a user-friendly format (e.g. "Today", "Yesterday", "2 days ago", "Aug 25, 2026").
@@ -482,6 +486,8 @@ class Job {
       'nyxianRated': nyxianRated,
       'promoCode': promoCode,
       'discountAmount': discountAmount,
+      'imageUrls': imageUrls,
+      if (updatedAt != null) 'updatedAt': updatedAt?.millisecondsSinceEpoch,
     };
   }
 
@@ -535,6 +541,8 @@ class Job {
       nyxianRated: map['nyxianRated'] ?? false,
       promoCode: map['promoCode'] as String?,
       discountAmount: (map['discountAmount'] as num?)?.toDouble(),
+      imageUrls: List<String>.from(map['imageUrls'] ?? []),
+      updatedAt: parseDateTime(map['updatedAt']),
     );
   }
 
@@ -576,6 +584,8 @@ class Job {
     bool? nyxianRated,
     String? promoCode,
     double? discountAmount,
+    List<String>? imageUrls,
+    DateTime? updatedAt,
   }) {
     return Job(
       id: id ?? this.id,
@@ -616,12 +626,20 @@ class Job {
       nyxianRated: nyxianRated ?? this.nyxianRated,
       promoCode: promoCode ?? this.promoCode,
       discountAmount: discountAmount ?? this.discountAmount,
+      imageUrls: imageUrls ?? this.imageUrls,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
   String get employerId => creatorId;
   String? get acceptedNyxianId => acceptedApplicantId;
   double get budget => pricingValue;
   bool get isHired => acceptedApplicantId != null && acceptedApplicantId!.trim().isNotEmpty;
+  bool get isEdited => updatedAt != null;
+  String? get formattedEditedDate => updatedAt != null ? formatEditedDate(updatedAt) : null;
+  bool get isPreHire =>
+      !isHired &&
+      (status.toLowerCase() == 'open' || status.toLowerCase() == 'reviewing');
+  bool get canEdit => isPreHire;
   bool get isCancellationLocked =>
       isHired ||
       status.toLowerCase() == 'in progress' ||
@@ -1285,7 +1303,7 @@ class PropertyRental {
     };
   }
 
-  factory PropertyRental.fromMap(Map<String, dynamic> map, String id) {
+  factory PropertyRental.fromMap(Map map, String id) {
     final pType = PropertyType.values.firstWhere(
       (e) => e.name == map['type'],
       orElse: () => PropertyType.house,
@@ -1303,11 +1321,11 @@ class PropertyRental {
     double dVal = 0.0;
 
     if (map['securityDepositPolicy'] is Map) {
-      final policy = map['securityDepositPolicy'] as Map<String, dynamic>;
-      dType = DepositTypeHelper.fromString(policy['type'] as String?);
+      final policy = map['securityDepositPolicy'] as Map;
+      dType = DepositTypeHelper.fromString(policy['type']?.toString());
       dVal = (policy['value'] as num?)?.toDouble() ?? 0.0;
     } else if (map['depositType'] != null) {
-      dType = DepositTypeHelper.fromString(map['depositType'] as String?);
+      dType = DepositTypeHelper.fromString(map['depositType']?.toString());
       dVal = (map['depositValue'] as num?)?.toDouble() ?? 0.0;
     } else if (map['securityDepositAmount'] != null && (map['securityDepositAmount'] as num) > 0) {
       dType = DepositType.fixed;

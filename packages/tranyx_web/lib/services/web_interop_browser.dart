@@ -234,7 +234,7 @@ Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey)
     final respLegacy = await web.window.fetch(rpc.toJS, optsLegacy).toDart;
     final jsonLegacy = await respLegacy.json().toDart;
     final jsonStrLegacy = _jsStringify(jsonLegacy).toDart;
-    final decodedLegacy = jsonDecode(jsonStrLegacy) as Map<String, dynamic>;
+    final decodedLegacy = jsonDecode(jsonStrLegacy) as Map;
 
     // 2. Token-2022 accounts
     final body2022 = jsonEncode({
@@ -251,29 +251,29 @@ Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey)
     final resp2022 = await web.window.fetch(rpc.toJS, opts2022).toDart;
     final json2022 = await resp2022.json().toDart;
     final jsonStr2022 = _jsStringify(json2022).toDart;
-    final decoded2022 = jsonDecode(jsonStr2022) as Map<String, dynamic>;
+    final decoded2022 = jsonDecode(jsonStr2022) as Map;
 
     final parsedTokens = <Map<String, dynamic>>[];
 
-    void parseAndAdd(Map<String, dynamic> decoded) {
-      final result = decoded['result'] as Map<String, dynamic>?;
+    void parseAndAdd(Map decoded) {
+      final result = decoded['result'] as Map?;
       if (result == null) return;
       final value = result['value'] as List<dynamic>?;
       if (value == null) return;
 
       for (final item in value) {
-        if (item is Map<String, dynamic>) {
-          final account = item['account'] as Map<String, dynamic>?;
+        if (item is Map) {
+          final account = item['account'] as Map?;
           if (account == null) continue;
-          final data = account['data'] as Map<String, dynamic>?;
+          final data = account['data'] as Map?;
           if (data == null) continue;
-          final parsed = data['parsed'] as Map<String, dynamic>?;
+          final parsed = data['parsed'] as Map?;
           if (parsed == null) continue;
-          final info = parsed['info'] as Map<String, dynamic>?;
+          final info = parsed['info'] as Map?;
           if (info == null) continue;
           
           final mint = info['mint'] as String? ?? '';
-          final tokenAmount = info['tokenAmount'] as Map<String, dynamic>?;
+          final tokenAmount = info['tokenAmount'] as Map?;
           if (tokenAmount == null) continue;
           
           final amountStr = tokenAmount['uiAmountString'] as String? ?? '0';
@@ -308,7 +308,7 @@ Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey)
         final res = await promise.toDart;
         if (res != null) {
           final resStr = (res as JSString).toDart;
-          final meta = jsonDecode(resStr) as Map<String, dynamic>;
+          final meta = jsonDecode(resStr) as Map;
           symbol = meta['symbol'] as String?;
           name = meta['name'] as String?;
         }
@@ -402,7 +402,7 @@ Future<double?> getEthereumBalance(String address) async {
     final resp = await web.window.fetch(rpc.toJS, opts).toDart;
     final json = await resp.json().toDart;
     final jsonStr = _jsStringify(json).toDart;
-    final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
+    final decoded = jsonDecode(jsonStr) as Map;
     final result = decoded['result'] as String?;
     if (result == null) return 0.0;
     final cleanHex = result.startsWith('0x') ? result.substring(2) : result;
@@ -428,8 +428,8 @@ Future<double?> getSuiBalance(String address) async {
     final resp = await web.window.fetch(rpc.toJS, opts).toDart;
     final json = await resp.json().toDart;
     final jsonStr = _jsStringify(json).toDart;
-    final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
-    final result = decoded['result'] as Map<String, dynamic>?;
+    final decoded = jsonDecode(jsonStr) as Map;
+    final result = decoded['result'] as Map?;
     if (result == null) return 0.0;
     final totalBalance = result['totalBalance'] as String?;
     if (totalBalance == null) return 0.0;
@@ -642,7 +642,8 @@ class SessionStorage {
     final s = web.window.localStorage.getItem(_pendingPropertyBooking);
     if (s == null) return null;
     try {
-      return jsonDecode(s) as Map<String, dynamic>;
+      final decoded = jsonDecode(s);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
     } catch (_) {
       return null;
     }
@@ -660,7 +661,8 @@ class SessionStorage {
     final s = web.window.localStorage.getItem(_pendingVehicleBooking);
     if (s == null) return null;
     try {
-      return jsonDecode(s) as Map<String, dynamic>;
+      final decoded = jsonDecode(s);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
     } catch (_) {
       return null;
     }
@@ -687,7 +689,8 @@ class SessionStorage {
     final s = web.window.localStorage.getItem(_pendingApplicantData);
     if (s == null) return null;
     try {
-      return jsonDecode(s) as Map<String, dynamic>;
+      final decoded = jsonDecode(s);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
     } catch (_) {
       return null;
     }

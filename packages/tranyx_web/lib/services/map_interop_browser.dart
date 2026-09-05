@@ -389,7 +389,8 @@ Future<Map<String, dynamic>?> drawOSRMRoute(
   if (res == null) return null;
   final jsonStr = (res as JSString).toDart;
   try {
-    return jsonDecode(jsonStr) as Map<String, dynamic>;
+    final decoded = jsonDecode(jsonStr);
+    return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
   } catch (_) {
     return null;
   }

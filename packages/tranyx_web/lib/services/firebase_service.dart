@@ -125,11 +125,11 @@ class SecureFirebaseHttpClient {
       throw FirebaseException(err['message'] as String? ?? 'Request failed', response.statusCode);
     }
 
-    if (decodedJson is! Map<String, dynamic>) {
+    if (decodedJson is! Map) {
       throw FirebaseException('Malformed server response.', response.statusCode);
     }
 
-    return decodedJson;
+    return Map<String, dynamic>.from(decodedJson);
   }
 }
 
@@ -395,7 +395,7 @@ class FirebaseAuthService {
     );
     final users = res['users'] as List?;
     if (users == null || users.isEmpty) throw FirebaseException('User not found');
-    return users.first as Map<String, dynamic>;
+    return Map<String, dynamic>.from(users.first as Map);
   }
 
   /// Send an email verification link to the user
@@ -467,8 +467,9 @@ Map<String, dynamic> _toFirestoreFields(Map<String, dynamic> data) {
   };
 }
 
-Map<String, dynamic> _fromFirestoreDoc(Map<String, dynamic> doc) {
-  dynamic decodeValue(Map<String, dynamic> val) {
+Map<String, dynamic> _fromFirestoreDoc(Map doc) {
+  dynamic decodeValue(dynamic val) {
+    if (val is! Map) return val;
     if (val.containsKey('nullValue')) return null;
     if (val.containsKey('booleanValue')) return val['booleanValue'] as bool;
     if (val.containsKey('integerValue')) return int.parse(val['integerValue'].toString());
@@ -478,27 +479,27 @@ Map<String, dynamic> _fromFirestoreDoc(Map<String, dynamic> doc) {
     if (val.containsKey('referenceValue')) return val['referenceValue'] as String;
     if (val.containsKey('geoPointValue')) return val['geoPointValue'];
     if (val.containsKey('arrayValue')) {
-      final arr = val['arrayValue'] as Map;
+      final arr = val['arrayValue'] as Map? ?? {};
       final vals = arr['values'] as List? ?? [];
-      return vals.map((v) => decodeValue(v as Map<String, dynamic>)).toList();
+      return vals.map((v) => decodeValue(v)).toList();
     }
     if (val.containsKey('mapValue')) {
-      final fields = (val['mapValue'] as Map)['fields'] as Map? ?? {};
-      return {
-        for (final e in fields.entries) e.key: decodeValue(e.value as Map<String, dynamic>),
+      final fields = (val['mapValue'] as Map?)?['fields'] as Map? ?? {};
+      return <String, dynamic>{
+        for (final e in fields.entries) e.key.toString(): decodeValue(e.value),
       };
     }
     return null;
   }
 
-  final fields = doc['fields'] as Map<String, dynamic>? ?? {};
-  return {
-    for (final e in fields.entries) e.key: decodeValue(e.value as Map<String, dynamic>),
+  final fields = (doc['fields'] as Map?) ?? {};
+  return <String, dynamic>{
+    for (final e in fields.entries) e.key.toString(): decodeValue(e.value),
   };
 }
 
 /// Extract document ID from a Firestore document name path.
-String _docId(Map<String, dynamic> doc) {
+String _docId(Map doc) {
   final name = doc['name'] as String? ?? '';
   return name.split('/').last;
 }
@@ -570,9 +571,9 @@ class FirestoreService {
       final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       final docs = data['documents'] as List? ?? [];
       final result = docs.map((d) {
-        final doc = d as Map<String, dynamic>;
+        final doc = d as Map;
         final id = _docId(doc);
-        return {..._fromFirestoreDoc(doc), 'id': id};
+        return <String, dynamic>{..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
       return result;
     } catch (_) {
@@ -597,9 +598,9 @@ class FirestoreService {
       final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       final docs = data['documents'] as List? ?? [];
       final result = docs.map((d) {
-        final doc = d as Map<String, dynamic>;
+        final doc = d as Map;
         final id = _docId(doc);
-        return {..._fromFirestoreDoc(doc), 'id': id};
+        return <String, dynamic>{..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
       result.sort((a, b) => (b['timestamp'] as int? ?? 0).compareTo(a['timestamp'] as int? ?? 0));
       return result;
@@ -643,8 +644,8 @@ class FirestoreService {
 
       final List<dynamic> results = jsonDecode(req.body);
       for (final res in results) {
-        if (res is Map<String, dynamic> && res.containsKey('document')) {
-          final doc = res['document'] as Map<String, dynamic>;
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
           return _fromFirestoreDoc(doc);
         }
       }
@@ -704,10 +705,10 @@ class FirestoreService {
       final List<dynamic> results = jsonDecode(req.body);
       final holdbacks = <Map<String, dynamic>>[];
       for (final res in results) {
-        if (res is Map<String, dynamic> && res.containsKey('document')) {
-          final doc = res['document'] as Map<String, dynamic>;
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
           final id = _docId(doc);
-          holdbacks.add({..._fromFirestoreDoc(doc), 'id': id});
+          holdbacks.add(<String, dynamic>{..._fromFirestoreDoc(doc), 'id': id});
         }
       }
       return holdbacks;
@@ -818,10 +819,10 @@ class FirestoreService {
       final List<dynamic> results = jsonDecode(req.body);
       final transactions = <Map<String, dynamic>>[];
       for (final res in results) {
-        if (res is Map<String, dynamic> && res.containsKey('document')) {
-          final doc = res['document'] as Map<String, dynamic>;
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
           final id = _docId(doc);
-          transactions.add({..._fromFirestoreDoc(doc), 'id': id});
+          transactions.add(<String, dynamic>{..._fromFirestoreDoc(doc), 'id': id});
         }
       }
       return transactions;
@@ -863,10 +864,10 @@ class FirestoreService {
       final List<dynamic> results = jsonDecode(req.body);
       final notifications = <Map<String, dynamic>>[];
       for (final res in results) {
-        if (res is Map<String, dynamic> && res.containsKey('document')) {
-          final doc = res['document'] as Map<String, dynamic>;
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
           final id = _docId(doc);
-          notifications.add({..._fromFirestoreDoc(doc), 'id': id});
+          notifications.add(<String, dynamic>{..._fromFirestoreDoc(doc), 'id': id});
         }
       }
       return notifications;
@@ -943,6 +944,58 @@ class FirestoreService {
     await setDocument('jobs/$jobId', {'status': status});
   }
 
+  /// Updates open/reviewing job listing details pre-hire.
+  /// Strictly verifies anti-exploitation guardrails and whitelists payload fields.
+  Future<void> updateJobDetails(String jobId, Map<String, dynamic> updates) async {
+    final currentJob = await getDocument('jobs/$jobId');
+    if (currentJob == null) {
+      throw Exception('Job not found.');
+    }
+    final status = (currentJob['status'] as String? ?? '').toLowerCase();
+    final acceptedApplicantId = currentJob['acceptedApplicantId'] as String?;
+
+    if (acceptedApplicantId != null && acceptedApplicantId.trim().isNotEmpty) {
+      throw Exception('Editing locked: A Nyxian has already been hired for this gig.');
+    }
+    if (status != 'open' && status != 'reviewing') {
+      throw Exception('Editing locked: Job status must be Open or Reviewing to edit.');
+    }
+
+    const allowedKeys = {
+      'title',
+      'description',
+      'category',
+      'categoryGroup',
+      'dateRequirement',
+      'jobDate',
+      'timePreference',
+      'locationType',
+      'address',
+      'landmark',
+      'pickupAddress',
+      'pickupLat',
+      'pickupLng',
+      'destinationAddress',
+      'destinationLat',
+      'destinationLng',
+      'imageUrls',
+      'updatedAt',
+    };
+
+    final filteredUpdates = <String, dynamic>{};
+    for (final entry in updates.entries) {
+      if (allowedKeys.contains(entry.key) && entry.value != null) {
+        filteredUpdates[entry.key] = entry.value;
+      }
+    }
+
+    if (!filteredUpdates.containsKey('updatedAt')) {
+      filteredUpdates['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+    }
+
+    await setDocument('jobs/$jobId', filteredUpdates);
+  }
+
   Future<void> updateTyxBalance(String uid, double balance) async {
     await setDocument('users/$uid', {'tyxBalance': balance});
   }
@@ -993,9 +1046,9 @@ class FirestoreService {
 
       final results = jsonDecode(req.body) as List;
       final list = results.where((r) => (r as Map).containsKey('document')).map((r) {
-        final doc = (r as Map<String, dynamic>)['document'] as Map<String, dynamic>;
+        final doc = (r as Map)['document'] as Map;
         final id = _docId(doc);
-        return {..._fromFirestoreDoc(doc), 'id': id};
+        return <String, dynamic>{..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
 
       if (!orderByCreatedAt) {
@@ -1323,7 +1376,7 @@ class FirestoreService {
       final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       final docs = data['documents'] as List? ?? [];
       return docs.map((d) {
-        final doc = d as Map<String, dynamic>;
+        final doc = d as Map;
         final id = _docId(doc);
         return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
@@ -1340,7 +1393,7 @@ class FirestoreService {
       final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       final docs = data['documents'] as List? ?? [];
       final messages = docs.map((d) {
-        final doc = d as Map<String, dynamic>;
+        final doc = d as Map;
         final id = _docId(doc);
         return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
@@ -1385,7 +1438,7 @@ class FirestoreService {
       final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       final docs = data['documents'] as List? ?? [];
       final messages = docs.map((d) {
-        final doc = d as Map<String, dynamic>;
+        final doc = d as Map;
         final id = _docId(doc);
         return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
@@ -1554,7 +1607,7 @@ class FirestoreService {
       final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       final docs = data['documents'] as List? ?? [];
       final result = docs.map((d) {
-        final doc = d as Map<String, dynamic>;
+        final doc = d as Map;
         final id = _docId(doc);
         return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
@@ -1609,12 +1662,12 @@ class FirestoreService {
     );
 
     if (req.statusCode >= 400) {
-      final data = jsonDecode(req.body) as Map<String, dynamic>;
+      final data = jsonDecode(req.body) as Map;
       final err = data['error'] as Map? ?? {};
       throw FirebaseException(err['message'] as String? ?? 'Create rental failed', req.statusCode);
     }
 
-    final result = jsonDecode(req.body) as Map<String, dynamic>;
+    final result = jsonDecode(req.body) as Map;
     final docId = _docId(result);
     return docId;
   }
@@ -1662,12 +1715,12 @@ class FirestoreService {
     );
 
     if (req.statusCode >= 400) {
-      final data = jsonDecode(req.body) as Map<String, dynamic>;
+      final data = jsonDecode(req.body) as Map;
       final err = data['error'] as Map? ?? {};
       throw FirebaseException(err['message'] as String? ?? 'Create rental failed', req.statusCode);
     }
 
-    final result = jsonDecode(req.body) as Map<String, dynamic>;
+    final result = jsonDecode(req.body) as Map;
     final docId = _docId(result);
     return docId;
   }
@@ -1727,10 +1780,10 @@ class FirestoreService {
     final req = await _client.get(Uri.parse(url), headers: headers);
     if (req.statusCode >= 400) return [];
 
-    final data = jsonDecode(req.body) as Map<String, dynamic>;
+    final data = jsonDecode(req.body) as Map;
     final docs = data['documents'] as List? ?? [];
     return docs.map((d) {
-      final doc = d as Map<String, dynamic>;
+      final doc = d as Map;
       final id = _docId(doc);
       return VehicleRental.fromMap(_fromFirestoreDoc(doc), id);
     }).toList();
@@ -2403,7 +2456,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final parts = name.split('/');
         final docId = parts.last;
@@ -2460,7 +2513,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -2500,7 +2553,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final parts = name.split('/');
         final docId = parts.last;
@@ -2546,7 +2599,7 @@ class FirestoreService {
         final List<dynamic> results = jsonDecode(req.body);
         for (final r in results) {
           if (r is Map && r.containsKey('document')) {
-            final doc = r['document'] as Map<String, dynamic>;
+            final doc = r['document'] as Map;
             final name = doc['name'] as String;
             final parts = name.split('/');
             final docId = parts.last;
@@ -2760,7 +2813,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -2814,7 +2867,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -3076,12 +3129,12 @@ class FirestoreService {
     );
 
     if (req.statusCode >= 400) {
-      final data = jsonDecode(req.body) as Map<String, dynamic>;
+      final data = jsonDecode(req.body) as Map;
       final err = data['error'] as Map? ?? {};
       throw FirebaseException(err['message'] as String? ?? 'Create property rental failed', req.statusCode);
     }
 
-    final result = jsonDecode(req.body) as Map<String, dynamic>;
+    final result = jsonDecode(req.body) as Map;
     final docId = _docId(result);
     return docId;
   }
@@ -3162,10 +3215,10 @@ class FirestoreService {
     final req = await _client.get(Uri.parse(url), headers: headers);
     if (req.statusCode >= 400) return [];
 
-    final data = jsonDecode(req.body) as Map<String, dynamic>;
+    final data = jsonDecode(req.body) as Map;
     final docs = data['documents'] as List? ?? [];
     return docs.map((d) {
-      final doc = d as Map<String, dynamic>;
+      final doc = d as Map;
       final id = _docId(doc);
       return PropertyRental.fromMap(_fromFirestoreDoc(doc), id);
     }).toList();
@@ -3805,7 +3858,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -3861,7 +3914,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -3915,7 +3968,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -3969,7 +4022,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -4017,7 +4070,7 @@ class FirestoreService {
       final list = <Promo>[];
       for (final r in results) {
         if (r is Map && r.containsKey('document')) {
-          final doc = r['document'] as Map<String, dynamic>;
+          final doc = r['document'] as Map;
           final name = doc['name'] as String;
           final docId = name.split('/').last;
           final data = _fromFirestoreDoc(doc);
@@ -4067,7 +4120,7 @@ class FirestoreService {
       final now = DateTime.now();
       for (final r in results) {
         if (r is Map && r.containsKey('document')) {
-          final doc = r['document'] as Map<String, dynamic>;
+          final doc = r['document'] as Map;
           final name = doc['name'] as String;
           final docId = name.split('/').last;
           final data = _fromFirestoreDoc(doc);
@@ -4317,8 +4370,8 @@ class FirestoreService {
       final List<dynamic> results = jsonDecode(req.body);
       final list = <Map<String, dynamic>>[];
       for (final res in results) {
-        if (res is Map<String, dynamic> && res.containsKey('document')) {
-          final doc = res['document'] as Map<String, dynamic>;
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
           final id = (doc['name'] as String).split('/').last;
           final parsed = _fromFirestoreDoc(doc);
           list.add({...parsed, 'id': id});
@@ -4475,8 +4528,8 @@ class FirestoreService {
       final List<dynamic> results = jsonDecode(req.body);
       final list = <DepositRequest>[];
       for (final res in results) {
-        if (res is Map<String, dynamic> && res.containsKey('document')) {
-          final doc = res['document'] as Map<String, dynamic>;
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
           final id = _docId(doc);
           final data = _fromFirestoreDoc(doc);
           list.add(DepositRequest.fromMap(data, docId: id));
@@ -4520,8 +4573,8 @@ class FirestoreService {
       final List<dynamic> results = jsonDecode(req.body);
       final list = <Map<String, dynamic>>[];
       for (final res in results) {
-        if (res is Map<String, dynamic> && res.containsKey('document')) {
-          final doc = res['document'] as Map<String, dynamic>;
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
           final id = _docId(doc);
           final data = _fromFirestoreDoc(doc);
           list.add({...data, 'id': id});
@@ -4596,8 +4649,8 @@ class FirestoreService {
       if (req.statusCode < 400) {
         final List<dynamic> results = jsonDecode(req.body);
         for (final res in results) {
-          if (res is Map<String, dynamic> && res.containsKey('document')) {
-            final doc = res['document'] as Map<String, dynamic>;
+          if (res is Map && res.containsKey('document')) {
+            final doc = res['document'] as Map;
             final id = _docId(doc);
             final data = _fromFirestoreDoc(doc);
             if (seen.add(id)) {
@@ -4637,8 +4690,8 @@ class FirestoreService {
       if (req.statusCode < 400) {
         final List<dynamic> results = jsonDecode(req.body);
         for (final res in results) {
-          if (res is Map<String, dynamic> && res.containsKey('document')) {
-            final doc = res['document'] as Map<String, dynamic>;
+          if (res is Map && res.containsKey('document')) {
+            final doc = res['document'] as Map;
             final id = _docId(doc);
             final data = _fromFirestoreDoc(doc);
             if (seen.add(id)) {

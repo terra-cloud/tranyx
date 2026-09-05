@@ -366,6 +366,60 @@ class JobRepository {
     });
   }
 
+  /// Updates open/reviewing job listing details pre-hire.
+  /// Throws if a Nyxian is already hired or if the job is not in Open/Reviewing status.
+  Future<void> updateJobDetails(String jobId, Map<String, dynamic> updates) async {
+    final jobDocRef = _firestore.collection('jobs').doc(jobId);
+    final snap = await jobDocRef.get();
+    if (!snap.exists) {
+      throw Exception('Job not found.');
+    }
+    final data = snap.data()!;
+    final status = (data['status'] as String? ?? '').toLowerCase();
+    final acceptedApplicantId = data['acceptedApplicantId'] as String?;
+
+    if (acceptedApplicantId != null && acceptedApplicantId.trim().isNotEmpty) {
+      throw Exception('Editing locked: A Nyxian has already been hired for this gig.');
+    }
+    if (status != 'open' && status != 'reviewing') {
+      throw Exception('Editing locked: Job status must be Open or Reviewing to edit.');
+    }
+
+    const allowedKeys = {
+      'title',
+      'description',
+      'category',
+      'categoryGroup',
+      'dateRequirement',
+      'jobDate',
+      'timePreference',
+      'locationType',
+      'address',
+      'landmark',
+      'pickupAddress',
+      'pickupLat',
+      'pickupLng',
+      'destinationAddress',
+      'destinationLat',
+      'destinationLng',
+      'imageUrls',
+      'updatedAt',
+    };
+
+    final filteredUpdates = <String, dynamic>{};
+    for (final entry in updates.entries) {
+      if (allowedKeys.contains(entry.key) && entry.value != null) {
+        filteredUpdates[entry.key] = entry.value;
+      }
+    }
+
+    if (!filteredUpdates.containsKey('updatedAt')) {
+      filteredUpdates['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+    }
+
+    await jobDocRef.update(filteredUpdates);
+  }
+
   Future<void> completeJob({
     required String jobId,
     required String verificationCodeEntered,

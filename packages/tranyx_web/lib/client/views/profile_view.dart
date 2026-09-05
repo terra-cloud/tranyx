@@ -1428,7 +1428,7 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
           .timeout(const Duration(seconds: 5));
 
       if (cgRes.statusCode == 200) {
-        final data = jsonDecode(cgRes.body) as Map<String, dynamic>;
+        final data = jsonDecode(cgRes.body) as Map;
         final sol = (data['solana']?['php'] as num?)?.toDouble();
         final usdt = (data['tether']?['php'] as num?)?.toDouble();
         setState(() {
@@ -1449,13 +1449,13 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
 
         double usdPhp = 57.0;
         if (usdPhpRes.statusCode == 200) {
-          final usdData = jsonDecode(usdPhpRes.body) as Map<String, dynamic>;
+          final usdData = jsonDecode(usdPhpRes.body) as Map;
           final php = (usdData['rates']?['PHP'] as num?)?.toDouble();
           if (php != null && php > 0) usdPhp = php;
         }
 
         if (binanceRes.statusCode == 200) {
-          final bData = jsonDecode(binanceRes.body) as Map<String, dynamic>;
+          final bData = jsonDecode(binanceRes.body) as Map;
           final solUsd =
               double.tryParse(bData['price']?.toString() ?? '') ?? 0.0;
           if (solUsd > 0) {

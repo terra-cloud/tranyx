@@ -669,5 +669,134 @@ void main() {
       expect(userDoc.data()!['rating'], equals(5.0));
       expect(userDoc.data()!['ratingCount'], equals(1));
     });
+
+    group('updateJobDetails Pre-Hire & Anti-Exploitation Contract', () {
+      test('Scenario 1: Pre-hire edit on Open job with 0 applicants updates whitelisted fields and sets updatedAt', () async {
+        firestore.db['jobs/open_job_1'] = {
+          'id': 'open_job_1',
+          'creatorId': 'employer123',
+          'title': 'Original Title',
+          'description': 'Original Description',
+          'category': 'plumber',
+          'categoryGroup': 'homeRepair',
+          'dateRequirement': 'Flexible',
+          'timePreference': 'Morning',
+          'pricingValue': 1500.0,
+          'status': 'Open',
+          'applicantCount': 0,
+          'acceptedApplicantId': null,
+          'locationType': 'On-site',
+          'address': '123 Old St',
+          'landmark': 'Old Landmark',
+        };
+
+        await repo.updateJobDetails('open_job_1', {
+          'title': 'Updated Title',
+          'description': 'Updated Description with detailed scope',
+          'landmark': 'Near Blue Gate',
+          'timePreference': 'Afternoon',
+          'imageUrls': ['https://example.com/photo1.jpg'],
+          // Illegal keys attempting to alter pricing or ownership
+          'pricingValue': 9999.0,
+          'creatorId': 'hacker',
+          'status': 'Completed',
+        });
+
+        final jobDoc = await firestore.collection('jobs').doc('open_job_1').get();
+        expect(jobDoc.exists, isTrue);
+        final data = jobDoc.data()!;
+
+        // Whitelisted fields successfully updated
+        expect(data['title'], equals('Updated Title'));
+        expect(data['description'], equals('Updated Description with detailed scope'));
+        expect(data['landmark'], equals('Near Blue Gate'));
+        expect(data['timePreference'], equals('Afternoon'));
+        expect(data['imageUrls'], equals(['https://example.com/photo1.jpg']));
+        expect(data['updatedAt'], isNotNull);
+
+        // Disallowed / non-whitelisted keys ignored
+        expect(data['pricingValue'], equals(1500.0));
+        expect(data['creatorId'], equals('employer123'));
+        expect(data['status'], equals('Open'));
+      });
+
+      test('Scenario 2: Pre-hire edit on Reviewing job with applicants updates scope and stamps updatedAt', () async {
+        firestore.db['jobs/reviewing_job_2'] = {
+          'id': 'reviewing_job_2',
+          'creatorId': 'employer123',
+          'title': 'Reviewing Job',
+          'description': 'Need help with plumbing',
+          'status': 'Reviewing',
+          'applicantCount': 4,
+          'acceptedApplicantId': null,
+        };
+
+        await repo.updateJobDetails('reviewing_job_2', {
+          'description': 'Updated: Tools will be provided on-site',
+          'timePreference': 'Morning',
+        });
+
+        final jobDoc = await firestore.collection('jobs').doc('reviewing_job_2').get();
+        final data = jobDoc.data()!;
+        expect(data['description'], equals('Updated: Tools will be provided on-site'));
+        expect(data['timePreference'], equals('Morning'));
+        expect(data['updatedAt'], isNotNull);
+      });
+
+      test('Scenario 3: Post-hire lock - throws exception if Nyxian already accepted/hired', () async {
+        firestore.db['jobs/hired_job_3'] = {
+          'id': 'hired_job_3',
+          'creatorId': 'employer123',
+          'title': 'Grave Digger Needed',
+          'description': 'Original scope',
+          'status': 'In Progress',
+          'applicantCount': 2,
+          'acceptedApplicantId': 'nyxian_winner_999',
+        };
+
+        expect(
+          () => repo.updateJobDetails('hired_job_3', {
+            'description': 'Tampered scope after hiring',
+          }),
+          throwsA(predicate((e) =>
+              e.toString().contains('A Nyxian has already been hired'))),
+        );
+
+        // Verify document unchanged
+        final jobDoc = await firestore.collection('jobs').doc('hired_job_3').get();
+        expect(jobDoc.data()!['description'], equals('Original scope'));
+      });
+
+      test('Scenario 4: Hard status lockout for Done, Completed, or Cancelled jobs', () async {
+        final invalidStatuses = ['In Progress', 'Done', 'Completed', 'Cancelled', 'Admin Cancelled'];
+
+        for (final st in invalidStatuses) {
+          final jobId = 'job_st_${st.replaceAll(' ', '_')}';
+          firestore.db['jobs/$jobId'] = {
+            'id': jobId,
+            'creatorId': 'employer123',
+            'title': 'Status test job',
+            'description': 'Original',
+            'status': st,
+            'acceptedApplicantId': null,
+          };
+
+          expect(
+            () => repo.updateJobDetails(jobId, {'title': 'Attempted Hack'}),
+            throwsA(predicate((e) =>
+                e.toString().contains('Job status must be Open or Reviewing'))),
+            reason: 'Job with status $st must not be editable',
+          );
+        }
+      });
+
+      test('Scenario 5: Throws exception if job does not exist', () async {
+        expect(
+          () => repo.updateJobDetails('non_existent_id', {'title': 'New'}),
+          throwsA(predicate((e) => e.toString().contains('Job not found'))),
+        );
+      });
+    });
   });
 }
+

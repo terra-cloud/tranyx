@@ -148,5 +148,45 @@ void main() {
       expect(restored.hostCommission, equals(financials.hostCommission));
       expect(restored.hostNetIncome, equals(financials.hostNetIncome));
     });
+
+    test('Deserialization from untyped Map<dynamic, dynamic> with nested policy succeeds', () {
+      final rawMap = <dynamic, dynamic>{
+        'dailyRate': 2000,
+        'weeklyRate': 12000,
+        'monthlyRate': 45000,
+        'securityDepositPolicy': <dynamic, dynamic>{
+          'type': 'fixed',
+          'value': 2500,
+        },
+      };
+
+      final model = PropertyPricingModel.fromPropertyMap(rawMap);
+      expect(model.dailyRate, equals(2000.0));
+      expect(model.depositType, equals(DepositType.fixed));
+      expect(model.depositValue, equals(2500.0));
+
+      final rawPropMap = <dynamic, dynamic>{
+        'id': 'prop_123',
+        'hostId': 'host_456',
+        'title': 'Test Property',
+        'description': 'A beautiful test apartment',
+        'type': 'apartment',
+        'category': 'residential',
+        'priceDaily': 2000,
+        'priceWeekly': 12000,
+        'priceMonthly': 45000,
+        'securityDepositPolicy': <dynamic, dynamic>{
+          'type': 'percentage',
+          'value': 10,
+        },
+        'status': 'Available',
+      };
+
+      final prop = PropertyRental.fromMap(rawPropMap, 'prop_123');
+      expect(prop.id, equals('prop_123'));
+      expect(prop.priceDaily, equals(2000.0));
+      expect(prop.depositType, equals(DepositType.percentage));
+      expect(prop.depositValue, equals(10.0));
+    });
   });
 }

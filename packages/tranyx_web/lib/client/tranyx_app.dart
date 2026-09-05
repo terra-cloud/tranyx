@@ -43,6 +43,7 @@ import '../client/components/book_property_modal.dart';
 import '../client/components/manage_property_modal.dart';
 import '../client/components/property_qa_modal.dart';
 import '../client/components/edit_property_modal.dart';
+import '../client/components/edit_job_modal.dart';
 import '../client/components/sign_contract_modal.dart';
 import '../client/components/kyc_id_modal.dart';
 import '../client/components/kyc_bg_modal.dart';
@@ -168,6 +169,7 @@ class TranyxAppState extends State<TranyxApp> {
   bool showSessionExpiredModal = false;
 
   // ── Jobs state ──────────────────────────────────────────────
+  bool showEditJobModal = false;
   List<Map<String, dynamic>> myJobs = [];
   List<Map<String, dynamic>> sessionPostedJobs = [];
   List<Map<String, dynamic>> realtimeEmployerJobs = [];
@@ -472,7 +474,20 @@ class TranyxAppState extends State<TranyxApp> {
       selectedJobCreatorProfile = null;
       acceptedApplicantProfile = null;
       showDeleteConfirm = false;
+      showEditJobModal = false;
       _stopSelectedJobRealtime();
+    });
+  }
+
+  void openEditJobModal() {
+    setState(() {
+      showEditJobModal = true;
+    });
+  }
+
+  void closeEditJobModal() {
+    setState(() {
+      showEditJobModal = false;
     });
   }
 
@@ -480,10 +495,10 @@ class TranyxAppState extends State<TranyxApp> {
     stopListeningToJobDetailsJs();
     listenToJobDetailsJs(jobId, (String jsonString) {
       try {
-        final Map<String, dynamic> data = jsonDecode(jsonString);
+        final data = jsonDecode(jsonString) as Map;
         final String type = data['type'] as String;
         if (type == 'job') {
-          final Map<String, dynamic> fresh = data['data'] as Map<String, dynamic>;
+          final Map<String, dynamic> fresh = Map<String, dynamic>.from(data['data'] as Map);
           setState(() {
             if (selectedJobData != null && selectedJobData!['id'] == fresh['id']) {
               selectedJobData = {...selectedJobData!, ...fresh};
@@ -523,6 +538,7 @@ class TranyxAppState extends State<TranyxApp> {
                 urgency: urgency,
                 status: status,
                 applicants: applicants,
+                acceptedApplicantId: fresh['acceptedApplicantId'] as String? ?? selectedJob?.acceptedApplicantId,
               );
             }
 
@@ -532,7 +548,7 @@ class TranyxAppState extends State<TranyxApp> {
           });
         } else if (type == 'applications') {
           final List<dynamic> rawApps = data['data'] as List? ?? [];
-          final apps = rawApps.map((e) => e as Map<String, dynamic>).toList();
+          final apps = rawApps.map((e) => Map<String, dynamic>.from(e as Map)).toList();
           setState(() {
             jobApplicants = apps;
           });
@@ -990,7 +1006,7 @@ class TranyxAppState extends State<TranyxApp> {
     listenToNotificationsJs(uid, (String jsonString) {
       try {
         final List<dynamic> rawList = jsonDecode(jsonString);
-        final parsed = rawList.map((e) => e as Map<String, dynamic>).toList();
+        final parsed = rawList.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         parsed.sort((notifA, notifB) => (notifB['createdAt'] as num? ?? 0).compareTo(notifA['createdAt'] as num? ?? 0));
 
         setState(() {
@@ -1079,10 +1095,10 @@ class TranyxAppState extends State<TranyxApp> {
 
     listenToJobsJs(uid, (String jsonString) {
       try {
-        final Map<String, dynamic> data = jsonDecode(jsonString);
+        final data = jsonDecode(jsonString) as Map;
         final String type = data['type'] as String;
         final List<dynamic> rawJobs = data['jobs'] as List? ?? [];
-        final parsed = rawJobs.map((e) => e as Map<String, dynamic>).toList();
+        final parsed = rawJobs.map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
         setState(() {
           if (type == 'employer') {
@@ -1173,7 +1189,7 @@ class TranyxAppState extends State<TranyxApp> {
     listenToRentalsJs((String jsonString) {
       try {
         final List<dynamic> raw = jsonDecode(jsonString);
-        final parsed = raw.map((e) => e as Map<String, dynamic>).toList();
+        final parsed = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         setState(() {
           realtimeRentals = parsed;
         });
@@ -1188,8 +1204,8 @@ class TranyxAppState extends State<TranyxApp> {
       try {
         final List<dynamic> raw = jsonDecode(jsonString);
         final parsed = raw.map((e) {
-          final map = e as Map<String, dynamic>;
-          final id = map['id'] ?? '';
+          final map = e as Map;
+          final id = map['id']?.toString() ?? '';
           return PropertyRental.fromMap(map, id);
         }).toList();
         setState(() {
@@ -3324,6 +3340,7 @@ class TranyxAppState extends State<TranyxApp> {
         status: status,
         applicants: applicants,
         createdAt: jobMap['createdAt'],
+        acceptedApplicantId: jobMap['acceptedApplicantId'] as String?,
       );
       selectedJobImageCarouselIndex = 0;
       activeTab = AppTab.jobs;
@@ -7208,6 +7225,10 @@ class TranyxAppState extends State<TranyxApp> {
       // Edit Property modal overlay
       if (showEditPropertyModal)
         EditPropertyModalComponent(appState: this, key: const ValueKey('edit-property-modal')),
+
+      // Edit Job modal overlay
+      if (showEditJobModal)
+        EditJobModalComponent(appState: this, key: const ValueKey('edit-job-modal')),
 
       // Public Property Q&A modal overlay
       if (showPropertyQaModal) PropertyQaModalComponent(appState: this, key: const ValueKey('property-qa-modal')),
