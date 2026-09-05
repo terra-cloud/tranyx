@@ -84,7 +84,7 @@ class BookingFinancials {
     };
   }
 
-  factory BookingFinancials.fromMap(Map<String, dynamic> map) {
+  factory BookingFinancials.fromMap(Map map) {
     final tierStr = (map['appliedTier'] as String? ?? 'DAILY').toLowerCase();
     final tier = DurationTier.values.firstWhere(
       (t) => t.name == tierStr,

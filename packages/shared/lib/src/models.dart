@@ -122,7 +122,7 @@ class UserProfile {
     this.role,
   });
 
-  factory UserProfile.fromMap(String uid, Map<String, dynamic> map) {
+  factory UserProfile.fromMap(String uid, Map map) {
     final type = AccountType.values.firstWhere(
       (e) => e.name == map['accountType'],
       orElse: () => AccountType.employer,
@@ -491,7 +491,7 @@ class Job {
     };
   }
 
-  factory Job.fromMap(Map<String, dynamic> map, String id) {
+  factory Job.fromMap(Map map, String id) {
     return Job(
       id: id,
       creatorId: map['creatorId'] ?? '',
@@ -696,7 +696,7 @@ class JobApplication {
     };
   }
 
-  factory JobApplication.fromMap(Map<String, dynamic> map, String id) {
+  factory JobApplication.fromMap(Map map, String id) {
     return JobApplication(
       id: id,
       jobId: map['jobId'] ?? '',
@@ -777,7 +777,7 @@ class JobCancellationLog {
     };
   }
 
-  factory JobCancellationLog.fromMap(Map<String, dynamic> map, String id) {
+  factory JobCancellationLog.fromMap(Map map, String id) {
     return JobCancellationLog(
       id: id,
       jobId: map['jobId'] ?? '',
@@ -826,7 +826,7 @@ class JobQuestion {
     };
   }
 
-  factory JobQuestion.fromMap(Map<String, dynamic> map, String id) {
+  factory JobQuestion.fromMap(Map map, String id) {
     return JobQuestion(
       id: id,
       jobId: map['jobId'] ?? '',
@@ -1062,7 +1062,7 @@ class VehicleRental {
     };
   }
 
-  factory VehicleRental.fromMap(Map<String, dynamic> map, String id) {
+  factory VehicleRental.fromMap(Map map, String id) {
     final vType = VehicleType.values.firstWhere(
       (e) => e.name == map['type'],
       orElse: () => VehicleType.car,
@@ -1655,7 +1655,7 @@ class Promo {
     };
   }
 
-  factory Promo.fromMap(Map<String, dynamic> map, String code) {
+  factory Promo.fromMap(Map map, String code) {
     DateTime? parseDate(dynamic val) {
       if (val == null) return null;
       if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
@@ -1782,7 +1782,7 @@ class NewsPost {
     'buttonPaddingH': buttonPaddingH,
   };
 
-  factory NewsPost.fromMap(Map<String, dynamic> map, String id) {
+  factory NewsPost.fromMap(Map map, String id) {
     DateTime parseDate(dynamic val) {
       if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
       if (val is String) return DateTime.tryParse(val) ?? DateTime.now();

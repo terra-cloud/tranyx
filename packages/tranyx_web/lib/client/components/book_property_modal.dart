@@ -317,8 +317,11 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
     });
 
     try {
-      final p = component.appState.selectedPropertyData;
-      if (p == null) throw Exception('No property selected.');
+      final rawProp = component.appState.selectedPropertyData;
+      if (rawProp == null) throw Exception('No property selected.');
+      final p = <String, dynamic>{
+        for (final entry in rawProp.entries) entry.key.toString(): entry.value,
+      };
       if (_licenseNumber.trim().isEmpty) {
         setState(() => _error = 'Please enter your government ID / Driver\'s License number for verification.');
         return;
@@ -337,7 +340,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
           component.appState.depositAmount = totalRequired - user.tyxBalance;
           component.appState.showDepositModal = true;
           component.appState.pendingPropertyBookingData = {
-            'propertyId': p['id'],
+            'propertyId': p['id']?.toString() ?? '',
             'durationType': _selectedDurationType,
             'multiplier': _multiplier,
             'totalCost': _totalPrice,
@@ -348,8 +351,8 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
             'bookingFee': _bookingFee,
             'originalBookingFee': _originalPlatformFee,
             'discountAmount': _discountAmount,
-            'contractType': p['contractType'] ?? 'Tranyx Standard',
-            'contractTerms': p['contractTerms'] ?? 'Standard lease terms',
+            'contractType': p['contractType']?.toString() ?? 'Tranyx Standard',
+            'contractTerms': p['contractTerms']?.toString() ?? 'Standard lease terms',
             'startDate': _startDate.millisecondsSinceEpoch,
             'endDate': end.millisecondsSinceEpoch,
             'licenseNumber': _licenseNumber,
@@ -362,7 +365,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
 
       // Submit booking request
       await component.appState.firestore.createPropertyBookingRequest(
-        propertyId: p['id'],
+        propertyId: p['id']?.toString() ?? '',
         renteeId: currentUid,
         renteeName: user.name,
         renteePhotoUrl: user.photoUrl,
@@ -373,8 +376,8 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         securityDepositAmount: _depositAmount,
         customerPlatformFeeRate: _financials.customerPlatformFeeRate,
         hostCommissionRate: _financials.hostCommissionRate,
-        contractType: p['contractType'] ?? 'Tranyx Standard',
-        contractTerms: p['contractTerms'] ?? 'Standard lease terms',
+        contractType: p['contractType']?.toString() ?? 'Tranyx Standard',
+        contractTerms: p['contractTerms']?.toString() ?? 'Standard lease terms',
         startDate: _startDate.millisecondsSinceEpoch,
         endDate: end.millisecondsSinceEpoch,
         licenseNumber: _licenseNumber,

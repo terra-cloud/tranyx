@@ -282,11 +282,36 @@ This memory document acts as an immutable ledger to prevent regressions across `
 ## 18. Web & Dart2js Safe Map Deserialization Invariant (Prevention of `minified:c6<dynamic, dynamic>` TypeErrors)
 - **Context & Problem Statement**:
   - In web production builds compiled via `dart2js`, generic `Map<dynamic, dynamic>` instances decoded from JSON or Firestore REST API are minified as `minified:c6<dynamic, dynamic>`.
-  - In Dart 3+ strong typing, `<dynamic, dynamic>` is NOT a subtype of `<String, dynamic>`. Direct casts like `map as Map<String, dynamic>` or `val['securityDepositPolicy'] as Map<String, dynamic>` immediately trigger runtime `TypeError: Instance of 'minified:c6<dynamic, dynamic>': type 'minified:c6<dynamic, dynamic>' is not a subtype of type 'Map<String, dynamic>'`.
-  - This occurred when renting a property in `BookPropertyModalComponent` during `PropertyPricingModel.fromPropertyMap` and `createPropertyBookingRequest` / `getPropertyPendingRequestsForRenter`.
+  - In Dart 3+ strong typing, `<dynamic, dynamic>` is NOT a subtype of `<String, dynamic>`. Direct casts like `map as Map<String, dynamic>` or passing generic maps to `fromMap(Map<String, dynamic> map)` or `setDocument(String, Map<String, dynamic>)` immediately trigger runtime `TypeError: Instance of 'minified:c6<dynamic, dynamic>': type 'minified:c6<dynamic, dynamic>' is not a subtype of type 'Map<String, dynamic>'`.
+  - This occurred when renting a property in `BookPropertyModalComponent` when calling `_book()` -> `firestore.createPropertyBookingRequest` (calling `UserProfile.fromMap`, `_toFirestoreFields`, `setDocument`).
 - **Core Invariants & Rules**:
   - **Relax Model Factory Parameter Types**:
-    - Domain deserializers (`PropertyRental.fromMap`, `PropertyPricingModel.fromPropertyMap`, `PlatformFeeConfig.fromMap`) must accept `Map` (untyped) rather than `Map<String, dynamic>`.
+    - All domain deserializers across `packages/shared/lib/src/`:
+      - `UserProfile.fromMap(String uid, Map map)`
+      - `PropertyRental.fromMap(Map map, String id)`
+      - `PropertyPricingModel.fromPropertyMap(Map map)`
+      - `BookingFinancials.fromMap(Map map)`
+      - `Promo.fromMap(Map map, String code)`
+      - `VehicleRental.fromMap(Map map, String id)`
+      - `Job.fromMap(Map map, String id)`
+      - `JobApplication.fromMap(Map map, String id)`
+      - `JobCancellationLog.fromMap(Map map, String id)`
+      - `JobQuestion.fromMap(Map map, String id)`
+      - `NewsPost.fromMap(Map map, String id)`
+      - `DepositRequest.fromMap(Map map, {String? docId})`
+      - `P2pAgent.fromMap(Map map, {String? docId})`
+      - `WalletTransaction.fromMap(Map map, {String? docId})`
+      - `WithdrawalRequest.fromMap(Map map, {String? docId})`
+      - `PlatformFeeConfig.fromMap(Map? map)`
+    - Accept `Map` (untyped) rather than `Map<String, dynamic>`.
+  - **Safe Firestore Transport Services (`firebase_service.dart`)**:
+    - `_toFirestoreFields(Map data)` accepts `Map data` and generates `<String, dynamic>` maps with stringified keys (`e.key.toString()`).
+    - `setDocument(String path, Map data)` accepts untyped `Map data` and stringifies query string updateMask keys (`k.toString()`).
+    - `createOrUpdate(String path, Map data)` accepts untyped `Map data`.
+    - `_post` and `_patch` accept `Map body`.
+  - **Defensive UI Coercion (`book_property_modal.dart`)**:
+    - In `_book()`, coerce `selectedPropertyData` defensively:
+      `<String, dynamic>{ for (final entry in rawProp.entries) entry.key.toString(): entry.value }`
   - **Safe Nested Map Access**:
     - Never write `map['nested'] as Map<String, dynamic>`.
     - Check with `if (map['nested'] is Map)` and cast to untyped `final nested = map['nested'] as Map;` before accessing keys.

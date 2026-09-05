@@ -43,7 +43,7 @@ class DepositRequest {
     this.verifiedAt,
   });
 
-  factory DepositRequest.fromMap(Map<String, dynamic> map, {String? docId}) {
+  factory DepositRequest.fromMap(Map map, {String? docId}) {
     final createdAtRaw = map['createdAt'];
     int createdAt = 0;
     if (createdAtRaw is num) {

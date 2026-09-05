@@ -111,7 +111,7 @@ class WalletTransaction {
   });
 
   /// Factory parser with backwards compatibility for legacy transaction documents.
-  factory WalletTransaction.fromMap(Map<String, dynamic> map, {String? docId}) {
+  factory WalletTransaction.fromMap(Map map, {String? docId}) {
     final id = (docId ?? map['id'] ?? map['txId'] ?? '').toString();
     final uid = (map['uid'] ?? '').toString();
     final title = (map['title'] ?? 'Transaction').toString();

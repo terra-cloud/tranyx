@@ -217,7 +217,7 @@ Future<Map<String, dynamic>> _requestWithRetry(
 
 Future<Map<String, dynamic>> _post(
   String url,
-  Map<String, dynamic> body, {
+  Map body, {
   String? idToken,
   Future<String?> Function()? onTokenRefresh,
 }) async {
@@ -238,7 +238,7 @@ Future<Map<String, dynamic>> _get(String url, {String? idToken, Future<String?> 
 
 Future<Map<String, dynamic>> _patch(
   String url,
-  Map<String, dynamic> body, [
+  Map body, [
   String? idToken,
   Future<String?> Function()? onTokenRefresh,
 ]) async {
@@ -433,7 +433,7 @@ class FirebaseAuthService {
 }
 
 // ── Firestore value encoding / decoding ───────────────────────────────────────
-Map<String, dynamic> _toFirestoreFields(Map<String, dynamic> data) {
+Map<String, dynamic> _toFirestoreFields(Map data) {
   Map<String, dynamic> encodeValue(dynamic v) {
     if (v == null) return {'nullValue': null};
     if (v is bool) return {'booleanValue': v};
@@ -450,8 +450,8 @@ Map<String, dynamic> _toFirestoreFields(Map<String, dynamic> data) {
     if (v is Map) {
       return {
         'mapValue': {
-          'fields': {
-            for (final e in v.entries) e.key: encodeValue(e.value),
+          'fields': <String, dynamic>{
+            for (final e in v.entries) e.key.toString(): encodeValue(e.value),
           },
         },
       };
@@ -460,9 +460,9 @@ Map<String, dynamic> _toFirestoreFields(Map<String, dynamic> data) {
   }
 
   return {
-    'fields': {
+    'fields': <String, dynamic>{
       for (final e in data.entries)
-        if (e.value != null) e.key: encodeValue(e.value),
+        if (e.value != null) e.key.toString(): encodeValue(e.value),
     },
   };
 }
@@ -526,11 +526,11 @@ class FirestoreService {
   }
 
   // ── Utility ────────────────────────────────────────────────
-  Future<void> setDocument(String path, Map<String, dynamic> data) async {
+  Future<void> setDocument(String path, Map data) async {
     if (data.isEmpty) return;
     final url = '$_firestoreBase/$path';
     final body = _toFirestoreFields(data);
-    final queryString = data.keys.map((k) => 'updateMask.fieldPaths=$k').join('&');
+    final queryString = data.keys.map((k) => 'updateMask.fieldPaths=${k.toString()}').join('&');
     await _patch(
       '$url?$queryString',
       body,
@@ -539,7 +539,7 @@ class FirestoreService {
     );
   }
 
-  Future<void> createOrUpdate(String path, Map<String, dynamic> data) async {
+  Future<void> createOrUpdate(String path, Map data) async {
     final url = '$_firestoreBase/$path';
     final body = _toFirestoreFields(data);
     await _patch(url, body, idToken, _refreshToken);
@@ -3400,7 +3400,7 @@ class FirestoreService {
       'renteeIsVerified': renteeIsVerified,
       'renteeVerificationStatus': renteeVerificationStatus,
       'renteeVerificationTier': renteeVerificationTier,
-      'promoCode': ?promoCode,
+      if (promoCode != null) 'promoCode': promoCode,
       if (promoCode != null) 'discountAmount': discount,
     };
     await setDocument('property_requests/$requestId', requestDoc);

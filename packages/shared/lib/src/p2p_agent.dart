@@ -52,7 +52,7 @@ class P2pAgent {
     );
   }
 
-  factory P2pAgent.fromMap(Map<String, dynamic> map, {String? docId}) {
+  factory P2pAgent.fromMap(Map map, {String? docId}) {
     final updatedAtRaw = map['updatedAt'] ?? map['createdAt'];
     int updatedAt = 0;
     if (updatedAtRaw is num) {

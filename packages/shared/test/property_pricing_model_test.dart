@@ -187,6 +187,50 @@ void main() {
       expect(prop.priceDaily, equals(2000.0));
       expect(prop.depositType, equals(DepositType.percentage));
       expect(prop.depositValue, equals(10.0));
+
+      final rawFinancialsMap = <dynamic, dynamic>{
+        'appliedTier': 'DAILY',
+        'totalDays': 2,
+        'unitRate': 2000.0,
+        'baseRentAmount': 4000.0,
+        'securityDepositAmount': 500.0,
+        'depositType': 'fixed',
+        'depositValue': 500.0,
+        'customerPlatformFeeRate': 0.03,
+        'customerPlatformFeeAmount': 120.0,
+        'totalCustomerPaid': 4620.0,
+        'hostCommissionRate': 0.07,
+        'hostCommissionAmount': 280.0,
+        'hostNetPayout': 3720.0,
+      };
+      final financials = BookingFinancials.fromMap(rawFinancialsMap);
+      expect(financials.appliedTier, equals(DurationTier.daily));
+      expect(financials.totalCustomerPayable, equals(4620.0));
+
+      final rawUserMap = <dynamic, dynamic>{
+        'name': 'Test User',
+        'email': 'test@example.com',
+        'tyxBalance': 5000.0,
+        'accountType': 'employer',
+        'verificationLevel': 2,
+        'idVerified': true,
+      };
+      final user = UserProfile.fromMap('user_123', rawUserMap);
+      expect(user.uid, equals('user_123'));
+      expect(user.name, equals('Test User'));
+      expect(user.tyxBalance, equals(5000.0));
+
+      final rawPromoMap = <dynamic, dynamic>{
+        'name': 'WELCOME50',
+        'discountType': 'percentage',
+        'discountValue': 50.0,
+        'applicableFee': 'platform_fee',
+        'applicableTo': 'both',
+        'isActive': true,
+      };
+      final promo = Promo.fromMap(rawPromoMap, 'WELCOME50');
+      expect(promo.code, equals('WELCOME50'));
+      expect(promo.discountValue, equals(50.0));
     });
   });
 }
