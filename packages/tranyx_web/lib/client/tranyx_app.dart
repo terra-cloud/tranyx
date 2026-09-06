@@ -60,7 +60,14 @@ class TranyxApp extends StatefulComponent {
 
 class TranyxAppState extends State<TranyxApp> {
   // ── Theme / Auth ────────────────────────────────────────────
-  bool isDark = true;
+  bool _isDark = true;
+  bool get isDark => _isDark;
+  set isDark(bool value) {
+    if (_isDark != value) {
+      _isDark = value;
+      updateAllMapsTheme(isDark: value);
+    }
+  }
   bool showWebSplash = true;
   bool showMobileAppPrompt = false;
   bool isAuthenticated = false;
@@ -170,6 +177,7 @@ class TranyxAppState extends State<TranyxApp> {
 
   // ── Jobs state ──────────────────────────────────────────────
   bool showEditJobModal = false;
+  bool showJobOrderDetails = false;
   List<Map<String, dynamic>> myJobs = [];
   List<Map<String, dynamic>> sessionPostedJobs = [];
   List<Map<String, dynamic>> realtimeEmployerJobs = [];
@@ -415,6 +423,52 @@ class TranyxAppState extends State<TranyxApp> {
     return activeCount == 0;
   }
 
+  bool get isCurrentJobTrackingActive {
+    if (activeTab != AppTab.jobs || jobsView != JobsView.details) return false;
+    final job = selectedJobData;
+    if (job == null) return false;
+
+    final catName = (job['category'] as String? ?? '').toLowerCase();
+    final cat = JobCategory.values.firstWhere(
+      (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
+      orElse: () => JobCategory.others,
+    );
+    final hasTracker = job['hasTracker'] == true || job['hasTracker'] == 'true' || cat.hasTracker;
+    if (!hasTracker) return false;
+
+    if (job['pickupLat'] == null || job['destinationLat'] == null) return false;
+
+    final acceptedId = job['acceptedApplicantId'] as String?;
+    final bool isHired = acceptedId != null && acceptedId.trim().isNotEmpty;
+    if (!isHired) return false;
+
+    final status = (job['status'] as String? ?? '').toLowerCase();
+    const ongoingStatuses = {
+      'in progress',
+      'in_progress',
+      'ongoing',
+      'heading_to_pickup',
+      'arrived_pickup',
+      'paid_cashier',
+      'in_transit',
+      'arrived_dropoff',
+    };
+    if (!ongoingStatuses.contains(status)) return false;
+
+    final currentUid = userProfile?.uid ?? SessionStorage.uid;
+    if (currentUid == null || currentUid.isEmpty) return false;
+
+    final creatorId = job['creatorId'] as String? ?? job['userId'] as String?;
+    final isNyxian = creatorId != currentUid;
+    if (isNyxian) {
+      if (currentUid != acceptedId) return false;
+    } else {
+      if (currentUid != creatorId) return false;
+    }
+
+    return true;
+  }
+
   Map<String, dynamic>? get firstActiveJob {
     final uid = SessionStorage.uid;
     if (uid == null) return null;
@@ -475,6 +529,7 @@ class TranyxAppState extends State<TranyxApp> {
       acceptedApplicantProfile = null;
       showDeleteConfirm = false;
       showEditJobModal = false;
+      showJobOrderDetails = false;
       _stopSelectedJobRealtime();
     });
   }
@@ -3347,6 +3402,7 @@ class TranyxAppState extends State<TranyxApp> {
       jobsView = JobsView.details;
       jobQuestions = [];
       this.hasTracker = hasTracker;
+      showJobOrderDetails = false;
     });
 
     // Load questions
@@ -7122,38 +7178,47 @@ class TranyxAppState extends State<TranyxApp> {
 
     return div(classes: 'flex h-screen w-full overflow-hidden $darkBg font-sans', [
       // Desktop sidebar
-      SidebarComponent(state: this),
+      if (!isCurrentJobTrackingActive) SidebarComponent(state: this),
 
       // Main area
       div(classes: 'flex-1 flex flex-col h-full relative overflow-hidden', [
-        TopHeaderComponent(state: this),
+        if (!isCurrentJobTrackingActive) TopHeaderComponent(state: this),
 
-        // Scrollable content
-        div(classes: 'flex-1 overflow-y-auto no-scrollbar pb-24 md:pb-8', [
-          div(classes: 'mx-auto w-full max-w-6xl p-6 md:p-10', [
-            if (activeTab == AppTab.home) HomeViewComponent(state: this),
-            if (activeTab == AppTab.jobs) JobsViewComponent(state: this),
-            if (activeTab == AppTab.transit) TransitViewComponent(state: this),
-            if (activeTab == AppTab.messages) MessagesViewComponent(state: this),
-            if (activeTab == AppTab.profile) ProfileViewComponent(state: this),
+        if (isCurrentJobTrackingActive)
+          div(
+            classes: 'flex-1 w-full h-full relative overflow-hidden',
+            [
+              JobsViewComponent(state: this),
+            ],
+          )
+        else
+          // Scrollable content
+          div(classes: 'flex-1 overflow-y-auto no-scrollbar pb-24 md:pb-8', [
+            div(classes: 'mx-auto w-full max-w-6xl p-6 md:p-10', [
+              if (activeTab == AppTab.home) HomeViewComponent(state: this),
+              if (activeTab == AppTab.jobs) JobsViewComponent(state: this),
+              if (activeTab == AppTab.transit) TransitViewComponent(state: this),
+              if (activeTab == AppTab.messages) MessagesViewComponent(state: this),
+              if (activeTab == AppTab.profile) ProfileViewComponent(state: this),
+            ]),
           ]),
-        ]),
 
         // Mobile bottom nav
-        BottomNavComponent(state: this),
+        if (!isCurrentJobTrackingActive) BottomNavComponent(state: this),
 
         // Powered by Terra logo badge in bottom right corner
-        div(
-          classes:
-              'hidden md:flex items-center gap-1.5 absolute bottom-4 right-6 px-3 py-1.5 rounded-full border ${isDark ? "border-zinc-800 bg-zinc-900/60" : "border-zinc-200 bg-white/60"} backdrop-blur-md text-[10px] text-zinc-500 font-semibold z-40 transition-all hover:text-zinc-400',
-          [
-            Component.text('Powered by'),
-            img(
-              src: '/images/terra-logo.png',
-              classes: 'h-3.5 object-contain opacity-60 hover:opacity-85 transition-opacity',
-            ),
-          ],
-        ),
+        if (!isCurrentJobTrackingActive)
+          div(
+            classes:
+                'hidden md:flex items-center gap-1.5 absolute bottom-4 right-6 px-3 py-1.5 rounded-full border ${isDark ? "border-zinc-800 bg-zinc-900/60" : "border-zinc-200 bg-white/60"} backdrop-blur-md text-[10px] text-zinc-500 font-semibold z-40 transition-all hover:text-zinc-400',
+            [
+              Component.text('Powered by'),
+              img(
+                src: '/images/terra-logo.png',
+                classes: 'h-3.5 object-contain opacity-60 hover:opacity-85 transition-opacity',
+              ),
+            ],
+          ),
       ]),
 
       // Toast Notification

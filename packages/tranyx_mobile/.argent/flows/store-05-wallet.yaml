@@ -1,0 +1,13 @@
+steps:
+  - echo: Launch Tranyx and open the Solana Web3 wallet sheet
+  - launch: com.terraph.tranyx
+  - await:
+      visible:
+        text: Welcome back
+  - tap:
+      text: Continue with Solana Wallet
+  - await:
+      visible:
+        text: Select a Wallet
+  - await:
+      idle: true

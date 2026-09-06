@@ -62,6 +62,8 @@ dependencies:
   pinenacl: ^0.6.0
   riverpod_annotation: ^4.0.2
   shared: any
+  headless_nav_core: any
+  headless_nav_flutter: any
   solana_mobile_client: ^0.1.2
   url_launcher: ^6.3.2
   reown_appkit: ^1.5.0
@@ -233,4 +235,8 @@ flutter_launcher_icons:
       ios: true
       adaptive_icon_background: "#7C3AED"
       adaptive_icon_foreground: "assets/images/launcher_icon.png"
+
+dependency_overrides:
+  permission_handler_android: 13.0.1
+
 

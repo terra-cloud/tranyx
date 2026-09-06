@@ -1,0 +1,8 @@
+steps:
+  - echo: Launch Tranyx and show the welcome authentication screen
+  - launch: com.terraph.tranyx
+  - await:
+      visible:
+        text: Welcome back
+  - await:
+      idle: true

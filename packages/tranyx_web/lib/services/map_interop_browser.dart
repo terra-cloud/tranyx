@@ -174,37 +174,16 @@ Future<void> initMap(
   }
 
   try {
-    // Create raster-style specification locally to avoid needing any MapLibre / Mapbox API Key
-    final style = JSObject();
-    style.setProperty('version'.toJS, 8.toJS);
-
-    final sources = JSObject();
-    final rasterTiles = JSObject();
-    rasterTiles.setProperty('type'.toJS, 'raster'.toJS);
-
-    final tileUrl = isDark
-        ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    final tiles = [tileUrl.toJS].toJS;
-
-    rasterTiles.setProperty('tiles'.toJS, tiles);
-    rasterTiles.setProperty('tileSize'.toJS, 256.toJS);
-    rasterTiles.setProperty('attribution'.toJS, isDark ? '© CARTO, © OpenStreetMap'.toJS : '© OpenStreetMap'.toJS);
-    sources.setProperty('raster-tiles'.toJS, rasterTiles);
-    style.setProperty('sources'.toJS, sources);
-
-    final layer = JSObject();
-    layer.setProperty('id'.toJS, 'simple-tiles'.toJS);
-    layer.setProperty('type'.toJS, 'raster'.toJS);
-    layer.setProperty('source'.toJS, 'raster-tiles'.toJS);
-    layer.setProperty('minzoom'.toJS, 0.toJS);
-    layer.setProperty('maxzoom'.toJS, 19.toJS);
-    final layers = [layer].toJS;
-    style.setProperty('layers'.toJS, layers);
+    // OpenFreeMap vector tile style provides comprehensive OpenStreetMap data including
+    // barangays, villages, subdivisions, building footprints, and crisp typography.
+    final vectorStyleUrl = isDark
+        ? 'https://tiles.openfreemap.org/styles/dark'
+        : 'https://tiles.openfreemap.org/styles/liberty';
 
     final opts = JSObject();
     opts.setProperty('container'.toJS, elementId.toJS);
-    opts.setProperty('style'.toJS, style);
+    opts.setProperty('style'.toJS, vectorStyleUrl.toJS);
+    opts.setProperty('_isDark'.toJS, isDark.toJS);
 
     // MapLibre expects center as [lng, lat]
     opts.setProperty('center'.toJS, [lng.toJS, lat.toJS].toJS);
@@ -214,7 +193,7 @@ Future<void> initMap(
 
     final m = window.callMethod<JSObject>('_createMap'.toJS, opts);
     window.setProperty(mapKey, m);
-    print('DEBUG: MapLibre map successfully created on element ID "$elementId".');
+    print('DEBUG: MapLibre vector map successfully created on element ID "$elementId".');
   } catch (e) {
     print('ERROR: Failed during initMap execution for element ID "$elementId": $e');
     rethrow;
@@ -352,6 +331,17 @@ void drawRoute(String elementId, List<List<double>> points, String color) {
   routeTracker.setProperty('layerId'.toJS, layerId.toJS);
   window.setProperty(routeKey, routeTracker);
 
+  // Store metadata for restoring route across theme switches
+  final routeData = JSObject();
+  routeData.setProperty('sourceId'.toJS, sourceId.toJS);
+  routeData.setProperty('layerId'.toJS, layerId.toJS);
+  routeData.setProperty('rawCoords'.toJS, rawCoords);
+  routeData.setProperty('color'.toJS, color.toJS);
+  routeData.setProperty('lineWidth'.toJS, 5.toJS);
+  routeData.setProperty('lineOpacity'.toJS, 0.85.toJS);
+  m.setProperty('_lastRoute'.toJS, routeData);
+  window.setProperty('${routeKey}_data'.toJS, routeData);
+
   // Fit bounds
   final bounds = window.callMethod<JSObject>('_createLngLatBounds'.toJS);
   for (final p in points) {
@@ -486,11 +476,30 @@ void clearRoute(String elementId) {
 
 Future<String> reverseGeocode(double lat, double lng) async {
   try {
-    final url = 'https://nominatim.openstreetmap.org/reverse?format=json&lat=$lat&lon=$lng';
+    final url = 'https://nominatim.openstreetmap.org/reverse?format=json&lat=$lat&lon=$lng&addressdetails=1';
     final resp = await window.fetch(url.toJS).toDart;
-    final json = await resp.json().toDart;
-    final obj = json as JSObject;
-    return obj.getProperty<JSString?>('display_name'.toJS)?.toDart ?? '$lat, $lng';
+    final jsonText = await resp.text().toDart;
+    final decoded = jsonDecode(jsonText.toDart);
+    if (decoded is Map) {
+      final addr = decoded['address'];
+      if (addr is Map) {
+        final road = addr['road'] ?? addr['pedestrian'] ?? addr['street'] ?? addr['subdivision'];
+        final brgy = addr['village'] ?? addr['suburb'] ?? addr['neighbourhood'] ?? addr['quarter'] ?? addr['residential'] ?? addr['city_district'];
+        final city = addr['city'] ?? addr['municipality'] ?? addr['town'] ?? addr['county'];
+        final province = addr['state'] ?? addr['province'];
+        final parts = [
+          if (road != null && road.toString().isNotEmpty) road,
+          if (brgy != null && brgy.toString().isNotEmpty) (brgy.toString().toLowerCase().startsWith('barangay') || brgy.toString().toLowerCase().startsWith('brgy') ? brgy : 'Brgy. $brgy'),
+          if (city != null && city.toString().isNotEmpty) city,
+          if (province != null && province.toString().isNotEmpty && province != city) province,
+        ];
+        if (parts.isNotEmpty) {
+          return parts.join(', ');
+        }
+      }
+      return (decoded['display_name'] as String?) ?? '$lat, $lng';
+    }
+    return '$lat, $lng';
   } catch (_) {
     return '$lat, $lng';
   }
@@ -498,13 +507,30 @@ Future<String> reverseGeocode(double lat, double lng) async {
 
 Future<List<Map<String, dynamic>>> searchAddress(String query) async {
   try {
-    final url = 'https://nominatim.openstreetmap.org/search?format=json&q=${Uri.encodeComponent(query)}&limit=5';
+    final url = 'https://nominatim.openstreetmap.org/search?format=json&q=${Uri.encodeComponent(query)}&limit=7&addressdetails=1';
     final resp = await window.fetch(url.toJS).toDart;
     final jsonText = await resp.text().toDart;
     final text = jsonText.toDart;
     final decoded = jsonDecode(text);
     if (decoded is List) {
-      return decoded.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+      return decoded.map((item) {
+        final m = Map<String, dynamic>.from(item as Map);
+        final addr = m['address'];
+        if (addr is Map) {
+          final road = addr['road'] ?? addr['pedestrian'] ?? addr['street'] ?? addr['subdivision'];
+          final brgy = addr['village'] ?? addr['suburb'] ?? addr['neighbourhood'] ?? addr['quarter'] ?? addr['residential'] ?? addr['city_district'];
+          final city = addr['city'] ?? addr['municipality'] ?? addr['town'] ?? addr['county'];
+          final parts = [
+            if (road != null && road.toString().isNotEmpty) road,
+            if (brgy != null && brgy.toString().isNotEmpty) (brgy.toString().toLowerCase().startsWith('barangay') || brgy.toString().toLowerCase().startsWith('brgy') ? brgy : 'Brgy. $brgy'),
+            if (city != null && city.toString().isNotEmpty) city,
+          ];
+          if (parts.isNotEmpty) {
+            m['formatted_name'] = parts.join(', ');
+          }
+        }
+        return m;
+      }).toList();
     }
     return [];
   } catch (e) {
@@ -560,3 +586,18 @@ void setupMapInteractionListener(
     }).toJS,
   );
 }
+
+void setMapTheme(String elementId, {required bool isDark}) {
+  final fn = window.getProperty<JSFunction?>('_setMapTheme'.toJS);
+  if (fn != null) {
+    fn.callAsFunction(null, elementId.toJS, isDark.toJS);
+  }
+}
+
+void updateAllMapsTheme({required bool isDark}) {
+  final fn = window.getProperty<JSFunction?>('_setAllMapsTheme'.toJS);
+  if (fn != null) {
+    fn.callAsFunction(null, isDark.toJS);
+  }
+}
+

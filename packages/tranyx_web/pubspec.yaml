@@ -13,6 +13,8 @@ dependencies:
   meta: ^1.16.0
   shared: any
   web: ^1.1.1
+  headless_nav_core: any
+  headless_nav_jaspr: any
 
 dev_dependencies:
   build_daemon: ^4.1.4

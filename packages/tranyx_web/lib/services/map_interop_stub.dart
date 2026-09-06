@@ -60,3 +60,6 @@ void setupMapInteractionListener(
   void Function() onInteractionStart,
   void Function() onInteractionEnd,
 ) {}
+void setMapTheme(String elementId, {required bool isDark}) {}
+void updateAllMapsTheme({required bool isDark}) {}
+

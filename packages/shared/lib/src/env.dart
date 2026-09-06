@@ -3,6 +3,7 @@ import 'env.g.dart';
 class Env {
   /// Known compile-time environment variables.
   static const String _imgbbApiKey = String.fromEnvironment('IMGBB_API_KEY');
+  static const String _basemapsApiKey = String.fromEnvironment('BASEMAPS_API_KEY');
   static const String _cloudflareAccountId = String.fromEnvironment('CLOUDFLARE_ACCOUNT_ID');
   static const String _cloudflareApiToken = String.fromEnvironment('CLOUDFLARE_API_TOKEN');
   static const String _geminiApiKey = String.fromEnvironment('GEMINI_AI_API_KEY');
@@ -24,6 +25,7 @@ class Env {
       'TREASURY_PRIVATE_KEY' => _treasuryPrivateKey,
       'TREASURY_PUBLIC_KEY' => _treasuryPublicKey,
       'IMGBB_API_KEY' => _imgbbApiKey,
+      'BASEMAPS_API_KEY' => _basemapsApiKey,
       'CLOUDFLARE_ACCOUNT_ID' => _cloudflareAccountId,
       'CLOUDFLARE_API_TOKEN' => _cloudflareApiToken,
       'ENV' => _env,
@@ -50,6 +52,7 @@ class Env {
   static String get treasuryPrivateKey => solanaPrivateKey;
   static String get treasuryPublicKey => solanaPublicKey;
   static String get imgbbApiKey => get('IMGBB_API_KEY');
+  static String get basemapsApiKey => get('BASEMAPS_API_KEY');
   static String get cloudflareAccountId => get('CLOUDFLARE_ACCOUNT_ID');
   static String get cloudflareApiToken => get('CLOUDFLARE_API_TOKEN');
   static String get env => get('ENV', defaultValue: 'dev');

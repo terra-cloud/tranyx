@@ -39,6 +39,14 @@ class _MapPickerState extends State<MapPickerComponent> {
     _initMap();
   }
 
+  @override
+  void didUpdateComponent(MapPickerComponent oldWidget) {
+    super.didUpdateComponent(oldWidget);
+    if (oldWidget.state.isDark != component.state.isDark) {
+      setMapTheme(_mapId, isDark: component.state.isDark);
+    }
+  }
+
   Future<void> _initMap() async {
     print('DEBUG: _initMap started');
     await ensureMapLibreLoaded();

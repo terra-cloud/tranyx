@@ -350,6 +350,8 @@
     }
 
 
+    window._activeMaps = window._activeMaps || new Map();
+
     window._createMap = function (options) {
       console.log("DEBUG: _createMap called with options:", options);
       if (!window.maplibregl) {
@@ -360,6 +362,19 @@
         const map = new maplibregl.Map(options);
         console.log("DEBUG: maplibregl.Map constructed successfully");
         map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+        const containerId = typeof options.container === 'string' ? options.container : options.container?.id;
+        if (containerId) {
+          window._activeMaps.set(containerId, map);
+          map._containerId = containerId;
+        }
+        map._currentIsDark = !!options._isDark;
+
+        map.on('remove', function() {
+          if (containerId) {
+            window._activeMaps.delete(containerId);
+          }
+        });
 
         // Safari WebGL container size fix
         map.on('load', function() {
@@ -388,6 +403,87 @@
         document.body.appendChild(errDiv);
         throw e;
       }
+    };
+
+    window._setMapTheme = function (elementId, isDark) {
+      const mapKey = '__lmap_' + elementId;
+      const map = (window._activeMaps && window._activeMaps.get(elementId)) || window[mapKey];
+      if (!map) return;
+
+      const el = (map.getContainer && map.getContainer()) || document.getElementById(elementId);
+      if (el) {
+        if (isDark) {
+          el.classList.remove('theme-light');
+          el.classList.add('theme-dark');
+        } else {
+          el.classList.remove('theme-dark');
+          el.classList.add('theme-light');
+        }
+      }
+
+      if (map._currentIsDark === isDark) return;
+      map._currentIsDark = isDark;
+
+      const vectorStyleUrl = isDark
+        ? 'https://tiles.openfreemap.org/styles/dark'
+        : 'https://tiles.openfreemap.org/styles/liberty';
+
+      const routeKey = '__lroute_' + elementId;
+      const lastRoute = map._lastRoute || window[routeKey + '_data'];
+
+      const onStyleLoad = function () {
+        map.off('style.load', onStyleLoad);
+        if (lastRoute && lastRoute.rawCoords) {
+          try {
+            if (!map.getSource(lastRoute.sourceId)) {
+              map.addSource(lastRoute.sourceId, {
+                type: 'geojson',
+                data: {
+                  type: 'Feature',
+                  properties: {},
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: lastRoute.rawCoords
+                  }
+                }
+              });
+            }
+            if (!map.getLayer(lastRoute.layerId)) {
+              map.addLayer({
+                id: lastRoute.layerId,
+                type: 'line',
+                source: lastRoute.sourceId,
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                  'line-color': lastRoute.color || '#6366f1',
+                  'line-width': lastRoute.lineWidth || 5,
+                  'line-opacity': lastRoute.lineOpacity || 0.85
+                }
+              });
+            }
+          } catch (err) {
+            console.warn("Could not restore route layer after style reload:", err);
+          }
+        }
+      };
+
+      map.on('style.load', onStyleLoad);
+      try {
+        map.setStyle(vectorStyleUrl);
+      } catch (err) {
+        console.error("Failed to update map style for " + elementId + ":", err);
+      }
+    };
+
+    window._setAllMapsTheme = function (isDark) {
+      if (window._activeMaps) {
+        window._activeMaps.forEach(function (map, containerId) {
+          window._setMapTheme(containerId, isDark);
+        });
+      }
+      ['job-map-picker', 'nav-map', 'rental-tracker-map', 'delivery-map-picker'].forEach(function (id) {
+        window._setMapTheme(id, isDark);
+      });
     };
     window._createMarker = function (options) {
       console.log("DEBUG: _createMarker called with options:", options);
@@ -1490,6 +1586,16 @@
           }
         });
 
+        const routeData = {
+          sourceId: sourceId,
+          layerId: layerId,
+          rawCoords: rawCoords,
+          color: color,
+          lineWidth: 6,
+          lineOpacity: 0.9
+        };
+        map._lastRoute = routeData;
+        window[routeKey + '_data'] = routeData;
         window[routeKey] = { sourceId: sourceId, layerId: layerId };
 
         const bounds = new maplibregl.LngLatBounds();

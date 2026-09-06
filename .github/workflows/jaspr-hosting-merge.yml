@@ -56,6 +56,7 @@ jobs:
           SOLANA_PUBLIC_KEY: ${{ secrets.SOLANA_PUBLIC_KEY }}
           TREASURY_PRIVATE_KEY: ${{ secrets.TREASURY_PRIVATE_KEY }}
           TREASURY_PUBLIC_KEY: ${{ secrets.TREASURY_PUBLIC_KEY }}
+          BASEMAPS_API_KEY: ${{ secrets.BASEMAPS_API_KEY }}
 
       - name: Build Jaspr Web
         if: steps.filter.outputs.code == 'true'
@@ -64,16 +65,17 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           XENDIT_SECRET_KEY: ${{ secrets.XENDIT_SECRET_KEY }}
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
+          BASEMAPS_API_KEY: ${{ secrets.BASEMAPS_API_KEY }}
           GEMINI_AI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
           SOLANA_PUBLIC_KEY: ${{ secrets.SOLANA_PUBLIC_KEY }}
         run: |
           jaspr clean
           if [[ "$REF_NAME" == "main" ]]; then
-            jaspr build --dart-define=ENV=prod --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
+            jaspr build --dart-define=ENV=prod --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
           elif [[ "$REF_NAME" == "uat" ]]; then
-            jaspr build --dart-define=ENV=uat --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
+            jaspr build --dart-define=ENV=uat --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
           elif [[ "$REF_NAME" == "develop" ]]; then
-            jaspr build --dart-define=ENV=dev --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
+            jaspr build --dart-define=ENV=dev --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
           fi
 
       - name: Deploy to Firebase Hosting (prod)

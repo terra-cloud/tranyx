@@ -1040,6 +1040,100 @@ class _JobDetails extends StatelessComponent {
     final isNotOpen = status.toLowerCase() != 'open';
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
     final currentStep = _getStepperStep(status, acceptedId);
+    final showFullTrackedNav = s.isCurrentJobTrackingActive;
+
+    final detailsContent = _buildDetailsContent(
+      s: s,
+      job: job,
+      isDark: isDark,
+      isNyxian: isNyxian,
+      status: status,
+      hasTracker: hasTracker,
+      isAuthorizedExecution: isAuthorizedExecution,
+      isNotOpen: isNotOpen,
+      cardCls: cardCls,
+      currentStep: currentStep,
+      acceptedId: acceptedId,
+      creatorId: creatorId,
+      isEmployer: isEmployer,
+      hasApplied: hasApplied,
+      hasReported: hasReported,
+    );
+
+    final modals = _buildModals(s: s, isDark: isDark);
+
+    if (showFullTrackedNav) {
+      return div(classes: 'relative w-full h-full flex flex-col', [
+        // 1. Full View Navigation Map
+        NavigationMapComponent(state: s, isNyxian: isNyxian),
+
+        // 2. Order Details Drawer / Modal overlay when user taps "Order Details" in navigation
+        if (s.showJobOrderDetails)
+          div(
+            classes:
+                'fixed inset-0 z-[300] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
+            [
+              div(
+                classes:
+                    'w-full max-w-2xl max-h-[90vh] sm:max-h-[85vh] rounded-t-[2.5rem] sm:rounded-3xl border shadow-2xl overflow-hidden flex flex-col '
+                    '${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-900"}',
+                [
+                  // Modal Header
+                  div(
+                    classes:
+                        'p-5 border-b flex items-center justify-between ${isDark ? "border-zinc-800 bg-zinc-900/90" : "border-zinc-100 bg-zinc-50"}',
+                    [
+                      div(classes: 'flex items-center gap-3', [
+                        div(
+                          classes: 'p-2.5 rounded-2xl bg-indigo-500/10 text-indigo-400',
+                          [lIcon('file-text', cls: 'w-5 h-5')],
+                        ),
+                        div([
+                          h3(classes: 'font-black text-lg leading-tight', [Component.text('Order Details')]),
+                          p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                            Component.text(job.title),
+                          ]),
+                        ]),
+                      ]),
+                      button(
+                        classes:
+                            'p-2 rounded-xl border transition-colors cursor-pointer ${isDark ? "border-zinc-800 hover:bg-zinc-800 text-zinc-400" : "border-zinc-200 hover:bg-zinc-100 text-zinc-600"}',
+                        events: {'click': (_) => s.setState(() => s.showJobOrderDetails = false)},
+                        [lIcon('x', cls: 'w-5 h-5')],
+                      ),
+                    ],
+                  ),
+
+                  // Scrollable Details Body
+                  div(
+                    classes: 'flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 no-scrollbar',
+                    detailsContent,
+                  ),
+
+                  // Modal Footer
+                  div(
+                    classes:
+                        'p-4 border-t ${isDark ? "border-zinc-800 bg-zinc-900/90" : "border-zinc-100 bg-zinc-50"}',
+                    [
+                      button(
+                        classes:
+                            'w-full py-3.5 rounded-2xl font-bold text-sm bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 transition-all cursor-pointer',
+                        events: {'click': (_) => s.setState(() => s.showJobOrderDetails = false)},
+                        [
+                          lIcon('navigation', cls: 'w-4 h-4'),
+                          Component.text('Return to Live Navigation Map'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+        ...modals,
+      ]);
+    }
 
     return div(classes: 'space-y-6 animate-fade-up', [
       subViewHeader(
@@ -1047,7 +1141,29 @@ class _JobDetails extends StatelessComponent {
         isDark: isDark,
         onBack: () => s.exitJobDetails(),
       ),
+      ...detailsContent,
+      ...modals,
+    ]);
+  }
 
+  List<Component> _buildDetailsContent({
+    required TranyxAppState s,
+    required SelectedJob job,
+    required bool isDark,
+    required bool isNyxian,
+    required String status,
+    required bool hasTracker,
+    required bool isAuthorizedExecution,
+    required bool isNotOpen,
+    required String cardCls,
+    required int currentStep,
+    required String? acceptedId,
+    required String? creatorId,
+    required bool isEmployer,
+    required bool hasApplied,
+    required bool hasReported,
+  }) {
+    return [
       if (isAuthorizedExecution && isNotOpen)
         _jobStepper(currentStep, isDark),
 
@@ -1435,33 +1551,63 @@ class _JobDetails extends StatelessComponent {
                 ]);
               } else if (isOngoingStatus && hasTracker) {
                 // DELIVERY JOB: Step 1 (In Progress -> Arrived at First Point)
-                // Blueprint: from in_progress, Nyxian taps "Arrived at First Point" directly
                 final firstPointLabel =
                     s.selectedJobData?['routing']?['firstPoint']?['label'] as String? ??
                     s.selectedJobData?['pickupAddress'] as String? ??
                     'First Point';
+
+                final pickupLat = (s.selectedJobData?['pickupLat'] as num?)?.toDouble();
+                final pickupLng = (s.selectedJobData?['pickupLng'] as num?)?.toDouble();
+                final courierLat = (s.selectedJobData?['nyxianLat'] as num?)?.toDouble() ?? s.userLatitude;
+                final courierLng = (s.selectedJobData?['nyxianLng'] as num?)?.toDouble() ?? s.userLongitude;
+
+                final double distKm = (pickupLat != null && pickupLng != null)
+                    ? calculateDistance(courierLat, courierLng, pickupLat, pickupLng)
+                    : 0.0;
+                final double distMeters = distKm * 1000.0;
+                // Considered near if within 100 meters of pickup point
+                final bool isNearFirstPoint = pickupLat == null || distMeters <= 100.0;
+                final String distText = distMeters < 1000
+                    ? '${distMeters.round()}m'
+                    : '${(distMeters / 1000).toStringAsFixed(1)}km';
+
                 return div(classes: 'space-y-3', [
                   div(
-                    classes: 'p-4 rounded-2xl border border-blue-500/30 bg-blue-500/10 flex items-center gap-3',
+                    classes: isNearFirstPoint
+                        ? 'p-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 flex items-center gap-3'
+                        : 'p-4 rounded-2xl border border-blue-500/30 bg-blue-500/10 flex items-center gap-3',
                     [
-                      lIcon('map-pin', cls: 'w-5 h-5 text-blue-400'),
+                      lIcon(isNearFirstPoint ? 'check-circle' : 'map-pin',
+                          cls: isNearFirstPoint ? 'w-5 h-5 text-emerald-400' : 'w-5 h-5 text-blue-400'),
                       div([
-                        p(classes: 'font-bold text-blue-400 text-sm', [Component.text('Delivery In Progress')]),
+                        p(classes: isNearFirstPoint ? 'font-bold text-emerald-400 text-sm' : 'font-bold text-blue-400 text-sm', [
+                          Component.text(isNearFirstPoint ? 'You have reached the pickup point!' : 'Delivery In Progress'),
+                        ]),
                         p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-                          Component.text('Tap below when you arrive at the pickup point: $firstPointLabel'),
+                          Component.text(isNearFirstPoint
+                              ? 'You are nearby. Tap below to confirm or wait for auto-confirmation.'
+                              : 'Head to $firstPointLabel ($distText away). Button enables within 100m.'),
                         ]),
                       ]),
                     ],
                   ),
                   div(classes: 'flex gap-3', [
                     button(
-                      classes:
-                          'w-full py-4 rounded-2xl font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors flex items-center justify-center gap-2',
-                      events: {'click': (_) => s.handleUpdateNyxianSubStatus('arrived_pickup')},
+                      classes: isNearFirstPoint
+                          ? 'w-full py-4 rounded-2xl font-semibold text-white bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-500/25 transition-all hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2'
+                          : 'w-full py-4 rounded-2xl font-semibold text-zinc-400 bg-zinc-800/40 border border-zinc-700/40 cursor-not-allowed flex items-center justify-center gap-2 opacity-60',
+                      attributes: (!isNearFirstPoint || s.isUpdatingSubStatus) ? {'disabled': 'true'} : {},
+                      events: (!isNearFirstPoint || s.isUpdatingSubStatus)
+                          ? {}
+                          : {'click': (_) => s.handleUpdateNyxianSubStatus('arrived_pickup')},
                       [
                         if (s.isUpdatingSubStatus) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-                        lIcon('map-pin', cls: 'w-5 h-5'),
-                        Component.text(s.isUpdatingSubStatus ? 'Updating...' : 'Arrived at First Point'),
+                        lIcon(isNearFirstPoint ? 'map-pin' : 'navigation', cls: 'w-5 h-5'),
+                        Component.text(s.isUpdatingSubStatus
+                            ? 'Updating...'
+                            : (isNearFirstPoint
+                                ? 'Arrived at First Point'
+                                : 'Arrived at First Point ($distText away)')),
                       ],
                     ),
                   ]),
@@ -1999,7 +2145,7 @@ class _JobDetails extends StatelessComponent {
 
       // QR Completion Scanner / Code Modal
       if (s.showCompletionScanner)
-        div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
+        div(classes: 'fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
           div(
             classes:
                 'w-full max-w-md p-6 rounded-3xl ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"} shadow-2xl animate-fade-up flex flex-col gap-5',
@@ -2139,7 +2285,7 @@ class _JobDetails extends StatelessComponent {
 
       // Display Generated Code
       if (s.generatedCompletionCode != null)
-        div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
+        div(classes: 'fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
           div(
             classes:
                 'w-full max-w-md p-8 rounded-[2.5rem] ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"} shadow-2xl animate-fade-up flex flex-col items-center gap-6',
@@ -2214,9 +2360,16 @@ class _JobDetails extends StatelessComponent {
             ],
           ),
         ]),
+    ];
+  }
 
+  List<Component> _buildModals({
+    required TranyxAppState s,
+    required bool isDark,
+  }) {
+    return [
       if (s.showReportModal)
-        div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
+        div(classes: 'fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
           div(
             classes:
                 'w-full max-w-md p-6 rounded-3xl ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"} shadow-2xl animate-fade-up',
@@ -2262,7 +2415,7 @@ class _JobDetails extends StatelessComponent {
         ]),
 
       if (s.showEmployerFeePopup)
-        div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
+        div(classes: 'fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
           div(
             classes:
                 'w-full max-w-md p-8 rounded-[2.5rem] ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"} shadow-2xl animate-fade-up flex flex-col items-center gap-6',
@@ -2345,7 +2498,7 @@ class _JobDetails extends StatelessComponent {
         ]),
 
       if (s.showAuthenticityModal)
-        div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
+        div(classes: 'fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
           div(
             classes:
                 'w-full max-w-md p-6 rounded-3xl ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"} shadow-2xl animate-fade-up flex flex-col',
@@ -2381,10 +2534,7 @@ class _JobDetails extends StatelessComponent {
             ],
           ),
         ]),
-
-      if (isAuthorizedExecution && isNotOpen && (s.selectedJobData?['pickupLat'] != null) && (s.selectedJobData?['destinationLat'] != null))
-        NavigationMapComponent(state: s, isNyxian: isNyxian),
-    ]);
+    ];
   }
 
   Component _qaSection(TranyxAppState s, bool isDark) {
@@ -2745,7 +2895,7 @@ class _CreateJob extends StatelessComponent {
       ]),
 
       if (s.showAIDraftModal)
-        div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
+        div(classes: 'fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
           div(
             classes:
                 'w-full max-w-lg p-6 rounded-3xl ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"} shadow-2xl animate-fade-up flex flex-col gap-4',
@@ -3478,8 +3628,6 @@ class _ReviewApplicants extends StatelessComponent {
             ]),
           ]),
       ],
-      if ((job?['pickupLat'] != null) && (job?['destinationLat'] != null))
-        NavigationMapComponent(state: s, isNyxian: false),
     ]);
   }
 }

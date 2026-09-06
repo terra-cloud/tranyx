@@ -624,6 +624,14 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
   }
 
   @override
+  void didUpdateComponent(BookVehicleModalComponent oldWidget) {
+    super.didUpdateComponent(oldWidget);
+    if (oldWidget.appState.isDark != component.appState.isDark && _deliveryMapReady) {
+      setMapTheme(_deliveryMapId, isDark: component.appState.isDark);
+    }
+  }
+
+  @override
   Component build(BuildContext context) {
     if (!component.appState.showBookVehicleModal || component.appState.selectedRentalData == null) {
       return div([]);
