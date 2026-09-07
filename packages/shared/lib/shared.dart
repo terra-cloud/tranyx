@@ -9,4 +9,15 @@ export 'src/reward_service.dart';
 export 'src/profanity.dart';
 export 'src/nyx_domain_knowledge.dart';
 export 'src/message_policy.dart';
-
+export 'src/ai_service.dart';
+export 'src/faq_data.dart';
+export 'src/wallet_transaction.dart';
+export 'src/deposit_request.dart';
+export 'src/smart_rate_engine.dart';
+export 'src/gig_filter_engine.dart';
+export 'src/p2p_agent.dart';
+export 'src/platform_fee_config.dart';
+export 'src/property_pricing_model.dart';
+export 'src/withdrawal_request.dart';
+export 'src/date_utils.dart';
+export 'src/booking_availability.dart';

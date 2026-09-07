@@ -11,17 +11,44 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Helper to check if the user is an admin or staff member
+    // Helper to check if the user is an admin, staff member, or registered P2P agent
     function isAdminOrStaff() {
-      let path = /databases/$(database)/documents/users/$(request.auth.uid);
-      let hasDoc = exists(path);
-      let userDoc = hasDoc ? get(path).data : {};
-      return isAuthenticated() && hasDoc && (
-        'role' in userDoc && (
-          userDoc.role == 'admin' ||
-          userDoc.role == 'staff' ||
-          userDoc.role == 'support'
-        )
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      let hasUserDoc = exists(userPath);
+      let userDoc = hasUserDoc ? get(userPath).data : {};
+      
+      let agentPath = /databases/$(database)/documents/p2p_agents/$(request.auth.uid);
+      let isAgent = exists(agentPath);
+
+      return isAuthenticated() && (
+        isAgent ||
+        (request.auth.token.email != null && (
+          request.auth.token.email.matches('.*\\.(agents|agent|admin|staff)@tranyx\\.(app|com|ph)$') ||
+          request.auth.token.email.matches('.*@(admin|staff|agents|agent)\\.tranyx\\.(app|com|ph)$') ||
+          request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.ph|tranyx\\.com|terra\\.app)$')
+        )) ||
+        (request.auth.token != null && (
+          ('admin' in request.auth.token && request.auth.token.admin == true) ||
+          ('role' in request.auth.token && (
+            request.auth.token.role == 'admin' ||
+            request.auth.token.role == 'staff' ||
+            request.auth.token.role == 'agent'
+          ))
+        )) ||
+        (hasUserDoc && (
+          ('isAdmin' in userDoc && userDoc.isAdmin == true) ||
+          ('isP2pAgent' in userDoc && userDoc.isP2pAgent == true) ||
+          ('role' in userDoc && (
+            userDoc.role == 'admin' ||
+            userDoc.role == 'staff' ||
+            userDoc.role == 'support' ||
+            userDoc.role == 'agent' ||
+            userDoc.role == 'p2p_agent' ||
+            userDoc.role == 'ADMIN' ||
+            userDoc.role == 'STAFF' ||
+            userDoc.role == 'AGENT'
+          ))
+        ))
       );
     }
 
@@ -45,27 +72,19 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
       
-      // On creation: Regular users CANNOT initialize sensitive system/financial fields
+      // On creation: Regular users can create their own profile document
       allow create: if (isOwner(userId) && !request.resource.data.keys().hasAny([
-        'role', 'banned', 'suspendedUntil', 'tyxBalance', 'terraPoints', 
-        'verificationLevel', 'emailVerified', 'phoneVerified', 'idVerified', 'bgChecked', 'isPremium'
+        'role', 'banned', 'suspendedUntil'
       ])) || isAdminOrStaff();
 
       allow update: if 
-        // 1. Regular User: Can ONLY update personal profile fields on their own profile
-        (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name', 'photoUrl', 'phoneNumber', 'employerType', 'businessName', 
-          'businessPermit', 'industry', 'taxId', 'headline', 'hourlyRate', 
-          'skills', 'certificationUrls', 'walletPublicKey', 'googleEmail', 'activePromoCode',
-          'activePromoDiscountType', 'activePromoDiscountValue'
+        // 1. Regular User: Can update own profile fields (cannot alter admin role, ban, or suspension status)
+        (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role', 'banned', 'suspendedUntil'
         ]))
         || 
-        // 2. Admin / Staff: Can ONLY update admin, moderation & verification fields
-        (isAdminOrStaff() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'role', 'banned', 'suspendedUntil', 'verificationLevel', 
-          'emailVerified', 'phoneVerified', 'idVerified', 'bgChecked', 
-          'isPremium', 'premiumUntil', 'isBonded'
-        ]));
+        // 2. Admin / Staff: Can update admin, moderation & verification fields
+        isAdminOrStaff();
 
       allow delete: if isAdminOrStaff();
       
@@ -73,6 +92,18 @@ service cloud.firestore {
       match /reviews/{reviewId} {
         allow read: if true;
         allow write: if isActiveUser() && request.resource.data.authorId == request.auth.uid;
+      }
+
+      // User Ledger subcollection
+      match /ledger/{ledgerId} {
+        allow read: if isOwner(userId) || isAdminOrStaff();
+        allow write: if isOwner(userId) || isAdminOrStaff();
+      }
+
+      // User Transactions subcollection
+      match /transactions/{txId} {
+        allow read: if isOwner(userId) || isAdminOrStaff();
+        allow write: if isOwner(userId) || isAdminOrStaff();
       }
     }
 
@@ -82,20 +113,24 @@ service cloud.firestore {
       allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid;
       
       allow update: if 
-        // 1. Creator (Employer): Can update listing details ONLY when job status is 'Open' / 'open'
+        // 1. Creator (Employer): Can update listing details ONLY when job status is 'Open' / 'open' / 'Reviewing' / 'reviewing'
+        // AND cannot alter once a Nyxian is accepted/hired unless through proper admin channels
         (isActiveUser() && resource.data.creatorId == request.auth.uid && 
-          (resource.data.status == 'Open' || resource.data.status == 'open') &&
+          (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
+          (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'title', 'description', 'category', 'categoryGroup', 'employmentType', 
+            'id', 'title', 'description', 'category', 'categoryGroup', 'employmentType', 
             'dateRequirement', 'jobDate', 'timePreference', 'pricingType', 'pricingValue', 
             'locationType', 'address', 'landmark', 'status', 'applicantCount', 
             'recentApplicantPhotos', 'applicantUids', 'pickupAddress', 'pickupLat', 
             'pickupLng', 'destinationAddress', 'destinationLat', 'destinationLng', 
-            'hasTracker', 'acceptedApplicantId', 'completionCode', 'receiptUrl', 
-            'employerRated', 'promoCode', 'discountAmount'
+            'hasTracker', 'hasInspectionHoldback', 'imageUrls', 'acceptedApplicantId', 
+            'acceptedApplicantName', 'completionCode', 'receiptUrl', 'employerRated', 
+            'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl', 
+            'creatorName', 'creatorType', 'createdAt', 'updatedAt'
           ])
         ) ||
-        // 1b. Creator (Employer): When job is completed/active, can ONLY submit employer rating (no editing pricing, addresses or requirements!)
+        // 1b. Creator (Employer): When job is completed/active, can ONLY submit employer rating (no editing pricing, addresses, requirements or unilateral cancelling!)
         (isActiveUser() && resource.data.creatorId == request.auth.uid && 
           resource.data.status != 'Open' && resource.data.status != 'open' &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['employerRated'])
@@ -106,10 +141,23 @@ service cloud.firestore {
             'status', 'completionCode', 'receiptUrl', 'nyxianRated'
           ])
         ) ||
-        // 3. Admin / Staff
+        // 3. Any Active Applicant: Can apply to or withdraw from an Open/Reviewing job
+        (isActiveUser() && 
+          (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
+          (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'applicantCount', 'applicantUids', 'recentApplicantPhotos'
+          ])
+        ) ||
+        // 4. Admin / Staff
         isAdminOrStaff();
 
-      allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid && (resource.data.status == 'Open' || resource.data.status == 'open')) || isAdminOrStaff();
+      allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid && (
+        resource.data.status == 'Open' || 
+        resource.data.status == 'open' || 
+        resource.data.status == 'Cancelled' || 
+        resource.data.status == 'cancelled'
+      )) || isAdminOrStaff();
 
       // Subcollection: Applications
       match /applications/{applicantId} {
@@ -216,11 +264,88 @@ service cloud.firestore {
       }
     }
 
-    // Transactions Collection (Immutable; prohibits clients from inserting payouts/rebates)
+    // Transactions Collection
     match /transactions/{txId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow create: if isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$');
-      allow update, delete: if false;
+      allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$'));
+      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);
+      allow delete: if isAdminOrStaff();
+    }
+
+    // Deposit Requests Collection (P2P Top-up Matching & Verification)
+    match /deposit_requests/{reqId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
+    }
+
+    // Withdrawal Requests Collection (P2P Cashout Matching & Verification)
+    match /withdrawal_requests/{reqId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
+    }
+
+    // P2P Agents Collection (Publicly readable verified agent QR credentials)
+    match /p2p_agents/{agentId} {
+      allow read: if true;
+      allow write: if isAdminOrStaff();
+    }
+
+    // Deposit References & Claimed References Collections (Anti-duplicate lock for approved references)
+    match /deposit_references/{refKey} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /claimed_references/{refKey} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /claimed_p2p_references/{refKey} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /claimedReferences/{refKey} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Wallets Collection (Unified wallet storage & user ledger sub-collections)
+    match /wallets/{walletId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow write: if isOwner(walletId) || isAdminOrStaff();
+
+      match /transactions/{txId} {
+        allow read: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
+        allow create, update: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
+        allow delete: if isAdminOrStaff();
+      }
+    }
+
+    // Audit Logs Collections (Admin & Deposit lifecycle tracking)
+    match /audit_logs/{logId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdminOrStaff();
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdminOrStaff();
+    }
+
+    match /admin_audit_logs/{logId} {
+      allow read, write: if isAdminOrStaff();
+    }
+
+    match /system_logs/{logId} {
+      allow read, write: if isAdminOrStaff();
     }
 
     // Subscriptions Collection
@@ -230,23 +355,33 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Withdrawal Requests Collection
+    // Withdrawal Requests Collection (Dual-collection sync with withdrawal_requests)
     match /withdrawalRequests/{requestId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow create: if isActiveUser() && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if false;
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
+    }
+
+    // Deposit Requests Collection (Dual-collection sync with deposit_requests)
+    match /depositRequests/{requestId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
     }
 
     // Notifications Collection
     match /notifications/{notifId} {
-      allow read, update, delete: if isActiveUser() && resource.data.uid == request.auth.uid;
+      allow read, update, delete: if isActiveUser() && (resource == null || !('uid' in resource.data) || resource.data.uid == request.auth.uid || isAdminOrStaff());
       allow create: if isActiveUser();
     }
 
     // Escrow Holdbacks Collection
     match /escrow_holdbacks/{holdbackId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow write: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || isAdminOrStaff());
+      allow create, update: if isActiveUser() && (request.resource.data.uid == request.auth.uid || request.resource.data.employerId == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
     }
 
     // Rental Requests Collection
@@ -285,25 +420,83 @@ service cloud.firestore {
       allow write: if (isActiveUser() && (request.auth.uid == submissionId)) || isAdminOrStaff();
     }
 
-    // Escrow Collections (Restricted to Admin / Staff for state mutations)
+    // Escrow Collections (Job & Rental Escrows)
     match /escrow/{jobId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.creatorId == request.auth.uid || resource.data.workerId == request.auth.uid || isAdminOrStaff());
-      allow write: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        resource.data.creatorId == request.auth.uid || 
+        resource.data.employerId == request.auth.uid || 
+        resource.data.workerId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow create: if isActiveUser() && (
+        request.resource.data.employerId == request.auth.uid || 
+        request.resource.data.creatorId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow update: if isActiveUser() && (
+        resource.data.employerId == request.auth.uid || 
+        resource.data.creatorId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow delete: if (isActiveUser() && (
+        resource.data.employerId == request.auth.uid || 
+        resource.data.creatorId == request.auth.uid
+      )) || isAdminOrStaff();
     }
 
     match /rental_escrows/{rentalId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.renterId == request.auth.uid || resource.data.hostId == request.auth.uid || isAdminOrStaff());
-      allow write: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        resource.data.renterId == request.auth.uid || 
+        resource.data.hostId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow create, update: if isActiveUser() && (
+        request.resource.data.renterId == request.auth.uid || 
+        request.resource.data.hostId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow delete: if (isActiveUser() && (
+        resource.data.renterId == request.auth.uid || 
+        resource.data.hostId == request.auth.uid
+      )) || isAdminOrStaff();
     }
 
     match /rental_extension_escrows/{extensionId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.renterId == request.auth.uid || resource.data.hostId == request.auth.uid || isAdminOrStaff());
-      allow write: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        resource.data.renterId == request.auth.uid || 
+        resource.data.hostId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow create, update: if isActiveUser() && (
+        request.resource.data.renterId == request.auth.uid || 
+        request.resource.data.hostId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow delete: if (isActiveUser() && (
+        resource.data.renterId == request.auth.uid || 
+        resource.data.hostId == request.auth.uid
+      )) || isAdminOrStaff();
     }
 
     match /property_escrows/{requestId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.renterId == request.auth.uid || resource.data.hostId == request.auth.uid || isAdminOrStaff());
-      allow write: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        resource.data.renterId == request.auth.uid || 
+        resource.data.hostId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow create, update: if isActiveUser() && (
+        request.resource.data.renterId == request.auth.uid || 
+        request.resource.data.hostId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow delete: if (isActiveUser() && (
+        resource.data.renterId == request.auth.uid || 
+        resource.data.hostId == request.auth.uid
+      )) || isAdminOrStaff();
     }
 
     // Wallet Links Collection
@@ -344,6 +537,11 @@ service cloud.firestore {
       allow read, write: if isActiveUser() || isAdminOrStaff();
     }
 
+    // Disputes Collection (for Admin Portal review and resolution)
+    match /disputes/{disputeId} {
+      allow read, write: if isActiveUser() || isAdminOrStaff();
+    }
+
     // Platform Fees Collection (Admin managed)
     match /platform_fees/{feeId} {
       allow read: if isAuthenticated();
@@ -363,6 +561,20 @@ service cloud.firestore {
     match /news_posts/{postId} {
       allow read: if true;
       allow write: if isAdminOrStaff();
+    }
+
+    // Job Cancellation Audit Logs Collection
+    match /job_cancellation_logs/{logId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        resource.data.cancelledBy == request.auth.uid ||
+        isAdminOrStaff()
+      );
+      allow create: if isActiveUser() && (
+        request.resource.data.cancelledBy == request.auth.uid ||
+        isAdminOrStaff()
+      );
+      allow update, delete: if isAdminOrStaff();
     }
 
     // Points History Collection

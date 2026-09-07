@@ -3,13 +3,14 @@ void initRandomMetaballs(String containerId) {}
 
 class SessionStorage {
   static void save(dynamic auth) {}
-  static void saveProfile({String? name, String? email, String? accountType}) {}
+  static void saveProfile({String? name, String? email, String? accountType, String? photoUrl}) {}
   static String? get uid => null;
   static String? get idToken => null;
   static String? get refreshToken => null;
   static String? get displayName => null;
   static String? get email => null;
   static String? get accountType => null;
+  static String? get photoUrl => null;
   static bool get hasSession => false;
   static void clear() {}
   static void updateIdToken(String token) {}
@@ -19,10 +20,6 @@ class SessionStorage {
   static String? get pendingQrCode => null;
   static set pendingQrCode(String? val) {}
 
-  static String? get pendingXenditInvoiceId => null;
-  static set pendingXenditInvoiceId(String? val) {}
-  static double get pendingXenditInvoiceAmount => 0.0;
-  static set pendingXenditInvoiceAmount(double val) {}
   static Map<String, dynamic>? get pendingPropertyBookingData => null;
   static set pendingPropertyBookingData(Map<String, dynamic>? val) {}
   static Map<String, dynamic>? get pendingVehicleBookingData => null;
@@ -70,6 +67,17 @@ Future<String?> sendSolanaPayment(String fromAddress, String toAddress, double a
 
 Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amountInUsdt, {String? usdtMint}) async => null;
 Future<String?> signSolanaMessage(String fromAddress, String message) async => null;
+Future<String?> broadcastTreasuryTransfer({
+  required String treasuryPrivKeyBase58,
+  required String recipientPubkey,
+  required int lamports,
+}) async => null;
+Future<String?> broadcastTreasuryTokenTransfer({
+  required String treasuryPrivKeyBase58,
+  required String recipientPubkey,
+  required double amountInUsdt,
+  String? usdtMint,
+}) async => null;
 
 Future<String?> signInWithGoogleJs(Map<String, String> config) async => null;
 Future<String?> linkGoogleAccountJs(Map<String, String> config) async => null;

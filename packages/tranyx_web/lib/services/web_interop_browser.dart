@@ -234,7 +234,7 @@ Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey)
     final respLegacy = await web.window.fetch(rpc.toJS, optsLegacy).toDart;
     final jsonLegacy = await respLegacy.json().toDart;
     final jsonStrLegacy = _jsStringify(jsonLegacy).toDart;
-    final decodedLegacy = jsonDecode(jsonStrLegacy) as Map<String, dynamic>;
+    final decodedLegacy = jsonDecode(jsonStrLegacy) as Map;
 
     // 2. Token-2022 accounts
     final body2022 = jsonEncode({
@@ -251,29 +251,29 @@ Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey)
     final resp2022 = await web.window.fetch(rpc.toJS, opts2022).toDart;
     final json2022 = await resp2022.json().toDart;
     final jsonStr2022 = _jsStringify(json2022).toDart;
-    final decoded2022 = jsonDecode(jsonStr2022) as Map<String, dynamic>;
+    final decoded2022 = jsonDecode(jsonStr2022) as Map;
 
     final parsedTokens = <Map<String, dynamic>>[];
 
-    void parseAndAdd(Map<String, dynamic> decoded) {
-      final result = decoded['result'] as Map<String, dynamic>?;
+    void parseAndAdd(Map decoded) {
+      final result = decoded['result'] as Map?;
       if (result == null) return;
       final value = result['value'] as List<dynamic>?;
       if (value == null) return;
 
       for (final item in value) {
-        if (item is Map<String, dynamic>) {
-          final account = item['account'] as Map<String, dynamic>?;
+        if (item is Map) {
+          final account = item['account'] as Map?;
           if (account == null) continue;
-          final data = account['data'] as Map<String, dynamic>?;
+          final data = account['data'] as Map?;
           if (data == null) continue;
-          final parsed = data['parsed'] as Map<String, dynamic>?;
+          final parsed = data['parsed'] as Map?;
           if (parsed == null) continue;
-          final info = parsed['info'] as Map<String, dynamic>?;
+          final info = parsed['info'] as Map?;
           if (info == null) continue;
           
           final mint = info['mint'] as String? ?? '';
-          final tokenAmount = info['tokenAmount'] as Map<String, dynamic>?;
+          final tokenAmount = info['tokenAmount'] as Map?;
           if (tokenAmount == null) continue;
           
           final amountStr = tokenAmount['uiAmountString'] as String? ?? '0';
@@ -308,7 +308,7 @@ Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey)
         final res = await promise.toDart;
         if (res != null) {
           final resStr = (res as JSString).toDart;
-          final meta = jsonDecode(resStr) as Map<String, dynamic>;
+          final meta = jsonDecode(resStr) as Map;
           symbol = meta['symbol'] as String?;
           name = meta['name'] as String?;
         }
@@ -402,7 +402,7 @@ Future<double?> getEthereumBalance(String address) async {
     final resp = await web.window.fetch(rpc.toJS, opts).toDart;
     final json = await resp.json().toDart;
     final jsonStr = _jsStringify(json).toDart;
-    final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
+    final decoded = jsonDecode(jsonStr) as Map;
     final result = decoded['result'] as String?;
     if (result == null) return 0.0;
     final cleanHex = result.startsWith('0x') ? result.substring(2) : result;
@@ -428,8 +428,8 @@ Future<double?> getSuiBalance(String address) async {
     final resp = await web.window.fetch(rpc.toJS, opts).toDart;
     final json = await resp.json().toDart;
     final jsonStr = _jsStringify(json).toDart;
-    final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
-    final result = decoded['result'] as Map<String, dynamic>?;
+    final decoded = jsonDecode(jsonStr) as Map;
+    final result = decoded['result'] as Map?;
     if (result == null) return 0.0;
     final totalBalance = result['totalBalance'] as String?;
     if (totalBalance == null) return 0.0;
@@ -511,6 +511,57 @@ Future<String?> signSolanaMessage(String fromAddress, String message) async {
   }
 }
 
+Future<String?> broadcastTreasuryTransfer({
+  required String treasuryPrivKeyBase58,
+  required String recipientPubkey,
+  required int lamports,
+}) async {
+  try {
+    final rpcUrl = getSolanaRpcUrl();
+    final promise = web.window.callMethodVarArgs(
+      'broadcastTreasuryTransfer'.toJS,
+      [
+        treasuryPrivKeyBase58.toJS,
+        recipientPubkey.toJS,
+        lamports.toJS,
+        rpcUrl.toJS,
+      ],
+    ) as JSPromise;
+    final res = await promise.toDart;
+    return (res as JSString).toDart;
+  } catch (e) {
+    print("broadcastTreasuryTransfer exception: $e");
+    rethrow;
+  }
+}
+
+Future<String?> broadcastTreasuryTokenTransfer({
+  required String treasuryPrivKeyBase58,
+  required String recipientPubkey,
+  required double amountInUsdt,
+  String? usdtMint,
+}) async {
+  try {
+    final rpcUrl = getSolanaRpcUrl();
+    final mint = usdtMint ?? getUsdtMintAddress();
+    final promise = web.window.callMethodVarArgs(
+      'broadcastTreasuryTokenTransfer'.toJS,
+      [
+        treasuryPrivKeyBase58.toJS,
+        recipientPubkey.toJS,
+        amountInUsdt.toJS,
+        rpcUrl.toJS,
+        mint.toJS,
+      ],
+    ) as JSPromise;
+    final res = await promise.toDart;
+    return (res as JSString).toDart;
+  } catch (e) {
+    print("broadcastTreasuryTokenTransfer exception: $e");
+    rethrow;
+  }
+}
+
 // ── Session Storage ───────────────────────────────────────────────────────────
 
 class SessionStorage {
@@ -520,11 +571,10 @@ class SessionStorage {
   static const _nam = 'tranyx_name';
   static const _eml = 'tranyx_email';
   static const _act = 'tranyx_account_type';
+  static const _pho = 'tranyx_photo_url';
   static const _qrJobId = 'tranyx_pending_qr_job_id';
   static const _qrCode = 'tranyx_pending_qr_code';
 
-  static const _xenditInvoiceId = 'tranyx_pending_xendit_invoice_id';
-  static const _xenditInvoiceAmount = 'tranyx_pending_xendit_invoice_amount';
   static const _pendingPropertyBooking = 'tranyx_pending_property_booking';
   static const _pendingVehicleBooking = 'tranyx_pending_vehicle_booking';
   static const _pendingJobId = 'tranyx_pending_job_id';
@@ -534,16 +584,31 @@ class SessionStorage {
   static void save(dynamic auth) {
     web.window.localStorage.setItem(_uid, auth.uid as String);
     web.window.localStorage.setItem(_tok, auth.idToken as String);
-    // refreshToken is handled securely by Firebase Auth persistence, not stored in raw localStorage
-    web.window.localStorage.removeItem(_ref);
-    if (auth.displayName != null) web.window.localStorage.setItem(_nam, auth.displayName as String);
-    if (auth.email != null) web.window.localStorage.setItem(_eml, auth.email as String);
+    if (auth.refreshToken != null && (auth.refreshToken as String).isNotEmpty) {
+      web.window.localStorage.setItem(_ref, auth.refreshToken as String);
+    }
+    if (auth.displayName != null && (auth.displayName as String).isNotEmpty) {
+      web.window.localStorage.setItem(_nam, auth.displayName as String);
+    }
+    if (auth.email != null && (auth.email as String).isNotEmpty) {
+      web.window.localStorage.setItem(_eml, auth.email as String);
+    }
+    if (auth.photoUrl != null && (auth.photoUrl as String).isNotEmpty) {
+      web.window.localStorage.setItem(_pho, auth.photoUrl as String);
+    } else {
+      web.window.localStorage.removeItem(_pho);
+    }
   }
 
-  static void saveProfile({String? name, String? email, String? accountType}) {
+  static void saveProfile({String? name, String? email, String? accountType, String? photoUrl}) {
     if (name != null) web.window.localStorage.setItem(_nam, name);
     if (email != null) web.window.localStorage.setItem(_eml, email);
     if (accountType != null) web.window.localStorage.setItem(_act, accountType);
+    if (photoUrl != null && photoUrl.isNotEmpty) {
+      web.window.localStorage.setItem(_pho, photoUrl);
+    } else {
+      web.window.localStorage.removeItem(_pho);
+    }
   }
 
   static String? get uid => web.window.localStorage.getItem(_uid);
@@ -552,6 +617,7 @@ class SessionStorage {
   static String? get displayName => web.window.localStorage.getItem(_nam);
   static String? get email => web.window.localStorage.getItem(_eml);
   static String? get accountType => web.window.localStorage.getItem(_act);
+  static String? get photoUrl => web.window.localStorage.getItem(_pho);
   static bool get hasSession => uid != null && idToken != null;
 
   static String? get pendingQrJobId => web.window.localStorage.getItem(_qrJobId);
@@ -572,29 +638,12 @@ class SessionStorage {
     }
   }
 
-  static String? get pendingXenditInvoiceId => web.window.localStorage.getItem(_xenditInvoiceId);
-  static set pendingXenditInvoiceId(String? val) {
-    if (val != null) {
-      web.window.localStorage.setItem(_xenditInvoiceId, val);
-    } else {
-      web.window.localStorage.removeItem(_xenditInvoiceId);
-    }
-  }
-
-  static double get pendingXenditInvoiceAmount {
-    final s = web.window.localStorage.getItem(_xenditInvoiceAmount);
-    return s != null ? (double.tryParse(s) ?? 0.0) : 0.0;
-  }
-
-  static set pendingXenditInvoiceAmount(double val) {
-    web.window.localStorage.setItem(_xenditInvoiceAmount, val.toString());
-  }
-
   static Map<String, dynamic>? get pendingPropertyBookingData {
     final s = web.window.localStorage.getItem(_pendingPropertyBooking);
     if (s == null) return null;
     try {
-      return jsonDecode(s) as Map<String, dynamic>;
+      final decoded = jsonDecode(s);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
     } catch (_) {
       return null;
     }
@@ -612,7 +661,8 @@ class SessionStorage {
     final s = web.window.localStorage.getItem(_pendingVehicleBooking);
     if (s == null) return null;
     try {
-      return jsonDecode(s) as Map<String, dynamic>;
+      final decoded = jsonDecode(s);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
     } catch (_) {
       return null;
     }
@@ -639,7 +689,8 @@ class SessionStorage {
     final s = web.window.localStorage.getItem(_pendingApplicantData);
     if (s == null) return null;
     try {
-      return jsonDecode(s) as Map<String, dynamic>;
+      final decoded = jsonDecode(s);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
     } catch (_) {
       return null;
     }
@@ -661,8 +712,7 @@ class SessionStorage {
       _nam,
       _eml,
       _act,
-      _xenditInvoiceId,
-      _xenditInvoiceAmount,
+      _pho,
       _pendingPropertyBooking,
       _pendingVehicleBooking,
       _pendingJobId,
@@ -697,37 +747,88 @@ class WebFile {
 }
 
 Future<List<WebFile>> readFilesFromEvent(dynamic event) async {
+  if (event == null) return [];
   try {
-    final e = event as web.Event;
-    final targetObj = e.target as JSObject?;
-    if (targetObj == null) return [];
-    if (!targetObj.hasProperty('files'.toJS).toDart) return [];
-    final filesObj = targetObj.getProperty<JSObject?>('files'.toJS);
-    if (filesObj == null) return [];
-    if (!filesObj.hasProperty('length'.toJS).toDart) return [];
-    final length = (filesObj.getProperty('length'.toJS) as JSNumber).toDartInt;
-    if (length == 0) return [];
-    final result = <WebFile>[];
-    for (var i = 0; i < length; i++) {
-      final fileObj = filesObj.callMethod<JSObject?>('item'.toJS, i.toJS);
-      if (fileObj == null) continue;
-      final name = (fileObj.getProperty('name'.toJS) as JSString).toDart;
-      final completer = Completer<Uint8List>();
-      final reader = web.FileReader();
-      reader.readAsArrayBuffer(fileObj as web.Blob);
-      reader.onLoadEnd.listen((_) {
-        try {
-          final jsBuffer = reader.result as JSArrayBuffer;
-          final jsUint8Array = JSUint8Array(jsBuffer);
-          completer.complete(jsUint8Array.toDart);
-        } catch (err) {
-          completer.completeError(err);
+    web.HTMLInputElement? inputEl;
+    final jsObj = event as JSAny?;
+    if (jsObj != null) {
+      if (jsObj.isA<web.HTMLInputElement>()) {
+        inputEl = jsObj as web.HTMLInputElement;
+      } else if (jsObj.isA<web.Event>()) {
+        final ev = jsObj as web.Event;
+        final target = ev.target;
+        if (target != null && target.isA<web.HTMLInputElement>()) {
+          inputEl = target as web.HTMLInputElement;
         }
-      });
-      result.add(WebFile(name, await completer.future));
+      }
     }
-    return result;
-  } catch (_) {
+
+    if (inputEl != null) {
+      final filesList = inputEl.files;
+      if (filesList != null && filesList.length > 0) {
+        final result = <WebFile>[];
+        for (var i = 0; i < filesList.length; i++) {
+          final file = filesList.item(i);
+          if (file == null) continue;
+          final name = file.name;
+          final completer = Completer<Uint8List>();
+          final reader = web.FileReader();
+          reader.readAsArrayBuffer(file);
+          reader.onLoadEnd.listen((_) {
+            try {
+              final jsBuffer = reader.result as JSArrayBuffer;
+              final jsUint8Array = JSUint8Array(jsBuffer);
+              completer.complete(jsUint8Array.toDart);
+            } catch (err) {
+              completer.completeError(err);
+            }
+          });
+          result.add(WebFile(name, await completer.future));
+        }
+        return result;
+      }
+    }
+
+    // Dynamic / JSObject fallback
+    dynamic target;
+    try {
+      target = (event as dynamic).target ?? event;
+    } catch (_) {
+      target = event;
+    }
+
+    final targetObj = target as JSObject?;
+    if (targetObj != null && targetObj.hasProperty('files'.toJS).toDart) {
+      final filesObj = targetObj.getProperty<JSObject?>('files'.toJS);
+      if (filesObj != null && filesObj.hasProperty('length'.toJS).toDart) {
+        final length = (filesObj.getProperty('length'.toJS) as JSNumber).toDartInt;
+        if (length > 0) {
+          final result = <WebFile>[];
+          for (var i = 0; i < length; i++) {
+            final fileObj = filesObj.callMethod<JSObject?>('item'.toJS, i.toJS);
+            if (fileObj == null) continue;
+            final name = (fileObj.getProperty('name'.toJS) as JSString).toDart;
+            final completer = Completer<Uint8List>();
+            final reader = web.FileReader();
+            reader.readAsArrayBuffer(fileObj as web.Blob);
+            reader.onLoadEnd.listen((_) {
+              try {
+                final jsBuffer = reader.result as JSArrayBuffer;
+                final jsUint8Array = JSUint8Array(jsBuffer);
+                completer.complete(jsUint8Array.toDart);
+              } catch (err) {
+                completer.completeError(err);
+              }
+            });
+            result.add(WebFile(name, await completer.future));
+          }
+          return result;
+        }
+      }
+    }
+    return [];
+  } catch (e) {
+    print('[readFilesFromEvent] error: $e');
     return [];
   }
 }
@@ -1048,17 +1149,32 @@ void clearUrlParams() {
 String getInputValue(dynamic target) {
   if (target == null) return '';
   try {
-    final jsObj = target as JSAny?;
-    if (jsObj != null && jsObj.isA<JSObject>()) {
-      final obj = jsObj as JSObject;
-      if (obj.hasProperty('value'.toJS).toDart) {
+    final jsAny = target as JSAny?;
+    if (jsAny != null) {
+      if (jsAny.isA<web.HTMLInputElement>()) {
+        return (jsAny as web.HTMLInputElement).value;
+      }
+      if (jsAny.isA<web.HTMLTextAreaElement>()) {
+        return (jsAny as web.HTMLTextAreaElement).value;
+      }
+      if (jsAny.isA<web.HTMLSelectElement>()) {
+        return (jsAny as web.HTMLSelectElement).value;
+      }
+      if (jsAny.isA<JSObject>()) {
+        final obj = jsAny as JSObject;
         final val = obj.getProperty('value'.toJS);
-        if (val.isA<JSString>()) {
-          return (val as JSString).toDart;
+        if (val != null && !val.isUndefinedOrNull) {
+          if (val.isA<JSString>()) {
+            return (val as JSString).toDart;
+          }
+          return val.toString();
         }
-        return val.toString();
       }
     }
+  } catch (_) {}
+  try {
+    final v = (target as dynamic).value;
+    if (v != null) return v.toString();
   } catch (_) {}
   return '';
 }
@@ -1066,26 +1182,51 @@ String getInputValue(dynamic target) {
 void setInputValue(dynamic target, String value) {
   if (target == null) return;
   try {
-    final jsObj = target as JSAny?;
-    if (jsObj != null && jsObj.isA<JSObject>()) {
-      (jsObj as JSObject).setProperty('value'.toJS, value.toJS);
+    final jsAny = target as JSAny?;
+    if (jsAny != null) {
+      if (jsAny.isA<web.HTMLInputElement>()) {
+        (jsAny as web.HTMLInputElement).value = value;
+        return;
+      }
+      if (jsAny.isA<web.HTMLTextAreaElement>()) {
+        (jsAny as web.HTMLTextAreaElement).value = value;
+        return;
+      }
+      if (jsAny.isA<web.HTMLSelectElement>()) {
+        (jsAny as web.HTMLSelectElement).value = value;
+        return;
+      }
+      if (jsAny.isA<JSObject>()) {
+        (jsAny as JSObject).setProperty('value'.toJS, value.toJS);
+        return;
+      }
     }
+  } catch (_) {}
+  try {
+    (target as dynamic).value = value;
   } catch (_) {}
 }
 
 bool getInputChecked(dynamic target) {
   if (target == null) return false;
   try {
-    final jsObj = target as JSAny?;
-    if (jsObj != null && jsObj.isA<JSObject>()) {
-      final obj = jsObj as JSObject;
-      if (obj.hasProperty('checked'.toJS).toDart) {
+    final jsAny = target as JSAny?;
+    if (jsAny != null) {
+      if (jsAny.isA<web.HTMLInputElement>()) {
+        return (jsAny as web.HTMLInputElement).checked;
+      }
+      if (jsAny.isA<JSObject>()) {
+        final obj = jsAny as JSObject;
         final val = obj.getProperty('checked'.toJS);
-        if (val.isA<JSBoolean>()) {
+        if (val != null && !val.isUndefinedOrNull && val.isA<JSBoolean>()) {
           return (val as JSBoolean).toDart;
         }
       }
     }
+  } catch (_) {}
+  try {
+    final c = (target as dynamic).checked;
+    if (c is bool) return c;
   } catch (_) {}
   return false;
 }

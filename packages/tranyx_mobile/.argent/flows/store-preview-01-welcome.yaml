@@ -1,0 +1,9 @@
+steps:
+  - echo: Launch Tranyx and showcase the welcome experience
+  - launch: com.terraph.tranyx
+  - await:
+      visible:
+        text: Welcome back
+  - wait: 3500
+  - await:
+      idle: true

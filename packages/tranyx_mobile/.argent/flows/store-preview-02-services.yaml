@@ -1,0 +1,13 @@
+executionPrerequisite: >-
+  App settled on the Welcome authentication screen.
+
+steps:
+  - echo: Navigate to role options screen
+  - tap:
+      text: Create an account
+  - await:
+      visible:
+        text: Join Tranyx
+  - wait: 3500
+  - await:
+      idle: true

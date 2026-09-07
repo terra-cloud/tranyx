@@ -152,15 +152,25 @@ class NyxDomainKnowledgeBase {
       return 'For Tracked Delivery Gigs: Arrive at pickup, pay the cashier and upload the receipt photo. Once at dropoff, generate a QR code for the recipient to scan and release Escrow payout instantly!';
     }
 
-    // 2. Gigs & Job Matching Queries
+    // 2. Escrow & Payout Queries
+    if (clean.contains('escrow') || clean.contains('release') || clean.contains('payout') || clean.contains('bayad') || clean.contains('bayaran')) {
+      if (isWaray) {
+        return 'Kun tapos na an trabaho ha Tranyx, i-mamark han Nyxian nga tapos na, maghihimo an Employer hin QR code, ngan i-iscan ini han Nyxian para diretso nga ma-release an Escrow payout ha iya wallet!';
+      } else if (isTagalog) {
+        return 'Kapag tapos na ang trabaho sa Tranyx, i-mamark ng Nyxian ang job as "Completed", bubuo ang Employer ng QR code, at i-iscan ito ng Nyxian upang agarang ma-release ang Escrow payout diretso sa kanyang wallet!';
+      }
+      return 'When a job is completed on Tranyx, the Nyxian marks the job as done, the Employer generates a completion QR code, and the Nyxian scans it to instantly release the Escrow funds into their wallet!';
+    }
+
+    // 3. Gigs & Job Matching Queries
     if (clean.contains('gig') || clean.contains('job') || clean.contains('work') || clean.contains('trabaho') || clean.contains('apply') || clean.contains('post') || clean.contains('pustar') || clean.contains('patrabaho')) {
       if (clean.contains('post') || clean.contains('create') || clean.contains('employer') || clean.contains('magpost') || clean.contains('pag-himo')) {
         if (isWaray) {
-          return 'Paghimo hin Gig: Kadto ha Jobs tab ngan pusa an "Post a Gig". Isurat an pamunoan, kategorya, ngan badyet. Awtomatiko nga nakatagak ha Escrow an kwarta para talwas!';
+          return 'Paghimo hin Bag-o nga Listing: Kadto ha Jobs tab ngan pusa an "+ New" o "+ Create New Listing" ha ubos (o an "+" button ha mobile). Isurat an pamunoan, kategorya, ngan badyet ha PHP (₱). Awtomatiko nga nakatagak ha Escrow an kwarta para talwas!';
         } else if (isTagalog) {
-          return 'Para mag-post ng Gig: Pumunta sa Jobs tab at i-tap ang "Post a Gig". Ilagay ang pamagat, kategorya, at badyet. Ligtas na nakatago sa Escrow ang pondo hanggang matapos!';
+          return 'Para gumawa ng bagong listing: Pumunta sa Jobs tab at i-click ang "+ New" o "+ Create New Listing" sa ibaba (o ang "+" button sa mobile). Ilagay ang pamagat, kategorya, at badyet sa PHP (₱). Ligtas na nakatago sa Escrow ang pondo kapag kumuha ka ng manggagawa!';
         }
-        return 'To post a gig as an Employer, go to the Jobs tab and tap "Post a Gig". Enter the title, category, budget, and description. Funds are locked safely in Escrow until completion!';
+        return 'To create a new listing as an Employer, go to the Jobs tab and click "+ New" (or "+ Create New Listing" at the bottom of the list on web, or the "+" button on mobile). Enter the title, category, budget (₱), and description. Funds are safely locked in Escrow upon hiring a worker!';
       }
 
       if (isWaray) {

@@ -34,7 +34,7 @@ jobs:
 
       - name: Setup Java
         if: env.FLAVOR == 'prod'
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -42,7 +42,7 @@ jobs:
 
       - name: Setup Flutter
         if: env.FLAVOR == 'prod'
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@f2c4f6686ca8e8d6e6d0f28410eeef506ed66aff # v2.18.0
         with:
           channel: 'stable'
           cache: true
@@ -81,6 +81,12 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           XENDIT_SECRET_KEY: ${{ secrets.XENDIT_SECRET_KEY }}
+          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
+          GEMINI_AI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
+          SOLANA_PRIVATE_KEY: ${{ secrets.SOLANA_PRIVATE_KEY }}
+          SOLANA_PUBLIC_KEY: ${{ secrets.SOLANA_PUBLIC_KEY }}
+          TREASURY_PRIVATE_KEY: ${{ secrets.TREASURY_PRIVATE_KEY }}
+          TREASURY_PUBLIC_KEY: ${{ secrets.TREASURY_PUBLIC_KEY }}
 
       - name: Setup Android Keystore
         if: env.FLAVOR == 'prod'
@@ -98,14 +104,9 @@ jobs:
           fi
 
           # Decode the keystore if it doesn't exist yet
-          if [ -f "$HOME/.signing-keys/tranyx-upload.jks" ]; then
-            echo "Keystore already exists at ~/.signing-keys/tranyx-upload.jks. Proceeding."
-          else
-            echo "Decoding Android Keystore from secrets..."
-            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > ~/.signing-keys/tranyx-upload.jks
-          fi
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > ~/.signing-keys/tranyx-upload.jks
 
-          # Create key.properties referencing the keystore path
+          # Create key.properties file
           cat <<EOF > packages/tranyx_mobile/android/key.properties
           storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           keyPassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -126,6 +127,8 @@ jobs:
             --dart-define=FLAVOR=prod \
             --dart-define=XENDIT_SECRET_KEY=${{ secrets.XENDIT_SECRET_KEY }} \
             --dart-define=IMGBB_API_KEY=${{ secrets.IMGBB_API_KEY }} \
+            --dart-define=GEMINI_AI_API_KEY=${{ secrets.GEMINI_AI_API_KEY }} \
+            --dart-define=SOLANA_PUBLIC_KEY=${{ secrets.SOLANA_PUBLIC_KEY }} \
             --obfuscate \
             --split-debug-info=build/app/outputs/symbols
 

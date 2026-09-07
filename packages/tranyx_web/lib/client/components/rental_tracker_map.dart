@@ -48,6 +48,9 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
   @override
   void didUpdateComponent(RentalTrackerMapComponent oldWidget) {
     super.didUpdateComponent(oldWidget);
+    if (oldWidget.appState.isDark != component.appState.isDark) {
+      setMapTheme(_mapId, isDark: component.appState.isDark);
+    }
     final newRental = component.appState.selectedRentalData;
     if (newRental != null) {
       final rId = newRental['id'] as String?;

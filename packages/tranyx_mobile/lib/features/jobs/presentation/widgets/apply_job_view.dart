@@ -287,6 +287,18 @@ class _ApplyJobViewState extends ConsumerState<ApplyJobView> {
                   final userProfile = ref.read(userProfileProvider).value;
                   if (userProfile == null) return;
 
+                  if (selectedJob.creatorId == userProfile.uid) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("You cannot apply to your own job posting."),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                    }
+                    return;
+                  }
+
                   setState(() => _isSubmitting = true);
 
                   double rate = selectedJob.pricingValue;

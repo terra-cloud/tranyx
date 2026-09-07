@@ -10,8 +10,13 @@ import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane
 
 class ListingWizardSheet extends ConsumerStatefulWidget {
   final bool isProperty;
+  final Map<String, dynamic>? initialItem;
 
-  const ListingWizardSheet({super.key, required this.isProperty});
+  const ListingWizardSheet({
+    super.key,
+    required this.isProperty,
+    this.initialItem,
+  });
 
   @override
   ConsumerState<ListingWizardSheet> createState() => _ListingWizardSheetState();
@@ -21,6 +26,8 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   int _step = 1;
   bool _isProcessing = false;
   String? _error;
+
+  bool get _isEditMode => widget.initialItem != null;
 
   // STEP 1 FIELDS (Specs)
   // Vehicle
@@ -32,6 +39,13 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   final _yearController = TextEditingController();
   final _plateController = TextEditingController();
   final _gpsTrackerController = TextEditingController();
+
+  // LTO Registration & Comprehensive Insurance Compliance
+  final _ltoCrController = TextEditingController();
+  final _ltoOrController = TextEditingController();
+  final _insuranceProviderController = TextEditingController(text: 'N/A');
+  final _insurancePolicyController = TextEditingController();
+  final _vehicleValueController = TextEditingController();
 
   // Property
   PropertyCategory _selectedPropertyCategory = PropertyCategory.residential;
@@ -77,20 +91,62 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   @override
   void initState() {
     super.initState();
-    if (widget.isProperty) {
-      _photoUrl1Controller.text =
-          'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=600&q=80';
-      _photoUrl2Controller.text =
-          'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=600&q=80';
+    if (widget.initialItem != null) {
+      final item = widget.initialItem!;
+      if (widget.isProperty) {
+        _titleController.text = item['title'] as String? ?? '';
+        _descriptionController.text = item['description'] as String? ?? '';
+        final catStr = item['category'] as String? ?? 'residential';
+        _selectedPropertyCategory = PropertyCategory.values.firstWhere(
+          (c) => c.name == catStr,
+          orElse: () => PropertyCategory.residential,
+        );
+        final typeStr = item['type'] as String? ?? 'house';
+        _selectedPropertyType = PropertyType.values.firstWhere(
+          (t) => t.name == typeStr,
+          orElse: () => PropertyType.house,
+        );
+        final rawAmenities = item['amenities'] as List? ?? [];
+        _selectedAmenities.addAll(rawAmenities.map((e) => e.toString()));
+
+        final monthly = (item['priceMonthly'] as num?)?.toDouble() ?? 0.0;
+        final weekly = (item['priceWeekly'] as num?)?.toDouble() ?? 0.0;
+        final daily = (item['priceDaily'] as num?)?.toDouble() ?? 0.0;
+        _priceMonthlyController.text = monthly > 0 ? monthly.toStringAsFixed(0) : '';
+        _priceWeeklyController.text = weekly > 0 ? weekly.toStringAsFixed(0) : '';
+        _priceDailyController.text = daily > 0 ? daily.toStringAsFixed(0) : '';
+
+        final secDeposit = (item['securityDepositAmount'] as num?)?.toDouble() ?? 0.0;
+        _securityDepositController.text = secDeposit.toStringAsFixed(0);
+
+        final advAmount = (item['advanceAmount'] as num?)?.toDouble() ?? 0.0;
+        _advancePaymentController.text = advAmount.toStringAsFixed(0);
+
+        _addressController.text = item['address'] as String? ?? '';
+
+        final photos = (item['photoUrls'] as List?)?.map((e) => e.toString()).toList() ?? [];
+        if (photos.isNotEmpty) _photoUrl1Controller.text = photos[0];
+        if (photos.length > 1) _photoUrl2Controller.text = photos[1];
+
+        _contractType = item['contractType'] as String? ?? 'Tranyx Standard';
+        _customTermsController.text = item['contractTerms'] as String? ?? '';
+      }
     } else {
-      _photoUrl1Controller.text =
-          'https://images.unsplash.com/photo-1542282088-fe8426682b8f?auto=format&fit=crop&w=600&q=80';
-      _photoUrl2Controller.text =
-          'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=600&q=80';
-      _photoUrl3Controller.text =
-          'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=600&q=80';
+      if (widget.isProperty) {
+        _photoUrl1Controller.text =
+            'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=600&q=80';
+        _photoUrl2Controller.text =
+            'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=600&q=80';
+      } else {
+        _photoUrl1Controller.text =
+            'https://images.unsplash.com/photo-1542282088-fe8426682b8f?auto=format&fit=crop&w=600&q=80';
+        _photoUrl2Controller.text =
+            'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=600&q=80';
+        _photoUrl3Controller.text =
+            'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=600&q=80';
+      }
+      _addressController.text = '1280 Silicon Ave, BGC, Metro Manila';
     }
-    _addressController.text = '1280 Silicon Ave, BGC, Metro Manila';
   }
 
   @override
@@ -100,6 +156,11 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
     _yearController.dispose();
     _plateController.dispose();
     _gpsTrackerController.dispose();
+    _ltoCrController.dispose();
+    _ltoOrController.dispose();
+    _insuranceProviderController.dispose();
+    _insurancePolicyController.dispose();
+    _vehicleValueController.dispose();
     _titleController.dispose();
     _descriptionController.dispose();
     _priceDailyController.dispose();
@@ -120,15 +181,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
     super.dispose();
   }
 
-  double get _listingFee {
-    if (widget.isProperty) {
-      final monthly = double.tryParse(_priceMonthlyController.text) ?? 0.0;
-      return monthly * 0.015;
-    } else {
-      final daily = double.tryParse(_priceDailyController.text) ?? 0.0;
-      return daily * 0.015;
-    }
-  }
+  double get _listingFee => 0.0; // Vehicle & Property listings are 100% FREE (0% upfront fee)
 
   void _scrollToTop(ScrollController scrollController) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -186,46 +239,52 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
     if (widget.isProperty) {
       final title = _titleController.text.trim();
       final desc = _descriptionController.text.trim();
+
       if (title.isEmpty) {
-        setState(() => _error = 'Please enter a property title');
+        setState(() => _error = 'Please enter a listing title.');
         _scrollToTop(scrollController);
         return false;
       }
       if (desc.isEmpty) {
-        setState(() => _error = 'Please enter a property description');
+        setState(() => _error = 'Please enter a description.');
         _scrollToTop(scrollController);
         return false;
       }
       if (checkProfanity(title) || checkProfanity(desc)) {
-        setState(() => _error = 'Your title or description contains inappropriate language. Please review and try again.');
+        setState(
+          () => _error =
+              'Title or description contains inappropriate language.',
+        );
         _scrollToTop(scrollController);
         return false;
       }
     } else {
       final brand = _brandController.text.trim();
       final model = _modelController.text.trim();
-      if (brand.isEmpty) {
-        setState(() => _error = 'Please enter vehicle brand');
+      final plate = _plateController.text.trim();
+
+      if (brand.isEmpty || model.isEmpty || plate.isEmpty) {
+        setState(() => _error = 'Please fill out all vehicle specifications.');
         _scrollToTop(scrollController);
         return false;
       }
-      if (model.isEmpty) {
-        setState(() => _error = 'Please enter vehicle model');
+
+      if (!_isValidPhilippinePlate(plate)) {
+        setState(
+          () => _error =
+              'Please enter a valid Philippine plate (e.g. ABC-1234, ABC 1234, or 1234-5678901).',
+        );
         _scrollToTop(scrollController);
         return false;
       }
-      if (checkProfanity(brand) || checkProfanity(model)) {
-        setState(() => _error = 'Your vehicle brand or model contains inappropriate language. Please review and try again.');
-        _scrollToTop(scrollController);
-        return false;
-      }
-      if (_yearController.text.trim().isEmpty) {
-        setState(() => _error = 'Please select a vehicle year');
-        _scrollToTop(scrollController);
-        return false;
-      }
-      if (!_isValidPhilippinePlate(_plateController.text)) {
-        setState(() => _error = 'Please enter a valid Philippine Plate Number (e.g. ABC-1234, MC-12345) or MV File Number.');
+
+      if (checkProfanity(brand) ||
+          checkProfanity(model) ||
+          checkProfanity(plate)) {
+        setState(
+          () => _error =
+              'Specifications contain inappropriate language.',
+        );
         _scrollToTop(scrollController);
         return false;
       }
@@ -236,55 +295,65 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   bool _validateStep2(ScrollController scrollController) {
     setState(() => _error = null);
     if (widget.isProperty) {
-      final monthly =
-          double.tryParse(_priceMonthlyController.text.trim()) ?? 0.0;
-      if (monthly <= 0) {
-        setState(() => _error = 'Please enter a valid monthly rent amount');
+      final monthly = double.tryParse(_priceMonthlyController.text.trim()) ?? 0.0;
+      final weekly = double.tryParse(_priceWeeklyController.text.trim()) ?? 0.0;
+      final daily = double.tryParse(_priceDailyController.text.trim()) ?? 0.0;
+
+      if (monthly <= 0 && weekly <= 0 && daily <= 0) {
+        setState(() => _error = 'Please provide at least one rental rate (Daily, Weekly, or Monthly).');
+        _scrollToTop(scrollController);
+        return false;
+      }
+      if (_addressController.text.trim().isEmpty) {
+        setState(() => _error = 'Please enter the property address.');
         _scrollToTop(scrollController);
         return false;
       }
     } else {
-      final daily = double.tryParse(_priceDailyController.text.trim()) ?? 0.0;
-      if (daily <= 0) {
-        setState(() => _error = 'Please enter a valid daily rate');
+      final daily = double.tryParse(_priceDailyController.text.trim());
+      if (daily == null || daily <= 0) {
+        setState(() => _error = 'Please enter a valid daily rate.');
         _scrollToTop(scrollController);
         return false;
       }
-      if (_offersDriver) {
-        final driverDaily =
-            double.tryParse(_driverDailyPriceController.text.trim()) ?? 0.0;
-        if (driverDaily <= 0) {
-          setState(() => _error = 'Please enter a driver daily rate');
-          _scrollToTop(scrollController);
-          return false;
-        }
-        if (_driverLicenseController.text.trim().isEmpty) {
-          setState(() => _error = 'Please enter driver\'s license number');
-          _scrollToTop(scrollController);
-          return false;
-        }
+      if (_addressController.text.trim().isEmpty) {
+        setState(() => _error = 'Please enter the vehicle pickup address.');
+        _scrollToTop(scrollController);
+        return false;
       }
-    }
-
-    if (_addressController.text.trim().isEmpty) {
-      setState(() => _error = 'Please enter an address location');
-      _scrollToTop(scrollController);
-      return false;
     }
     return true;
   }
 
   void _submitListing(ScrollController scrollController) async {
+    final userProfile = ref.read(userProfileProvider).value;
+    if (userProfile == null) return;
+
     setState(() {
       _isProcessing = true;
       _error = null;
     });
 
-    final userProfile = ref.read(userProfileProvider).value;
-    if (userProfile == null) {
+    if (_photoUrl1Controller.text.trim().isEmpty) {
       setState(() {
         _isProcessing = false;
-        _error = 'User profile not loaded';
+        _error = 'Please provide the Interior photo URL.';
+      });
+      _scrollToTop(scrollController);
+      return;
+    }
+    if (_photoUrl2Controller.text.trim().isEmpty) {
+      setState(() {
+        _isProcessing = false;
+        _error = 'Please provide the Front / Exterior photo URL.';
+      });
+      _scrollToTop(scrollController);
+      return;
+    }
+    if (!widget.isProperty && _photoUrl3Controller.text.trim().isEmpty) {
+      setState(() {
+        _isProcessing = false;
+        _error = 'Please provide the Back photo URL.';
       });
       _scrollToTop(scrollController);
       return;
@@ -301,7 +370,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
 
     final fee = _listingFee;
 
-    if (userProfile.tyxBalance < fee) {
+    if (!_isEditMode && fee > 0 && userProfile.tyxBalance < fee) {
       setState(() {
         _isProcessing = false;
         _error =
@@ -327,7 +396,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         final depositMonths = monthly > 0 ? (depositAmt / monthly).round() : 0;
 
         final property = PropertyRental(
-          id: '',
+          id: _isEditMode ? (widget.initialItem!['id'] as String) : '',
           hostId: userProfile.uid,
           hostName: userProfile.name,
           hostPhotoUrl: userProfile.photoUrl ?? '',
@@ -342,11 +411,10 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           securityDepositAmount: depositAmt,
           advanceAmount: advanceAmt,
           address: _addressController.text.trim(),
-          latitude:
-              14.5995 +
-              (DateTime.now().millisecond % 100) *
-                  0.0001, // Mock local coordinate
-          longitude: 120.9842 + (DateTime.now().microsecond % 100) * 0.0001,
+          latitude: (widget.initialItem?['latitude'] as num?)?.toDouble() ??
+              (14.5995 + (DateTime.now().millisecond % 100) * 0.0001),
+          longitude: (widget.initialItem?['longitude'] as num?)?.toDouble() ??
+              (120.9842 + (DateTime.now().microsecond % 100) * 0.0001),
           photoUrls: [
             _photoUrl1Controller.text.trim(),
             _photoUrl2Controller.text.trim(),
@@ -360,7 +428,11 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           createdAt: DateTime.now(),
         );
 
-        await repo.createPropertyRental(property);
+        if (_isEditMode) {
+          await repo.updatePropertyRental(widget.initialItem!['id'] as String, property);
+        } else {
+          await repo.createPropertyRental(property);
+        }
       } else {
         final daily = double.tryParse(_priceDailyController.text.trim()) ?? 0.0;
         final hourly12 =
@@ -374,7 +446,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
             (daily / 24 * 1.5);
 
         final rental = VehicleRental(
-          id: '',
+          id: _isEditMode ? (widget.initialItem!['id'] as String) : '',
           hostId: userProfile.uid,
           hostName: userProfile.name,
           type: _selectedVehicleType,
@@ -395,15 +467,25 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           extensionRatePerHour: extPenalty,
           latePenaltyRatePerHour: extPenalty,
           pickupAddress: _addressController.text.trim(),
-          pickupLat: 14.5995 + (DateTime.now().millisecond % 100) * 0.0001,
-          pickupLng: 120.9842 + (DateTime.now().microsecond % 100) * 0.0001,
+          pickupLat: (widget.initialItem?['pickupLat'] as num?)?.toDouble() ??
+              (14.5995 + (DateTime.now().millisecond % 100) * 0.0001),
+          pickupLng: (widget.initialItem?['pickupLng'] as num?)?.toDouble() ??
+              (120.9842 + (DateTime.now().microsecond % 100) * 0.0001),
           status: 'Available',
           createdAt: DateTime.now(),
-          vehicleValue: 0,
-          ltoCrNumber: 'PENDING',
-          ltoOrNumber: 'PENDING',
-          insuranceProvider: 'N/A',
-          insurancePolicyNumber: 'N/A',
+          vehicleValue: double.tryParse(_vehicleValueController.text.trim()) ?? 0,
+          ltoCrNumber: _ltoCrController.text.trim().isNotEmpty
+              ? _ltoCrController.text.trim().toUpperCase()
+              : 'PENDING',
+          ltoOrNumber: _ltoOrController.text.trim().isNotEmpty
+              ? _ltoOrController.text.trim().toUpperCase()
+              : 'PENDING',
+          insuranceProvider: _insuranceProviderController.text.trim().isNotEmpty
+              ? _insuranceProviderController.text.trim()
+              : 'N/A',
+          insurancePolicyNumber: _insurancePolicyController.text.trim().isNotEmpty
+              ? _insurancePolicyController.text.trim().toUpperCase()
+              : 'N/A',
           contractType: _contractType,
           contractTerms: _contractType == 'Custom Contract'
               ? _customTermsController.text.trim()
@@ -419,7 +501,12 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         if (_gpsTrackerController.text.trim().isNotEmpty) {
           mapData['gpsTrackerId'] = _gpsTrackerController.text.trim();
         }
-        await repo.createRentalFromMap(mapData);
+
+        if (_isEditMode) {
+          await repo.updateRental(widget.initialItem!['id'] as String, mapData);
+        } else {
+          await repo.createRentalFromMap(mapData);
+        }
       }
 
       ref.invalidate(userProfileProvider);
@@ -433,7 +520,9 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${widget.isProperty ? "Property" : "Vehicle"} listed successfully! Posting fee deducted.',
+              _isEditMode
+                  ? 'Property listing updated successfully!'
+                  : '${widget.isProperty ? "Property" : "Vehicle"} listed successfully! Posting fee deducted.',
             ),
             backgroundColor: Colors.green,
           ),
@@ -508,9 +597,11 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.isProperty
-                                ? 'List a Property'
-                                : 'List a Vehicle',
+                            _isEditMode
+                                ? 'Edit Property Listing'
+                                : (widget.isProperty
+                                    ? 'List a Property'
+                                    : 'List a Vehicle'),
                             style: const TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -938,22 +1029,184 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                           isDarkMode,
                           controller: _gpsTrackerController,
                         ),
+                        const SizedBox(height: 20),
+
+                        // ── LTO Registration & Insurance Compliance ─────────
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isDarkMode
+                                ? Colors.purple.withValues(alpha: 0.08)
+                                : Colors.purple.withValues(alpha: 0.04),
+                            border: Border.all(
+                              color: isDarkMode
+                                  ? Colors.purple.withValues(alpha: 0.2)
+                                  : Colors.purple.withValues(alpha: 0.15),
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.verified_user_rounded,
+                                    size: 18,
+                                    color: isDarkMode ? Colors.purpleAccent : Colors.purple,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'LTO Registration & Insurance',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDarkMode ? Colors.white : Colors.black87,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Official registration and insurance details are automatically embedded into your legally binding P2P rental agreement.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+
+                              UIHelpers.buildTextField(
+                                Icons.description,
+                                'LTO Certificate of Registration (CR No.)',
+                                isDarkMode,
+                                controller: _ltoCrController,
+                              ),
+                              const SizedBox(height: 12),
+
+                              UIHelpers.buildTextField(
+                                Icons.receipt_long,
+                                'LTO Official Receipt (OR No.)',
+                                isDarkMode,
+                                controller: _ltoOrController,
+                              ),
+                              const SizedBox(height: 12),
+
+                              UIHelpers.buildTextField(
+                                Icons.price_check,
+                                'Insured Vehicle Market Value (₱)',
+                                isDarkMode,
+                                controller: _vehicleValueController,
+                                keyboardType: TextInputType.number,
+                              ),
+                              const SizedBox(height: 12),
+
+                              const Text(
+                                'COMPREHENSIVE INSURANCE PROVIDER',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              DropdownButtonFormField<String>(
+                                initialValue: _insuranceProviderController.text.isEmpty
+                                    ? 'N/A'
+                                    : _insuranceProviderController.text,
+                                decoration: InputDecoration(
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(() => _insuranceProviderController.text = val);
+                                  }
+                                },
+                                items: [
+                                  'N/A',
+                                  'Standard Insurance',
+                                  'Malayan Insurance',
+                                  'FPG Insurance',
+                                  'Pioneer Insurance',
+                                  'Mercantile Insurance',
+                                  'Alpha Insurance',
+                                  'Charter Ping An',
+                                  'Other Provider',
+                                ].map((p) {
+                                  return DropdownMenuItem(
+                                    value: p,
+                                    child: Text(
+                                      p == 'N/A'
+                                          ? 'N/A (Compulsory Third Party / CTPL Only)'
+                                          : p,
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                              const SizedBox(height: 12),
+
+                              UIHelpers.buildTextField(
+                                Icons.policy,
+                                'Insurance Policy Reference Number',
+                                isDarkMode,
+                                controller: _insurancePolicyController,
+                              ),
+                            ],
+                          ),
+                        ),
 
                       ],
                     ] else if (_step == 2) ...[
                       // STEP 2: Pricing & Location
                       if (widget.isProperty) ...[
+                        const Text(
+                          'RENTAL RATES (PROVIDE AT LEAST ONE)',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
                         UIHelpers.buildTextField(
-                          Icons.monetization_on,
-                          "Monthly Rent Rate (₱, Required)",
+                          Icons.wb_sunny_outlined,
+                          "Daily Rental Rate (₱)",
+                          isDarkMode,
+                          controller: _priceDailyController,
+                          keyboardType: TextInputType.number,
+                        ),
+                        const SizedBox(height: 12),
+                        UIHelpers.buildTextField(
+                          Icons.calendar_view_week,
+                          "Weekly Rental Rate (₱)",
+                          isDarkMode,
+                          controller: _priceWeeklyController,
+                          keyboardType: TextInputType.number,
+                        ),
+                        const SizedBox(height: 12),
+                        UIHelpers.buildTextField(
+                          Icons.calendar_month,
+                          "Monthly Rental Rate (₱)",
                           isDarkMode,
                           controller: _priceMonthlyController,
                           keyboardType: TextInputType.number,
                         ),
                         const SizedBox(height: 16),
+                        const Text(
+                          'SECURITY DEPOSIT & ADVANCE',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
                         UIHelpers.buildTextField(
                           Icons.security,
-                          "Security Deposit Amount (₱)",
+                          "Security Deposit Amount (₱, Optional)",
                           isDarkMode,
                           controller: _securityDepositController,
                           keyboardType: TextInputType.number,
@@ -969,60 +1222,29 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            for (int m in [1, 2, 3]) ...[
-                              GestureDetector(
-                                onTap: () {
-                                  final monthly =
-                                      double.tryParse(
-                                        _priceMonthlyController.text,
-                                      ) ??
-                                      0.0;
-                                  _securityDepositController.text =
-                                      (monthly * m).toInt().toString();
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  margin: const EdgeInsets.only(right: 6),
-                                  decoration: BoxDecoration(
-                                    color: isDarkMode
-                                        ? AppColors.darkCard
-                                        : Colors.grey[200],
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    '$m Month${m > 1 ? "s" : ""}',
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                            GestureDetector(
+                              onTap: () => _securityDepositController.text = '0',
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                margin: const EdgeInsets.only(right: 6),
+                                decoration: BoxDecoration(
+                                  color: isDarkMode
+                                      ? AppColors.darkCard
+                                      : Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  'None (₱0)',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        UIHelpers.buildTextField(
-                          Icons.payment,
-                          "Advance Payment Amount (₱)",
-                          isDarkMode,
-                          controller: _advancePaymentController,
-                          keyboardType: TextInputType.number,
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Text(
-                              'Quick Advance:',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.grey,
-                              ),
                             ),
-                            const SizedBox(width: 8),
                             for (int m in [1, 2]) ...[
                               GestureDetector(
                                 onTap: () {
@@ -1031,9 +1253,10 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                         _priceMonthlyController.text,
                                       ) ??
                                       0.0;
-                                  _advancePaymentController.text = (monthly * m)
-                                      .toInt()
-                                      .toString();
+                                  if (monthly > 0) {
+                                    _securityDepositController.text =
+                                        (monthly * m).toInt().toString();
+                                  }
                                 },
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
@@ -1048,7 +1271,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
-                                    '$m Month${m > 1 ? "s" : ""}',
+                                    '$m Mo. Rent',
                                     style: const TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
@@ -1059,22 +1282,15 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                             ],
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
                         UIHelpers.buildTextField(
-                          Icons.monetization_on_outlined,
-                          "Weekly Rate (Optional)",
+                          Icons.payment,
+                          "Advance Payment Amount (₱, Optional)",
                           isDarkMode,
-                          controller: _priceWeeklyController,
+                          controller: _advancePaymentController,
                           keyboardType: TextInputType.number,
                         ),
                         const SizedBox(height: 16),
-                        UIHelpers.buildTextField(
-                          Icons.monetization_on_outlined,
-                          "Daily Rate (Optional)",
-                          isDarkMode,
-                          controller: _priceDailyController,
-                          keyboardType: TextInputType.number,
-                        ),
                       ] else ...[
                         UIHelpers.buildTextField(
                           Icons.monetization_on,
@@ -1266,19 +1482,23 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                               ),
                               const SizedBox(height: 12),
                               if (widget.isProperty) ...[
-                                _buildBreakdownRow(
-                                  'Monthly Rent (Base)',
-                                  double.tryParse(_priceMonthlyController.text) ?? 0.0,
-                                ),
-                                if ((double.tryParse(_priceWeeklyController.text) ?? 0.0) > 0)
-                                  _buildBreakdownRow(
-                                    'Weekly Rent',
-                                    double.tryParse(_priceWeeklyController.text) ?? 0.0,
-                                  ),
                                 if ((double.tryParse(_priceDailyController.text) ?? 0.0) > 0)
-                                  _buildBreakdownRow(
-                                    'Daily Rent',
+                                  _buildPayoutRow(
+                                    'Daily Rental',
                                     double.tryParse(_priceDailyController.text) ?? 0.0,
+                                    commissionRate: 0.07,
+                                  ),
+                                if ((double.tryParse(_priceWeeklyController.text) ?? 0.0) > 0)
+                                  _buildPayoutRow(
+                                    'Weekly Rental',
+                                    double.tryParse(_priceWeeklyController.text) ?? 0.0,
+                                    commissionRate: 0.07,
+                                  ),
+                                if ((double.tryParse(_priceMonthlyController.text) ?? 0.0) > 0)
+                                  _buildPayoutRow(
+                                    'Monthly Rental',
+                                    double.tryParse(_priceMonthlyController.text) ?? 0.0,
+                                    commissionRate: 0.07,
                                   ),
                                 if ((double.tryParse(_securityDepositController.text) ?? 0.0) > 0)
                                   _buildBreakdownRow(
@@ -1286,40 +1506,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                     double.tryParse(_securityDepositController.text) ?? 0.0,
                                     isGreen: true,
                                   ),
-                                if ((double.tryParse(_advancePaymentController.text) ?? 0.0) > 0)
-                                  _buildBreakdownRow(
-                                    'Advance Rent Payment',
-                                    double.tryParse(_advancePaymentController.text) ?? 0.0,
-                                    isGreen: true,
-                                  ),
-                                const Divider(height: 16),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'Host Commission (3%)',
-                                      style: TextStyle(fontSize: 13, color: Colors.grey),
-                                    ),
-                                    Text(
-                                      '- ₱ ${((double.tryParse(_priceMonthlyController.text) ?? 0.0) * 0.03).toStringAsFixed(2)}',
-                                      style: const TextStyle(fontSize: 13, color: Colors.amber),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'Est. Monthly Net Payout',
-                                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                                    ),
-                                    Text(
-                                      '₱ ${((double.tryParse(_priceMonthlyController.text) ?? 0.0) * 0.97).toStringAsFixed(2)}',
-                                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green),
-                                    ),
-                                  ],
-                                ),
                               ] else ...[
                                 if ((double.tryParse(_price12hController.text) ?? 0.0) > 0)
                                   _buildPayoutRow(
@@ -1352,45 +1538,53 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    widget.isProperty
-                                        ? 'Anti-Spam Listing Fee (1.5% of Monthly)'
-                                        : 'Anti-Spam Listing Fee (1.5% of Daily)',
-                                    style: const TextStyle(fontSize: 13),
-                                  ),
-                                  Text(
-                                    '₱ ${_listingFee.toStringAsFixed(2)} TYXBIT',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: AppColors.indigo,
+                              if (widget.isProperty) ...[
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: const [
+                                    Text(
+                                      'Property Listing Fee (Free Tier)',
+                                      style: TextStyle(fontSize: 13),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    'Your Wallet Balance:',
-                                    style: TextStyle(fontSize: 13),
-                                  ),
-                                  Text(
-                                    '₱ ${userProfile.tyxBalance.toStringAsFixed(2)} TYXBIT',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: userProfile.tyxBalance >= _listingFee
-                                          ? Colors.green
-                                          : Colors.red,
+                                    Text(
+                                      '₱ 0.00 (100% Free)',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                        color: Colors.green,
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Publishing your property is 100% free. TRANYX only collects a 7% commission upon a successful completed transaction.',
+                                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                                ),
+                              ] else ...[
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: const [
+                                    Text(
+                                      'Vehicle Listing Fee (Free Tier)',
+                                      style: TextStyle(fontSize: 13),
+                                    ),
+                                    Text(
+                                      '₱ 0.00 (100% Free)',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                        color: Colors.green,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Publishing your vehicle is 100% free. TRANYX only collects a 3% platform commission upon a successful completed transaction.',
+                                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -1449,7 +1643,11 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                     child: CircularProgressIndicator(),
                                   )
                                 : UIHelpers.buildPrimaryButton(
-                                  _step == 3 ? 'Publish Listing' : 'Next Step',
+                                  _step == 3
+                                      ? (_isEditMode
+                                          ? 'Save Changes'
+                                          : 'Publish Listing')
+                                      : 'Next Step',
                                   () {
                                     if (_step == 1) {
                                       if (_validateStep1(scrollController)) {
@@ -1502,9 +1700,10 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
     );
   }
 
-  Widget _buildPayoutRow(String label, double amount) {
-    final commission = amount * 0.03;
+  Widget _buildPayoutRow(String label, double amount, {double commissionRate = 0.03}) {
+    final commission = amount * commissionRate;
     final payout = amount - commission;
+    final pct = (commissionRate * 100).toInt();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -1515,7 +1714,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
             children: [
               Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
               Text(
-                'Rate: ₱ ${amount.toStringAsFixed(2)} | Comm (3%): - ₱ ${commission.toStringAsFixed(2)}',
+                'Rate: ₱ ${amount.toStringAsFixed(2)} | Comm ($pct%): - ₱ ${commission.toStringAsFixed(2)}',
                 style: const TextStyle(fontSize: 11, color: Colors.grey),
               ),
             ],

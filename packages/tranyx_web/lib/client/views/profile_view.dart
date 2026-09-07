@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:web/web.dart' as web;
@@ -7,6 +9,7 @@ import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
 import '../../services/firebase_service.dart';
 import '../../services/web_interop.dart';
+import '../widgets/p2p_admin_panel.dart';
 import 'package:shared/shared.dart';
 
 class ProfileViewComponent extends StatelessComponent {
@@ -60,13 +63,12 @@ class _ProfileMenu extends StatelessComponent {
     final isDark = s.isDark;
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
 
-    final String historyLabel = 'History & Earnings';
+    final String historyLabel = 'Transaction History';
 
     final items = [
       (ProfileView.personal, 'user', 'Personal Information'),
       (ProfileView.professional, 'briefcase', 'Professional Info'),
       (ProfileView.payment, 'credit-card', 'Payment Methods'),
-      (ProfileView.withdraw, 'arrow-up-right', 'Withdraw Funds'),
       (ProfileView.trust, 'shield-check', 'Trust & Verification'),
       (ProfileView.support, 'help-circle', 'Help & Support'),
       (ProfileView.history, 'activity', historyLabel),
@@ -77,17 +79,36 @@ class _ProfileMenu extends StatelessComponent {
     return div(classes: 'rounded-3xl border p-4 $cardCls', [
       // Avatar + name header
       div(classes: 'p-4 text-center mb-4', [
-        div(classes: 'relative inline-block mb-3', [
+        div(classes: 'relative inline-block mb-3 group', [
           div(
             classes:
-                'w-20 h-20 rounded-full overflow-hidden gradient-border flex items-center justify-center bg-indigo-600/20',
+                'w-20 h-20 rounded-full overflow-hidden gradient-border flex items-center justify-center bg-indigo-600/20 relative shadow-md',
             [
-              if (s.userPhotoUrl != null)
+              if (s.userPhotoUrl != null && s.userPhotoUrl!.isNotEmpty)
                 img(src: s.userPhotoUrl!, classes: 'w-full h-full object-cover')
               else
                 span(classes: 'text-2xl font-bold text-indigo-400', [
                   Component.text(s.userName.isNotEmpty ? s.userName[0].toUpperCase() : '?'),
                 ]),
+              if (s.isUploadingProfilePhoto)
+                div(
+                  classes: 'absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-sm',
+                  [lIcon('loader-2', cls: 'w-6 h-6 animate-spin text-white')],
+                ),
+            ],
+          ),
+          label(
+            classes:
+                'absolute bottom-0 right-0 p-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg cursor-pointer transition-all hover:scale-110 flex items-center justify-center border-2 ${isDark ? "border-zinc-900" : "border-white"}',
+            attributes: {'title': 'Upload custom profile photo'},
+            [
+              lIcon('camera', cls: 'w-3.5 h-3.5'),
+              input(
+                type: InputType.file,
+                classes: 'hidden',
+                attributes: {'accept': 'image/*'},
+                events: {'change': (e) => s.handleProfilePhotoUpload(e)},
+              ),
             ],
           ),
         ]),
@@ -133,8 +154,12 @@ class _ProfileMenu extends StatelessComponent {
           'w-full flex items-center gap-3 p-4 rounded-2xl transition-all text-left ${isActive ? activeCls : inactiveCls}',
       events: {
         'click': (_) => s.setState(() {
-          s.profileView = view;
-          s.initializeProfileEditing();
+          if (view == ProfileView.withdraw) {
+            s.showWithdrawModal = true;
+          } else {
+            s.profileView = view;
+            s.initializeProfileEditing();
+          }
         }),
       },
       [
@@ -176,6 +201,7 @@ class _ProfileMainState extends State<_ProfileMain> {
     super.initState();
     Future.microtask(() {
       component.state.fetchSolToPhpRate();
+      component.state.loadUserProfile();
     });
   }
 
@@ -307,7 +333,7 @@ class _ProfileMainState extends State<_ProfileMain> {
                 button(
                   classes:
                       'px-2 py-1 text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 rounded-lg bg-emerald-500/5 transition-colors cursor-pointer',
-                  events: {'click': (_) => s.setState(() => s.profileView = ProfileView.withdraw)},
+                  events: {'click': (_) => s.setState(() => s.showWithdrawModal = true)},
                   [Component.text('Withdraw')],
                 ),
               ]),
@@ -614,10 +640,21 @@ class _PersonalInfo extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final s = state;
-
-    final currentName = s.editName.isNotEmpty ? s.editName : (s.userProfile?.name ?? s.userName);
-    final currentEmail = s.editEmail.isNotEmpty ? s.editEmail : (s.userProfile?.email ?? s.userEmail);
-    final currentTaxId = s.editTaxId.isNotEmpty ? s.editTaxId : (s.userProfile?.taxId ?? '');
+    if (s.editName.isEmpty && (s.userProfile?.name.isNotEmpty == true || s.userName.isNotEmpty)) {
+      s.initializeProfileEditing();
+    }
+    if (s.editEmail.isEmpty) {
+      final authEmail = s.userEmail.isNotEmpty ? s.userEmail : (SessionStorage.email ?? '');
+      if (authEmail.isNotEmpty) s.editEmail = authEmail;
+    }
+    if (s.editName.isEmpty) {
+      final authName = (s.userName.isNotEmpty && s.userName != 'User')
+          ? s.userName
+          : (s.userProfile?.name.isNotEmpty == true && s.userProfile!.name != 'User'
+              ? s.userProfile!.name
+              : (SessionStorage.displayName ?? ''));
+      if (authName.isNotEmpty) s.editName = authName;
+    }
 
     return div(classes: 'space-y-6', [
       subViewHeader(
@@ -635,13 +672,64 @@ class _PersonalInfo extends StatelessComponent {
             ]),
           ]),
         ]),
+
+      // Profile Photo Upload Card
+      div(
+        classes:
+            'p-5 rounded-3xl border ${s.isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"} flex items-center justify-between gap-4',
+        [
+          div(classes: 'flex items-center gap-4', [
+            div(
+              classes:
+                  'w-16 h-16 rounded-full overflow-hidden flex items-center justify-center relative bg-indigo-600/20 border-2 border-indigo-500/30 shrink-0 shadow-sm',
+              [
+                if (s.userPhotoUrl != null && s.userPhotoUrl!.isNotEmpty)
+                  img(src: s.userPhotoUrl!, classes: 'w-full h-full object-cover')
+                else
+                  span(classes: 'text-xl font-bold text-indigo-400', [
+                    Component.text(s.userName.isNotEmpty ? s.userName[0].toUpperCase() : '?'),
+                  ]),
+                if (s.isUploadingProfilePhoto)
+                  div(
+                    classes: 'absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-sm',
+                    [lIcon('loader-2', cls: 'w-5 h-5 animate-spin text-white')],
+                  ),
+              ],
+            ),
+            div([
+              p(classes: 'text-sm font-bold ${s.isDark ? "text-white" : "text-zinc-900"}', [
+                Component.text('Profile Picture'),
+              ]),
+              p(classes: 'text-xs ${s.isDark ? "text-zinc-400" : "text-zinc-500"} mt-0.5', [
+                Component.text('Upload custom photo (PNG, JPG, WebP)'),
+              ]),
+            ]),
+          ]),
+          label(
+            classes:
+                'px-4 py-2.5 rounded-xl font-bold text-xs bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer transition-all flex items-center gap-2 shadow-sm shrink-0',
+            [
+              lIcon(s.isUploadingProfilePhoto ? 'loader-2' : 'camera',
+                  cls: 'w-4 h-4 ${s.isUploadingProfilePhoto ? "animate-spin" : ""}'),
+              Component.text(s.isUploadingProfilePhoto ? 'Uploading...' : 'Change Photo'),
+              input(
+                type: InputType.file,
+                classes: 'hidden',
+                attributes: {'accept': 'image/*'},
+                events: {'change': (e) => s.handleProfilePhotoUpload(e)},
+              ),
+            ],
+          ),
+        ],
+      ),
+
       div(classes: 'space-y-4', [
         inputField(
           label: 'Full Name',
           placeholder: 'Juan Dela Cruz',
           iconName: 'user-circle',
           isDark: s.isDark,
-          value: currentName,
+          value: s.editName,
           onChange: (v) => s.setState(() => s.editName = v),
         ),
         inputField(
@@ -650,7 +738,7 @@ class _PersonalInfo extends StatelessComponent {
           iconName: 'mail',
           type: 'email',
           isDark: s.isDark,
-          value: currentEmail,
+          value: s.editEmail,
           onChange: (v) => s.setState(() => s.editEmail = v),
         ),
         div(classes: 'space-y-1', [
@@ -701,7 +789,7 @@ class _PersonalInfo extends StatelessComponent {
           placeholder: '000-000-000-000',
           iconName: 'file-text',
           isDark: s.isDark,
-          value: s.formatTIN(currentTaxId),
+          value: s.formatTIN(s.editTaxId),
           onChange: (v) {
             final digits = v.replaceAll(RegExp(r'\D'), '');
             final tin = digits.substring(0, digits.length > 12 ? 12 : digits.length);
@@ -860,21 +948,15 @@ class _ProfessionalInfo extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final s = state;
+    if (s.editHeadline.isEmpty && s.editSkills.isEmpty && (s.userProfile?.headline?.isNotEmpty == true || s.userProfile?.skills?.isNotEmpty == true || s.userProfile?.businessName?.isNotEmpty == true || s.userProfile?.industry?.isNotEmpty == true)) {
+      s.initializeProfileEditing();
+    }
     final isDark = s.isDark;
     final isNyxian = s.accountType == AccountType.nyxian || s.accountType == AccountType.hybrid;
     final isEmployer = s.accountType == AccountType.employer || s.accountType == AccountType.hybrid;
     final sectionCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
 
-    final currentHeadline = s.editHeadline.isNotEmpty ? s.editHeadline : (s.userProfile?.headline ?? '');
-    final currentHourlyRate = s.editHourlyRate.isNotEmpty
-        ? s.editHourlyRate
-        : (s.userProfile?.hourlyRate?.toStringAsFixed(0) ?? '');
-    final skills = s.editSkills.isNotEmpty ? s.editSkills : (s.userProfile?.skills ?? []);
-    final currentBusinessName = s.editBusinessName.isNotEmpty
-        ? s.editBusinessName
-        : (s.userProfile?.businessName ?? '');
-    final currentIndustry = s.editIndustry.isNotEmpty ? s.editIndustry : (s.userProfile?.industry ?? '');
-    final currentTaxId = s.editTaxId.isNotEmpty ? s.editTaxId : (s.userProfile?.taxId ?? '');
+    final skills = s.editSkills;
 
     return div(classes: 'space-y-6', [
       subViewHeader(
@@ -905,7 +987,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: 'e.g. Expert Electrician & Handyman',
             iconName: 'zap',
             isDark: isDark,
-            value: currentHeadline,
+            value: s.editHeadline,
             onChange: (v) => s.setState(() => s.editHeadline = v),
           ),
           inputField(
@@ -913,7 +995,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: '250',
             iconName: 'wallet',
             isDark: isDark,
-            value: currentHourlyRate,
+            value: s.editHourlyRate,
             onChange: (v) => s.setState(() => s.editHourlyRate = v),
           ),
           div([
@@ -1050,7 +1132,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: 'Juan Constructions',
             iconName: 'building',
             isDark: isDark,
-            value: currentBusinessName,
+            value: s.editBusinessName,
             onChange: (v) => s.setState(() => s.editBusinessName = v),
           ),
           inputField(
@@ -1058,7 +1140,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: 'Construction & Real Estate',
             iconName: 'briefcase',
             isDark: isDark,
-            value: currentIndustry,
+            value: s.editIndustry,
             onChange: (v) => s.setState(() => s.editIndustry = v),
           ),
           inputField(
@@ -1066,7 +1148,7 @@ class _ProfessionalInfo extends StatelessComponent {
             placeholder: '000-000-000-000',
             iconName: 'file-text',
             isDark: isDark,
-            value: s.formatTIN(currentTaxId),
+            value: s.formatTIN(s.editTaxId),
             onChange: (v) {
               final digits = v.replaceAll(RegExp(r'\D'), '');
               final tin = digits.substring(0, digits.length > 12 ? 12 : digits.length);
@@ -1216,7 +1298,7 @@ class _Payment extends StatelessComponent {
                 button(
                   classes:
                       'flex-1 py-3.5 rounded-2xl bg-black/20 backdrop-blur-md border border-white/10 font-bold text-sm hover:bg-black/30 transition-all flex items-center justify-center gap-2 cursor-pointer',
-                  events: {'click': (_) => s.setState(() => s.profileView = ProfileView.withdraw)},
+                  events: {'click': (_) => s.setState(() => s.showWithdrawModal = true)},
                   [
                     lIcon('arrow-up-right', cls: 'w-4 h-4'),
                     Component.text('Withdraw'),
@@ -1226,9 +1308,6 @@ class _Payment extends StatelessComponent {
           ]),
         ],
       ),
-
-      // Phantom wallet section
-      _phantomWallet(s, isDark),
 
       // Profile Promo Section
       div(
@@ -1310,261 +1389,6 @@ class _Payment extends StatelessComponent {
       ),
     ]);
   }
-
-  Component _phantomWallet(TranyxAppState s, bool isDark) {
-    final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
-    final walletName = s.selectedWalletType != null
-        ? '${s.selectedWalletType!.substring(0, 1).toUpperCase()}${s.selectedWalletType!.substring(1)}'
-        : 'Solana';
-
-    Component getWalletIcon({String size = 'w-5 h-5'}) {
-      if (s.selectedWalletType == 'phantom')
-        return img(src: '/images/PhantomWallet.png', classes: '$size object-contain rounded-md');
-      if (s.selectedWalletType == 'solflare')
-        return img(src: '/images/Solflare.png', classes: '$size object-contain rounded-md');
-      if (s.selectedWalletType == 'trust')
-        return img(src: '/images/TrustWallet.jpeg', classes: '$size object-contain rounded-md');
-      if (s.selectedWalletType == 'backpack')
-        return img(src: '/images/BackPack.png', classes: '$size object-contain rounded-md');
-      return lIcon('wallet', cls: '$size text-white');
-    }
-
-    if (s.walletState == WalletState.disconnected) {
-      return div(classes: 'p-5 rounded-2xl border $cardCls', [
-        div(classes: 'flex items-center justify-between', [
-          div(classes: 'flex items-center gap-3', [
-            div(classes: 'p-2.5 rounded-xl phantom-gradient', [
-              getWalletIcon(size: 'w-5 h-5'),
-            ]),
-            div([
-              p(classes: 'font-semibold', [Component.text('Solana Wallet')]),
-              p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-                Component.text('Connect Phantom, Trust, Solflare, or Backpack'),
-              ]),
-            ]),
-          ]),
-          button(
-            classes:
-                'px-4 py-2.5 rounded-xl text-sm font-bold text-white phantom-gradient hover:opacity-90 transition-opacity',
-            events: {'click': (_) => s.handleConnectWallet()},
-            [Component.text('Connect')],
-          ),
-        ]),
-      ]);
-    }
-
-    if (s.walletState == WalletState.connecting) {
-      return div(classes: 'p-5 rounded-2xl border $cardCls', [
-        div(classes: 'flex items-center gap-3', [
-          div(classes: 'p-2.5 rounded-xl phantom-gradient animate-pulse', [
-            getWalletIcon(size: 'w-5 h-5'),
-          ]),
-          div([
-            p(classes: 'font-semibold', [Component.text('Connecting $walletName...')]),
-            p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-              Component.text('Please approve in your browser extension'),
-            ]),
-          ]),
-          lIcon('loader-2', cls: 'w-5 h-5 ml-auto animate-spin ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
-        ]),
-      ]);
-    }
-
-    // Connected
-    final displayAddr = s.walletAddress.length > 8
-        ? '${s.walletAddress.substring(0, 4)}...${s.walletAddress.substring(s.walletAddress.length - 4)}'
-        : s.walletAddress;
-
-    // Compile all assets to show in the list
-    final assets = <Map<String, dynamic>>[];
-
-    if (s.ethAddress.isNotEmpty) {
-      assets.add({
-        'symbol': 'ETH',
-        'name': 'Ethereum',
-        'address': s.ethAddress,
-        'amount': s.ethBalance,
-        'decimals': 4,
-        'icon': 'coins',
-        'color': 'purple',
-      });
-    }
-
-    if (s.suiAddress.isNotEmpty) {
-      assets.add({
-        'symbol': 'SUI',
-        'name': 'Sui',
-        'address': s.suiAddress,
-        'amount': s.suiBalance,
-        'decimals': 2,
-        'icon': 'coins',
-        'color': 'blue',
-      });
-    }
-
-    for (final t in s.walletCollectibles) {
-      final mint = t['mint'] as String;
-      final amount = t['amount'] as double;
-      final decimals = t['decimals'] as int;
-      final symVal = t['symbol'] as String?;
-      final nameVal = t['name'] as String?;
-
-      String symbol = (symVal != null && symVal.isNotEmpty) ? symVal : 'SPL Token';
-      String name = (nameVal != null && nameVal.isNotEmpty) ? nameVal : symbol;
-      String icon = 'coins';
-      String color = 'zinc';
-
-      if (mint == 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB') {
-        symbol = 'USDT';
-        name = 'USDT';
-        icon = 'dollar-sign';
-        color = 'green';
-      } else if (mint == '2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo' ||
-          mint == 'CXk2AMBfi3TwaEL2468s6zP8xq9NxTXjp9gjMgzeUynM') {
-        symbol = 'PYUSD';
-        name = 'PYUSD';
-        icon = 'dollar-sign';
-        color = 'green';
-      } else if (decimals == 0 && amount == 1) {
-        symbol = 'NFT';
-        name = 'NFT';
-        icon = 'image';
-        color = 'purple';
-      }
-
-      assets.add({
-        'symbol': symbol,
-        'name': name,
-        'address': mint,
-        'amount': amount,
-        'decimals': decimals,
-        'icon': icon,
-        'color': color,
-      });
-    }
-
-    return div(
-      classes:
-          'p-6 rounded-[2rem] border transition-all duration-300 '
-          '${isDark ? "bg-[#18181b]/60 border-zinc-800/80 text-white" : "bg-white border-zinc-200 text-zinc-800 shadow-sm"} space-y-6',
-      [
-        div(classes: 'flex items-center justify-between', [
-          div(classes: 'flex items-center gap-4', [
-            div(
-              classes:
-                  'w-12 h-12 rounded-full bg-[#512da8] flex items-center justify-center text-white shadow-lg shadow-purple-500/20',
-              [getWalletIcon(size: 'w-6 h-6')],
-            ),
-            div([
-              p(classes: 'font-extrabold text-indigo-400 tracking-tight text-base', [
-                Component.text('$walletName Wallet'),
-              ]),
-              p(classes: 'text-xs text-zinc-500 font-mono mt-0.5', [Component.text(displayAddr)]),
-            ]),
-          ]),
-          button(
-            classes:
-                'p-2 rounded-xl text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer',
-            events: {
-              'click': (_) => s.setState(() {
-                s.walletState = WalletState.disconnected;
-                s.walletAddress = '';
-                s.walletBalance = 0;
-                s.walletCollectibles = [];
-                s.ethAddress = '';
-                s.suiAddress = '';
-                s.ethBalance = 0;
-                s.suiBalance = 0;
-              }),
-            },
-            [lIcon('log-out', cls: 'w-5 h-5')],
-          ),
-        ]),
-
-        div(classes: 'flex items-end justify-between pt-1', [
-          div([
-            p(classes: 'text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500 mb-1', [
-              Component.text('Balance'),
-            ]),
-            p(
-              classes:
-                  'text-3xl font-black flex items-baseline gap-1.5 '
-                  '${isDark ? "text-white" : "text-zinc-900"}',
-              [
-                Component.text(s.walletBalance.toStringAsFixed(2)),
-                span(classes: 'text-xs font-black text-zinc-500 tracking-wider', [Component.text('SOL')]),
-              ],
-            ),
-          ]),
-          button(
-            classes:
-                'p-3 rounded-2xl transition-all flex items-center justify-center border shadow-sm '
-                '${isDark ? "bg-zinc-800/80 border-zinc-700/60 hover:bg-zinc-800 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-600"}',
-            events: {'click': (_) => s.handleRefreshBalance()},
-            [
-              lIcon(
-                s.isRefreshingBalance ? 'loader-2' : 'refresh-cw',
-                cls: 'w-5 h-5 ${s.isRefreshingBalance ? "animate-spin" : ""}',
-              ),
-            ],
-          ),
-        ]),
-
-        if (assets.isNotEmpty) ...[
-          div(classes: 'border-t border-zinc-800/60 pt-4 mt-2 space-y-3', [
-            p(classes: 'text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500', [
-              Component.text('Token Assets & Collectibles'),
-            ]),
-            div(
-              classes: 'grid grid-cols-1 gap-2.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar',
-              assets.map((t) {
-                final name = t['name'] as String;
-                final addr = t['address'] as String;
-                final shortAddr = addr.length > 8
-                    ? '${addr.substring(0, 4)}...${addr.substring(addr.length - 4)}'
-                    : addr;
-                final amount = t['amount'] as double;
-                final decimals = t['decimals'] as int;
-                final icon = t['icon'] as String;
-                final color = t['color'] as String;
-
-                String iconBgCls = 'bg-zinc-500/10 text-zinc-400';
-                if (color == 'purple') {
-                  iconBgCls = 'bg-purple-500/10 text-purple-400';
-                } else if (color == 'blue') {
-                  iconBgCls = 'bg-blue-500/10 text-blue-400';
-                } else if (color == 'green') {
-                  iconBgCls = 'bg-green-500/10 text-green-400';
-                }
-
-                return div(
-                  classes:
-                      'flex items-center justify-between p-3 rounded-2xl border ${isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-200"}',
-                  [
-                    div(classes: 'flex items-center gap-3', [
-                      div(
-                        classes: 'w-8 h-8 rounded-xl $iconBgCls flex items-center justify-center',
-                        [lIcon(icon, cls: 'w-4 h-4')],
-                      ),
-                      div([
-                        p(classes: 'text-xs font-bold ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
-                          Component.text(name),
-                        ]),
-                        p(classes: 'text-[10px] text-zinc-500 font-mono mt-0.5', [Component.text(shortAddr)]),
-                      ]),
-                    ]),
-                    p(classes: 'text-xs font-black ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
-                      Component.text(amount.toStringAsFixed(decimals == 0 ? 0 : decimals)),
-                    ]),
-                  ],
-                );
-              }).toList(),
-            ),
-          ]),
-        ],
-      ],
-    );
-  }
 }
 
 // ── Withdraw Funds Pane ───────────────────────────────────────
@@ -1579,9 +1403,75 @@ class _WithdrawPane extends StatefulComponent {
 class _WithdrawPaneState extends State<_WithdrawPane> {
   String _amountInput = '100';
   String _selectedCoin = 'USDT'; // 'USDT' (SPL) or 'SOL'
+  double _solToPhpRate = 8000.0;
+  double _usdToPhpRate = 57.0;
+  bool _isFetchingRates = false;
   bool _isSubmitting = false;
   String? _errorMessage;
   String? _successMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLiveRates();
+  }
+
+  Future<void> _fetchLiveRates() async {
+    setState(() => _isFetchingRates = true);
+    try {
+      final cgRes = await http
+          .get(
+            Uri.parse(
+              'https://api.coingecko.com/api/v3/simple/price?ids=solana,tether&vs_currencies=php,usd',
+            ),
+          )
+          .timeout(const Duration(seconds: 5));
+
+      if (cgRes.statusCode == 200) {
+        final data = jsonDecode(cgRes.body) as Map;
+        final sol = (data['solana']?['php'] as num?)?.toDouble();
+        final usdt = (data['tether']?['php'] as num?)?.toDouble();
+        setState(() {
+          if (sol != null && sol > 0) _solToPhpRate = sol;
+          if (usdt != null && usdt > 0) _usdToPhpRate = usdt;
+        });
+      } else {
+        final binanceRes = await http
+            .get(
+              Uri.parse(
+                'https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT',
+              ),
+            )
+            .timeout(const Duration(seconds: 4));
+        final usdPhpRes = await http
+            .get(Uri.parse('https://open.er-api.com/v6/latest/USD'))
+            .timeout(const Duration(seconds: 4));
+
+        double usdPhp = 57.0;
+        if (usdPhpRes.statusCode == 200) {
+          final usdData = jsonDecode(usdPhpRes.body) as Map;
+          final php = (usdData['rates']?['PHP'] as num?)?.toDouble();
+          if (php != null && php > 0) usdPhp = php;
+        }
+
+        if (binanceRes.statusCode == 200) {
+          final bData = jsonDecode(binanceRes.body) as Map;
+          final solUsd =
+              double.tryParse(bData['price']?.toString() ?? '') ?? 0.0;
+          if (solUsd > 0) {
+            setState(() {
+              _solToPhpRate = solUsd * usdPhp;
+              _usdToPhpRate = usdPhp;
+            });
+          }
+        }
+      }
+    } catch (_) {
+      // Sensible defaults maintained if offline
+    } finally {
+      setState(() => _isFetchingRates = false);
+    }
+  }
 
   void _setPresetAmount(double amount, double maxBal) {
     final clamped = amount.clamp(0.0, maxBal);
@@ -1659,11 +1549,20 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
       final svc = FirestoreService(token, s.handleTokenRefresh);
       final methodTitle = 'Solana ($_selectedCoin)';
 
+      final feePhp = (amount * 0.02);
+      final netPhp = (amount - feePhp);
+      final activeRate = _selectedCoin == 'SOL' ? (_solToPhpRate > 0 ? _solToPhpRate : 8000.0) : (_usdToPhpRate > 0 ? _usdToPhpRate : 57.0);
+      final cryptoAmount = activeRate > 0 ? netPhp / activeRate : 0.0;
+
       final requestData = <String, dynamic>{
         'id': requestId,
         'uid': uid,
         'userName': s.userName,
         'amount': amount,
+        'feeAmount': feePhp,
+        'netAmount': netPhp,
+        'cryptoAmount': cryptoAmount,
+        'rateUsed': activeRate,
         'status': 'Pending',
         'createdAt': timestamp,
         'currency': 'PHP',
@@ -1673,23 +1572,78 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
         'walletPublicKey': walletKey,
       };
 
-      // 1. Save withdrawal request record
-      await svc.createOrUpdate('withdrawalRequests/$requestId', requestData);
+      // 1. Direct on-chain treasury transfer if private key configured
+      String txSignature = '';
+      bool isOnChainTransferred = false;
 
-      // 2. Create transaction record
+      final treasuryPrivKey = Env.solanaPrivateKey;
+      if (treasuryPrivKey.isNotEmpty) {
+        try {
+          if (_selectedCoin == 'SOL') {
+            final lamports = (cryptoAmount * 1e9).round();
+            if (lamports > 0) {
+              final sig = await broadcastTreasuryTransfer(
+                treasuryPrivKeyBase58: treasuryPrivKey,
+                recipientPubkey: walletKey,
+                lamports: lamports,
+              );
+              if (sig != null && sig.isNotEmpty) {
+                txSignature = sig;
+                isOnChainTransferred = true;
+              }
+            }
+          } else {
+            if (cryptoAmount > 0) {
+              final sig = await broadcastTreasuryTokenTransfer(
+                treasuryPrivKeyBase58: treasuryPrivKey,
+                recipientPubkey: walletKey,
+                amountInUsdt: cryptoAmount,
+              );
+              if (sig != null && sig.isNotEmpty) {
+                txSignature = sig;
+                isOnChainTransferred = true;
+              }
+            }
+          }
+        } catch (vaultErr) {
+          print('Direct client-side vault transfer skipped/queued: $vaultErr');
+        }
+      }
+
+      final txStatus = isOnChainTransferred ? 'Successful' : 'Pending';
+
+      // 2. Save withdrawal request record
+      await svc.createOrUpdate('withdrawalRequests/$requestId', {
+        ...requestData,
+        'status': txStatus,
+        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
+      });
+
+      // 3. Create transaction record
       await svc.createOrUpdate('transactions/tx_$timestamp', {
         'id': 'tx_$timestamp',
         'uid': uid,
-        'title': 'Withdrawal Request ($methodTitle)',
+        'title': isOnChainTransferred
+            ? 'Withdrawal Successful ($methodTitle)'
+            : 'Withdrawal Request ($methodTitle)',
         'type': 'withdraw',
         'amount': -amount,
+        'feeAmount': feePhp,
+        'netAmount': netPhp,
+        'cryptoAmount': cryptoAmount,
+        'rateUsed': activeRate,
         'currency': 'PHP',
-        'status': 'Pending',
+        'status': txStatus,
         'createdAt': timestamp,
         'walletPublicKey': walletKey,
+        'coin': _selectedCoin,
+        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
+        'desc': isOnChainTransferred
+            ? 'Withdrew ₱${amount.toStringAsFixed(2)} to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin). On-Chain Tx: $txSignature'
+            : 'Requested ₱${amount.toStringAsFixed(2)} withdrawal to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin)',
       });
 
-      // 3. Deduct from user profile balance
+      // 4. Deduct from user profile balance
       final newBalance = (tyxBal - amount).clamp(0.0, double.infinity);
       await svc.createOrUpdate('users/$uid', {'tyxBalance': newBalance});
 
@@ -1701,9 +1655,14 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
 
       setState(() {
         _isSubmitting = false;
-        _successMessage = 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
+        _successMessage = isOnChainTransferred
+            ? 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin) has been transferred directly to your Solana wallet on-chain!'
+            : 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
       });
-      s.showAppToast('Withdrawal Requested', '₱ ${amount.toStringAsFixed(2)} via $methodTitle submitted.');
+      s.showAppToast(
+        isOnChainTransferred ? 'Withdrawal Completed' : 'Withdrawal Requested',
+        '₱ ${amount.toStringAsFixed(2)} via $methodTitle ${isOnChainTransferred ? "sent on-chain!" : "submitted."}',
+      );
     } catch (e) {
       setState(() {
         _isSubmitting = false;
@@ -1721,6 +1680,15 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
     final hasWallet = walletKey.isNotEmpty;
     final cardBg = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
     final inputBg = isDark ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-white border-zinc-300 text-zinc-900';
+
+    final enteredAmount = double.tryParse(_amountInput.trim()) ?? 0.0;
+    final feePhp = enteredAmount * 0.02;
+    final netPhp = (enteredAmount - feePhp).clamp(0.0, double.infinity);
+    final activeRate = _selectedCoin == 'SOL' ? (_solToPhpRate > 0 ? _solToPhpRate : 8000.0) : (_usdToPhpRate > 0 ? _usdToPhpRate : 57.0);
+    final estCryptoAmount = activeRate > 0 ? netPhp / activeRate : 0.0;
+    final estCryptoStr = _selectedCoin == 'SOL'
+        ? '${estCryptoAmount.toStringAsFixed(6)} SOL'
+        : '${estCryptoAmount.toStringAsFixed(2)} USDT';
 
     return div(classes: 'space-y-6', [
       subViewHeader(
@@ -1879,15 +1847,41 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
           if (hasWallet) ...[
             p(classes: 'font-mono text-xs font-bold text-indigo-400 break-all', [Component.text(walletKey)]),
             div(classes: 'pt-2 space-y-2', [
-              span(classes: 'text-xs font-semibold text-zinc-400 block', [Component.text('Select Payout Token:')]),
-              div(classes: 'flex gap-2', [
-                for (final coin in ['USDT', 'SOL'])
-                  button(
-                    classes:
-                        'px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${_selectedCoin == coin ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30" : (isDark ? "bg-zinc-800 text-zinc-400 hover:text-white" : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300")}',
-                    events: {'click': (_) => setState(() => _selectedCoin = coin)},
-                    [Component.text(coin == 'USDT' ? 'USDT (SPL Token)' : 'SOL (Native SOL)')],
-                  ),
+              div(classes: 'flex items-center justify-between', [
+                span(classes: 'text-xs font-semibold text-zinc-400 block', [Component.text('Select Payout Token:')]),
+                span(classes: 'text-[11px] text-zinc-400 font-mono', [
+                  Component.text(_isFetchingRates ? 'Fetching live rates...' : 'Live Web Rates'),
+                ]),
+              ]),
+              div(classes: 'grid grid-cols-1 sm:grid-cols-2 gap-2.5', [
+                button(
+                  classes:
+                      'p-3 rounded-2xl text-left border transition-all cursor-pointer ${_selectedCoin == 'USDT' ? "bg-indigo-600/15 border-indigo-500 text-white shadow-md shadow-indigo-600/20" : (isDark ? "bg-zinc-800/80 border-zinc-700 text-zinc-400 hover:text-white" : "bg-zinc-100 border-zinc-200 text-zinc-700 hover:bg-zinc-200")}',
+                  events: {'click': (_) => setState(() => _selectedCoin = 'USDT')},
+                  [
+                    div(classes: 'flex justify-between items-center', [
+                      span(classes: 'text-xs font-bold text-white', [Component.text('Tether (USDT SPL)')]),
+                      if (_selectedCoin == 'USDT') lIcon('check-circle', cls: 'w-4 h-4 text-indigo-400'),
+                    ]),
+                    p(classes: 'text-[11px] text-zinc-400 mt-1', [
+                      Component.text('1 USDT ≈ ₱${_usdToPhpRate.toStringAsFixed(2)}'),
+                    ]),
+                  ],
+                ),
+                button(
+                  classes:
+                      'p-3 rounded-2xl text-left border transition-all cursor-pointer ${_selectedCoin == 'SOL' ? "bg-indigo-600/15 border-indigo-500 text-white shadow-md shadow-indigo-600/20" : (isDark ? "bg-zinc-800/80 border-zinc-700 text-zinc-400 hover:text-white" : "bg-zinc-100 border-zinc-200 text-zinc-700 hover:bg-zinc-200")}',
+                  events: {'click': (_) => setState(() => _selectedCoin = 'SOL')},
+                  [
+                    div(classes: 'flex justify-between items-center', [
+                      span(classes: 'text-xs font-bold text-white', [Component.text('Solana (SOL Native)')]),
+                      if (_selectedCoin == 'SOL') lIcon('check-circle', cls: 'w-4 h-4 text-indigo-400'),
+                    ]),
+                    p(classes: 'text-[11px] text-zinc-400 mt-1', [
+                      Component.text('1 SOL ≈ ₱${_solToPhpRate.toStringAsFixed(2)}'),
+                    ]),
+                  ],
+                ),
               ]),
             ]),
           ] else ...[
@@ -1900,6 +1894,24 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
 
       // Fee & ETA Summary
       div(classes: 'p-4 rounded-2xl border ${isDark ? "bg-zinc-900/40 border-zinc-800 text-zinc-400" : "bg-zinc-50 border-zinc-200 text-zinc-600"} text-xs space-y-2', [
+        div(classes: 'flex justify-between items-center', [
+          span([Component.text('Live Rate (from web)')]),
+          span(classes: 'font-mono font-bold text-indigo-400', [
+            Component.text('1 $_selectedCoin ≈ ₱${activeRate.toStringAsFixed(2)}'),
+          ]),
+        ]),
+        div(classes: 'flex justify-between items-center', [
+          span([Component.text('Platform Fee (2%)')]),
+          span(classes: 'font-semibold text-rose-400', [
+            Component.text('₱ ${feePhp.toStringAsFixed(2)}'),
+          ]),
+        ]),
+        div(classes: 'flex justify-between items-center', [
+          span([Component.text('Estimated Net Payout')]),
+          span(classes: 'font-bold text-emerald-400 font-mono', [
+            Component.text('₱ ${netPhp.toStringAsFixed(2)} ($estCryptoStr)'),
+          ]),
+        ]),
         div(classes: 'flex justify-between items-center', [
           span([Component.text('Network Fee')]),
           span(classes: 'font-bold text-emerald-400', [Component.text('Covered by Tranyx (0%)')]),
@@ -1929,7 +1941,7 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
       // Action Button
       button(
         classes:
-            'w-full py-4 rounded-2xl font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
+          'w-full py-4 rounded-2xl font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
         attributes: _isSubmitting ? {'disabled': 'disabled'} : {},
         events: {
           'click': (_) async {
@@ -2620,107 +2632,15 @@ class _HelpSupportState extends State<_HelpSupport> {
 
   List<Map<String, String>> get faqData {
     final type = component.state.accountType;
-    switch (type) {
-      case AccountType.employer:
-        return [
-          {
-            'title': 'How do I post a gig?',
-            'icon': 'briefcase',
-            'answer':
-                'Navigate to the "Find Workers" tab or dashboard. Click the "Post a Gig" button to open the creation modal. Enter a catchy job title, choose a category, specify required skills, set the budget in Tyx, and complete the escrow. The gig will instantly become visible to qualified Nyxian workers!',
-          },
-          {
-            'title': 'How does payment and Escrow work?',
-            'icon': 'credit-card',
-            'answer':
-                'Tranyx utilizes a secure, trustless in-app Escrow system. When you post a job, the designated funds are safely held in a project escrow. Once the worker delivers their work and you review and approve it, the funds are instantly released to their wallet. No delayed payouts, no hidden fees.',
-          },
-          {
-            'title': 'Why should I verify my TIN ID?',
-            'icon': 'shield-check',
-            'answer':
-                'Verifying your Tax Identification Number (TIN) unlocks the "Verified Employer" status. This dramatically boosts worker trust, increases the visibility of your gig listings, and qualifies you for posting higher-tier contracts.',
-          },
-          {
-            'title': 'How do I review and hire applicants?',
-            'icon': 'users',
-            'answer':
-                'Under "Manage Jobs", click on your posted gig to view the active applicants. You can inspect their profile, reviews, and verified skills. Once you find the perfect match, click "Hire" to lock in the escrow and begin!',
-          },
-          {
-            'title': 'How does the Escrow dispute system work?',
-            'icon': 'alert-circle',
-            'answer':
-                'If a worker fails to deliver or the output does not meet your project specification, you can raise a dispute. Our decentralized moderation team will examine the deliverables and the agreement, settling the escrow fairly.',
-          },
-        ];
-      case AccountType.nyxian:
-        return [
-          {
-            'title': 'How do I apply for jobs?',
-            'icon': 'briefcase',
-            'answer':
-                'Explore the active gig listings under "Find Jobs". When you find a gig matching your expertise, click "Apply Now". Present a brief proposal showing why you are the best fit. If the employer approves, they will hire you and the escrow goes active!',
-          },
-          {
-            'title': 'How and when do I get paid?',
-            'icon': 'credit-card',
-            'answer':
-                'Your payout is completely secured by our in-app Escrow. The moment you submit the gig deliverables and the employer approves them, the funds are instantly released from escrow directly into your virtual Tyx balance.',
-          },
-          {
-            'title': 'What is the minimum withdrawal limit?',
-            'icon': 'wallet',
-            'answer':
-                'To withdraw Tyx to your connected Solana or GCash wallet, a minimum balance of 100 Tyx is required. Withdrawals are processed safely through our payment bridge.',
-          },
-          {
-            'title': 'How do I increase my profile rating?',
-            'icon': 'star',
-            'answer':
-                'Completing jobs on time, communicating professionally, and delivering high-quality results will earn you stellar ratings (up to 5 stars). Higher ratings boost your visibility and make you a preferred choice for premium gigs!',
-          },
-          {
-            'title': 'What are verified skills and how do I add them?',
-            'icon': 'zap',
-            'answer':
-                'Go to your Profile and manage your skills list. Highlighting verified skills that match search criteria helps employers discover you automatically when searching for Nyxian professionals.',
-          },
-        ];
-      case AccountType.hybrid:
-        return [
-          {
-            'title': 'What is a Hybrid PRO account?',
-            'icon': 'zap',
-            'answer':
-                'A Hybrid account gives you the ultimate flexibility to act as both an Employer (posting jobs) and a Nyxian Worker (applying for gigs) using a single, unified profile and balance!',
-          },
-          {
-            'title': 'How do I switch between Employer and Worker views?',
-            'icon': 'refresh-cw',
-            'answer':
-                'You can seamlessly toggle your active mode using the role selector in the dashboard or sidebar. This dynamically switches your views, custom tabs, and actions so you can hire or apply on the fly.',
-          },
-          {
-            'title': 'Are my balance and ratings shared?',
-            'icon': 'credit-card',
-            'answer':
-                'Yes! Your Tyx balance is shared across both roles, meaning you can immediately use earnings from your completed gigs to post new jobs. However, your rating system is split into "Employer Rating" and "Worker Rating" to represent your reputation in both roles accurately.',
-          },
-          {
-            'title': 'Do I need to verify both profiles?',
-            'icon': 'shield-check',
-            'answer':
-                'No, a single verification process validates your identity globally. Verifying your email, phone number, or TIN ID applies premium badges to both your Employer and Worker interfaces.',
-          },
-          {
-            'title': 'How do fees work on a Hybrid account?',
-            'icon': 'wallet',
-            'answer':
-                'Posting a gig as an employer locks in the escrow budget, while receiving payouts as a worker is subject to standard minimal network processing fees upon withdrawal.',
-          },
-        ];
-    }
+    final items = TranyxFaqData.getFaqsForAccountType(type);
+    return items
+        .map((f) => {
+              'title': f.title,
+              'icon': f.icon,
+              'category': f.category,
+              'answer': f.answer,
+            })
+        .toList();
   }
 
   void toggleFaq(int index) {
@@ -2871,7 +2791,16 @@ class _HelpSupportState extends State<_HelpSupport> {
 
     try {
       final gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken);
-      final response = await gemini.askSupportQuestion(history);
+      final profile = component.state.userProfile;
+      final userCtx = TranyxAIUserContext(
+        userId: SessionStorage.uid,
+        userRole: component.state.accountType.name,
+        walletAddress: profile?.walletPublicKey,
+        connectedWallet: profile?.walletPublicKey != null ? 'Solana Wallet' : null,
+        tyxbitBalance: profile?.tyxBalance,
+        isWalletVerified: profile?.walletPublicKey != null,
+      );
+      final response = await gemini.askSupportQuestion(history, appContext: userCtx);
 
       if (response == "TRANSFER_TO_AGENT") {
         setState(() {
@@ -3313,7 +3242,29 @@ class _HelpSupportState extends State<_HelpSupport> {
         ),
       ] else ...[
         // Default View Option Buttons
-        div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
+        div(classes: 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4', [
+          button(
+            classes:
+                'py-6 px-4 rounded-[2rem] border transition-all text-center flex flex-col items-center justify-center gap-3 '
+                '${isDark ? "bg-zinc-900/60 border-purple-500/30 hover:bg-purple-950/20 hover:border-purple-500/60" : "bg-white border-purple-200 shadow-sm hover:shadow-md hover:border-purple-400"}',
+            events: {
+              'click': (_) => s.openWalkthroughModal(),
+            },
+            [
+              div(
+                classes: 'w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center text-purple-400',
+                [lIcon('sparkles', cls: 'w-6 h-6')],
+              ),
+              div([
+                p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                  Component.text('App Guide & Badges'),
+                ]),
+                p(classes: 'text-xs text-purple-400 mt-1', [
+                  Component.text('Interactive walkthrough'),
+                ]),
+              ]),
+            ],
+          ),
           button(
             classes:
                 'py-6 px-4 rounded-[2rem] border transition-all text-center flex flex-col items-center justify-center gap-3 '
@@ -3453,9 +3404,12 @@ class _HistoryView extends StatefulComponent {
 }
 
 class _HistoryViewState extends State<_HistoryView> {
-  String activeTab = 'earnings';
+  String activeTab = 'all_transactions';
   String activeFilter = 'daily';
+  String ledgerFilter = 'all'; // 'all', 'income', 'expenses', 'topups', 'withdrawals', 'jobs', 'purchases'
   int hoveredBarIndex = -1;
+  int currentPage = 1;
+  int itemsPerPage = 10;
 
   // Earnings dataset (kept static for graphs temporarily)
   final Map<String, List<Map<String, dynamic>>> earningsData = {
@@ -3489,24 +3443,52 @@ class _HistoryViewState extends State<_HistoryView> {
     ],
   };
 
+  List<Map<String, dynamic>> allUnifiedLedger = [];
   List<Map<String, dynamic>> earningsTransactions = [];
   List<Map<String, dynamic>> purchaseTransactions = [];
   List<Map<String, dynamic>> depositTransactions = [];
+  List<DepositRequest> userP2pDeposits = [];
+  List<Map<String, dynamic>> userWithdrawalRequests = [];
+  String p2pFilter = 'all'; // 'all', 'deposits', 'withdrawals'
   List<Map<String, dynamic>> _dbRentalHistory = [];
   double totalEarningsSum = 0.0;
+  double totalInflowSum = 0.0;
+  double totalOutflowSum = 0.0;
   int completedGigsCount = 0;
+  bool _isLoading = true;
 
   void _loadRentalHistory() async {
     final uid = component.state.userProfile?.uid;
-    if (uid == null) return;
+    if (uid == null) {
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
+    setState(() {
+      _isLoading = true;
+    });
     try {
       final list = await component.state.firestore.getMyRentalHistory(uid);
-      setState(() {
-        _dbRentalHistory = list;
-        _loadDbHistory();
-      });
+      final p2pList = await component.state.firestore.fetchUserDepositRequests(uid);
+      final p2pWithList = await component.state.firestore.fetchUserP2pWithdrawalRequests(uid);
+      final withList = await component.state.firestore.fetchUserWithdrawalRequests(uid);
+      final walletTxList = await component.state.firestore.getCollection('wallets/$uid/transactions');
+      final combinedWithdrawals = <Map<String, dynamic>>[
+        ...withList,
+        ...p2pWithList.map((r) => r.toMap()),
+        ...walletTxList.where((tx) => (tx['type'] ?? '').toString().toUpperCase() == 'WITHDRAWAL' || (tx['type'] ?? '').toString().contains('withdraw')),
+      ];
+      _dbRentalHistory = list;
+      userP2pDeposits = p2pList;
+      userWithdrawalRequests = combinedWithdrawals;
+      _loadDbHistory();
     } catch (e) {
       print('Error loading db rental history: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -3674,7 +3656,7 @@ class _HistoryViewState extends State<_HistoryView> {
             'baseAmount': price,
             'commissionFee': price * 0.03,
             'commissionLabel': 'Platform Commission (3%)',
-            'listingFee': rental.priceDaily * 0.015,
+            'listingFee': (rentalMap['listingFeePaid'] as num?)?.toDouble() ?? 0.0,
             'status': 'Released',
             'timestamp': createdAtMs,
           });
@@ -3751,7 +3733,7 @@ class _HistoryViewState extends State<_HistoryView> {
               'baseAmount': price,
               'commissionFee': price * 0.03,
               'commissionLabel': 'Platform Commission (3%)',
-              'listingFee': rental.priceDaily * 0.015,
+              'listingFee': (rentalMap['listingFeePaid'] as num?)?.toDouble() ?? 0.0,
               'status': 'Released',
               'timestamp': createdAtMs,
             });
@@ -3813,7 +3795,8 @@ class _HistoryViewState extends State<_HistoryView> {
 
         // If the user was the host -> earnings
         if (creatorId == uid) {
-          final payout = price * 0.97; // 3% host commission fee deducted
+          final commission = price * 0.07; // 7% host commission fee deducted
+          final payout = price - commission;
           earningsSum += payout;
           gigsCount++;
 
@@ -3825,9 +3808,9 @@ class _HistoryViewState extends State<_HistoryView> {
               'date': _formatDate(createdAtMs),
               'amount': payout,
               'baseAmount': price,
-              'commissionFee': price * 0.03,
-              'commissionLabel': 'Platform Commission (3%)',
-              'listingFee': rental.priceMonthly * 0.015,
+              'commissionFee': commission,
+              'commissionLabel': 'TRANYX Host Commission (7%)',
+              'listingFee': 0.0,
               'status': 'Released',
               'timestamp': createdAtMs,
             });
@@ -3883,26 +3866,255 @@ class _HistoryViewState extends State<_HistoryView> {
 
     // Process userTransactions for deposits (or any other types)
     for (final tx in component.state.userTransactions) {
-      final type = tx['type'] as String?;
-      final createdAt = (tx['createdAt'] as num?)?.toInt();
-      if (type == 'deposit') {
+      final record = WalletTransaction.fromMap(tx);
+      final createdAt = record.createdAt;
+      final rawStatus = (tx['status'] as String? ?? record.status).toUpperCase();
+      final isCancelled = rawStatus == 'CANCELLED' || rawStatus == 'REJECTED';
+      final rawType = (tx['type'] ?? '').toString().toLowerCase();
+
+      final isDebitType = record.transactionType == WalletTransactionType.listingFee ||
+          record.transactionType == WalletTransactionType.feeDeduction ||
+          record.transactionType == WalletTransactionType.subscription ||
+          record.transactionType == WalletTransactionType.withdraw ||
+          record.transactionType == WalletTransactionType.onChainPayment ||
+          rawType == 'listing_fee' ||
+          rawType == 'fee_deduction' ||
+          rawType == 'subscription' ||
+          rawType == 'withdraw' ||
+          rawType == 'withdrawal' ||
+          rawType == 'fee' ||
+          rawType == 'service_fee' ||
+          rawType == 'payment';
+
+      final isDeposit = !isDebitType &&
+          (record.transactionType == WalletTransactionType.deposit ||
+              record.transactionType == WalletTransactionType.refund ||
+              rawType.contains('deposit') ||
+              rawType.contains('topup') ||
+              rawType.contains('refund') ||
+              (rawType == 'credit' && !isDebitType) ||
+              (isCancelled && !isDebitType));
+
+      if (isDeposit) {
+        final rawMethod = (tx['paymentMethod'] ?? tx['method'] ?? record.method ?? '').toString();
+        final rawProof = record.proofImageUrl ??
+            (tx['proofImageUrl'] ?? tx['proofUrl'] ?? tx['receiptUrl'] ?? tx['proof_image_url'] ?? tx['imageUrl']) as String?;
+        final rawRef = record.referenceNumber ??
+            (tx['referenceNumber'] ?? tx['refNumber'] ?? tx['ref']) as String?;
+        var rawDesc = (tx['desc'] ?? tx['description'] ?? record.desc ?? '').toString();
+        final rawReason = (tx['rejectionReason'] ?? tx['reason'] ?? record.rejectionReason) as String?;
+
+        final isRefund = record.transactionType == WalletTransactionType.refund ||
+            (tx['type'] ?? '').toString().contains('refund') ||
+            (tx['category'] ?? '') == 'refund';
+
+        final isP2p = !isRefund && (record.originRail == TransactionOriginRail.manualP2p ||
+            tx['depositRequestId'] != null ||
+            (tx['id'] as String? ?? '').startsWith('p2p_') ||
+            rawMethod.toLowerCase().contains('gcash') ||
+            rawMethod.toLowerCase().contains('maya') ||
+            rawMethod.toLowerCase().contains('p2p') ||
+            rawDesc.toLowerCase().contains('gcash') ||
+            rawDesc.toLowerCase().contains('maya') ||
+            rawDesc.toLowerCase().contains('p2p'));
+
+        String method;
+        String originRail;
+        if (isRefund) {
+          originRail = 'internal_balance';
+          method = rawMethod.isNotEmpty ? rawMethod : 'Tranyx Escrow';
+        } else if (isP2p) {
+          originRail = 'manual_p2p';
+          method = rawMethod.toLowerCase().contains('maya')
+              ? 'Maya'
+              : (rawMethod.toLowerCase().contains('gcash') ? 'GCash' : (rawMethod.isNotEmpty ? rawMethod : 'GCash'));
+        } else if (record.originRail == TransactionOriginRail.mwaOnChain || record.solanaTxSignature != null || tx['solanaTxSignature'] != null) {
+          originRail = 'mwa_on_chain';
+          method = rawMethod.isNotEmpty ? rawMethod : 'Solana';
+        } else {
+          originRail = 'internal_balance';
+          method = rawMethod.isNotEmpty ? rawMethod : 'Tyxbit Balance';
+        }
+
+        if (rawDesc.isEmpty) {
+          if (isCancelled) {
+            rawDesc = rawStatus == 'REJECTED'
+                ? 'P2P Top-Up request rejected by agent'
+                : 'P2P Top-Up request cancelled';
+          } else if (isRefund) {
+            rawDesc = '100% Escrow refund for cancelled job';
+          } else {
+            rawDesc = isP2p
+                ? (rawRef != null && rawRef.isNotEmpty ? 'Manual $method Transfer (Ref: $rawRef)' : 'P2P Top-Up')
+                : 'Funds added to Tyxbit balance';
+          }
+        }
+
+        // Clean any email address inside rawDesc to friendly agent name (e.g. agent.juana2@tranyx.app -> Agent Juana)
+        final cleanDesc = rawDesc.replaceAllMapped(
+          RegExp(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
+          (m) => cleanAgentDisplayName(m.group(0)),
+        );
+
+        final title = (tx['title'] as String?) ??
+            (isCancelled
+                ? (rawStatus == 'REJECTED' ? 'P2P Top-Up (Rejected)' : 'P2P Top-Up (Cancelled)')
+                : (isRefund
+                    ? 'Job Escrow Refund'
+                    : (originRail == 'manual_p2p'
+                        ? 'P2P Top-Up ($method)'
+                        : (originRail == 'mwa_on_chain' ? 'Solana Top-Up' : 'Wallet Top-Up'))));
+
+        final categoryLabel = isCancelled
+            ? (rawStatus == 'REJECTED' ? 'Rejected' : 'Cancelled')
+            : (isRefund ? 'Escrow Refund' : (isP2p ? 'P2P Top-Up' : 'Added Funds'));
+
         dTrans.add({
-          'title': tx['title'] ?? 'Top-Up',
-          'desc': tx['desc'] ?? 'Deposit',
+          'id': record.id.isNotEmpty ? record.id : (tx['id'] as String? ?? 'dep_$createdAt'),
+          'depositRequestId': tx['depositRequestId'] as String? ?? (tx['id'] as String? ?? '').replaceAll('p2p_dep_', ''),
+          'title': title,
+          'desc': cleanDesc,
           'date': _formatDate(createdAt),
-          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
-          'method': tx['method'] ?? 'Unknown',
-          'timestamp': createdAt ?? 0,
+          'amount': record.amount.abs(),
+          'cryptoAmount': originRail == 'mwa_on_chain' ? record.cryptoAmount : null,
+          'cryptoCurrency': originRail == 'mwa_on_chain' ? record.cryptoCurrency : null,
+          'solanaTxSignature': originRail == 'mwa_on_chain' ? record.solanaTxSignature : null,
+          'originRail': originRail,
+          'method': method,
+          'type': isCancelled ? 'cancelled' : 'credit',
+          'category': isCancelled ? rawStatus.toLowerCase() : (isRefund ? 'refund' : 'topup'),
+          'categoryLabel': categoryLabel,
+          'status': record.status.isNotEmpty ? record.status : (isCancelled ? rawStatus : 'Completed'),
+          'referenceNumber': rawRef,
+          'proofImageUrl': rawProof,
+          'rejectionReason': rawReason,
+          'agentName': cleanAgentDisplayName(tx['agentName'] as String?),
+          'timestamp': createdAt,
         });
-      } else if (type == 'listing_fee') {
+      } else if (record.transactionType == WalletTransactionType.listingFee || rawType == 'listing_fee') {
         pTrans.add({
-          'title': tx['title'] ?? 'Listing Fee',
-          'desc': tx['desc'] ?? 'Platform Listing Fee',
+          'id': record.id.isNotEmpty ? record.id : (tx['id'] as String? ?? 'listfee_$createdAt'),
+          'title': record.title.isNotEmpty ? record.title : 'Vehicle Listing Fee',
+          'desc': record.desc.isNotEmpty ? record.desc : 'Platform Listing Fee',
           'date': _formatDate(createdAt),
-          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
-          'status': 'Successful',
-          'timestamp': createdAt ?? 0,
+          'amount': record.amount.abs(),
+          'status': record.status.isNotEmpty ? record.status : 'Successful',
+          'timestamp': createdAt,
+          'kind': 'listing_fee',
         });
+      } else if (record.transactionType == WalletTransactionType.feeDeduction ||
+          rawType.contains('fee')) {
+        pTrans.add({
+          'id': record.id.isNotEmpty ? record.id : (tx['id'] as String? ?? 'fee_$createdAt'),
+          'title': record.title.isNotEmpty ? record.title : 'Job Completion Fees (10%)',
+          'desc': record.desc.isNotEmpty ? record.desc : '7% Transaction Fee & 3% Convenience Fee',
+          'date': _formatDate(createdAt),
+          'amount': record.amount.abs(),
+          'status': record.status.isNotEmpty ? record.status : 'Successful',
+          'timestamp': createdAt,
+          'kind': 'service_fee',
+        });
+      } else if (record.transactionType == WalletTransactionType.subscription ||
+          rawType == 'subscription') {
+        pTrans.add({
+          'id': record.id.isNotEmpty ? record.id : (tx['id'] as String? ?? 'sub_$createdAt'),
+          'title': record.title.isNotEmpty ? record.title : 'Hybrid PRO Subscription',
+          'desc': record.desc.isNotEmpty ? record.desc : 'Monthly Platform Membership',
+          'date': _formatDate(createdAt),
+          'amount': record.amount.abs(),
+          'status': record.status.isNotEmpty ? record.status : 'Successful',
+          'timestamp': createdAt,
+          'kind': 'subscription',
+        });
+      }
+    }
+
+    // Merge User P2P Deposits into dTrans (matching by id, depositRequestId, referenceNumber, or timestamp/amount proximity)
+    for (final p2p in userP2pDeposits) {
+      final p2pStatus = p2p.status.toUpperCase();
+      final isCancelled = p2pStatus == 'CANCELLED' || p2pStatus == 'REJECTED';
+      final method = p2p.paymentMethod.isNotEmpty ? p2p.paymentMethod : 'GCash';
+      final existingIndex = dTrans.indexWhere((d) {
+        if (d['id'] == p2p.id ||
+            d['depositRequestId'] == p2p.id ||
+            d['id'] == 'p2p_dep_${p2p.id}' ||
+            d['id'] == 'dep_${p2p.id}') {
+          return true;
+        }
+        if (d['referenceNumber'] != null &&
+            p2p.referenceNumber.isNotEmpty &&
+            d['referenceNumber'] == p2p.referenceNumber) {
+          return true;
+        }
+        // Match same amount P2P deposit within 15 minutes
+        if (d['originRail'] == 'manual_p2p' &&
+            ((d['amount'] as num).toDouble() - p2p.amount).abs() < 0.01) {
+          final diff = ((d['timestamp'] as int) - p2p.createdAt).abs();
+          if (diff < 15 * 60 * 1000) {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      final existingProof = existingIndex >= 0 ? dTrans[existingIndex]['proofImageUrl'] as String? : null;
+      final existingRef = existingIndex >= 0 ? dTrans[existingIndex]['referenceNumber'] as String? : null;
+      final proofImg = p2p.proofImageUrl.isNotEmpty ? p2p.proofImageUrl : (existingProof ?? '');
+      final refNum = p2p.referenceNumber.isNotEmpty ? p2p.referenceNumber : (existingRef ?? '');
+
+      final cleanAgent = cleanAgentDisplayName((p2p.agentName?.isNotEmpty ?? false) ? p2p.agentName : p2p.adminUid);
+      final isApproved = p2p.status == 'APPROVED' || p2p.status == 'COMPLETED';
+      String p2pDesc;
+      if (isCancelled) {
+        p2pDesc = p2pStatus == 'REJECTED'
+            ? 'P2P Top-Up request rejected by agent'
+            : 'P2P Top-Up request cancelled';
+      } else if (isApproved) {
+        p2pDesc = refNum.isNotEmpty ? 'Reference #$refNum approved by $cleanAgent' : 'P2P Transfer approved by $cleanAgent';
+      } else {
+        p2pDesc = '$method P2P Top-Up';
+      }
+
+      final p2pTitle = isCancelled
+          ? (p2pStatus == 'REJECTED' ? 'P2P Top-Up (Rejected)' : 'P2P Top-Up (Cancelled)')
+          : 'P2P Top-Up ($method)';
+
+      final p2pCategoryLabel = isCancelled
+          ? (p2pStatus == 'REJECTED' ? 'Rejected' : 'Cancelled')
+          : 'P2P Top-Up';
+
+      final p2pMap = {
+        'id': p2p.id,
+        'depositRequestId': p2p.id,
+        'title': p2pTitle,
+        'desc': p2pDesc,
+        'date': _formatDate(p2p.createdAt),
+        'amount': p2p.amount,
+        'originRail': 'manual_p2p',
+        'method': method,
+        'type': isCancelled ? 'cancelled' : 'credit',
+        'category': isCancelled ? p2pStatus.toLowerCase() : 'topup',
+        'categoryLabel': p2pCategoryLabel,
+        'status': p2p.status,
+        'referenceNumber': refNum,
+        'proofImageUrl': proofImg,
+        'agentName': cleanAgent,
+        'agentAccountName': p2p.agentAccountName,
+        'agentAccountNumber': p2p.agentAccountNumber,
+        'agentQrUrl': p2p.agentQrUrl,
+        'rejectionReason': p2p.rejectionReason,
+        'createdAt': p2p.createdAt,
+        'timestamp': p2p.createdAt,
+      };
+
+      if (existingIndex >= 0) {
+        final prevStatus = (dTrans[existingIndex]['status'] as String? ?? '').toUpperCase();
+        if (prevStatus == 'APPROVED' || prevStatus == 'COMPLETED' || prevStatus == 'SUCCESSFUL') {
+          p2pMap['status'] = prevStatus;
+        }
+        dTrans[existingIndex] = p2pMap;
+      } else {
+        dTrans.add(p2pMap);
       }
     }
 
@@ -3916,11 +4128,243 @@ class _HistoryViewState extends State<_HistoryView> {
     pTrans.sort((t1, t2) => (t2['timestamp'] as int).compareTo(t1['timestamp'] as int));
     dTrans.sort((t1, t2) => (t2['timestamp'] as int).compareTo(t1['timestamp'] as int));
 
+    // ── BUILD UNIFIED TRANSACTION LEDGER ─────────────────────────────────────
+    final unified = <Map<String, dynamic>>[];
+    double inflowSum = 0.0;
+    double outflowSum = 0.0;
+
+    // 1. Inflows from Completed Earnings (Jobs, Vehicle Rentals, Property Rentals)
+    for (final e in eTrans) {
+      final amt = (e['amount'] as num).toDouble();
+      inflowSum += amt;
+      unified.add({
+        'id': e['id'] ?? 'earn_${e['timestamp']}_${e['title'].hashCode}',
+        'type': 'credit',
+        'category': 'job_payout',
+        'categoryLabel': 'Job & Gig Earning',
+        'title': e['title'] ?? 'Earning Payout',
+        'desc': e['desc'] ?? 'Completed contract payout',
+        'date': e['date'] ?? _formatDate(e['timestamp'] as int?),
+        'amount': amt,
+        'status': e['status'] ?? 'Released',
+        'method': e['method'] ?? 'Escrow Release',
+        'timestamp': e['timestamp'] ?? 0,
+        'baseAmount': e['baseAmount'],
+        'commissionFee': e['commissionFee'],
+        'holdbackAmount': e['holdbackAmount'],
+        'listingFee': e['listingFee'],
+        'kind': e['kind'],
+        'isCompleted': true,
+      });
+    }
+
+    // 2. Inflows from Deposits / Top-ups (Solana Crypto, GCash/Maya P2P) & Cancelled Items
+    for (final d in dTrans) {
+      final status = (d['status'] as String? ?? 'Completed').toUpperCase();
+      final isCancelled = status == 'CANCELLED' || status == 'REJECTED' || d['type'] == 'cancelled';
+      final amt = (d['amount'] as num).toDouble();
+      final isCompleted = status == 'APPROVED' ||
+          status == 'COMPLETED' ||
+          status == 'RELEASED' ||
+          status == 'SUCCESSFUL';
+      if (isCompleted && !isCancelled) {
+        inflowSum += amt;
+      }
+      final method = (d['method'] as String? ?? '').isNotEmpty
+          ? (d['method'] as String)
+          : (d['originRail'] == 'manual_p2p' ? 'GCash' : (d['originRail'] == 'mwa_on_chain' ? 'Solana' : 'Tyxbit Balance'));
+
+      // If proofImageUrl is still empty, look up in userP2pDeposits
+      var proofImg = (d['proofImageUrl'] as String? ?? '').trim();
+      if (proofImg.isEmpty && d['originRail'] == 'manual_p2p') {
+        final reqId = (d['depositRequestId'] as String? ?? d['id'] as String? ?? '').replaceAll('p2p_dep_', '').replaceAll('dep_', '');
+        final matchedP2p = userP2pDeposits.where((depositReq) =>
+            depositReq.id == reqId ||
+            depositReq.id == d['id'] ||
+            (depositReq.referenceNumber.isNotEmpty && depositReq.referenceNumber == d['referenceNumber'])).firstOrNull;
+        if (matchedP2p != null && matchedP2p.proofImageUrl.isNotEmpty) {
+          proofImg = matchedP2p.proofImageUrl;
+        }
+      }
+
+      final unifiedDesc = (d['desc'] as String? ?? 'Funds added to Tyxbit balance').replaceAllMapped(
+        RegExp(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
+        (m) => cleanAgentDisplayName(m.group(0)),
+      );
+
+      final categoryLabel = isCancelled
+          ? (status == 'REJECTED' ? 'Rejected' : 'Cancelled')
+          : (d['categoryLabel'] ?? (d['category'] == 'refund' ? 'Escrow Refund' : 'Added Funds'));
+
+      unified.add({
+        'id': d['id'] ?? 'dep_${d['timestamp']}_${d['title'].hashCode}',
+        'depositRequestId': d['depositRequestId'],
+        'type': isCancelled ? 'cancelled' : 'credit',
+        'category': isCancelled ? status.toLowerCase() : (d['category'] ?? 'topup'),
+        'categoryLabel': categoryLabel,
+        'title': d['title'] ?? 'P2P Top-Up ($method)',
+        'desc': unifiedDesc,
+        'date': d['date'] ?? _formatDate(d['timestamp'] as int?),
+        'amount': amt,
+        'cryptoAmount': d['originRail'] == 'mwa_on_chain' ? d['cryptoAmount'] : null,
+        'cryptoCurrency': d['originRail'] == 'mwa_on_chain' ? d['cryptoCurrency'] : null,
+        'solanaTxSignature': d['originRail'] == 'mwa_on_chain' ? d['solanaTxSignature'] : null,
+        'status': d['status'] ?? (isCancelled ? status : 'Completed'),
+        'method': method,
+        'originRail': d['originRail'],
+        'referenceNumber': d['referenceNumber'],
+        'proofImageUrl': proofImg,
+        'agentName': d['agentName'],
+        'agentAccountName': d['agentAccountName'],
+        'agentAccountNumber': d['agentAccountNumber'],
+        'agentQrUrl': d['agentQrUrl'],
+        'rejectionReason': d['rejectionReason'],
+        'createdAt': d['createdAt'] ?? d['timestamp'],
+        'timestamp': d['timestamp'] ?? 0,
+        'isCompleted': isCompleted && !isCancelled,
+      });
+    }
+
+    // 3. Outflows from Purchases, Bookings, Subscriptions & Listing Fees
+    for (final p in pTrans) {
+      final amt = (p['amount'] as num).toDouble();
+      outflowSum += amt;
+      unified.add({
+        'id': p['id'] ?? 'pur_${p['timestamp']}_${p['title'].hashCode}',
+        'type': 'debit',
+        'category': p['kind'] == 'listing_fee' ? 'fee' : (p['kind'] == 'service_fee' ? 'fee' : 'purchase'),
+        'categoryLabel': p['kind'] == 'listing_fee' ? 'Listing Fee' : (p['kind'] == 'service_fee' ? 'Completion Fees' : (p['kind'] == 'subscription' ? 'Subscription' : 'Purchase / Booking')),
+        'title': p['title'] ?? 'Payment',
+        'desc': p['desc'] ?? 'Platform payment',
+        'date': p['date'] ?? _formatDate(p['timestamp'] as int?),
+        'amount': amt,
+        'status': p['status'] ?? 'Successful',
+        'method': p['method'] ?? 'Tyxbit Balance',
+        'timestamp': p['timestamp'] ?? 0,
+        'baseAmount': p['baseAmount'],
+        'txFee': p['txFee'],
+        'convFee': p['convFee'],
+        'commissionFee': p['commissionFee'],
+        'bookingFee': p['bookingFee'],
+        'listingFee': p['listingFee'],
+        'holdbackAmount': p['holdbackAmount'],
+        'discountAmount': p['discountAmount'],
+        'driverFee': p['driverFee'],
+        'kind': p['kind'],
+        'isCompleted': true,
+      });
+    }
+
+    // 4. Outflows from Withdrawals / Payout Requests
+    for (final w in userWithdrawalRequests) {
+      final amt = (w['amount'] as num?)?.toDouble().abs() ?? 0.0;
+      final createdAt = (w['createdAt'] as num?)?.toInt() ?? (w['timestamp'] as num?)?.toInt() ?? 0;
+      final method = (w['payoutMethod'] ?? w['paymentMethod'] ?? w['method'] ?? 'GCash').toString();
+      final rawStatus = (w['status'] ?? 'PENDING_REVIEW').toString();
+      final isCompleted = rawStatus.toUpperCase() == 'APPROVED' ||
+          rawStatus.toUpperCase() == 'COMPLETED' ||
+          rawStatus.toUpperCase() == 'SUCCESSFUL';
+      if (isCompleted) {
+        outflowSum += amt;
+      }
+      final cleanAccountName = (w['userAccountName'] ?? w['accountName'] ?? '').toString();
+      final cleanAccountNumber = (w['userAccountNumber'] ?? w['accountNumber'] ?? '').toString();
+      final desc = (w['desc'] ?? w['description'] ?? (cleanAccountNumber.isNotEmpty ? 'Withdrawal via $method ($cleanAccountNumber)' : 'Withdrawal via $method account')).toString();
+      final refNum = (w['referenceNumber'] ?? (w['id'] != null && (w['id'] as String).length >= 8 ? (w['id'] as String).substring(0, 8).toUpperCase() : '')).toString();
+
+      unified.add({
+        'id': w['id'] ?? 'with_$createdAt',
+        'type': 'debit',
+        'category': 'withdrawal',
+        'categoryLabel': 'Withdrawal / Payout',
+        'title': w['title'] ?? 'Withdrawal ($method)',
+        'desc': desc,
+        'date': _formatDate(createdAt),
+        'amount': amt,
+        'status': rawStatus,
+        'method': method,
+        'accountNumber': cleanAccountNumber,
+        'accountName': cleanAccountName,
+        'proofImageUrl': w['proofImageUrl'],
+        'referenceNumber': refNum,
+        'rejectionReason': w['rejectionReason'],
+        'originRail': w['originRail'] ?? 'manual_p2p',
+        'timestamp': createdAt,
+        'isCompleted': isCompleted,
+      });
+    }
+
+    // Deduplicate by composite key so identical topup/payout is never listed twice
+    final seenKeys = <String>{};
+    final deduped = <Map<String, dynamic>>[];
+    for (final item in unified) {
+      String key;
+      if (item['category'] == 'withdrawal') {
+        final ref = (item['referenceNumber'] as String? ?? '').trim();
+        final reqId = (item['id'] as String? ?? '').replaceAll('p2p_with_', '').replaceAll('with_', '');
+        if (ref.isNotEmpty) {
+          key = 'with_ref_$ref';
+        } else if (reqId.isNotEmpty) {
+          key = 'with_req_$reqId';
+        } else {
+          key = 'with_${item['amount']}_${(item['timestamp'] as int) ~/ (10 * 60 * 1000)}';
+        }
+      } else if (item['originRail'] == 'manual_p2p' || item['category'] == 'topup') {
+        final ref = (item['referenceNumber'] as String? ?? '').trim();
+        final reqId = (item['depositRequestId'] as String? ?? item['id'] as String? ?? '')
+            .replaceAll('p2p_dep_', '')
+            .replaceAll('dep_', '');
+        if (ref.isNotEmpty) {
+          key = 'p2p_ref_$ref';
+        } else if (reqId.isNotEmpty) {
+          key = 'p2p_req_$reqId';
+        } else {
+          key = 'p2p_${item['amount']}_${(item['timestamp'] as int) ~/ (10 * 60 * 1000)}';
+        }
+      } else {
+        key = '${item['type']}_${item['category']}_${item['amount']}_${item['title']}_${(item['timestamp'] as int) ~/ (60 * 1000)}';
+      }
+
+      if (seenKeys.add(key)) {
+        deduped.add(item);
+      }
+    }
+
+    // Sort chronologically descending (latest first)
+    deduped.sort((itemA, itemB) => (itemB['timestamp'] as int).compareTo(itemA['timestamp'] as int));
+
+    // Compute line-by-line running balance from current live tyxBalance
+    final liveTyxBalance = component.state.userProfile?.tyxBalance ?? 0.0;
+    double currentRunning = liveTyxBalance;
+
+    for (int i = 0; i < deduped.length; i++) {
+      final item = deduped[i];
+      final isCompleted = item['isCompleted'] != false &&
+          item['status'] != 'REJECTED' &&
+          item['status'] != 'CANCELLED';
+
+      item['runningBalance'] = currentRunning;
+
+      // Reverse this transaction's effect to get the balance before it:
+      if (isCompleted) {
+        final amt = item['amount'] as double;
+        if (item['type'] == 'credit') {
+          currentRunning -= amt;
+        } else {
+          currentRunning += amt;
+        }
+        if (currentRunning < 0) currentRunning = 0.0;
+      }
+    }
+
     setState(() {
       earningsTransactions = eTrans;
       purchaseTransactions = pTrans;
       depositTransactions = dTrans;
+      allUnifiedLedger = deduped;
       totalEarningsSum = earningsSum;
+      totalInflowSum = inflowSum;
+      totalOutflowSum = outflowSum;
       completedGigsCount = gigsCount;
     });
   }
@@ -3928,12 +4372,7 @@ class _HistoryViewState extends State<_HistoryView> {
   @override
   void initState() {
     super.initState();
-    final type = component.state.accountType;
-    if (type == AccountType.employer) {
-      activeTab = 'purchases';
-    } else {
-      activeTab = 'earnings';
-    }
+    activeTab = 'all_transactions';
     _loadRentalHistory();
     component.state.loadUserProfile();
   }
@@ -3974,416 +4413,771 @@ class _HistoryViewState extends State<_HistoryView> {
     return '₱$parts';
   }
 
-  Component _buildBar(int i, Map<String, dynamic> item, double maxVal) {
-    final val = (item['value'] as num).toDouble();
-    final pct = maxVal > 0 ? (val / maxVal) * 100 : 0.0;
-    final barHeight = pct < 8.0 ? 8.0 : pct;
+  Component _buildTransactionHistoryShimmer(bool isDark, String cardCls) {
+    final shimmerCls = isDark ? 'shimmer-dark' : 'shimmer-light';
+    final bgPlaceholder = isDark ? 'bg-zinc-800/80' : 'bg-zinc-200/80';
 
-    return div(
-      classes: 'h-full flex-1 flex flex-col justify-end items-center group relative z-10',
-      [
-        // Tooltip
+    return div(classes: 'space-y-6 animate-fade-in', [
+      // 1. TOP SUMMARY CARDS SHIMMER
+      div(classes: 'grid grid-cols-1 sm:grid-cols-3 gap-4', [
+        for (int i = 0; i < 3; i++)
+          div(classes: 'p-5 rounded-[1.75rem] border $cardCls flex items-center justify-between', [
+            div(classes: 'space-y-2 flex-1', [
+              div(classes: 'h-3 w-28 rounded-md $bgPlaceholder $shimmerCls', []),
+              div(classes: 'h-7 w-36 rounded-lg $bgPlaceholder $shimmerCls', []),
+              div(classes: 'h-4 w-24 rounded-full $bgPlaceholder $shimmerCls', []),
+            ]),
+            div(classes: 'w-12 h-12 rounded-2xl $bgPlaceholder $shimmerCls flex-shrink-0 ml-3', []),
+          ]),
+      ]),
+
+      // 2. FILTER PILLS SHIMMER
+      div(classes: 'flex flex-wrap items-center justify-between gap-3', [
+        div(classes: 'flex flex-wrap items-center gap-1.5', [
+          for (final width in ['w-16', 'w-20', 'w-20', 'w-18', 'w-24', 'w-22', 'w-32'])
+            div(classes: 'h-7 $width rounded-xl $bgPlaceholder $shimmerCls', []),
+        ]),
+        div(classes: 'h-3.5 w-64 rounded-md $bgPlaceholder $shimmerCls hidden sm:block', []),
+      ]),
+
+      // 3. TRANSACTION ROWS SHIMMER
+      div(
+        classes: 'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
+        [
+          for (int i = 0; i < 6; i++)
+            div(
+              classes: 'p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4',
+              [
+                div(classes: 'flex items-start gap-4 flex-1', [
+                  // Icon placeholder
+                  div(classes: 'w-11 h-11 rounded-2xl $bgPlaceholder $shimmerCls flex-shrink-0', []),
+                  // Content lines
+                  div(classes: 'space-y-2 flex-1', [
+                    div(classes: 'flex items-center gap-2', [
+                      div(classes: 'h-4.5 ${i % 2 == 0 ? "w-36" : "w-48"} rounded-md $bgPlaceholder $shimmerCls', []),
+                      div(classes: 'h-4 w-16 rounded-full $bgPlaceholder $shimmerCls', []),
+                      div(classes: 'h-4 w-12 rounded-full $bgPlaceholder $shimmerCls', []),
+                    ]),
+                    div(classes: 'h-3.5 ${i % 2 == 0 ? "w-64" : "w-52"} rounded-md $bgPlaceholder $shimmerCls', []),
+                    div(classes: 'h-3 w-32 rounded-md $bgPlaceholder $shimmerCls', []),
+                  ]),
+                ]),
+                // Right side: amount and status
+                div(classes: 'flex sm:flex-col items-start sm:items-end justify-between w-full sm:w-auto gap-2', [
+                  div(classes: 'h-5 w-24 rounded-md $bgPlaceholder $shimmerCls', []),
+                  div(classes: 'h-4 w-28 rounded-lg $bgPlaceholder $shimmerCls', []),
+                  div(classes: 'h-4 w-16 rounded-full $bgPlaceholder $shimmerCls', []),
+                ]),
+              ],
+            ),
+        ],
+      ),
+    ]);
+  }
+
+  Component _buildAllTransactionsLedger(bool isDark, TranyxAppState s, String cardCls) {
+    if (_isLoading) {
+      return _buildTransactionHistoryShimmer(isDark, cardCls);
+    }
+
+    final liveTyxBalance = s.userProfile?.tyxBalance ?? 0.0;
+
+    // Filter transactions based on selected category pill
+    final filtered = allUnifiedLedger.where((item) {
+      if (ledgerFilter == 'all') return true;
+      if (ledgerFilter == 'income') return item['type'] == 'credit';
+      if (ledgerFilter == 'expenses') return item['type'] == 'debit';
+      if (ledgerFilter == 'topups') return item['category'] == 'topup' || (item['type'] == 'credit' && item['category'] != 'job_payout');
+      if (ledgerFilter == 'withdrawals') return item['category'] == 'withdrawal';
+      if (ledgerFilter == 'jobs') return item['category'] == 'job_payout';
+      if (ledgerFilter == 'purchases') return item['category'] == 'purchase' || item['category'] == 'fee';
+      if (ledgerFilter == 'cancelled') return item['type'] == 'cancelled' || item['status'] == 'CANCELLED' || item['status'] == 'REJECTED';
+      return true;
+    }).toList();
+
+    // Pagination calculations
+    final totalItems = filtered.length;
+    final totalPages = (totalItems / itemsPerPage).ceil().clamp(1, 999999);
+    final safePage = currentPage.clamp(1, totalPages);
+    final startIndex = (safePage - 1) * itemsPerPage;
+    final endIndex = (startIndex + itemsPerPage).clamp(0, totalItems);
+    final pagedTransactions = startIndex < totalItems
+        ? filtered.sublist(startIndex, endIndex)
+        : <Map<String, dynamic>>[];
+
+    return div(classes: 'space-y-6', [
+      // 1. TOP SUMMARY BANNER
+      div(classes: 'grid grid-cols-1 sm:grid-cols-3 gap-4', [
+        // Available Balance Card
+        div(classes: 'p-5 rounded-[1.75rem] border $cardCls flex items-center justify-between', [
+          div([
+            span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
+              Component.text('Wallet Available Balance'),
+            ]),
+            p(classes: 'text-2xl font-black ${isDark ? "text-white" : "text-zinc-900"} mt-1', [
+              Component.text(formatCurrency(liveTyxBalance)),
+            ]),
+            span(classes: 'inline-block mt-1 text-[11px] font-semibold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20', [
+              Component.text('Live Tyxbit Balance'),
+            ]),
+          ]),
+          div(classes: 'w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400', [
+            lIcon('wallet', cls: 'w-6 h-6'),
+          ]),
+        ]),
+
+        // Lifetime Inflow Card
+        div(classes: 'p-5 rounded-[1.75rem] border $cardCls flex items-center justify-between', [
+          div([
+            span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
+              Component.text('Total Inflows (+ Credits)'),
+            ]),
+            p(classes: 'text-2xl font-black text-emerald-400 mt-1', [
+              Component.text('+ ${formatCurrency(totalInflowSum)}'),
+            ]),
+            span(classes: 'text-[11px] text-zinc-500 mt-1 block', [
+              Component.text('Top-ups, Job & Rental Payouts'),
+            ]),
+          ]),
+          div(classes: 'w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400', [
+            lIcon('arrow-down-left', cls: 'w-6 h-6'),
+          ]),
+        ]),
+
+        // Lifetime Outflow Card
+        div(classes: 'p-5 rounded-[1.75rem] border $cardCls flex items-center justify-between', [
+          div([
+            span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
+              Component.text('Total Outflows (- Debits)'),
+            ]),
+            p(classes: 'text-2xl font-black text-rose-400 mt-1', [
+              Component.text('- ${formatCurrency(totalOutflowSum)}'),
+            ]),
+            span(classes: 'text-[11px] text-zinc-500 mt-1 block', [
+              Component.text('Purchases, Escrows & Withdrawals'),
+            ]),
+          ]),
+          div(classes: 'w-12 h-12 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-400', [
+            lIcon('arrow-up-right', cls: 'w-6 h-6'),
+          ]),
+        ]),
+      ]),
+
+      // 2. FILTER PILLS BAR
+      div(classes: 'flex flex-wrap items-center justify-between gap-3', [
+        div(classes: 'flex flex-wrap items-center gap-1.5', [
+          for (final filterOption in [
+            {'id': 'all', 'label': 'All (${allUnifiedLedger.length})'},
+            {'id': 'income', 'label': 'Income (+)'},
+            {'id': 'expenses', 'label': 'Expenses (-)'},
+            {'id': 'topups', 'label': 'Top-ups'},
+            {'id': 'withdrawals', 'label': 'Withdrawals'},
+            {'id': 'jobs', 'label': 'Job Payouts'},
+            {'id': 'purchases', 'label': 'Purchases & Subscriptions'},
+            {'id': 'cancelled', 'label': 'Cancelled / Rejected'},
+          ])
+            button(
+              classes:
+                  'px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${ledgerFilter == filterOption['id'] ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30" : "bg-zinc-800/80 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-700/60"}',
+              events: {
+                'click': (_) => setState(() {
+                  ledgerFilter = filterOption['id']!;
+                  currentPage = 1;
+                })
+              },
+              [Component.text(filterOption['label']!)],
+            ),
+        ]),
+        span(classes: 'text-xs text-zinc-500 font-medium', [
+          Component.text('Chronological wallet ledger with running balance'),
+        ]),
+      ]),
+
+      // 3. TRANSACTION LIST
+      if (filtered.isEmpty)
         div(
           classes:
-              'absolute top-[-36px] opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none z-20 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-lg whitespace-nowrap',
+              'p-12 text-center rounded-[2rem] border border-dashed ${isDark ? "border-zinc-800" : "border-zinc-300"}',
           [
-            Component.text('${item['label']}: ${formatCurrency(val)}'),
+            div(classes: 'w-12 h-12 mx-auto mb-3 rounded-2xl bg-zinc-800/50 flex items-center justify-center text-zinc-500', [
+              lIcon('wallet', cls: 'w-6 h-6'),
+            ]),
+            p(classes: 'text-sm font-bold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+              Component.text('No transactions found in this category'),
+            ]),
+            p(classes: 'text-xs text-zinc-500 mt-1', [
+              Component.text('Your top-ups, earnings, purchases, withdrawals, and cancelled requests will be displayed here.'),
+            ]),
+          ],
+        )
+      else ...[
+        div(
+          classes:
+              'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
+          [
+            for (final tx in pagedTransactions)
+              () {
+                final isTxCancelled = tx['type'] == 'cancelled' || tx['status'] == 'CANCELLED' || tx['status'] == 'REJECTED';
+                final isTxRejected = tx['status'] == 'REJECTED';
+
+                return div(
+                  classes:
+                      'p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:bg-zinc-500/5 transition-colors ${isTxCancelled ? "opacity-80" : ""}',
+                  [
+                    div(classes: 'flex items-start gap-4 flex-1', [
+                      // Icon based on type (Cancelled vs Credit vs Debit)
+                      div(
+                        classes:
+                            'w-11 h-11 rounded-2xl flex-shrink-0 flex items-center justify-center ${isTxCancelled ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" : (tx['type'] == 'credit' ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20")}',
+                        [
+                          lIcon(
+                            isTxCancelled
+                                ? (isTxRejected ? 'alert-triangle' : 'x-circle')
+                                : (tx['type'] == 'credit'
+                                    ? (tx['category'] == 'topup' ? 'arrow-down-left' : 'dollar-sign')
+                                    : (tx['category'] == 'withdrawal' ? 'arrow-up-right' : 'shopping-bag')),
+                            cls: 'w-5 h-5',
+                          ),
+                        ],
+                      ),
+                      div(classes: 'space-y-1 flex-1', [
+                        div(classes: 'flex flex-wrap items-center gap-2', [
+                          p(classes: 'font-bold text-sm ${isDark ? "text-zinc-100" : "text-zinc-800"} ${isTxCancelled ? "text-zinc-400" : ""}', [
+                            Component.text(tx['title'] as String),
+                          ]),
+                          span(
+                            classes:
+                                'text-[10px] font-extrabold px-2 py-0.5 rounded-full ${isTxCancelled ? "bg-rose-500/15 text-rose-400 border border-rose-500/30" : (tx['type'] == 'credit' ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-zinc-800 text-zinc-300 border border-zinc-700")}',
+                            [
+                              Component.text(tx['categoryLabel'] as String),
+                            ],
+                          ),
+                          if (tx['method'] != null && (tx['method'] as String).isNotEmpty)
+                            span(
+                              classes:
+                                  'text-[10px] font-extrabold px-2 py-0.5 rounded-full ${tx['method'].toString().toLowerCase().contains('gcash') ? "bg-blue-500/15 text-blue-400 border border-blue-500/30" : (tx['method'].toString().toLowerCase().contains('maya') ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : (tx['method'].toString().toLowerCase().contains('solana') ? "bg-purple-500/15 text-purple-400 border border-purple-500/30" : "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"))}',
+                              [
+                                Component.text(tx['method'] as String),
+                              ],
+                            ),
+                        ]),
+                        p(classes: 'text-xs text-zinc-400', [
+                          Component.text('${tx['desc']} • ${tx['date']}'),
+                        ]),
+                        if (tx['referenceNumber'] != null && (tx['referenceNumber'] as String).isNotEmpty)
+                          div(classes: 'flex items-center gap-1.5 text-[11px] font-mono text-zinc-400 mt-1', [
+                            span(classes: 'text-zinc-500 font-sans font-semibold', [Component.text('Ref:')]),
+                            Component.text(tx['referenceNumber'] as String),
+                          ]),
+                        // Itemized Fee & Service Charge Breakdown Card
+                        () {
+                          final cat = tx['category'] as String?;
+                          final amt = (tx['amount'] as num?)?.toDouble() ?? 0.0;
+                          final base = (tx['baseAmount'] as num?)?.toDouble() ?? (tx['txFee'] != null ? (amt / 1.10) : (tx['commissionFee'] != null ? (amt / 0.97) : amt));
+                          final txFee = (tx['txFee'] as num?)?.toDouble() ?? (tx['title'].toString().toLowerCase().contains('completion fee') ? base * 0.07 : null);
+                          final convFee = (tx['convFee'] as num?)?.toDouble() ?? (tx['title'].toString().toLowerCase().contains('completion fee') ? base * 0.03 : null);
+                          final commission = (tx['commissionFee'] as num?)?.toDouble() ?? (cat == 'earning' || cat == 'job_payout' ? base * 0.03 : null);
+                          final serviceFee = (tx['serviceFeeAmount'] as num?)?.toDouble() ?? (tx['serviceFee'] as num?)?.toDouble();
+                          final markup = (tx['markupAmount'] as num?)?.toDouble() ?? (tx['markup'] as num?)?.toDouble();
+                          final bookingFee = (tx['bookingFee'] as num?)?.toDouble();
+                          final listingFee = (tx['listingFee'] as num?)?.toDouble();
+                          final holdback = (tx['holdbackAmount'] as num?)?.toDouble();
+                          final driverFee = (tx['driverFee'] as num?)?.toDouble();
+
+                          final txFeeRate = (tx['transactionFeeRate'] as num?)?.toDouble() ??
+                              (tx['txFeeRate'] as num?)?.toDouble() ??
+                              (txFee != null && base > 0 ? (txFee / base) : 0.07);
+                          final convFeeRate = (tx['convenienceFeeRate'] as num?)?.toDouble() ??
+                              (tx['convFeeRate'] as num?)?.toDouble() ??
+                              (convFee != null && base > 0 ? (convFee / base) : 0.03);
+                          final commissionRate = (tx['commissionRate'] as num?)?.toDouble() ??
+                              (commission != null && base > 0 ? (commission / base) : 0.03);
+                          final serviceFeeRate = (tx['serviceFeeRate'] as num?)?.toDouble() ??
+                              (serviceFee != null && base > 0 ? (serviceFee / base) : 0.01);
+                          final markupRate = (tx['markupRate'] as num?)?.toDouble() ??
+                              (markup != null && base > 0 ? (markup / base) : 0.03);
+                          final bookingFeeRate = (tx['bookingFeeRate'] as num?)?.toDouble() ??
+                              (bookingFee != null && base > 0 ? (bookingFee / base) : 0.03);
+                          final listingFeeRate = (tx['listingFeeRate'] as num?)?.toDouble() ?? 0.015;
+
+                          final hasFees = txFee != null || convFee != null || commission != null || serviceFee != null || markup != null || bookingFee != null || listingFee != null || (holdback != null && holdback > 0) || (driverFee != null && driverFee > 0);
+
+                          if (!hasFees && cat != 'refund' && cat != 'topup') {
+                            return Component.empty();
+                          }
+
+                          return div(
+                            classes: 'mt-2 p-3 rounded-xl ${isDark ? "bg-zinc-900/90 border border-zinc-800/80" : "bg-zinc-100/90 border border-zinc-200/80"} text-xs space-y-1.5 max-w-lg',
+                            [
+                              div(classes: 'flex items-center justify-between text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1', [
+                                span([Component.text('Itemized Fee Breakdown')]),
+                                span(classes: 'text-indigo-400', [Component.text('Official Breakdown')]),
+                              ]),
+                              if (base > 0 && hasFees)
+                                div(classes: 'flex justify-between text-zinc-400 text-[11px]', [
+                                  span([Component.text('Base Contract / Rental Value:')]),
+                                  span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [Component.text(formatCurrency(base))]),
+                                ]),
+                              if (txFee != null && txFee > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Transaction Processing Fee (${PlatformFeeConfig.formatPercent(txFeeRate)}):')]),
+                                  span(classes: 'font-semibold text-rose-400', [Component.text('+ ${formatCurrency(txFee)}')]),
+                                ]),
+                              if (convFee != null && convFee > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Platform Convenience Fee (${PlatformFeeConfig.formatPercent(convFeeRate)}):')]),
+                                  span(classes: 'font-semibold text-rose-400', [Component.text('+ ${formatCurrency(convFee)}')]),
+                                ]),
+                              if (serviceFee != null && serviceFee > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Service Fee (${PlatformFeeConfig.formatPercent(serviceFeeRate)}):')]),
+                                  span(classes: 'font-semibold text-rose-400', [Component.text('+ ${formatCurrency(serviceFee)}')]),
+                                ]),
+                              if (markup != null && markup > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Markup (${PlatformFeeConfig.formatPercent(markupRate)}):')]),
+                                  span(classes: 'font-semibold text-rose-400', [Component.text('+ ${formatCurrency(markup)}')]),
+                                ]),
+                              if (commission != null && commission > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Platform Commission (${PlatformFeeConfig.formatPercent(commissionRate)}):')]),
+                                  span(classes: 'font-semibold text-rose-400', [Component.text('− ${formatCurrency(commission)}')]),
+                                ]),
+                              if (bookingFee != null && bookingFee > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Platform Booking Fee (${PlatformFeeConfig.formatPercent(bookingFeeRate)}):')]),
+                                  span(classes: 'font-semibold text-rose-400', [Component.text('+ ${formatCurrency(bookingFee)}')]),
+                                ]),
+                              if (listingFee != null && listingFee > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Listing Fee (${PlatformFeeConfig.formatPercent(listingFeeRate)} Upfront):')]),
+                                  span(classes: 'font-semibold text-zinc-300', [Component.text(formatCurrency(listingFee))]),
+                                ]),
+                              if (driverFee != null && driverFee > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-zinc-400', [Component.text('Driver Services Add-on:')]),
+                                  span(classes: 'font-semibold text-indigo-400', [Component.text('+ ${formatCurrency(driverFee)}')]),
+                                ]),
+                              if (holdback != null && holdback > 0)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-amber-400', [Component.text('Inspection Holdback (10% - 48h):')]),
+                                  span(classes: 'font-semibold text-amber-400', [Component.text('− ${formatCurrency(holdback)}')]),
+                                ]),
+                              if (cat == 'refund')
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-emerald-400', [Component.text('Full Escrow Refund:')]),
+                                  span(classes: 'font-semibold text-emerald-400', [Component.text('100% Principal (0% Fee)')]),
+                                ]),
+                              if (cat == 'topup' && !hasFees)
+                                div(classes: 'flex justify-between text-[11px]', [
+                                  span(classes: 'text-emerald-400', [Component.text('Top-Up Processing:')]),
+                                  span(classes: 'font-semibold text-emerald-400', [Component.text('0% Fee (Free)')]),
+                                ]),
+                            ],
+                          );
+                        }(),
+                        // Proof of Receipt for P2P Transactions
+                        if (tx['originRail'] == 'manual_p2p') ...[
+                          () {
+                            final proofUrl = tx['proofImageUrl'] as String?;
+                            final hasProofImg = proofUrl != null && proofUrl.isNotEmpty;
+                            final isCompleted = tx['isCompleted'] == true ||
+                                tx['status'] == 'APPROVED' ||
+                                tx['status'] == 'COMPLETED' ||
+                                tx['status'] == 'SUCCESSFUL';
+
+                            if (hasProofImg) {
+                              return a(
+                                href: proofUrl,
+                                target: Target.blank,
+                                classes:
+                                    'inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors mt-1 mr-3',
+                                [
+                                  lIcon('receipt', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                                  Component.text('View Proof of Receipt'),
+                                  lIcon('external-link', cls: 'w-3 h-3 text-indigo-400/70'),
+                                ],
+                              );
+                            } else if (isCompleted) {
+                              return a(
+                                href: '#',
+                                events: {
+                                  'click': (e) {
+                                    e.preventDefault();
+                                    component.state.alertDialog(
+                                      'P2P Transaction Receipt',
+                                      'Transaction: ${tx['title']}\nMethod: ${tx['method']}\nAmount: ₱${(tx['amount'] as num).toDouble().toStringAsFixed(2)}\nReference: ${tx['referenceNumber'] ?? "Verified by Payment Agent"}\nStatus: Verified & Credited to Balance',
+                                    );
+                                  }
+                                },
+                                classes:
+                                    'inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors mt-1 mr-3 cursor-pointer',
+                                [
+                                  lIcon('receipt', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                                  Component.text('View Proof of Receipt'),
+                                ],
+                              );
+                            }
+                            return Component.empty();
+                          }(),
+                        ] else if (tx['proofImageUrl'] != null && (tx['proofImageUrl'] as String).isNotEmpty) ...[
+                          a(
+                            href: tx['proofImageUrl'] as String,
+                            target: Target.blank,
+                            classes:
+                                    'inline-flex items-center gap-1 text-[11px] font-bold text-indigo-400 hover:text-indigo-300 mt-1 mr-3',
+                            [
+                              lIcon('receipt', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                              Component.text('View Proof of Receipt'),
+                              lIcon('external-link', cls: 'w-3 h-3'),
+                            ],
+                          ),
+                        ],
+                        // Prominent Rejection Reason Callout Banner
+                        if (tx['rejectionReason'] != null && (tx['rejectionReason'] as String).trim().isNotEmpty)
+                          div(
+                            classes:
+                                'mt-2 px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-400 text-xs font-medium flex items-start gap-2 max-w-lg',
+                            [
+                              lIcon('alert-circle', cls: 'w-4 h-4 flex-shrink-0 text-rose-400 mt-0.5'),
+                              div([
+                                span(classes: 'font-bold mr-1', [Component.text('Rejection Reason:')]),
+                                span([Component.text(tx['rejectionReason'] as String)]),
+                              ]),
+                            ],
+                          ),
+                        if (tx['originRail'] == 'mwa_on_chain' &&
+                            tx['solanaTxSignature'] != null &&
+                            (tx['solanaTxSignature'] as String).isNotEmpty &&
+                            !tx['method'].toString().toLowerCase().contains('gcash') &&
+                            !tx['method'].toString().toLowerCase().contains('maya'))
+                          a(
+                            href: WalletTransaction.getSolanaExplorerUrl(
+                              signature: tx['solanaTxSignature'] as String,
+                              environment: 'dev',
+                            ),
+                            target: Target.blank,
+                            classes:
+                                'inline-flex items-center gap-1 text-[11px] font-bold text-purple-400 hover:text-purple-300 mt-1',
+                            [
+                              Component.text('View on Solana Explorer'),
+                              lIcon('external-link', cls: 'w-3 h-3'),
+                            ],
+                          ),
+
+                        // 5-Minute Cancellation Action for Active P2P Deposits
+                        if (tx['originRail'] == 'manual_p2p' &&
+                            (tx['status'] == 'WAITING_FOR_AGENT' ||
+                                tx['status'] == 'AWAITING_PAYMENT' ||
+                                tx['status'] == 'PENDING_VERIFICATION')) ...[
+                          () {
+                            final now = DateTime.now().millisecondsSinceEpoch;
+                            final createdAt = (tx['createdAt'] as num?)?.toInt() ?? (tx['timestamp'] as num?)?.toInt() ?? now;
+                            final elapsedMs = now - createdAt;
+                            final canCancel = elapsedMs >= 5 * 60 * 1000;
+                            final remainingSec = canCancel ? 0 : (((5 * 60 * 1000) - elapsedMs) / 1000).ceil();
+                            final remainMin = remainingSec ~/ 60;
+                            final remainSec = remainingSec % 60;
+                            final timeRemainingText = '${remainMin}m ${remainSec.toString().padLeft(2, '0')}s';
+                            final reqId = tx['id'] as String? ?? '';
+
+                            if (canCancel && reqId.isNotEmpty) {
+                              return button(
+                                classes:
+                                    'mt-2 px-3 py-1.5 rounded-lg text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition cursor-pointer',
+                                events: {
+                                  'click': (_) async {
+                                    await s.handleCancelP2pOrder(reqId);
+                                    _loadRentalHistory();
+                                  },
+                                },
+                                [
+                                  div(classes: 'flex items-center gap-1.5', [
+                                    lIcon('x-circle', cls: 'w-3.5 h-3.5'),
+                                    Component.text('Cancel Request (5m Timeout Passed)'),
+                                  ]),
+                                ],
+                              );
+                            } else {
+                              return span(
+                                classes:
+                                    'inline-block mt-2 px-2.5 py-1 rounded-md text-[10px] font-semibold text-zinc-500 bg-zinc-800/40 border border-zinc-800',
+                                [
+                                  Component.text('Cancel unlocks in $timeRemainingText if not credited'),
+                                ],
+                              );
+                            }
+                          }(),
+                        ],
+                        // Action Buttons for Active P2P Withdrawals
+                        if (tx['category'] == 'withdrawal' &&
+                            (tx['status'] == 'WAITING_FOR_AGENT' ||
+                                tx['status'] == 'PENDING_REVIEW' ||
+                                tx['status'] == 'PENDING' ||
+                                tx['status'] == 'AWAITING_AGENT_PAYMENT' ||
+                                tx['status'] == 'PENDING_CONFIRMATION')) ...[
+                          div(classes: 'flex flex-wrap items-center gap-2 mt-2', [
+                            if (tx['status'] == 'PENDING_CONFIRMATION')
+                              button(
+                                classes:
+                                    'px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-md shadow-emerald-600/30 transition cursor-pointer flex items-center gap-1.5',
+                                events: {
+                                  'click': (_) async {
+                                    await s.handleConfirmP2pWithdrawalReceived(tx['id'] as String);
+                                    _loadRentalHistory();
+                                  }
+                                },
+                                [
+                                  lIcon('check-circle', cls: 'w-3.5 h-3.5'),
+                                  Component.text('Confirm Received'),
+                                ],
+                              ),
+                            if (tx['status'] == 'WAITING_FOR_AGENT' ||
+                                tx['status'] == 'PENDING_REVIEW' ||
+                                tx['status'] == 'PENDING')
+                              button(
+                                classes:
+                                    'px-3 py-1.5 rounded-lg text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition cursor-pointer flex items-center gap-1.5',
+                                events: {
+                                  'click': (_) async {
+                                    await s.handleCancelP2pWithdrawal(tx['id'] as String);
+                                    _loadRentalHistory();
+                                  }
+                                },
+                                [
+                                  lIcon('x-circle', cls: 'w-3.5 h-3.5'),
+                                  Component.text('Cancel & Refund'),
+                                ],
+                              ),
+                            button(
+                              classes:
+                                  'px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-md shadow-purple-600/30 transition cursor-pointer flex items-center gap-1.5',
+                              events: {
+                                'click': (_) {
+                                  s.setState(() {
+                                    s.selectedWithdrawRail = 'manual_p2p';
+                                    final txId = (tx['id'] ?? '').toString();
+                                    s.activeP2pWithdrawalId = txId;
+                                    s.activeP2pWithdrawalRequest = WithdrawalRequest.fromMap(tx, docId: txId);
+                                    s.showWithdrawModal = true;
+                                  });
+                                }
+                              },
+                              [
+                                lIcon('external-link', cls: 'w-3.5 h-3.5'),
+                                Component.text('Track Cashout'),
+                              ],
+                            ),
+                          ]),
+                        ],
+                      ]),
+                    ]),
+
+                    // Amount and Running Balance on Right
+                    div(classes: 'text-left sm:text-right flex-shrink-0 space-y-1', [
+                      if (isTxCancelled)
+                        p(
+                          classes: 'font-bold text-base text-zinc-500 line-through',
+                          [
+                            Component.text(formatCurrency((tx['amount'] as num).toDouble())),
+                          ],
+                        )
+                      else
+                        p(
+                          classes:
+                              'font-black text-base ${tx['type'] == 'credit' ? "text-emerald-400" : "text-rose-400"}',
+                          [
+                            Component.text(
+                              '${tx['type'] == 'credit' ? "+" : "−"} ${formatCurrency((tx['amount'] as num).toDouble())}',
+                            ),
+                          ],
+                        ),
+                      // Running Balance Badge (for active/completed transactions)
+                      if (!isTxCancelled)
+                        div(classes: 'flex items-center sm:justify-end gap-1.5', [
+                          span(
+                            classes:
+                                'text-[11px] font-bold px-2.5 py-0.5 rounded-lg ${isDark ? "bg-zinc-800/80 text-zinc-300 border border-zinc-700/60" : "bg-zinc-100 text-zinc-700 border border-zinc-200"}',
+                            [
+                              Component.text(
+                                'Balance: ${formatCurrency((tx['runningBalance'] as num?)?.toDouble() ?? liveTyxBalance)}',
+                              ),
+                            ],
+                          ),
+                        ]),
+                      if (tx['status'] != null)
+                        () {
+                          final st = tx['status'].toString();
+                          final stUpper = st.toUpperCase();
+                          final isApproved = stUpper == 'COMPLETED' || stUpper == 'RELEASED' || stUpper == 'SUCCESSFUL' || stUpper == 'APPROVED';
+                          final isPending = stUpper == 'PENDING' || stUpper == 'PENDING_REVIEW' || stUpper == 'WAITING_FOR_AGENT' || stUpper == 'AWAITING_PAYMENT' || stUpper == 'AWAITING_AGENT_PAYMENT' || stUpper == 'PENDING_CONFIRMATION' || stUpper == 'PENDING_VERIFICATION';
+
+                          String statusDisplay;
+                          if (stUpper == 'PENDING_REVIEW') {
+                            statusDisplay = 'Pending Review';
+                          } else if (stUpper == 'WAITING_FOR_AGENT') {
+                            statusDisplay = 'Waiting for Agent';
+                          } else if (stUpper == 'AWAITING_AGENT_PAYMENT') {
+                            statusDisplay = 'Agent Processing';
+                          } else if (stUpper == 'PENDING_CONFIRMATION') {
+                            statusDisplay = 'Pending Confirmation';
+                          } else if (stUpper == 'PENDING_VERIFICATION') {
+                            statusDisplay = 'Pending Verification';
+                          } else if (stUpper == 'AWAITING_PAYMENT') {
+                            statusDisplay = 'Awaiting Payment';
+                          } else if (isApproved) {
+                            statusDisplay = 'Completed';
+                          } else if (isTxCancelled) {
+                            statusDisplay = isTxRejected ? 'Rejected' : 'Cancelled';
+                          } else {
+                            statusDisplay = st;
+                          }
+
+                          return span(
+                            classes:
+                                'inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${isTxCancelled ? "bg-rose-500/15 text-rose-400 border border-rose-500/30 font-extrabold uppercase" : (isApproved ? "bg-emerald-500/10 text-emerald-400" : (isPending ? "bg-amber-500/15 text-amber-400 border border-amber-500/30" : "bg-zinc-500/10 text-zinc-400"))}',
+                            [
+                              Component.text(statusDisplay),
+                            ],
+                          );
+                        }(),
+                    ]),
+                  ],
+                );
+              }(),
           ],
         ),
-        div(
-          classes:
-              'w-8 sm:w-10 rounded-t-lg transition-all duration-300 logo-gradient hover:opacity-90 relative cursor-pointer',
-          styles: Styles(
-            raw: {
-              'height': '${barHeight.toStringAsFixed(1)}%',
-            },
+
+        // 4. PAGINATION CONTROLS
+        if (totalItems > 0)
+          div(
+            classes:
+                'p-4 rounded-[1.75rem] border $cardCls flex flex-col sm:flex-row items-center justify-between gap-4 mt-2 shadow-sm',
+            [
+              // Showing range and page size selector
+              div(classes: 'flex flex-wrap items-center gap-3', [
+                span(classes: 'text-xs text-zinc-400 font-medium flex items-center gap-1.5', [
+                  Component.text('Showing'),
+                  span(classes: 'font-bold ${isDark ? "text-white" : "text-zinc-900"}', [
+                    Component.text('${totalItems == 0 ? 0 : startIndex + 1}–$endIndex'),
+                  ]),
+                  Component.text('of'),
+                  span(classes: 'font-bold ${isDark ? "text-white" : "text-zinc-900"}', [
+                    Component.text('$totalItems'),
+                  ]),
+                  Component.text('records'),
+                ]),
+                div(classes: 'flex items-center gap-1.5 text-xs text-zinc-500 font-medium', [
+                  Component.text('• Per page:'),
+                  for (final size in [10, 25, 50])
+                    button(
+                      classes:
+                          'px-2 py-0.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${itemsPerPage == size ? "bg-indigo-600 text-white shadow-sm" : "bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-700/60"}',
+                      events: {
+                        'click': (_) => setState(() {
+                          itemsPerPage = size;
+                          currentPage = 1;
+                        })
+                      },
+                      [Component.text('$size')],
+                    ),
+                ]),
+              ]),
+
+              // Page navigation buttons
+              if (totalPages > 1)
+                div(classes: 'flex items-center gap-2', [
+                  // Previous button
+                  button(
+                    classes:
+                        'px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${safePage > 1 ? "bg-zinc-800 hover:bg-zinc-700 text-white cursor-pointer border border-zinc-700" : "bg-zinc-800/40 text-zinc-600 border border-zinc-800/60 cursor-not-allowed"}',
+                    events: safePage > 1
+                        ? {'click': (_) => setState(() => currentPage = safePage - 1)}
+                        : {},
+                    [
+                      lIcon('chevron-left', cls: 'w-4 h-4'),
+                      Component.text('Previous'),
+                    ],
+                  ),
+
+                  // Page numbers chips
+                  div(classes: 'flex items-center gap-1', [
+                    for (int p = 1; p <= totalPages; p++)
+                      if (totalPages <= 7 ||
+                          p == 1 ||
+                          p == totalPages ||
+                          (p >= safePage - 1 && p <= safePage + 1))
+                        button(
+                          classes:
+                              'w-8 h-8 rounded-xl text-xs font-bold transition-all flex items-center justify-center cursor-pointer ${p == safePage ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-black" : "bg-zinc-800/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700/60"}',
+                          events: {'click': (_) => setState(() => currentPage = p)},
+                          [Component.text('$p')],
+                        )
+                      else if (p == safePage - 2 || p == safePage + 2)
+                        span(classes: 'w-5 text-center text-xs text-zinc-500 font-bold', [
+                          Component.text('…'),
+                        ]),
+                  ]),
+
+                  // Next button
+                  button(
+                    classes:
+                        'px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${safePage < totalPages ? "bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer shadow-md shadow-indigo-600/20" : "bg-zinc-800/40 text-zinc-600 border border-zinc-800/60 cursor-not-allowed"}',
+                    events: safePage < totalPages
+                        ? {'click': (_) => setState(() => currentPage = safePage + 1)}
+                        : {},
+                    [
+                      Component.text('Next'),
+                      lIcon('chevron-right', cls: 'w-4 h-4'),
+                    ],
+                  ),
+                ]),
+            ],
           ),
-          [],
-        ),
-        span(
-          classes:
-              'absolute bottom-[-24px] text-[10px] sm:text-xs font-bold ${component.state.isDark ? "text-zinc-500" : "text-zinc-400"} mt-2',
-          [Component.text(item['label'] as String)],
-        ),
       ],
-    );
+    ]);
   }
 
   @override
   Component build(BuildContext context) {
     final s = component.state;
     final isDark = s.isDark;
-    final type = s.accountType;
-
-    final hasPurchaseHistory = purchaseTransactions.isNotEmpty;
-    final showEarnings = true;
-    final showPurchases =
-        (type == AccountType.employer ||
-        type == AccountType.hybrid ||
-        (type == AccountType.nyxian && hasPurchaseHistory));
-    final showDeposits =
-        (type == AccountType.employer ||
-        type == AccountType.hybrid ||
-        (type == AccountType.nyxian && hasPurchaseHistory));
-
-    final activeData = earningsData[activeFilter] ?? [];
-    double totalEarnedInFilter = 0.0;
-    double maxVal = 1.0;
-    for (final item in activeData) {
-      final v = (item['value'] as num).toDouble();
-      totalEarnedInFilter += v;
-      if (v > maxVal) maxVal = v;
-    }
-
+    final showP2pAdmin = s.userProfile?.isAdmin == true || s.userProfile?.role == 'admin' || s.userProfile?.role == 'staff';
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
 
     return div(classes: 'space-y-6', [
-      subViewHeader(
-        title: type == AccountType.employer
-            ? 'Purchase History'
-            : ((type == AccountType.nyxian && !hasPurchaseHistory) ? 'Earning History' : 'History & Earnings'),
-        isDark: isDark,
-        onBack: () => s.setState(() => s.profileView = ProfileView.main),
-      ),
-
-      div(
-        classes: 'flex border-b ${isDark ? "border-zinc-800" : "border-zinc-200"} gap-6',
-        [
-          if (showEarnings)
-            button(
-              classes:
-                  'pb-3 text-sm font-bold transition-all border-b-2 '
-                  '${activeTab == 'earnings' ? "border-indigo-500 text-indigo-400" : "border-transparent text-zinc-400 hover:text-zinc-200"}',
-              events: {'click': (_) => setState(() => activeTab = 'earnings')},
-              [Component.text('Earnings & Analytics')],
-            ),
-          if (showPurchases)
-            button(
-              classes:
-                  'pb-3 text-sm font-bold transition-all border-b-2 '
-                  '${activeTab == 'purchases' ? "border-indigo-500 text-indigo-400" : "border-transparent text-zinc-400 hover:text-zinc-200"}',
-              events: {'click': (_) => setState(() => activeTab = 'purchases')},
-              [Component.text('Subscriptions & Purchases')],
-            ),
-          if (showDeposits)
-            button(
-              classes:
-                  'pb-3 text-sm font-bold transition-all border-b-2 '
-                  '${activeTab == 'deposits' ? "border-indigo-500 text-indigo-400" : "border-transparent text-zinc-400 hover:text-zinc-200"}',
-              events: {'click': (_) => setState(() => activeTab = 'deposits')},
-              [Component.text('Added Funds')],
-            ),
-        ],
-      ),
-
-      if (activeTab == 'earnings' && showEarnings) ...[
-        div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
-          div(classes: 'p-6 rounded-[2rem] border $cardCls flex items-center gap-4', [
-            div(classes: 'w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400', [
-              lIcon('dollar-sign', cls: 'w-6 h-6'),
-            ]),
-            div([
-              span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
-                Component.text(
-                  activeFilter == 'daily'
-                      ? 'This Week\'s Earnings'
-                      : activeFilter == 'weekly'
-                      ? 'This Month\'s Earnings'
-                      : activeFilter == 'monthly'
-                      ? 'This Year\'s Earnings'
-                      : 'Total Earnings',
-                ),
-              ]),
-              p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text(formatCurrency(totalEarnedInFilter)),
-              ]),
-            ]),
-          ]),
-          div(classes: 'p-6 rounded-[2rem] border $cardCls flex items-center gap-4', [
-            div(classes: 'w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400', [
-              lIcon('wallet', cls: 'w-6 h-6'),
-            ]),
-            div([
-              span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
-                Component.text('Available TyxBalance'),
-              ]),
-              p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text(formatCurrency(s.userProfile?.tyxBalance ?? 0.0)),
-              ]),
-              Builder(
-                builder: (context) {
-                  final pendingTotal = s.pendingHoldbacks.fold<double>(0.0, (sum, item) {
-                    final amt = (item['amount'] as num?)?.toDouble() ?? 0.0;
-                    return sum + amt;
-                  });
-                  if (pendingTotal > 0) {
-                    return div(classes: 'mt-1.5 space-y-1', [
-                      span(classes: 'text-xs text-amber-500 font-bold flex items-center gap-1', [
-                        lIcon('clock', cls: 'w-3.5 h-3.5'),
-                        Component.text('+ ${formatCurrency(pendingTotal)} Pending Release'),
-                      ]),
-                      for (final holdback in s.pendingHoldbacks)
-                        Builder(
-                          builder: (context) {
-                            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
-                            final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
-                            final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
-                            final hrsStr = hrs <= 0
-                                ? 'processing release'
-                                : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
-                            return p(classes: 'text-[10px] text-amber-500/80 font-bold pl-4', [
-                              Component.text('• Php ${amt.toStringAsFixed(2)} $hrsStr'),
-                            ]);
-                          },
-                        ),
-                    ]);
-                  }
-                  return div([]);
-                },
-              ),
-            ]),
-          ]),
-          div(classes: 'p-6 rounded-[2rem] border $cardCls flex items-center gap-4', [
-            div(classes: 'w-12 h-12 rounded-2xl bg-violet-500/10 flex items-center justify-center text-violet-400', [
-              lIcon('check-circle', cls: 'w-6 h-6'),
-            ]),
-            div([
-              span(classes: 'text-xs text-zinc-500 font-bold uppercase tracking-wider', [
-                Component.text('Completed Gigs & Rentals'),
-              ]),
-              p(classes: 'text-2xl font-black mt-0.5 ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text('$completedGigsCount Total'),
-              ]),
-            ]),
-          ]),
-        ]),
-
-        div(classes: 'p-6 rounded-[2rem] border $cardCls space-y-6', [
-          div(classes: 'flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4', [
-            div([
-              h4(classes: 'text-lg font-black tracking-tight ${isDark ? "text-zinc-150" : "text-zinc-800"}', [
-                Component.text('Earnings Chart'),
-              ]),
-              p(classes: 'text-xs text-zinc-500 font-medium', [
-                Component.text('Interactive visualization of your Nyxian revenue stream'),
-              ]),
-            ]),
-
-            div(classes: 'flex gap-1.5 p-1 rounded-xl bg-zinc-950/20 border border-zinc-800/40', [
-              for (final filter in ['daily', 'weekly', 'monthly', 'yearly'])
-                button(
+      div(classes: 'flex items-center justify-between gap-4 flex-wrap', [
+        subViewHeader(
+          title: activeTab == 'p2p_admin' ? 'P2P Desk & Admin' : 'Wallet Ledger & Transactions',
+          isDark: isDark,
+          onBack: () => s.setState(() => s.profileView = ProfileView.main),
+        ),
+        if (showP2pAdmin)
+          button(
+            classes:
+                'px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${activeTab == 'p2p_admin' ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30" : "bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700"}',
+            events: {'click': (_) => setState(() => activeTab = activeTab == 'p2p_admin' ? 'all_transactions' : 'p2p_admin')},
+            [
+              lIcon(activeTab == 'p2p_admin' ? 'wallet' : 'shield-check', cls: 'w-4 h-4 ${activeTab == 'p2p_admin' ? "text-white" : "text-emerald-400"}'),
+              Component.text(activeTab == 'p2p_admin' ? 'Back to Wallet Ledger' : 'P2P Desk & Admin'),
+              if (s.pendingDepositRequests.where((r) => r.status.toUpperCase() == 'PENDING_VERIFICATION').isNotEmpty)
+                span(
                   classes:
-                      'px-3 py-1.5 text-xs font-bold rounded-lg transition-all '
-                      '${activeFilter == filter ? "bg-indigo-600 text-white shadow-md" : "text-zinc-400 hover:text-zinc-200"}',
-                  events: {'click': (_) => setState(() => activeFilter = filter)},
-                  [Component.text(filter.substring(0, 1).toUpperCase() + filter.substring(1))],
+                      'px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30',
+                  [
+                    Component.text(
+                      '${s.pendingDepositRequests.where((r) => r.status.toUpperCase() == "PENDING_VERIFICATION").length}',
+                    ),
+                  ],
                 ),
-            ]),
-          ]),
+            ],
+          ),
+      ]),
 
-          div(
-            classes:
-                'relative h-64 w-full flex items-end justify-between px-2 pt-8 pb-8 rounded-2xl bg-zinc-950/30 overflow-visible',
-            [
-              div(classes: 'absolute inset-x-0 bottom-8 top-4 flex flex-col justify-between pointer-events-none', [
-                for (int grid = 0; grid < 4; grid++)
-                  div(
-                    classes:
-                        'w-full border-b border-dashed ${isDark ? "border-zinc-900/80" : "border-zinc-200/50"} h-0',
-                    [],
-                  ),
-              ]),
-
-              for (int i = 0; i < activeData.length; i++) _buildBar(i, activeData[i], maxVal),
-            ],
-          ),
-
-          div(
-            classes:
-                'flex justify-between items-center pt-2 text-xs font-bold text-zinc-500 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"}',
-            [
-              Component.text('Total in selected period:'),
-              span(classes: '${isDark ? "text-white" : "text-zinc-800"} text-sm font-black', [
-                Component.text(formatCurrency(totalEarnedInFilter)),
-              ]),
-            ],
-          ),
-        ]),
-
-        div(classes: 'space-y-3', [
-          p(classes: 'text-xs font-black uppercase tracking-[0.2em] opacity-60', [
-            Component.text('Completed Gig & Rental Payouts'),
-          ]),
-          div(
-            classes:
-                'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
-            [
-              for (final tx in earningsTransactions)
-                div(classes: 'p-5 flex justify-between items-center hover:bg-zinc-500/5 transition-colors', [
-                  div(classes: 'flex items-center gap-4', [
-                    div(
-                      classes:
-                          'w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400',
-                      [
-                        lIcon('arrow-down-left', cls: 'w-5 h-5'),
-                      ],
-                    ),
-                    div([
-                      p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
-                        Component.text(tx['title'] as String),
-                      ]),
-                      p(classes: 'text-xs text-zinc-500 mt-0.5', [
-                        Component.text('${tx['desc']} • ${tx['date']}'),
-                      ]),
-                      if (tx['commissionFee'] != null) ...[
-                        p(classes: 'text-xs text-zinc-500 mt-1', [
-                          Component.text('Base Payout: ${formatCurrency((tx['baseAmount'] as num).toDouble())}'),
-                        ]),
-                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
-                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
-                          Component.text(
-                            '${tx['commissionLabel'] ?? "Platform Commission (3%)"}: − ${formatCurrency((tx['commissionFee'] as num).toDouble())}',
-                          ),
-                        ]),
-                        if (tx['listingFee'] != null)
-                          p(classes: 'text-xs text-red-400 mt-0.5', [
-                            lIcon('tag', cls: 'w-3 h-3 inline mr-0.5'),
-                            Component.text(
-                              'Listing Fee (1.5% paid upfront): − ${formatCurrency((tx['listingFee'] as num).toDouble())}',
-                            ),
-                          ]),
-                      ],
-                    ]),
-                  ]),
-                  div(classes: 'text-right', [
-                    p(classes: 'font-black text-sm text-emerald-400', [
-                      Component.text('+ ${formatCurrency((tx['amount'] as num).toDouble())}'),
-                    ]),
-                    span(
-                      classes:
-                          'inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400',
-                      [
-                        Component.text(tx['status'] as String),
-                      ],
-                    ),
-                  ]),
-                ]),
-            ],
-          ),
-        ]),
-      ] else if (activeTab == 'purchases' && showPurchases) ...[
-        div(classes: 'space-y-3', [
-          p(classes: 'text-xs font-black uppercase tracking-[0.2em] opacity-60', [
-            Component.text('Subscription & Platform Payments'),
-          ]),
-          div(
-            classes:
-                'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
-            [
-              for (final tx in purchaseTransactions)
-                div(classes: 'p-5 flex justify-between items-start hover:bg-zinc-500/5 transition-colors', [
-                  div(classes: 'flex items-center gap-4', [
-                    div(classes: 'w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-400', [
-                      lIcon('arrow-up-right', cls: 'w-5 h-5'),
-                    ]),
-                    div([
-                      p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
-                        Component.text(tx['title'] as String),
-                      ]),
-                      p(classes: 'text-xs text-zinc-500 mt-0.5', [
-                        Component.text('${tx['desc']} • ${tx['date']}'),
-                      ]),
-                      // Fee breakdown if available
-                      if (tx['bookingFee'] != null) ...[
-                        p(classes: 'text-xs text-zinc-500 mt-1', [
-                          Component.text('Rental: ${formatCurrency((tx['baseAmount'] as num).toDouble())}'),
-                        ]),
-                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
-                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
-                          Component.text(
-                            'Platform fee (3%): − ${formatCurrency((tx['bookingFee'] as num).toDouble())}',
-                          ),
-                        ]),
-                      ],
-                      if (tx['txFee'] != null) ...[
-                        p(classes: 'text-xs text-zinc-500 mt-1', [
-                          Component.text('Base Gig Price: ${formatCurrency((tx['baseAmount'] as num).toDouble())}'),
-                        ]),
-                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
-                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
-                          Component.text(
-                            'Transaction Fee (7%): + ${formatCurrency((tx['txFee'] as num).toDouble())}',
-                          ),
-                        ]),
-                        p(classes: 'text-xs text-amber-500/80 mt-0.5', [
-                          lIcon('receipt', cls: 'w-3 h-3 inline mr-0.5'),
-                          Component.text(
-                            'Convenience Fee (3%): + ${formatCurrency((tx['convFee'] as num).toDouble())}',
-                          ),
-                        ]),
-                      ],
-                    ]),
-                  ]),
-                  div(classes: 'text-right', [
-                    p(classes: 'font-black text-sm ${isDark ? "text-zinc-100" : "text-zinc-900"}', [
-                      Component.text('− ${formatCurrency((tx['amount'] as num).toDouble())}'),
-                    ]),
-                    span(
-                      classes:
-                          'inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400',
-                      [
-                        Component.text(tx['status'] as String),
-                      ],
-                    ),
-                  ]),
-                ]),
-            ],
-          ),
-        ]),
-      ] else if (activeTab == 'deposits' && showDeposits) ...[
-        div(classes: 'space-y-3', [
-          p(classes: 'text-xs font-black uppercase tracking-[0.2em] opacity-60', [
-            Component.text('Top-Up & Deposit History'),
-          ]),
-          div(
-            classes:
-                'rounded-[2rem] border overflow-hidden $cardCls divide-y ${isDark ? "divide-zinc-800" : "divide-zinc-200"}',
-            [
-              for (final tx in depositTransactions)
-                div(classes: 'p-5 flex justify-between items-center hover:bg-zinc-500/5 transition-colors', [
-                  div(classes: 'flex items-center gap-4', [
-                    div(
-                      classes: 'w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center text-violet-400',
-                      [
-                        lIcon('plus-circle', cls: 'w-5 h-5'),
-                      ],
-                    ),
-                    div([
-                      p(classes: 'font-bold text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
-                        Component.text(tx['title'] as String),
-                      ]),
-                      p(classes: 'text-xs text-zinc-500 mt-0.5', [
-                        Component.text('${tx['desc']} • ${tx['date']}'),
-                      ]),
-                    ]),
-                  ]),
-                  div(classes: 'text-right', [
-                    p(classes: 'font-black text-sm text-indigo-400', [
-                      Component.text('+ ${formatCurrency((tx['amount'] as num).toDouble())}'),
-                    ]),
-                    span(
-                      classes:
-                          'inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-violet-500/10 text-violet-400',
-                      [
-                        Component.text(tx['method'] as String),
-                      ],
-                    ),
-                  ]),
-                ]),
-            ],
-          ),
-        ]),
-      ],
+      if (activeTab == 'p2p_admin' && showP2pAdmin)
+        P2pAdminPanelComponent(state: s)
+      else
+        _buildAllTransactionsLedger(isDark, s, cardCls),
     ]);
   }
 }

@@ -1,0 +1,18 @@
+executionPrerequisite: >-
+  App on the registration details screen.
+
+steps:
+  - echo: Navigate back to login and open the Solana Web3 wallet sheet
+  - tap:
+      text: Login
+  - await:
+      visible:
+        text: Welcome back
+  - tap:
+      text: Continue with Solana Wallet
+  - await:
+      visible:
+        text: Select a Wallet
+  - wait: 3500
+  - await:
+      idle: true

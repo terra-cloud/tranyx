@@ -1,5 +1,40 @@
 // Shared Enums for Tranyx
 
+enum VerificationLevel {
+  none(0, 'Unverified', 'Unverified Account - No Government ID or KYC completed'),
+  level1Basic(1, 'Verified (Level 1)', 'Basic ID / KYC Verified - Government ID Submitted & Approved'),
+  level2Pro(2, 'Verified (Level 2 Pro)', 'Advanced / Business / Merchant Verified - Biometrics & Tier-2 Records');
+
+  final int value;
+  final String label;
+  final String description;
+
+  const VerificationLevel(this.value, this.label, this.description);
+
+  bool get isVerified => this != VerificationLevel.none;
+
+  static VerificationLevel fromValue(dynamic val) {
+    if (val == null) return VerificationLevel.none;
+    if (val is VerificationLevel) return val;
+    if (val is int) {
+      if (val >= 2) return VerificationLevel.level2Pro;
+      if (val == 1) return VerificationLevel.level1Basic;
+      return VerificationLevel.none;
+    }
+    if (val is bool) {
+      return val ? VerificationLevel.level1Basic : VerificationLevel.none;
+    }
+    final s = val.toString().toUpperCase().trim();
+    if (s.contains('PRO') || s.contains('LEVEL_2') || s.contains('LEVEL 2') || s.contains('MERCHANT') || s.contains('BUSINESS')) {
+      return VerificationLevel.level2Pro;
+    }
+    if (s.contains('LEVEL_1') || s.contains('LEVEL 1') || s.contains('BASIC') || s.contains('ID_VERIFIED') || s == 'VERIFIED' || s == 'TRUE') {
+      return VerificationLevel.level1Basic;
+    }
+    return VerificationLevel.none;
+  }
+}
+
 enum JobCategory {
   electrician(
     1,
@@ -850,13 +885,13 @@ enum JobCategory {
     'Provides real-time support via chat.',
     'message-square',
   ),
-  eventHelper_misc(
+  eventHelperMisc(
     260,
     'Event Helper',
     'Assists in event logistics and support.',
     'users',
   ),
-  surveyTaker_misc(
+  surveyTakerMisc(
     261,
     'Survey Taker',
     'Participates in data collection and surveys.',
@@ -957,7 +992,7 @@ enum JobCategory {
       JobCategory.seasonalHelper ||
       JobCategory.queueProxy ||
       JobCategory.eventHelper ||
-      JobCategory.eventHelper_misc ||
+      JobCategory.eventHelperMisc ||
       JobCategory.foodServer ||
       JobCategory.surveyor => true,
       _ => false,
@@ -1132,8 +1167,8 @@ enum JobCategoryGroup {
     'package',
     'text-zinc-500',
     [
-      JobCategory.eventHelper_misc,
-      JobCategory.surveyTaker_misc,
+      JobCategory.eventHelperMisc,
+      JobCategory.surveyTakerMisc,
       JobCategory.foodServer,
       JobCategory.others,
     ],

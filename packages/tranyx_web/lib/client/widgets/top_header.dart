@@ -86,6 +86,7 @@ class TopHeaderComponent extends StatelessComponent {
       AppTab.home => 'Dashboard',
       AppTab.jobs => 'Jobs & Gigs',
       AppTab.transit => 'Rentals Hub',
+      AppTab.messages => 'Messages & Conversations',
       AppTab.profile => 'My Profile',
     };
   }

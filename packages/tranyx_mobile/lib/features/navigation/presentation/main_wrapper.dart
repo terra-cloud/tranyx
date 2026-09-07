@@ -15,6 +15,8 @@ import 'package:tranyx_mobile/features/profile/presentation/profile_view.dart';
 import 'package:tranyx_mobile/features/auth/presentation/register_complete_profile_view.dart';
 import 'package:tranyx_mobile/core/providers/ui_providers.dart';
 import 'package:tranyx_mobile/core/providers/fcm_provider.dart';
+import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
+import 'package:tranyx_mobile/core/widgets/interactive_walkthrough_overlay.dart';
 
 class MainWrapper extends ConsumerStatefulWidget {
   const MainWrapper({super.key});
@@ -27,6 +29,18 @@ class _MainWrapperState extends ConsumerState<MainWrapper> {
   final GlobalKey _headerKey = GlobalKey();
   final GlobalKey _bottomNavKey = GlobalKey();
   FirebaseMessagingService? _fcmService;
+  String? _lastCheckedUserId;
+
+  void _checkAndTriggerOnboarding(String? userId) {
+    if (userId == null || _lastCheckedUserId == userId) return;
+    _lastCheckedUserId = userId;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final seen = await SecureStorageHelper.getHasSeenOnboarding();
+      if (!seen && mounted) {
+        InteractiveWalkthroughOverlay.show(context);
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -104,6 +118,9 @@ class _MainWrapperState extends ConsumerState<MainWrapper> {
                   ref.read(fcmProvider).initialize(context);
                 }
               });
+
+              // Check and auto-trigger interactive walkthrough on first launch
+              _checkAndTriggerOnboarding(profile.uid);
 
 
               Widget activeContent;

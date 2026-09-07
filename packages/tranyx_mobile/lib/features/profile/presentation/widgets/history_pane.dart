@@ -8,6 +8,8 @@ import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart
 import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:intl/intl.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/transaction_details_sheet.dart';
+import 'package:shared/shared.dart';
 
 final userTransactionsProvider =
     StreamProvider.family<List<Map<String, dynamic>>, String>((ref, uid) {
@@ -373,8 +375,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
         ? (totalCost - commission)
         : (totalCost + bookingFee);
 
-    final priceDaily = (item['priceDaily'] as num?)?.toDouble() ?? 0.0;
-    final listingFee = priceDaily * 0.015;
+    final listingFeePaid = (item['listingFeePaid'] as num?)?.toDouble() ?? 0.0;
 
     final hireWithDriver = item['hireWithDriver'] as bool? ?? false;
     final driverDailyPrice =
@@ -385,16 +386,42 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
     final driverFee = hireWithDriver ? (driverDailyPrice * multInt) : 0.0;
     final baseRentalCost = totalCost - driverFee;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
-        ),
+    final record = WalletTransaction(
+      id: (item['id'] ?? 'veh_${item['contractId'] ?? 0}').toString(),
+      uid: myUid,
+      title: '$brand $model Rental',
+      desc: '$plate • $multiplier $durationType(s)',
+      amount: myRole == 'host' ? finalPaid : -finalPaid,
+      baseAmount: baseRentalCost,
+      driverFee: driverFee > 0 ? driverFee : null,
+      bookingFee: myRole != 'host' ? bookingFee : null,
+      commissionFee: myRole == 'host' ? commission : null,
+      listingFee: (myRole == 'host' && listingFeePaid > 0) ? listingFeePaid : null,
+      originRail: TransactionOriginRail.internalBalance,
+      transactionType: myRole == 'host'
+          ? WalletTransactionType.payout
+          : WalletTransactionType.onChainPayment,
+      status: 'Successful',
+      createdAt: startDate ?? DateTime.now().millisecondsSinceEpoch,
+    );
+
+    return InkWell(
+      onTap: () => TransactionDetailsSheet.show(
+        context,
+        transaction: record,
+        isDarkMode: isDarkMode,
       ),
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+          ),
+        ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -578,16 +605,16 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                if (myRole == 'host') ...[
+                if (myRole == 'host' && listingFeePaid > 0) ...[
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'Listing Fee (1.5% paid upfront)',
+                        'Listing Fee (Paid upfront)',
                         style: TextStyle(fontSize: 11, color: Colors.grey),
                       ),
                       Text(
-                        '− ₱ ${listingFee.toStringAsFixed(2)}',
+                        '− ₱ ${listingFeePaid.toStringAsFixed(2)}',
                         style: const TextStyle(fontSize: 11, color: Colors.red),
                       ),
                     ],
@@ -662,6 +689,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
           ),
         ],
       ),
+      ),
     );
   }
 
@@ -682,30 +710,58 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
     final startDate = (item['startDate'] as num?)?.toInt();
     final endDate = (item['endDate'] as num?)?.toInt();
 
+    final baseRent = (item['baseRentAmount'] as num?)?.toDouble() ?? totalCost;
+    final securityDeposit = (item['securityDepositAmount'] as num?)?.toDouble() ?? 0.0;
+    final custFeeRate = (item['customerPlatformFeeRate'] as num?)?.toDouble() ?? 0.03;
+    final hostCommRate = (item['hostCommissionRate'] as num?)?.toDouble() ?? 0.07;
     final bookingFee =
-        (item['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03);
-    final commission = totalCost * 0.03;
+        (item['customerPlatformFeeAmount'] as num?)?.toDouble() ?? (item['bookingFee'] as num?)?.toDouble() ?? (baseRent * custFeeRate);
+    final commission =
+        (item['hostCommissionAmount'] as num?)?.toDouble() ?? (baseRent * hostCommRate);
     final finalPaid = myRole == 'host'
-        ? (totalCost - commission)
-        : (totalCost + bookingFee);
+        ? ((item['hostPayoutAmount'] as num?)?.toDouble() ?? (baseRent - commission))
+        : ((item['totalCustomerPaid'] as num?)?.toDouble() ?? (baseRent + bookingFee + securityDeposit));
 
-    final listingFee = priceMonthly * 0.015;
+    final record = WalletTransaction(
+      id: (item['id'] ?? 'prop_${item['contractId'] ?? 0}').toString(),
+      uid: myUid,
+      title: title,
+      desc: address,
+      amount: myRole == 'host' ? finalPaid : -finalPaid,
+      baseAmount: baseRent,
+      bookingFee: myRole != 'host' ? bookingFee : null,
+      commissionFee: myRole == 'host' ? commission : null,
+      listingFee: null,
+      originRail: TransactionOriginRail.internalBalance,
+      transactionType: myRole == 'host'
+          ? WalletTransactionType.payout
+          : WalletTransactionType.onChainPayment,
+      status: 'Successful',
+      createdAt: startDate ?? DateTime.now().millisecondsSinceEpoch,
+    );
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
-        ),
+    return InkWell(
+      onTap: () => TransactionDetailsSheet.show(
+        context,
+        transaction: record,
+        isDarkMode: isDarkMode,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
@@ -840,27 +896,43 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      'Base Cost',
+                      'Base Rent',
                       style: TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                     Text(
-                      '₱ ${totalCost.toStringAsFixed(2)}',
+                      '₱ ${baseRent.toStringAsFixed(2)}',
                       style: const TextStyle(fontSize: 11),
                     ),
                   ],
                 ),
+                if (securityDeposit > 0) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Security Deposit (Refundable)',
+                        style: TextStyle(fontSize: 11, color: Colors.purple),
+                      ),
+                      Text(
+                        '₱ ${securityDeposit.toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 11, color: Colors.purple),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 4),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
                       myRole == 'host'
-                          ? 'Platform Commission (3%)'
-                          : 'Booking Fee (3%)',
+                          ? 'TRANYX Commission (${(hostCommRate * 100).toInt()}%)'
+                          : 'Platform Fee (${(custFeeRate * 100).toInt()}%)',
                       style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                     Text(
-                      '${myRole == "host" ? "-" : "+"} ₱ ${(myRole == "host" ? commission : bookingFee).toStringAsFixed(2)}',
+                      '${myRole == "host" ? "−" : "+"} ₱ ${(myRole == "host" ? commission : bookingFee).toStringAsFixed(2)}',
                       style: TextStyle(
                         fontSize: 11,
                         color: myRole == 'host' ? Colors.red : Colors.green,
@@ -872,14 +944,14 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                 if (myRole == 'host') ...[
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Listing Fee (1.5% paid upfront)',
+                    children: const [
+                      Text(
+                        'Property Listing Fee',
                         style: TextStyle(fontSize: 11, color: Colors.grey),
                       ),
                       Text(
-                        '− ₱ ${listingFee.toStringAsFixed(2)}',
-                        style: const TextStyle(fontSize: 11, color: Colors.red),
+                        '₱0.00 (100% Free)',
+                        style: TextStyle(fontSize: 11, color: Colors.green),
                       ),
                     ],
                   ),
@@ -952,6 +1024,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
             counterpartyUid ?? '',
           ),
         ],
+      ),
       ),
     );
   }
@@ -1199,21 +1272,54 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
     final isSuccessful =
         tx['status'] == 'Released' || tx['status'] == 'Successful';
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
-        ),
+    final myUid = ref.read(userProfileProvider).value?.uid ?? '';
+    final record = WalletTransaction(
+      id: (tx['id'] ?? 'gig_tx_${tx['timestamp'] ?? 0}').toString(),
+      uid: tx['uid']?.toString() ?? myUid,
+      title: title,
+      desc: desc,
+      amount: isEarningTab ? amount : -amount,
+      baseAmount: baseAmount > 0 ? baseAmount : null,
+      transactionFee: (tx['txFee'] as num?)?.toDouble(),
+      convenienceFee: (tx['convFee'] as num?)?.toDouble(),
+      commissionFee: (tx['commissionFee'] as num?)?.toDouble(),
+      holdbackAmount: (tx['holdbackAmount'] as num?)?.toDouble(),
+      originRail: TransactionOriginRail.internalBalance,
+      transactionType: isEarningTab
+          ? WalletTransactionType.payout
+          : (tx['kind'] == 'service_fee'
+              ? WalletTransactionType.feeDeduction
+              : (tx['kind'] == 'listing_fee'
+                  ? WalletTransactionType.listingFee
+                  : (tx['kind'] == 'subscription'
+                      ? WalletTransactionType.subscription
+                      : WalletTransactionType.onChainPayment))),
+      status: isSuccessful ? 'Successful' : 'Pending',
+      createdAt: (tx['timestamp'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
+    );
+
+    return InkWell(
+      onTap: () => TransactionDetailsSheet.show(
+        context,
+        transaction: record,
+        isDarkMode: isDarkMode,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
@@ -1330,6 +1436,33 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
                           '₱ ${amount.toStringAsFixed(2)}',
                           style: const TextStyle(fontSize: 11),
                         ),
+                      ] else if (tx['kind'] == 'service_fee') ...[
+                        const Text(
+                          'Platform Fees (10% Total)',
+                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                        Text(
+                          '₱ ${amount.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ] else if (tx['kind'] == 'subscription') ...[
+                        const Text(
+                          'Subscription Plan',
+                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                        Text(
+                          '₱ ${amount.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ] else if (tx['kind'] == 'withdrawal') ...[
+                        const Text(
+                          'Disbursed Amount',
+                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                        Text(
+                          '₱ ${amount.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
                       ] else ...[
                         const Text(
                           'Base Budget',
@@ -1407,81 +1540,185 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
           ),
         ],
       ),
+      ),
     );
   }
 
   Widget _buildTopUpHistoryCard(Map<String, dynamic> tx, bool isDarkMode) {
-    final title = tx['title'] as String? ?? 'Funds Deposited';
-    final desc = tx['desc'] as String? ?? '';
+    final record = WalletTransaction.fromMap(tx);
+    final title = record.title;
+    final desc = record.desc;
     final date = tx['date'] as String? ?? '';
-    final amount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
-    final method = tx['method'] as String? ?? 'Unknown';
+    final amount = record.amount.abs();
+    final isMwa = record.originRail == TransactionOriginRail.mwaOnChain;
+    final isP2p = record.originRail == TransactionOriginRail.manualP2p;
+    final statusUpper = record.status.toUpperCase();
+    final isPending = statusUpper.contains('PENDING');
+    final isRejected = statusUpper.contains('REJECT');
+    final isCancelled = statusUpper == 'CANCELLED' || isRejected;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
-        ),
+    final reason = record.rejectionReason ?? tx['rejectionReason'] as String? ?? tx['reason'] as String?;
+
+    return InkWell(
+      onTap: () => TransactionDetailsSheet.show(
+        context,
+        transaction: record,
+        isDarkMode: isDarkMode,
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.deepPurple.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.add_circle_outline,
-              color: Colors.deepPurple,
-              size: 20,
-            ),
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isCancelled
+                ? Colors.red.withValues(alpha: 0.3)
+                : (isDarkMode ? AppColors.darkBorder : AppColors.lightBorder),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isCancelled
+                    ? Colors.red.withValues(alpha: 0.12)
+                    : (isP2p
+                        ? (isPending
+                            ? Colors.amber.withValues(alpha: 0.15)
+                            : Colors.blue.withValues(alpha: 0.12))
+                        : (isMwa
+                            ? const Color(0xFF512DA8).withValues(alpha: 0.12)
+                            : Colors.green.withValues(alpha: 0.12))),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                isCancelled
+                    ? (isRejected ? Icons.warning_amber_rounded : Icons.cancel_outlined)
+                    : (isP2p
+                        ? Icons.qr_code_2
+                        : (isMwa ? Icons.bolt : Icons.credit_card)),
+                color: isCancelled
+                    ? Colors.red
+                    : (isP2p
+                        ? (isPending ? Colors.amber.shade800 : Colors.blue)
+                        : (isMwa ? const Color(0xFF7E57C2) : Colors.green)),
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: isCancelled
+                                ? (isDarkMode ? Colors.grey.shade400 : Colors.grey.shade700)
+                                : null,
+                          ),
+                        ),
+                      ),
+                      if (isCancelled)
+                        _pill(isRejected ? 'Rejected' : 'Cancelled', Colors.red)
+                      else if (isP2p)
+                        (isPending
+                            ? _pill('Pending Verification', Colors.amber.shade800)
+                            : _pill('${record.method ?? "P2P"} Verified', Colors.blue))
+                      else if (isMwa)
+                        _pill('MWA / On-Chain', const Color(0xFF7E57C2))
+                      else
+                        _pill(record.method ?? 'Deposit', Colors.deepPurple),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$desc • $date',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDarkMode
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                  ),
+                  if (reason != null && reason.trim().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6.0),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red.withValues(alpha: 0.2)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.info_outline, size: 12, color: Colors.redAccent),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                'Reason: $reason',
+                                style: const TextStyle(
+                                  color: Colors.redAccent,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                if (isCancelled)
+                  Text(
+                    '₱ ${amount.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      color: Colors.grey,
+                      decoration: TextDecoration.lineThrough,
+                    ),
+                  )
+                else
+                  Text(
+                    '+ ₱ ${amount.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 14,
+                      color: isPending ? Colors.amber.shade800 : Colors.green,
+                    ),
                   ),
-                ),
-                Text(
-                  '$desc • $date',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isDarkMode
-                        ? AppColors.darkTextMuted
-                        : AppColors.lightTextMuted,
+                if (record.cryptoAmount != null && record.cryptoAmount! > 0) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    '${record.cryptoAmount!.toStringAsFixed(4)} ${record.cryptoCurrency ?? "SOL"}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: isDarkMode ? Colors.indigo.shade300 : AppColors.indigo,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '+ ₱ ${amount.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 14,
-                  color: Colors.green,
-                ),
-              ),
-              const SizedBox(height: 6),
-              _pill(method, Colors.deepPurple),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1946,32 +2183,79 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
       }
     }
 
-    // 3. Process Deposits
+    // 3. Process Deposits & Cancelled Top-ups
     for (final tx in userTransactions) {
+      final status = (tx['status'] as String? ?? '').toUpperCase();
+      final isCancelled = status == 'CANCELLED' || status == 'REJECTED';
       final type = tx['type'] as String?;
       final createdAt = tx['createdAt'];
       final createdAtMs = createdAt is int
           ? createdAt
           : (createdAt is Timestamp ? createdAt.millisecondsSinceEpoch : 0);
 
-      if (type == 'deposit') {
+      if (type == 'deposit' || type == 'refund' || type == 'job_escrow_refund' || isCancelled) {
+        final reason = tx['rejectionReason'] ?? tx['reason'];
         dTrans.add({
-          'title': tx['title'] ?? 'Top-Up',
-          'desc': tx['desc'] ?? 'Deposit',
+          'id': tx['id'] ?? 'tx_$createdAtMs',
+          'title': tx['title'] ??
+              (isCancelled
+                  ? (status == 'REJECTED' ? 'Rejected Top-Up' : 'Cancelled Top-Up')
+                  : (type == 'refund' || type == 'job_escrow_refund' ? 'Job Escrow Refund' : 'Top-Up')),
+          'desc': tx['desc'] ??
+              (isCancelled
+                  ? (status == 'REJECTED' ? 'Top-Up request rejected' : 'Top-Up request cancelled')
+                  : (type == 'refund' || type == 'job_escrow_refund'
+                      ? '100% Escrow refund for cancelled job'
+                      : 'Deposit')),
           'date': _formatDate(createdAtMs),
           'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
-          'method': tx['method'] ?? 'Unknown',
+          'method': tx['method'] ?? 'Tranyx Escrow',
+          'status': tx['status'] ?? (isCancelled ? status : 'Completed'),
+          'rejectionReason': reason,
+          'category': isCancelled
+              ? status.toLowerCase()
+              : ((type == 'refund' || type == 'job_escrow_refund') ? 'refund' : 'topup'),
           'timestamp': createdAtMs,
         });
       } else if (type == 'listing_fee') {
         pTrans.add({
           'title': tx['title'] ?? 'Listing Fee',
-          'desc': tx['desc'] ?? 'Platform Listing Fee',
+          'desc': tx['desc'] ?? 'Platform Listing Fee (1.5%)',
           'date': _formatDate(createdAtMs),
           'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
           'status': 'Successful',
           'timestamp': createdAtMs,
           'kind': 'listing_fee',
+        });
+      } else if (type == 'fee_deduction' || type == 'service_fee' || type == 'fee') {
+        pTrans.add({
+          'title': tx['title'] ?? 'Job Completion Fees (10%)',
+          'desc': tx['desc'] ?? '7% Transaction Fee & 3% Convenience Fee',
+          'date': _formatDate(createdAtMs),
+          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
+          'status': 'Successful',
+          'timestamp': createdAtMs,
+          'kind': 'service_fee',
+        });
+      } else if (type == 'subscription') {
+        pTrans.add({
+          'title': tx['title'] ?? 'Hybrid PRO Subscription',
+          'desc': tx['desc'] ?? 'Monthly Platform Subscription',
+          'date': _formatDate(createdAtMs),
+          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
+          'status': 'Successful',
+          'timestamp': createdAtMs,
+          'kind': 'subscription',
+        });
+      } else if (type == 'withdraw' || type == 'withdrawal') {
+        pTrans.add({
+          'title': tx['title'] ?? 'Wallet Withdrawal',
+          'desc': tx['desc'] ?? 'On-Chain / Bank Withdrawal',
+          'date': _formatDate(createdAtMs),
+          'amount': (tx['amount'] as num?)?.toDouble() ?? 0.0,
+          'status': tx['status'] ?? 'Completed',
+          'timestamp': createdAtMs,
+          'kind': 'withdrawal',
         });
       }
     }
@@ -2047,7 +2331,7 @@ class _HistoryPaneState extends ConsumerState<HistoryPane> {
             ),
             const SizedBox(width: 8),
             const Text(
-              'History & Earnings',
+              'Transaction History',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
             const Spacer(),

@@ -3,6 +3,7 @@ import 'dart:ui';
 class AppColors {
   static const Color indigo = Color(0xFF4F46E5);
   static const Color purple = Color(0xFFA855F7);
+  static const Color purpleLight = Color(0xFFC084FC);
   static const Color amber = Color(0xFFF59E0B);
   static const Color green = Color(0xFF22C55E);
   static const Color blue = Color(0xFF3B82F6);

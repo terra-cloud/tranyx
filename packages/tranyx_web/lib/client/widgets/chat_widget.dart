@@ -72,20 +72,48 @@ class _ChatWidgetState extends State<ChatWidget> {
             div(
               classes: '$headerBg backdrop-blur-md border-b $border flex items-center gap-3 px-5 py-4 flex-shrink-0',
               [
-                div(classes: 'p-2 rounded-xl bg-indigo-500/20', [
-                  lIcon('message-circle', cls: 'w-5 h-5 text-indigo-400'),
-                ]),
-                div(classes: 'flex-1', [
-                  p(classes: 'font-bold text-sm ${isDark ? "text-white" : "text-zinc-900"}', [
-                    Component.text(s.currentChatId.startsWith('rental_') ? 'Rental Chat' : 'Job Chat'),
+                div(
+                  classes:
+                      'p-2 rounded-xl ${s.currentChatIsArchived ? "bg-zinc-800 text-zinc-400" : "bg-indigo-500/20 text-indigo-400"}',
+                  [
+                    lIcon(s.currentChatIsArchived ? 'archive' : 'message-circle', cls: 'w-5 h-5'),
+                  ],
+                ),
+                div(classes: 'flex-1 min-w-0', [
+                  div(classes: 'flex items-center gap-2 flex-wrap', [
+                    p(classes: 'font-bold text-sm truncate ${isDark ? "text-white" : "text-zinc-900"}', [
+                      Component.text(
+                        s.currentChatTitle.isNotEmpty
+                            ? s.currentChatTitle
+                            : (s.currentChatId.startsWith('rental_')
+                                ? 'Rental Chat'
+                                : (s.currentChatId.startsWith('property_')
+                                    ? 'Property Chat'
+                                    : 'Job Chat')),
+                      ),
+                    ]),
+                    if (s.currentChatIsArchived)
+                      span(
+                        classes:
+                            'text-[10px] font-extrabold px-2 py-0.5 rounded-full ${s.currentChatStatus.toLowerCase() == 'completed' || s.currentChatStatus.toLowerCase() == 'complete' ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-rose-500/15 text-rose-400 border border-rose-500/30"}',
+                        [
+                          Component.text(s.currentChatStatus.isNotEmpty ? s.currentChatStatus : 'Archived'),
+                        ],
+                      ),
                   ]),
-                  p(classes: 'text-[11px] ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-                    Component.text('Messages are monitored. No sharing of personal contact info.'),
+                  p(classes: 'text-[11px] truncate ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                    Component.text(
+                      s.currentChatIsArchived
+                          ? 'Archived Transaction History • Read-Only Reference'
+                          : (s.currentChatCounterpartyName.isNotEmpty
+                              ? 'Conversation with ${s.currentChatCounterpartyName}'
+                              : 'Messages are monitored. No sharing of personal contact info.'),
+                    ),
                   ]),
                 ]),
                 button(
                   classes:
-                      'p-2 rounded-xl ${isDark ? "hover:bg-zinc-800 text-zinc-400" : "hover:bg-zinc-100 text-zinc-500"} transition-colors',
+                      'p-2 rounded-xl ${isDark ? "hover:bg-zinc-800 text-zinc-400" : "hover:bg-zinc-100 text-zinc-500"} transition-colors cursor-pointer',
                   events: {'click': (_) => s.closeChat()},
                   [lIcon('x', cls: 'w-5 h-5')],
                 ),
@@ -100,14 +128,18 @@ class _ChatWidgetState extends State<ChatWidget> {
                 if (msgs.isEmpty)
                   div(classes: 'h-full flex flex-col items-center justify-center gap-3 text-center', [
                     div(
-                      classes: 'p-4 rounded-2xl bg-indigo-500/10',
-                      [lIcon('message-circle', cls: 'w-8 h-8 text-indigo-400')],
+                      classes: 'p-4 rounded-2xl ${s.currentChatIsArchived ? "bg-zinc-800 text-zinc-500" : "bg-indigo-500/10 text-indigo-400"}',
+                      [lIcon(s.currentChatIsArchived ? 'archive' : 'message-circle', cls: 'w-8 h-8')],
                     ),
                     p(classes: 'text-sm font-semibold ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-                      Component.text('No messages yet'),
+                      Component.text(s.currentChatIsArchived ? 'No archived messages found' : 'No messages yet'),
                     ]),
                     p(classes: 'text-xs ${isDark ? "text-zinc-600" : "text-zinc-400"}', [
-                      Component.text('Start the conversation below'),
+                      Component.text(
+                        s.currentChatIsArchived
+                            ? 'This transaction has been closed.'
+                            : 'Start the conversation below',
+                      ),
                     ]),
                   ])
                 else
@@ -115,8 +147,28 @@ class _ChatWidgetState extends State<ChatWidget> {
               ],
             ),
 
+            // ── Archived Notice Banner ──────────────────────────────────
+            if (s.currentChatIsArchived)
+              div(
+                classes:
+                    'mx-4 mb-2 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3 animate-fade-up',
+                [
+                  lIcon('archive', cls: 'w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5'),
+                  div([
+                    p(classes: 'text-xs font-bold text-amber-400', [
+                      Component.text('This conversation is archived.'),
+                    ]),
+                    p(classes: 'text-[11px] text-amber-300/90 mt-0.5 leading-relaxed', [
+                      Component.text(
+                        'This transaction was marked ${s.currentChatStatus.isNotEmpty ? s.currentChatStatus.toUpperCase() : "CLOSED"}${s.currentChatClosedDate.isNotEmpty ? " on ${s.currentChatClosedDate}" : ""}. The full chat history is preserved for reference, but messaging is disabled.',
+                      ),
+                    ]),
+                  ]),
+                ],
+              ),
+
             // ── Locked messaging banner ──────────────────────────────────
-            if (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid))
+            if (!s.currentChatIsArchived && (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid)))
               div(
                 classes:
                     'mx-4 mb-2 px-4 py-3.5 rounded-2xl bg-red-500/15 border border-red-500/40 flex items-start gap-3 animate-fade-up',
@@ -136,7 +188,7 @@ class _ChatWidgetState extends State<ChatWidget> {
               ),
 
             // ── PII warning banner ───────────────────────────────────────
-            if (s.chatPiiBlocked)
+            if (!s.currentChatIsArchived && s.chatPiiBlocked)
               div(
                 classes:
                     'mx-4 mb-1 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center gap-2 animate-fade-up',
@@ -149,7 +201,7 @@ class _ChatWidgetState extends State<ChatWidget> {
               ),
 
             // ── Disintermediation warning banner ────────────────────────
-            if (s.chatDisintermediationBlocked)
+            if (!s.currentChatIsArchived && s.chatDisintermediationBlocked)
               div(
                 classes: 'mx-4 mb-1 px-4 py-3 rounded-xl bg-orange-500/10 border border-orange-500/30 animate-fade-up',
                 [
@@ -170,7 +222,7 @@ class _ChatWidgetState extends State<ChatWidget> {
               ),
 
             // ── Real-time warning banner ────────────────────────────────
-            if (showRealtimeWarning)
+            if (!s.currentChatIsArchived && showRealtimeWarning)
               div(
                 classes:
                     'mx-4 mb-2 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2 animate-fade-up',
@@ -190,88 +242,100 @@ class _ChatWidgetState extends State<ChatWidget> {
               ),
 
             // ── Input bar ───────────────────────────────────────────────
-            div(
-              classes:
-                  'flex-shrink-0 px-4 py-3 border-t $border ${isDark ? "bg-zinc-900/80" : "bg-white/80"} backdrop-blur-md',
-              [
-                div(classes: 'flex items-center gap-2', [
-                  // Photo upload
-                  if (!s.isChatLocked && !MessageViolationTracker.isMessagingLocked(uid))
-                    div(classes: 'relative', [
-                      button(
-                        classes:
-                            'p-2.5 rounded-xl ${isDark ? "bg-zinc-800 text-zinc-400 hover:text-indigo-400" : "bg-zinc-100 text-zinc-500 hover:text-indigo-500"} transition-colors',
-                        attributes: {'title': 'Send photo'},
-                        events: {},
-                        [
-                          if (s.isUploadingChatPhoto)
-                            lIcon('loader-2', cls: 'w-5 h-5 animate-spin')
-                          else
-                            lIcon('image', cls: 'w-5 h-5'),
-                        ],
-                      ),
-                      input(
-                        type: InputType.file,
-                        classes: 'absolute inset-0 opacity-0 cursor-pointer',
-                        attributes: {
-                          'accept': 'image/*',
-                          'id': 'chat-photo-input',
-                          'name': 'chat_photo',
-                        },
-                        events: {
-                          'change': (e) => s.sendChatPhoto(e),
-                        },
-                      ),
-                    ]),
-
-                  // Text input
-                  input(
-                    type: InputType.text,
-                    classes: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid))
-                        ? 'flex-1 px-4 py-3 rounded-xl text-sm border bg-zinc-800/40 border-zinc-800 text-zinc-500 outline-none cursor-not-allowed'
-                        : 'flex-1 px-4 py-3 rounded-xl text-sm border $inputBg outline-none transition-colors focus:border-indigo-500',
-                    attributes: {
-                      'placeholder': (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid))
-                          ? 'Messaging locked due to policy violations'
-                          : 'Type a message...',
-                      'id': _inputId,
-                      'name': 'chat_message',
-                      'value': s.chatInputText,
-                      'autocomplete': 'off',
-                      if (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid)) 'disabled': 'true',
-                    },
-                    events: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid))
-                        ? {}
-                        : {
-                            'input': (e) {
-                              s.setState(() => s.chatInputText = getInputValue(e.target));
-                            },
-                            'keydown': (e) {
-                              final ke = e as web.KeyboardEvent;
-                              if (ke.key == 'Enter' && !ke.shiftKey) {
-                                ke.preventDefault();
-                                s.sendChatMessage();
-                              }
-                            },
+            if (s.currentChatIsArchived)
+              div(
+                classes:
+                    'flex-shrink-0 px-5 py-4 border-t $border ${isDark ? "bg-zinc-900/90" : "bg-zinc-100/90"} flex items-center justify-center gap-2 text-center',
+                [
+                  lIcon('lock', cls: 'w-4 h-4 text-zinc-500'),
+                  p(classes: 'text-xs font-bold text-zinc-500', [
+                    Component.text('Messaging is disabled for closed transactions.'),
+                  ]),
+                ],
+              )
+            else
+              div(
+                classes:
+                    'flex-shrink-0 px-4 py-3 border-t $border ${isDark ? "bg-zinc-900/80" : "bg-white/80"} backdrop-blur-md',
+                [
+                  div(classes: 'flex items-center gap-2', [
+                    // Photo upload
+                    if (!s.isChatLocked && !MessageViolationTracker.isMessagingLocked(uid))
+                      div(classes: 'relative', [
+                        button(
+                          classes:
+                              'p-2.5 rounded-xl ${isDark ? "bg-zinc-800 text-zinc-400 hover:text-indigo-400" : "bg-zinc-100 text-zinc-500 hover:text-indigo-500"} transition-colors',
+                          attributes: {'title': 'Send photo'},
+                          events: {},
+                          [
+                            if (s.isUploadingChatPhoto)
+                              lIcon('loader-2', cls: 'w-5 h-5 animate-spin')
+                            else
+                              lIcon('image', cls: 'w-5 h-5'),
+                          ],
+                        ),
+                        input(
+                          type: InputType.file,
+                          classes: 'absolute inset-0 opacity-0 cursor-pointer',
+                          attributes: {
+                            'accept': 'image/*',
+                            'id': 'chat-photo-input',
+                            'name': 'chat_photo',
                           },
-                  ),
+                          events: {
+                            'change': (e) => s.sendChatPhoto(e),
+                          },
+                        ),
+                      ]),
 
-                  // Send button
-                  button(
-                    classes: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid) || s.chatInputText.trim().isEmpty)
-                        ? 'p-2.5 rounded-xl bg-indigo-500/30 text-white/50 cursor-not-allowed'
-                        : 'p-2.5 rounded-xl logo-gradient text-white hover:opacity-90 transition-opacity',
-                    attributes: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid) || s.chatInputText.trim().isEmpty)
-                        ? {'disabled': 'true'}
-                        : {},
-                    events: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid) || s.chatInputText.trim().isEmpty)
-                        ? {}
-                        : {'click': (_) => s.sendChatMessage()},
-                    [lIcon('send', cls: 'w-5 h-5')],
-                  ),
-                ]),
-              ],
-            ),
+                    // Text input
+                    input(
+                      type: InputType.text,
+                      classes: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid))
+                          ? 'flex-1 px-4 py-3 rounded-xl text-sm border bg-zinc-800/40 border-zinc-800 text-zinc-500 outline-none cursor-not-allowed'
+                          : 'flex-1 px-4 py-3 rounded-xl text-sm border $inputBg outline-none transition-colors focus:border-indigo-500',
+                      attributes: {
+                        'placeholder': (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid))
+                            ? 'Messaging locked due to policy violations'
+                            : 'Type a message...',
+                        'id': _inputId,
+                        'name': 'chat_message',
+                        'value': s.chatInputText,
+                        'autocomplete': 'off',
+                        if (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid)) 'disabled': 'true',
+                      },
+                      events: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid))
+                          ? {}
+                          : {
+                              'input': (e) {
+                                s.setState(() => s.chatInputText = getInputValue(e.target));
+                              },
+                              'keydown': (e) {
+                                final ke = e as web.KeyboardEvent;
+                                if (ke.key == 'Enter' && !ke.shiftKey) {
+                                  ke.preventDefault();
+                                  s.sendChatMessage();
+                                }
+                              },
+                            },
+                    ),
+
+                    // Send button
+                    button(
+                      classes: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid) || s.chatInputText.trim().isEmpty)
+                          ? 'p-2.5 rounded-xl bg-indigo-500/30 text-white/50 cursor-not-allowed'
+                          : 'p-2.5 rounded-xl logo-gradient text-white hover:opacity-90 transition-opacity',
+                      attributes: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid) || s.chatInputText.trim().isEmpty)
+                          ? {'disabled': 'true'}
+                          : {},
+                      events: (s.isChatLocked || MessageViolationTracker.isMessagingLocked(uid) || s.chatInputText.trim().isEmpty)
+                          ? {}
+                          : {'click': (_) => s.sendChatMessage()},
+                      [lIcon('send', cls: 'w-5 h-5')],
+                    ),
+                  ]),
+                ],
+              ),
           ],
         ),
       ],

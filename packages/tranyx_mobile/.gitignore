@@ -51,3 +51,7 @@ app.*.map.json
 *.g.dart
 **/*.g.dart
 
+# Goldie generated store assets
+goldie/out/
+
+

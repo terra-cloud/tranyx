@@ -438,43 +438,47 @@ class HomeViewComponentState extends State<HomeViewComponent> {
             ],
           ),
       ] else ...[
-        // ── Global Search Bar ─────────────────────────────────
-        div(
-          classes:
-              'flex items-center gap-3 p-4 rounded-2xl border transition-colors ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
-          [
-            lIcon('search', cls: 'w-5 h-5 ${isDark ? "text-zinc-600" : "text-zinc-400"} flex-shrink-0'),
-            input(
-              classes:
-                  'bg-transparent border-none outline-none flex-1 text-sm md:text-base ${isDark ? "text-zinc-200 placeholder-zinc-600" : "text-zinc-800 placeholder-zinc-400"}',
-              type: InputType.search,
-              attributes: {
-                'placeholder': isNyxian ? 'Search available gigs...' : 'Search for a service or Nyxian...',
-                'value': s.homeSearchQuery,
-                'id': 'home-search-input',
-                'name': 'search',
-              },
-              events: {
-                'input': (e) {
-                  s.setState(() => s.homeSearchQuery = getInputValue(e.target));
+        // ── Global Search Bar (Nyxian Only) ───────────────────
+        if (isNyxian)
+          div(
+            classes:
+                'flex items-center gap-3 p-4 rounded-2xl border transition-colors ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
+            [
+              lIcon('search', cls: 'w-5 h-5 ${isDark ? "text-zinc-600" : "text-zinc-400"} flex-shrink-0'),
+              input(
+                classes:
+                    'bg-transparent border-none outline-none flex-1 text-sm md:text-base ${isDark ? "text-zinc-200 placeholder-zinc-600" : "text-zinc-800 placeholder-zinc-400"}',
+                type: InputType.search,
+                attributes: {
+                  'placeholder': 'Search available gigs...',
+                  'value': s.homeSearchQuery,
+                  'id': 'home-search-input',
+                  'name': 'search',
                 },
-                'keydown': (e) {
-                  final key = (e as web.KeyboardEvent).key;
-                  if (key == 'Enter') s.handleHomeSearch(s.homeSearchQuery);
+                events: {
+                  'input': (e) {
+                    s.setState(() => s.homeSearchQuery = getInputValue(e.target));
+                  },
+                  'keydown': (e) {
+                    final key = (e as web.KeyboardEvent).key;
+                    if (key == 'Enter') s.handleHomeSearch(s.homeSearchQuery);
+                  },
                 },
-              },
-            ),
-            button(
-              classes:
-                  'flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity',
-              events: {'click': (_) => s.handleHomeSearch(s.homeSearchQuery)},
-              [Component.text('Search')],
-            ),
-          ],
-        ),
+              ),
+              button(
+                classes:
+                    'flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity',
+                events: {'click': (_) => s.handleHomeSearch(s.homeSearchQuery)},
+                [Component.text('Search')],
+              ),
+            ],
+          ),
 
         // ── Quick Stats Bar ───────────────────────────────────
         _quickStatsBar(isDark: isDark, isNyxian: isNyxian, s: s),
+
+        // ── Active P2P Transactions (Deposits & Withdrawals) ──
+        _activeP2pTransactionsBanner(isDark: isDark, s: s),
 
         // ── Ongoing / Current Gig Widget ──────────────────────
         _ongoingWidget(isDark: isDark, isNyxian: isNyxian, s: s),
@@ -510,6 +514,212 @@ class HomeViewComponentState extends State<HomeViewComponent> {
           ),
         ],
       ],
+    ]);
+  }
+
+  Component _activeP2pTransactionsBanner({required bool isDark, required TranyxAppState s}) {
+    final depReq = s.activeP2pDepositRequest;
+    final withReq = s.activeP2pWithdrawalRequest;
+
+    final isDepActive = depReq != null &&
+        depReq.status != 'APPROVED' &&
+        depReq.status != 'CANCELLED' &&
+        depReq.status != 'REJECTED';
+
+    final isWithActive = withReq != null &&
+        withReq.status != 'APPROVED' &&
+        withReq.status != 'CANCELLED' &&
+        withReq.status != 'REJECTED';
+
+    if (!isDepActive && !isWithActive) {
+      return const Component.fragment([]);
+    }
+
+    return div(classes: 'space-y-4 animate-fade-in', [
+      if (isDepActive)
+        () {
+          final req = depReq;
+          final status = req.status.toUpperCase();
+          String badgeText = 'Waiting for Agent';
+          String statusDesc = 'Broadcasting to verified P2P agents...';
+          String badgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+          String pulseColor = 'bg-amber-400';
+
+          if (status == 'AWAITING_PAYMENT') {
+            badgeText = 'Agent QR Ready';
+            statusDesc = 'Agent ${(req.agentName ?? "").isNotEmpty ? req.agentName : "assigned"}. Send payment & submit receipt.';
+            badgeColor = 'bg-blue-500/20 text-blue-300 border-blue-500/30';
+            pulseColor = 'bg-blue-400';
+          } else if (status == 'PENDING_VERIFICATION') {
+            badgeText = 'Verifying Proof';
+            statusDesc = 'Receipt submitted. Agent is reviewing and crediting your balance.';
+            badgeColor = 'bg-purple-500/20 text-purple-300 border-purple-500/30';
+            pulseColor = 'bg-purple-400';
+          }
+
+          final elapsedSec = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(req.createdAt)).inSeconds;
+          final canCancel = status == 'WAITING_FOR_AGENT' && elapsedSec >= 300;
+
+          return div(
+            classes:
+                'p-5 rounded-3xl border border-indigo-500/30 bg-gradient-to-r from-indigo-950/70 via-purple-950/60 to-zinc-950/80 backdrop-blur-xl shadow-xl shadow-indigo-950/30 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-300',
+            [
+              div(classes: 'flex items-start sm:items-center gap-4 min-w-0', [
+                div(
+                  classes:
+                      'w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0 shadow-lg shadow-indigo-500/20',
+                  [lIcon('arrow-down-circle', cls: 'w-6 h-6')],
+                ),
+                div(classes: 'min-w-0 space-y-1', [
+                  div(classes: 'flex flex-wrap items-center gap-2', [
+                    span(
+                      classes:
+                          'px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border $badgeColor flex items-center gap-1.5',
+                      [
+                        span(classes: 'w-2 h-2 rounded-full $pulseColor animate-pulse', []),
+                        Component.text(badgeText),
+                      ],
+                    ),
+                    span(
+                      classes: 'text-xs font-bold text-zinc-400',
+                      [Component.text('P2P Top-up • ${req.paymentMethod}')],
+                    ),
+                  ]),
+                  div(classes: 'flex items-baseline gap-2', [
+                    p(
+                      classes: 'text-xl font-black text-white tracking-tight',
+                      [Component.text('₱${req.amount.toStringAsFixed(2)}')],
+                    ),
+                    span(classes: 'text-xs text-zinc-400', [Component.text('(${req.amount.toInt()} TYX)')]),
+                  ]),
+                  p(classes: 'text-xs text-zinc-300 line-clamp-1', [Component.text(statusDesc)]),
+                ]),
+              ]),
+              div(classes: 'flex items-center gap-2 self-end md:self-center shrink-0', [
+                if (canCancel)
+                  button(
+                    classes:
+                        'px-4 py-2.5 rounded-xl text-xs font-bold text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30 transition-all cursor-pointer',
+                    events: {'click': (_) => s.handleCancelP2pOrder(req.id)},
+                    [Component.text('Cancel Request')],
+                  ),
+                button(
+                  classes:
+                      'px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-600/30 transition-all cursor-pointer flex items-center gap-2 border-0 active:scale-95',
+                  events: {
+                    'click': (_) => s.setState(() {
+                      s.selectedDepositRail = 'manual_p2p';
+                      s.showDepositModal = true;
+                    }),
+                  },
+                  [
+                    lIcon('external-link', cls: 'w-4 h-4'),
+                    Component.text('Resume Top-Up'),
+                  ],
+                ),
+              ]),
+            ],
+          );
+        }(),
+
+      if (isWithActive &&
+          !withReq.paymentMethod.toLowerCase().contains('solana'))
+        () {
+          final req = withReq;
+          final status = req.status.toUpperCase();
+          String badgeText = 'Waiting for Agent';
+          String statusDesc = 'Broadcasting cashout to online agents...';
+          String badgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+          String pulseColor = 'bg-amber-400';
+
+          if (status == 'AWAITING_AGENT_PAYMENT') {
+            badgeText = 'Agent Processing';
+            statusDesc = 'Agent ${(req.agentName ?? "").isNotEmpty ? req.agentName : "claimed"}. Disagreeing or transferring payout...';
+            badgeColor = 'bg-blue-500/20 text-blue-300 border-blue-500/30';
+            pulseColor = 'bg-blue-400';
+          } else if (status == 'PENDING_CONFIRMATION') {
+            badgeText = 'Payment Sent - Action Needed';
+            statusDesc = 'Agent has sent payout! Check your ${req.paymentMethod} and confirm receipt.';
+            badgeColor = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+            pulseColor = 'bg-emerald-400';
+          }
+
+          final elapsedSec = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(req.createdAt)).inSeconds;
+          final canCancel = status == 'WAITING_FOR_AGENT' && elapsedSec >= 300;
+
+          return div(
+            classes:
+                'p-5 rounded-3xl border border-emerald-500/30 bg-gradient-to-r from-emerald-950/70 via-teal-950/60 to-zinc-950/80 backdrop-blur-xl shadow-xl shadow-emerald-950/30 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-300',
+            [
+              div(classes: 'flex items-start sm:items-center gap-4 min-w-0', [
+                div(
+                  classes:
+                      'w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 shadow-lg shadow-emerald-500/20',
+                  [lIcon('arrow-up-circle', cls: 'w-6 h-6')],
+                ),
+                div(classes: 'min-w-0 space-y-1', [
+                  div(classes: 'flex flex-wrap items-center gap-2', [
+                    span(
+                      classes:
+                          'px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border $badgeColor flex items-center gap-1.5',
+                      [
+                        span(classes: 'w-2 h-2 rounded-full $pulseColor animate-pulse', []),
+                        Component.text(badgeText),
+                      ],
+                    ),
+                    span(
+                      classes: 'text-xs font-bold text-zinc-400',
+                      [Component.text('P2P Cashout • ${req.paymentMethod} (${req.userAccountNumber})')],
+                    ),
+                  ]),
+                  div(classes: 'flex items-baseline gap-2', [
+                    p(
+                      classes: 'text-xl font-black text-white tracking-tight',
+                      [Component.text('₱${req.amount.toStringAsFixed(2)}')],
+                    ),
+                    span(classes: 'text-xs text-zinc-400', [Component.text('Net: ₱${req.netAmount.toStringAsFixed(2)}')]),
+                  ]),
+                  p(classes: 'text-xs text-zinc-300 line-clamp-1', [Component.text(statusDesc)]),
+                ]),
+              ]),
+              div(classes: 'flex items-center gap-2 self-end md:self-center shrink-0', [
+                if (status == 'PENDING_CONFIRMATION')
+                  button(
+                    classes:
+                        'px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/30 transition-all cursor-pointer flex items-center gap-1.5 border-0 active:scale-95',
+                    events: {'click': (_) => s.handleConfirmP2pWithdrawalReceived(req.id)},
+                    [
+                      lIcon('check-circle', cls: 'w-4 h-4'),
+                      Component.text('Confirm Received'),
+                    ],
+                  )
+                else if (canCancel)
+                  button(
+                    classes:
+                        'px-4 py-2.5 rounded-xl text-xs font-bold text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30 transition-all cursor-pointer',
+                    events: {'click': (_) => s.handleCancelP2pWithdrawal(req.id)},
+                    [Component.text('Cancel & Refund')],
+                  ),
+                button(
+                  classes:
+                      'px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-600/30 transition-all cursor-pointer flex items-center gap-2 border-0 active:scale-95',
+                  events: {
+                    'click': (_) => s.setState(() {
+                      s.selectedWithdrawRail = 'manual_p2p';
+                      s.activeP2pWithdrawalId = req.id;
+                      s.activeP2pWithdrawalRequest = req;
+                      s.showWithdrawModal = true;
+                    }),
+                  },
+                  [
+                    lIcon('external-link', cls: 'w-4 h-4'),
+                    Component.text('Track Cashout'),
+                  ],
+                ),
+              ]),
+            ],
+          );
+        }(),
     ]);
   }
 
@@ -727,7 +937,7 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         ],
       );
     } else {
-      final r = item as Map<String, dynamic>;
+      final r = item as Map;
       final model = r['model'] ?? 'Vehicle';
       final brand = r['brand'] ?? 'Unknown';
       final photoUrl = r['frontPhotoUrl'] ?? r['frontPhoto'] ?? r['photoUrl'];
@@ -741,7 +951,7 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         classes: 'p-4 rounded-2xl border transition-all cursor-pointer $cardCls',
         events: {
           'click': (_) => s.setState(() {
-            s.selectedRentalData = r;
+            s.selectedRentalData = Map<String, dynamic>.from(r);
             s.showBookVehicleModal = true;
           }),
         },

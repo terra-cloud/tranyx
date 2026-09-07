@@ -102,16 +102,36 @@ class ContractViewerComponent extends StatelessComponent {
       _buildSectionHeader('1. PARTIES TO THE AGREEMENT', isDark),
       div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-6', [
         _buildPartyCard(
-          role: 'OWNER / HOST',
+          role: 'OWNER / HOST (LESSOR)',
           name: r.hostName,
-          license: 'Verified Account',
+          license: 'Host Identification Record',
+          isVerified: PartyVerificationHelper.isPartyVerified(
+            isVerified: r.hostIsVerified,
+            status: r.hostVerificationStatus,
+          ),
+          verificationTier: PartyVerificationHelper.formatVerificationTier(
+            isVerified: r.hostIsVerified,
+            status: r.hostVerificationStatus,
+            explicitTier: r.hostVerificationTier,
+          ),
           photoUrl: r.hostPhotoUrl,
           isDark: isDark,
         ),
         _buildPartyCard(
           role: 'RENTER / LESSEE',
           name: r.renteeName ?? '[Renter Full Name]',
-          license: r.renteeLicenseNumber != null ? 'License: ${r.renteeLicenseNumber}' : '[License Pending Signature]',
+          license: r.renteeLicenseNumber != null && r.renteeLicenseNumber!.isNotEmpty
+              ? 'Driver\'s License: ${r.renteeLicenseNumber}'
+              : '[Identity Reference]',
+          isVerified: PartyVerificationHelper.isPartyVerified(
+            isVerified: r.renteeIsVerified,
+            status: r.renteeVerificationStatus,
+          ),
+          verificationTier: PartyVerificationHelper.formatVerificationTier(
+            isVerified: r.renteeIsVerified,
+            status: r.renteeVerificationStatus,
+            explicitTier: r.renteeVerificationTier,
+          ),
           photoUrl: r.renteePhotoUrl,
           isDark: isDark,
         ),
@@ -211,14 +231,34 @@ class ContractViewerComponent extends StatelessComponent {
         _buildPartyCard(
           role: 'LESSOR / PROPERTY OWNER',
           name: r.hostName,
-          license: 'Verified Landlord',
+          license: 'Landlord Identification Record',
+          isVerified: PartyVerificationHelper.isPartyVerified(
+            isVerified: r.hostIsVerified,
+            status: r.hostVerificationStatus,
+          ),
+          verificationTier: PartyVerificationHelper.formatVerificationTier(
+            isVerified: r.hostIsVerified,
+            status: r.hostVerificationStatus,
+            explicitTier: r.hostVerificationTier,
+          ),
           photoUrl: r.hostPhotoUrl,
           isDark: isDark,
         ),
         _buildPartyCard(
           role: 'LESSEE / TENANT',
           name: r.renteeName ?? '[Tenant Full Name]',
-          license: r.renteeLicenseNumber != null ? 'Government ID: ${r.renteeLicenseNumber}' : '[ID Pending Signature]',
+          license: r.renteeLicenseNumber != null && r.renteeLicenseNumber!.isNotEmpty
+              ? 'Government ID: ${r.renteeLicenseNumber}'
+              : '[ID Reference]',
+          isVerified: PartyVerificationHelper.isPartyVerified(
+            isVerified: r.renteeIsVerified,
+            status: r.renteeVerificationStatus,
+          ),
+          verificationTier: PartyVerificationHelper.formatVerificationTier(
+            isVerified: r.renteeIsVerified,
+            status: r.renteeVerificationStatus,
+            explicitTier: r.renteeVerificationTier,
+          ),
           photoUrl: r.renteePhotoUrl,
           isDark: isDark,
         ),
@@ -330,14 +370,23 @@ class ContractViewerComponent extends StatelessComponent {
     required String role,
     required String name,
     required String license,
+    bool isVerified = false,
+    String? verificationTier,
     required String? photoUrl,
     required bool isDark,
   }) {
     final showPhoto = photoUrl != null && photoUrl.isNotEmpty && photoUrl != 'null';
+    final statusText = isVerified
+        ? 'Identity Status: Verified (${verificationTier ?? "Government ID Verified"})'
+        : 'Identity Status: Unverified Account';
+    final badgeClass = isVerified
+        ? (isDark ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400" : "bg-emerald-50 border-emerald-200 text-emerald-700")
+        : (isDark ? "bg-amber-500/10 border-amber-500/25 text-amber-400" : "bg-amber-50 border-amber-200 text-amber-700");
+
     return div(
       classes:
-          'p-4 rounded-xl border flex items-center gap-3 '
-          '${isDark ? "bg-zinc-900/40 border-zinc-805" : "bg-zinc-50 border-zinc-200"}',
+          'p-4 rounded-xl border flex items-start gap-3 '
+          '${isDark ? "bg-zinc-900/40 border-zinc-800" : "bg-zinc-50 border-zinc-200"}',
       [
         div(
           classes:
@@ -350,10 +399,22 @@ class ContractViewerComponent extends StatelessComponent {
               lIcon('user', cls: 'w-5 h-5 text-zinc-500'),
           ],
         ),
-        div([
-          p(classes: 'text-[10px] font-bold text-zinc-550 uppercase tracking-wide', [Component.text(role)]),
-          p(classes: 'text-sm font-bold ${isDark ? "text-white" : "text-zinc-900"}', [Component.text(name)]),
-          p(classes: 'text-xs text-zinc-500 mt-0.5', [Component.text(license)]),
+        div(classes: 'flex-1 min-w-0', [
+          p(classes: 'text-[10px] font-bold text-zinc-500 uppercase tracking-wide', [Component.text(role)]),
+          div(classes: 'flex items-center gap-1.5', [
+            p(classes: 'text-sm font-bold truncate ${isDark ? "text-white" : "text-zinc-900"}', [Component.text(name)]),
+            if (isVerified)
+              lIcon('check-circle', cls: 'w-3.5 h-3.5 text-emerald-400 shrink-0'),
+          ]),
+          if (license.isNotEmpty)
+            p(classes: 'text-xs text-zinc-400 mt-0.5 truncate', [Component.text(license)]),
+          div(classes: 'mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border $badgeClass', [
+            if (isVerified)
+              lIcon('shield-check', cls: 'w-3 h-3')
+            else
+              lIcon('alert-circle', cls: 'w-3 h-3'),
+            Component.text(statusText),
+          ]),
         ]),
       ],
     );

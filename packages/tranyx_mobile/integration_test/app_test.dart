@@ -31,49 +31,6 @@ class MockFirebaseUser implements User {
 class MockTransitRepository extends TransitRepository {
   final FirebaseFirestore firestoreInstance;
   MockTransitRepository(this.firestoreInstance) : super(firestoreInstance);
-
-  @override
-  Future<Map<String, dynamic>> createXenditInvoice({
-    required String uid,
-    required double amount,
-    required String userName,
-  }) async {
-    return {
-      'id': 'inv_mock_123456',
-      'invoice_url':
-          'https://checkout-staging.xendit.co/v2/invoices/inv_mock_123456',
-    };
-  }
-
-  @override
-  Future<bool> verifyXenditPayment({
-    required String uid,
-    required String invoiceId,
-    required double amount,
-  }) async {
-    // Simulate successful backend verification
-    final user = await getUser(uid);
-    if (user != null) {
-      final newBal = user.tyxBalance + amount;
-      await updateTyxBalance(uid, newBal);
-
-      // Save transaction
-      await firestoreInstance
-          .collection('transactions')
-          .doc('deposit_$invoiceId')
-          .set({
-            'uid': uid,
-            'type': 'deposit',
-            'amount': amount,
-            'title': 'Wallet Top-Up',
-            'desc': 'Fiat deposit via Xendit',
-            'method': 'Xendit',
-            'createdAt': DateTime.now().millisecondsSinceEpoch,
-          });
-      return true;
-    }
-    return false;
-  }
 }
 
 class MockFirebaseMessagingService extends Fake implements FirebaseMessagingService {
@@ -93,7 +50,7 @@ void main() {
   F.appFlavor = Flavor.dev;
 
   group('Mobile E2E Integration Tests', () {
-    testWidgets('Verify Wallet Balance, Xendit Checkout & Verify Payment Flow', (
+    testWidgets('Verify Wallet Balance & Payment Methods Flow', (
       WidgetTester tester,
     ) async {
       final fakeFirestore = FakeFirebaseFirestore();
@@ -148,33 +105,8 @@ void main() {
       await tester.tap(depositButton);
       await tester.pumpAndSettle();
 
-      // 6. Fill amount
-      final amountField = find.byType(TextField);
-      expect(amountField, findsOneWidget);
-      await tester.enterText(amountField, '200');
-      await tester.pumpAndSettle();
-
-      // 7. Confirm Xendit Payment
-      final confirmButton = find.text('Confirm Payment (Xendit)');
-      expect(confirmButton, findsOneWidget);
-      await tester.tap(confirmButton);
-      await tester.pumpAndSettle();
-
-      // 8. Verify the Pending Deposit card is now displayed in the Payment Pane
-      expect(find.text('Pending Deposit'), findsOneWidget);
-      expect(find.text('₱ 200.00'), findsOneWidget);
-      expect(find.text('inv_mock_123...'), findsOneWidget);
-
-      // 9. Tap Verify to finish checkout flow
-      final verifyButton = find.text('Verify');
-      expect(verifyButton, findsOneWidget);
-      await tester.tap(verifyButton);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
-
-      // 10. Verify balance is updated to 700.00 and Pending Deposit card is cleared
-      expect(find.text('700.00'), findsOneWidget);
-      expect(find.text('Pending Deposit'), findsNothing);
+      // 6. Verify Solana powered sheet
+      expect(find.text('POWERED BY SOLANA SECURE'), findsOneWidget);
     });
   });
 }

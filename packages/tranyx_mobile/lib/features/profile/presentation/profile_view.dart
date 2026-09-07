@@ -20,6 +20,8 @@ import 'package:tranyx_mobile/features/profile/presentation/widgets/rewards_pane
 import 'package:tranyx_mobile/features/profile/presentation/widgets/subscription_pane.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 import 'package:tranyx_mobile/core/utils/enums.dart';
+import 'package:tranyx_mobile/core/widgets/user_badge_widget.dart';
+import 'package:tranyx_mobile/core/widgets/interactive_walkthrough_overlay.dart';
 
 class ProfileView extends ConsumerStatefulWidget {
   final bool isTablet;
@@ -230,27 +232,21 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
     }
   }
 
+  String? _lastLoadedUid;
+
   void _initFields(UserProfile profile) {
-    if (_initialized) return;
+    if (_initialized && _lastLoadedUid == profile.uid && _nameController.text.isNotEmpty) return;
     _skills = List<String>.from(profile.skills ?? []);
     _nameController.text = profile.name;
     _emailController.text = profile.email;
     _phoneController.text = profile.phoneNumber ?? '';
 
-    if (profile.accountType == AccountType.nyxian) {
-      _headlineController.text = profile.headline ?? '';
-      _hourlyRateController.text = profile.hourlyRate?.toString() ?? '';
-    } else if (profile.accountType == AccountType.employer) {
-      _companyNameController.text = profile.businessName ?? '';
-      _industryController.text = profile.industry ?? '';
-      _taxIdController.text = profile.taxId ?? '';
-    } else if (profile.accountType == AccountType.hybrid) {
-      _headlineController.text = profile.headline ?? '';
-      _hourlyRateController.text = profile.hourlyRate?.toString() ?? '';
-      _companyNameController.text = profile.businessName ?? '';
-      _industryController.text = profile.industry ?? '';
-      _taxIdController.text = profile.taxId ?? '';
-    }
+    _headlineController.text = profile.headline ?? '';
+    _hourlyRateController.text = profile.hourlyRate?.toString() ?? '';
+    _companyNameController.text = profile.businessName ?? '';
+    _industryController.text = profile.industry ?? '';
+    _taxIdController.text = profile.taxId ?? '';
+    _lastLoadedUid = profile.uid;
     _initialized = true;
   }
 
@@ -466,7 +462,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
         }
 
         final displayName =
-            profile?.name ?? user?.displayName ?? user?.email ?? "Alex Mercer";
+            profile?.name ?? user?.displayName ?? user?.email ?? "";
         final AccountType currentAccountType =
             profile?.accountType ?? accountType;
 
@@ -515,6 +511,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
           String label,
           String viewKey, {
           bool isDestructive = false,
+          VoidCallback? onTap,
         }) {
           Color itemColor = isDestructive
               ? AppColors.red
@@ -524,7 +521,9 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
 
           return GestureDetector(
             onTap: () {
-              if (isDestructive && viewKey == 'logout') {
+              if (onTap != null) {
+                onTap();
+              } else if (isDestructive && viewKey == 'logout') {
                 ref.read(authControllerProvider).signOut();
                 ref.read(authViewProvider.notifier).state = 'login';
                 ref.read(profileViewProvider.notifier).state = 'main';
@@ -694,15 +693,26 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      displayName,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: isDarkMode
-                            ? AppColors.darkText
-                            : AppColors.lightText,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          displayName,
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: isDarkMode
+                                ? AppColors.darkText
+                                : AppColors.lightText,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        UserBadgeWidget.fromDynamic(
+                          verificationLevel: profile?.verificationLevel,
+                          idVerified: profile?.idVerified,
+                          size: 16,
+                          showLabel: true,
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 6),
                     Container(
@@ -753,15 +763,23 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
               'professional',
             ),
             const SizedBox(height: 12),
-            buildProfileMenu(Icons.credit_card, "Payment Methods", 'payment'),
-            const SizedBox(height: 12),
-            buildProfileMenu(Icons.arrow_upward_rounded, "Withdraw Funds", 'withdraw'),
-            const SizedBox(height: 12),
             buildProfileMenu(Icons.star_rounded, "Hybrid PRO Subscription", 'subscription'),
             const SizedBox(height: 12),
             buildProfileMenu(Icons.security, "Trust & Verification", 'trust'),
             const SizedBox(height: 12),
-            buildProfileMenu(Icons.history, "History & Earnings", 'history'),
+            buildProfileMenu(
+              Icons.explore_outlined,
+              "App Guide & Verification Levels",
+              'guide',
+              onTap: () {
+                InteractiveWalkthroughOverlay.show(
+                  context,
+                  recordAsSeen: false,
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            buildProfileMenu(Icons.history, "Transaction History", 'history'),
             const SizedBox(height: 12),
             buildProfileMenu(
               Icons.star_outline,
@@ -1127,9 +1145,11 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
             onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
           );
         } else if (profileView == 'withdraw') {
-          rightPane = WithdrawPane(
-            onBack: () => ref.read(profileViewProvider.notifier).state = 'main',
-          );
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ref.read(profileViewProvider.notifier).state = 'main';
+            WithdrawPane.show(context);
+          });
+          rightPane = menuPane;
         } else if (profileView == 'subscription') {
           rightPane = SubscriptionPane(
             onBack: () => ref.read(profileViewProvider.notifier).state = 'main',

@@ -127,6 +127,7 @@ class PostJobPageState extends State<PostJobPage> {
                 'w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-zinc-100 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all outline-none min-h-[160px] pb-12',
             attributes: {
               'placeholder': 'Describe the work in detail...',
+              'value': _description,
             },
             events: {
               'input': (e) {

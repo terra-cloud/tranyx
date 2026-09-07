@@ -42,7 +42,7 @@ class PrivacyPolicy extends StatelessComponent {
             li([Component.text('Identity Verification (KYC) Details: Goverment-issued ID cards, driver’s licenses, selfie images, business permits, and background check data to prevent fraudulent activities.')]),
             li([Component.text('Web3 Wallet Data: Public wallet addresses (e.g., Solana, Ethereum, Sui) and cryptographic signatures generated when logging in, establishing escrows, or authorizing payment contracts.')]),
             li([Component.text('Precise Location Data: Real-time GPS coordinate data to trace on-site gigs, facilitate route tracking for vehicle rentals, verify property locations, and perform distance-based search filter calculations.')]),
-            li([Component.text('Payment Gateway Details: Transaction logs, billing info, and invoice metadata processed via Xendit or on-chain cryptocurrency transactions.')]),
+            li([Component.text('Payment Details: Transaction logs, billing info, and payment metadata processed via on-chain cryptocurrency and internal balance transactions.')]),
             li([Component.text('Marketplace Interactions: Chat history, work agreements, gig applications, escrow release milestones, and user reviews/ratings.')]),
           ]),
           h2(classes: 'text-xl font-bold text-white mt-8 mb-3', [
@@ -55,7 +55,7 @@ class PrivacyPolicy extends StatelessComponent {
             li([Component.text('To establish and secure your account, mapping your public wallet address to your user profile.')]),
             li([Component.text('To match gig workers (Nyxians) with employers based on skills, ratings, and location proximity.')]),
             li([Component.text('To verify qualifications and drive credentials for vehicle rentals and rental extension escrows.')]),
-            li([Component.text('To process fiat payments and Tyxbit token credits through our payment gateway partner (Xendit).')]),
+            li([Component.text('To process Tyxbit balance operations, on-chain payments, and escrow releases.')]),
             li([Component.text('To trace active transit routes, verify geolocation drop-offs, and secure rental properties.')]),
             li([Component.text('To run local safety checks and automated identity verification using our integrated AI tools.')]),
           ]),
@@ -73,7 +73,7 @@ class PrivacyPolicy extends StatelessComponent {
           ]),
           ul(classes: 'list-disc pl-6 space-y-2 text-zinc-400', [
             li([Component.text('Other marketplace participants (e.g. sharing your contact number or location with a host during an active vehicle rental, or showing your profile/skills to employers).')]),
-            li([Component.text('Xendit and other financial service providers to verify payments and credit balances.')]),
+            li([Component.text('Financial and verification service providers to verify transactions and manage platform safety.')]),
             li([Component.text('Cloud database and hosting providers (such as Firebase) to store data, messages, and assets.')]),
             li([Component.text('Government authorities or legal bodies where required to comply with regulatory, tax, or fraud prevention mandates.')]),
           ]),

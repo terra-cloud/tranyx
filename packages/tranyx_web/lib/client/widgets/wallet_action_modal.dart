@@ -85,8 +85,7 @@ class WalletActionModalComponent extends StatelessComponent {
                 events: {
                   'click': (_) => s.setState(() {
                     s.showWalletActionMenu = false;
-                    s.activeTab = AppTab.profile;
-                    s.profileView = ProfileView.withdraw;
+                    s.showWithdrawModal = true;
                   }),
                 },
                 [

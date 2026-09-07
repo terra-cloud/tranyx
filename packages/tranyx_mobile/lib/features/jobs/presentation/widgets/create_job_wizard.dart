@@ -144,28 +144,28 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
 
       final subtotal = ref.read(pricingValueProvider);
       if (subtotal <= 0) return;
+      final platformFee = subtotal * 0.10; // 10% total employer fees (7% tx + 3% conv)
 
       Promo? bestPromo;
       double bestDiscount = -1.0;
 
       for (final p in autoPromos) {
-        double currentDiscount = 0.0;
-        if (p.discountType == 'percentage') {
-          currentDiscount = subtotal * (p.discountValue / 100.0);
-        } else {
-          currentDiscount = p.discountValue;
-        }
-        if (currentDiscount > bestDiscount) {
-          bestDiscount = currentDiscount;
+        final res = p.calculateDiscount(
+          basePrice: subtotal,
+          platformFee: platformFee,
+        );
+        if (res.discountAmount > bestDiscount) {
+          bestDiscount = res.discountAmount;
           bestPromo = p;
         }
       }
 
       if (bestPromo != null && mounted) {
+        final promo = bestPromo;
         setState(() {
-          _appliedPromo = bestPromo;
-          _promoController.text = bestPromo!.code;
-          _promoFeedback = 'Auto-applied promo: ${bestPromo.code}';
+          _appliedPromo = promo;
+          _promoController.text = promo.code;
+          _promoFeedback = 'Auto-applied promo: ${promo.name ?? promo.code}';
         });
       }
     } catch (e) {
@@ -216,6 +216,13 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
         });
         return;
       }
+      if (promo.startDate != null && promo.startDate!.isAfter(now)) {
+        setState(() {
+          _promoFeedback = 'This promo code is not active yet.';
+          _appliedPromo = null;
+        });
+        return;
+      }
       if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) {
         setState(() {
           _promoFeedback = 'This promo code has expired.';
@@ -243,6 +250,15 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
           !promo.eligibleUserUids!.contains(user.uid)) {
         setState(() {
           _promoFeedback = 'You are not eligible for this promo code.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      final subtotal = ref.read(pricingValueProvider);
+      final platformFee = subtotal * 0.10;
+      if (promo.minTransactionAmount != null && (subtotal + platformFee) < promo.minTransactionAmount!) {
+        setState(() {
+          _promoFeedback = 'Minimum transaction amount of ₱ ${promo.minTransactionAmount!.toStringAsFixed(0)} required.';
           _appliedPromo = null;
         });
         return;
@@ -736,39 +752,55 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text("Job Base Price"),
+                    const Text("Job Base Price (Belongs to Worker)"),
                     Text(
                       "₱ ${(ref.watch(pricingValueProvider)).toStringAsFixed(2)}",
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Employer Platform Fees (10%)"),
+                    Text(
+                      "₱ ${(ref.watch(pricingValueProvider) * 0.10).toStringAsFixed(2)}",
                     ),
                   ],
                 ),
                 if (_appliedPromo != null) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        "Promo Discount (${_appliedPromo!.code})",
-                        style: const TextStyle(
-                          color: Colors.green,
-                          fontWeight: FontWeight.bold,
-                        ),
+                  () {
+                    final subtotal = ref.watch(pricingValueProvider);
+                    final platformFee = subtotal * 0.10;
+                    final res = _appliedPromo!.calculateDiscount(
+                      basePrice: subtotal,
+                      platformFee: platformFee,
+                    );
+                    if (res.discountAmount <= 0) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            "Platform Fee Promo (${_appliedPromo!.code})",
+                            style: const TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            "- ₱ ${res.discountAmount.toStringAsFixed(2)}",
+                            style: const TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        "- ₱ ${(() {
-                          final subtotal = ref.watch(pricingValueProvider);
-                          if (_appliedPromo!.discountType == 'percentage') {
-                            return (subtotal * (_appliedPromo!.discountValue / 100.0)).toStringAsFixed(2);
-                          }
-                          return _appliedPromo!.discountValue.toStringAsFixed(2);
-                        })()}",
-                        style: const TextStyle(
-                          color: Colors.green,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
+                    );
+                  }(),
                 ],
                 const Divider(height: 24),
                 Row(
@@ -779,18 +811,7 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     Text(
-                      "₱ ${(() {
-                        final subtotal = ref.watch(pricingValueProvider);
-                        double discountAmt = 0.0;
-                        if (_appliedPromo != null) {
-                          if (_appliedPromo!.discountType == 'percentage') {
-                            discountAmt = subtotal * (_appliedPromo!.discountValue / 100.0);
-                          } else {
-                            discountAmt = _appliedPromo!.discountValue;
-                          }
-                        }
-                        return (subtotal - discountAmt).clamp(0.0, 999999.0).toStringAsFixed(2);
-                      })()}",
+                      "₱ ${(ref.watch(pricingValueProvider)).toStringAsFixed(2)}",
                       style: const TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 16,
@@ -1217,10 +1238,17 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                           ),
                           GestureDetector(
                             onTap: () async {
-                              if (_titleController.text.isEmpty ||
-                                  isGeneratingDesc) {
+                              final title = _titleController.text.trim();
+                              if (title.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Please enter a job title first.'),
+                                  ),
+                                );
                                 return;
                               }
+                              if (isGeneratingDesc) return;
+
                               ref
                                       .read(isGeneratingDescProvider.notifier)
                                       .state =
@@ -1229,11 +1257,57 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                                 final aiService = ref.read(aiServiceProvider);
                                 final desc = await aiService
                                     .generateJobDescription(
-                                      _titleController.text,
+                                      title,
+                                      categoryLabel: selectedCategory?.label,
                                     );
-                                ref.read(newJobDescProvider.notifier).state =
-                                    desc;
-                                _descController.text = desc;
+                                if (!context.mounted) return;
+
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (context) => _AIDraftPreviewSheet(
+                                    initialDraft: desc,
+                                    categoryLabel:
+                                        selectedCategory?.label ?? 'General',
+                                    isDarkMode: isDarkMode,
+                                    onAccept: (acceptedDraft) {
+                                      ref
+                                              .read(
+                                                newJobDescProvider.notifier,
+                                              )
+                                              .state =
+                                          acceptedDraft;
+                                      _descController.text = acceptedDraft;
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Draft applied! You can further edit the text.',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                );
+                              } catch (e) {
+                                if (mounted) {
+                                  final msg = e is CategoryMismatchException
+                                      ? e.message
+                                      : 'Error generating draft: ${e.toString().replaceAll('Exception: ', '')}';
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(msg),
+                                      backgroundColor: e is CategoryMismatchException
+                                          ? AppColors.red
+                                          : null,
+                                      duration: const Duration(seconds: 4),
+                                    ),
+                                  );
+                                }
                               } finally {
                                 ref
                                         .read(isGeneratingDescProvider.notifier)
@@ -1654,12 +1728,12 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
                     double discountAmount = 0.0;
                     if (_appliedPromo != null) {
                       final subtotal = ref.read(pricingValueProvider);
-                      if (_appliedPromo!.discountType == 'percentage') {
-                        discountAmount =
-                            subtotal * (_appliedPromo!.discountValue / 100.0);
-                      } else {
-                        discountAmount = _appliedPromo!.discountValue;
-                      }
+                      final platformFee = subtotal * 0.10;
+                      final res = _appliedPromo!.calculateDiscount(
+                        basePrice: subtotal,
+                        platformFee: platformFee,
+                      );
+                      discountAmount = res.discountAmount;
                     }
 
                     final newJob = Job(
@@ -2009,6 +2083,172 @@ class _AddressSearchSheetState extends State<_AddressSearchSheet> {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AIDraftPreviewSheet extends StatefulWidget {
+  final String initialDraft;
+  final String categoryLabel;
+  final bool isDarkMode;
+  final ValueChanged<String> onAccept;
+
+  const _AIDraftPreviewSheet({
+    required this.initialDraft,
+    required this.categoryLabel,
+    required this.isDarkMode,
+    required this.onAccept,
+  });
+
+  @override
+  State<_AIDraftPreviewSheet> createState() => _AIDraftPreviewSheetState();
+}
+
+class _AIDraftPreviewSheetState extends State<_AIDraftPreviewSheet> {
+  late final TextEditingController _draftController;
+
+  @override
+  void initState() {
+    super.initState();
+    _draftController = TextEditingController(text: widget.initialDraft);
+  }
+
+  @override
+  void dispose() {
+    _draftController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDarkMode;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : AppColors.lightCard,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.indigo.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome,
+                  color: AppColors.indigo,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'AI Job Description Draft',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? AppColors.darkText : AppColors.lightText,
+                      ),
+                    ),
+                    Text(
+                      'Tailored for ${widget.categoryLabel}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark
+                            ? AppColors.darkTextMuted
+                            : AppColors.lightTextMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkBg : Colors.grey[50],
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+              ),
+            ),
+            child: TextFormField(
+              controller: _draftController,
+              maxLines: 5,
+              style: TextStyle(
+                color: isDark ? AppColors.darkText : AppColors.lightText,
+                fontSize: 14,
+              ),
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Review or edit the generated text before using it.',
+            style: TextStyle(
+              fontSize: 11,
+              color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: UIHelpers.buildPrimaryButton(
+                  'Discard',
+                  () => Navigator.pop(context),
+                  isDark,
+                  isOutlined: true,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: UIHelpers.buildPrimaryButton(
+                  'Use This Draft',
+                  () {
+                    widget.onAccept(_draftController.text.trim());
+                    Navigator.pop(context);
+                  },
+                  isDark,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

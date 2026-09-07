@@ -95,20 +95,54 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
   List<Map<String, dynamic>> _approvedRequests = [];
   DateTime _calendarMonth = DateTime.now();
 
-  double get _basePrice {
-    final r = component.appState.selectedRentalData;
-    if (r == null) return 0;
-
+  int get _totalDaysEquivalent {
     switch (_selectedPackage) {
       case '12h':
-        return ((r['price12h'] ?? r['halfDayRate']) as num?)?.toDouble() ?? 0;
+        return 0;
       case 'Weekly':
-        return ((r['priceWeekly'] ?? r['weeklyRate']) as num?)?.toDouble() ?? 0;
+        return _quantity * 7;
       case 'Monthly':
-        return ((r['priceMonthly'] ?? r['monthlyRate']) as num?)?.toDouble() ?? 0;
-      default:
-        return ((r['priceDaily'] ?? r['dailyRate']) as num?)?.toDouble() ?? 0;
+        return _quantity * 30;
+      default: // 'Daily'
+        return _quantity;
     }
+  }
+
+  TierOptimizationResult get _optimizedTier {
+    final r = component.appState.selectedRentalData;
+    if (r == null) {
+      return const TierOptimizationResult(
+        totalBasePrice: 0,
+        breakdownDescription: '₱ 0',
+      );
+    }
+    final p12h = ((r['price12h'] ?? r['halfDayRate']) as num?)?.toDouble() ?? 0.0;
+    final pDaily = ((r['priceDaily'] ?? r['dailyRate']) as num?)?.toDouble() ?? 0.0;
+    final pWeekly = ((r['priceWeekly'] ?? r['weeklyRate']) as num?)?.toDouble() ?? 0.0;
+    final pMonthly = ((r['priceMonthly'] ?? r['monthlyRate']) as num?)?.toDouble() ?? 0.0;
+
+    if (_selectedPackage == '12h') {
+      return SmartRateEngine.calculateOptimizedRate(
+        totalDays: 0,
+        hours: 12 * _quantity,
+        price12h: p12h,
+        priceDaily: pDaily,
+        priceWeekly: pWeekly,
+        priceMonthly: pMonthly,
+      );
+    }
+
+    return SmartRateEngine.calculateOptimizedRate(
+      totalDays: _totalDaysEquivalent,
+      price12h: p12h,
+      priceDaily: pDaily,
+      priceWeekly: pWeekly,
+      priceMonthly: pMonthly,
+    );
+  }
+
+  double get _basePrice {
+    return _optimizedTier.totalBasePrice;
   }
 
   double get _driverPrice {
@@ -119,40 +153,41 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     if (!offers) return 0;
 
     final driverDaily = (r['driverDailyPrice'] as num?)?.toDouble() ?? 0.0;
-    double days = 1.0;
-    if (_selectedPackage == '12h') {
-      days = 0.5;
-    } else if (_selectedPackage == 'Weekly') {
-      days = 7.0;
-    } else if (_selectedPackage == 'Monthly') {
-      days = 30.0;
-    } else {
-      days = 1.0;
-    }
+    final effectiveDays = _selectedPackage == '12h' ? 0.5 * _quantity : _totalDaysEquivalent.toDouble();
 
-    return driverDaily * days * _quantity;
+    return driverDaily * effectiveDays;
   }
 
   double get _totalPrice {
-    return (_basePrice * _quantity) + _driverPrice;
+    return _basePrice + _driverPrice;
   }
 
-  double get _discountAmount {
-    if (_appliedPromo == null) return 0.0;
-    if (_appliedPromo!.discountType == 'percentage') {
-      return _totalPrice * (_appliedPromo!.discountValue / 100.0);
-    } else {
-      return _appliedPromo!.discountValue;
+  double get _originalPlatformFee {
+    return _totalPrice * 0.03; // 3% TRANYX Platform Booking Fee
+  }
+
+  PromoCalculationResult get _promoResult {
+    if (_appliedPromo == null) {
+      return PromoCalculationResult(
+        basePrice: _totalPrice,
+        originalPlatformFee: _originalPlatformFee,
+        discountAmount: 0.0,
+        finalPlatformFee: _originalPlatformFee,
+        finalCustomerAmount: _totalPrice + _originalPlatformFee,
+        providerSettlement: _totalPrice,
+        tranyxRevenue: _originalPlatformFee,
+        tranyxPromoCost: 0.0,
+      );
     }
+    return _appliedPromo!.calculateDiscount(
+      basePrice: _totalPrice,
+      platformFee: _originalPlatformFee,
+    );
   }
 
-  double get _discountedTotalPrice {
-    return (_totalPrice - _discountAmount).clamp(0.0, 999999.0);
-  }
-
-  double get _bookingFee {
-    return _discountedTotalPrice * 0.03; // 3% renter fee on discounted cost
-  }
+  double get _discountAmount => _promoResult.discountAmount;
+  double get _bookingFee => _promoResult.finalPlatformFee;
+  double get _totalCustomerPays => _promoResult.finalCustomerAmount;
 
   DateTime _computeEndDateFor(DateTime start) {
     switch (_selectedPackage) {
@@ -189,7 +224,28 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
 
   bool get _hasBookingOverlap {
     if (_startDate == null) return false;
-    return _hasBookingOverlapWith(_startDate!, _approvedRequests);
+    return _conflictingDates.isNotEmpty || _hasBookingOverlapWith(_startDate!, _approvedRequests);
+  }
+
+  List<DateTime> get _conflictingDates {
+    if (_startDate == null) return [];
+    final conflicts = <DateTime>[];
+    final end = _computedEndDate;
+    DateTime curr = DateTime(_startDate!.year, _startDate!.month, _startDate!.day);
+    final endDay = DateTime(end.year, end.month, end.day);
+
+    while (!curr.isAfter(endDay)) {
+      if (_isDateBooked(curr)) {
+        conflicts.add(curr);
+      }
+      curr = curr.add(const Duration(days: 1));
+    }
+    return conflicts;
+  }
+
+  String _formatConflictingDates(List<DateTime> dates) {
+    if (dates.isEmpty) return 'selected dates';
+    return dates.map((d) => '${_monthName(d.month).substring(0, 3)} ${d.day}').join(', ');
   }
 
   bool _isDateBookedWith(DateTime date, List<Map<String, dynamic>> requests) {
@@ -311,19 +367,17 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         return;
       }
 
-      final subtotal = _totalPrice;
+      final platformFee = _originalPlatformFee;
       Promo? bestPromo;
       double bestDiscount = -1.0;
 
       for (final promoItem in autoPromos) {
-        double currentDiscount = 0.0;
-        if (promoItem.discountType == 'percentage') {
-          currentDiscount = subtotal * (promoItem.discountValue / 100.0);
-        } else {
-          currentDiscount = promoItem.discountValue;
-        }
-        if (currentDiscount > bestDiscount) {
-          bestDiscount = currentDiscount;
+        final res = promoItem.calculateDiscount(
+          basePrice: _totalPrice,
+          platformFee: platformFee,
+        );
+        if (res.discountAmount > bestDiscount) {
+          bestDiscount = res.discountAmount;
           bestPromo = promoItem;
         }
       }
@@ -333,7 +387,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         setState(() {
           _appliedPromo = bp;
           _promoCodeInput = bp.code;
-          _promoFeedback = 'Auto-applied promo: ${bp.code}';
+          _promoFeedback = 'Auto-applied promo: ${bp.name ?? bp.code}';
         });
       }
     } catch (e) {
@@ -384,6 +438,13 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         });
         return;
       }
+      if (promo.startDate != null && promo.startDate!.isAfter(now)) {
+        setState(() {
+          _promoFeedback = 'This promo code is not active yet.';
+          _appliedPromo = null;
+        });
+        return;
+      }
       if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) {
         setState(() {
           _promoFeedback = 'This promo code has expired.';
@@ -410,6 +471,13 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
           !promo.eligibleUserUids!.contains(currentUid)) {
         setState(() {
           _promoFeedback = 'You are not eligible for this promo code.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      if (promo.minTransactionAmount != null && (_totalPrice + _originalPlatformFee) < promo.minTransactionAmount!) {
+        setState(() {
+          _promoFeedback = 'Minimum transaction amount of ₱ ${promo.minTransactionAmount!.toStringAsFixed(0)} required.';
           _appliedPromo = null;
         });
         return;
@@ -461,15 +529,18 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     try {
       final r = component.appState.selectedRentalData;
       if (r == null) throw Exception('No rental selected.');
-      if (_licenseNumber.isEmpty) {
-        setState(() => _error = 'Please provide your driver\'s license number.');
-        return;
+      if (!_hireWithDriver) {
+        if (_licenseNumber.trim().isEmpty) {
+          setState(() => _error = "Driver's license number is required for self-drive bookings.");
+          return;
+        }
+        final cleanedLicense = _licenseNumber.replaceAll(RegExp(r'[\s-]'), '');
+        if (cleanedLicense.length < 5) {
+          setState(() => _error = "Please enter a valid Driver's License Number (minimum 5 characters).");
+          return;
+        }
       }
-      final cleanedLicense = _licenseNumber.replaceAll(RegExp(r'[\s-]'), '');
-      if (cleanedLicense.length < 5) {
-        setState(() => _error = 'Please enter a valid Driver\'s License Number (minimum 5 characters).');
-        return;
-      }
+      final effectiveLicense = _hireWithDriver ? null : (_licenseNumber.isNotEmpty ? _licenseNumber : null);
       final currentUid = component.appState.userProfile?.uid;
       if (currentUid == null) throw FirebaseException('Not logged in', 403);
       final user = component.appState.userProfile;
@@ -490,7 +561,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         return;
       }
 
-      final totalRequired = _discountedTotalPrice + _bookingFee;
+      final totalRequired = _totalCustomerPays;
       if (user.tyxBalance < totalRequired) {
         component.appState.setState(() {
           component.appState.depositAmount = totalRequired - user.tyxBalance;
@@ -499,8 +570,11 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
             'rentalId': r['id'],
             'durationType': _selectedPackage,
             'multiplier': _quantity,
-            'licenseNumber': _licenseNumber,
+            'licenseNumber': effectiveLicense,
             'totalCost': _totalPrice,
+            'bookingFee': _bookingFee,
+            'originalBookingFee': _originalPlatformFee,
+            'discountAmount': _discountAmount,
             'hireWithDriver': _hireWithDriver,
             'rentalType': _rentalType,
             'deliveryAddress': _rentalType == 'deliver' ? _deliveryAddress.trim() : null,
@@ -509,7 +583,6 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
             'startDate': _startDate!.millisecondsSinceEpoch,
             'endDate': _computedEndDate.millisecondsSinceEpoch,
             'promoCode': _appliedPromo?.code,
-            'discountAmount': _discountAmount,
           };
           component.appState.showBookVehicleModal = false;
         });
@@ -524,7 +597,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         renteePhotoUrl: user.photoUrl,
         durationType: _selectedPackage,
         multiplier: _quantity,
-        licenseNumber: _licenseNumber,
+        licenseNumber: effectiveLicense,
         totalCost: _totalPrice,
         hireWithDriver: _hireWithDriver,
         rentalType: _rentalType,
@@ -547,6 +620,14 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
       setState(() => _error = e.toString());
     } finally {
       setState(() => _isBooking = false);
+    }
+  }
+
+  @override
+  void didUpdateComponent(BookVehicleModalComponent oldWidget) {
+    super.didUpdateComponent(oldWidget);
+    if (oldWidget.appState.isDark != component.appState.isDark && _deliveryMapReady) {
+      setMapTheme(_deliveryMapId, isDark: component.appState.isDark);
     }
   }
 
@@ -606,6 +687,12 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     final transmission = r['transmission'] as String? ?? 'Automatic';
     String type = typeVal?.toString().split('.').last ?? '';
     if (type.toLowerCase() == 'null') type = '';
+
+    final hostId = r['hostId']?.toString();
+    final isHost = component.appState.userProfile?.uid != null && hostId == component.appState.userProfile?.uid;
+    final hasPendingRequests = component.appState.hostPendingRequests.any((req) => req['rentalId'] == r['id']);
+    final hasActiveRenter = r['renteeId'] != null && (r['renteeId'] as String).isNotEmpty;
+    final canEdit = (r['status'] == null || r['status'] == 'Available') && !hasActiveRenter && !hasPendingRequests && _approvedRequests.isEmpty;
 
     return div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in', [
       div(
@@ -822,7 +909,12 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                         type: InputType.checkbox,
                         classes: 'rounded border-zinc-300 text-purple-600 focus:ring-purple-500 w-5 h-5 cursor-pointer',
                         checked: _hireWithDriver,
-                        onChange: (val) => setState(() => _hireWithDriver = val),
+                        onChange: (val) => setState(() {
+                          _hireWithDriver = val;
+                          if (val) {
+                            _licenseNumber = '';
+                          }
+                        }),
                       ),
                     ]),
                     if (r['driverNote'] != null && r['driverNote'].toString().trim().isNotEmpty)
@@ -835,18 +927,178 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                 ),
               ],
 
-              div(classes: 'mt-6', [
-                label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
-                  Component.text('Quantity (e.g. 2 Days, 3 Weeks)'),
-                ]),
-                input(
-                  classes:
-                      'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors',
-                  type: InputType.number,
-                  attributes: {'value': _quantity.toString(), 'min': '1'},
-                  events: {'input': (e) => setState(() => _quantity = int.tryParse(getInputValue(e.target)) ?? 1)},
-                ),
-              ]),
+              div(
+                classes:
+                    'mt-6 p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-950/40" : "border-zinc-200 bg-zinc-50/50"} space-y-4',
+                [
+                  h4(classes: 'font-bold text-sm flex items-center gap-1.5', [
+                    lIcon('calendar', cls: 'w-4 h-4 text-purple-400'),
+                    Component.text('Rental Schedule & Duration'),
+                  ]),
+                  div(classes: 'grid grid-cols-1 sm:grid-cols-2 gap-3', [
+                    div([
+                      label(classes: 'block text-xs font-semibold mb-1.5 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                        Component.text('Start Date:'),
+                      ]),
+                      input(
+                        type: InputType.date,
+                        classes:
+                            'w-full p-2.5 rounded-xl border text-sm font-medium ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300 text-zinc-900"} outline-none focus:border-purple-500 cursor-pointer transition-colors',
+                        attributes: {
+                          'value': _formatDateForInput(_startDate ?? DateTime.now()),
+                          'min': _formatDateForInput(DateTime.now()),
+                        },
+                        events: {
+                          'input': (e) {
+                            final val = getInputValue(e.target);
+                            if (val.isNotEmpty) {
+                              final parts = val.split('-');
+                              if (parts.length == 3) {
+                                final y = int.tryParse(parts[0]);
+                                final m = int.tryParse(parts[1]);
+                                final d = int.tryParse(parts[2]);
+                                if (y != null && m != null && d != null) {
+                                  final hour = _startDate?.hour ?? 9;
+                                  setState(() {
+                                    _startDate = DateTime(y, m, d, hour, 0);
+                                    _calendarMonth = DateTime(y, m, 1);
+                                    _error = null;
+                                  });
+                                }
+                              }
+                            }
+                          },
+                        },
+                      ),
+                    ]),
+                    div([
+                      label(classes: 'block text-xs font-semibold mb-1.5 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                        Component.text('End Date (Return Date):'),
+                      ]),
+                      input(
+                        type: InputType.date,
+                        classes:
+                            'w-full p-2.5 rounded-xl border text-sm font-medium ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300 text-zinc-900"} outline-none focus:border-purple-500 cursor-pointer transition-colors',
+                        attributes: {
+                          'value': _formatDateForInput(_computedEndDate),
+                          'min': _formatDateForInput(_startDate ?? DateTime.now()),
+                        },
+                        events: {
+                          'input': (e) {
+                            final val = getInputValue(e.target);
+                            if (val.isNotEmpty && _startDate != null) {
+                              final parts = val.split('-');
+                              if (parts.length == 3) {
+                                final y = int.tryParse(parts[0]);
+                                final m = int.tryParse(parts[1]);
+                                final d = int.tryParse(parts[2]);
+                                if (y != null && m != null && d != null) {
+                                  final endDay = DateTime(y, m, d, _startDate!.hour, 0);
+                                  final diffDays = endDay.difference(DateTime(_startDate!.year, _startDate!.month, _startDate!.day)).inDays;
+                                  if (diffDays >= 1) {
+                                    setState(() {
+                                      if (_selectedPackage == 'Daily') {
+                                        _quantity = diffDays;
+                                      } else if (_selectedPackage == 'Weekly') {
+                                        _quantity = (diffDays / 7).ceil().clamp(1, 99);
+                                      } else if (_selectedPackage == 'Monthly') {
+                                        _quantity = (diffDays / 30).ceil().clamp(1, 99);
+                                      }
+                                      _error = null;
+                                    });
+                                  }
+                                }
+                              }
+                            }
+                          },
+                        },
+                      ),
+                    ]),
+                  ]),
+                  div(classes: 'grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1', [
+                    div([
+                      label(classes: 'block text-xs font-semibold mb-1.5 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                        Component.text(
+                          'Duration (${_selectedPackage == "12h" ? "12h Blocks" : (_selectedPackage == "Weekly" ? "Weeks" : (_selectedPackage == "Monthly" ? "Months" : "Days"))}):',
+                        ),
+                      ]),
+                      div(classes: 'flex items-center gap-2', [
+                        button(
+                          classes:
+                              'w-9 h-9 rounded-xl border flex items-center justify-center font-bold text-base hover:bg-zinc-800/20 cursor-pointer outline-none ${isDark ? "border-zinc-700 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-900"}',
+                          events: {
+                            'click': (_) => setState(() {
+                              if (_quantity > 1) _quantity--;
+                            }),
+                          },
+                          [Component.text('-')],
+                        ),
+                        input(
+                          classes:
+                              'w-20 text-center p-2 rounded-xl border font-bold text-sm ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300 text-zinc-900"} outline-none focus:border-purple-500',
+                          type: InputType.number,
+                          attributes: {'value': _quantity.toString(), 'min': '1'},
+                          events: {'input': (e) => setState(() => _quantity = (int.tryParse(getInputValue(e.target)) ?? 1).clamp(1, 999))},
+                        ),
+                        button(
+                          classes:
+                              'w-9 h-9 rounded-xl border flex items-center justify-center font-bold text-base hover:bg-zinc-800/20 cursor-pointer outline-none ${isDark ? "border-zinc-700 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-900"}',
+                          events: {'click': (_) => setState(() => _quantity++)},
+                          [Component.text('+')],
+                        ),
+                      ]),
+                    ]),
+                    div([
+                      label(classes: 'block text-xs font-semibold mb-1.5 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                        Component.text('Start Time:'),
+                      ]),
+                      () {
+                        final now = DateTime.now();
+                        final isToday =
+                            _startDate != null &&
+                            _startDate!.year == now.year &&
+                            _startDate!.month == now.month &&
+                            _startDate!.day == now.day;
+                        final minHour = isToday ? now.hour + 1 : 0;
+
+                        return select(
+                          classes:
+                              'w-full p-2.5 rounded-xl border text-sm font-medium ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300 text-zinc-900"} outline-none focus:border-purple-500 cursor-pointer transition-colors',
+                          events: {
+                            'change': (e) {
+                              if (_startDate != null) {
+                                final hour = int.tryParse(getInputValue(e.target)) ?? 9;
+                                setState(() {
+                                  _startDate = DateTime(
+                                    _startDate!.year,
+                                    _startDate!.month,
+                                    _startDate!.day,
+                                    hour,
+                                    0,
+                                  );
+                                });
+                              }
+                            },
+                          },
+                          [
+                            for (int h = minHour; h < 24; h++)
+                              () {
+                                final h12 = h == 0 ? 12 : (h > 12 ? h - 12 : h);
+                                final hStr = h12.toString().padLeft(2, '0');
+                                final period = h >= 12 ? 'PM' : 'AM';
+                                return option(
+                                  value: h.toString(),
+                                  attributes: (_startDate?.hour == h) ? {'selected': 'selected'} : {},
+                                  [Component.text('$hStr:00 $period')],
+                                );
+                              }(),
+                          ],
+                        );
+                      }(),
+                    ]),
+                  ]),
+                ],
+              ),
 
               h3(classes: 'text-lg font-bold mb-3 mt-6', [Component.text('Delivery Method')]),
               div(classes: 'grid grid-cols-2 gap-3 mb-4', [
@@ -889,56 +1141,23 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
 
               _calendarGrid(isDark),
 
-              div(classes: 'flex items-center gap-4 mt-4', [
-                span(classes: 'text-sm font-semibold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
-                  Component.text('Start Time:'),
-                ]),
-                div(classes: 'flex gap-2 flex-1', [
-                  () {
-                    final now = DateTime.now();
-                    final isToday =
-                        _startDate != null &&
-                        _startDate!.year == now.year &&
-                        _startDate!.month == now.month &&
-                        _startDate!.day == now.day;
-                    final minHour = isToday ? now.hour + 1 : 0;
 
-                    return select(
-                      classes:
-                          'p-2 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors flex-1',
-                      events: {
-                        'change': (e) {
-                          if (_startDate != null) {
-                            final hour = int.tryParse(getInputValue(e.target)) ?? 9;
-                            setState(() {
-                              _startDate = DateTime(
-                                _startDate!.year,
-                                _startDate!.month,
-                                _startDate!.day,
-                                hour,
-                                0,
-                              );
-                            });
-                          }
-                        },
-                      },
-                      [
-                        for (int h = minHour; h < 24; h++)
-                          option(
-                            value: h.toString(),
-                            attributes: (_startDate?.hour == h) ? {'selected': 'selected'} : {},
-                            [Component.text('${h.toString().padLeft(2, '0')}:00')],
-                          ),
-                      ],
-                    );
-                  }(),
-                ]),
-              ]),
 
               div(
                 classes:
                     'mt-4 p-4 rounded-xl ${isDark ? "bg-purple-950/20 text-purple-300" : "bg-purple-50 text-purple-800"} text-xs space-y-2',
                 [
+                  div(classes: 'flex justify-between items-center', [
+                    span([Component.text('Optimized Tier Pricing:')]),
+                    span(classes: 'font-bold text-sm text-purple-400', [Component.text(_optimizedTier.breakdownDescription)]),
+                  ]),
+                  if (_optimizedTier.isCapped)
+                    div(classes: 'p-2 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-[11px] font-semibold flex items-center justify-between', [
+                      span([Component.text('✨ ${_optimizedTier.capReason}')]),
+                      if (_optimizedTier.savings > 0)
+                        span(classes: 'font-bold', [Component.text('Saved ₱ ${_optimizedTier.savings.toStringAsFixed(0)}')]),
+                    ]),
+                  div([], classes: 'h-px bg-purple-500/20 my-1'),
                   div(classes: 'flex justify-between', [
                     span([Component.text('Starts:')]),
                     span(classes: 'font-semibold', [Component.text(_formatDateTime(_startDate))]),
@@ -955,7 +1174,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                       final startFmt = '${_startDate!.day} ${_monthName(_startDate!.month).substring(0, 3)}';
                       final lastFmt = '${lastUsageDay.day} ${_monthName(lastUsageDay.month).substring(0, 3)}';
                       final endFmt = '${_computedEndDate.day} ${_monthName(_computedEndDate.month).substring(0, 3)}';
-                      final timeStr = '${_computedEndDate.hour.toString().padLeft(2, '0')}:00';
+                      final timeStr = _formatTime(_computedEndDate);
                       
                       if (_selectedPackage == 'Daily') {
                         return Component.text(
@@ -1019,10 +1238,16 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                   driverDailyPrice: (r['driverDailyPrice'] as num?)?.toDouble() ?? 0.0,
                   driverNote: r['driverNote'] ?? '',
                   driverLicenseNumber: r['driverLicenseNumber'] ?? '',
+                  hostIsVerified: r['hostIsVerified'] as bool? ?? (r['hostVerificationStatus'] == 'VERIFIED'),
+                  hostVerificationStatus: r['hostVerificationStatus'] as String? ?? ((r['hostIsVerified'] == true) ? 'VERIFIED' : 'UNVERIFIED'),
+                  hostVerificationTier: r['hostVerificationTier'] as String? ?? ((r['hostIsVerified'] == true) ? 'Government ID Verified' : 'None'),
                   renteeId: component.appState.userProfile?.uid,
                   renteeName: component.appState.userProfile?.name,
                   renteePhotoUrl: component.appState.userProfile?.photoUrl,
                   renteeLicenseNumber: _licenseNumber.isNotEmpty ? _licenseNumber : null,
+                  renteeIsVerified: component.appState.userProfile?.idVerified == true || (component.appState.userProfile?.verificationLevel ?? 0) >= 2,
+                  renteeVerificationStatus: (component.appState.userProfile?.idVerified == true || (component.appState.userProfile?.verificationLevel ?? 0) >= 2) ? 'VERIFIED' : 'UNVERIFIED',
+                  renteeVerificationTier: PartyVerificationHelper.formatVerificationTier(level: component.appState.userProfile?.verificationLevel, idVerified: component.appState.userProfile?.idVerified),
                   rentalDurationType: _selectedPackage.toLowerCase(),
                   rentalMultiplier: _quantity,
                   startDate: _startDate,
@@ -1041,24 +1266,25 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                 );
               }(),
 
-              div(classes: 'mb-6', [
-                label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
-                  Component.text('Driver\'s License Number'),
-                ]),
-                input(
-                  classes:
-                      'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors mb-4',
-                  attributes: {'value': _licenseNumber, 'placeholder': 'e.g., N01-23-456789'},
-                  events: {
-                    'input': (e) {
-                      final val = getInputValue(e.target);
-                      final formatted = _formatLicenseNumber(val);
-                      setInputValue(e.target, formatted);
-                      setState(() => _licenseNumber = formatted);
+              if (!_hireWithDriver)
+                div(classes: 'mb-6', [
+                  label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                    Component.text('Driver\'s License Number * (Required for Self-Drive)'),
+                  ]),
+                  input(
+                    classes:
+                        'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors mb-4',
+                    attributes: {'value': _licenseNumber, 'placeholder': 'e.g., N01-23-456789'},
+                    events: {
+                      'input': (e) {
+                        final val = getInputValue(e.target);
+                        final formatted = _formatLicenseNumber(val);
+                        setInputValue(e.target, formatted);
+                        setState(() => _licenseNumber = formatted);
+                      },
                     },
-                  },
-                ),
-              ]),
+                  ),
+                ]),
 
               // Promo Code Section
               div(classes: 'mb-6', [
@@ -1098,32 +1324,62 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
 
               div(classes: 'p-5 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-3', [
                 div(classes: 'flex justify-between text-sm', [
-                  span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
-                    Component.text('$_quantity x $_selectedPackage Vehicle Rate'),
+                  div([
+                    span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
+                      Component.text('$_quantity x $_selectedPackage Vehicle Rate'),
+                    ]),
+                    p(classes: 'text-[11px] text-purple-400 font-semibold mt-0.5', [
+                      Component.text(_optimizedTier.breakdownDescription),
+                    ]),
                   ]),
-                  span(classes: 'font-bold', [Component.text('₱ ${(_basePrice * _quantity).toStringAsFixed(2)}')]),
+                  span(classes: 'font-bold', [Component.text('₱ ${_basePrice.toStringAsFixed(2)}')]),
+                ]),
+                if (_optimizedTier.isCapped)
+                  div(classes: 'p-2 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-semibold flex items-center justify-between', [
+                    span([Component.text('✨ ${_optimizedTier.capReason}')]),
+                    if (_optimizedTier.savings > 0)
+                      span(classes: 'font-bold', [Component.text('Saved ₱ ${_optimizedTier.savings.toStringAsFixed(0)}')]),
+                  ]),
+                div(classes: 'flex justify-between text-sm py-1 font-medium', [
+                  span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [Component.text('Rental Type')]),
+                  span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                    Component.text(_hireWithDriver ? 'With Driver (Chauffeur-Driven)' : 'Self-Drive'),
+                  ]),
                 ]),
                 if (_hireWithDriver)
                   div(classes: 'flex justify-between text-sm text-purple-400', [
                     span([Component.text('Driver Service (Included)')]),
                     span(classes: 'font-bold', [Component.text('₱ ${_driverPrice.toStringAsFixed(2)}')]),
                   ]),
-                if (_appliedPromo != null)
-                  div(classes: 'flex justify-between text-sm text-emerald-500', [
-                    span([Component.text('Promo Discount (${_appliedPromo!.code})')]),
-                    span(classes: 'font-bold', [Component.text('- ₱ ${_discountAmount.toStringAsFixed(2)}')]),
-                  ]),
                 div(classes: 'flex justify-between text-sm', [
                   span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
-                    Component.text('Platform Booking Fee (3%)'),
+                    Component.text('TRANYX Platform Fee (3%)'),
                   ]),
-                  span(classes: 'font-bold text-purple-400', [Component.text('₱ ${_bookingFee.toStringAsFixed(2)}')]),
+                  span(classes: 'font-bold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                    Component.text('₱ ${_originalPlatformFee.toStringAsFixed(2)}'),
+                  ]),
                 ]),
+                if (_appliedPromo != null && _discountAmount > 0)
+                  div(classes: 'flex justify-between text-sm text-emerald-500 font-semibold', [
+                    span([Component.text('Platform Fee Discount (${_appliedPromo!.code})')]),
+                    span([Component.text('- ₱ ${_discountAmount.toStringAsFixed(2)}')]),
+                  ]),
+                if (_appliedPromo != null && _discountAmount > 0)
+                  div(classes: 'flex justify-between text-xs text-purple-400', [
+                    span([Component.text('Net Platform Fee Charged')]),
+                    span(classes: 'font-bold', [Component.text('₱ ${_bookingFee.toStringAsFixed(2)}')]),
+                  ]),
                 div(classes: 'h-px w-full bg-purple-500/20 my-2', []),
                 div(classes: 'flex justify-between', [
-                  span(classes: 'font-bold', [Component.text('Total Amount')]),
+                  span(classes: 'font-bold', [Component.text('Total Customer Pays')]),
                   span(classes: 'font-black text-xl text-purple-400', [
-                    Component.text('₱ ${(_discountedTotalPrice + _bookingFee).toStringAsFixed(2)}'),
+                    Component.text('₱ ${_totalCustomerPays.toStringAsFixed(2)}'),
+                  ]),
+                ]),
+                div(classes: 'flex justify-between text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"} pt-1', [
+                  span([Component.text('Host Settlement (100% Guaranteed)')]),
+                  span(classes: 'font-bold text-emerald-500', [
+                    Component.text('₱ ${_totalPrice.toStringAsFixed(2)}'),
                   ]),
                 ]),
               ]),
@@ -1132,69 +1388,118 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
 
           // Footer
           div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between', [
-            if (_step > 1)
+            if (isHost) ...[
               button(
                 classes:
-                    'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
-                events: {'click': (e) => setState(() => _step--)},
-                [Component.text('Back')],
-              )
-            else
-              div([]),
-
-            if (_step < 2)
-              button(
-                classes:
-                    'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
+                    'px-6 py-2.5 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors cursor-pointer bg-transparent',
                 events: {
-                  'click': (e) {
-                    if (_basePrice <= 0) {
-                      setState(() => _error = 'Selected package is not available for this vehicle.');
-                      return;
-                    }
-                    if (_startDate == null) {
-                      setState(() => _error = 'Please select a start date on the calendar.');
-                      return;
-                    }
-                    if (_isDateBooked(_startDate!)) {
-                      final nextAvail = _calculateNextAvailableStartDate(_approvedRequests);
-                      setState(() {
-                        _startDate = nextAvail;
-                        _calendarMonth = DateTime(nextAvail.year, nextAvail.month, 1);
-                        _error =
-                            'Selected start date is already booked. Updated to next available date (${nextAvail.day} ${_monthName(nextAvail.month).substring(0, 3)}).';
-                      });
-                      return;
-                    }
-                    if (_rentalType == 'deliver' && _deliveryAddress.trim().isEmpty) {
-                      setState(() => _error = 'Please pin your delivery address on the map.');
-                      return;
-                    }
-                    if (_hasBookingOverlap) {
-                      setState(
-                        () => _error =
-                            'The selected range overlaps with an existing booking schedule. Please select another date/time.',
-                      );
-                      return;
-                    }
-                    setState(() {
-                      _error = null;
-                      _step++;
-                    });
-                  },
+                  'click': (_) => component.appState.setState(() {
+                    component.appState.showBookVehicleModal = false;
+                    component.appState.selectedRentalData = null;
+                  }),
                 },
-                [Component.text('Review Contract')],
-              )
-            else
-              button(
-                classes:
-                    'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
-                events: {'click': (e) => _book()},
-                [
-                  if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                  Component.text(_isBooking ? 'Processing...' : 'Submit Request'),
-                ],
+                [Component.text('Close')],
               ),
+              div(classes: 'flex items-center gap-3', [
+                if (canEdit)
+                  button(
+                    classes:
+                        'px-6 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-indigo-500/20',
+                    events: {
+                      'click': (_) => component.appState.setState(() {
+                        component.appState.showBookVehicleModal = false;
+                        component.appState.showEditVehicleModal = true;
+                      }),
+                    },
+                    [
+                      lIcon('edit-3', cls: 'w-4 h-4'),
+                      Component.text('Edit Listing'),
+                    ],
+                  ),
+                button(
+                  classes:
+                      'px-6 py-2.5 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-purple-500/20',
+                  events: {
+                    'click': (_) => component.appState.setState(() {
+                      component.appState.showBookVehicleModal = false;
+                      component.appState.showManageVehicleModal = true;
+                    }),
+                  },
+                  [
+                    lIcon('sliders', cls: 'w-4 h-4'),
+                    Component.text('Manage Listing'),
+                  ],
+                ),
+              ]),
+            ] else ...[
+              if (_step > 1)
+                button(
+                  classes:
+                      'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors cursor-pointer bg-transparent',
+                  events: {'click': (e) => setState(() => _step--)},
+                  [Component.text('Back')],
+                )
+              else
+                div([]),
+
+              if (_step < 2)
+                button(
+                  classes:
+                      'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
+                  events: {
+                    'click': (e) {
+                      if (_basePrice <= 0) {
+                        setState(() => _error = 'Selected package is not available for this vehicle.');
+                        return;
+                      }
+                      if (_startDate == null) {
+                        setState(() => _error = 'Please select a start date on the calendar.');
+                        return;
+                      }
+                      if (_isDateBooked(_startDate!)) {
+                        final nextAvail = _calculateNextAvailableStartDate(_approvedRequests);
+                        setState(() {
+                          _startDate = nextAvail;
+                          _calendarMonth = DateTime(nextAvail.year, nextAvail.month, 1);
+                          _error =
+                              'Selected start date is already booked. Updated to next available date (${nextAvail.day} ${_monthName(nextAvail.month).substring(0, 3)}).';
+                        });
+                        return;
+                      }
+                      if (_rentalType == 'deliver' && _deliveryAddress.trim().isEmpty) {
+                        setState(() => _error = 'Please pin your delivery address on the map.');
+                        return;
+                      }
+                      if (_hasBookingOverlap || _conflictingDates.isNotEmpty) {
+                        final conflictStr = _formatConflictingDates(_conflictingDates);
+                        setState(
+                          () => _error =
+                              'Selected duration overlaps with an existing reservation on $conflictStr. Please choose a different start date or shorter duration.',
+                        );
+                        return;
+                      }
+                      setState(() {
+                        _error = null;
+                        _step++;
+                      });
+                    },
+                  },
+                  attributes: (_hasBookingOverlap || _conflictingDates.isNotEmpty)
+                      ? {'disabled': 'disabled'}
+                      : {},
+                  [Component.text('Review Contract')],
+                )
+              else
+                button(
+                  classes:
+                      'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
+                  events: {'click': (e) => _book()},
+                  [
+                    if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                    Component.text(_isBooking ? 'Processing...' : 'Submit Request'),
+                  ],
+                ),
+            ],
           ]),
         ],
       ),
@@ -1477,8 +1782,16 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
           'mt-6 p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-950/20" : "border-zinc-200 bg-zinc-50/30"}',
       [
         div(classes: 'flex items-center justify-between mb-4', [
-          h4(classes: 'font-bold text-sm', [Component.text('Select Start Date & Schedule')]),
-          div(classes: 'flex gap-2', [
+          div([
+            h4(classes: 'font-bold text-sm flex items-center gap-1.5', [
+              lIcon('calendar', cls: 'w-4 h-4 text-purple-400'),
+              Component.text('Availability & Schedule Visualizer'),
+            ]),
+            p(classes: 'text-[11px] ${isDark ? "text-zinc-500" : "text-zinc-400"} mt-0.5', [
+              Component.text('Visual map of reservations (use date pickers above to select dates)'),
+            ]),
+          ]),
+          div(classes: 'flex items-center gap-2', [
             button(
               classes:
                   'p-1.5 rounded-lg border-0 cursor-pointer outline-none ${isDark ? "bg-zinc-850 hover:bg-zinc-800 text-zinc-300" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"}',
@@ -1489,7 +1802,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
               },
               [lIcon('chevron-left', cls: 'w-4 h-4')],
             ),
-            span(classes: 'text-sm font-semibold min-w-[100px] text-center', [Component.text(formatter)]),
+            span(classes: 'text-xs font-bold min-w-[100px] text-center', [Component.text(formatter)]),
             button(
               classes:
                   'p-1.5 rounded-lg border-0 cursor-pointer outline-none ${isDark ? "bg-zinc-850 hover:bg-zinc-800 text-zinc-300" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"}',
@@ -1502,11 +1815,29 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
             ),
           ]),
         ]),
+        if (_conflictingDates.isNotEmpty)
+          div(
+            classes:
+                'mb-4 p-3 rounded-xl border border-red-500/40 bg-red-500/10 text-red-500 text-xs flex items-start gap-2.5 animate-pulse',
+            [
+              lIcon('alert-triangle', cls: 'w-4 h-4 flex-shrink-0 mt-0.5 text-red-500'),
+              div(classes: 'flex-1', [
+                p(classes: 'font-bold mb-0.5', [
+                  Component.text('Date Overlap Conflict Detected'),
+                ]),
+                p(classes: 'text-[11px] opacity-90 leading-relaxed', [
+                  Component.text(
+                    'Selected duration overlaps with an existing reservation on ${_formatConflictingDates(_conflictingDates)}. Please choose a different start date or shorter duration.',
+                  ),
+                ]),
+              ]),
+            ],
+          ),
         // Weeks Header
         div(classes: 'grid grid-cols-7 gap-1 text-center text-xs font-semibold text-zinc-400 mb-2', [
           for (final wh in weekHeaders) div([Component.text(wh)]),
         ]),
-        // Days Grid
+        // Days Grid (Visualizer only - non-clickable)
         div(classes: 'grid grid-cols-7 gap-1', [
           for (final day in days)
             if (day == null)
@@ -1533,105 +1864,44 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                     endRange.month == day.month &&
                     endRange.day == day.day;
 
+                final isConflicting = _conflictingDates.any((c) => c.year == day.year && c.month == day.month && c.day == day.day);
+
                 String bgClass = '';
                 String textClass = '';
-                bool clickable = true;
 
                 if (isPast) {
                   bgClass = 'bg-transparent opacity-30';
                   textClass = isDark ? 'text-zinc-650' : 'text-zinc-300';
-                  clickable = false;
+                } else if (isConflicting) {
+                  bgClass = 'bg-red-500/30 border-2 border-red-500 text-red-500 animate-pulse font-black rounded-xl';
                 } else if (isBooked) {
-                  bgClass = isDark ? 'bg-red-500/10 border border-red-500/20' : 'bg-red-50 border border-red-100';
-                  textClass = 'text-red-500';
-                  clickable = false;
+                  bgClass = isDark ? 'bg-red-500/15 border border-red-500/30' : 'bg-red-50 border border-red-200';
+                  textClass = 'text-red-500 font-bold';
                 } else if (isSelectedStart) {
-                  bgClass = 'bg-purple-500 text-white font-bold rounded-xl';
+                  bgClass = 'bg-purple-600 text-white font-black rounded-xl ring-2 ring-purple-400';
                 } else if (isEndRange) {
-                  bgClass = 'bg-purple-500 text-white font-bold rounded-xl';
+                  bgClass = 'bg-purple-600 text-white font-black rounded-xl ring-2 ring-purple-400';
                 } else if (isInRange) {
-                  bgClass = isDark ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-50 text-purple-700';
+                  bgClass = isDark ? 'bg-purple-500/20 text-purple-300 font-semibold' : 'bg-purple-50 text-purple-700 font-semibold';
                 } else {
-                  bgClass = isDark ? 'hover:bg-zinc-800' : 'hover:bg-zinc-100';
+                  bgClass = isDark ? 'bg-zinc-900/30' : 'bg-zinc-100/50';
                   textClass = isDark ? 'text-zinc-200' : 'text-zinc-800';
                 }
 
+                final isClickable = !isPast && !isBooked;
                 return button(
                   classes:
-                      'aspect-square flex items-center justify-center text-xs rounded-xl transition-all border-0 outline-none $bgClass $textClass ${clickable ? "cursor-pointer" : "cursor-not-allowed"}',
-                  attributes: clickable ? {} : {'disabled': 'disabled'},
-                  events: clickable
+                      'aspect-square flex items-center justify-center text-xs rounded-xl transition-all border-0 outline-none select-none ${isClickable ? "cursor-pointer hover:ring-2 hover:ring-purple-400" : "cursor-not-allowed"} $bgClass $textClass',
+                  events: isClickable
                       ? {
                           'click': (_) => setState(() {
-                            final now = DateTime.now();
-                            if (_startDate == null || day.isBefore(_startDate!)) {
-                              int hour = _startDate?.hour ?? (now.hour + 1);
-                              final isToday = day.year == now.year && day.month == now.month && day.day == now.day;
-                              if (isToday && hour <= now.hour) {
-                                hour = now.hour + 1;
-                              }
-                              if (hour > 23) {
-                                final tomorrow = day.add(const Duration(days: 1));
-                                _startDate = DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0);
-                              } else {
-                                _startDate = DateTime(day.year, day.month, day.day, hour, 0);
-                              }
-                              _quantity = 1;
-                              _error = null;
-                            } else {
-                              final diff = day.difference(DateTime(_startDate!.year, _startDate!.month, _startDate!.day));
-                              if (diff.inDays == 0) {
-                                _quantity = 1;
+                                final currentHour = _startDate?.hour ?? 9;
+                                final currentMin = _startDate?.minute ?? 0;
+                                _startDate = DateTime(day.year, day.month, day.day, currentHour, currentMin);
                                 _error = null;
-                              } else {
-                                // Check if any date between _startDate and day is booked
-                                bool hasBookedBetween = false;
-                                for (int i = 0; i <= diff.inDays; i++) {
-                                  if (_isDateBooked(_startDate!.add(Duration(days: i)))) {
-                                    hasBookedBetween = true;
-                                    break;
-                                  }
-                                }
-
-                                if (hasBookedBetween) {
-                                  // Selected date cannot form a contiguous range over booked days; set as new start date
-                                  int hour = _startDate?.hour ?? (now.hour + 1);
-                                  final isToday = day.year == now.year && day.month == now.month && day.day == now.day;
-                                  if (isToday && hour <= now.hour) {
-                                    hour = now.hour + 1;
-                                  }
-                                  if (hour > 23) {
-                                    final tomorrow = day.add(const Duration(days: 1));
-                                    _startDate = DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0);
-                                  } else {
-                                    _startDate = DateTime(day.year, day.month, day.day, hour, 0);
-                                  }
-                                  _quantity = 1;
-                                  _error = null;
-                                } else {
-                                  int newQty = 1;
-                                  switch (_selectedPackage) {
-                                    case '12h':
-                                      newQty = (diff.inHours / 12).round();
-                                      break;
-                                    case 'Weekly':
-                                      newQty = (diff.inDays / 7).round();
-                                      break;
-                                    case 'Monthly':
-                                      newQty = (diff.inDays / 30).round();
-                                      break;
-                                    default: // 'Daily'
-                                      newQty = diff.inDays;
-                                      break;
-                                  }
-                                  _quantity = newQty.clamp(1, 999);
-                                  _error = null;
-                                }
-                              }
-                            }
-                          }),
+                              }),
                         }
-                      : {},
+                      : null,
                   [Component.text('${day.day}')],
                 );
               }(),
@@ -1658,24 +1928,47 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     return names[month - 1];
   }
 
+  String _formatTime(DateTime dt) {
+    final h12 = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
+    final hStr = h12.toString().padLeft(2, '0');
+    final mStr = dt.minute.toString().padLeft(2, '0');
+    final period = dt.hour >= 12 ? 'PM' : 'AM';
+    return '$hStr:$mStr $period';
+  }
+
   String _formatDateTime(DateTime? dt) {
     if (dt == null) return 'Not selected';
-    return '${dt.day} ${_monthName(dt.month).substring(0, 3)} ${dt.year} at ${dt.hour.toString().padLeft(2, '0')}:00';
+    return '${dt.day} ${_monthName(dt.month).substring(0, 3)} ${dt.year} • ${_formatTime(dt)}';
+  }
+
+  String _formatDateForInput(DateTime dt) {
+    final y = dt.year.toString().padLeft(4, '0');
+    final m = dt.month.toString().padLeft(2, '0');
+    final d = dt.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
   }
 
   Component _packageOption(String id, String labelText, double price, bool isDark) {
     final isSelected = _selectedPackage == id;
+    final isAvailable = price > 0;
     return div(
       classes:
-          'p-4 rounded-xl border-2 cursor-pointer transition-all ${isSelected ? "border-purple-500 bg-purple-500/10" : (isDark ? "border-zinc-800 hover:border-zinc-700 bg-zinc-800/30" : "border-zinc-200 hover:border-zinc-300 bg-zinc-50")}',
-      events: {'click': (_) => setState(() => _selectedPackage = id)},
+          'p-4 rounded-xl border-2 transition-all '
+          '${!isAvailable ? (isDark ? "border-zinc-800/40 bg-zinc-900/20 opacity-40 cursor-not-allowed select-none" : "border-zinc-200/40 bg-zinc-100/40 opacity-40 cursor-not-allowed select-none") : (isSelected ? "border-purple-500 bg-purple-500/10 cursor-pointer shadow-sm shadow-purple-500/10" : (isDark ? "border-zinc-800 hover:border-zinc-700 bg-zinc-800/30 cursor-pointer" : "border-zinc-200 hover:border-zinc-300 bg-zinc-50 cursor-pointer"))}',
+      events: isAvailable ? {'click': (_) => setState(() => _selectedPackage = id)} : {},
       [
-        p(classes: 'font-semibold mb-1 ${isSelected ? "text-purple-400" : ""}', [Component.text(labelText)]),
+        div(classes: 'flex items-center justify-between mb-1', [
+          p(classes: 'font-semibold ${isSelected && isAvailable ? "text-purple-400" : ""}', [Component.text(labelText)]),
+          if (!isAvailable)
+            span(classes: 'text-[10px] px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-500 border border-zinc-500/20 uppercase font-bold', [
+              Component.text('Unavailable'),
+            ]),
+        ]),
         p(classes: 'font-bold text-lg', [
           if (price > 0)
             Component.text('₱ ${price.toStringAsFixed(0)}')
           else
-            span(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-400"}', [Component.text('Not Available')]),
+            span(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"} font-normal', [Component.text('Not Offered')]),
         ]),
       ],
     );

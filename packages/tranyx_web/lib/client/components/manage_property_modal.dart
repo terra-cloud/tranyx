@@ -95,11 +95,14 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
 
     try {
       await component.appState.firestore.deletePropertyRental(propertyId);
+      await component.appState.loadUserProfile();
+      component.appState.walletBalance = component.appState.userProfile?.tyxBalance ?? component.appState.walletBalance;
 
       component.appState.setState(() {
         component.appState.showManagePropertyModal = false;
         component.appState.selectedPropertyData = null;
       });
+      component.appState.alertDialog('Listing Removed', 'The property listing has been removed from Tranyx.');
     } catch (e) {
       setState(() => _error = 'Failed to delete listing: $e');
     } finally {
@@ -118,14 +121,16 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
 
     try {
       await component.appState.firestore.completePropertyRental(prop['id']);
+      await component.appState.loadUserProfile();
+      component.appState.walletBalance = component.appState.userProfile?.tyxBalance ?? component.appState.walletBalance;
 
-      // Close modal and clear selected state
       component.appState.setState(() {
         component.appState.showManagePropertyModal = false;
         component.appState.selectedPropertyData = null;
       });
+      component.appState.alertDialog('Lease Completed', 'The lease has been completed and earnings have been deposited into your wallet.');
     } catch (e) {
-      setState(() => _error = e.toString());
+      setState(() => _error = 'Failed to complete lease: $e');
     } finally {
       setState(() => _isProcessing = false);
     }
@@ -133,48 +138,51 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
 
   @override
   Component build(BuildContext context) {
+    if (!component.appState.showManagePropertyModal || component.appState.selectedPropertyData == null) {
+      return div([]);
+    }
+
+    final prop = component.appState.selectedPropertyData!;
     final isDark = component.appState.isDark;
-    final prop = component.appState.selectedPropertyData;
-    if (prop == null) return div([]);
-
-    final status = prop['status'] as String? ?? 'Available';
+    final status = prop['status'] ?? 'Available';
     final title = prop['title'] ?? 'Unknown Property';
-    final propTypeStr = prop['type'] ?? 'house';
-    final categoryStr = prop['category'] ?? 'residential';
-    final monthlyRent = prop['priceMonthly'] ?? 0.0;
-
-    final modalCls = isDark ? 'bg-zinc-900 border border-zinc-800 text-white' : 'bg-white text-zinc-900 shadow-xl';
+    final monthlyRent = ((prop['priceMonthly'] ?? 0) as num).toDouble();
 
     return div(
-      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
+      classes:
+          'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in overflow-y-auto',
       [
         div(
-          classes: 'w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] $modalCls',
+          classes:
+              'w-full max-w-2xl rounded-2xl border shadow-2xl overflow-hidden my-8 max-h-[90vh] flex flex-col ${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-900"}',
           [
             // Header
             div(
               classes:
-                  'p-6 border-b ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between',
+                  'p-6 border-b flex items-center justify-between shrink-0 ${isDark ? "border-zinc-800" : "border-zinc-200"}',
               [
                 div([
                   h2(classes: 'text-xl font-black tracking-tight', [Component.text('Manage Property')]),
-                  p(classes: 'text-sm text-zinc-500', [Component.text('$title • $categoryStr $propTypeStr')]),
+                  p(classes: 'text-xs text-zinc-400 mt-1', [Component.text(title)]),
                 ]),
                 button(
-                  classes: 'p-2 rounded-full hover:bg-zinc-800/20 transition-colors',
+                  classes:
+                      'p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition-colors border-0 bg-transparent cursor-pointer',
                   events: {
-                    'click': (_) => component.appState.setState(() {
-                      component.appState.showManagePropertyModal = false;
-                      component.appState.selectedPropertyData = null;
-                    }),
+                    'click': (_) {
+                      component.appState.setState(() {
+                        component.appState.showManagePropertyModal = false;
+                        component.appState.selectedPropertyData = null;
+                      });
+                    },
                   },
-                  [lIcon('x', cls: 'w-6 h-6')],
+                  [lIcon('x', cls: 'w-5 h-5')],
                 ),
               ],
             ),
 
-            // Body
-            div(classes: 'flex-1 overflow-y-auto p-6', [
+            // Content
+            div(classes: 'p-6 overflow-y-auto space-y-6 flex-1', [
               if (_error != null)
                 div(
                   classes:
@@ -214,7 +222,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                     ]),
                     p(classes: 'text-zinc-400 text-xs', [
                       Component.text(
-                        'This will delete the property posting from Tranyx. The 1.5% listing fee is non-refundable.',
+                        'This will delete the property posting from Tranyx. Any pending requests will be cancelled and refunded.',
                       ),
                     ]),
                     div(classes: 'flex items-center gap-2 mt-1', [
@@ -235,7 +243,27 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                     ]),
                   ])
                 else
-                  div(classes: 'mb-6 flex justify-end', [
+                  div(classes: 'mb-6 flex justify-between items-center', [
+                    if (_requests.isEmpty)
+                      button(
+                        classes:
+                            'px-4 py-2 text-xs font-bold text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/10 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer bg-transparent',
+                        events: {
+                          'click': (_) {
+                            component.appState.setState(() {
+                              component.appState.showManagePropertyModal = false;
+                              component.appState.showEditPropertyModal = true;
+                            });
+                          },
+                        },
+                        disabled: _isProcessing,
+                        [
+                          lIcon('edit-3', cls: 'w-4 h-4 text-indigo-400'),
+                          Component.text('Edit Listing'),
+                        ],
+                      )
+                    else
+                      div([]),
                     button(
                       classes:
                           'px-4 py-2 text-xs font-bold text-red-500 border border-red-500/20 hover:bg-red-500/10 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer bg-transparent',
