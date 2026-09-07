@@ -130,7 +130,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
       final availableRentals = s.realtimeRentals.where((r) {
         final status = (r['status'] ?? '').toString();
-        if (status == 'Inactive' || status == 'Unpublished' || status == 'Archived' || status == 'Deleted') return false;
+        if (status == 'Inactive' || status == 'Unpublished' || status == 'Archived' || status == 'Deleted' || status == 'Not Accepting Bookings') return false;
+        if (r['isDeleted'] == true || r['acceptingBookings'] == false) return false;
         if (r['isPublished'] == false) return false;
         if (r['hostId'] == currentUid) return false;
 
@@ -210,7 +211,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
       final availableProperties = s.realtimeProperties.where((prop) {
         final status = prop.status;
-        if (status == 'Inactive' || status == 'Unpublished' || status == 'Archived' || status == 'Deleted') return false;
+        if (status == 'Inactive' || status == 'Unpublished' || status == 'Archived' || status == 'Deleted' || status == 'Not Accepting Bookings') return false;
+        if (prop.isDeleted || !prop.acceptingBookings) return false;
         if (prop.hostId == currentUid) return false;
 
         if (_searchQuery.isNotEmpty) {
@@ -309,7 +311,12 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
     if (isVehicles) {
       // 🚗 VEHICLES HOST MODE
-      final myRentals = s.realtimeRentals.where((r) => r['hostId'] == currentUid).toList();
+      final myRentals = s.realtimeRentals.where((r) {
+        if (r['hostId'] != currentUid) return false;
+        final status = (r['status'] ?? '').toString();
+        if (status == 'Archived' || status == 'Deleted' || r['isDeleted'] == true) return false;
+        return true;
+      }).toList();
 
       return div(classes: 'space-y-6', [
         if (myRentals.isEmpty)
@@ -347,7 +354,11 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       ]);
     } else {
       // 🏢 PROPERTIES HOST MODE
-      final myProperties = s.realtimeProperties.where((prop) => prop.hostId == currentUid).toList();
+      final myProperties = s.realtimeProperties.where((prop) {
+        if (prop.hostId != currentUid) return false;
+        if (prop.status == 'Archived' || prop.status == 'Deleted' || prop.isDeleted) return false;
+        return true;
+      }).toList();
 
       return div(classes: 'space-y-6', [
         if (myProperties.isEmpty)
@@ -971,12 +982,18 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 ],
               ),
             ],
-            span(
-              classes:
-                  'px-2 py-1 rounded-lg text-xs font-bold ${r['status'] == 'Rented' ? "bg-amber-500/20 text-amber-400" : "bg-purple-500/20 text-purple-400"}',
-              [
-                Component.text(r['status'] == 'Rented' ? 'Active • Dates Available' : (r['status'] ?? 'AVAILABLE')),
-              ],
+            Builder(
+              builder: (context) {
+                final statusStr = r['status']?.toString() ?? 'Available';
+                final isNotAccepting = statusStr == 'Not Accepting Bookings' || r['acceptingBookings'] == false;
+                return span(
+                  classes:
+                      'px-2 py-1 rounded-lg text-xs font-bold ${isNotAccepting ? "bg-amber-500/20 text-amber-400" : (statusStr == 'Rented' ? "bg-amber-500/20 text-amber-400" : "bg-purple-500/20 text-purple-400")}',
+                  [
+                    Component.text(isNotAccepting ? 'Not Accepting Bookings' : (statusStr == 'Rented' ? 'Active • Dates Available' : statusStr)),
+                  ],
+                );
+              },
             ),
           ]),
         ]),
@@ -1170,12 +1187,17 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                   Component.text('$unreadCount New'),
                 ],
               ),
-            span(
-              classes:
-                  'px-2 py-1 rounded-lg text-xs font-bold ${prop.status == 'Rented' ? "bg-amber-500/20 text-amber-400" : "bg-purple-500/20 text-purple-400"}',
-              [
-                Component.text(prop.status == 'Rented' ? 'Active • Dates Available' : prop.status),
-              ],
+            Builder(
+              builder: (context) {
+                final isNotAccepting = prop.status == 'Not Accepting Bookings' || !prop.acceptingBookings;
+                return span(
+                  classes:
+                      'px-2 py-1 rounded-lg text-xs font-bold ${isNotAccepting ? "bg-amber-500/20 text-amber-400" : (prop.status == 'Rented' ? "bg-amber-500/20 text-amber-400" : "bg-purple-500/20 text-purple-400")}',
+                  [
+                    Component.text(isNotAccepting ? 'Not Accepting Bookings' : (prop.status == 'Rented' ? 'Active • Dates Available' : prop.status)),
+                  ],
+                );
+              },
             ),
           ]),
         ]),

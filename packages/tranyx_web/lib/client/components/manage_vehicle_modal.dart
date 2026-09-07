@@ -1,5 +1,7 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:web/web.dart' as web;
+import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../services/web_interop.dart';
@@ -19,6 +21,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   String? _error;
   bool _isProcessing = false;
   bool _showConfirmDelete = false;
+  bool _showPendingWarning = false;
 
   bool _allowChat = false;
 
@@ -26,6 +29,38 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   String _gpsInput = '';
   bool _isSavingGps = false;
   bool _hasReservationRecords = false;
+
+  void _toggleAcceptingBookings(bool currentlyAccepting) async {
+    final r = component.appState.selectedRentalData;
+    if (r == null) return;
+
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+
+    try {
+      final newAccepting = !currentlyAccepting;
+      await component.appState.firestore.setVehicleAcceptingBookings(r['id'], newAccepting);
+      final newStatus = newAccepting ? 'Available' : 'Not Accepting Bookings';
+      component.appState.setState(() {
+        final updated = Map<String, dynamic>.from(r);
+        updated['acceptingBookings'] = newAccepting;
+        updated['status'] = newStatus;
+        component.appState.selectedRentalData = updated;
+      });
+      component.appState.alertDialog(
+        newAccepting ? 'Bookings Resumed' : 'Bookings Paused',
+        newAccepting
+            ? 'Your vehicle is now accepting booking requests in the marketplace.'
+            : 'Your vehicle will no longer accept new booking requests. Existing bookings remain active.',
+      );
+    } catch (e) {
+      setState(() => _error = 'Failed to update booking status: $e');
+    } finally {
+      setState(() => _isProcessing = false);
+    }
+  }
 
   @override
   void initState() {
@@ -45,11 +80,18 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     });
 
     try {
-      final list = await component.appState.firestore.getPendingRequestsForVehicle(r['id']);
       final extList = await component.appState.firestore.getPendingExtensionsForVehicle(r['id']);
       final allList = await component.appState.firestore.getAllRequestsForVehicle(r['id']);
+      allList.sort((reqA, reqB) {
+        final aPending = (reqA['status']?.toString().toLowerCase() == 'pending') ? 0 : 1;
+        final bPending = (reqB['status']?.toString().toLowerCase() == 'pending') ? 0 : 1;
+        if (aPending != bPending) return aPending.compareTo(bPending);
+        final aTime = (reqA['startDate'] as int?) ?? (reqA['createdAt'] as int?) ?? 0;
+        final bTime = (reqB['startDate'] as int?) ?? (reqB['createdAt'] as int?) ?? 0;
+        return bTime.compareTo(aTime);
+      });
       setState(() {
-        _requests = list;
+        _requests = allList;
         _extensions = extList;
         _hasReservationRecords = allList.isNotEmpty;
       });
@@ -235,6 +277,9 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     if (r == null) return div([]);
 
     final status = r['status'] as String? ?? 'Available';
+    final isNotAccepting = status == 'Not Accepting Bookings' || r['acceptingBookings'] == false;
+    final hasPending = _requests.any((req) => req['status']?.toString().toLowerCase() == 'pending');
+    final hasConfirmed = _requests.any((req) => BookingDateRange.fromMap(req).isConfirmedBooking);
     final model = r['model'] ?? 'Unknown Model';
     final brand = r['brand'] ?? 'Unknown Brand';
     final year = r['year'] ?? '';
@@ -272,8 +317,8 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
               ],
             ),
 
-            // Body
-            div(classes: 'flex-1 overflow-y-auto p-6', [
+            // Content
+            div(classes: 'p-6 overflow-y-auto space-y-6 flex-1', [
               if (_error != null)
                 div(
                   classes:
@@ -284,6 +329,17 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                   ],
                 ),
 
+              if (isNotAccepting)
+                div(classes: 'mb-4 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs flex items-center justify-between', [
+                  div(classes: 'flex items-center gap-2', [
+                    lIcon('pause-circle', cls: 'w-4 h-4 flex-shrink-0 text-amber-400'),
+                    span([Component.text('This vehicle is currently paused and not accepting new bookings in the marketplace.')]),
+                  ]),
+                  span(classes: 'px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300', [
+                    Component.text('NOT ACCEPTING BOOKINGS'),
+                  ]),
+                ]),
+
               // Status Summary Card
               div(
                 classes:
@@ -293,7 +349,9 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                     p(classes: 'text-xs text-zinc-550 font-bold uppercase tracking-wider mb-1', [
                       Component.text('Current Status'),
                     ]),
-                    h3(classes: 'text-lg font-bold capitalize text-purple-400', [Component.text(status)]),
+                    h3(classes: 'text-lg font-bold capitalize ${isNotAccepting ? "text-amber-400" : "text-purple-400"}', [
+                      Component.text(isNotAccepting ? 'Not Accepting Bookings' : status),
+                    ]),
                   ]),
                   div(classes: 'text-right', [
                     p(classes: 'text-xs text-zinc-550 font-bold uppercase tracking-wider mb-1', [
@@ -401,37 +459,71 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                 ],
               ),
 
-              if (status == 'Available') ...[
-                if (_showConfirmDelete)
-                  div(classes: 'mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-sm flex flex-col gap-3', [
-                    div(classes: 'flex items-center gap-2 text-red-400 font-bold', [
-                      lIcon('alert-triangle', cls: 'w-5 h-5 flex-shrink-0'),
-                      span([Component.text('Are you sure you want to delete this listing?')]),
-                    ]),
-                    p(classes: 'text-zinc-400 text-xs', [
-                      Component.text(
-                        'This will permanently remove the vehicle from Tranyx. Your listing fee is non-refundable.',
-                      ),
-                    ]),
-                    div(classes: 'flex items-center gap-2 mt-1', [
-                      button(
-                        classes:
-                            'px-3 py-1.5 rounded-lg bg-red-500 text-white font-bold text-xs hover:bg-red-600 transition-colors',
-                        events: {'click': (_) => _deleteListing(r['id'])},
-                        disabled: _isProcessing,
-                        [Component.text('Yes, Delete')],
-                      ),
-                      button(
-                        classes:
-                            'px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-400 hover:text-white font-bold text-xs transition-colors',
-                        events: {'click': (_) => setState(() => _showConfirmDelete = false)},
-                        disabled: _isProcessing,
-                        [Component.text('Cancel')],
-                      ),
-                    ]),
-                  ])
-                else
-                  div(classes: 'mb-6 flex justify-between items-center', [
+              // Host Listing Controls (Edit, Pause/Resume, Delete)
+              if (_showPendingWarning)
+                div(classes: 'mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-sm flex flex-col gap-3', [
+                  div(classes: 'flex items-center gap-2 text-amber-400 font-bold', [
+                    lIcon('alert-triangle', cls: 'w-5 h-5 flex-shrink-0'),
+                    span([Component.text('Pending Requests Need Resolution')]),
+                  ]),
+                  p(classes: 'text-zinc-300 text-xs leading-relaxed', [
+                    Component.text(
+                      'You have pending booking requests for this listing. Please accept or reject all pending requests before deleting this listing.',
+                    ),
+                  ]),
+                  div(classes: 'flex items-center gap-2 mt-1', [
+                    button(
+                      classes:
+                          'px-3.5 py-1.5 rounded-lg bg-amber-500 text-black font-bold text-xs hover:bg-amber-400 transition-colors cursor-pointer',
+                      events: {
+                        'click': (_) {
+                          setState(() => _showPendingWarning = false);
+                          web.document.getElementById('vehicle_booking_requests_feed')?.scrollIntoView();
+                        },
+                      },
+                      [Component.text('View Pending Requests')],
+                    ),
+                    button(
+                      classes:
+                          'px-3.5 py-1.5 rounded-lg border border-zinc-700 text-zinc-400 hover:text-white font-bold text-xs transition-colors cursor-pointer',
+                      events: {'click': (_) => setState(() => _showPendingWarning = false)},
+                      [Component.text('Close')],
+                    ),
+                  ]),
+                ])
+              else if (_showConfirmDelete)
+                div(classes: 'mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-sm flex flex-col gap-3', [
+                  div(classes: 'flex items-center gap-2 text-red-400 font-bold', [
+                    lIcon('alert-triangle', cls: 'w-5 h-5 flex-shrink-0'),
+                    span([Component.text(hasConfirmed ? 'Confirm Listing Deletion' : 'Delete Listing')]),
+                  ]),
+                  p(classes: 'text-zinc-300 text-xs leading-relaxed', [
+                    Component.text(
+                      hasConfirmed
+                          ? 'This listing has existing bookings. Deleting the listing will prevent new bookings, but your existing bookings will remain active and accessible. Are you sure you want to delete this listing?'
+                          : 'Are you sure you want to delete this listing? This will permanently remove the vehicle from active listings.',
+                    ),
+                  ]),
+                  div(classes: 'flex items-center gap-2 mt-1', [
+                    button(
+                      classes:
+                          'px-3.5 py-1.5 rounded-lg bg-red-500 text-white font-bold text-xs hover:bg-red-600 transition-colors cursor-pointer',
+                      events: {'click': (_) => _deleteListing(r['id'])},
+                      disabled: _isProcessing,
+                      [Component.text(hasConfirmed ? 'Delete Listing' : 'Yes, Delete')],
+                    ),
+                    button(
+                      classes:
+                          'px-3.5 py-1.5 rounded-lg border border-zinc-700 text-zinc-400 hover:text-white font-bold text-xs transition-colors cursor-pointer',
+                      events: {'click': (_) => setState(() => _showConfirmDelete = false)},
+                      disabled: _isProcessing,
+                      [Component.text('Cancel')],
+                    ),
+                  ]),
+                ])
+              else
+                div(classes: 'mb-6 flex flex-wrap items-center justify-between gap-3', [
+                  div(classes: 'flex items-center gap-2', [
                     if (!_hasReservationRecords &&
                         status == 'Available' &&
                         (r['renteeId'] == null || (r['renteeId'] as String).isEmpty))
@@ -451,182 +543,57 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                           lIcon('edit-3', cls: 'w-4 h-4 text-indigo-400'),
                           Component.text('Edit Listing'),
                         ],
+                      ),
+                    if (isNotAccepting)
+                      button(
+                        classes:
+                            'px-4 py-2 text-xs font-bold text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/10 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer bg-transparent',
+                        events: {'click': (_) => _toggleAcceptingBookings(false)},
+                        disabled: _isProcessing,
+                        [
+                          lIcon('play', cls: 'w-4 h-4 text-emerald-400'),
+                          Component.text('Resume Bookings'),
+                        ],
                       )
                     else
-                      div([]),
-                    button(
-                      classes:
-                          'px-4 py-2 text-xs font-bold text-red-500 border border-red-500/20 hover:bg-red-500/10 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer bg-transparent',
-                      events: {'click': (_) => setState(() => _showConfirmDelete = true)},
-                      disabled: _isProcessing,
-                      [
-                        lIcon('trash-2', cls: 'w-4 h-4'),
-                        Component.text('Delete Listing'),
-                      ],
-                    ),
-                  ]),
-
-                h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4', [
-                  Component.text('Booking Requests (${_requests.length})'),
-                ]),
-
-                if (_isLoadingRequests)
-                  div(classes: 'py-12 flex flex-col items-center justify-center gap-3', [
-                    lIcon('loader', cls: 'w-8 h-8 animate-spin text-purple-500'),
-                    p(classes: 'text-sm text-zinc-500', [Component.text('Fetching applications...')]),
-                  ])
-                else if (_requests.isEmpty)
-                  div(
-                    classes:
-                        'py-12 text-center rounded-2xl border-2 border-dashed ${isDark ? "border-zinc-800" : "border-zinc-200"}',
-                    [
-                      lIcon('user-plus', cls: 'w-10 h-10 mx-auto text-zinc-600 mb-3'),
-                      p(classes: 'font-semibold text-zinc-400', [Component.text('No active requests yet')]),
-                      p(classes: 'text-xs text-zinc-500 mt-1', [
-                        Component.text('Rentees who request to book this vehicle will appear here.'),
-                      ]),
-                    ],
-                  )
-                else
-                  div(classes: 'flex flex-col gap-4', [
-                    for (final req in _requests)
-                      div(
+                      button(
                         classes:
-                            'p-5 rounded-2xl border transition-all ${isDark ? "bg-zinc-950 border-zinc-800 hover:border-zinc-700" : "bg-white border-zinc-200 hover:shadow-md"}',
+                            'px-4 py-2 text-xs font-bold text-amber-400 border border-amber-500/30 hover:bg-amber-500/10 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer bg-transparent',
+                        events: {'click': (_) => _toggleAcceptingBookings(true)},
+                        disabled: _isProcessing,
                         [
-                          div(classes: 'flex items-start justify-between mb-4', [
-                            div(classes: 'flex items-center gap-3', [
-                              div(
-                                classes:
-                                    'w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center overflow-hidden',
-                                [
-                                  if (req['renteePhotoUrl'] != null &&
-                                      req['renteePhotoUrl'].toString().isNotEmpty &&
-                                      req['renteePhotoUrl'].toString() != 'null')
-                                    img(
-                                      src: req['renteePhotoUrl'].toString(),
-                                      classes:
-                                          'w-full h-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
-                                      events: {
-                                        'click': (_) =>
-                                            component.appState.showFullScreenPhoto(req['renteePhotoUrl'].toString()),
-                                      },
-                                    )
-                                  else
-                                    lIcon('user', cls: 'w-5 h-5 text-purple-400'),
-                                ],
-                              ),
-                              div([
-                                p(classes: 'font-bold flex items-center gap-2', [
-                                  Component.text(req['renteeName'] ?? 'Renter'),
-                                  if (req['hireWithDriver'] == true)
-                                    span(
-                                      classes:
-                                          'text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30',
-                                      [Component.text('With Driver')],
-                                    ),
-                                ]),
-                                p(classes: 'text-xs text-zinc-500', [
-                                  Component.text('License: ${_obscureLicenseNumber(req['licenseNumber']?.toString())}'),
-                                ]),
-                              ]),
-                            ]),
-                            div(classes: 'text-right', [
-                              p(classes: 'font-black text-purple-400', [Component.text('₱${req["totalCost"]}')]),
-                              p(classes: 'text-xs text-zinc-500 capitalize', [
-                                Component.text('${req["multiplier"]} ${req["durationType"]}'),
-                              ]),
-                            ]),
-                          ]),
-
-                          // Contract Accordion / Details
-                          div(
-                            classes:
-                                'mb-4 p-3.5 rounded-xl text-xs ${isDark ? "bg-zinc-900 text-zinc-400" : "bg-zinc-50 text-zinc-600"}',
-                            [
-                              div(classes: 'flex flex-col gap-1.5 mb-2', [
-                                span([Component.text('Contract Signature:')]),
-                                if (req['signatureName'] != null &&
-                                    req['signatureName'].toString().startsWith('data:image/'))
-                                  img(
-                                    src: req['signatureName'].toString(),
-                                    classes:
-                                        'max-h-16 h-auto object-contain bg-white rounded-lg p-1 max-w-[200px] mt-1 cursor-zoom-in hover:opacity-90 transition-opacity',
-                                    events: {
-                                      'click': (_) =>
-                                          component.appState.showFullScreenPhoto(req['signatureName'].toString()),
-                                    },
-                                  )
-                                else
-                                  span(classes: 'font-bold italic text-purple-400', [
-                                    Component.text(req['signatureName'] ?? 'Unsigned'),
-                                  ]),
-                              ]),
-                              div(classes: 'flex justify-between', [
-                                span([Component.text('Requested Date:')]),
-                                span([
-                                  Component.text(
-                                    DateTime.fromMillisecondsSinceEpoch(
-                                      req['createdAt'] ?? 0,
-                                    ).toString().substring(0, 16),
-                                  ),
-                                ]),
-                              ]),
-                            ],
-                          ),
-
-                          // Pre-actions (View Profile + Chat Toggle)
-                          div(
-                            classes:
-                                'flex items-center justify-between gap-3 mb-4 pt-2 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"}',
-                            [
-                              button(
-                                classes:
-                                    'text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 bg-transparent border-0 cursor-pointer',
-                                events: {'click': (_) => component.appState.viewEmployerProfile(req['renteeId'] ?? '')},
-                                [
-                                  lIcon('user', cls: 'w-3.5 h-3.5'),
-                                  Component.text('View Renter Profile'),
-                                ],
-                              ),
-                              label(
-                                classes:
-                                    'flex items-center gap-2 cursor-pointer text-xs ${isDark ? "text-zinc-300" : "text-zinc-650"}',
-                                [
-                                  input(
-                                    type: InputType.checkbox,
-                                    checked: _allowChat,
-                                    onChange: (val) {
-                                      setState(() => _allowChat = val == true);
-                                    },
-                                  ),
-                                  Component.text('Allow Chatting with Renter'),
-                                ],
-                              ),
-                            ],
-                          ),
-
-                          // Actions
-                          div(classes: 'flex items-center gap-2', [
-                            button(
-                              classes:
-                                  'flex-1 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity',
-                              events: {'click': (_) => _approveRequest(req['id'])},
-                              disabled: _isProcessing,
-                              [Component.text('Approve Request')],
-                            ),
-                            button(
-                              classes:
-                                  'px-4 py-2 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-800 hover:bg-zinc-900 text-zinc-400 hover:text-white" : "border-zinc-200 hover:bg-zinc-50 text-zinc-500"} transition-colors',
-                              events: {'click': (_) => _rejectRequest(req['id'])},
-                              disabled: _isProcessing,
-                              [Component.text('Reject')],
-                            ),
-                          ]),
+                          lIcon('pause', cls: 'w-4 h-4 text-amber-400'),
+                          Component.text('Stop Receiving Bookings'),
                         ],
                       ),
                   ]),
-              ] else ...[
+                  button(
+                    classes:
+                        'px-4 py-2 text-xs font-bold text-red-500 border border-red-500/20 hover:bg-red-500/10 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer bg-transparent',
+                    events: {
+                      'click': (_) {
+                        if (hasPending) {
+                          setState(() {
+                            _showPendingWarning = true;
+                            _showConfirmDelete = false;
+                          });
+                        } else {
+                          setState(() {
+                            _showConfirmDelete = true;
+                            _showPendingWarning = false;
+                          });
+                        }
+                      },
+                    },
+                    disabled: _isProcessing,
+                    [
+                      lIcon('trash-2', cls: 'w-4 h-4'),
+                      Component.text('Delete Listing'),
+                    ],
+                  ),
+                ]),
+
+              if (status != 'Available' && status != 'Not Accepting Bookings' && r['renteeId'] != null && (r['renteeId'] as String).isNotEmpty) ...[
                 // Active Booking Details View
                 h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4', [
                   Component.text('Active Renter Info'),
@@ -884,10 +851,259 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                   ),
                 ]),
               ],
+
+              // All Booking Requests and Schedules (Always visible to host)
+              div(id: 'vehicle_booking_requests_feed', classes: 'pt-2', [
+                h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4 mt-4', [
+                  Component.text('Rental Bookings & Schedules (${_requests.length})'),
+                ]),
+              ]),
+
+              if (_isLoadingRequests)
+                div(classes: 'py-12 flex flex-col items-center justify-center gap-3', [
+                  lIcon('loader', cls: 'w-8 h-8 animate-spin text-purple-500'),
+                  p(classes: 'text-sm text-zinc-500', [Component.text('Fetching applications...')]),
+                ])
+              else if (_requests.isEmpty)
+                div(
+                  classes:
+                      'py-12 text-center rounded-2xl border-2 border-dashed ${isDark ? "border-zinc-800" : "border-zinc-200"}',
+                  [
+                    lIcon('user-plus', cls: 'w-10 h-10 mx-auto text-zinc-600 mb-3'),
+                    p(classes: 'font-semibold text-zinc-400', [Component.text('No active requests yet')]),
+                    p(classes: 'text-xs text-zinc-500 mt-1', [
+                      Component.text('Rentees who request to book this vehicle will appear here.'),
+                    ]),
+                  ],
+                )
+              else
+                div(classes: 'flex flex-col gap-4', [
+                  for (final req in _requests)
+                    div(
+                      classes:
+                          'p-5 rounded-2xl border transition-all ${isDark ? "bg-zinc-950 border-zinc-800 hover:border-zinc-700" : "bg-white border-zinc-200 hover:shadow-md"}',
+                      [
+                        div(classes: 'flex items-start justify-between mb-4', [
+                          div(classes: 'flex items-center gap-3', [
+                            div(
+                              classes:
+                                  'w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center overflow-hidden',
+                              [
+                                if (req['renteePhotoUrl'] != null &&
+                                    req['renteePhotoUrl'].toString().isNotEmpty &&
+                                    req['renteePhotoUrl'].toString() != 'null')
+                                  img(
+                                    src: req['renteePhotoUrl'].toString(),
+                                    classes:
+                                        'w-full h-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
+                                    events: {
+                                      'click': (_) =>
+                                          component.appState.showFullScreenPhoto(req['renteePhotoUrl'].toString()),
+                                    },
+                                  )
+                                else
+                                  lIcon('user', cls: 'w-5 h-5 text-purple-400'),
+                              ],
+                            ),
+                            div([
+                              p(classes: 'font-bold flex items-center gap-2', [
+                                Component.text(req['renteeName'] ?? 'Renter'),
+                                if (req['hireWithDriver'] == true)
+                                  span(
+                                    classes:
+                                        'text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30',
+                                    [Component.text('With Driver')],
+                                  ),
+                              ]),
+                              div(classes: 'flex items-center gap-2 mt-1', [
+                                _statusBadge(req['status']?.toString() ?? 'Pending', isDark),
+                                p(classes: 'text-xs text-zinc-500', [
+                                  Component.text('License: ${_obscureLicenseNumber(req['licenseNumber']?.toString())}'),
+                                ]),
+                              ]),
+                            ]),
+                          ]),
+                          div(classes: 'text-right', [
+                            p(classes: 'font-black text-purple-400', [Component.text('₱${req["totalCost"]}')]),
+                            p(classes: 'text-xs text-zinc-500 capitalize', [
+                              Component.text('${req["multiplier"]} ${req["durationType"]}'),
+                            ]),
+                          ]),
+                        ]),
+
+                        // Contract Accordion / Details
+                        div(
+                          classes:
+                              'mb-4 p-3.5 rounded-xl text-xs ${isDark ? "bg-zinc-900 text-zinc-400" : "bg-zinc-50 text-zinc-600"}',
+                          [
+                            if (req['startDate'] != null && req['endDate'] != null)
+                              div(classes: 'flex justify-between font-bold text-purple-400 mb-1.5', [
+                                span([Component.text('Rental Schedule:')]),
+                                span([
+                                  Component.text(
+                                    '${_formatDate(req['startDate'])} - ${_formatDate(req['endDate'])}',
+                                  ),
+                                ]),
+                              ]),
+                            div(classes: 'flex flex-col gap-1.5 mb-2', [
+                              span([Component.text('Contract Signature:')]),
+                              if (req['signatureName'] != null &&
+                                  req['signatureName'].toString().startsWith('data:image/'))
+                                img(
+                                  src: req['signatureName'].toString(),
+                                  classes:
+                                      'max-h-16 h-auto object-contain bg-white rounded-lg p-1 max-w-[200px] mt-1 cursor-zoom-in hover:opacity-90 transition-opacity',
+                                  events: {
+                                    'click': (_) =>
+                                        component.appState.showFullScreenPhoto(req['signatureName'].toString()),
+                                  },
+                                )
+                              else
+                                span(classes: 'font-bold italic text-purple-400', [
+                                  Component.text(req['signatureName'] ?? 'Unsigned'),
+                                ]),
+                            ]),
+                            div(classes: 'flex justify-between', [
+                              span([Component.text('Requested Date:')]),
+                              span([
+                                Component.text(
+                                  DateTime.fromMillisecondsSinceEpoch(
+                                    req['createdAt'] ?? 0,
+                                  ).toString().substring(0, 16),
+                                ),
+                              ]),
+                            ]),
+                          ],
+                        ),
+
+                        // Pre-actions (View Profile + Chat Toggle) & Actions
+                        if (req['status']?.toString().toLowerCase() == 'pending') ...[
+                          div(
+                            classes:
+                                'flex items-center justify-between gap-3 mb-4 pt-2 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"}',
+                            [
+                              button(
+                                classes:
+                                    'text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 bg-transparent border-0 cursor-pointer',
+                                events: {'click': (_) => component.appState.viewEmployerProfile(req['renteeId'] ?? '')},
+                                [
+                                  lIcon('user', cls: 'w-3.5 h-3.5'),
+                                  Component.text('View Renter Profile'),
+                                ],
+                              ),
+                              label(
+                                classes:
+                                    'flex items-center gap-2 cursor-pointer text-xs ${isDark ? "text-zinc-300" : "text-zinc-650"}',
+                                [
+                                  input(
+                                    type: InputType.checkbox,
+                                    checked: _allowChat,
+                                    onChange: (val) {
+                                      setState(() => _allowChat = val == true);
+                                    },
+                                  ),
+                                  Component.text('Allow Chatting with Renter'),
+                                ],
+                              ),
+                            ],
+                          ),
+                          div(classes: 'flex items-center gap-2', [
+                            button(
+                              classes:
+                                  'flex-1 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity',
+                              events: {'click': (_) => _approveRequest(req['id'])},
+                              disabled: _isProcessing,
+                              [Component.text('Approve Request')],
+                            ),
+                            button(
+                              classes:
+                                  'px-4 py-2 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-800 hover:bg-zinc-900 text-zinc-400 hover:text-white" : "border-zinc-200 hover:bg-zinc-50 text-zinc-500"} transition-colors',
+                              events: {'click': (_) => _rejectRequest(req['id'])},
+                              disabled: _isProcessing,
+                              [Component.text('Reject')],
+                            ),
+                          ]),
+                        ] else ...[
+                          div(
+                            classes:
+                                'flex items-center justify-between gap-3 pt-2 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"}',
+                            [
+                              button(
+                                classes:
+                                    'text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 bg-transparent border-0 cursor-pointer',
+                                events: {'click': (_) => component.appState.viewEmployerProfile(req['renteeId'] ?? '')},
+                                [
+                                  lIcon('user', cls: 'w-3.5 h-3.5'),
+                                  Component.text('View Renter Profile'),
+                                ],
+                              ),
+                              if (req['allowChat'] == true || (r['allowChat'] == true && r['renteeId'] == req['renteeId']))
+                                () {
+                                  final chatId = 'rental_${r['id']}_${req['renteeId']}';
+                                  return button(
+                                    classes:
+                                        'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent',
+                                    events: {
+                                      'click': (_) {
+                                        component.appState.setState(() {
+                                          component.appState.showManageVehicleModal = false;
+                                        });
+                                        component.appState.openChat(chatId);
+                                      },
+                                    },
+                                    [
+                                      lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
+                                      Component.text('Chat Renter'),
+                                    ],
+                                  );
+                                }(),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                ]),
             ]),
           ],
         ),
       ],
+    );
+  }
+
+  String _formatDate(dynamic epoch) {
+    if (epoch == null) return 'N/A';
+    final ms = epoch is int ? epoch : int.tryParse(epoch.toString()) ?? 0;
+    if (ms == 0) return 'N/A';
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
+
+  Component _statusBadge(String status, bool isDark) {
+    final s = status.toLowerCase();
+    String bg = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    String label = status;
+
+    if (s == 'pending') {
+      bg = 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30';
+      label = 'Pending Review';
+    } else if (s == 'approved') {
+      bg = 'bg-blue-500/10 text-blue-400 border-blue-500/30';
+      label = 'Approved (Awaiting Signature)';
+    } else if (s == 'booked' || s == 'ongoing' || s == 'active' || s == 'on the way to rentee' || s == 'returning') {
+      bg = 'bg-green-500/10 text-green-400 border-green-500/30';
+      label = status;
+    } else if (s == 'completed') {
+      bg = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+      label = 'Completed';
+    } else if (s == 'rejected' || s == 'cancelled') {
+      bg = 'bg-red-500/10 text-red-400 border-red-500/30';
+      label = status;
+    }
+
+    return span(
+      classes: 'text-[10px] font-bold px-2 py-0.5 rounded-full border $bg capitalize inline-block',
+      [Component.text(label)],
     );
   }
 

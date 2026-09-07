@@ -53,17 +53,32 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
       final repo = ref.read(transitRepositoryProvider);
       final id = widget.item['id'] as String;
       if (widget.isProperty) {
-        final list = await repo.getPropertyPendingRequestsForProperty(id);
+        final allList = await repo.getAllRequestsForProperty(id);
+        allList.sort((a, b) {
+          final aPending = (a['status']?.toString().toLowerCase() == 'pending') ? 0 : 1;
+          final bPending = (b['status']?.toString().toLowerCase() == 'pending') ? 0 : 1;
+          if (aPending != bPending) return aPending.compareTo(bPending);
+          final aTime = (a['startDate'] as int?) ?? (a['createdAt'] as int?) ?? 0;
+          final bTime = (b['startDate'] as int?) ?? (b['createdAt'] as int?) ?? 0;
+          return bTime.compareTo(aTime);
+        });
         setState(() {
-          _requests = list;
+          _requests = allList;
           _isLoadingRequests = false;
         });
       } else {
-        final list = await repo.getPendingRequestsForVehicle(id);
-        final allRecords = await repo.getAllRequestsForVehicle(id);
+        final allList = await repo.getAllRequestsForVehicle(id);
+        allList.sort((a, b) {
+          final aPending = (a['status']?.toString().toLowerCase() == 'pending') ? 0 : 1;
+          final bPending = (b['status']?.toString().toLowerCase() == 'pending') ? 0 : 1;
+          if (aPending != bPending) return aPending.compareTo(bPending);
+          final aTime = (a['startDate'] as int?) ?? (a['createdAt'] as int?) ?? 0;
+          final bTime = (b['startDate'] as int?) ?? (b['createdAt'] as int?) ?? 0;
+          return bTime.compareTo(aTime);
+        });
         setState(() {
-          _requests = list;
-          _hasReservationRecords = allRecords.isNotEmpty;
+          _requests = allList;
+          _hasReservationRecords = allList.isNotEmpty;
           _isLoadingRequests = false;
         });
       }
@@ -133,7 +148,167 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
     }
   }
 
-  void _deleteListing() async {
+  void _toggleAcceptingBookings(bool currentlyAccepting) async {
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+    try {
+      final repo = ref.read(transitRepositoryProvider);
+      final id = widget.item['id'] as String;
+      final newAccepting = !currentlyAccepting;
+      if (widget.isProperty) {
+        await repo.setPropertyAcceptingBookings(id, newAccepting);
+      } else {
+        await repo.setVehicleAcceptingBookings(id, newAccepting);
+      }
+
+      ref.invalidate(realtimeRentalsProvider);
+      ref.invalidate(realtimePropertiesProvider);
+
+      setState(() {
+        widget.item['acceptingBookings'] = newAccepting;
+        widget.item['status'] = newAccepting ? 'Available' : 'Not Accepting Bookings';
+        _isProcessing = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              newAccepting
+                  ? 'Bookings resumed! Listing is now accepting bookings in the marketplace.'
+                  : 'Bookings paused! Listing will not accept new bookings.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isProcessing = false;
+        _error = 'Failed to update availability: $e';
+      });
+    }
+  }
+
+  void _handleDeletePress(ScrollController scrollController) {
+    final hasPending = _requests.any((req) => req['status']?.toString().toLowerCase() == 'pending');
+    final hasConfirmed = _requests.any((req) {
+      final st = (req['status'] ?? '').toString().toLowerCase();
+      return st == 'approved' || st == 'active' || st == 'ongoing' || st == 'confirmed' || st == 'awaiting_signature' || st == 'booked';
+    });
+
+    if (hasPending) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.amber),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text('Pending Requests Need Resolution', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          content: const Text(
+            'You have pending booking requests for this listing. Please accept or reject all pending requests before deleting this listing.',
+            style: TextStyle(fontSize: 13, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber[700],
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                scrollController.animateTo(
+                  scrollController.position.maxScrollExtent,
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeOut,
+                );
+              },
+              child: const Text('View Pending Requests', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+    } else if (hasConfirmed) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.red),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text('Confirm Listing Deletion', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          content: const Text(
+            'This listing has existing bookings. Deleting the listing will prevent new bookings, but your existing bookings will remain active and accessible. Are you sure you want to delete this listing?',
+            style: TextStyle(fontSize: 13, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _deleteListing(hasConfirmed: true);
+              },
+              child: const Text('Delete Listing', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+    } else {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Delete Listing', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          content: const Text(
+            'Are you sure you want to delete this listing? This will permanently remove the listing from active listings.',
+            style: TextStyle(fontSize: 13, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _deleteListing(hasConfirmed: false);
+              },
+              child: const Text('Delete', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  void _deleteListing({bool hasConfirmed = false}) async {
     setState(() {
       _isProcessing = true;
       _error = null;
@@ -153,7 +328,13 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Listing cancelled and listing fee refunded to your wallet!')),
+          SnackBar(
+            content: Text(
+              hasConfirmed
+                  ? 'Listing deleted. Existing bookings remain active and accessible.'
+                  : 'Listing deleted and listing fee refunded to your wallet!',
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -236,10 +417,63 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
     return DateFormat('MMM dd, yyyy • hh:mm a').format(dt);
   }
 
+  String _formatDateShort(int? ms) {
+    if (ms == null || ms == 0) return '—';
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+    return DateFormat('MMM dd, yyyy').format(dt);
+  }
+
+  Widget _buildStatusBadge(String status, bool isDarkMode) {
+    final s = status.toLowerCase();
+    Color textColor = Colors.amber.shade700;
+    Color bgColor = Colors.amber.withValues(alpha: 0.15);
+    String label = status;
+
+    if (s == 'pending') {
+      textColor = Colors.amber.shade800;
+      bgColor = Colors.amber.withValues(alpha: 0.15);
+      label = 'Pending Review';
+    } else if (s == 'approved' || s == 'awaiting signature') {
+      textColor = Colors.blue;
+      bgColor = Colors.blue.withValues(alpha: 0.15);
+      label = 'Approved';
+    } else if (s == 'booked' || s == 'active' || s == 'ongoing' || s == 'on the way to rentee' || s == 'returning') {
+      textColor = Colors.green;
+      bgColor = Colors.green.withValues(alpha: 0.15);
+      label = 'Confirmed';
+    } else if (s == 'completed') {
+      textColor = Colors.teal;
+      bgColor = Colors.teal.withValues(alpha: 0.15);
+      label = 'Completed';
+    } else if (s == 'rejected' || s == 'cancelled') {
+      textColor = Colors.red;
+      bgColor = Colors.red.withValues(alpha: 0.15);
+      label = status;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: textColor.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: textColor,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDarkMode = ref.watch(themeModeProvider);
     final status = widget.item['status'] as String? ?? 'Available';
+    final isNotAccepting = status == 'Not Accepting Bookings' || widget.item['acceptingBookings'] == false;
     final isAvailable = status == 'Available';
 
     final brand = widget.item['brand'] as String? ?? '';
@@ -341,6 +575,36 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                       const SizedBox(height: 16),
                     ],
 
+                    if (isNotAccepting) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withValues(alpha: 0.1),
+                          border: Border.all(
+                            color: Colors.amber.withValues(alpha: 0.3),
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.pause_circle_outline, color: Colors.amber, size: 20),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'This listing is paused and not accepting new bookings in the marketplace.',
+                                style: TextStyle(
+                                  color: Colors.amber,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
                     // Current Status Card
                     Container(
                       padding: const EdgeInsets.all(16),
@@ -371,11 +635,11 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                status.toUpperCase(),
-                                style: const TextStyle(
+                                isNotAccepting ? 'NOT ACCEPTING BOOKINGS' : status.toUpperCase(),
+                                style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
-                                  color: AppColors.indigo,
+                                  color: isNotAccepting ? Colors.amber : AppColors.indigo,
                                 ),
                               ),
                             ],
@@ -510,216 +774,103 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                       const SizedBox(height: 24),
                     ],
 
-                    // If listing is Available, show delete button and booking requests
-                    if (isAvailable) ...[
-                      const Text(
-                        'BOOKING APPLICATIONS',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-
-                      if (_isLoadingRequests)
-                        const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(24),
-                            child: CircularProgressIndicator(),
-                          ),
-                        )
-                      else if (_requests.isEmpty)
-                        Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: isDarkMode
-                                  ? AppColors.darkBorder
-                                  : AppColors.lightBorder,
-                            ),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Column(
-                            children: [
-                              Icon(
-                                Icons.people_outline,
-                                size: 40,
-                                color: Colors.grey,
-                              ),
-                              SizedBox(height: 12),
-                              Text(
-                                'No pending booking applications yet.',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      else
-                        ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _requests.length,
-                          itemBuilder: (context, idx) {
-                            final req = _requests[idx];
-                            final renteeName =
-                                req['renteeName'] as String? ?? 'Rentees';
-                            final totalCost =
-                                (req['totalCost'] as num?)?.toDouble() ?? 0.0;
-                            final multiplier = req['multiplier'] ?? 1;
-                            final durationType = req['durationType'] ?? 'daily';
-                            final reqId = req['id'] as String;
-
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: isDarkMode
-                                    ? AppColors.darkCard
-                                    : Colors.white,
-                                border: Border.all(
-                                  color: isDarkMode
-                                      ? AppColors.darkBorder
-                                      : AppColors.lightBorder,
-                                ),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        renteeName,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                      Text(
-                                        '₱ ${totalCost.toStringAsFixed(0)}',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: AppColors.indigo,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Duration: $multiplier $durationType(s)',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  CheckboxListTile(
-                                    title: const Text(
-                                      'Allow direct chat session with rentee',
-                                      style: TextStyle(fontSize: 12),
-                                    ),
-                                    value: _allowChat,
-                                    contentPadding: EdgeInsets.zero,
-                                    dense: true,
-                                    onChanged: (val) => setState(
-                                      () => _allowChat = val ?? false,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: ElevatedButton(
-                                          onPressed: _isProcessing
-                                              ? null
-                                              : () => _approveRequest(reqId),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.green,
-                                          ),
-                                          child: const Text('Approve'),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      OutlinedButton(
-                                        onPressed: _isProcessing
-                                            ? null
-                                            : () => _rejectRequest(reqId),
-                                        child: const Text('Reject'),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      const SizedBox(height: 24),
-
-                      // Actions when Available (Edit & Delete listing)
-                      Row(
-                        children: [
-                          if (_requests.isEmpty && (widget.isProperty || !_hasReservationRecords)) ...[
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: _isProcessing
-                                    ? null
-                                    : () {
-                                        Navigator.pop(context);
-                                        showModalBottomSheet(
-                                          context: context,
-                                          isScrollControlled: true,
-                                          backgroundColor: Colors.transparent,
-                                          builder: (context) =>
-                                              ListingWizardSheet(
-                                            isProperty: widget.isProperty,
-                                            initialItem: widget.item,
-                                          ),
-                                        );
-                                      },
-                                icon: const Icon(
-                                  Icons.edit_outlined,
-                                  color: Colors.white,
-                                  size: 18,
-                                ),
-                                label: const Text(
-                                  'Edit Listing',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.indigo,
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                          ],
+                    // Listing Controls (Edit, Pause/Resume, Delete)
+                    Row(
+                      children: [
+                        if (_requests.isEmpty && (isAvailable || isNotAccepting) && (widget.isProperty || !_hasReservationRecords)) ...[
                           Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _isProcessing ? null : _deleteListing,
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              label: const Text(
-                                'Delete Listing',
-                                style: TextStyle(color: Colors.red),
+                            child: ElevatedButton.icon(
+                              onPressed: _isProcessing
+                                  ? null
+                                  : () {
+                                      Navigator.pop(context);
+                                      showModalBottomSheet(
+                                        context: context,
+                                        isScrollControlled: true,
+                                        backgroundColor: Colors.transparent,
+                                        builder: (context) =>
+                                            ListingWizardSheet(
+                                          isProperty: widget.isProperty,
+                                          initialItem: widget.item,
+                                        ),
+                                      );
+                                    },
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                color: Colors.white,
+                                size: 16,
                               ),
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: Colors.red),
+                              label: const Text(
+                                'Edit',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.indigo,
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                               ),
                             ),
                           ),
+                          const SizedBox(width: 8),
                         ],
-                      ),
-                    ] else ...[
+                        Expanded(
+                          child: isNotAccepting
+                              ? ElevatedButton.icon(
+                                  onPressed: _isProcessing ? null : () => _toggleAcceptingBookings(false),
+                                  icon: const Icon(Icons.play_arrow, color: Colors.white, size: 16),
+                                  label: const Text(
+                                    'Resume',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                )
+                              : ElevatedButton.icon(
+                                  onPressed: _isProcessing ? null : () => _toggleAcceptingBookings(true),
+                                  icon: const Icon(Icons.pause, color: Colors.white, size: 16),
+                                  label: const Text(
+                                    'Stop Bookings',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.amber[800],
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isProcessing ? null : () => _handleDeletePress(scrollController),
+                            icon: const Icon(Icons.delete, color: Colors.red, size: 16),
+                            label: const Text(
+                              'Delete',
+                              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Colors.red),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+
+                    if (!isAvailable && !isNotAccepting && widget.item['renteeId'] != null && (widget.item['renteeId'] as String).isNotEmpty) ...[
                       // Trip is ongoing / booked
                       const Text(
                         'ACTIVE TENANT / RENTEE INFO',
@@ -935,6 +1086,186 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                         ),
                       ],
                     ],
+
+                    const SizedBox(height: 24),
+
+                    // BOOKING APPLICATIONS & SCHEDULES (Always visible to host)
+                    const Text(
+                      'BOOKING APPLICATIONS & SCHEDULES',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    if (_isLoadingRequests)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: CircularProgressIndicator(),
+                        ),
+                      )
+                    else if (_requests.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: isDarkMode
+                                ? AppColors.darkBorder
+                                : AppColors.lightBorder,
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Column(
+                          children: [
+                            Icon(
+                              Icons.people_outline,
+                              size: 40,
+                              color: Colors.grey,
+                            ),
+                            SizedBox(height: 12),
+                            Text(
+                              'No booking applications or reservations yet.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _requests.length,
+                        itemBuilder: (context, idx) {
+                          final req = _requests[idx];
+                          final renteeName =
+                              req['renteeName'] as String? ?? 'Renter';
+                          final totalCost =
+                              (req['totalCost'] as num?)?.toDouble() ?? 0.0;
+                          final multiplier = req['multiplier'] ?? 1;
+                          final durationType = req['durationType'] ?? 'daily';
+                          final reqId = req['id'] as String;
+                          final reqStatus = req['status'] as String? ?? 'Pending';
+                          final isPending = reqStatus.toLowerCase() == 'pending';
+                          final startMs = req['startDate'] as int?;
+                          final endMs = req['endDate'] as int?;
+
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: isDarkMode
+                                  ? AppColors.darkCard
+                                  : Colors.white,
+                              border: Border.all(
+                                color: isDarkMode
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder,
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              renteeName,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          _buildStatusBadge(reqStatus, isDarkMode),
+                                        ],
+                                      ),
+                                    ),
+                                    Text(
+                                      '₱ ${totalCost.toStringAsFixed(0)}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.indigo,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (startMs != null && endMs != null) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Schedule: ${_formatDateShort(startMs)} - ${_formatDateShort(endMs)}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.indigo,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Duration: $multiplier $durationType(s)',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                                if (isPending) ...[
+                                  const SizedBox(height: 12),
+                                  CheckboxListTile(
+                                    title: const Text(
+                                      'Allow direct chat session with rentee',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                    value: _allowChat,
+                                    contentPadding: EdgeInsets.zero,
+                                    dense: true,
+                                    onChanged: (val) => setState(
+                                      () => _allowChat = val ?? false,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: ElevatedButton(
+                                          onPressed: _isProcessing
+                                              ? null
+                                              : () => _approveRequest(reqId),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.green,
+                                          ),
+                                          child: const Text('Approve'),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      OutlinedButton(
+                                        onPressed: _isProcessing
+                                            ? null
+                                            : () => _rejectRequest(reqId),
+                                        child: const Text('Reject'),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     const SizedBox(height: 48),
                   ],
                 ),

@@ -842,7 +842,8 @@ class _TransitViewState extends ConsumerState<TransitView> {
 
                       final filtered = rentals.where((r) {
                         final status = r.status.toLowerCase();
-                        if (status == 'inactive' || status == 'unpublished' || status == 'archived' || status == 'deleted') return false;
+                        if (status == 'inactive' || status == 'unpublished' || status == 'archived' || status == 'deleted' || status == 'not accepting bookings') return false;
+                        if (r.isDeleted || !r.acceptingBookings) return false;
                         if (r.hostId == userProfile.uid) return false;
 
                         if (sq.isNotEmpty) {
@@ -1073,7 +1074,8 @@ class _TransitViewState extends ConsumerState<TransitView> {
 
                       final filtered = props.where((p) {
                         final status = p.status.toLowerCase();
-                        if (status == 'inactive' || status == 'unpublished' || status == 'archived' || status == 'deleted') return false;
+                        if (status == 'inactive' || status == 'unpublished' || status == 'archived' || status == 'deleted' || status == 'not accepting bookings') return false;
+                        if (p.isDeleted || !p.acceptingBookings) return false;
                         if (p.hostId == userProfile.uid) return false;
 
                         if (sq.isNotEmpty) {
@@ -1331,7 +1333,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                   .when(
                     data: (rentals) {
                       final myGarage = rentals
-                          .where((r) => r.hostId == userProfile.uid)
+                          .where((r) => r.hostId == userProfile.uid && r.status.toLowerCase() != 'archived' && r.status.toLowerCase() != 'deleted' && !r.isDeleted)
                           .toList();
 
                       return Column(
@@ -1391,6 +1393,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                               itemCount: myGarage.length,
                               itemBuilder: (context, index) {
                                 final item = myGarage[index];
+                                final isNotAccepting = item.status == 'Not Accepting Bookings' || !item.acceptingBookings;
                                 return GestureDetector(
                                   onTap: () => _openManageListingSheet(
                                     item.toMap(),
@@ -1477,24 +1480,33 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                                           vertical: 2,
                                                         ),
                                                     decoration: BoxDecoration(
-                                                      color: Colors.purple
-                                                          .withValues(
-                                                            alpha: 0.15,
-                                                          ),
+                                                      color: isNotAccepting
+                                                          ? Colors.amber
+                                                              .withValues(
+                                                                alpha: 0.15,
+                                                              )
+                                                          : Colors.purple
+                                                              .withValues(
+                                                                alpha: 0.15,
+                                                              ),
                                                       borderRadius:
                                                           BorderRadius.circular(
                                                             6,
                                                           ),
                                                     ),
                                                     child: Text(
-                                                      item.status == 'Rented'
-                                                          ? 'ACTIVE • DATES AVAILABLE'
-                                                          : item.status.toUpperCase(),
+                                                      isNotAccepting
+                                                          ? 'NOT ACCEPTING BOOKINGS'
+                                                          : (item.status == 'Rented'
+                                                              ? 'ACTIVE • DATES AVAILABLE'
+                                                              : item.status.toUpperCase()),
                                                       style: TextStyle(
                                                         fontSize: 9,
-                                                        color: item.status == 'Rented'
-                                                            ? Colors.orange
-                                                            : Colors.purple,
+                                                        color: isNotAccepting
+                                                            ? Colors.amber[800]
+                                                            : (item.status == 'Rented'
+                                                                ? Colors.orange
+                                                                : Colors.purple),
                                                         fontWeight:
                                                             FontWeight.bold,
                                                       ),
@@ -1524,7 +1536,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                   .when(
                     data: (props) {
                       final myProperties = props
-                          .where((p) => p.hostId == userProfile.uid)
+                          .where((p) => p.hostId == userProfile.uid && p.status.toLowerCase() != 'archived' && p.status.toLowerCase() != 'deleted' && !p.isDeleted)
                           .toList();
 
                       return Column(
@@ -1584,6 +1596,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                               itemCount: myProperties.length,
                               itemBuilder: (context, index) {
                                 final item = myProperties[index];
+                                final isNotAccepting = item.status == 'Not Accepting Bookings' || !item.acceptingBookings;
                                 final photoUrl = item.photoUrls.firstOrNull;
                                 return GestureDetector(
                                   onTap: () => _openManageListingSheet(
@@ -1674,24 +1687,33 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                                           vertical: 2,
                                                         ),
                                                     decoration: BoxDecoration(
-                                                      color: Colors.purple
-                                                          .withValues(
-                                                            alpha: 0.15,
-                                                          ),
+                                                      color: isNotAccepting
+                                                          ? Colors.amber
+                                                              .withValues(
+                                                                alpha: 0.15,
+                                                              )
+                                                          : Colors.purple
+                                                              .withValues(
+                                                                alpha: 0.15,
+                                                              ),
                                                       borderRadius:
                                                           BorderRadius.circular(
                                                             6,
                                                           ),
                                                     ),
                                                     child: Text(
-                                                      item.status == 'Rented'
-                                                          ? 'ACTIVE • DATES AVAILABLE'
-                                                          : item.status.toUpperCase(),
+                                                      isNotAccepting
+                                                          ? 'NOT ACCEPTING BOOKINGS'
+                                                          : (item.status == 'Rented'
+                                                              ? 'ACTIVE • DATES AVAILABLE'
+                                                              : item.status.toUpperCase()),
                                                       style: TextStyle(
                                                         fontSize: 9,
-                                                        color: item.status == 'Rented'
-                                                            ? Colors.orange
-                                                            : Colors.purple,
+                                                        color: isNotAccepting
+                                                            ? Colors.amber[800]
+                                                            : (item.status == 'Rented'
+                                                                ? Colors.orange
+                                                                : Colors.purple),
                                                         fontWeight:
                                                             FontWeight.bold,
                                                       ),

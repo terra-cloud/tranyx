@@ -34,7 +34,8 @@ class BookingDateRange {
   /// Whether this booking is active and occupies the calendar
   bool get isConfirmedBooking {
     final s = status.toLowerCase().trim();
-    return s == 'approved' ||
+    return s == 'pending' ||
+        s == 'approved' ||
         s == 'booked' ||
         s == 'active' ||
         s == 'ongoing' ||

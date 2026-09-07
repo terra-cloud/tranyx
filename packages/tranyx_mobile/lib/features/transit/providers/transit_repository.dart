@@ -122,33 +122,51 @@ class TransitRepository {
     return docRef.id;
   }
 
+  /// Sets vehicle accepting bookings status (Stop Receiving Bookings / Resume Bookings)
+  Future<void> setVehicleAcceptingBookings(String rentalId, bool accepting) async {
+    final doc = await _firestore.collection('rentals').doc(rentalId).get();
+    if (!doc.exists) throw Exception('Rental listing not found.');
+
+    final currentStatus = doc.data()?['status']?.toString() ?? 'Available';
+    final newStatus = accepting
+        ? (currentStatus == 'Not Accepting Bookings' ? 'Available' : currentStatus)
+        : 'Not Accepting Bookings';
+
+    await _firestore.collection('rentals').doc(rentalId).set({
+      'acceptingBookings': accepting,
+      'status': newStatus,
+    }, SetOptions(merge: true));
+  }
+
   Future<void> deleteRental(String rentalId) async {
     final doc = await _firestore.collection('rentals').doc(rentalId).get();
     if (!doc.exists) throw Exception('Rental listing not found.');
 
     final data = doc.data()!;
-    if (data['status'] != 'Available') {
-      throw Exception('Cannot delete a vehicle listing that is currently booked or active.');
+
+    // Reject deletion if unresolved pending requests exist
+    final allRequests = await getAllRequestsForVehicle(rentalId);
+    final hasPending = allRequests.any((r) => r['status']?.toString().toLowerCase() == 'pending');
+    if (hasPending) {
+      throw Exception('You have pending booking requests for this listing. Please accept or reject all pending requests before deleting this listing.');
     }
 
     final rental = VehicleRental.fromMap(data, rentalId);
 
-    // Reject all pending requests
-    final requests = await _firestore
-        .collection('rental_requests')
-        .where('rentalId', isEqualTo: rentalId)
-        .where('status', isEqualTo: 'Pending')
-        .get();
+    // Soft delete / archive the listing record rather than physically deleting it
+    await _firestore.collection('rentals').doc(rentalId).set({
+      'status': 'Archived',
+      'isDeleted': true,
+      'acceptingBookings': false,
+      'deletedAt': DateTime.now().millisecondsSinceEpoch,
+    }, SetOptions(merge: true));
 
-    for (final r in requests.docs) {
-      await rejectBookingRequest(r.id);
-    }
-
-    // Only refund listing fee if a fee was actually paid (listingFeePaid > 0 and not waived)
+    // Only refund listing fee if no confirmed/active bookings exist and fee was paid
+    final hasConfirmedBookings = allRequests.any((r) => BookingDateRange.fromMap(r).isConfirmedBooking);
     final host = await getUser(rental.hostId);
     final listingFeePaid = (data['listingFeePaid'] as num?)?.toDouble() ??
         (data['isListingFeeWaived'] == true ? 0.0 : (0.015 * rental.priceDaily));
-    if (host != null && listingFeePaid > 0.0) {
+    if (!hasConfirmedBookings && host != null && listingFeePaid > 0.0) {
       await updateTyxBalance(rental.hostId, host.tyxBalance + listingFeePaid);
       final txId = 'refund_veh_$rentalId';
       await _firestore.collection('transactions').doc(txId).set({
@@ -165,8 +183,6 @@ class TransitRepository {
         'status': 'Completed',
       });
     }
-
-    await _firestore.collection('rentals').doc(rentalId).delete();
   }
 
   Stream<List<VehicleRental>> getRealtimeRentals() {
@@ -177,13 +193,8 @@ class TransitRepository {
   }
 
   Future<List<Map<String, dynamic>>> getApprovedRequestsForVehicle(String rentalId) async {
-    final snapshot = await _firestore
-        .collection('rental_requests')
-        .where('rentalId', isEqualTo: rentalId)
-        .where('status', isEqualTo: 'Approved')
-        .get();
-
-    final list = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+    final all = await getAllRequestsForVehicle(rentalId);
+    final list = all.where((m) => BookingDateRange.fromMap(m).isConfirmedBooking).toList();
 
     try {
       final rentalDoc = await _firestore.collection('rentals').doc(rentalId).get();
@@ -211,13 +222,8 @@ class TransitRepository {
   }
 
   Future<List<Map<String, dynamic>>> getApprovedRequestsForProperty(String propertyId) async {
-    final snapshot = await _firestore
-        .collection('property_requests')
-        .where('propertyId', isEqualTo: propertyId)
-        .where('status', isEqualTo: 'Approved')
-        .get();
-
-    final list = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+    final all = await getAllRequestsForProperty(propertyId);
+    final list = all.where((m) => BookingDateRange.fromMap(m).isConfirmedBooking).toList();
 
     try {
       final propDoc = await _firestore.collection('properties').doc(propertyId).get();
@@ -267,8 +273,14 @@ class TransitRepository {
     if (!doc.exists) throw Exception('Rental listing not found.');
 
     final rental = VehicleRental.fromMap(doc.data()!, rentalId);
-    if (rental.status == 'Inactive' || rental.status == 'Unpublished' || rental.status == 'Archived') {
-      throw Exception('Vehicle is no longer listed for rent.');
+    if (rental.status == 'Inactive' ||
+        rental.status == 'Unpublished' ||
+        rental.status == 'Archived' ||
+        rental.status == 'Deleted' ||
+        rental.status == 'Not Accepting Bookings' ||
+        !rental.acceptingBookings ||
+        rental.isDeleted) {
+      throw Exception('This vehicle is currently not accepting new bookings.');
     }
 
     final approvedReqs = await getApprovedRequestsForVehicle(rentalId);
@@ -377,7 +389,7 @@ class TransitRepository {
 
     final existingApproved = await getApprovedRequestsForVehicle(rentalId);
     final approvedRanges = existingApproved
-        .where((r) => r['id'] != requestId)
+        .where((r) => r['id'] != requestId && r['status']?.toString().toLowerCase() != 'pending')
         .map((m) => BookingDateRange.fromMap(m))
         .toList();
     if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
@@ -702,29 +714,47 @@ class TransitRepository {
     return docRef.id;
   }
 
+  /// Sets property accepting bookings status (Stop Receiving Bookings / Resume Bookings)
+  Future<void> setPropertyAcceptingBookings(String propertyId, bool accepting) async {
+    final doc = await _firestore.collection('properties').doc(propertyId).get();
+    if (!doc.exists) throw Exception('Property listing not found.');
+
+    final currentStatus = doc.data()?['status']?.toString() ?? 'Available';
+    final newStatus = accepting
+        ? (currentStatus == 'Not Accepting Bookings' ? 'Available' : currentStatus)
+        : 'Not Accepting Bookings';
+
+    await _firestore.collection('properties').doc(propertyId).set({
+      'acceptingBookings': accepting,
+      'status': newStatus,
+    }, SetOptions(merge: true));
+  }
+
   Future<void> deletePropertyRental(String propertyId) async {
     final doc = await _firestore.collection('properties').doc(propertyId).get();
     if (!doc.exists) throw Exception('Property listing not found.');
 
+    // Reject deletion if unresolved pending requests exist
+    final allRequests = await getAllRequestsForProperty(propertyId);
+    final hasPending = allRequests.any((r) => r['status']?.toString().toLowerCase() == 'pending');
+    if (hasPending) {
+      throw Exception('You have pending booking requests for this listing. Please accept or reject all pending requests before deleting this listing.');
+    }
+
     final property = PropertyRental.fromMap(doc.data()!, propertyId);
-    if (property.status != 'Available') {
-      throw Exception('Cannot delete a property listing that is currently booked or active.');
-    }
 
-    final pending = await _firestore
-        .collection('property_requests')
-        .where('propertyId', isEqualTo: propertyId)
-        .where('status', isEqualTo: 'Pending')
-        .get();
+    // Soft delete / archive the property listing record rather than physically deleting it
+    await _firestore.collection('properties').doc(propertyId).set({
+      'status': 'Archived',
+      'isDeleted': true,
+      'acceptingBookings': false,
+      'deletedAt': DateTime.now().millisecondsSinceEpoch,
+    }, SetOptions(merge: true));
 
-    for (final r in pending.docs) {
-      await rejectPropertyBookingRequest(r.id);
-    }
-
-    // Only refund listing fee if a fee was actually paid (listingFee > 0 and not waived)
+    final hasConfirmedBookings = allRequests.any((r) => BookingDateRange.fromMap(r).isConfirmedBooking);
     final host = await getUser(property.hostId);
     final listingFee = property.isListingFeeWaived == true ? 0.0 : (0.015 * property.priceMonthly);
-    if (host != null && listingFee > 0.0) {
+    if (!hasConfirmedBookings && host != null && listingFee > 0.0) {
       await updateTyxBalance(property.hostId, host.tyxBalance + listingFee);
       final txId = 'refund_prop_$propertyId';
       await _firestore.collection('transactions').doc(txId).set({
@@ -741,8 +771,6 @@ class TransitRepository {
         'status': 'Completed',
       });
     }
-
-    await _firestore.collection('properties').doc(propertyId).delete();
   }
 
   Future<void> updatePropertyRental(String propertyId, PropertyRental updatedProperty) async {
@@ -774,6 +802,14 @@ class TransitRepository {
     final snap = await _firestore
         .collection('rental_requests')
         .where('rentalId', isEqualTo: rentalId)
+        .get();
+    return snap.docs.map((d) => d.data()..['id'] = d.id).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getAllRequestsForProperty(String propertyId) async {
+    final snap = await _firestore
+        .collection('property_requests')
+        .where('propertyId', isEqualTo: propertyId)
         .get();
     return snap.docs.map((d) => d.data()..['id'] = d.id).toList();
   }
@@ -830,8 +866,14 @@ class TransitRepository {
     if (!doc.exists) throw Exception('Property listing not found.');
 
     final property = PropertyRental.fromMap(doc.data()!, propertyId);
-    if (property.status == 'Inactive' || property.status == 'Unpublished' || property.status == 'Archived') {
-      throw Exception('Property is no longer listed for rent.');
+    if (property.status == 'Inactive' ||
+        property.status == 'Unpublished' ||
+        property.status == 'Archived' ||
+        property.status == 'Deleted' ||
+        property.status == 'Not Accepting Bookings' ||
+        !property.acceptingBookings ||
+        property.isDeleted) {
+      throw Exception('This property is currently not accepting new bookings.');
     }
 
     final approvedReqs = await getApprovedRequestsForProperty(propertyId);
@@ -975,7 +1017,7 @@ class TransitRepository {
 
     final existingApproved = await getApprovedRequestsForProperty(propertyId);
     final approvedRanges = existingApproved
-        .where((r) => r['id'] != requestId)
+        .where((r) => r['id'] != requestId && r['status']?.toString().toLowerCase() != 'pending')
         .map((m) => BookingDateRange.fromMap(m))
         .toList();
     if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {

@@ -1734,30 +1734,48 @@ class FirestoreService {
     return docId;
   }
 
-  /// Deletes a vehicle rental listing if it's Available (not Booked or Active).
+  /// Sets vehicle accepting bookings status (Stop Receiving Bookings / Resume Bookings)
+  Future<void> setVehicleAcceptingBookings(String rentalId, bool accepting) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+
+    final currentStatus = rentalDoc['status']?.toString() ?? 'Available';
+    final newStatus = accepting
+        ? (currentStatus == 'Not Accepting Bookings' ? 'Available' : currentStatus)
+        : 'Not Accepting Bookings';
+
+    await setDocument('rentals/$rentalId', {
+      'acceptingBookings': accepting,
+      'status': newStatus,
+    });
+  }
+
+  /// Deletes a vehicle rental listing (soft delete / archive), validating pending requests first
   Future<void> deleteRental(String rentalId) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
 
-    if (rentalDoc['status'] != 'Available') {
-      throw Exception('Cannot delete a vehicle listing that is currently booked or active.');
+    // Reject deletion if unresolved pending requests exist
+    final allRequests = await getAllRequestsForVehicle(rentalId);
+    final hasPending = allRequests.any((r) => r['status']?.toString().toLowerCase() == 'pending');
+    if (hasPending) {
+      throw Exception('You have pending booking requests for this listing. Please accept or reject all pending requests before deleting this listing.');
     }
 
-    // Fetch all pending requests for this vehicle and reject/refund them
-    final pendingRequests = await getPendingRequestsForVehicle(rentalId);
-    for (final req in pendingRequests) {
-      final requestId = req['id'] as String;
-      try {
-        await rejectBookingRequest(requestId);
-      } catch (e) {
-        print('Error rejecting request $requestId during vehicle deletion: $e');
-      }
-    }
+    // Soft delete / archive the listing record rather than physically deleting it,
+    // preserving historical bookings, transactions, and contracts.
+    await setDocument('rentals/$rentalId', {
+      'status': 'Archived',
+      'isDeleted': true,
+      'acceptingBookings': false,
+      'deletedAt': DateTime.now().millisecondsSinceEpoch,
+    });
 
-    // Refund listing fee only if one was originally paid (> 0.0)
+    // Refund listing fee only if no confirmed/active bookings exist and fee > 0
+    final hasConfirmedBookings = allRequests.any((r) => BookingDateRange.fromMap(r).isConfirmedBooking);
     final host = await getUser(rentalDoc['hostId'] as String? ?? '');
     final listingFee = (rentalDoc['listingFeePaid'] as num?)?.toDouble() ?? 0.0;
-    if (host != null && listingFee > 0.0) {
+    if (!hasConfirmedBookings && host != null && listingFee > 0.0) {
       final hostId = rentalDoc['hostId'] as String;
       final year = rentalDoc['year'] ?? '';
       final brand = rentalDoc['brand'] ?? '';
@@ -1777,8 +1795,6 @@ class FirestoreService {
         'status': 'Completed',
       });
     }
-
-    await deleteDocument('rentals/$rentalId');
   }
 
   /// Fetch all rentals
@@ -1822,7 +1838,7 @@ class FirestoreService {
     if (rentalDoc == null) throw Exception('Rental listing not found.');
     final rental = VehicleRental.fromMap(rentalDoc, rentalId);
 
-    if (rental.status != 'Available') {
+    if (rental.status != 'Available' || !rental.acceptingBookings || rental.isDeleted) {
       throw Exception('Vehicle is no longer available for booking.');
     }
 
@@ -2069,8 +2085,14 @@ class FirestoreService {
     if (rentalDoc == null) throw Exception('Rental listing not found.');
     final rental = VehicleRental.fromMap(rentalDoc, rentalId);
 
-    if (rental.status == 'Inactive' || rental.status == 'Unpublished' || rental.status == 'Archived') {
-      throw Exception('Vehicle is no longer listed for rent.');
+    if (rental.status == 'Inactive' ||
+        rental.status == 'Unpublished' ||
+        rental.status == 'Archived' ||
+        rental.status == 'Deleted' ||
+        rental.status == 'Not Accepting Bookings' ||
+        !rental.acceptingBookings ||
+        rental.isDeleted) {
+      throw Exception('This vehicle is currently not accepting new bookings.');
     }
 
     final approvedReqs = await getApprovedRequestsForVehicle(rentalId);
@@ -2207,7 +2229,7 @@ class FirestoreService {
     if (startDate > 0 && endDate > 0) {
       final existingApproved = await getApprovedRequestsForVehicle(rentalId);
       final approvedRanges = existingApproved
-          .where((r) => r['id'] != requestId)
+          .where((r) => r['id'] != requestId && r['status']?.toString().toLowerCase() != 'pending')
           .map((m) => BookingDateRange.fromMap(m))
           .toList();
       if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
@@ -2811,57 +2833,10 @@ class FirestoreService {
     );
   }
 
-  /// Fetch all approved requests for a specific vehicle
+  /// Fetch all approved/pending/active requests for a specific vehicle that occupy calendar availability
   Future<List<Map<String, dynamic>>> getApprovedRequestsForVehicle(String rentalId) async {
-    final url =
-        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final body = jsonEncode({
-      'structuredQuery': {
-        'from': [
-          {'collectionId': 'rental_requests'},
-        ],
-        'where': {
-          'compositeFilter': {
-            'op': 'AND',
-            'filters': [
-              {
-                'fieldFilter': {
-                  'field': {'fieldPath': 'rentalId'},
-                  'op': 'EQUAL',
-                  'value': {'stringValue': rentalId},
-                },
-              },
-              {
-                'fieldFilter': {
-                  'field': {'fieldPath': 'status'},
-                  'op': 'EQUAL',
-                  'value': {'stringValue': 'Approved'},
-                },
-              },
-            ],
-          },
-        },
-      },
-    });
-
-    final req = await http.post(Uri.parse(url), headers: headers, body: body);
-    if (req.statusCode >= 400) return [];
-
-    final List<dynamic> results = jsonDecode(req.body);
-    final list = <Map<String, dynamic>>[];
-    for (final r in results) {
-      if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map;
-        final name = doc['name'] as String;
-        final docId = name.split('/').last;
-        final data = _fromFirestoreDoc(doc);
-        data['id'] = docId;
-        list.add(data);
-      }
-    }
+    final all = await getAllRequestsForVehicle(rentalId);
+    final list = all.where((m) => BookingDateRange.fromMap(m).isConfirmedBooking).toList();
 
     try {
       final rentalDoc = await getDocument('rentals/$rentalId');
@@ -2887,57 +2862,10 @@ class FirestoreService {
     return list;
   }
 
-  /// Fetch all approved requests for a specific property
+  /// Fetch all approved/pending/active requests for a specific property that occupy calendar availability
   Future<List<Map<String, dynamic>>> getApprovedRequestsForProperty(String propertyId) async {
-    final url =
-        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final body = jsonEncode({
-      'structuredQuery': {
-        'from': [
-          {'collectionId': 'property_requests'},
-        ],
-        'where': {
-          'compositeFilter': {
-            'op': 'AND',
-            'filters': [
-              {
-                'fieldFilter': {
-                  'field': {'fieldPath': 'propertyId'},
-                  'op': 'EQUAL',
-                  'value': {'stringValue': propertyId},
-                },
-              },
-              {
-                'fieldFilter': {
-                  'field': {'fieldPath': 'status'},
-                  'op': 'EQUAL',
-                  'value': {'stringValue': 'Approved'},
-                },
-              },
-            ],
-          },
-        },
-      },
-    });
-
-    final req = await http.post(Uri.parse(url), headers: headers, body: body);
-    final list = <Map<String, dynamic>>[];
-    if (req.statusCode < 400) {
-      final List<dynamic> results = jsonDecode(req.body);
-      for (final r in results) {
-        if (r is Map && r.containsKey('document')) {
-          final doc = r['document'] as Map;
-          final name = doc['name'] as String;
-          final docId = name.split('/').last;
-          final data = _fromFirestoreDoc(doc);
-          data['id'] = docId;
-          list.add(data);
-        }
-      }
-    }
+    final all = await getAllRequestsForProperty(propertyId);
+    final list = all.where((m) => BookingDateRange.fromMap(m).isConfirmedBooking).toList();
 
     try {
       final propDoc = await getDocument('properties/$propertyId');
@@ -2980,6 +2908,46 @@ class FirestoreService {
             'field': {'fieldPath': 'rentalId'},
             'op': 'EQUAL',
             'value': {'stringValue': rentalId},
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map;
+        final name = doc['name'] as String;
+        final docId = name.split('/').last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        list.add(data);
+      }
+    }
+    return list;
+  }
+
+  /// Fetch all requests (any status) for a specific property to verify reservation/booking history
+  Future<List<Map<String, dynamic>>> getAllRequestsForProperty(String propertyId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'property_requests'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'propertyId'},
+            'op': 'EQUAL',
+            'value': {'stringValue': propertyId},
           },
         },
       },
@@ -3353,32 +3321,48 @@ class FirestoreService {
     return docId;
   }
 
-  /// Delete property rental posting, refund listing fee if paid, and reject pending requests
+  /// Sets property accepting bookings status (Stop Receiving Bookings / Resume Bookings)
+  Future<void> setPropertyAcceptingBookings(String propertyId, bool accepting) async {
+    final propDoc = await getDocument('properties/$propertyId');
+    if (propDoc == null) throw Exception('Property listing not found.');
+
+    final currentStatus = propDoc['status']?.toString() ?? 'Available';
+    final newStatus = accepting
+        ? (currentStatus == 'Not Accepting Bookings' ? 'Available' : currentStatus)
+        : 'Not Accepting Bookings';
+
+    await setDocument('properties/$propertyId', {
+      'acceptingBookings': accepting,
+      'status': newStatus,
+    });
+  }
+
+  /// Delete property rental posting (soft delete / archive), validating pending requests first
   Future<void> deletePropertyRental(String propertyId) async {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
 
+    // Reject deletion if unresolved pending requests exist
+    final allRequests = await getAllRequestsForProperty(propertyId);
+    final hasPending = allRequests.any((r) => r['status']?.toString().toLowerCase() == 'pending');
+    if (hasPending) {
+      throw Exception('You have pending booking requests for this listing. Please accept or reject all pending requests before deleting this listing.');
+    }
+
+    // Soft delete / archive the property listing record rather than physically deleting it
+    await setDocument('properties/$propertyId', {
+      'status': 'Archived',
+      'isDeleted': true,
+      'acceptingBookings': false,
+      'deletedAt': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    final hasConfirmedBookings = allRequests.any((r) => BookingDateRange.fromMap(r).isConfirmedBooking);
     final property = PropertyRental.fromMap(propDoc, propertyId);
-    if (property.status != 'Available') {
-      throw Exception('Cannot delete a property listing that is currently booked or active.');
-    }
-
-    // Fetch and reject all pending requests for this property
-    final pendingRequests = await getPropertyPendingRequestsForProperty(propertyId);
-    for (final req in pendingRequests) {
-      final requestId = req['id'] as String;
-      try {
-        await rejectPropertyBookingRequest(requestId);
-      } catch (e) {
-        print('Error rejecting request $requestId during property deletion: $e');
-      }
-    }
-
-    // Refund listing fee if one was charged (legacy listings)
     final host = await getUser(property.hostId);
     final isWaived = propDoc['isListingFeeWaived'] as bool? ?? false;
     final listingFee = isWaived ? 0.0 : (0.015 * property.priceMonthly);
-    if (host != null && listingFee > 0.0) {
+    if (!hasConfirmedBookings && host != null && listingFee > 0.0) {
       await updateTyxBalance(property.hostId, host.tyxBalance + listingFee);
       await setDocument('transactions/refund_prop_$propertyId', {
         'id': 'refund_prop_$propertyId',
@@ -3394,8 +3378,6 @@ class FirestoreService {
         'status': 'Completed',
       });
     }
-
-    await deleteDocument('properties/$propertyId');
   }
 
   /// Update an existing property rental posting (only if no active or pending bookings exist)
@@ -3470,8 +3452,14 @@ class FirestoreService {
     if (propDoc == null) throw Exception('Property listing not found.');
     final property = PropertyRental.fromMap(propDoc, propertyId);
 
-    if (property.status == 'Inactive' || property.status == 'Unpublished' || property.status == 'Archived') {
-      throw Exception('Property is no longer listed for rent.');
+    if (property.status == 'Inactive' ||
+        property.status == 'Unpublished' ||
+        property.status == 'Archived' ||
+        property.status == 'Deleted' ||
+        property.status == 'Not Accepting Bookings' ||
+        !property.acceptingBookings ||
+        property.isDeleted) {
+      throw Exception('This property is currently not accepting new bookings.');
     }
 
     final approvedReqs = await getApprovedRequestsForProperty(propertyId);
@@ -3661,7 +3649,7 @@ class FirestoreService {
     if (startDate > 0 && endDate > 0) {
       final existingApproved = await getApprovedRequestsForProperty(propertyId);
       final approvedRanges = existingApproved
-          .where((r) => r['id'] != requestId)
+          .where((r) => r['id'] != requestId && r['status']?.toString().toLowerCase() != 'pending')
           .map((m) => BookingDateRange.fromMap(m))
           .toList();
       if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
@@ -4129,58 +4117,9 @@ class FirestoreService {
     return list;
   }
 
-  /// Fetch approved request for a property
+  /// Fetch approved/pending/active requests for a property that occupy calendar availability
   Future<List<Map<String, dynamic>>> getPropertyApprovedRequests(String propertyId) async {
-    final url =
-        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final body = jsonEncode({
-      'structuredQuery': {
-        'from': [
-          {'collectionId': 'property_requests'},
-        ],
-        'where': {
-          'compositeFilter': {
-            'op': 'AND',
-            'filters': [
-              {
-                'fieldFilter': {
-                  'field': {'fieldPath': 'propertyId'},
-                  'op': 'EQUAL',
-                  'value': {'stringValue': propertyId},
-                },
-              },
-              {
-                'fieldFilter': {
-                  'field': {'fieldPath': 'status'},
-                  'op': 'EQUAL',
-                  'value': {'stringValue': 'Approved'},
-                },
-              },
-            ],
-          },
-        },
-      },
-    });
-
-    final req = await http.post(Uri.parse(url), headers: headers, body: body);
-    if (req.statusCode >= 400) return [];
-
-    final List<dynamic> results = jsonDecode(req.body);
-    final list = <Map<String, dynamic>>[];
-    for (final r in results) {
-      if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map;
-        final name = doc['name'] as String;
-        final docId = name.split('/').last;
-        final data = _fromFirestoreDoc(doc);
-        data['id'] = docId;
-        list.add(data);
-      }
-    }
-    return list;
+    return getApprovedRequestsForProperty(propertyId);
   }
 
   /// Fetch pending property requests for a host

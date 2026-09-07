@@ -1126,5 +1126,371 @@ void main() {
         );
       });
     });
+
+    group('Host Manage Rental View & Booking Availability Synchronization Tests', () {
+      test('AC1 & AC5: Vehicle and Property requests across all states are returned for Host Manage Rental', () async {
+        // Vehicle requests
+        firestore.db['rental_requests/v_req_1'] = {
+          'id': 'v_req_1',
+          'rentalId': 'vehicle_101',
+          'renteeId': 'renter_a',
+          'renteeName': 'Alice',
+          'status': 'Pending',
+          'startDate': DateTime(2026, 9, 10).millisecondsSinceEpoch,
+          'endDate': DateTime(2026, 9, 15).millisecondsSinceEpoch,
+          'totalCost': 5000.0,
+        };
+        firestore.db['rental_requests/v_req_2'] = {
+          'id': 'v_req_2',
+          'rentalId': 'vehicle_101',
+          'renteeId': 'renter_b',
+          'renteeName': 'Bob',
+          'status': 'Approved',
+          'startDate': DateTime(2026, 9, 20).millisecondsSinceEpoch,
+          'endDate': DateTime(2026, 9, 25).millisecondsSinceEpoch,
+          'totalCost': 6000.0,
+        };
+        // Unrelated vehicle request
+        firestore.db['rental_requests/v_req_other'] = {
+          'id': 'v_req_other',
+          'rentalId': 'vehicle_other',
+          'renteeId': 'renter_c',
+          'status': 'Pending',
+        };
+
+        // Property requests
+        firestore.db['property_requests/p_req_1'] = {
+          'id': 'p_req_1',
+          'propertyId': 'prop_201',
+          'renteeId': 'tenant_x',
+          'renteeName': 'Tenant X',
+          'status': 'Pending',
+          'startDate': DateTime(2026, 10, 1).millisecondsSinceEpoch,
+          'endDate': DateTime(2026, 11, 1).millisecondsSinceEpoch,
+          'totalCost': 25000.0,
+        };
+        firestore.db['property_requests/p_req_2'] = {
+          'id': 'p_req_2',
+          'propertyId': 'prop_201',
+          'renteeId': 'tenant_y',
+          'renteeName': 'Tenant Y',
+          'status': 'Active',
+          'startDate': DateTime(2026, 9, 1).millisecondsSinceEpoch,
+          'endDate': DateTime(2026, 9, 30).millisecondsSinceEpoch,
+          'totalCost': 25000.0,
+        };
+
+        final vRequests = await repo.getAllRequestsForVehicle('vehicle_101');
+        expect(vRequests.length, equals(2));
+        expect(vRequests.map((r) => r['id']), containsAll(['v_req_1', 'v_req_2']));
+
+        final pRequests = await repo.getAllRequestsForProperty('prop_201');
+        expect(pRequests.length, equals(2));
+        expect(pRequests.map((r) => r['id']), containsAll(['p_req_1', 'p_req_2']));
+      });
+
+      test('AC4: Newly created pending vehicle booking immediately locks calendar dates', () async {
+        firestore.db['rentals/vehicle_avail'] = {
+          'id': 'vehicle_avail',
+          'status': 'Available',
+        };
+        final sept10 = DateTime(2026, 9, 10, 10, 0).millisecondsSinceEpoch;
+        final sept15 = DateTime(2026, 9, 15, 10, 0).millisecondsSinceEpoch;
+
+        firestore.db['rental_requests/req_pending_vehicle'] = {
+          'id': 'req_pending_vehicle',
+          'rentalId': 'vehicle_avail',
+          'renteeId': 'renter_new',
+          'status': 'Pending',
+          'startDate': sept10,
+          'endDate': sept15,
+          'totalCost': 4000.0,
+        };
+
+        final approvedOrPending = await repo.getApprovedRequestsForVehicle('vehicle_avail');
+        expect(approvedOrPending.length, equals(1));
+        expect(approvedOrPending.first['id'], equals('req_pending_vehicle'));
+
+        // Verify calendar date check locks Sept 10 to 15
+        final ranges = approvedOrPending.map((m) => BookingDateRange.fromMap(m)).toList();
+        expect(
+          BookingAvailabilityHelper.isDateBooked(DateTime(2026, 9, 12), ranges),
+          isTrue,
+        );
+        expect(
+          BookingAvailabilityHelper.isDateBooked(DateTime(2026, 9, 16), ranges),
+          isFalse,
+        );
+      });
+
+      test('AC4: Newly created pending property booking immediately locks calendar dates', () async {
+        firestore.db['properties/prop_avail'] = {
+          'id': 'prop_avail',
+          'status': 'Available',
+        };
+        final oct1 = DateTime(2026, 10, 1).millisecondsSinceEpoch;
+        final oct15 = DateTime(2026, 10, 15).millisecondsSinceEpoch;
+
+        firestore.db['property_requests/req_pending_prop'] = {
+          'id': 'req_pending_prop',
+          'propertyId': 'prop_avail',
+          'renteeId': 'tenant_new',
+          'status': 'Pending',
+          'startDate': oct1,
+          'endDate': oct15,
+          'totalCost': 15000.0,
+        };
+
+        final approvedOrPending = await repo.getApprovedRequestsForProperty('prop_avail');
+        expect(approvedOrPending.length, equals(1));
+        expect(approvedOrPending.first['id'], equals('req_pending_prop'));
+
+        final ranges = approvedOrPending.map((m) => BookingDateRange.fromMap(m)).toList();
+        expect(
+          BookingAvailabilityHelper.isDateBooked(DateTime(2026, 10, 5), ranges),
+          isTrue,
+        );
+        expect(
+          BookingAvailabilityHelper.isDateBooked(DateTime(2026, 10, 20), ranges),
+          isFalse,
+        );
+      });
+
+      test('AC6: Completed/Cancelled bookings do not lock calendar but are preserved in records', () async {
+        firestore.db['rentals/v_history'] = {
+          'id': 'v_history',
+          'status': 'Available',
+        };
+        firestore.db['rental_requests/req_done'] = {
+          'id': 'req_done',
+          'rentalId': 'v_history',
+          'status': 'Completed',
+          'startDate': DateTime(2026, 8, 1).millisecondsSinceEpoch,
+          'endDate': DateTime(2026, 8, 5).millisecondsSinceEpoch,
+        };
+        firestore.db['rental_requests/req_cancelled'] = {
+          'id': 'req_cancelled',
+          'rentalId': 'v_history',
+          'status': 'Cancelled',
+          'startDate': DateTime(2026, 9, 1).millisecondsSinceEpoch,
+          'endDate': DateTime(2026, 9, 5).millisecondsSinceEpoch,
+        };
+
+        // Host manage rental sees both records
+        final all = await repo.getAllRequestsForVehicle('v_history');
+        expect(all.length, equals(2));
+
+        // Availability ignores completed and cancelled bookings
+        final blocking = await repo.getApprovedRequestsForVehicle('v_history');
+        expect(blocking, isEmpty);
+      });
+    });
+
+    group('Stop Receiving Bookings & Safe Listing Deletion Tests (AC1-AC8)', () {
+      test('AC1 & AC7: Host can pause future bookings and resume them for vehicles and properties', () async {
+        firestore.db['rentals/v_pause'] = {
+          'id': 'v_pause',
+          'status': 'Available',
+          'acceptingBookings': true,
+        };
+        firestore.db['properties/p_pause'] = {
+          'id': 'p_pause',
+          'status': 'Available',
+          'acceptingBookings': true,
+        };
+
+        // Pause vehicle bookings
+        await repo.setVehicleAcceptingBookings('v_pause', false);
+        expect(firestore.db['rentals/v_pause']!['status'], equals('Not Accepting Bookings'));
+        expect(firestore.db['rentals/v_pause']!['acceptingBookings'], isFalse);
+
+        // Resume vehicle bookings
+        await repo.setVehicleAcceptingBookings('v_pause', true);
+        expect(firestore.db['rentals/v_pause']!['status'], equals('Available'));
+        expect(firestore.db['rentals/v_pause']!['acceptingBookings'], isTrue);
+
+        // Pause property bookings
+        await repo.setPropertyAcceptingBookings('p_pause', false);
+        expect(firestore.db['properties/p_pause']!['status'], equals('Not Accepting Bookings'));
+        expect(firestore.db['properties/p_pause']!['acceptingBookings'], isFalse);
+
+        // Resume property bookings
+        await repo.setPropertyAcceptingBookings('p_pause', true);
+        expect(firestore.db['properties/p_pause']!['status'], equals('Available'));
+        expect(firestore.db['properties/p_pause']!['acceptingBookings'], isTrue);
+      });
+
+      test('AC1 & AC7: Booking requests are strictly blocked when listing is paused / not accepting bookings', () async {
+        firestore.db['users/renter1'] = {
+          'name': 'Renter User',
+          'email': 'renter@tranyx.com',
+          'tyxBalance': 10000.0,
+        };
+        firestore.db['rentals/v_paused_booking'] = {
+          'id': 'v_paused_booking',
+          'status': 'Not Accepting Bookings',
+          'acceptingBookings': false,
+          'priceDaily': 1500.0,
+          'hostId': 'host1',
+        };
+        firestore.db['properties/p_paused_booking'] = {
+          'id': 'p_paused_booking',
+          'status': 'Not Accepting Bookings',
+          'acceptingBookings': false,
+          'priceMonthly': 25000.0,
+          'hostId': 'host1',
+        };
+
+        // Vehicle request should fail
+        expect(
+          () => repo.createBookingRequest(
+            rentalId: 'v_paused_booking',
+            renteeId: 'renter1',
+            renteeName: 'Renter User',
+            renteePhotoUrl: null,
+            durationType: 'daily',
+            multiplier: 4,
+            totalCost: 6000.0,
+            hireWithDriver: false,
+            rentalType: 'self_drive',
+            deliveryAddress: null,
+            startDate: DateTime(2026, 11, 1).millisecondsSinceEpoch,
+            endDate: DateTime(2026, 11, 5).millisecondsSinceEpoch,
+          ),
+          throwsA(predicate((e) => e.toString().contains('not accepting new bookings'))),
+        );
+
+        // Property request should fail
+        expect(
+          () => repo.createPropertyBookingRequest(
+            propertyId: 'p_paused_booking',
+            renteeId: 'renter1',
+            renteeName: 'Renter User',
+            renteePhotoUrl: null,
+            contractType: 'Standard',
+            contractTerms: 'Terms',
+            startDate: DateTime(2026, 11, 1).millisecondsSinceEpoch,
+            endDate: DateTime(2026, 12, 1).millisecondsSinceEpoch,
+            totalCost: 25000.0,
+            durationType: 'monthly',
+            multiplier: 1,
+          ),
+          throwsA(predicate((e) => e.toString().contains('not accepting new bookings'))),
+        );
+      });
+
+      test('AC4: Deleting listing is BLOCKED when pending requests exist (Vehicles & Properties)', () async {
+        firestore.db['rentals/v_has_pending'] = {
+          'id': 'v_has_pending',
+          'status': 'Available',
+          'acceptingBookings': true,
+        };
+        firestore.db['rental_requests/req_pending_1'] = {
+          'id': 'req_pending_1',
+          'rentalId': 'v_has_pending',
+          'status': 'Pending',
+        };
+
+        firestore.db['properties/p_has_pending'] = {
+          'id': 'p_has_pending',
+          'status': 'Available',
+          'acceptingBookings': true,
+        };
+        firestore.db['property_requests/req_pending_2'] = {
+          'id': 'req_pending_2',
+          'propertyId': 'p_has_pending',
+          'status': 'pending',
+        };
+
+        // Vehicle delete blocked
+        expect(
+          () => repo.deleteRental('v_has_pending'),
+          throwsA(predicate((e) => e.toString().contains('Please accept or reject all pending requests'))),
+        );
+        expect(firestore.db['rentals/v_has_pending']!['status'], equals('Available'));
+
+        // Property delete blocked
+        expect(
+          () => repo.deletePropertyRental('p_has_pending'),
+          throwsA(predicate((e) => e.toString().contains('Please accept or reject all pending requests'))),
+        );
+        expect(firestore.db['properties/p_has_pending']!['status'], equals('Available'));
+      });
+
+      test('AC2, AC3, AC5, AC6, AC8: Deleting listing with confirmed bookings soft-deletes/archives listing, preserves bookings/contracts, and does not refund listing fee', () async {
+        firestore.db['users/host_owner'] = {
+          'name': 'Owner Host',
+          'tyxBalance': 1000.0,
+        };
+        firestore.db['rentals/v_with_confirmed'] = {
+          'id': 'v_with_confirmed',
+          'hostId': 'host_owner',
+          'status': 'Available',
+          'acceptingBookings': true,
+          'priceDaily': 2000.0,
+        };
+        firestore.db['transactions/tx_fee'] = {
+          'rentalId': 'v_with_confirmed',
+          'type': 'listing_fee',
+          'amount': 30.0,
+        };
+        firestore.db['rental_requests/req_confirmed_1'] = {
+          'id': 'req_confirmed_1',
+          'rentalId': 'v_with_confirmed',
+          'status': 'Approved',
+          'startDate': DateTime(2026, 12, 1).millisecondsSinceEpoch,
+          'endDate': DateTime(2026, 12, 5).millisecondsSinceEpoch,
+        };
+
+        // Delete vehicle with confirmed booking
+        await repo.deleteRental('v_with_confirmed');
+
+        // Listing is soft-deleted / archived
+        final deletedVehicle = firestore.db['rentals/v_with_confirmed']!;
+        expect(deletedVehicle['status'], equals('Archived'));
+        expect(deletedVehicle['isDeleted'], isTrue);
+        expect(deletedVehicle['acceptingBookings'], isFalse);
+
+        // Listing fee is NOT refunded because confirmed bookings exist
+        final host = firestore.db['users/host_owner']!;
+        expect(host['tyxBalance'], equals(1000.0));
+
+        // Confirmed requests are preserved and queryable
+        final allRequests = await repo.getAllRequestsForVehicle('v_with_confirmed');
+        expect(allRequests.length, equals(1));
+        expect(allRequests.first['id'], equals('req_confirmed_1'));
+      });
+
+      test('AC8: Deleting clean listing with no bookings refunds listing fee and soft-deletes', () async {
+        firestore.db['users/host_clean'] = {
+          'name': 'Clean Host',
+          'tyxBalance': 500.0,
+        };
+        firestore.db['rentals/v_clean'] = {
+          'id': 'v_clean',
+          'hostId': 'host_clean',
+          'status': 'Available',
+          'acceptingBookings': true,
+          'priceDaily': 2000.0,
+        };
+        firestore.db['transactions/tx_clean_fee'] = {
+          'rentalId': 'v_clean',
+          'type': 'listing_fee',
+          'amount': 30.0,
+        };
+
+        // Delete clean vehicle
+        await repo.deleteRental('v_clean');
+
+        final deletedVehicle = firestore.db['rentals/v_clean']!;
+        expect(deletedVehicle['status'], equals('Archived'));
+        expect(deletedVehicle['isDeleted'], isTrue);
+        expect(deletedVehicle['acceptingBookings'], isFalse);
+
+        // Listing fee IS refunded
+        final host = firestore.db['users/host_clean']!;
+        expect(host['tyxBalance'], equals(530.0));
+      });
+    });
   });
 }

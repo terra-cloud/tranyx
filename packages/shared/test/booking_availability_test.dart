@@ -169,6 +169,29 @@ void main() {
       expect(conflictIds, isNot(contains('req_non_overlap_future')));
     });
 
+    test('AC4: Newly created pending booking immediately occupies availability', () {
+      final pendingBooking = BookingDateRange(
+        id: 'req_pending_1',
+        startMs: DateTime(2026, 9, 10, 10, 0).millisecondsSinceEpoch,
+        endMs: DateTime(2026, 9, 15, 10, 0).millisecondsSinceEpoch,
+        status: 'Pending',
+      );
+
+      expect(pendingBooking.isConfirmedBooking, isTrue);
+
+      final ranges = [pendingBooking];
+      // Sept 10 to 15 must be unavailable
+      expect(
+        BookingAvailabilityHelper.isDateBooked(DateTime(2026, 9, 12), ranges),
+        isTrue,
+      );
+      // Sept 16 must be available
+      expect(
+        BookingAvailabilityHelper.isDateBooked(DateTime(2026, 9, 16), ranges),
+        isFalse,
+      );
+    });
+
     test('AC6: Completed or cancelled bookings do not block availability', () {
       final completedBooking = BookingDateRange(
         id: 'past_1',

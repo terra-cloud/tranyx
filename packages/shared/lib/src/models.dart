@@ -939,6 +939,8 @@ class VehicleRental {
   final double pickupLat;
   final double pickupLng;
   final DateTime createdAt;
+  final bool acceptingBookings;
+  final bool isDeleted;
 
   const VehicleRental({
     required this.id,
@@ -998,6 +1000,8 @@ class VehicleRental {
     required this.pickupLat,
     required this.pickupLng,
     required this.createdAt,
+    this.acceptingBookings = true,
+    this.isDeleted = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -1029,6 +1033,8 @@ class VehicleRental {
       'extensionRatePerHour': extensionRatePerHour,
       'latePenaltyRatePerHour': latePenaltyRatePerHour,
       'status': status,
+      'acceptingBookings': acceptingBookings,
+      'isDeleted': isDeleted,
       'fuelType': fuelType,
       'transmission': transmission,
       'offersDriver': offersDriver,
@@ -1067,6 +1073,10 @@ class VehicleRental {
       (e) => e.name == map['type'],
       orElse: () => VehicleType.car,
     );
+    final rawStatus = (map['status'] ?? 'Available').toString();
+    final isDel = map['isDeleted'] as bool? ?? (rawStatus == 'Archived' || rawStatus == 'Deleted');
+    final isAccepting = map['acceptingBookings'] as bool? ?? (rawStatus != 'Not Accepting Bookings');
+
     return VehicleRental(
       id: id,
       hostId: map['hostId'] ?? '',
@@ -1098,7 +1108,9 @@ class VehicleRental {
           (map['extensionRatePerHour'] as num?)?.toDouble() ?? 0.0,
       latePenaltyRatePerHour:
           (map['latePenaltyRatePerHour'] as num?)?.toDouble() ?? 0.0,
-      status: map['status'] ?? 'Available',
+      status: rawStatus,
+      acceptingBookings: isAccepting,
+      isDeleted: isDel,
       fuelType: map['fuelType'] as String?,
       transmission: map['transmission'] as String?,
       offersDriver: map['offersDriver'] as bool? ?? false,
@@ -1192,6 +1204,8 @@ class PropertyRental {
   final String? rentalDurationType;
   final String? signatureHash;
   final String? renteeLicenseNumber;
+  final bool acceptingBookings;
+  final bool isDeleted;
 
   double get dailyRate => priceDaily;
   double get weeklyRate => priceWeekly;
@@ -1245,6 +1259,8 @@ class PropertyRental {
     this.rentalDurationType,
     this.signatureHash,
     this.renteeLicenseNumber,
+    this.acceptingBookings = true,
+    this.isDeleted = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -1277,6 +1293,8 @@ class PropertyRental {
       'photoUrls': photoUrls,
       'amenities': amenities,
       'status': status,
+      'acceptingBookings': acceptingBookings,
+      'isDeleted': isDeleted,
       'contractType': contractType,
       'contractTerms': contractTerms,
       'createdAt': createdAt.millisecondsSinceEpoch,
@@ -1335,6 +1353,10 @@ class PropertyRental {
       dVal = (map['depositMonths'] as num).toDouble() * monthly;
     }
 
+    final rawStatus = (map['status'] ?? 'Available').toString();
+    final isDel = map['isDeleted'] as bool? ?? (rawStatus == 'Archived' || rawStatus == 'Deleted');
+    final isAccepting = map['acceptingBookings'] as bool? ?? (rawStatus != 'Not Accepting Bookings');
+
     return PropertyRental(
       id: id,
       hostId: map['hostId'] ?? '',
@@ -1359,7 +1381,9 @@ class PropertyRental {
       longitude: (map['longitude'] as num?)?.toDouble() ?? 0.0,
       photoUrls: List<String>.from(map['photoUrls'] ?? []),
       amenities: List<String>.from(map['amenities'] ?? []),
-      status: map['status'] ?? 'Available',
+      status: rawStatus,
+      acceptingBookings: isAccepting,
+      isDeleted: isDel,
       contractType: map['contractType'] ?? 'tranyx',
       contractTerms: map['contractTerms'] ?? '',
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
