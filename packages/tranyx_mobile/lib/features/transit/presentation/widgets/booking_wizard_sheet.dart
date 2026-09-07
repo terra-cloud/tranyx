@@ -32,6 +32,89 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
   bool _hireWithDriver = false;
   String _rentalType = 'pickup'; // 'pickup' or 'delivery'
   late DateTime _startDate;
+  List<Map<String, dynamic>> _approvedRequests = [];
+  bool _isLoadingApprovedRequests = false;
+
+  bool _isDateBooked(DateTime date) {
+    final startOfDayMs = DateTime(date.year, date.month, date.day, 0, 0, 0).millisecondsSinceEpoch;
+    final endOfDayMs = DateTime(date.year, date.month, date.day, 23, 59, 59).millisecondsSinceEpoch;
+    for (final req in _approvedRequests) {
+      final start = req['startDate'] as int?;
+      final end = req['endDate'] as int?;
+      if (start != null && end != null) {
+        if (endOfDayMs >= start && startOfDayMs <= end) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  DateTime _calculateNextAvailableStartDate() {
+    final now = DateTime.now();
+    DateTime candidate = DateTime(now.year, now.month, now.day, now.hour + 1, 0);
+    if (candidate.hour == 0) {
+      candidate = DateTime(now.year, now.month, now.day + 1, 9, 0);
+    }
+    while (true) {
+      if (!_isDateBooked(candidate)) {
+        return candidate;
+      }
+      candidate = DateTime(candidate.year, candidate.month, candidate.day + 1, candidate.hour, candidate.minute);
+    }
+  }
+
+  List<DateTime> get _conflictingDates {
+    final conflicts = <DateTime>[];
+    final end = _calculatedEndDate;
+    DateTime curr = DateTime(_startDate.year, _startDate.month, _startDate.day);
+    final endDay = DateTime(end.year, end.month, end.day);
+    while (!curr.isAfter(endDay)) {
+      if (_isDateBooked(curr)) {
+        conflicts.add(curr);
+      }
+      curr = curr.add(const Duration(days: 1));
+    }
+    return conflicts;
+  }
+
+  bool get _hasBookingOverlap {
+    final startMs = _startDate.millisecondsSinceEpoch;
+    final endMs = _calculatedEndDate.millisecondsSinceEpoch;
+    for (final req in _approvedRequests) {
+      final reqStart = req['startDate'] as int?;
+      final reqEnd = req['endDate'] as int?;
+      if (reqStart != null && reqEnd != null) {
+        if (startMs < reqEnd && endMs > reqStart) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void _loadApprovedRequests() async {
+    setState(() => _isLoadingApprovedRequests = true);
+    try {
+      final repo = ref.read(transitRepositoryProvider);
+      final id = widget.item['id'] as String;
+      final reqs = widget.isProperty
+          ? await repo.getApprovedRequestsForProperty(id)
+          : await repo.getApprovedRequestsForVehicle(id);
+      if (mounted) {
+        setState(() {
+          _approvedRequests = reqs;
+          if (_isDateBooked(_startDate) || _hasBookingOverlap) {
+            _startDate = _calculateNextAvailableStartDate();
+          }
+        });
+      }
+    } catch (e) {
+      print('Error loading approved requests: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingApprovedRequests = false);
+    }
+  }
 
   bool _isProcessing = false;
   Promo? _appliedPromo;
@@ -86,6 +169,7 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadAutoApplyPromo();
+      _loadApprovedRequests();
     });
   }
 
@@ -601,15 +685,15 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Row(
+                          Row(
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.calendar_month,
                                 size: 16,
                                 color: AppColors.indigo,
                               ),
-                              SizedBox(width: 8),
-                              Text(
+                              const SizedBox(width: 8),
+                              const Text(
                                 'RESERVATION SCHEDULE & START DATE',
                                 style: TextStyle(
                                   fontSize: 11,
@@ -618,6 +702,17 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                   letterSpacing: 0.5,
                                 ),
                               ),
+                              if (_isLoadingApprovedRequests) ...[
+                                const SizedBox(width: 8),
+                                const SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.indigo,
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                           const SizedBox(height: 12),
@@ -627,19 +722,22 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                 child: InkWell(
                                   onTap: () async {
                                     final now = DateTime.now();
+                                    final firstDay = DateTime(
+                                      now.year,
+                                      now.month,
+                                      now.day,
+                                    );
+                                    final initialDay = _startDate.isBefore(firstDay)
+                                        ? firstDay
+                                        : _startDate;
                                     final picked = await showDatePicker(
                                       context: context,
-                                      initialDate: _startDate.isBefore(now)
-                                          ? now
-                                          : _startDate,
-                                      firstDate: DateTime(
-                                        now.year,
-                                        now.month,
-                                        now.day,
-                                      ),
+                                      initialDate: initialDay,
+                                      firstDate: firstDay,
                                       lastDate: now.add(
                                         const Duration(days: 365),
                                       ),
+                                      selectableDayPredicate: (DateTime day) => !_isDateBooked(day),
                                       helpText:
                                           'Select Reservation Start Date',
                                     );
@@ -816,6 +914,40 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                               ],
                             ),
                           ),
+                          if (_hasBookingOverlap) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: Colors.red.withValues(alpha: 0.4),
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(
+                                    Icons.error_outline,
+                                    color: Colors.red,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Selected duration overlaps with an existing reservation on ${_conflictingDates.map((d) => DateFormat('MMM d').format(d)).join(', ')}. Please choose different dates.',
+                                      style: const TextStyle(
+                                        color: Colors.red,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -1222,10 +1354,12 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                     _isProcessing
                         ? const Center(child: CircularProgressIndicator())
                         : UIHelpers.buildPrimaryButton(
-                            hasEnoughBalance
-                                ? 'Request Booking'
-                                : 'Insufficient Balance',
-                            hasEnoughBalance
+                            !hasEnoughBalance
+                                ? 'Insufficient Balance'
+                                : (_hasBookingOverlap
+                                    ? 'Dates Unavailable'
+                                    : 'Request Booking'),
+                            (hasEnoughBalance && !_hasBookingOverlap)
                                 ? () async {
                                     final bool requiresLicense =
                                         widget.isProperty || !_hireWithDriver;
@@ -1240,6 +1374,20 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                             widget.isProperty
                                                 ? 'Please enter your Government ID Number'
                                                 : "Driver's license number is required for self-drive bookings.",
+                                          ),
+                                          backgroundColor: Colors.red,
+                                        ),
+                                      );
+                                      return;
+                                    }
+
+                                    if (_hasBookingOverlap) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Selected duration overlaps with an existing reservation on ${_conflictingDates.map((d) => DateFormat('MMM d').format(d)).join(', ')}. Please choose different dates.',
                                           ),
                                           backgroundColor: Colors.red,
                                         ),

@@ -2002,6 +2002,14 @@ class FirestoreService {
     };
     await setDocument('rental_history/$historyId', historyDoc);
 
+    // Mark current request in rental_requests as Completed
+    final currentRequestId = rentalDoc['currentRequestId'] as String?;
+    if (currentRequestId != null && currentRequestId.isNotEmpty) {
+      try {
+        await setDocument('rental_requests/$currentRequestId', {'status': 'Completed'});
+      } catch (_) {}
+    }
+
     // Reset the rental listing document status back to Available and clear rentee fields
     await setDocument('rentals/$rentalId', {
       'status': 'Available',
@@ -2018,6 +2026,7 @@ class FirestoreService {
       'signedAt': 0,
       'trackingLat': 0.0,
       'trackingLng': 0.0,
+      'currentRequestId': '',
     });
 
     // Notifications
@@ -2060,8 +2069,14 @@ class FirestoreService {
     if (rentalDoc == null) throw Exception('Rental listing not found.');
     final rental = VehicleRental.fromMap(rentalDoc, rentalId);
 
-    if (rental.status != 'Available') {
-      throw Exception('Vehicle is no longer available.');
+    if (rental.status == 'Inactive' || rental.status == 'Unpublished' || rental.status == 'Archived') {
+      throw Exception('Vehicle is no longer listed for rent.');
+    }
+
+    final approvedReqs = await getApprovedRequestsForVehicle(rentalId);
+    final approvedRanges = approvedReqs.map((m) => BookingDateRange.fromMap(m)).toList();
+    if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
+      throw Exception('Selected dates overlap with an existing confirmed rental.');
     }
 
     final rentee = await getUser(renteeId);
@@ -2184,8 +2199,20 @@ class FirestoreService {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
     final rental = VehicleRental.fromMap(rentalDoc, rentalId);
-    if (rental.status != 'Available') {
-      throw Exception('Vehicle is no longer available (already booked).');
+
+    final startDate = getEpochMs(reqDoc['startDate']);
+    final endDate = getEpochMs(reqDoc['endDate']);
+
+    // Verify that this requested date range does not overlap with an already approved booking
+    if (startDate > 0 && endDate > 0) {
+      final existingApproved = await getApprovedRequestsForVehicle(rentalId);
+      final approvedRanges = existingApproved
+          .where((r) => r['id'] != requestId)
+          .map((m) => BookingDateRange.fromMap(m))
+          .toList();
+      if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
+        throw Exception('Cannot approve booking: selected dates overlap with an already confirmed rental.');
+      }
     }
 
     final renteeId = reqDoc['renteeId'] as String;
@@ -2196,9 +2223,8 @@ class FirestoreService {
     final hireWithDriver = reqDoc['hireWithDriver'] as bool? ?? false;
     final rentalType = reqDoc['rentalType'] as String? ?? 'pickup';
     final deliveryAddress = reqDoc['deliveryAddress'] as String? ?? '';
-    final startDate = (reqDoc['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
-    final endDate =
-        (reqDoc['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
+    final startDateInt = startDate;
+    final endDateInt = endDate;
 
     // 1. Approve this request
     await setDocument('rental_requests/$requestId', {'status': 'Approved'});
@@ -2228,8 +2254,8 @@ class FirestoreService {
       'renteePhotoUrl': reqDoc['renteePhotoUrl'] ?? '',
       'rentalDurationType': durationType,
       'rentalMultiplier': multiplier,
-      'startDate': startDate,
-      'endDate': endDate,
+      'startDate': startDateInt,
+      'endDate': endDateInt,
       'totalCost': totalCost,
       'bookingFee': reqBookingFee,
       'renteeSignatureName': '',
@@ -2250,15 +2276,20 @@ class FirestoreService {
       'renteeVerificationTier': reqDoc['renteeVerificationTier'] ?? 'None',
     });
 
-    // 4. Reject all other pending requests for the same vehicle
+    // 4. Selectively reject only other pending requests that overlap with the approved dates
     final allRequests = await getPendingRequestsForVehicle(rentalId);
-    for (final otherReq in allRequests) {
+    final conflictingRequests = BookingAvailabilityHelper.filterConflictingRequests(
+      startDateInt,
+      endDateInt,
+      allRequests,
+      currentRequestId: requestId,
+    );
+    for (final otherReq in conflictingRequests) {
       final otherReqId = otherReq['id'] as String;
-      if (otherReqId == requestId) continue;
       try {
         await rejectBookingRequest(otherReqId);
       } catch (e) {
-        print('Error rejecting other request $otherReqId: $e');
+        print('Error rejecting conflicting request $otherReqId: $e');
       }
     }
 
@@ -2831,7 +2862,180 @@ class FirestoreService {
         list.add(data);
       }
     }
+
+    try {
+      final rentalDoc = await getDocument('rentals/$rentalId');
+      if (rentalDoc != null) {
+        final rStatus = rentalDoc['status']?.toString() ?? '';
+        final start = getEpochMs(rentalDoc['startDate']);
+        final end = getEpochMs(rentalDoc['endDate']);
+        if (start > 0 && end > 0 && rStatus != 'Available' && rStatus != 'Completed' && rStatus != 'Cancelled') {
+          final alreadyIncluded = list.any((item) => item['startDate'] == start && item['endDate'] == end);
+          if (!alreadyIncluded) {
+            list.add({
+              'id': 'active_listing_$rentalId',
+              'rentalId': rentalId,
+              'startDate': start,
+              'endDate': end,
+              'status': rStatus,
+            });
+          }
+        }
+      }
+    } catch (_) {}
+
     return list;
+  }
+
+  /// Fetch all approved requests for a specific property
+  Future<List<Map<String, dynamic>>> getApprovedRequestsForProperty(String propertyId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'property_requests'},
+        ],
+        'where': {
+          'compositeFilter': {
+            'op': 'AND',
+            'filters': [
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'propertyId'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': propertyId},
+                },
+              },
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'status'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': 'Approved'},
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    final list = <Map<String, dynamic>>[];
+    if (req.statusCode < 400) {
+      final List<dynamic> results = jsonDecode(req.body);
+      for (final r in results) {
+        if (r is Map && r.containsKey('document')) {
+          final doc = r['document'] as Map;
+          final name = doc['name'] as String;
+          final docId = name.split('/').last;
+          final data = _fromFirestoreDoc(doc);
+          data['id'] = docId;
+          list.add(data);
+        }
+      }
+    }
+
+    try {
+      final propDoc = await getDocument('properties/$propertyId');
+      if (propDoc != null) {
+        final pStatus = propDoc['status']?.toString() ?? '';
+        final start = getEpochMs(propDoc['startDate']);
+        final end = getEpochMs(propDoc['endDate']);
+        if (start > 0 && end > 0 && pStatus != 'Available' && pStatus != 'Completed' && pStatus != 'Cancelled') {
+          final alreadyIncluded = list.any((item) => item['startDate'] == start && item['endDate'] == end);
+          if (!alreadyIncluded) {
+            list.add({
+              'id': 'active_listing_$propertyId',
+              'propertyId': propertyId,
+              'startDate': start,
+              'endDate': end,
+              'status': pStatus,
+            });
+          }
+        }
+      }
+    } catch (_) {}
+
+    return list;
+  }
+
+  /// Fetch all requests (any status) for a specific vehicle to verify reservation/booking history
+  Future<List<Map<String, dynamic>>> getAllRequestsForVehicle(String rentalId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'rental_requests'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'rentalId'},
+            'op': 'EQUAL',
+            'value': {'stringValue': rentalId},
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map;
+        final name = doc['name'] as String;
+        final docId = name.split('/').last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        list.add(data);
+      }
+    }
+    return list;
+  }
+
+  /// Update vehicle rental posting details
+  /// Strictly allowed ONLY IF there are no records of reservations or bookings for this unit
+  Future<void> updateVehicleRental(
+    String rentalId,
+    VehicleRental updatedRental, {
+    String? gpsTrackerId,
+    List<String>? extraPhotos,
+  }) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Vehicle listing not found.');
+
+    final existing = VehicleRental.fromMap(rentalDoc, rentalId);
+    if (existing.status != 'Available' || (existing.renteeId != null && existing.renteeId!.isNotEmpty)) {
+      throw Exception('Cannot edit a vehicle listing that is currently rented or active.');
+    }
+
+    // Strict rule: Edit only if NO records of reservations or bookings exist
+    final allRequests = await getAllRequestsForVehicle(rentalId);
+    if (allRequests.isNotEmpty) {
+      throw Exception('Cannot edit vehicle listing: Records of reservations or bookings exist for this unit.');
+    }
+
+    final updatedMap = updatedRental.toMap();
+    updatedMap['id'] = rentalId;
+    updatedMap['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+    if (gpsTrackerId != null && gpsTrackerId.trim().isNotEmpty) {
+      updatedMap['gpsTrackerId'] = gpsTrackerId.trim();
+    }
+    if (extraPhotos != null) {
+      updatedMap['extraPhotos'] = extraPhotos.where((url) => url.isNotEmpty).toList();
+    }
+
+    await setDocument('rentals/$rentalId', updatedMap);
   }
 
   /// Fetch all pending extensions for a specific vehicle
@@ -3266,8 +3470,14 @@ class FirestoreService {
     if (propDoc == null) throw Exception('Property listing not found.');
     final property = PropertyRental.fromMap(propDoc, propertyId);
 
-    if (property.status != 'Available') {
-      throw Exception('Property is no longer available.');
+    if (property.status == 'Inactive' || property.status == 'Unpublished' || property.status == 'Archived') {
+      throw Exception('Property is no longer listed for rent.');
+    }
+
+    final approvedReqs = await getApprovedRequestsForProperty(propertyId);
+    final approvedRanges = approvedReqs.map((m) => BookingDateRange.fromMap(m)).toList();
+    if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
+      throw Exception('Selected dates overlap with an existing confirmed rental.');
     }
 
     final rentee = await getUser(renteeId);
@@ -3444,8 +3654,19 @@ class FirestoreService {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
     final property = PropertyRental.fromMap(propDoc, propertyId);
-    if (property.status != 'Available') {
-      throw Exception('Property is no longer available (already rented).');
+
+    final startDate = getEpochMs(reqDoc['startDate']);
+    final endDate = getEpochMs(reqDoc['endDate']);
+
+    if (startDate > 0 && endDate > 0) {
+      final existingApproved = await getApprovedRequestsForProperty(propertyId);
+      final approvedRanges = existingApproved
+          .where((r) => r['id'] != requestId)
+          .map((m) => BookingDateRange.fromMap(m))
+          .toList();
+      if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
+        throw Exception('Cannot approve booking: selected dates overlap with an already confirmed rental.');
+      }
     }
 
     final renteeId = reqDoc['renteeId'] as String;
@@ -3458,9 +3679,6 @@ class FirestoreService {
     final bookingFee = (reqDoc['customerPlatformFeeAmount'] as num?)?.toDouble() ?? (reqDoc['bookingFee'] as num? ?? 0.0).toDouble();
     final custFeeRate = (reqDoc['customerPlatformFeeRate'] as num?)?.toDouble() ?? 0.03;
     final hostCommRate = (reqDoc['hostCommissionRate'] as num?)?.toDouble() ?? 0.07;
-    final startDate = (reqDoc['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
-    final endDate =
-        (reqDoc['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 30)).millisecondsSinceEpoch;
 
     // 1. Approve request
     await setDocument('property_requests/$requestId', {'status': 'Approved'});
@@ -3515,15 +3733,22 @@ class FirestoreService {
       'renteeVerificationTier': reqDoc['renteeVerificationTier'] ?? 'None',
     });
 
-    // 4. Reject other requests
-    final allRequests = await getPropertyPendingRequestsForProperty(propertyId);
-    for (final otherReq in allRequests) {
-      final otherReqId = otherReq['id'] as String;
-      if (otherReqId == requestId) continue;
-      try {
-        await rejectPropertyBookingRequest(otherReqId);
-      } catch (e) {
-        print('Error rejecting other request $otherReqId: $e');
+    // 4. Selectively reject only other pending requests that overlap with the approved dates
+    if (startDate > 0 && endDate > 0) {
+      final allRequests = await getPropertyPendingRequestsForProperty(propertyId);
+      final conflictingRequests = BookingAvailabilityHelper.filterConflictingRequests(
+        startDate,
+        endDate,
+        allRequests,
+        currentRequestId: requestId,
+      );
+      for (final otherReq in conflictingRequests) {
+        final otherReqId = otherReq['id'] as String;
+        try {
+          await rejectPropertyBookingRequest(otherReqId);
+        } catch (e) {
+          print('Error rejecting conflicting property request $otherReqId: $e');
+        }
       }
     }
 
@@ -3818,9 +4043,32 @@ class FirestoreService {
     };
     await setDocument('property_history/$historyId', historyDoc);
 
-    // Update active property listing to Completed (does NOT reset to Available, preserving non-retention)
+    // Mark current request in property_requests as Completed
+    final currentRequestId = propDoc['currentRequestId'] as String?;
+    if (currentRequestId != null && currentRequestId.isNotEmpty) {
+      try {
+        await setDocument('property_requests/$currentRequestId', {'status': 'Completed'});
+      } catch (_) {}
+    }
+
+    // Reset active property listing to Available and clear active rentee fields
     await setDocument('properties/$propertyId', {
-      'status': 'Completed',
+      'status': 'Available',
+      'renteeId': '',
+      'renteeName': '',
+      'renteePhotoUrl': '',
+      'rentalDurationType': '',
+      'rentalMultiplier': 0,
+      'startDate': 0,
+      'endDate': 0,
+      'totalCost': 0.0,
+      'baseRentAmount': 0.0,
+      'securityDepositAmount': 0.0,
+      'bookingFee': 0.0,
+      'renteeSignatureName': '',
+      'signedAt': 0,
+      'currentRequestId': '',
+      'licenseNumber': '',
     });
 
     // Notifications

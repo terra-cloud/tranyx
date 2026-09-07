@@ -841,7 +841,8 @@ class _TransitViewState extends ConsumerState<TransitView> {
                       final rad = ref.watch(transitGeofenceRadiusProvider);
 
                       final filtered = rentals.where((r) {
-                        if (r.status != 'Available') return false;
+                        final status = r.status.toLowerCase();
+                        if (status == 'inactive' || status == 'unpublished' || status == 'archived' || status == 'deleted') return false;
                         if (r.hostId == userProfile.uid) return false;
 
                         if (sq.isNotEmpty) {
@@ -1071,7 +1072,8 @@ class _TransitViewState extends ConsumerState<TransitView> {
                       );
 
                       final filtered = props.where((p) {
-                        if (p.status != 'Available') return false;
+                        final status = p.status.toLowerCase();
+                        if (status == 'inactive' || status == 'unpublished' || status == 'archived' || status == 'deleted') return false;
                         if (p.hostId == userProfile.uid) return false;
 
                         if (sq.isNotEmpty) {
@@ -1485,10 +1487,14 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                                           ),
                                                     ),
                                                     child: Text(
-                                                      item.status.toUpperCase(),
-                                                      style: const TextStyle(
+                                                      item.status == 'Rented'
+                                                          ? 'ACTIVE • DATES AVAILABLE'
+                                                          : item.status.toUpperCase(),
+                                                      style: TextStyle(
                                                         fontSize: 9,
-                                                        color: Colors.purple,
+                                                        color: item.status == 'Rented'
+                                                            ? Colors.orange
+                                                            : Colors.purple,
                                                         fontWeight:
                                                             FontWeight.bold,
                                                       ),
@@ -1678,10 +1684,14 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                                           ),
                                                     ),
                                                     child: Text(
-                                                      item.status.toUpperCase(),
-                                                      style: const TextStyle(
+                                                      item.status == 'Rented'
+                                                          ? 'ACTIVE • DATES AVAILABLE'
+                                                          : item.status.toUpperCase(),
+                                                      style: TextStyle(
                                                         fontSize: 9,
-                                                        color: Colors.purple,
+                                                        color: item.status == 'Rented'
+                                                            ? Colors.orange
+                                                            : Colors.purple,
                                                         fontWeight:
                                                             FontWeight.bold,
                                                       ),

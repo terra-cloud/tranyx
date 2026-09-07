@@ -38,6 +38,7 @@ import '../client/components/extend_rental_modal.dart';
 import '../client/components/rental_tracker_map.dart';
 import '../client/components/manage_vehicle_modal.dart';
 import '../client/components/vehicle_qa_modal.dart';
+import '../client/components/edit_vehicle_modal.dart';
 import '../client/components/list_property_modal.dart';
 import '../client/components/book_property_modal.dart';
 import '../client/components/manage_property_modal.dart';
@@ -151,6 +152,7 @@ class TranyxAppState extends State<TranyxApp> {
   bool showRentalTrackerMap = false;
   bool showManageVehicleModal = false;
   bool showVehicleQaModal = false;
+  bool showEditVehicleModal = false;
   Map<String, dynamic>? selectedRentalData;
 
   // ── Property state ──────────────────────────────────────────
@@ -7268,6 +7270,10 @@ class TranyxAppState extends State<TranyxApp> {
       // Manage Vehicle modal overlay
       if (showManageVehicleModal)
         ManageVehicleModalComponent(appState: this, key: const ValueKey('manage-vehicle-modal')),
+
+      // Edit Vehicle modal overlay
+      if (showEditVehicleModal)
+        EditVehicleModalComponent(appState: this, key: const ValueKey('edit-vehicle-modal')),
 
       // Public Vehicle Q&A modal overlay
       if (showVehicleQaModal && selectedRentalData != null)

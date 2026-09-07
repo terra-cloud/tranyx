@@ -129,7 +129,9 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           .toList();
 
       final availableRentals = s.realtimeRentals.where((r) {
-        if (r['status'] != 'Available') return false;
+        final status = (r['status'] ?? '').toString();
+        if (status == 'Inactive' || status == 'Unpublished' || status == 'Archived' || status == 'Deleted') return false;
+        if (r['isPublished'] == false) return false;
         if (r['hostId'] == currentUid) return false;
 
         if (_searchQuery.isNotEmpty) {
@@ -207,7 +209,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           .toList();
 
       final availableProperties = s.realtimeProperties.where((prop) {
-        if (prop.status != 'Available') return false;
+        final status = prop.status;
+        if (status == 'Inactive' || status == 'Unpublished' || status == 'Archived' || status == 'Deleted') return false;
         if (prop.hostId == currentUid) return false;
 
         if (_searchQuery.isNotEmpty) {
@@ -968,9 +971,13 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 ],
               ),
             ],
-            span(classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-400', [
-              Component.text(r['status'] ?? 'AVAILABLE'),
-            ]),
+            span(
+              classes:
+                  'px-2 py-1 rounded-lg text-xs font-bold ${r['status'] == 'Rented' ? "bg-amber-500/20 text-amber-400" : "bg-purple-500/20 text-purple-400"}',
+              [
+                Component.text(r['status'] == 'Rented' ? 'Active • Dates Available' : (r['status'] ?? 'AVAILABLE')),
+              ],
+            ),
           ]),
         ]),
 
@@ -999,6 +1006,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               builder: (context) {
                 final hasRequests = s.hostPendingRequests.any((req) => req['rentalId'] == r['id']);
                 final showChat = hasActiveRenter && r['allowChat'] == true;
+                final isEditable = (r['status'] == null || r['status'] == 'Available') && !hasActiveRenter && !hasRequests;
                 return div(classes: 'flex gap-2 items-center', [
                   button(
                     classes:
@@ -1014,6 +1022,24 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                     },
                     [lIcon('message-circle-question', cls: 'w-4 h-4 text-zinc-400')],
                   ),
+                  if (isEditable)
+                    button(
+                      classes:
+                          'px-3 py-2 rounded-xl text-xs font-bold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors bg-transparent cursor-pointer flex items-center gap-1',
+                      events: {
+                        'click': (e) {
+                          e.stopPropagation();
+                          s.setState(() {
+                            s.selectedRentalData = r;
+                            s.showEditVehicleModal = true;
+                          });
+                        },
+                      },
+                      [
+                        lIcon('edit-3', cls: 'w-3.5 h-3.5 text-indigo-400'),
+                        Component.text('Edit'),
+                      ],
+                    ),
                   if (showChat)
                     button(
                       classes:
@@ -1144,9 +1170,13 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                   Component.text('$unreadCount New'),
                 ],
               ),
-            span(classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-400', [
-              Component.text(prop.status),
-            ]),
+            span(
+              classes:
+                  'px-2 py-1 rounded-lg text-xs font-bold ${prop.status == 'Rented' ? "bg-amber-500/20 text-amber-400" : "bg-purple-500/20 text-purple-400"}',
+              [
+                Component.text(prop.status == 'Rented' ? 'Active • Dates Available' : prop.status),
+              ],
+            ),
           ]),
         ]),
 

@@ -113,7 +113,6 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
   String _selectedP2pMethod = 'GCash'; // 'GCash' | 'Maya'
   final _refNumberController = TextEditingController();
   File? _proofImageFile;
-  String _selectedPaymentMethod = 'solana';
   String _selectedSolanaCurrency = 'SOL'; // 'SOL' | 'USDT'
   double _solToPhpRate = 8000.0;
   double _usdToPhpRate = 57.0;

@@ -25,6 +25,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   bool _isEditingGps = false;
   String _gpsInput = '';
   bool _isSavingGps = false;
+  bool _hasReservationRecords = false;
 
   @override
   void initState() {
@@ -46,9 +47,11 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     try {
       final list = await component.appState.firestore.getPendingRequestsForVehicle(r['id']);
       final extList = await component.appState.firestore.getPendingExtensionsForVehicle(r['id']);
+      final allList = await component.appState.firestore.getAllRequestsForVehicle(r['id']);
       setState(() {
         _requests = list;
         _extensions = extList;
+        _hasReservationRecords = allList.isNotEmpty;
       });
     } catch (e) {
       setState(() => _error = 'Failed to load requests & extensions: $e');
@@ -428,10 +431,32 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                     ]),
                   ])
                 else
-                  div(classes: 'mb-6 flex justify-end', [
+                  div(classes: 'mb-6 flex justify-between items-center', [
+                    if (!_hasReservationRecords &&
+                        status == 'Available' &&
+                        (r['renteeId'] == null || (r['renteeId'] as String).isEmpty))
+                      button(
+                        classes:
+                            'px-4 py-2 text-xs font-bold text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/10 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer bg-transparent',
+                        events: {
+                          'click': (_) {
+                            component.appState.setState(() {
+                              component.appState.showManageVehicleModal = false;
+                              component.appState.showEditVehicleModal = true;
+                            });
+                          },
+                        },
+                        disabled: _isProcessing,
+                        [
+                          lIcon('edit-3', cls: 'w-4 h-4 text-indigo-400'),
+                          Component.text('Edit Listing'),
+                        ],
+                      )
+                    else
+                      div([]),
                     button(
                       classes:
-                          'px-4 py-2 text-xs font-bold text-red-500 border border-red-500/20 hover:bg-red-500/10 rounded-xl transition-all flex items-center gap-1.5',
+                          'px-4 py-2 text-xs font-bold text-red-500 border border-red-500/20 hover:bg-red-500/10 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer bg-transparent',
                       events: {'click': (_) => setState(() => _showConfirmDelete = true)},
                       disabled: _isProcessing,
                       [

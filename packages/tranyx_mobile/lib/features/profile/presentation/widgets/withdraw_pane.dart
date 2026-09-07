@@ -10,7 +10,6 @@ import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
-import 'package:tranyx_mobile/features/profile/providers/profile_provider.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/payment_pane.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:shared/shared.dart';

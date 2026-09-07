@@ -176,6 +176,74 @@ class TransitRepository {
         .map((snapshot) => snapshot.docs.map((doc) => VehicleRental.fromMap(doc.data(), doc.id)).toList());
   }
 
+  Future<List<Map<String, dynamic>>> getApprovedRequestsForVehicle(String rentalId) async {
+    final snapshot = await _firestore
+        .collection('rental_requests')
+        .where('rentalId', isEqualTo: rentalId)
+        .where('status', isEqualTo: 'Approved')
+        .get();
+
+    final list = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+
+    try {
+      final rentalDoc = await _firestore.collection('rentals').doc(rentalId).get();
+      if (rentalDoc.exists) {
+        final data = rentalDoc.data()!;
+        final rStatus = data['status']?.toString() ?? '';
+        final start = getEpochMs(data['startDate']);
+        final end = getEpochMs(data['endDate']);
+        if (start > 0 && end > 0 && rStatus != 'Available' && rStatus != 'Completed' && rStatus != 'Cancelled') {
+          final alreadyIncluded = list.any((item) => item['startDate'] == start && item['endDate'] == end);
+          if (!alreadyIncluded) {
+            list.add({
+              'id': 'active_listing_$rentalId',
+              'rentalId': rentalId,
+              'startDate': start,
+              'endDate': end,
+              'status': rStatus,
+            });
+          }
+        }
+      }
+    } catch (_) {}
+
+    return list;
+  }
+
+  Future<List<Map<String, dynamic>>> getApprovedRequestsForProperty(String propertyId) async {
+    final snapshot = await _firestore
+        .collection('property_requests')
+        .where('propertyId', isEqualTo: propertyId)
+        .where('status', isEqualTo: 'Approved')
+        .get();
+
+    final list = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+
+    try {
+      final propDoc = await _firestore.collection('properties').doc(propertyId).get();
+      if (propDoc.exists) {
+        final data = propDoc.data()!;
+        final pStatus = data['status']?.toString() ?? '';
+        final start = getEpochMs(data['startDate']);
+        final end = getEpochMs(data['endDate']);
+        if (start > 0 && end > 0 && pStatus != 'Available' && pStatus != 'Completed' && pStatus != 'Cancelled') {
+          final alreadyIncluded = list.any((item) => item['startDate'] == start && item['endDate'] == end);
+          if (!alreadyIncluded) {
+            list.add({
+              'id': 'active_listing_$propertyId',
+              'propertyId': propertyId,
+              'startDate': start,
+              'endDate': end,
+              'status': pStatus,
+            });
+          }
+        }
+      }
+    } catch (_) {}
+
+    return list;
+  }
+
   Future<void> createBookingRequest({
     required String rentalId,
     required String renteeId,
@@ -199,7 +267,15 @@ class TransitRepository {
     if (!doc.exists) throw Exception('Rental listing not found.');
 
     final rental = VehicleRental.fromMap(doc.data()!, rentalId);
-    if (rental.status != 'Available') throw Exception('Vehicle is no longer available.');
+    if (rental.status == 'Inactive' || rental.status == 'Unpublished' || rental.status == 'Archived') {
+      throw Exception('Vehicle is no longer listed for rent.');
+    }
+
+    final approvedReqs = await getApprovedRequestsForVehicle(rentalId);
+    final approvedRanges = approvedReqs.map((m) => BookingDateRange.fromMap(m)).toList();
+    if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
+      throw Exception('Selected dates overlap with an existing confirmed rental.');
+    }
 
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
@@ -294,9 +370,19 @@ class TransitRepository {
 
     final rentalDoc = await _firestore.collection('rentals').doc(rentalId).get();
     if (!rentalDoc.exists) throw Exception('Rental listing not found.');
-
     final rental = VehicleRental.fromMap(rentalDoc.data()!, rentalId);
-    if (rental.status != 'Available') throw Exception('Vehicle is no longer available (already booked).');
+
+    final startDate = (reqData['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+    final endDate = (reqData['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
+
+    final existingApproved = await getApprovedRequestsForVehicle(rentalId);
+    final approvedRanges = existingApproved
+        .where((r) => r['id'] != requestId)
+        .map((m) => BookingDateRange.fromMap(m))
+        .toList();
+    if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
+      throw Exception('Cannot approve booking: selected dates overlap with an already confirmed rental.');
+    }
 
     final renteeId = reqData['renteeId'] as String;
     final renteeName = reqData['renteeName'] as String;
@@ -306,8 +392,6 @@ class TransitRepository {
     final hireWithDriver = reqData['hireWithDriver'] as bool? ?? false;
     final rentalType = reqData['rentalType'] as String? ?? 'pickup';
     final deliveryAddress = reqData['deliveryAddress'] as String? ?? '';
-    final startDate = (reqData['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
-    final endDate = (reqData['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
 
     // Approve this request
     await _firestore.collection('rental_requests').doc(requestId).update({'status': 'Approved'});
@@ -351,16 +435,22 @@ class TransitRepository {
       'renteeLicenseNumber': reqData['licenseNumber'] ?? '',
     });
 
-    // Reject other requests for same vehicle
+    // Reject conflicting pending requests for same vehicle
     final otherRequests = await _firestore
         .collection('rental_requests')
         .where('rentalId', isEqualTo: rentalId)
         .where('status', isEqualTo: 'Pending')
         .get();
 
-    for (final otherReq in otherRequests.docs) {
-      if (otherReq.id == requestId) continue;
-      await rejectBookingRequest(otherReq.id);
+    final conflictingRequests = BookingAvailabilityHelper.filterConflictingRequests(
+      startDate,
+      endDate,
+      otherRequests.docs.map((d) => {'id': d.id, ...d.data()}),
+      currentRequestId: requestId,
+    );
+
+    for (final otherReq in conflictingRequests) {
+      await rejectBookingRequest(otherReq['id'] as String);
     }
 
     // Notify Renter
@@ -547,6 +637,13 @@ class TransitRepository {
       await awardPointsIfEligible(rental.renteeId!, 'client_complete_transaction');
     }
 
+    final currentReqId = doc.data()!['currentRequestId'] as String?;
+    if (currentReqId != null && currentReqId.isNotEmpty) {
+      try {
+        await _firestore.collection('rental_requests').doc(currentReqId).update({'status': 'Completed'});
+      } catch (_) {}
+    }
+
     await _firestore.collection('rentals').doc(rentalId).update({
       'status': 'Available',
       'renteeId': '',
@@ -673,6 +770,14 @@ class TransitRepository {
     await _firestore.collection('properties').doc(propertyId).update(updatedMap);
   }
 
+  Future<List<Map<String, dynamic>>> getAllRequestsForVehicle(String rentalId) async {
+    final snap = await _firestore
+        .collection('rental_requests')
+        .where('rentalId', isEqualTo: rentalId)
+        .get();
+    return snap.docs.map((d) => d.data()..['id'] = d.id).toList();
+  }
+
   Future<void> updateRental(String rentalId, Map<String, dynamic> updatedData) async {
     final doc = await _firestore.collection('rentals').doc(rentalId).get();
     if (!doc.exists) throw Exception('Rental listing not found.');
@@ -680,6 +785,12 @@ class TransitRepository {
     final existing = doc.data()!;
     if (existing['status'] != 'Available' || (existing['renteeId'] != null && (existing['renteeId'] as String).isNotEmpty)) {
       throw Exception('Cannot edit a vehicle listing that is currently booked or active.');
+    }
+
+    // Strict rule: Edit only if NO records of reservations or bookings exist
+    final allRequests = await getAllRequestsForVehicle(rentalId);
+    if (allRequests.isNotEmpty) {
+      throw Exception('Cannot edit vehicle listing: Records of reservations or bookings exist for this unit.');
     }
 
     final copy = Map<String, dynamic>.from(updatedData)
@@ -719,7 +830,15 @@ class TransitRepository {
     if (!doc.exists) throw Exception('Property listing not found.');
 
     final property = PropertyRental.fromMap(doc.data()!, propertyId);
-    if (property.status != 'Available') throw Exception('Property is no longer available.');
+    if (property.status == 'Inactive' || property.status == 'Unpublished' || property.status == 'Archived') {
+      throw Exception('Property is no longer listed for rent.');
+    }
+
+    final approvedReqs = await getApprovedRequestsForProperty(propertyId);
+    final approvedRanges = approvedReqs.map((m) => BookingDateRange.fromMap(m)).toList();
+    if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
+      throw Exception('Selected dates overlap with an existing confirmed rental.');
+    }
 
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
@@ -849,9 +968,19 @@ class TransitRepository {
 
     final propDoc = await _firestore.collection('properties').doc(propertyId).get();
     if (!propDoc.exists) throw Exception('Property listing not found.');
-
     final property = PropertyRental.fromMap(propDoc.data()!, propertyId);
-    if (property.status != 'Available') throw Exception('Property is no longer available (already rented).');
+
+    final startDate = (reqData['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+    final endDate = (reqData['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 30)).millisecondsSinceEpoch;
+
+    final existingApproved = await getApprovedRequestsForProperty(propertyId);
+    final approvedRanges = existingApproved
+        .where((r) => r['id'] != requestId)
+        .map((m) => BookingDateRange.fromMap(m))
+        .toList();
+    if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
+      throw Exception('Cannot approve booking: selected dates overlap with an already confirmed rental.');
+    }
 
     final renteeId = reqData['renteeId'] as String;
     final renteeName = reqData['renteeName'] as String;
@@ -864,8 +993,6 @@ class TransitRepository {
     final customerPlatformFeeAmount = (reqData['customerPlatformFeeAmount'] as num?)?.toDouble() ?? (reqData['bookingFee'] as num?)?.toDouble() ?? (baseRentAmount * 0.03);
     final hostCommissionRate = (reqData['hostCommissionRate'] as num?)?.toDouble() ?? 0.07;
     final totalCustomerPaid = (reqData['totalCustomerPaid'] as num?)?.toDouble() ?? (baseRentAmount + customerPlatformFeeAmount + securityDepositAmount);
-    final startDate = (reqData['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
-    final endDate = (reqData['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 30)).millisecondsSinceEpoch;
 
     await _firestore.collection('property_requests').doc(requestId).update({'status': 'Approved'});
 
@@ -920,9 +1047,15 @@ class TransitRepository {
         .where('status', isEqualTo: 'Pending')
         .get();
 
-    for (final otherReq in allRequests.docs) {
-      if (otherReq.id == requestId) continue;
-      await rejectPropertyBookingRequest(otherReq.id);
+    final conflictingRequests = BookingAvailabilityHelper.filterConflictingRequests(
+      startDate,
+      endDate,
+      allRequests.docs.map((d) => {'id': d.id, ...d.data()}),
+      currentRequestId: requestId,
+    );
+
+    for (final otherReq in conflictingRequests) {
+      await rejectPropertyBookingRequest(otherReq['id'] as String);
     }
   }
 
@@ -1155,8 +1288,30 @@ class TransitRepository {
       await awardPointsIfEligible(property.renteeId!, 'client_complete_transaction');
     }
 
+    final currentReqId = doc.data()!['currentRequestId'] as String?;
+    if (currentReqId != null && currentReqId.isNotEmpty) {
+      try {
+        await _firestore.collection('property_requests').doc(currentReqId).update({'status': 'Completed'});
+      } catch (_) {}
+    }
+
     await _firestore.collection('properties').doc(propertyId).update({
-      'status': 'Completed',
+      'status': 'Available',
+      'renteeId': '',
+      'renteeName': '',
+      'renteePhotoUrl': '',
+      'rentalDurationType': '',
+      'rentalMultiplier': 0,
+      'startDate': 0,
+      'endDate': 0,
+      'totalCost': 0.0,
+      'baseRentAmount': 0.0,
+      'securityDepositAmount': 0.0,
+      'bookingFee': 0.0,
+      'renteeSignatureName': '',
+      'signedAt': 0,
+      'currentRequestId': '',
+      'licenseNumber': '',
     });
 
     await createNotification(

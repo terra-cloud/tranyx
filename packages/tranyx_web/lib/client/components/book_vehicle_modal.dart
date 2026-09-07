@@ -688,6 +688,12 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     String type = typeVal?.toString().split('.').last ?? '';
     if (type.toLowerCase() == 'null') type = '';
 
+    final hostId = r['hostId']?.toString();
+    final isHost = component.appState.userProfile?.uid != null && hostId == component.appState.userProfile?.uid;
+    final hasPendingRequests = component.appState.hostPendingRequests.any((req) => req['rentalId'] == r['id']);
+    final hasActiveRenter = r['renteeId'] != null && (r['renteeId'] as String).isNotEmpty;
+    final canEdit = (r['status'] == null || r['status'] == 'Available') && !hasActiveRenter && !hasPendingRequests && _approvedRequests.isEmpty;
+
     return div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in', [
       div(
         classes:
@@ -1382,73 +1388,118 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
 
           // Footer
           div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between', [
-            if (_step > 1)
+            if (isHost) ...[
               button(
                 classes:
-                    'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
-                events: {'click': (e) => setState(() => _step--)},
-                [Component.text('Back')],
-              )
-            else
-              div([]),
-
-            if (_step < 2)
-              button(
-                classes:
-                    'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
+                    'px-6 py-2.5 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors cursor-pointer bg-transparent',
                 events: {
-                  'click': (e) {
-                    if (_basePrice <= 0) {
-                      setState(() => _error = 'Selected package is not available for this vehicle.');
-                      return;
-                    }
-                    if (_startDate == null) {
-                      setState(() => _error = 'Please select a start date on the calendar.');
-                      return;
-                    }
-                    if (_isDateBooked(_startDate!)) {
-                      final nextAvail = _calculateNextAvailableStartDate(_approvedRequests);
-                      setState(() {
-                        _startDate = nextAvail;
-                        _calendarMonth = DateTime(nextAvail.year, nextAvail.month, 1);
-                        _error =
-                            'Selected start date is already booked. Updated to next available date (${nextAvail.day} ${_monthName(nextAvail.month).substring(0, 3)}).';
-                      });
-                      return;
-                    }
-                    if (_rentalType == 'deliver' && _deliveryAddress.trim().isEmpty) {
-                      setState(() => _error = 'Please pin your delivery address on the map.');
-                      return;
-                    }
-                    if (_hasBookingOverlap || _conflictingDates.isNotEmpty) {
-                      final conflictStr = _formatConflictingDates(_conflictingDates);
-                      setState(
-                        () => _error =
-                            'Selected duration overlaps with an existing reservation on $conflictStr. Please choose a different start date or shorter duration.',
-                      );
-                      return;
-                    }
-                    setState(() {
-                      _error = null;
-                      _step++;
-                    });
-                  },
+                  'click': (_) => component.appState.setState(() {
+                    component.appState.showBookVehicleModal = false;
+                    component.appState.selectedRentalData = null;
+                  }),
                 },
-                attributes: (_hasBookingOverlap || _conflictingDates.isNotEmpty)
-                    ? {'disabled': 'disabled'}
-                    : {},
-                [Component.text('Review Contract')],
-              )
-            else
-              button(
-                classes:
-                    'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
-                events: {'click': (e) => _book()},
-                [
-                  if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                  Component.text(_isBooking ? 'Processing...' : 'Submit Request'),
-                ],
+                [Component.text('Close')],
               ),
+              div(classes: 'flex items-center gap-3', [
+                if (canEdit)
+                  button(
+                    classes:
+                        'px-6 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-indigo-500/20',
+                    events: {
+                      'click': (_) => component.appState.setState(() {
+                        component.appState.showBookVehicleModal = false;
+                        component.appState.showEditVehicleModal = true;
+                      }),
+                    },
+                    [
+                      lIcon('edit-3', cls: 'w-4 h-4'),
+                      Component.text('Edit Listing'),
+                    ],
+                  ),
+                button(
+                  classes:
+                      'px-6 py-2.5 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-purple-500/20',
+                  events: {
+                    'click': (_) => component.appState.setState(() {
+                      component.appState.showBookVehicleModal = false;
+                      component.appState.showManageVehicleModal = true;
+                    }),
+                  },
+                  [
+                    lIcon('sliders', cls: 'w-4 h-4'),
+                    Component.text('Manage Listing'),
+                  ],
+                ),
+              ]),
+            ] else ...[
+              if (_step > 1)
+                button(
+                  classes:
+                      'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors cursor-pointer bg-transparent',
+                  events: {'click': (e) => setState(() => _step--)},
+                  [Component.text('Back')],
+                )
+              else
+                div([]),
+
+              if (_step < 2)
+                button(
+                  classes:
+                      'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
+                  events: {
+                    'click': (e) {
+                      if (_basePrice <= 0) {
+                        setState(() => _error = 'Selected package is not available for this vehicle.');
+                        return;
+                      }
+                      if (_startDate == null) {
+                        setState(() => _error = 'Please select a start date on the calendar.');
+                        return;
+                      }
+                      if (_isDateBooked(_startDate!)) {
+                        final nextAvail = _calculateNextAvailableStartDate(_approvedRequests);
+                        setState(() {
+                          _startDate = nextAvail;
+                          _calendarMonth = DateTime(nextAvail.year, nextAvail.month, 1);
+                          _error =
+                              'Selected start date is already booked. Updated to next available date (${nextAvail.day} ${_monthName(nextAvail.month).substring(0, 3)}).';
+                        });
+                        return;
+                      }
+                      if (_rentalType == 'deliver' && _deliveryAddress.trim().isEmpty) {
+                        setState(() => _error = 'Please pin your delivery address on the map.');
+                        return;
+                      }
+                      if (_hasBookingOverlap || _conflictingDates.isNotEmpty) {
+                        final conflictStr = _formatConflictingDates(_conflictingDates);
+                        setState(
+                          () => _error =
+                              'Selected duration overlaps with an existing reservation on $conflictStr. Please choose a different start date or shorter duration.',
+                        );
+                        return;
+                      }
+                      setState(() {
+                        _error = null;
+                        _step++;
+                      });
+                    },
+                  },
+                  attributes: (_hasBookingOverlap || _conflictingDates.isNotEmpty)
+                      ? {'disabled': 'disabled'}
+                      : {},
+                  [Component.text('Review Contract')],
+                )
+              else
+                button(
+                  classes:
+                      'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
+                  events: {'click': (e) => _book()},
+                  [
+                    if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                    Component.text(_isBooking ? 'Processing...' : 'Submit Request'),
+                  ],
+                ),
+            ],
           ]),
         ],
       ),
@@ -1837,9 +1888,20 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                   textClass = isDark ? 'text-zinc-200' : 'text-zinc-800';
                 }
 
-                return div(
+                final isClickable = !isPast && !isBooked;
+                return button(
                   classes:
-                      'aspect-square flex items-center justify-center text-xs rounded-xl transition-all border-0 outline-none select-none cursor-default $bgClass $textClass',
+                      'aspect-square flex items-center justify-center text-xs rounded-xl transition-all border-0 outline-none select-none ${isClickable ? "cursor-pointer hover:ring-2 hover:ring-purple-400" : "cursor-not-allowed"} $bgClass $textClass',
+                  events: isClickable
+                      ? {
+                          'click': (_) => setState(() {
+                                final currentHour = _startDate?.hour ?? 9;
+                                final currentMin = _startDate?.minute ?? 0;
+                                _startDate = DateTime(day.year, day.month, day.day, currentHour, currentMin);
+                                _error = null;
+                              }),
+                        }
+                      : null,
                   [Component.text('${day.day}')],
                 );
               }(),

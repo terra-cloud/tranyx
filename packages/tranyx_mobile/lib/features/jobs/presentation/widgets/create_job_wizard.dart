@@ -161,10 +161,11 @@ class _CreateJobWizardState extends ConsumerState<CreateJobWizard> {
       }
 
       if (bestPromo != null && mounted) {
+        final promo = bestPromo;
         setState(() {
-          _appliedPromo = bestPromo;
-          _promoController.text = bestPromo!.code;
-          _promoFeedback = 'Auto-applied promo: ${bestPromo!.name ?? bestPromo!.code}';
+          _appliedPromo = promo;
+          _promoController.text = promo.code;
+          _promoFeedback = 'Auto-applied promo: ${promo.name ?? promo.code}';
         });
       }
     } catch (e) {

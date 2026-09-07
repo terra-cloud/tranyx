@@ -40,6 +40,9 @@ void main() {
         'accountType': 'nyxian',
         'tyxBalance': 500.0,
       };
+      firestore.db['settings/platform_fees'] = {
+        'listingFeeRate': 0.015,
+      };
 
       final rental = VehicleRental(
         id: '',
@@ -758,6 +761,369 @@ void main() {
         final req = reqDocs.docs.last.data();
         expect(req['hireWithDriver'], isTrue);
         expect(req['licenseNumber'], isNull);
+      });
+    });
+
+    group('Date-based Availability & Marketplace Visibility Tests', () {
+      test('Active/Rented listing remains bookable for non-overlapping future dates', () async {
+        final now = DateTime.now();
+        final nowMs = now.millisecondsSinceEpoch;
+        final currentRentalEnd = now.add(const Duration(days: 3)).millisecondsSinceEpoch;
+
+        firestore.db['users/host1'] = {
+          'name': 'Host',
+          'email': 'host@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 1000.0,
+        };
+        firestore.db['users/renter_active'] = {
+          'name': 'Active Renter',
+          'email': 'active@tranyx.com',
+          'accountType': 'employer',
+          'tyxBalance': 5000.0,
+        };
+        firestore.db['users/renter_future'] = {
+          'name': 'Future Renter',
+          'email': 'future@tranyx.com',
+          'accountType': 'employer',
+          'tyxBalance': 5000.0,
+        };
+
+        // Listing is currently rented
+        firestore.db['rentals/car_rented'] = {
+          'id': 'car_rented',
+          'hostId': 'host1',
+          'hostName': 'Host',
+          'brand': 'Toyota',
+          'model': 'Vios',
+          'priceDaily': 2000.0,
+          'status': 'Rented',
+          'rentalStartDate': nowMs,
+          'rentalEndDate': currentRentalEnd,
+        };
+
+        // Existing approved request for the active rental
+        firestore.db['rental_requests/req_active'] = {
+          'id': 'req_active',
+          'rentalId': 'car_rented',
+          'renteeId': 'renter_active',
+          'status': 'Approved',
+          'startDate': nowMs,
+          'endDate': currentRentalEnd,
+        };
+
+        // 1. Check approved requests retrieval includes active rental dates
+        final approvedReqs = await repo.getApprovedRequestsForVehicle('car_rented');
+        expect(approvedReqs.length, greaterThanOrEqualTo(1));
+
+        // 2. Future booking outside the active rental range (e.g. days 5 to 7) succeeds
+        final futureStart = now.add(const Duration(days: 5)).millisecondsSinceEpoch;
+        final futureEnd = now.add(const Duration(days: 7)).millisecondsSinceEpoch;
+
+        await repo.createBookingRequest(
+          rentalId: 'car_rented',
+          renteeId: 'renter_future',
+          renteeName: 'Future Renter',
+          renteePhotoUrl: null,
+          durationType: 'daily',
+          multiplier: 2,
+          licenseNumber: 'DL-FUTURE-1',
+          totalCost: 4000.0,
+          hireWithDriver: false,
+          rentalType: 'pickup',
+          deliveryAddress: null,
+          startDate: futureStart,
+          endDate: futureEnd,
+        );
+
+        final reqDocs = await firestore.collection('rental_requests').get();
+        expect(reqDocs.docs.any((d) => d.data()['renteeId'] == 'renter_future'), isTrue);
+
+        // 3. Overlapping booking (e.g. days 1 to 4) is rejected
+        final overlapStart = now.add(const Duration(days: 1)).millisecondsSinceEpoch;
+        final overlapEnd = now.add(const Duration(days: 4)).millisecondsSinceEpoch;
+
+        expect(
+          () => repo.createBookingRequest(
+            rentalId: 'car_rented',
+            renteeId: 'renter_future',
+            renteeName: 'Future Renter',
+            renteePhotoUrl: null,
+            durationType: 'daily',
+            multiplier: 3,
+            licenseNumber: 'DL-FUTURE-1',
+            totalCost: 6000.0,
+            hireWithDriver: false,
+            rentalType: 'pickup',
+            deliveryAddress: null,
+            startDate: overlapStart,
+            endDate: overlapEnd,
+          ),
+          throwsA(predicate((e) => e.toString().contains('Selected dates overlap'))),
+        );
+      });
+
+      test('approveBookingRequest rejects only conflicting pending requests, leaving non-overlapping requests pending', () async {
+        final now = DateTime.now();
+        final start1 = now.add(const Duration(days: 2)).millisecondsSinceEpoch;
+        final end1 = now.add(const Duration(days: 5)).millisecondsSinceEpoch;
+
+        final overlapStart = now.add(const Duration(days: 3)).millisecondsSinceEpoch;
+        final overlapEnd = now.add(const Duration(days: 6)).millisecondsSinceEpoch;
+
+        final futureStart = now.add(const Duration(days: 10)).millisecondsSinceEpoch;
+        final futureEnd = now.add(const Duration(days: 12)).millisecondsSinceEpoch;
+
+        firestore.db['rentals/car_multi'] = {
+          'id': 'car_multi',
+          'hostId': 'host_multi',
+          'status': 'Available',
+          'brand': 'Honda',
+          'model': 'Civic',
+        };
+
+        firestore.db['rental_requests/req1'] = {
+          'id': 'req1',
+          'rentalId': 'car_multi',
+          'renteeId': 'renter1',
+          'renteeName': 'Renter 1',
+          'status': 'Pending',
+          'durationType': 'daily',
+          'multiplier': 3,
+          'totalCost': 3000.0,
+          'startDate': start1,
+          'endDate': end1,
+        };
+
+        firestore.db['rental_requests/req_conflict'] = {
+          'id': 'req_conflict',
+          'rentalId': 'car_multi',
+          'renteeId': 'renter_conflict',
+          'renteeName': 'Renter Conflict',
+          'status': 'Pending',
+          'durationType': 'daily',
+          'multiplier': 3,
+          'totalCost': 3000.0,
+          'startDate': overlapStart,
+          'endDate': overlapEnd,
+        };
+
+        firestore.db['rental_requests/req_future'] = {
+          'id': 'req_future',
+          'rentalId': 'car_multi',
+          'renteeId': 'renter_future',
+          'renteeName': 'Renter Future',
+          'status': 'Pending',
+          'durationType': 'daily',
+          'multiplier': 2,
+          'totalCost': 2000.0,
+          'startDate': futureStart,
+          'endDate': futureEnd,
+        };
+
+        // Approve req1
+        await repo.approveBookingRequest('req1', 'car_multi', true);
+
+        // req1 is approved
+        final req1 = (await firestore.collection('rental_requests').doc('req1').get()).data()!;
+        expect(req1['status'], equals('Approved'));
+
+        // req_conflict overlaps with req1 -> automatically rejected
+        final reqConflict = (await firestore.collection('rental_requests').doc('req_conflict').get()).data()!;
+        expect(reqConflict['status'], equals('Rejected'));
+
+        // req_future does NOT overlap with req1 -> remains Pending!
+        final reqFuture = (await firestore.collection('rental_requests').doc('req_future').get()).data()!;
+        expect(reqFuture['status'], equals('Pending'));
+      });
+
+      test('Property: Active rental allows non-overlapping future bookings, rejects overlaps', () async {
+        final now = DateTime.now();
+        final nowMs = now.millisecondsSinceEpoch;
+        final endLeaseMs = now.add(const Duration(days: 30)).millisecondsSinceEpoch;
+
+        firestore.db['users/host_p'] = {
+          'name': 'Host P',
+          'email': 'hostp@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 1000.0,
+        };
+        firestore.db['users/renter_p1'] = {
+          'name': 'Renter P1',
+          'email': 'renterp1@tranyx.com',
+          'accountType': 'employer',
+          'tyxBalance': 20000.0,
+        };
+        firestore.db['users/renter_p2'] = {
+          'name': 'Renter P2',
+          'email': 'renterp2@tranyx.com',
+          'accountType': 'employer',
+          'tyxBalance': 20000.0,
+        };
+
+        firestore.db['properties/prop_rented'] = {
+          'id': 'prop_rented',
+          'hostId': 'host_p',
+          'title': 'Studio Apartment',
+          'priceMonthly': 10000.0,
+          'status': 'Rented',
+          'startDate': nowMs,
+          'endDate': endLeaseMs,
+        };
+
+        firestore.db['property_requests/req_prop_active'] = {
+          'id': 'req_prop_active',
+          'propertyId': 'prop_rented',
+          'renteeId': 'renter_p1',
+          'status': 'Approved',
+          'startDate': nowMs,
+          'endDate': endLeaseMs,
+        };
+
+        final approved = await repo.getApprovedRequestsForProperty('prop_rented');
+        expect(approved.length, greaterThanOrEqualTo(1));
+
+        // Future booking (days 35 to 65) succeeds
+        final futureStart = now.add(const Duration(days: 35)).millisecondsSinceEpoch;
+        final futureEnd = now.add(const Duration(days: 65)).millisecondsSinceEpoch;
+
+        await repo.createPropertyBookingRequest(
+          propertyId: 'prop_rented',
+          renteeId: 'renter_p2',
+          renteeName: 'Renter P2',
+          renteePhotoUrl: null,
+          durationType: 'monthly',
+          multiplier: 1,
+          totalCost: 10000.0,
+          baseRentAmount: 10000.0,
+          securityDepositAmount: 0.0,
+          customerPlatformFeeRate: 0.03,
+          hostCommissionRate: 0.07,
+          contractType: 'Standard',
+          contractTerms: 'Terms',
+          startDate: futureStart,
+          endDate: futureEnd,
+          licenseNumber: 'DL-PROP-2',
+        );
+
+        final pDocs = await firestore.collection('property_requests').get();
+        expect(pDocs.docs.any((d) => d.data()['renteeId'] == 'renter_p2'), isTrue);
+
+        // Overlapping booking (days 10 to 40) is rejected
+        final overlapStart = now.add(const Duration(days: 10)).millisecondsSinceEpoch;
+        final overlapEnd = now.add(const Duration(days: 40)).millisecondsSinceEpoch;
+
+        expect(
+          () => repo.createPropertyBookingRequest(
+            propertyId: 'prop_rented',
+            renteeId: 'renter_p2',
+            renteeName: 'Renter P2',
+            renteePhotoUrl: null,
+            durationType: 'monthly',
+            multiplier: 1,
+            totalCost: 10000.0,
+            baseRentAmount: 10000.0,
+            securityDepositAmount: 0.0,
+            customerPlatformFeeRate: 0.03,
+            hostCommissionRate: 0.07,
+            contractType: 'Standard',
+            contractTerms: 'Terms',
+            startDate: overlapStart,
+            endDate: overlapEnd,
+            licenseNumber: 'DL-PROP-2',
+          ),
+          throwsA(predicate((e) => e.toString().contains('Selected dates overlap'))),
+        );
+      });
+    });
+
+    group('Vehicle Posting Details Editing (Strict 0-Record Rule) Tests', () {
+      test('TC-EDIT-01: Vehicle with zero reservation/booking records can be edited successfully', () async {
+        firestore.db['rentals/car_fresh'] = {
+          'id': 'car_fresh',
+          'hostId': 'host123',
+          'brand': 'Toyota',
+          'model': 'Vios',
+          'year': 2022,
+          'plateNumber': 'ABC-1234',
+          'status': 'Available',
+          'priceDaily': 2000.0,
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        };
+
+        // No records in rental_requests for car_fresh
+        final requests = await repo.getAllRequestsForVehicle('car_fresh');
+        expect(requests, isEmpty);
+
+        // Edit listing details
+        await repo.updateRental('car_fresh', {
+          'brand': 'Toyota',
+          'model': 'Vios GR-S',
+          'year': 2023,
+          'plateNumber': 'ABC-1234',
+          'status': 'Available',
+          'priceDaily': 2500.0,
+        });
+
+        final updated = (await firestore.collection('rentals').doc('car_fresh').get()).data()!;
+        expect(updated['model'], equals('Vios GR-S'));
+        expect(updated['year'], equals(2023));
+        expect(updated['priceDaily'], equals(2500.0));
+      });
+
+      test('TC-EDIT-02: Vehicle with reservation/booking records throws Exception on edit attempt', () async {
+        firestore.db['rentals/car_booked_before'] = {
+          'id': 'car_booked_before',
+          'hostId': 'host123',
+          'brand': 'Honda',
+          'model': 'Civic',
+          'year': 2021,
+          'plateNumber': 'XYZ-9876',
+          'status': 'Available',
+          'priceDaily': 3000.0,
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        };
+
+        // Add a booking/reservation record in rental_requests
+        firestore.db['rental_requests/req_past'] = {
+          'id': 'req_past',
+          'rentalId': 'car_booked_before',
+          'renteeId': 'renter123',
+          'status': 'Completed',
+          'totalCost': 6000.0,
+        };
+
+        final requests = await repo.getAllRequestsForVehicle('car_booked_before');
+        expect(requests, isNotEmpty);
+
+        // Attempting to edit must fail because reservation/booking records exist
+        expect(
+          () => repo.updateRental('car_booked_before', {
+            'priceDaily': 3500.0,
+          }),
+          throwsA(predicate((e) =>
+              e.toString().contains('Records of reservations or bookings exist for this unit'))),
+        );
+      });
+
+      test('TC-EDIT-03: Vehicle currently rented throws Exception on edit attempt', () async {
+        firestore.db['rentals/car_active'] = {
+          'id': 'car_active',
+          'hostId': 'host123',
+          'brand': 'Ford',
+          'model': 'Ranger',
+          'status': 'Rented',
+          'renteeId': 'renter456',
+          'priceDaily': 4000.0,
+        };
+
+        expect(
+          () => repo.updateRental('car_active', {
+            'priceDaily': 4500.0,
+          }),
+          throwsA(predicate((e) =>
+              e.toString().contains('Cannot edit a vehicle listing that is currently booked or active'))),
+        );
       });
     });
   });

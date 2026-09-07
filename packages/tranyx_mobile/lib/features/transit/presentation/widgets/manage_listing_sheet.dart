@@ -32,6 +32,7 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
 
   List<Map<String, dynamic>> _requests = [];
   bool _isLoadingRequests = true;
+  bool _hasReservationRecords = false;
 
   @override
   void initState() {
@@ -59,8 +60,10 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
         });
       } else {
         final list = await repo.getPendingRequestsForVehicle(id);
+        final allRecords = await repo.getAllRequestsForVehicle(id);
         setState(() {
           _requests = list;
+          _hasReservationRecords = allRecords.isNotEmpty;
           _isLoadingRequests = false;
         });
       }
@@ -662,7 +665,7 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                       // Actions when Available (Edit & Delete listing)
                       Row(
                         children: [
-                          if (_requests.isEmpty) ...[
+                          if (_requests.isEmpty && (widget.isProperty || !_hasReservationRecords)) ...[
                             Expanded(
                               child: ElevatedButton.icon(
                                 onPressed: _isProcessing
