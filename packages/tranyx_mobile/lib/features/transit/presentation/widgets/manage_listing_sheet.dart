@@ -148,6 +148,51 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
     }
   }
 
+  void _updateBookingStatus(String requestId, String newStatus) async {
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+    try {
+      final repo = ref.read(transitRepositoryProvider);
+      final id = widget.item['id'] as String;
+      if (widget.isProperty) {
+        if (newStatus == 'Completed') {
+          await repo.completePropertyRental(id, requestId: requestId);
+        } else {
+          await repo.updatePropertyStatus(id, newStatus, requestId: requestId);
+        }
+      } else {
+        if (newStatus == 'Completed') {
+          await repo.completeRental(id, requestId: requestId);
+        } else {
+          await repo.updateRentalStatus(id, newStatus, requestId: requestId);
+        }
+      }
+
+      ref.invalidate(realtimeRentalsProvider);
+      ref.invalidate(realtimePropertiesProvider);
+      await _loadRequests();
+      setState(() => _isProcessing = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              newStatus == 'Completed' ? 'Rental completed & payout released!' : 'Status updated to: $newStatus',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isProcessing = false;
+        _error = 'Error updating status: $e';
+      });
+    }
+  }
+
   void _toggleAcceptingBookings(bool currentlyAccepting) async {
     setState(() {
       _isProcessing = true;
@@ -1260,6 +1305,120 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                                       ),
                                     ],
                                   ),
+                                ] else if (widget.isProperty) ...[
+                                  if (['booked', 'active', 'ongoing', 'returning'].contains(status)) ...[
+                                    const SizedBox(height: 12),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton.icon(
+                                        onPressed: _isProcessing
+                                            ? null
+                                            : () => _updateBookingStatus(reqId, 'Completed'),
+                                        icon: const Icon(
+                                          Icons.check_circle,
+                                          size: 16,
+                                          color: Colors.white,
+                                        ),
+                                        label: const Text(
+                                          'Complete Lease & Payout Earnings',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.green,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ] else ...[
+                                  if (status == 'booked') ...[
+                                    const SizedBox(height: 12),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton.icon(
+                                        onPressed: _isProcessing
+                                            ? null
+                                            : () => _updateBookingStatus(reqId, 'Ongoing'),
+                                        icon: const Icon(
+                                          Icons.vpn_key,
+                                          size: 16,
+                                          color: Colors.white,
+                                        ),
+                                        label: const Text(
+                                          'Hand Over & Start Rental',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppColors.indigo,
+                                        ),
+                                      ),
+                                    ),
+                                  ] else if (status == 'on the way to rentee') ...[
+                                    const SizedBox(height: 12),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton.icon(
+                                        onPressed: _isProcessing
+                                            ? null
+                                            : () => _updateBookingStatus(reqId, 'Ongoing'),
+                                        icon: const Icon(
+                                          Icons.vpn_key,
+                                          size: 16,
+                                          color: Colors.white,
+                                        ),
+                                        label: const Text(
+                                          'Hand Over & Start Rental',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppColors.indigo,
+                                        ),
+                                      ),
+                                    ),
+                                  ] else if (status == 'ongoing') ...[
+                                    const SizedBox(height: 12),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton.icon(
+                                        onPressed: _isProcessing
+                                            ? null
+                                            : () => _updateBookingStatus(reqId, 'Returning'),
+                                        icon: const Icon(
+                                          Icons.sync,
+                                          size: 16,
+                                          color: Colors.white,
+                                        ),
+                                        label: const Text(
+                                          'Mark as Returning',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.purple,
+                                        ),
+                                      ),
+                                    ),
+                                  ] else if (status == 'returning') ...[
+                                    const SizedBox(height: 12),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton.icon(
+                                        onPressed: _isProcessing
+                                            ? null
+                                            : () => _updateBookingStatus(reqId, 'Completed'),
+                                        icon: const Icon(
+                                          Icons.check_circle,
+                                          size: 16,
+                                          color: Colors.white,
+                                        ),
+                                        label: const Text(
+                                          'Confirm Returned & Complete',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.green,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ],
                             ),

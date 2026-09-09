@@ -19,7 +19,25 @@ class EditVehicleModalComponent extends StatefulComponent {
 
 class _EditVehicleModalState extends State<EditVehicleModalComponent> {
   int _step = 1;
+  int? _lastScrolledStep;
   String? _rentalId;
+
+  void _scrollToTop() {
+    void doScroll() {
+      final container = web.document.getElementById('edit-vehicle-modal-container');
+      if (container != null) {
+        container.scrollTop = 0;
+      }
+    }
+
+    doScroll();
+    Future.microtask(doScroll);
+    Future.delayed(Duration.zero, doScroll);
+    Future.delayed(const Duration(milliseconds: 20), doScroll);
+    Future.delayed(const Duration(milliseconds: 80), doScroll);
+    Future.delayed(const Duration(milliseconds: 250), doScroll);
+    Future.delayed(const Duration(milliseconds: 650), doScroll);
+  }
 
   // Form Fields
   VehicleType _selectedType = VehicleType.car;
@@ -70,6 +88,8 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
   @override
   void initState() {
     super.initState();
+    _lastScrolledStep = null;
+    _scrollToTop();
     final r = component.appState.selectedRentalData;
     if (r != null) {
       _rentalId = r['id']?.toString();
@@ -295,42 +315,50 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
     if (_step == 1) {
       if (_brand.trim().isEmpty || _model.trim().isEmpty || _year.trim().isEmpty || _plateNumber.trim().isEmpty) {
         setState(() => _error = 'Please fill out all vehicle specifications.');
+        _scrollToTop();
         return;
       }
       if (int.tryParse(_year) == null) {
         setState(() => _error = 'Year must be a valid number.');
+        _scrollToTop();
         return;
       }
       if (!_isValidPhilippinePlate(_plateNumber)) {
         setState(
           () => _error = 'Please enter a valid Philippine Plate Number (e.g. ABC-1234, MC-12345) or MV File Number.',
         );
+        _scrollToTop();
         return;
       }
     } else if (_step == 2) {
       final daily = double.tryParse(_priceDaily) ?? 0;
       if (daily <= 0) {
         setState(() => _error = 'Please provide a valid daily rate.');
+        _scrollToTop();
         return;
       }
       if (_offersDriver) {
         final drvPrice = double.tryParse(_driverDailyPrice) ?? 0;
         if (drvPrice <= 0) {
           setState(() => _error = 'Please enter a valid driver daily rate.');
+          _scrollToTop();
           return;
         }
         final cleanedLicense = _driverLicenseNumber.replaceAll(RegExp(r'[\s-]'), '');
         if (cleanedLicense.length != 11) {
           setState(() => _error = 'Please enter a valid Driver\'s License Number (11 characters).');
+          _scrollToTop();
           return;
         }
         if (_driverNote.trim().isEmpty) {
           setState(() => _error = 'Please provide a driver note.');
+          _scrollToTop();
           return;
         }
       }
       if (component.appState.pickupAddress.isEmpty) {
         setState(() => _error = 'Please select and confirm a vehicle location on the map picker.');
+        _scrollToTop();
         return;
       }
       _pickupAddress = component.appState.pickupAddress;
@@ -339,17 +367,27 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
     }
 
     setState(() => _step++);
+    _scrollToTop();
   }
 
   @override
   Component build(BuildContext context) {
-    if (!component.appState.showEditVehicleModal) return div([]);
+    if (!component.appState.showEditVehicleModal) {
+      _lastScrolledStep = null;
+      return div([]);
+    }
     final isDark = component.appState.isDark;
+
+    if (_lastScrolledStep != _step) {
+      _lastScrolledStep = _step;
+      _scrollToTop();
+    }
 
     return div(
       classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
       [
         div(
+          id: 'edit-vehicle-modal-container',
           classes:
               'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
           [
@@ -863,7 +901,12 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                   button(
                     classes:
                         'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors cursor-pointer bg-transparent',
-                    events: {'click': (e) => setState(() => _step--)},
+                    events: {
+                      'click': (e) {
+                        setState(() => _step--);
+                        _scrollToTop();
+                      },
+                    },
                     [Component.text('Back')],
                   )
                 else

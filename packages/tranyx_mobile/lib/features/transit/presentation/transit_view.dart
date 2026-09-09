@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:shared/shared.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
@@ -134,6 +135,420 @@ class _TransitViewState extends ConsumerState<TransitView> {
     );
   }
 
+  Widget _buildPendingRequestCard(
+    Map<String, dynamic> req,
+    bool isProperty,
+    bool isDarkMode,
+  ) {
+    final reqId = req['id']?.toString() ?? '';
+
+    String title;
+    String? photoUrl;
+    String address;
+    Map<String, dynamic> itemMap;
+
+    if (isProperty) {
+      final propId = (req['propertyId'] ?? req['listingId'])?.toString();
+      final properties = ref.watch(realtimePropertiesProvider).value ?? [];
+      PropertyRental? property;
+      if (propId != null && propId.isNotEmpty) {
+        for (final p in properties) {
+          if (p.id == propId) {
+            property = p;
+            break;
+          }
+        }
+      }
+      title = property?.title ?? req['title'] ?? req['propertyTitle'] ?? 'Property Rental';
+      if (property != null && property.photoUrls.isNotEmpty) {
+        photoUrl = property.photoUrls.first;
+      } else if (req['photoUrl'] != null && req['photoUrl'].toString().isNotEmpty) {
+        photoUrl = req['photoUrl'].toString();
+      } else if (req['photoUrls'] is List && (req['photoUrls'] as List).isNotEmpty) {
+        photoUrl = (req['photoUrls'] as List).first.toString();
+      }
+      address = property?.address ?? req['address'] ?? req['city'] ?? 'Location on file';
+      itemMap = property?.toMap() ?? {
+        'id': propId,
+        'title': title,
+        'address': address,
+        'photoUrls': photoUrl != null ? [photoUrl] : <String>[],
+        'priceDaily': req['priceDaily'] ?? req['totalCost'],
+        'status': 'Pending Approval',
+      };
+    } else {
+      final rentalId = (req['rentalId'] ?? req['listingId'])?.toString();
+      final rentals = ref.watch(realtimeRentalsProvider).value ?? [];
+      VehicleRental? vehicle;
+      if (rentalId != null && rentalId.isNotEmpty) {
+        for (final v in rentals) {
+          if (v.id == rentalId) {
+            vehicle = v;
+            break;
+          }
+        }
+      }
+      final brand = vehicle?.brand ?? req['brand'] ?? '';
+      final model = vehicle?.model ?? req['model'] ?? req['title'] ?? '';
+      title = '$brand $model'.trim();
+      if (title.isEmpty) title = 'Vehicle Rental';
+
+      photoUrl = vehicle?.frontPhotoUrl ?? req['frontPhotoUrl'] ?? req['photoUrl'];
+      address = vehicle?.pickupAddress ?? req['pickupAddress'] ?? 'Pickup location on file';
+      itemMap = vehicle?.toMap() ?? {
+        'id': rentalId,
+        'brand': brand,
+        'model': model.isNotEmpty ? model : title,
+        'frontPhotoUrl': photoUrl,
+        'pickupAddress': address,
+        'priceDaily': req['dailyRate'] ?? req['priceDaily'] ?? req['totalCost'],
+        'status': 'Pending Approval',
+      };
+    }
+
+    DateTime? parseDate(dynamic val) {
+      if (val == null) return null;
+      if (val is DateTime) return val;
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+      try {
+        final ms = (val as dynamic).millisecondsSinceEpoch;
+        if (ms is int) return DateTime.fromMillisecondsSinceEpoch(ms);
+      } catch (_) {}
+      try {
+        final ms = (val as dynamic).toMillis();
+        if (ms is int) return DateTime.fromMillisecondsSinceEpoch(ms);
+      } catch (_) {}
+      if (val is String) return DateTime.tryParse(val);
+      return null;
+    }
+
+    final startDate = parseDate(req['startDate']);
+    final endDate = parseDate(req['endDate']);
+    final hasDates = startDate != null && endDate != null;
+    final dateRangeStr = hasDates
+        ? '${DateFormat('MMM dd, yyyy').format(startDate)} – ${DateFormat('MMM dd, yyyy').format(endDate)}'
+        : (req['multiplier'] != null && req['durationType'] != null)
+            ? '${req['multiplier']} ${req['durationType']}(s)'
+            : '';
+
+    final totalCost = req['totalCost'] ?? req['amount'] ?? 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isDarkMode ? AppColors.darkCard : Colors.white,
+        border: Border.all(
+          color: isDarkMode ? AppColors.darkBorder : Colors.grey.shade200,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          if (!isDarkMode)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _openDetailDialog(itemMap, isProperty),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Thumbnail / Icon
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: photoUrl != null && photoUrl.isNotEmpty
+                          ? Image.network(
+                              photoUrl,
+                              width: 68,
+                              height: 68,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => Container(
+                                width: 68,
+                                height: 68,
+                                color: Colors.purple.withValues(alpha: 0.1),
+                                child: Icon(
+                                  isProperty
+                                      ? Icons.apartment_rounded
+                                      : Icons.directions_car_filled_rounded,
+                                  color: Colors.purple,
+                                  size: 30,
+                                ),
+                              ),
+                            )
+                          : Container(
+                              width: 68,
+                              height: 68,
+                              color: Colors.purple.withValues(alpha: 0.1),
+                              child: Icon(
+                                isProperty
+                                    ? Icons.apartment_rounded
+                                    : Icons.directions_car_filled_rounded,
+                                color: Colors.purple,
+                                size: 30,
+                              ),
+                            ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Details
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.purple.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  'AWAITING APPROVAL',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.purple,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  'PENDING',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.amber,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            title,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                              color: isDarkMode ? Colors.white : Colors.black87,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 3),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.location_on_outlined,
+                                size: 13,
+                                color: Colors.grey.shade500,
+                              ),
+                              const SizedBox(width: 3),
+                              Expanded(
+                                child: Text(
+                                  address,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (dateRangeStr.isNotEmpty) ...[
+                            const SizedBox(height: 3),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.calendar_today_outlined,
+                                  size: 12,
+                                  color: Colors.grey.shade500,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  dateRangeStr,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDarkMode
+                                        ? Colors.grey.shade400
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: isDarkMode
+                      ? AppColors.darkBorder.withValues(alpha: 0.5)
+                      : Colors.grey.shade100,
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'ESCROW LOCKED',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey.shade500,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        Text(
+                          '₱$totalCost',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.purple,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          onPressed: () => _openDetailDialog(itemMap, isProperty),
+                          child: const Text(
+                            'View Details',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            foregroundColor: Colors.red,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          onPressed: () async {
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Cancel Request'),
+                                content: const Text(
+                                  'Are you sure you want to cancel this booking request? Your locked funds will be refunded immediately.',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(false),
+                                    child: const Text('Keep Request'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(true),
+                                    child: const Text(
+                                      'Yes, Cancel',
+                                      style: TextStyle(color: Colors.red),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirmed == true) {
+                              try {
+                                if (isProperty) {
+                                  await ref
+                                      .read(transitRepositoryProvider)
+                                      .cancelPropertyBookingRequest(reqId);
+                                } else {
+                                  await ref
+                                      .read(transitRepositoryProvider)
+                                      .cancelBookingRequest(reqId);
+                                }
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Booking request cancelled and escrow refunded.',
+                                      ),
+                                      backgroundColor: Colors.green,
+                                    ),
+                                  );
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Failed to cancel request: $e'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              }
+                            }
+                          },
+                          child: const Text(
+                            'Cancel',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDarkMode = ref.watch(themeModeProvider);
@@ -247,20 +662,10 @@ class _TransitViewState extends ConsumerState<TransitView> {
             // 1. ACTIVE RENTALS / LEASES
             if (isVehicles) ...[
               ref
-                  .watch(realtimeRentalsProvider)
+                  .watch(renterActiveBookingsProvider)
                   .when(
-                    data: (rentals) {
-                      final active = rentals
-                          .where(
-                            (r) =>
-                                r.renteeId == userProfile.uid &&
-                                r.status != 'Available' &&
-                                r.status != 'Completed' &&
-                                r.status != 'Complete',
-                          )
-                          .toList();
-
-                      if (active.isEmpty) return const SizedBox.shrink();
+                    data: (bookings) {
+                      if (bookings.isEmpty) return const SizedBox.shrink();
 
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -274,7 +679,11 @@ class _TransitViewState extends ConsumerState<TransitView> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          ...active.map((act) {
+                          ...bookings.map((act) {
+                            final brand = act['brand'] ?? '';
+                            final model = act['model'] ?? '';
+                            final status = (act['status'] ?? 'BOOKED').toString();
+                            final pickupAddress = act['deliveryAddress'] ?? act['pickupAddress'] ?? 'Pickup point';
                             return Container(
                               margin: const EdgeInsets.only(bottom: 16),
                               padding: const EdgeInsets.all(16),
@@ -295,7 +704,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                         MainAxisAlignment.spaceBetween,
                                     children: [
                                       Text(
-                                        '${act.brand} ${act.model}',
+                                        '$brand $model',
                                         style: const TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 16,
@@ -315,7 +724,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                           ),
                                         ),
                                         child: Text(
-                                          act.status.toUpperCase(),
+                                          status.toUpperCase(),
                                           style: const TextStyle(
                                             fontSize: 10,
                                             color: Colors.green,
@@ -327,7 +736,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Handover address: ${act.pickupAddress}',
+                                    'Handover address: $pickupAddress',
                                     style: const TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey,
@@ -339,7 +748,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                       Expanded(
                                         child: ElevatedButton(
                                           onPressed: () => _openActiveTripSheet(
-                                            act.toMap(),
+                                            act,
                                             false,
                                           ),
                                           style: ElevatedButton.styleFrom(
@@ -364,19 +773,10 @@ class _TransitViewState extends ConsumerState<TransitView> {
                   ),
             ] else ...[
               ref
-                  .watch(realtimePropertiesProvider)
+                  .watch(propertyRenterActiveBookingsProvider)
                   .when(
-                    data: (props) {
-                      final active = props
-                          .where(
-                            (p) =>
-                                p.renteeId == userProfile.uid &&
-                                p.status != 'Available' &&
-                                p.status != 'Completed',
-                          )
-                          .toList();
-
-                      if (active.isEmpty) return const SizedBox.shrink();
+                    data: (leases) {
+                      if (leases.isEmpty) return const SizedBox.shrink();
 
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -390,7 +790,10 @@ class _TransitViewState extends ConsumerState<TransitView> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          ...active.map((act) {
+                          ...leases.map((act) {
+                            final title = act['title'] ?? 'Property Lease';
+                            final status = (act['status'] ?? 'BOOKED').toString();
+                            final address = act['address'] ?? '';
                             return Container(
                               margin: const EdgeInsets.only(bottom: 16),
                               padding: const EdgeInsets.all(16),
@@ -409,7 +812,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                         MainAxisAlignment.spaceBetween,
                                     children: [
                                       Text(
-                                        act.title,
+                                        title,
                                         style: const TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 16,
@@ -429,7 +832,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                           ),
                                         ),
                                         child: Text(
-                                          act.status.toUpperCase(),
+                                          status.toUpperCase(),
                                           style: const TextStyle(
                                             fontSize: 10,
                                             color: Colors.green,
@@ -441,7 +844,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Address: ${act.address}',
+                                    'Address: $address',
                                     style: const TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey,
@@ -453,7 +856,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                       Expanded(
                                         child: ElevatedButton(
                                           onPressed: () => _openActiveTripSheet(
-                                            act.toMap(),
+                                            act,
                                             true,
                                           ),
                                           style: ElevatedButton.styleFrom(
@@ -503,30 +906,13 @@ class _TransitViewState extends ConsumerState<TransitView> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          ...pending.map((req) {
-                            final reqId = req['id'] as String;
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: ListTile(
-                                title: Text('${req["brand"]} ${req["model"]}'),
-                                subtitle: Text(
-                                  'Duration: ${req["multiplier"]} ${req["durationType"]}(s)',
-                                ),
-                                trailing: OutlinedButton(
-                                  onPressed: () => ref
-                                      .read(transitRepositoryProvider)
-                                      .cancelBookingRequest(reqId),
-                                  child: const Text(
-                                    'Cancel',
-                                    style: TextStyle(color: Colors.red),
-                                  ),
-                                ),
-                              ),
-                            );
-                          }),
+                          ...pending.map(
+                            (req) => _buildPendingRequestCard(
+                              req,
+                              false,
+                              isDarkMode,
+                            ),
+                          ),
                           const SizedBox(height: 16),
                         ],
                       );
@@ -556,32 +942,13 @@ class _TransitViewState extends ConsumerState<TransitView> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          ...pending.map((req) {
-                            final reqId = req['id'] as String;
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: ListTile(
-                                title: Text(req['title'] ?? 'Property Rental'),
-                                subtitle: Text(
-                                  'Rent: ₱ ${req["totalCost"]?.toString() ?? "0"}',
-                                ),
-                                trailing: OutlinedButton(
-                                  onPressed: () => ref
-                                      .read(transitRepositoryProvider)
-                                      .rejectPropertyBookingRequest(
-                                        reqId,
-                                      ), // Cancels same collection
-                                  child: const Text(
-                                    'Cancel',
-                                    style: TextStyle(color: Colors.red),
-                                  ),
-                                ),
-                              ),
-                            );
-                          }),
+                          ...pending.map(
+                            (req) => _buildPendingRequestCard(
+                              req,
+                              true,
+                              isDarkMode,
+                            ),
+                          ),
                           const SizedBox(height: 16),
                         ],
                       );

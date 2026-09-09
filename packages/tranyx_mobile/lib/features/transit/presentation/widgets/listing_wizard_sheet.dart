@@ -24,6 +24,8 @@ class ListingWizardSheet extends ConsumerStatefulWidget {
 
 class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   int _step = 1;
+  int? _lastScrolledStep;
+  ScrollController? _activeScrollController;
   bool _isProcessing = false;
   String? _error;
 
@@ -183,14 +185,18 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
 
   double get _listingFee => 0.0; // Vehicle & Property listings are 100% FREE (0% upfront fee)
 
-  void _scrollToTop(ScrollController scrollController) {
+  void _scrollToTop(ScrollController scrollController, {bool immediate = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (scrollController.hasClients) {
-        scrollController.animateTo(
-          0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+        if (immediate) {
+          scrollController.jumpTo(0);
+        } else {
+          scrollController.animateTo(
+            0,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOut,
+          );
+        }
       }
     });
   }
@@ -555,6 +561,9 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           setState(() {
             _step--;
           });
+          if (_activeScrollController != null) {
+            _scrollToTop(_activeScrollController!, immediate: true);
+          }
         }
       },
       child: DraggableScrollableSheet(
@@ -562,6 +571,11 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         minChildSize: 0.5,
         maxChildSize: 0.95,
         builder: (context, scrollController) {
+          _activeScrollController = scrollController;
+          if (_lastScrolledStep != _step) {
+            _lastScrolledStep = _step;
+            _scrollToTop(scrollController, immediate: true);
+          }
         return Padding(
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -627,6 +641,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                           Navigator.pop(context);
                         } else {
                           setState(() => _step--);
+                          _scrollToTop(scrollController, immediate: true);
                         }
                       },
                     ),
@@ -1631,7 +1646,10 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         if (_step > 1)
                           IconButton(
                             icon: const Icon(Icons.arrow_back),
-                            onPressed: () => setState(() => _step--),
+                            onPressed: () {
+                              setState(() => _step--);
+                              _scrollToTop(scrollController, immediate: true);
+                            },
                           )
                         else
                           const SizedBox(width: 48),
@@ -1652,10 +1670,12 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                     if (_step == 1) {
                                       if (_validateStep1(scrollController)) {
                                         setState(() => _step = 2);
+                                        _scrollToTop(scrollController, immediate: true);
                                       }
                                     } else if (_step == 2) {
                                       if (_validateStep2(scrollController)) {
                                         setState(() => _step = 3);
+                                        _scrollToTop(scrollController, immediate: true);
                                       }
                                     } else {
                                       _submitListing(scrollController);

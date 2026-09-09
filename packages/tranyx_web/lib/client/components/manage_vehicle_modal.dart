@@ -237,6 +237,29 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     }
   }
 
+  void _updateBookingStatus(String requestId, String newStatus) async {
+    final r = component.appState.selectedRentalData;
+    if (r == null) return;
+
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+
+    try {
+      if (newStatus == 'Completed') {
+        await component.appState.firestore.completeRental(r['id'], requestId: requestId);
+      } else {
+        await component.appState.firestore.updateRentalStatus(r['id'], newStatus, requestId: requestId);
+      }
+      _loadRequests();
+    } catch (e) {
+      setState(() => _error = e.toString());
+    } finally {
+      setState(() => _isProcessing = false);
+    }
+  }
+
   void _saveGps() async {
     final r = component.appState.selectedRentalData;
     if (r == null) return;
@@ -1059,6 +1082,64 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                                 }(),
                             ],
                           ),
+                          () {
+                            final reqStatus = (req['status'] ?? '').toString();
+                            final isDeliver = (req['rentalType'] ?? r['rentalType']) == 'deliver';
+                            if (reqStatus == 'Booked') {
+                              return div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center gap-2', [
+                                button(
+                                  classes:
+                                      'flex-1 py-2 rounded-xl text-xs font-bold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-1.5 cursor-pointer border-0',
+                                  events: {'click': (_) => _updateBookingStatus(req['id'], isDeliver ? 'On the way to Rentee' : 'Ongoing')},
+                                  disabled: _isProcessing,
+                                  [
+                                    lIcon(isDeliver ? 'truck' : 'key', cls: 'w-4 h-4'),
+                                    Component.text(isDeliver ? 'Start Delivery' : 'Hand Over & Start Rental'),
+                                  ],
+                                ),
+                              ]);
+                            } else if (reqStatus == 'On the way to Rentee') {
+                              return div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center gap-2', [
+                                button(
+                                  classes:
+                                      'flex-1 py-2 rounded-xl text-xs font-bold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-1.5 cursor-pointer border-0',
+                                  events: {'click': (_) => _updateBookingStatus(req['id'], 'Ongoing')},
+                                  disabled: _isProcessing,
+                                  [
+                                    lIcon('key', cls: 'w-4 h-4'),
+                                    Component.text('Hand Over & Start Rental'),
+                                  ],
+                                ),
+                              ]);
+                            } else if (reqStatus == 'Ongoing') {
+                              return div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center gap-2', [
+                                button(
+                                  classes:
+                                      'flex-1 py-2 rounded-xl text-xs font-bold text-white bg-purple-500 hover:bg-purple-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer border-0',
+                                  events: {'click': (_) => _updateBookingStatus(req['id'], 'Returning')},
+                                  disabled: _isProcessing,
+                                  [
+                                    lIcon('refresh-cw', cls: 'w-4 h-4'),
+                                    Component.text('Mark as Returning'),
+                                  ],
+                                ),
+                              ]);
+                            } else if (reqStatus == 'Returning') {
+                              return div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center gap-2', [
+                                button(
+                                  classes:
+                                      'flex-1 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer border-0',
+                                  events: {'click': (_) => _updateBookingStatus(req['id'], 'Completed')},
+                                  disabled: _isProcessing,
+                                  [
+                                    lIcon('check-circle', cls: 'w-4 h-4'),
+                                    Component.text('Confirm Vehicle Returned & Complete'),
+                                  ],
+                                ),
+                              ]);
+                            }
+                            return div([]);
+                          }(),
                         ],
                       ],
                     ),

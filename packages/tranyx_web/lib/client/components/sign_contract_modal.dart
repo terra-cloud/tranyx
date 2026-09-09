@@ -13,6 +13,7 @@ class SignContractModalComponent extends StatefulComponent {
   final String title;
   final String contractTerms;
   final String rentalId;
+  final String? requestId;
   final bool isProperty;
   final VoidCallback onSigned;
 
@@ -21,6 +22,7 @@ class SignContractModalComponent extends StatefulComponent {
     required this.title,
     required this.contractTerms,
     required this.rentalId,
+    this.requestId,
     required this.isProperty,
     required this.onSigned,
     super.key,
@@ -89,12 +91,14 @@ class _SignContractModalState extends State<SignContractModalComponent> {
           component.rentalId,
           signatureDataUrl,
           signatureHash: hashHex,
+          requestId: component.requestId,
         );
       } else {
         await component.appState.firestore.signVehicleContract(
           component.rentalId,
           signatureDataUrl,
           signatureHash: hashHex,
+          requestId: component.requestId,
         );
       }
       component.onSigned();

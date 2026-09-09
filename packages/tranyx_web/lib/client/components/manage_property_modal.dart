@@ -179,6 +179,28 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
     }
   }
 
+  void _completeLeaseForRequest(String requestId) async {
+    final prop = component.appState.selectedPropertyData;
+    if (prop == null) return;
+
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+
+    try {
+      await component.appState.firestore.completePropertyRental(prop['id'], requestId: requestId);
+      await component.appState.loadUserProfile();
+      component.appState.walletBalance = component.appState.userProfile?.tyxBalance ?? component.appState.walletBalance;
+      _loadRequests();
+      component.appState.showAppToast('Lease Completed', 'Lease earnings have been deposited into your wallet.');
+    } catch (e) {
+      setState(() => _error = 'Failed to complete lease: $e');
+    } finally {
+      setState(() => _isProcessing = false);
+    }
+  }
+
   @override
   Component build(BuildContext context) {
     if (!component.appState.showManagePropertyModal || component.appState.selectedPropertyData == null) {
@@ -708,6 +730,24 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                                 }(),
                             ],
                           ),
+                          () {
+                            final reqStatus = (req['status'] ?? '').toString().toLowerCase();
+                            if (reqStatus == 'booked' || reqStatus == 'active' || reqStatus == 'ongoing' || reqStatus == 'returning') {
+                              return div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center gap-2', [
+                                button(
+                                  classes:
+                                      'flex-1 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer border-0',
+                                  events: {'click': (_) => _completeLeaseForRequest(req['id'])},
+                                  disabled: _isProcessing,
+                                  [
+                                    lIcon('check-circle', cls: 'w-4 h-4'),
+                                    Component.text('Complete Lease & Release Earnings'),
+                                  ],
+                                ),
+                              ]);
+                            }
+                            return div([]);
+                          }(),
                         ],
                       ],
                     ),

@@ -118,15 +118,17 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
     if (isVehicles) {
       // 🚗 VEHICLES RENT MODE
-      final activeRentals = s.realtimeRentals
-          .where(
-            (r) =>
-                r['renteeId'] == currentUid &&
-                r['status'] != 'Available' &&
-                r['status'] != 'Completed' &&
-                r['status'] != 'Complete',
-          )
-          .toList();
+      final activeRentals = s.renterActiveBookings.isNotEmpty
+          ? s.renterActiveBookings
+          : s.realtimeRentals
+              .where(
+                (r) =>
+                    r['renteeId'] == currentUid &&
+                    r['status'] != 'Available' &&
+                    r['status'] != 'Completed' &&
+                    r['status'] != 'Complete',
+              )
+              .toList();
 
       final availableRentals = s.realtimeRentals.where((r) {
         final status = (r['status'] ?? '').toString();
@@ -205,9 +207,11 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       ]);
     } else {
       // 🏢 PROPERTIES RENT MODE
-      final activeLeases = s.realtimeProperties
-          .where((prop) => prop.renteeId == currentUid && prop.status != 'Available' && prop.status != 'Completed')
-          .toList();
+      final activeLeases = s.propertyRenterActiveBookings.isNotEmpty
+          ? s.propertyRenterActiveBookings
+          : s.realtimeProperties
+              .where((prop) => prop.renteeId == currentUid && prop.status != 'Available' && prop.status != 'Completed')
+              .toList();
 
       final availableProperties = s.realtimeProperties.where((prop) {
         final status = prop.status;
@@ -616,7 +620,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
   Component _activeVehicleCard(Map<String, dynamic> active, bool isDark) {
     final s = component.state;
     final status = active['status'] as String? ?? 'Booked';
-    final chatId = 'rental_${active['id']}_${s.userProfile?.uid}';
+    final rentalId = (active['rentalId'] ?? active['id'])?.toString() ?? '';
+    final chatId = 'rental_${rentalId}_${s.userProfile?.uid}';
     final unreadCount = s.getUnreadChatCount(chatId);
 
     return div(
@@ -650,7 +655,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                   'click': (e) {
                     e.stopPropagation();
                     s.setState(() {
-                      s.signingContractId = active['id']?.toString();
+                      s.signingContractId = rentalId;
+                      s.signingContractRequestId = active['id']?.toString();
                       s.signingContractTitle = '${active['brand']} ${active['model']} Rental Agreement';
                       s.signingContractTerms = active['contractTerms'] ?? 'Rental Agreement terms';
                       s.signingContractIsProperty = false;
@@ -730,10 +736,19 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     );
   }
 
-  Component _activePropertyCard(PropertyRental active, bool isDark) {
+  Component _activePropertyCard(dynamic active, bool isDark) {
     final s = component.state;
-    final status = active.status;
-    final chatId = 'property_${active.id}_${s.userProfile?.uid}';
+    final isModel = active is PropertyRental;
+    final status = isModel ? active.status : (active['status']?.toString() ?? 'Booked');
+    final propId = isModel ? active.id : (active['propertyId'] ?? active['id'])?.toString() ?? '';
+    final reqId = isModel ? active.currentRequestId : active['id']?.toString();
+    final title = isModel ? active.title : (active['title']?.toString() ?? 'Property Lease');
+    final contractTerms = isModel ? active.contractTerms : (active['contractTerms']?.toString() ?? 'Standard Lease Agreement terms');
+    final priceMonthly = isModel ? active.priceMonthly : ((active['priceMonthly'] ?? active['totalCost'] ?? 0.0) as num).toDouble();
+    final depositMonths = isModel ? active.depositMonths : ((active['depositMonths'] ?? 0) as num).toInt();
+    final allowChat = isModel ? active.allowChat : (active['allowChat'] == true);
+    final signatureHash = isModel ? active.signatureHash : active['signatureHash']?.toString();
+    final chatId = 'property_${propId}_${s.userProfile?.uid}';
     final unreadCount = s.getUnreadChatCount(chatId);
 
     return div(
@@ -746,7 +761,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               p(classes: 'text-xs font-semibold text-purple-400 uppercase tracking-wider', [
                 Component.text('Active Lease • $status'),
               ]),
-              p(classes: 'font-bold', [Component.text(active.title)]),
+              p(classes: 'font-bold', [Component.text(title)]),
             ]),
           ]),
           div(classes: 'flex items-center gap-2', [
@@ -757,9 +772,10 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 events: {
                   'click': (_) {
                     s.setState(() {
-                      s.signingContractId = active.id;
-                      s.signingContractTitle = '${active.title} Lease Agreement';
-                      s.signingContractTerms = active.contractTerms;
+                      s.signingContractId = propId;
+                      s.signingContractRequestId = reqId;
+                      s.signingContractTitle = '$title Lease Agreement';
+                      s.signingContractTerms = contractTerms;
                       s.signingContractIsProperty = true;
                       s.showSignContractModal = true;
                     });
@@ -781,12 +797,11 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         div(classes: 'flex items-center justify-between text-xs text-purple-300', [
           p([
             Component.text(
-              'Rent: ₱ ${active.priceMonthly.toStringAsFixed(0)}/mo • Deposit: ${active.depositMonths} mo',
+              'Rent: ₱ ${priceMonthly.toStringAsFixed(0)}/mo • Deposit: $depositMonths mo',
             ),
           ]),
-          if (active.allowChat)
+          if (allowChat)
             () {
-              final chatId = 'property_${active.id}_${s.userProfile?.uid}';
               return button(
                 classes:
                     'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative',
@@ -798,11 +813,11 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 [
                   lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
                   Component.text('Chat Owner'),
-                  if (s.getUnreadChatCount(chatId) > 0)
+                  if (unreadCount > 0)
                     span(
                       classes:
                           'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
-                      [Component.text('${s.getUnreadChatCount(chatId)}')],
+                      [Component.text('$unreadCount')],
                     ),
                 ],
               );
@@ -810,66 +825,227 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           else
             span(classes: 'text-zinc-550 italic', [Component.text('Chat disabled by host')]),
         ]),
-        if (active.signatureHash != null)
+        if (signatureHash != null && signatureHash.isNotEmpty)
           div(classes: 'mt-3 p-2.5 rounded-xl bg-green-500/10 border border-green-500/25 space-y-1', [
             p(classes: 'text-[10px] font-bold text-green-400 uppercase tracking-wider', [
               Component.text('✓ Signed Lease Details (Cryptographic SHA-256)'),
             ]),
             p(classes: 'text-[9px] font-mono text-green-300/80 break-all leading-normal', [
-              Component.text(active.signatureHash!),
+              Component.text(signatureHash),
             ]),
           ]),
       ],
     );
   }
 
+  int? _toEpochMs(dynamic val) {
+    if (val == null) return null;
+    if (val is int) return val;
+    if (val is DateTime) return val.millisecondsSinceEpoch;
+    if (val is num) return val.toInt();
+    try {
+      return (val as dynamic).millisecondsSinceEpoch as int?;
+    } catch (_) {}
+    try {
+      return (val as dynamic).toMillis() as int?;
+    } catch (_) {}
+    if (val is String) {
+      return DateTime.tryParse(val)?.millisecondsSinceEpoch;
+    }
+    return null;
+  }
+
+  String _formatDate(int? ms) {
+    if (ms == null) return '—';
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[dt.month - 1]} ${dt.day.toString().padLeft(2, '0')}, ${dt.year}';
+  }
+
   Component _pendingRequestCard(Map<String, dynamic> req, bool isProperty, bool isDark) {
     final s = component.state;
+    final reqId = req['id']?.toString() ?? '';
+
+    // Resolve entity details from real-time cache with fallback to snapshot
+    String title;
+    String? photoUrl;
+    String address;
+    Map<String, dynamic>? listingMap;
+
+    if (isProperty) {
+      final propId = (req['propertyId'] ?? req['listingId'])?.toString();
+      PropertyRental? prop;
+      if (propId != null && propId.isNotEmpty) {
+        for (final p in s.realtimeProperties) {
+          if (p.id == propId) {
+            prop = p;
+            break;
+          }
+        }
+      }
+      title = prop?.title ?? req['title'] ?? req['propertyTitle'] ?? 'Property Rental';
+      if (prop != null && prop.photoUrls.isNotEmpty) {
+        photoUrl = prop.photoUrls.first;
+      } else if (req['photoUrl'] != null && req['photoUrl'].toString().isNotEmpty) {
+        photoUrl = req['photoUrl'].toString();
+      } else if (req['photoUrls'] is List && (req['photoUrls'] as List).isNotEmpty) {
+        photoUrl = (req['photoUrls'] as List).first.toString();
+      }
+      address = prop?.address ?? req['address'] ?? req['city'] ?? 'Location on file';
+      listingMap = prop?.toMap() ?? {
+        'id': propId,
+        'title': title,
+        'address': address,
+        'photoUrls': photoUrl != null ? [photoUrl] : [],
+        'priceDaily': req['priceDaily'] ?? req['totalCost'],
+        'status': 'Pending Approval',
+      };
+    } else {
+      final rentalId = (req['rentalId'] ?? req['listingId'])?.toString();
+      Map<String, dynamic>? rental;
+      if (rentalId != null && rentalId.isNotEmpty) {
+        for (final r in s.realtimeRentals) {
+          if (r['id'] == rentalId) {
+            rental = r;
+            break;
+          }
+        }
+      }
+      final brand = (rental?['brand'] ?? req['brand'] ?? '').toString();
+      final model = (rental?['model'] ?? req['model'] ?? req['title'] ?? '').toString();
+      title = '$brand $model'.trim();
+      if (title.isEmpty) title = 'Vehicle Rental';
+
+      photoUrl = rental?['frontPhotoUrl'] ?? rental?['photoUrl'] ?? req['frontPhotoUrl'] ?? req['photoUrl'];
+      address = rental?['pickupAddress'] ?? req['pickupAddress'] ?? 'Pickup location on file';
+      listingMap = rental ?? {
+        'id': rentalId,
+        'brand': brand,
+        'model': model.isNotEmpty ? model : title,
+        'frontPhotoUrl': photoUrl,
+        'pickupAddress': address,
+        'priceDaily': req['dailyRate'] ?? req['priceDaily'] ?? req['totalCost'],
+        'status': 'Pending Approval',
+      };
+    }
+
+    final startMs = _toEpochMs(req['startDate']);
+    final endMs = _toEpochMs(req['endDate']);
+    final hasDates = startMs != null && endMs != null;
+    final dateRangeStr = hasDates
+        ? '${_formatDate(startMs)} – ${_formatDate(endMs)}'
+        : (req['multiplier'] != null && req['durationType'] != null)
+            ? '${req['multiplier']} ${req['durationType']}'
+            : '';
+
+    final totalCost = req['totalCost'] ?? req['amount'] ?? 0;
+
+    void openDetails() {
+      s.setState(() {
+        if (isProperty) {
+          s.selectedPropertyData = listingMap;
+          s.showBookPropertyModal = true;
+        } else {
+          s.selectedRentalData = listingMap;
+          s.showBookVehicleModal = true;
+        }
+      });
+    }
+
     return div(
       classes:
-          'p-5 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-800/15" : "border-zinc-200 bg-zinc-50"} mb-4 flex items-center justify-between',
+          'p-5 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900/60 hover:border-purple-500/40" : "border-zinc-200 bg-white hover:border-purple-300 shadow-sm"} mb-4 transition-all duration-200 flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer',
+      events: {
+        'click': (_) => openDetails(),
+      },
       [
-        div(classes: 'flex items-center gap-3', [
-          div(classes: 'p-2 rounded-xl bg-purple-500/20', [lIcon('clock', cls: 'w-5 h-5 text-purple-400')]),
-          div([
-            p(classes: 'text-xs font-semibold text-purple-400 uppercase tracking-wider', [
-              Component.text('Awaiting Approval'),
+        // Left section: Image / Icon + Details
+        div(classes: 'flex items-start md:items-center gap-4 flex-1 min-w-0', [
+          if (photoUrl != null && photoUrl.isNotEmpty)
+            img(
+              src: photoUrl,
+              classes: 'w-20 h-20 md:w-24 md:h-20 rounded-xl object-cover border ${isDark ? "border-zinc-800" : "border-zinc-200"} flex-shrink-0',
+            )
+          else
+            div(
+              classes: 'w-20 h-20 md:w-24 md:h-20 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center flex-shrink-0',
+              [lIcon(isProperty ? 'building' : 'car', cls: 'w-8 h-8 text-purple-400')],
+            ),
+          div(classes: 'min-w-0 flex-1 space-y-1', [
+            div(classes: 'flex items-center gap-2', [
+              span(
+                classes:
+                    'px-2 py-0.5 rounded text-[10px] bg-purple-500/15 text-purple-400 font-bold uppercase tracking-wider flex items-center gap-1',
+                [
+                  lIcon('clock', cls: 'w-3 h-3 text-purple-400 inline'),
+                  Component.text('Awaiting Host Approval'),
+                ],
+              ),
+              span(
+                classes:
+                    'px-2 py-0.5 rounded text-[10px] bg-yellow-500/15 text-yellow-400 font-bold uppercase tracking-wider',
+                [Component.text('Pending')],
+              ),
             ]),
-            p(classes: 'font-bold', [Component.text(req['title'] ?? (isProperty ? 'Lease' : 'Rental'))]),
-            p(classes: 'text-xs text-zinc-550 capitalize', [
-              Component.text('${req['multiplier']} ${req['durationType']}'),
+            p(classes: 'font-bold text-base md:text-lg truncate', [Component.text(title)]),
+            p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"} flex items-center gap-1.5 truncate', [
+              lIcon('map-pin', cls: 'w-3.5 h-3.5 text-zinc-400 flex-shrink-0'),
+              span(classes: 'truncate', [Component.text(address)]),
             ]),
+            if (dateRangeStr.isNotEmpty)
+              p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"} flex items-center gap-1.5', [
+                lIcon('calendar', cls: 'w-3.5 h-3.5 text-zinc-400 flex-shrink-0'),
+                Component.text(dateRangeStr),
+              ]),
           ]),
         ]),
-        div(classes: 'text-right flex flex-col items-end gap-1.5', [
-          p(classes: 'font-black text-purple-400', [Component.text('₱${req["totalCost"]}')]),
-          div(classes: 'flex items-center gap-2', [
-            span(classes: 'px-2 py-0.5 rounded text-[10px] bg-yellow-500/20 text-yellow-400 font-bold', [
-              Component.text('PENDING'),
+        // Right section: Escrow amount & Actions
+        div(classes: 'flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-2 flex-shrink-0 pt-2 md:pt-0 border-t md:border-t-0 ${isDark ? "border-zinc-800" : "border-zinc-100"}', [
+          div(classes: 'text-left md:text-right', [
+            p(classes: 'text-[10px] font-semibold text-zinc-400 uppercase tracking-wider', [
+              Component.text('Escrow Locked'),
             ]),
-            if (!isProperty)
-              button(
-                classes:
-                    'px-2.5 py-1 text-[10px] font-bold text-red-400 hover:text-red-300 border border-red-500/20 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer bg-transparent',
-                events: {
-                  'click': (_) async {
-                    final confirmed = confirmDialog(
-                      'Are you sure you want to cancel this booking request? Your locked funds will be refunded.',
-                    );
-                    if (confirmed) {
-                      try {
-                        await s.firestore.cancelBookingRequest(req['id']?.toString() ?? '');
-                        await s.loadRenterPendingRequests();
-                        await s.loadUserProfile();
-                        s.showAppToast('Request Cancelled', 'Your request has been cancelled and funds refunded.');
-                      } catch (e) {
-                        s.showAppToast('Error', 'Failed to cancel request: $e');
-                      }
-                    }
-                  },
+            p(classes: 'font-black text-lg md:text-xl text-purple-400', [Component.text('₱$totalCost')]),
+          ]),
+          div(classes: 'flex items-center gap-2', [
+            button(
+              classes:
+                  'px-3 py-1.5 text-xs font-bold text-zinc-300 hover:text-white bg-zinc-800/80 hover:bg-zinc-700/80 border border-zinc-700/60 rounded-lg transition-all cursor-pointer',
+              events: {
+                'click': (e) {
+                  e.stopPropagation();
+                  openDetails();
                 },
-                [Component.text('Cancel Request')],
-              ),
+              },
+              [Component.text('View Details')],
+            ),
+            button(
+              classes:
+                  'px-3 py-1.5 text-xs font-bold text-red-400 hover:text-red-300 border border-red-500/25 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer bg-transparent',
+              events: {
+                'click': (e) async {
+                  e.stopPropagation();
+                  final confirmed = confirmDialog(
+                    'Are you sure you want to cancel this booking request? Your locked funds will be refunded.',
+                  );
+                  if (confirmed) {
+                    try {
+                      if (isProperty) {
+                        await s.firestore.cancelPropertyBookingRequest(reqId);
+                      } else {
+                        await s.firestore.cancelBookingRequest(reqId);
+                      }
+                      await s.loadRenterPendingRequests();
+                      await s.loadUserProfile();
+                      s.showAppToast('Request Cancelled', 'Your request has been cancelled and funds refunded.');
+                    } catch (e) {
+                      s.showAppToast('Error', 'Failed to cancel request: $e');
+                    }
+                  }
+                },
+              },
+              [Component.text('Cancel Request')],
+            ),
           ]),
         ]),
       ],

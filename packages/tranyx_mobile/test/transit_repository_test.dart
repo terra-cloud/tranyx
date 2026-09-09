@@ -220,11 +220,12 @@ void main() {
         expect(escrowDoc.exists, isTrue);
         expect(escrowDoc.data()!['amount'], equals(2000.0));
 
-        final deletedReqEscrow = await firestore
+        final canonicalReqEscrow = await firestore
             .collection('rental_escrows')
             .doc('req123')
             .get();
-        expect(deletedReqEscrow.exists, isFalse);
+        expect(canonicalReqEscrow.exists, isTrue);
+        expect(canonicalReqEscrow.data()!['amount'], equals(2000.0));
 
         final rentalDocAfterApproval = await firestore
             .collection('rentals')
@@ -1490,6 +1491,670 @@ void main() {
         // Listing fee IS refunded
         final host = firestore.db['users/host_clean']!;
         expect(host['tyxBalance'], equals(530.0));
+      });
+    });
+
+    group('Multi-Booking Isolation & Status Synchronization Tests (AC1–AC12)', () {
+      test('AC1–AC4, AC6–AC8, AC11: Vehicle multi-booking isolation, independent escrows, independent status, and Renter streams', () async {
+        // Setup Host and 2 Renters
+        firestore.db['users/host_v'] = {
+          'name': 'Host V',
+          'email': 'host_v@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 1000.0,
+        };
+        firestore.db['users/renter_a'] = {
+          'name': 'Customer A',
+          'email': 'renter_a@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 20000.0,
+        };
+        firestore.db['users/renter_b'] = {
+          'name': 'Customer B',
+          'email': 'renter_b@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 20000.0,
+        };
+
+        // Create Vehicle listing
+        firestore.db['rentals/v_multi'] = {
+          'id': 'v_multi',
+          'hostId': 'host_v',
+          'hostName': 'Host V',
+          'brand': 'Toyota',
+          'model': 'Fortuner',
+          'year': 2023,
+          'status': 'Available',
+          'priceDaily': 3000.0,
+          'acceptingBookings': true,
+        };
+
+        final startA = DateTime(2026, 11, 1).millisecondsSinceEpoch;
+        final endA = DateTime(2026, 11, 5).millisecondsSinceEpoch;
+        final startB = DateTime(2026, 11, 10).millisecondsSinceEpoch;
+        final endB = DateTime(2026, 11, 15).millisecondsSinceEpoch;
+
+        // 1. Two separate requests for the same vehicle
+        firestore.db['rental_requests/b1'] = {
+          'id': 'b1',
+          'rentalId': 'v_multi',
+          'hostId': 'host_v',
+          'renteeId': 'renter_a',
+          'renteeName': 'Customer A',
+          'startDate': startA,
+          'endDate': endA,
+          'durationType': 'daily',
+          'multiplier': 4,
+          'totalCost': 12000.0,
+          'bookingFee': 360.0,
+          'status': 'Pending',
+        };
+        firestore.db['rental_escrows/b1'] = {
+          'requestId': 'b1',
+          'rentalId': 'v_multi',
+          'renteeId': 'renter_a',
+          'hostId': 'host_v',
+          'amount': 12000.0,
+          'status': 'Held',
+        };
+
+        firestore.db['rental_requests/b2'] = {
+          'id': 'b2',
+          'rentalId': 'v_multi',
+          'hostId': 'host_v',
+          'renteeId': 'renter_b',
+          'renteeName': 'Customer B',
+          'startDate': startB,
+          'endDate': endB,
+          'durationType': 'daily',
+          'multiplier': 5,
+          'totalCost': 15000.0,
+          'bookingFee': 450.0,
+          'status': 'Pending',
+        };
+        firestore.db['rental_escrows/b2'] = {
+          'requestId': 'b2',
+          'rentalId': 'v_multi',
+          'renteeId': 'renter_b',
+          'hostId': 'host_v',
+          'amount': 15000.0,
+          'status': 'Held',
+        };
+
+        // 2. Host approves Booking 1
+        await repo.approveBookingRequest('b1', 'v_multi', true);
+        expect(firestore.db['rental_requests/b1']?['status'], equals('Approved'));
+        // AC2: Booking 2 remains Pending
+        expect(firestore.db['rental_requests/b2']?['status'], equals('Pending'));
+        // AC2: Canonical escrows for both requests are preserved
+        expect(firestore.db['rental_escrows/b1']?['amount'], equals(12000.0));
+        expect(firestore.db['rental_escrows/b2']?['amount'], equals(15000.0));
+
+        // Customer A signs contract for Booking 1
+        await repo.signVehicleContract('v_multi', 'sig_renter_a', requestId: 'b1');
+        expect(firestore.db['rental_requests/b1']?['status'], equals('Booked'));
+
+        // 3. Host subsequently approves Booking 2
+        await repo.approveBookingRequest('b2', 'v_multi', true);
+        expect(firestore.db['rental_requests/b2']?['status'], equals('Approved'));
+        // AC1 & AC3: Booking 1 is STILL Booked (NOT overridden)
+        expect(firestore.db['rental_requests/b1']?['status'], equals('Booked'));
+        // AC2: Both canonical escrows remain distinct and intact
+        expect(firestore.db['rental_escrows/b1']?['amount'], equals(12000.0));
+        expect(firestore.db['rental_escrows/b2']?['amount'], equals(15000.0));
+
+        // Customer B signs contract for Booking 2
+        await repo.signVehicleContract('v_multi', 'sig_renter_b', requestId: 'b2');
+        expect(firestore.db['rental_requests/b2']?['status'], equals('Booked'));
+        expect(firestore.db['rental_requests/b1']?['status'], equals('Booked'));
+
+        // 4. AC4: Verify Renter active streams return strictly their respective bookings
+        final renterABookings = await repo.getRenterActiveBookingsStream('renter_a').first;
+        expect(renterABookings.length, equals(1));
+        expect(renterABookings.first['id'], equals('b1'));
+        expect(renterABookings.first['renteeId'], equals('renter_a'));
+
+        final renterBBookings = await repo.getRenterActiveBookingsStream('renter_b').first;
+        expect(renterBBookings.length, equals(1));
+        expect(renterBBookings.first['id'], equals('b2'));
+        expect(renterBBookings.first['renteeId'], equals('renter_b'));
+
+        // 5. AC5 & AC7: Host queries all requests for the listing
+        final hostRequests = await repo.getAllRequestsForVehicle('v_multi');
+        expect(hostRequests.length, equals(2));
+        final req1Data = hostRequests.firstWhere((r) => r['id'] == 'b1');
+        final req2Data = hostRequests.firstWhere((r) => r['id'] == 'b2');
+        expect(req1Data['renteeName'], equals('Customer A'));
+        expect(req2Data['renteeName'], equals('Customer B'));
+
+        // 6. AC3: Host advances Booking 1 status through lifecycle without mutating Booking 2
+        await repo.updateRentalStatus('v_multi', 'Ongoing', requestId: 'b1');
+        expect(firestore.db['rental_requests/b1']?['status'], equals('Ongoing'));
+        expect(firestore.db['rental_requests/b2']?['status'], equals('Booked'));
+
+        await repo.updateRentalStatus('v_multi', 'Returning', requestId: 'b1');
+        expect(firestore.db['rental_requests/b1']?['status'], equals('Returning'));
+        expect(firestore.db['rental_requests/b2']?['status'], equals('Booked'));
+
+        // 7. AC9 & AC11: Complete Booking 1; Booking 2 remains intact and becomes current
+        final hostBalanceBefore = firestore.db['users/host_v']!['tyxBalance'] as double;
+        await repo.completeRental('v_multi', requestId: 'b1');
+
+        expect(firestore.db['rental_requests/b1']?['status'], equals('Completed'));
+        expect(firestore.db['rental_requests/b2']?['status'], equals('Booked'));
+
+        // Host received payout for Booking 1 (12000 - 3% fee = 11640)
+        final hostBalanceAfter = firestore.db['users/host_v']!['tyxBalance'] as double;
+        expect(hostBalanceAfter, equals(hostBalanceBefore + 11640.0));
+
+        // Booking 2's escrow is completely preserved
+        expect(firestore.db['rental_escrows/b2']?['amount'], equals(15000.0));
+        expect(firestore.db['rental_escrows/b2']?['status'], equals('Held'));
+
+        // Booking 2 is now promoted to current on the vehicle listing
+        expect(firestore.db['rentals/v_multi']?['currentRequestId'], equals('b2'));
+        expect(firestore.db['rentals/v_multi']?['renteeId'], equals('renter_b'));
+        expect(firestore.db['rentals/v_multi']?['status'], equals('Booked'));
+
+        // Renter B still sees Booking 2 as active
+        final renterBStillActive = await repo.getRenterActiveBookingsStream('renter_b').first;
+        expect(renterBStillActive.length, equals(1));
+        expect(renterBStillActive.first['id'], equals('b2'));
+      });
+
+      test('AC10: Property multi-booking isolation, independent escrows, independent status, and Renter streams', () async {
+        // Setup Host and 2 Renters
+        firestore.db['users/host_p'] = {
+          'name': 'Host P',
+          'email': 'host_p@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 1000.0,
+        };
+        firestore.db['users/renter_p1'] = {
+          'name': 'Tenant 1',
+          'email': 'tenant1@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 20000.0,
+        };
+        firestore.db['users/renter_p2'] = {
+          'name': 'Tenant 2',
+          'email': 'tenant2@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 20000.0,
+        };
+
+        // Create Property listing
+        firestore.db['properties/p_multi'] = {
+          'id': 'p_multi',
+          'hostId': 'host_p',
+          'hostName': 'Host P',
+          'title': 'Luxury Condo',
+          'status': 'Available',
+          'priceMonthly': 10000.0,
+          'acceptingBookings': true,
+        };
+
+        final startP1 = DateTime(2026, 10, 1).millisecondsSinceEpoch;
+        final endP1 = DateTime(2026, 10, 31).millisecondsSinceEpoch;
+        final startP2 = DateTime(2026, 11, 1).millisecondsSinceEpoch;
+        final endP2 = DateTime(2026, 11, 30).millisecondsSinceEpoch;
+
+        // 1. Tenant 1 and Tenant 2 requests
+        firestore.db['property_requests/pb1'] = {
+          'id': 'pb1',
+          'propertyId': 'p_multi',
+          'hostId': 'host_p',
+          'renteeId': 'renter_p1',
+          'renteeName': 'Tenant 1',
+          'startDate': startP1,
+          'endDate': endP1,
+          'durationType': 'monthly',
+          'multiplier': 1,
+          'totalCost': 10000.0,
+          'baseRentAmount': 10000.0,
+          'bookingFee': 300.0,
+          'status': 'Pending',
+        };
+        firestore.db['property_escrows/pb1'] = {
+          'requestId': 'pb1',
+          'propertyId': 'p_multi',
+          'renteeId': 'renter_p1',
+          'hostId': 'host_p',
+          'amount': 10000.0,
+          'baseRentAmount': 10000.0,
+          'status': 'Held',
+        };
+
+        firestore.db['property_requests/pb2'] = {
+          'id': 'pb2',
+          'propertyId': 'p_multi',
+          'hostId': 'host_p',
+          'renteeId': 'renter_p2',
+          'renteeName': 'Tenant 2',
+          'startDate': startP2,
+          'endDate': endP2,
+          'durationType': 'monthly',
+          'multiplier': 1,
+          'totalCost': 10000.0,
+          'baseRentAmount': 10000.0,
+          'bookingFee': 300.0,
+          'status': 'Pending',
+        };
+        firestore.db['property_escrows/pb2'] = {
+          'requestId': 'pb2',
+          'propertyId': 'p_multi',
+          'renteeId': 'renter_p2',
+          'hostId': 'host_p',
+          'amount': 10000.0,
+          'baseRentAmount': 10000.0,
+          'status': 'Held',
+        };
+
+        // 2. Host approves Tenant 1
+        await repo.approvePropertyBookingRequest('pb1', 'p_multi', true);
+        expect(firestore.db['property_requests/pb1']?['status'], equals('Approved'));
+        expect(firestore.db['property_requests/pb2']?['status'], equals('Pending'));
+
+        // Tenant 1 signs contract
+        await repo.signPropertyContract('p_multi', 'sig_p1', requestId: 'pb1');
+        expect(firestore.db['property_requests/pb1']?['status'], equals('Booked'));
+
+        // 3. Host subsequently approves Tenant 2
+        await repo.approvePropertyBookingRequest('pb2', 'p_multi', true);
+        expect(firestore.db['property_requests/pb2']?['status'], equals('Approved'));
+        expect(firestore.db['property_requests/pb1']?['status'], equals('Booked'));
+
+        // Tenant 2 signs contract
+        await repo.signPropertyContract('p_multi', 'sig_p2', requestId: 'pb2');
+        expect(firestore.db['property_requests/pb2']?['status'], equals('Booked'));
+        expect(firestore.db['property_requests/pb1']?['status'], equals('Booked'));
+
+        // 4. Verify Renter active streams
+        final p1Bookings = await repo.getPropertyRenterActiveBookingsStream('renter_p1').first;
+        expect(p1Bookings.length, equals(1));
+        expect(p1Bookings.first['id'], equals('pb1'));
+
+        final p2Bookings = await repo.getPropertyRenterActiveBookingsStream('renter_p2').first;
+        expect(p2Bookings.length, equals(1));
+        expect(p2Bookings.first['id'], equals('pb2'));
+
+        // 5. Host queries all property requests
+        final allPropRequests = await repo.getAllRequestsForProperty('p_multi');
+        expect(allPropRequests.length, equals(2));
+
+        // 6. Complete Tenant 1 lease independently
+        final hostBalanceBefore = firestore.db['users/host_p']!['tyxBalance'] as double;
+        await repo.completePropertyRental('p_multi', requestId: 'pb1');
+
+        expect(firestore.db['property_requests/pb1']?['status'], equals('Completed'));
+        expect(firestore.db['property_requests/pb2']?['status'], equals('Booked'));
+
+        // Host received Tenant 1 earnings (10000 - 7% fee = 9300)
+        final hostBalanceAfter = firestore.db['users/host_p']!['tyxBalance'] as double;
+        expect(hostBalanceAfter, equals(hostBalanceBefore + 9300.0));
+
+        // Tenant 2's escrow remains intact (holding totalCustomerPaid = 10300.0)
+        expect(firestore.db['property_escrows/pb2']?['amount'], equals(10300.0));
+        expect(firestore.db['property_escrows/pb2']?['baseRentAmount'], equals(10000.0));
+        expect(firestore.db['property_escrows/pb2']?['status'], equals('Held'));
+
+        // Tenant 2 promoted to listing
+        expect(firestore.db['properties/p_multi']?['currentRequestId'], equals('pb2'));
+        expect(firestore.db['properties/p_multi']?['renteeId'], equals('renter_p2'));
+      });
+    });
+
+    group('Renter Pending Requests Listing Identification & Linking (AC1–AC10)', () {
+      late FakeFirebaseFirestore firestore;
+      late TransitRepository repo;
+
+      setUp(() {
+        firestore = FakeFirebaseFirestore();
+        repo = TransitRepository(firestore);
+
+        firestore.db['settings/platform_fees'] = {
+          'listingFeeRate': 0.015,
+          'customerFeeRate': 0.03,
+          'hostCommissionRate': 0.07,
+          'propertyCustomerFeeRate': 0.03,
+          'propertyHostCommissionRate': 0.07,
+        };
+      });
+
+      test('AC1, AC2, AC6, AC7, AC11: Vehicle pending request creation snapshots listing details and links accurately', () async {
+        firestore.db['users/renter_v'] = {
+          'name': 'Renter V',
+          'email': 'renter_v@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 5000.0,
+        };
+        firestore.db['users/host_v'] = {
+          'name': 'Host V',
+          'email': 'host_v@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 100.0,
+        };
+        firestore.db['rentals/v_test'] = {
+          'id': 'v_test',
+          'hostId': 'host_v',
+          'hostName': 'Host V',
+          'brand': 'Toyota',
+          'model': 'Vios 2023',
+          'type': 'car',
+          'plateNumber': 'XYZ 888',
+          'vehicleValue': 800000.0,
+          'frontPhotoUrl': 'https://example.com/vios_front.jpg',
+          'pickupAddress': '456 Ayala Ave, Makati',
+          'pickupLat': 14.5547,
+          'pickupLng': 121.0244,
+          'priceDaily': 1500.0,
+          'status': 'Available',
+          'acceptingBookings': true,
+          'isDeleted': false,
+        };
+
+        final startMs = DateTime(2026, 9, 15, 9, 0).millisecondsSinceEpoch;
+        final endMs = DateTime(2026, 9, 17, 9, 0).millisecondsSinceEpoch;
+
+        await repo.createBookingRequest(
+          rentalId: 'v_test',
+          renteeId: 'renter_v',
+          renteeName: 'Renter V',
+          renteePhotoUrl: 'https://example.com/renter_avatar.jpg',
+          durationType: 'daily',
+          multiplier: 2,
+          totalCost: 3000.0, // 3000 base + 3% fee (90) = 3090 total deducted
+          hireWithDriver: false,
+          rentalType: 'self_drive',
+          deliveryAddress: null,
+          startDate: startMs,
+          endDate: endMs,
+        );
+
+        // Find the created request in rental_requests
+        final reqKey = firestore.db.keys.firstWhere((k) => k.startsWith('rental_requests/'));
+        final reqDoc = firestore.db[reqKey]!;
+
+        // AC1 & AC2: Identifying information is explicitly saved on the request document
+        expect(reqDoc['rentalId'], equals('v_test'));
+        expect(reqDoc['brand'], equals('Toyota'));
+        expect(reqDoc['model'], equals('Vios 2023'));
+        expect(reqDoc['frontPhotoUrl'], equals('https://example.com/vios_front.jpg'));
+        expect(reqDoc['pickupAddress'], equals('456 Ayala Ave, Makati'));
+        expect(reqDoc['pickupLat'], equals(14.5547));
+        expect(reqDoc['pickupLng'], equals(121.0244));
+
+        // AC6: Correct booking schedule dates
+        expect(reqDoc['startDate'], equals(startMs));
+        expect(reqDoc['endDate'], equals(endMs));
+
+        // Escrow locked from renter balance
+        expect(reqDoc['status'], equals('Pending'));
+        expect(firestore.db['users/renter_v']!['tyxBalance'], equals(5000.0 - 3090.0));
+      });
+
+      test('AC1, AC2, AC6, AC7, AC10: Property pending request creation snapshots listing details and links accurately', () async {
+        firestore.db['users/renter_p'] = {
+          'name': 'Renter P',
+          'email': 'renter_p@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 50000.0,
+        };
+        firestore.db['users/host_p'] = {
+          'name': 'Host P',
+          'email': 'host_p@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 500.0,
+        };
+        firestore.db['properties/p_test'] = {
+          'id': 'p_test',
+          'hostId': 'host_p',
+          'hostName': 'Host P',
+          'title': 'BGC High Street Studio Loft',
+          'description': 'Modern studio in prime location',
+          'type': 'condo',
+          'category': 'residential',
+          'photoUrls': ['https://example.com/bgc_loft.jpg', 'https://example.com/bgc_loft_bath.jpg'],
+          'address': '28th Street, Bonifacio Global City, Taguig',
+          'latitude': 14.5505,
+          'longitude': 121.0509,
+          'priceMonthly': 35000.0,
+          'priceWeekly': 10000.0,
+          'priceDaily': 2000.0,
+          'depositMonths': 0,
+          'status': 'Available',
+          'acceptingBookings': true,
+          'isDeleted': false,
+          'contractType': 'tranyx',
+          'contractTerms': 'Standard lease terms',
+        };
+
+        final startMs = DateTime(2026, 10, 1, 14, 0).millisecondsSinceEpoch;
+        final endMs = DateTime(2026, 10, 5, 12, 0).millisecondsSinceEpoch;
+
+        await repo.createPropertyBookingRequest(
+          propertyId: 'p_test',
+          renteeId: 'renter_p',
+          renteeName: 'Renter P',
+          renteePhotoUrl: 'https://example.com/renter_p.jpg',
+          durationType: 'daily',
+          multiplier: 4,
+          totalCost: 8000.0, // 8000 base + 3% fee (240) = 8240 total deducted
+          contractType: 'tranyx',
+          contractTerms: 'Standard lease terms',
+          startDate: startMs,
+          endDate: endMs,
+        );
+
+        // Find the created request in property_requests
+        final reqKey = firestore.db.keys.firstWhere((k) => k.startsWith('property_requests/'));
+        final reqDoc = firestore.db[reqKey]!;
+
+        // AC1 & AC2: Identifying information is explicitly saved on the request document
+        expect(reqDoc['propertyId'], equals('p_test'));
+        expect(reqDoc['title'], equals('BGC High Street Studio Loft'));
+        expect(reqDoc['photoUrl'], equals('https://example.com/bgc_loft.jpg'));
+        expect(reqDoc['photoUrls'], contains('https://example.com/bgc_loft.jpg'));
+        expect(reqDoc['address'], equals('28th Street, Bonifacio Global City, Taguig'));
+        expect(reqDoc['latitude'], equals(14.5505));
+        expect(reqDoc['longitude'], equals(121.0509));
+
+        // AC6: Correct booking schedule dates
+        expect(reqDoc['startDate'], equals(startMs));
+        expect(reqDoc['endDate'], equals(endMs));
+
+        // Escrow locked from renter balance
+        expect(reqDoc['status'], equals('Pending'));
+        expect(firestore.db['users/renter_p']!['tyxBalance'], equals(50000.0 - 8240.0));
+      });
+
+      test('AC3, AC4, AC5: Multiple concurrent pending requests maintain distinct references without cross-contamination', () async {
+        firestore.db['users/renter_multi'] = {
+          'name': 'Multi Renter',
+          'email': 'multi@tranyx.com',
+          'accountType': 'nyxian',
+          'tyxBalance': 50000.0,
+        };
+        firestore.db['users/host_1'] = {'name': 'Host 1', 'tyxBalance': 0.0};
+        firestore.db['users/host_2'] = {'name': 'Host 2', 'tyxBalance': 0.0};
+
+        // Two distinct vehicles
+        firestore.db['rentals/v_sedan'] = {
+          'id': 'v_sedan',
+          'hostId': 'host_1',
+          'brand': 'Mazda',
+          'model': '3 Sport',
+          'type': 'car',
+          'frontPhotoUrl': 'https://example.com/mazda.jpg',
+          'pickupAddress': 'Quezon City',
+          'priceDaily': 2000.0,
+          'status': 'Available',
+          'acceptingBookings': true,
+          'isDeleted': false,
+        };
+        firestore.db['rentals/v_suv'] = {
+          'id': 'v_suv',
+          'hostId': 'host_2',
+          'brand': 'Mitsubishi',
+          'model': 'Montero Sport',
+          'type': 'suv',
+          'frontPhotoUrl': 'https://example.com/montero.jpg',
+          'pickupAddress': 'Pasig City',
+          'priceDaily': 3500.0,
+          'status': 'Available',
+          'acceptingBookings': true,
+          'isDeleted': false,
+        };
+
+        // Create Request 1 (base 2000.0)
+        await repo.createBookingRequest(
+          rentalId: 'v_sedan',
+          renteeId: 'renter_multi',
+          renteeName: 'Multi Renter',
+          renteePhotoUrl: null,
+          durationType: 'daily',
+          multiplier: 1,
+          totalCost: 2000.0,
+          hireWithDriver: false,
+          rentalType: 'self_drive',
+          deliveryAddress: null,
+          startDate: 1726000000000,
+          endDate: 1726086400000,
+        );
+
+        // Create Request 2 (base 7000.0)
+        await repo.createBookingRequest(
+          rentalId: 'v_suv',
+          renteeId: 'renter_multi',
+          renteeName: 'Multi Renter',
+          renteePhotoUrl: null,
+          durationType: 'daily',
+          multiplier: 2,
+          totalCost: 7000.0,
+          hireWithDriver: false,
+          rentalType: 'self_drive',
+          deliveryAddress: null,
+          startDate: 1726200000000,
+          endDate: 1726372800000,
+        );
+
+        final pendingRequests = await repo.getRenterPendingRequestsStream('renter_multi').first;
+        expect(pendingRequests.length, equals(2));
+
+        final reqSedan = pendingRequests.firstWhere((r) => r['rentalId'] == 'v_sedan');
+        final reqSuv = pendingRequests.firstWhere((r) => r['rentalId'] == 'v_suv');
+
+        expect(reqSedan['brand'], equals('Mazda'));
+        expect(reqSedan['model'], equals('3 Sport'));
+        expect(reqSedan['frontPhotoUrl'], equals('https://example.com/mazda.jpg'));
+        expect(reqSedan['pickupAddress'], equals('Quezon City'));
+        expect(reqSedan['totalCost'], equals(2000.0));
+
+        expect(reqSuv['brand'], equals('Mitsubishi'));
+        expect(reqSuv['model'], equals('Montero Sport'));
+        expect(reqSuv['frontPhotoUrl'], equals('https://example.com/montero.jpg'));
+        expect(reqSuv['pickupAddress'], equals('Pasig City'));
+        expect(reqSuv['totalCost'], equals(7000.0));
+      });
+
+      test('AC8, AC9: Renter cancellation of vehicle pending request restores locked funds immediately', () async {
+        firestore.db['users/renter_cancel_v'] = {
+          'name': 'Canceller V',
+          'tyxBalance': 10000.0,
+        };
+        firestore.db['rentals/v_cancel'] = {
+          'id': 'v_cancel',
+          'hostId': 'host_x',
+          'brand': 'Ford',
+          'model': 'Everest',
+          'type': 'suv',
+          'priceDaily': 3000.0,
+          'status': 'Available',
+          'acceptingBookings': true,
+          'isDeleted': false,
+        };
+
+        await repo.createBookingRequest(
+          rentalId: 'v_cancel',
+          renteeId: 'renter_cancel_v',
+          renteeName: 'Canceller V',
+          renteePhotoUrl: null,
+          durationType: 'daily',
+          multiplier: 1,
+          totalCost: 3000.0, // 3000 base + 90 fee = 3090
+          hireWithDriver: false,
+          rentalType: 'self_drive',
+          deliveryAddress: null,
+          startDate: 1726000000000,
+          endDate: 1726086400000,
+        );
+
+        expect(firestore.db['users/renter_cancel_v']!['tyxBalance'], equals(10000.0 - 3090.0));
+
+        final reqKey = firestore.db.keys.firstWhere((k) => k.startsWith('rental_requests/'));
+        final reqId = firestore.db[reqKey]!['id'] as String;
+
+        // Cancel
+        await repo.cancelBookingRequest(reqId);
+
+        // Funds refunded
+        expect(firestore.db['users/renter_cancel_v']!['tyxBalance'], equals(10000.0));
+        expect(firestore.db[reqKey]!['status'], equals('Cancelled'));
+        expect(firestore.db['rental_escrows/$reqId'], isNull);
+      });
+
+      test('AC8, AC9: Renter cancellation of property pending request restores locked funds immediately', () async {
+        firestore.db['users/renter_cancel_p'] = {
+          'name': 'Canceller P',
+          'tyxBalance': 15000.0,
+        };
+        firestore.db['properties/p_cancel'] = {
+          'id': 'p_cancel',
+          'hostId': 'host_y',
+          'title': 'Makati Condo',
+          'description': 'Cozy condo',
+          'type': 'condo',
+          'category': 'residential',
+          'photoUrls': ['https://example.com/condo.jpg'],
+          'address': 'Makati Ave',
+          'latitude': 14.56,
+          'longitude': 121.03,
+          'priceMonthly': 25000.0,
+          'priceDaily': 1500.0,
+          'depositMonths': 0,
+          'status': 'Available',
+          'acceptingBookings': true,
+          'isDeleted': false,
+          'contractType': 'tranyx',
+          'contractTerms': 'Terms',
+        };
+
+        await repo.createPropertyBookingRequest(
+          propertyId: 'p_cancel',
+          renteeId: 'renter_cancel_p',
+          renteeName: 'Canceller P',
+          renteePhotoUrl: null,
+          durationType: 'daily',
+          multiplier: 2,
+          totalCost: 3000.0, // 3000 base + 90 fee = 3090
+          contractType: 'tranyx',
+          contractTerms: 'Terms',
+          startDate: 1726000000000,
+          endDate: 1726172800000,
+        );
+
+        expect(firestore.db['users/renter_cancel_p']!['tyxBalance'], equals(15000.0 - 3090.0));
+
+        final reqKey = firestore.db.keys.firstWhere((k) => k.startsWith('property_requests/'));
+        final reqId = firestore.db[reqKey]!['id'] as String;
+
+        // Cancel property request via cancelPropertyBookingRequest
+        await repo.cancelPropertyBookingRequest(reqId);
+
+        // Funds refunded
+        expect(firestore.db['users/renter_cancel_p']!['tyxBalance'], equals(15000.0));
+        expect(firestore.db[reqKey]!['status'], equals('Cancelled'));
+        expect(firestore.db['property_escrows/$reqId'], isNull);
       });
     });
   });

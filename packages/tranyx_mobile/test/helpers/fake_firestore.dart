@@ -353,8 +353,12 @@ class FakeQuery extends Fake implements Query<Map<String, dynamic>> {
       final val = data[field];
       if (isEqualTo != null && val != isEqualTo) return false;
       if (isNotEqualTo != null && val == isNotEqualTo) return false;
-      if (arrayContains != null) {
-        if (val is! List || !val.contains(arrayContains)) return false;
+      if (whereIn != null) {
+        if (!whereIn.contains(val)) return false;
+      }
+      if (isNull != null) {
+        if (isNull && val != null) return false;
+        if (!isNull && val == null) return false;
       }
       return true;
     });

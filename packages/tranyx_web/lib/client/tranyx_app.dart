@@ -167,7 +167,9 @@ class TranyxAppState extends State<TranyxApp> {
   UserProfile? renterProfilePreview;
   List<PropertyRental> realtimeProperties = [];
   List<Map<String, dynamic>> propertyRenterPendingRequests = [];
+  List<Map<String, dynamic>> propertyRenterActiveBookings = [];
   String? signingContractId;
+  String? signingContractRequestId;
   String? signingContractTitle;
   String? signingContractTerms;
   bool signingContractIsProperty = false;
@@ -187,6 +189,7 @@ class TranyxAppState extends State<TranyxApp> {
   List<Map<String, dynamic>> availableJobs = [];
   List<Map<String, dynamic>> realtimeRentals = [];
   List<Map<String, dynamic>> renterPendingRequests = [];
+  List<Map<String, dynamic>> renterActiveBookings = [];
   List<Map<String, dynamic>> appliedJobs = [];
   List<Map<String, dynamic>> hostPendingRequests = [];
   List<Map<String, dynamic>> propertyHostPendingRequests = [];
@@ -1295,10 +1298,14 @@ class TranyxAppState extends State<TranyxApp> {
       final results = await Future.wait([
         _firestore.getRenterPendingRequests(uid),
         _firestore.getPropertyPendingRequestsForRenter(uid),
+        _firestore.getRenterActiveBookings(uid),
+        _firestore.getPropertyRenterActiveBookings(uid),
       ]);
       setState(() {
         renterPendingRequests = results[0];
         propertyRenterPendingRequests = results[1];
+        renterActiveBookings = results[2];
+        propertyRenterActiveBookings = results[3];
       });
     } catch (e) {
       print('Error loading renter pending requests: $e');
@@ -6340,6 +6347,8 @@ class TranyxAppState extends State<TranyxApp> {
       availableJobs = [];
       appliedJobs = [];
       renterPendingRequests = [];
+      renterActiveBookings = [];
+      propertyRenterActiveBookings = [];
       hostPendingRequests = [];
       notifications = [];
       chatMessages = [];
@@ -6377,6 +6386,8 @@ class TranyxAppState extends State<TranyxApp> {
       availableJobs = [];
       appliedJobs = [];
       renterPendingRequests = [];
+      renterActiveBookings = [];
+      propertyRenterActiveBookings = [];
       hostPendingRequests = [];
       notifications = [];
       chatMessages = [];
@@ -6500,6 +6511,8 @@ class TranyxAppState extends State<TranyxApp> {
       availableJobs = [];
       appliedJobs = [];
       renterPendingRequests = [];
+      renterActiveBookings = [];
+      propertyRenterActiveBookings = [];
       hostPendingRequests = [];
       notifications = [];
       chatMessages = [];
@@ -7311,15 +7324,18 @@ class TranyxAppState extends State<TranyxApp> {
           title: signingContractTitle ?? '',
           contractTerms: signingContractTerms ?? '',
           rentalId: signingContractId!,
+          requestId: signingContractRequestId,
           isProperty: signingContractIsProperty,
           key: const ValueKey('sign-contract-modal'),
           onSigned: () {
             setState(() {
               showSignContractModal = false;
               signingContractId = null;
+              signingContractRequestId = null;
               signingContractTitle = null;
               signingContractTerms = null;
             });
+            loadRenterPendingRequests();
             if (signingContractIsProperty) {
               _startListeningProperties();
             } else {
