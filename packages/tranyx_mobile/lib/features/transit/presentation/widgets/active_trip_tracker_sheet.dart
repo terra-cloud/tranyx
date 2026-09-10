@@ -133,7 +133,7 @@ class _ActiveTripTrackerSheetState
     });
   }
 
-  void _openSignaturePad(String id, String terms) {
+  void _openSignaturePad(String id, String terms, {String? requestId}) {
     showDialog(
       context: context,
       builder: (context) => SignaturePadDialog(
@@ -144,13 +144,17 @@ class _ActiveTripTrackerSheetState
           try {
             final repo = ref.read(transitRepositoryProvider);
             if (widget.isProperty) {
-              await repo.signPropertyContract(id, name, signatureHash: hash);
+              await repo.signPropertyContract(id, name, signatureHash: hash, requestId: requestId);
             } else {
-              await repo.signVehicleContract(id, name, signatureHash: hash);
+              await repo.signVehicleContract(id, name, signatureHash: hash, requestId: requestId);
             }
 
             ref.invalidate(realtimeRentalsProvider);
             ref.invalidate(realtimePropertiesProvider);
+            ref.invalidate(renterActiveBookingsProvider);
+            ref.invalidate(propertyRenterActiveBookingsProvider);
+            ref.invalidate(hostPendingRequestsProvider);
+            ref.invalidate(propertyHostPendingRequestsProvider);
 
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -509,6 +513,8 @@ class _ActiveTripTrackerSheetState
     }
 
     final id = widget.item['id'] as String;
+    final rentalId = (widget.item['rentalId'] ?? widget.item['propertyId'] ?? id).toString();
+    final requestId = (widget.item['currentRequestId'] ?? widget.item['requestId'] ?? (widget.item.containsKey('rentalId') || widget.item.containsKey('propertyId') ? id : null))?.toString();
     final brand = widget.item['brand'] as String? ?? '';
     final model = widget.item['model'] as String? ?? '';
     final title = widget.item['title'] as String? ?? '$brand $model';
@@ -674,7 +680,7 @@ class _ActiveTripTrackerSheetState
                           ? const Center(child: CircularProgressIndicator())
                           : UIHelpers.buildPrimaryButton(
                               'Sign Contract Agreement',
-                              () => _openSignaturePad(id, terms),
+                              () => _openSignaturePad(rentalId, terms, requestId: requestId),
                               isDarkMode,
                             ),
                     ],
@@ -1165,6 +1171,8 @@ class _ActiveTripTrackerSheetState
                                                         try {
                                                           await ref.read(transitRepositoryProvider).approveExtension(extId);
                                                           ref.invalidate(realtimeRentalsProvider);
+                                                          ref.invalidate(renterActiveBookingsProvider);
+                                                          ref.invalidate(hostPendingRequestsProvider);
                                                           if (mounted) {
                                                             ScaffoldMessenger.of(context).showSnackBar(
                                                               const SnackBar(
@@ -1228,17 +1236,23 @@ class _ActiveTripTrackerSheetState
                                     );
                                     if (widget.isProperty) {
                                       await repo.updatePropertyStatus(
-                                        id,
+                                        rentalId,
                                         'Active',
+                                        requestId: requestId,
                                       );
                                     } else {
                                       await repo.updateRentalStatus(
-                                        id,
+                                        rentalId,
                                         'Active',
+                                        requestId: requestId,
                                       );
                                     }
                                     ref.invalidate(realtimeRentalsProvider);
                                     ref.invalidate(realtimePropertiesProvider);
+                                    ref.invalidate(renterActiveBookingsProvider);
+                                    ref.invalidate(propertyRenterActiveBookingsProvider);
+                                    ref.invalidate(hostPendingRequestsProvider);
+                                    ref.invalidate(propertyHostPendingRequestsProvider);
                                     if (mounted) {
                                       ScaffoldMessenger.of(
                                         context,
@@ -1276,12 +1290,22 @@ class _ActiveTripTrackerSheetState
                                       transitRepositoryProvider,
                                     );
                                     if (widget.isProperty) {
-                                      await repo.completePropertyRental(id);
+                                      await repo.completePropertyRental(
+                                        rentalId,
+                                        requestId: requestId,
+                                      );
                                     } else {
-                                      await repo.completeRental(id);
+                                      await repo.completeRental(
+                                        rentalId,
+                                        requestId: requestId,
+                                      );
                                     }
                                     ref.invalidate(realtimeRentalsProvider);
                                     ref.invalidate(realtimePropertiesProvider);
+                                    ref.invalidate(renterActiveBookingsProvider);
+                                    ref.invalidate(propertyRenterActiveBookingsProvider);
+                                    ref.invalidate(hostPendingRequestsProvider);
+                                    ref.invalidate(propertyHostPendingRequestsProvider);
                                     if (mounted) {
                                       Navigator.pop(context);
                                       ScaffoldMessenger.of(

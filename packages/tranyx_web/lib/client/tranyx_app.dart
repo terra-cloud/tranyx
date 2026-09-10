@@ -864,8 +864,7 @@ class TranyxAppState extends State<TranyxApp> {
         _startP2pHeartbeat();
         _startListeningNotifications();
         _startListeningJobs();
-        _startListeningRentals();
-        _startListeningProperties();
+        _startAllRentalAndPropertyListeners(uid);
         await handleQrVerificationParams();
         checkAndTriggerWalkthrough();
 
@@ -997,8 +996,7 @@ class TranyxAppState extends State<TranyxApp> {
           await loadHostPendingRequests();
           _startListeningNotifications();
           _startListeningJobs();
-          _startListeningRentals();
-          _startListeningProperties();
+          _startAllRentalAndPropertyListeners(userProf.uid);
           await handleQrVerificationParams();
         }
       } else {
@@ -1259,6 +1257,142 @@ class TranyxAppState extends State<TranyxApp> {
     });
   }
 
+  void _startListeningRenterRequests(String uid) {
+    listenToRenterRequestsJs(uid, (String jsonString) {
+      try {
+        final List<dynamic> raw = jsonDecode(jsonString);
+        final parsed = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final pending = <Map<String, dynamic>>[];
+        final active = <Map<String, dynamic>>[];
+
+        for (final r in parsed) {
+          final st = (r['status'] ?? '').toString().toLowerCase();
+          if (st == 'pending') {
+            pending.add(r);
+          } else if (st == 'approved' ||
+              st == 'awaiting signature' ||
+              st == 'booked' ||
+              st == 'on the way to rentee' ||
+              st == 'ongoing' ||
+              st == 'active' ||
+              st == 'returning') {
+            final isUpcoming = st == 'approved' || st == 'awaiting signature' || st == 'booked';
+            final endMs = getEpochMs(r['endDate']);
+            if (isUpcoming && endMs > 0 && endMs <= nowMs) {
+              // Past booking whose scheduled end time elapsed - exclude from active/upcoming
+              continue;
+            }
+            active.add(r);
+          }
+        }
+
+        setState(() {
+          renterPendingRequests = pending;
+          renterActiveBookings = active;
+        });
+      } catch (e) {
+        print('Error parsing realtime renter requests: $e');
+      }
+    });
+  }
+
+  void _startListeningPropertyRenterRequests(String uid) {
+    listenToPropertyRenterRequestsJs(uid, (String jsonString) {
+      try {
+        final List<dynamic> raw = jsonDecode(jsonString);
+        final parsed = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final pending = <Map<String, dynamic>>[];
+        final active = <Map<String, dynamic>>[];
+
+        for (final r in parsed) {
+          final st = (r['status'] ?? '').toString().toLowerCase();
+          if (st == 'pending') {
+            pending.add(r);
+          } else if (st == 'approved' ||
+              st == 'awaiting signature' ||
+              st == 'booked' ||
+              st == 'ongoing' ||
+              st == 'active' ||
+              st == 'returning' ||
+              st == 'occupied') {
+            final isUpcoming = st == 'approved' || st == 'awaiting signature' || st == 'booked';
+            final endMs = getEpochMs(r['endDate']);
+            if (isUpcoming && endMs > 0 && endMs <= nowMs) {
+              // Past lease whose scheduled end time elapsed - exclude from active/upcoming
+              continue;
+            }
+            active.add(r);
+          }
+        }
+
+        setState(() {
+          propertyRenterPendingRequests = pending;
+          propertyRenterActiveBookings = active;
+        });
+      } catch (e) {
+        print('Error parsing realtime property renter requests: $e');
+      }
+    });
+  }
+
+  void _startListeningHostRequests(String uid) {
+    listenToHostRequestsJs(uid, (String jsonString) {
+      try {
+        final List<dynamic> raw = jsonDecode(jsonString);
+        final parsed = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final pending = parsed.where((r) {
+          final st = (r['status'] ?? '').toString().toLowerCase();
+          return st == 'pending';
+        }).toList();
+
+        setState(() {
+          hostPendingRequests = pending;
+        });
+      } catch (e) {
+        print('Error parsing realtime host requests: $e');
+      }
+    });
+  }
+
+  void _startListeningPropertyHostRequests(String uid) {
+    listenToPropertyHostRequestsJs(uid, (String jsonString) {
+      try {
+        final List<dynamic> raw = jsonDecode(jsonString);
+        final parsed = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final pending = parsed.where((r) {
+          final st = (r['status'] ?? '').toString().toLowerCase();
+          return st == 'pending';
+        }).toList();
+
+        setState(() {
+          propertyHostPendingRequests = pending;
+        });
+      } catch (e) {
+        print('Error parsing realtime property host requests: $e');
+      }
+    });
+  }
+
+  void _startAllRentalAndPropertyListeners(String uid) {
+    _startListeningRentals();
+    _startListeningProperties();
+    _startListeningRenterRequests(uid);
+    _startListeningPropertyRenterRequests(uid);
+    _startListeningHostRequests(uid);
+    _startListeningPropertyHostRequests(uid);
+  }
+
+  void _stopAllRentalAndPropertyListeners() {
+    stopListeningToRentalsJs();
+    stopListeningToPropertiesJs();
+    stopListeningToRenterRequestsJs();
+    stopListeningToPropertyRenterRequestsJs();
+    stopListeningToHostRequestsJs();
+    stopListeningToPropertyHostRequestsJs();
+  }
+
   void _startListeningProperties() {
     listenToPropertiesJs((String jsonString) {
       try {
@@ -1508,8 +1642,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadHostPendingRequests();
       _startListeningNotifications();
       _startListeningJobs();
-      _startListeningRentals();
-      _startListeningProperties();
+      _startAllRentalAndPropertyListeners(profile.uid);
       // Auto-connect Phantom wallet if already trusted by the browser
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
 
@@ -1612,8 +1745,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
-      _startListeningRentals();
-      _startListeningProperties();
+      _startAllRentalAndPropertyListeners(profile.uid);
 
       if (pendingQrJobId != null && pendingQrCode != null) {
         await executePendingQrVerification();
@@ -1756,8 +1888,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
-      _startListeningRentals();
-      _startListeningProperties();
+      _startAllRentalAndPropertyListeners(profile.uid);
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
 
       if (pendingQrJobId != null && pendingQrCode != null) {
@@ -1832,8 +1963,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
-      _startListeningRentals();
-      _startListeningProperties();
+      _startAllRentalAndPropertyListeners(profile.uid);
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
 
       if (pendingQrJobId != null && pendingQrCode != null) {
@@ -1856,8 +1986,7 @@ class TranyxAppState extends State<TranyxApp> {
   void handleLogout() {
     SessionStorage.clear();
     stopListeningToJobsJs();
-    stopListeningToRentalsJs();
-    stopListeningToPropertiesJs();
+    _stopAllRentalAndPropertyListeners();
     unawaited(signOutJs());
     setState(() {
       isAuthenticated = false;
@@ -6364,8 +6493,7 @@ class TranyxAppState extends State<TranyxApp> {
 
     _stopSelectedJobRealtime();
     stopListeningToJobsJs();
-    stopListeningToRentalsJs();
-    stopListeningToPropertiesJs();
+    _stopAllRentalAndPropertyListeners();
 
     SessionStorage.clear();
     showAppToast('Wallet Disconnected', 'Logged out because active wallet was disconnected.');
@@ -6403,8 +6531,7 @@ class TranyxAppState extends State<TranyxApp> {
 
     _stopSelectedJobRealtime();
     stopListeningToJobsJs();
-    stopListeningToRentalsJs();
-    stopListeningToPropertiesJs();
+    _stopAllRentalAndPropertyListeners();
 
     // 2. Fetch the wallet link in Firestore
     try {
@@ -6452,8 +6579,7 @@ class TranyxAppState extends State<TranyxApp> {
           await loadTransactions();
           _startListeningNotifications();
           _startListeningJobs();
-          _startListeningRentals();
-          _startListeningProperties();
+          _startAllRentalAndPropertyListeners(existingUid);
 
           final balance = await getSolanaBalance(newPublicKey) ?? 0.0;
           final collectibles = await getSolanaTokenCollectibles(newPublicKey) ?? [];
@@ -6528,8 +6654,7 @@ class TranyxAppState extends State<TranyxApp> {
 
     _stopSelectedJobRealtime();
     stopListeningToJobsJs();
-    stopListeningToRentalsJs();
-    stopListeningToPropertiesJs();
+    _stopAllRentalAndPropertyListeners();
 
     SessionStorage.clear();
     showAppToast('Wallet Disconnected', 'Logged out because active wallet was disconnected.');

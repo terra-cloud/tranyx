@@ -978,6 +978,42 @@ void stopListeningToRentalDetailsJs() {
   } catch (_) {}
 }
 
+JSFunction? _renterRequestsUnsub;
+
+void listenToRenterRequestsJs(String renteeId, void Function(String) callback) {
+  try {
+    _renterRequestsUnsub?.callAsFunction();
+    final cb = callback.toJS;
+    final unsub = web.window.callMethod<JSFunction>('listenToRenterRequests'.toJS, renteeId.toJS, cb);
+    _renterRequestsUnsub = unsub;
+  } catch (_) {}
+}
+
+void stopListeningToRenterRequestsJs() {
+  try {
+    _renterRequestsUnsub?.callAsFunction();
+    _renterRequestsUnsub = null;
+  } catch (_) {}
+}
+
+JSFunction? _hostRequestsUnsub;
+
+void listenToHostRequestsJs(String hostId, void Function(String) callback) {
+  try {
+    _hostRequestsUnsub?.callAsFunction();
+    final cb = callback.toJS;
+    final unsub = web.window.callMethod<JSFunction>('listenToHostRequests'.toJS, hostId.toJS, cb);
+    _hostRequestsUnsub = unsub;
+  } catch (_) {}
+}
+
+void stopListeningToHostRequestsJs() {
+  try {
+    _hostRequestsUnsub?.callAsFunction();
+    _hostRequestsUnsub = null;
+  } catch (_) {}
+}
+
 // ── Signature Pad ─────────────────────────────────────────────────────────────
 
 void initSignaturePadJs(String canvasId) {
@@ -1115,6 +1151,42 @@ void stopListeningToPropertyDetailsJs() {
   try {
     _propertyDetailsUnsub?.callAsFunction();
     _propertyDetailsUnsub = null;
+  } catch (_) {}
+}
+
+JSFunction? _propertyRenterRequestsUnsub;
+
+void listenToPropertyRenterRequestsJs(String renteeId, void Function(String) callback) {
+  try {
+    _propertyRenterRequestsUnsub?.callAsFunction();
+    final cb = callback.toJS;
+    final unsub = web.window.callMethod<JSFunction>('listenToPropertyRenterRequests'.toJS, renteeId.toJS, cb);
+    _propertyRenterRequestsUnsub = unsub;
+  } catch (_) {}
+}
+
+void stopListeningToPropertyRenterRequestsJs() {
+  try {
+    _propertyRenterRequestsUnsub?.callAsFunction();
+    _propertyRenterRequestsUnsub = null;
+  } catch (_) {}
+}
+
+JSFunction? _propertyHostRequestsUnsub;
+
+void listenToPropertyHostRequestsJs(String hostId, void Function(String) callback) {
+  try {
+    _propertyHostRequestsUnsub?.callAsFunction();
+    final cb = callback.toJS;
+    final unsub = web.window.callMethod<JSFunction>('listenToPropertyHostRequests'.toJS, hostId.toJS, cb);
+    _propertyHostRequestsUnsub = unsub;
+  } catch (_) {}
+}
+
+void stopListeningToPropertyHostRequestsJs() {
+  try {
+    _propertyHostRequestsUnsub?.callAsFunction();
+    _propertyHostRequestsUnsub = null;
   } catch (_) {}
 }
 

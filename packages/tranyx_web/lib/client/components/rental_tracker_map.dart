@@ -359,22 +359,42 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
     try {
       final r = component.appState.selectedRentalData;
       if (r == null) return;
+
+      final rawId = (r['id'] ?? '').toString();
+      final rentalId = (r['rentalId'] ?? r['propertyId'] ?? rawId).toString();
+      final requestId = (r['currentRequestId'] ?? r['requestId'] ?? (r.containsKey('rentalId') || r.containsKey('propertyId') ? rawId : null))?.toString();
+
+      // Immediate optimistic update for the updater
+      r['status'] = newStatus;
+      component.appState.setState(() {});
+
       if (newStatus == 'Completed' || newStatus == 'Complete') {
-        await component.appState.firestore.completeRental(r['id']);
+        await component.appState.firestore.completeRental(rentalId, requestId: requestId);
+        component.appState.setState(() {
+          component.appState.showRentalTrackerMap = false;
+          component.appState.selectedRentalData = null;
+        });
       } else {
-        await component.appState.firestore.updateRentalStatus(r['id'], newStatus);
+        await component.appState.firestore.updateRentalStatus(rentalId, newStatus, requestId: requestId);
       }
     } catch (e) {
       print('Error updating rental status: $e');
     } finally {
-      setState(() => _isUpdating = false);
+      if (mounted) {
+        setState(() => _isUpdating = false);
+      }
     }
   }
 
   void _handleCancelRental(String rentalId) async {
     setState(() => _isUpdating = true);
     try {
-      await component.appState.firestore.cancelRental(rentalId);
+      final r = component.appState.selectedRentalData;
+      final rawId = (r?['id'] ?? rentalId).toString();
+      final targetRentalId = (r?['rentalId'] ?? r?['propertyId'] ?? rawId).toString();
+      final targetReqId = (r?['currentRequestId'] ?? r?['requestId'] ?? (r?.containsKey('rentalId') == true || r?.containsKey('propertyId') == true ? rawId : null))?.toString();
+
+      await component.appState.firestore.cancelRental(targetRentalId, requestId: targetReqId);
       component.appState.showAppToast('Booking Cancelled', 'The booking was successfully cancelled.');
       component.appState.setState(() {
         component.appState.showRentalTrackerMap = false;

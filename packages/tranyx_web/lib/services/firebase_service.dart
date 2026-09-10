@@ -1931,16 +1931,29 @@ class FirestoreService {
 
   /// Update rental status
   Future<void> updateRentalStatus(String rentalId, String status, {String? requestId}) async {
-    final rentalDoc = await getDocument('rentals/$rentalId');
-    final resolvedReqId = requestId ?? rentalDoc?['currentRequestId'] as String?;
+    String actualRentalId = rentalId;
+    String? resolvedReqId = requestId;
+
+    Map<String, dynamic>? rentalDoc = await getDocument('rentals/$actualRentalId');
+    if (rentalDoc == null) {
+      final reqDoc = await getDocument('rental_requests/$actualRentalId');
+      if (reqDoc != null) {
+        resolvedReqId = actualRentalId;
+        if (reqDoc['rentalId'] != null) {
+          actualRentalId = reqDoc['rentalId'].toString();
+          rentalDoc = await getDocument('rentals/$actualRentalId');
+        }
+      }
+    } else {
+      resolvedReqId ??= rentalDoc['currentRequestId'] as String?;
+    }
 
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       await setDocument('rental_requests/$resolvedReqId', {'status': status});
     }
-    await setDocument('rentals/$rentalId', {'status': status});
-
     if (rentalDoc != null) {
-      final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+      await setDocument('rentals/$actualRentalId', {'status': status});
+      final rental = VehicleRental.fromMap(rentalDoc, actualRentalId);
       // Notify rentee if status changes
       if (rental.renteeId != null) {
         await createNotification(
@@ -1954,6 +1967,8 @@ class FirestoreService {
         title: 'Rental Status Update',
         message: 'Your rental for ${rental.brand} is now: $status.',
       );
+    } else {
+      await setDocument('rentals/$actualRentalId', {'status': status});
     }
   }
 
@@ -1967,16 +1982,29 @@ class FirestoreService {
 
   /// Complete rental (releases escrow to host, minus 3% platform commission, saves to history, resets listing to Available or promotes next active booking)
   Future<void> completeRental(String rentalId, {String? requestId}) async {
-    final rentalDoc = await getDocument('rentals/$rentalId');
-    if (rentalDoc == null) throw Exception('Rental listing not found.');
-    final resolvedReqId = requestId ?? rentalDoc['currentRequestId'] as String?;
+    String actualRentalId = rentalId;
+    String? resolvedReqId = requestId;
 
+    Map<String, dynamic>? rentalDoc = await getDocument('rentals/$actualRentalId');
     Map<String, dynamic>? bookingDoc;
-    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+
+    if (rentalDoc == null) {
+      resolvedReqId = actualRentalId;
+      bookingDoc = await getDocument('rental_requests/$resolvedReqId');
+      if (bookingDoc != null && bookingDoc['rentalId'] != null) {
+        actualRentalId = bookingDoc['rentalId'].toString();
+        rentalDoc = await getDocument('rentals/$actualRentalId');
+      }
+    }
+
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+    resolvedReqId ??= rentalDoc['currentRequestId'] as String?;
+
+    if (bookingDoc == null && resolvedReqId != null && resolvedReqId.isNotEmpty) {
       bookingDoc = await getDocument('rental_requests/$resolvedReqId');
     }
 
-    final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+    final rental = VehicleRental.fromMap(rentalDoc, actualRentalId);
     final hostId = (bookingDoc?['hostId'] ?? rental.hostId) as String;
     final host = await getUser(hostId);
     if (host == null) throw Exception('Host profile not found.');
@@ -1986,7 +2014,7 @@ class FirestoreService {
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       escrowDoc = await getDocument('rental_escrows/$resolvedReqId');
     }
-    escrowDoc ??= await getDocument('rental_escrows/$rentalId');
+    escrowDoc ??= await getDocument('rental_escrows/$actualRentalId');
 
     if (escrowDoc == null) {
       throw Exception('Escrow transaction not found. Payout aborted to ensure secure transaction.');
@@ -2013,14 +2041,13 @@ class FirestoreService {
       'commissionFee': commission,
       'commissionLabel': 'Platform Commission (3%)',
       'title': 'Rental Earnings Payout',
-      'desc':
-          'Payout for rental ${rental.brand} ${rental.model} (3% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'desc': 'Rental payout for ${rental.brand} ${rental.model} ($txId)',
+      'status': 'Completed',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
     };
     await setDocument('transactions/$txId', txData);
 
-    // Update escrow status on both requestId and rentalId
+    // Release escrow record
     final escrowRelease = {
       'status': 'Released',
       'releasedAt': DateTime.now().millisecondsSinceEpoch,
@@ -2028,7 +2055,7 @@ class FirestoreService {
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       await setDocument('rental_escrows/$resolvedReqId', escrowRelease);
     }
-    await setDocument('rental_escrows/$rentalId', escrowRelease);
+    await setDocument('rental_escrows/$actualRentalId', escrowRelease);
 
     // Save transaction and rental details to history
     final historyId = 'rh_${DateTime.now().microsecondsSinceEpoch}';
@@ -2036,7 +2063,7 @@ class FirestoreService {
       ...rentalDoc,
       if (bookingDoc != null) ...bookingDoc,
       'id': historyId,
-      'rentalId': rentalId,
+      'rentalId': actualRentalId,
       'requestId': resolvedReqId ?? '',
       'status': 'Completed',
       'completedAt': DateTime.now().millisecondsSinceEpoch,
@@ -2051,7 +2078,7 @@ class FirestoreService {
     }
 
     // Check if other ongoing/booked requests remain on this listing
-    final allRequests = await getAllRequestsForVehicle(rentalId);
+    final allRequests = await getAllRequestsForVehicle(actualRentalId);
     final remainingActive = allRequests.where((r) {
       if (r['id'] == resolvedReqId) return false;
       final st = (r['status'] ?? '').toString().toLowerCase();
@@ -2060,7 +2087,7 @@ class FirestoreService {
 
     if (remainingActive.isEmpty) {
       // Reset the rental listing document status back to Available and clear rentee fields
-      await setDocument('rentals/$rentalId', {
+      await setDocument('rentals/$actualRentalId', {
         'status': 'Available',
         'renteeId': '',
         'renteeName': '',
@@ -2748,6 +2775,11 @@ class FirestoreService {
             st == 'ongoing' ||
             st == 'active' ||
             st == 'returning') {
+          final isUpcoming = st == 'approved' || st == 'awaiting signature' || st == 'booked';
+          final endMs = getEpochMs(data['endDate']);
+          if (isUpcoming && endMs > 0 && endMs <= DateTime.now().millisecondsSinceEpoch) {
+            continue;
+          }
           list.add(data);
         }
       }
@@ -2795,7 +2827,14 @@ class FirestoreService {
             st == 'awaiting signature' ||
             st == 'booked' ||
             st == 'ongoing' ||
-            st == 'active') {
+            st == 'active' ||
+            st == 'occupied' ||
+            st == 'returning') {
+          final isUpcoming = st == 'approved' || st == 'awaiting signature' || st == 'booked';
+          final endMs = getEpochMs(data['endDate']);
+          if (isUpcoming && endMs > 0 && endMs <= DateTime.now().millisecondsSinceEpoch) {
+            continue;
+          }
           list.add(data);
         }
       }
@@ -2908,14 +2947,31 @@ class FirestoreService {
   }
 
   /// Cancel rental — full refund (totalCost + bookingFee) back to rentee
-  Future<void> cancelRental(String rentalId) async {
-    final rentalDoc = await getDocument('rentals/$rentalId');
+  Future<void> cancelRental(String rentalId, {String? requestId}) async {
+    String actualRentalId = rentalId;
+    String? resolvedReqId = requestId;
+
+    Map<String, dynamic>? rentalDoc = await getDocument('rentals/$actualRentalId');
+    if (rentalDoc == null) {
+      resolvedReqId = actualRentalId;
+      final reqDoc = await getDocument('rental_requests/$resolvedReqId');
+      if (reqDoc != null && reqDoc['rentalId'] != null) {
+        actualRentalId = reqDoc['rentalId'].toString();
+        rentalDoc = await getDocument('rentals/$actualRentalId');
+      }
+    }
+
     if (rentalDoc == null) throw Exception('Rental listing not found.');
-    final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+    resolvedReqId ??= rentalDoc['currentRequestId'] as String?;
+
+    final rental = VehicleRental.fromMap(rentalDoc, actualRentalId);
 
     if (rental.renteeId == null || rental.renteeId!.isEmpty) {
       // Never booked — just reset status
-      await setDocument('rentals/$rentalId', {'status': 'Available'});
+      await setDocument('rentals/$actualRentalId', {'status': 'Available'});
+      if (resolvedReqId != null) {
+        await setDocument('rental_requests/$resolvedReqId', {'status': 'Cancelled'});
+      }
       return;
     }
 
@@ -2927,7 +2983,11 @@ class FirestoreService {
     // Retrieve booking fee from rental doc; fallback to escrow doc; fallback to 3% of base
     double bookingFee = (rentalDoc['bookingFee'] as num?)?.toDouble() ?? 0.0;
     if (bookingFee == 0.0) {
-      final escrowDoc = await getDocument('rental_escrows/$rentalId');
+      Map<String, dynamic>? escrowDoc;
+      if (resolvedReqId != null) {
+        escrowDoc = await getDocument('rental_escrows/$resolvedReqId');
+      }
+      escrowDoc ??= await getDocument('rental_escrows/$actualRentalId');
       bookingFee = (escrowDoc?['bookingFee'] as num?)?.toDouble() ?? baseCost * 0.03;
     }
     final fullRefundAmount = baseCost + bookingFee;
@@ -2952,26 +3012,29 @@ class FirestoreService {
     await setDocument('transactions/$txId', txData);
 
     // Mark escrow as Refunded
-    await setDocument('rental_escrows/$rentalId', {
+    final escrowRefund = {
       'status': 'Refunded',
       'cancelledAt': DateTime.now().millisecondsSinceEpoch,
-    });
+    };
+    if (resolvedReqId != null) {
+      await setDocument('rental_escrows/$resolvedReqId', escrowRefund);
+    }
+    await setDocument('rental_escrows/$actualRentalId', escrowRefund);
 
-    // Mark current request as Cancelled
-    final currentRequestId = rentalDoc['currentRequestId'] as String?;
-    if (currentRequestId != null) {
-      final reqDoc = await getDocument('rental_requests/$currentRequestId');
+    // Mark request as Cancelled
+    if (resolvedReqId != null) {
+      final reqDoc = await getDocument('rental_requests/$resolvedReqId');
       if (reqDoc != null) {
         final promoCode = reqDoc['promoCode'] as String?;
         if (promoCode != null) {
           await decrementPromoUsage(promoCode, rental.renteeId!);
         }
       }
-      await setDocument('rental_requests/$currentRequestId', {'status': 'Cancelled'});
+      await setDocument('rental_requests/$resolvedReqId', {'status': 'Cancelled'});
     }
 
     // Reset rental listing to Available
-    await setDocument('rentals/$rentalId', {
+    await setDocument('rentals/$actualRentalId', {
       'status': 'Available',
       'renteeId': null,
       'renteeName': null,
@@ -4106,16 +4169,29 @@ class FirestoreService {
 
   /// Update property status
   Future<void> updatePropertyStatus(String propertyId, String status, {String? requestId}) async {
-    final propDoc = await getDocument('properties/$propertyId');
-    final resolvedReqId = requestId ?? propDoc?['currentRequestId'] as String?;
+    String actualPropertyId = propertyId;
+    String? resolvedReqId = requestId;
+
+    Map<String, dynamic>? propDoc = await getDocument('properties/$actualPropertyId');
+    if (propDoc == null) {
+      final reqDoc = await getDocument('property_requests/$actualPropertyId');
+      if (reqDoc != null) {
+        resolvedReqId = actualPropertyId;
+        if (reqDoc['propertyId'] != null) {
+          actualPropertyId = reqDoc['propertyId'].toString();
+          propDoc = await getDocument('properties/$actualPropertyId');
+        }
+      }
+    } else {
+      resolvedReqId ??= propDoc['currentRequestId'] as String?;
+    }
 
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       await setDocument('property_requests/$resolvedReqId', {'status': status});
     }
-    await setDocument('properties/$propertyId', {'status': status});
-
     if (propDoc != null) {
-      final property = PropertyRental.fromMap(propDoc, propertyId);
+      await setDocument('properties/$actualPropertyId', {'status': status});
+      final property = PropertyRental.fromMap(propDoc, actualPropertyId);
       if (property.renteeId != null) {
         await createNotification(
           uid: property.renteeId!,
@@ -4128,21 +4204,36 @@ class FirestoreService {
         title: 'Lease Status Update',
         message: 'Your property "${property.title}" lease is now: $status.',
       );
+    } else {
+      await setDocument('properties/$actualPropertyId', {'status': status});
     }
   }
 
   /// Complete property rental (releases escrow to host minus TRANYX commission, archives to history, sets status to Completed or promotes next active lease)
   Future<void> completePropertyRental(String propertyId, {String? requestId}) async {
-    final propDoc = await getDocument('properties/$propertyId');
-    if (propDoc == null) throw Exception('Property listing not found.');
-    final resolvedReqId = requestId ?? propDoc['currentRequestId'] as String?;
+    String actualPropertyId = propertyId;
+    String? resolvedReqId = requestId;
 
+    Map<String, dynamic>? propDoc = await getDocument('properties/$actualPropertyId');
     Map<String, dynamic>? bookingDoc;
-    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+
+    if (propDoc == null) {
+      resolvedReqId = actualPropertyId;
+      bookingDoc = await getDocument('property_requests/$resolvedReqId');
+      if (bookingDoc != null && bookingDoc['propertyId'] != null) {
+        actualPropertyId = bookingDoc['propertyId'].toString();
+        propDoc = await getDocument('properties/$actualPropertyId');
+      }
+    }
+
+    if (propDoc == null) throw Exception('Property listing not found.');
+    resolvedReqId ??= propDoc['currentRequestId'] as String?;
+
+    if (bookingDoc == null && resolvedReqId != null && resolvedReqId.isNotEmpty) {
       bookingDoc = await getDocument('property_requests/$resolvedReqId');
     }
 
-    final property = PropertyRental.fromMap(propDoc, propertyId);
+    final property = PropertyRental.fromMap(propDoc, actualPropertyId);
     final hostId = (bookingDoc?['hostId'] ?? property.hostId) as String;
     final host = await getUser(hostId);
     if (host == null) throw Exception('Host profile not found.');
@@ -4152,7 +4243,7 @@ class FirestoreService {
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       escrowDoc = await getDocument('property_escrows/$resolvedReqId');
     }
-    escrowDoc ??= await getDocument('property_escrows/$propertyId');
+    escrowDoc ??= await getDocument('property_escrows/$actualPropertyId');
 
     if (escrowDoc == null) {
       throw Exception('Escrow transaction not found. Payout aborted to ensure secure transaction.');
@@ -4179,17 +4270,18 @@ class FirestoreService {
     final commission = double.parse((baseRent * hostCommRate).toStringAsFixed(2));
     final hostPayout = double.parse((baseRent - commission).toStringAsFixed(2));
 
-    // Release payout
+    // Release payout to host
     final newHostBalance = host.tyxBalance + hostPayout;
     await updateTyxBalance(hostId, newHostBalance);
 
-    // Save transaction record
+    // Save transaction for host
     final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
     final txData = {
       'uid': hostId,
       'type': 'payment',
       'amount': hostPayout,
-      'baseAmount': baseRent,
+      'baseRentAmount': baseRent,
+      'securityDepositAmount': 0.0,
       'commissionFee': commission,
       'commissionRate': hostCommRate,
       'commissionLabel': 'TRANYX Host Commission (${PlatformFeeConfig.formatPercent(hostCommRate)})',
@@ -4212,7 +4304,7 @@ class FirestoreService {
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       await setDocument('property_escrows/$resolvedReqId', escrowRelease);
     }
-    await setDocument('property_escrows/$propertyId', escrowRelease);
+    await setDocument('property_escrows/$actualPropertyId', escrowRelease);
 
     // Refund security deposit to rentee upon lease completion
     final targetRentee = bookingDoc?['renteeId'] ?? property.renteeId;
@@ -4242,7 +4334,7 @@ class FirestoreService {
       ...propDoc,
       if (bookingDoc != null) ...bookingDoc,
       'id': historyId,
-      'propertyId': propertyId,
+      'propertyId': actualPropertyId,
       'requestId': resolvedReqId ?? '',
       'status': 'Completed',
       'completedAt': DateTime.now().millisecondsSinceEpoch,
@@ -4260,7 +4352,7 @@ class FirestoreService {
     }
 
     // Check if other ongoing/booked requests remain on this property
-    final allRequests = await getAllRequestsForProperty(propertyId);
+    final allRequests = await getAllRequestsForProperty(actualPropertyId);
     final remainingActive = allRequests.where((r) {
       if (r['id'] == resolvedReqId) return false;
       final st = (r['status'] ?? '').toString().toLowerCase();
@@ -4269,7 +4361,7 @@ class FirestoreService {
 
     if (remainingActive.isEmpty) {
       // Reset active property listing to Available and clear active rentee fields
-      await setDocument('properties/$propertyId', {
+      await setDocument('properties/$actualPropertyId', {
         'status': 'Available',
         'renteeId': '',
         'renteeName': '',
@@ -4290,7 +4382,7 @@ class FirestoreService {
     } else {
       // Promote next active lease request to current pointer
       final nextReq = remainingActive.first;
-      await setDocument('properties/$propertyId', {
+      await setDocument('properties/$actualPropertyId', {
         'status': nextReq['status'] ?? 'Booked',
         'renteeId': nextReq['renteeId'] ?? '',
         'renteeName': nextReq['renteeName'] ?? '',

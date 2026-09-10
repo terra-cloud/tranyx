@@ -116,6 +116,10 @@ void listenToRentalsJs(void Function(String) callback) {}
 void stopListeningToRentalsJs() {}
 void listenToRentalDetailsJs(String rentalId, void Function(String) callback) {}
 void stopListeningToRentalDetailsJs() {}
+void listenToRenterRequestsJs(String renteeId, void Function(String) callback) {}
+void stopListeningToRenterRequestsJs() {}
+void listenToHostRequestsJs(String hostId, void Function(String) callback) {}
+void stopListeningToHostRequestsJs() {}
 
 // Signature pad stubs
 void initSignaturePadJs(String canvasId) {}
@@ -140,6 +144,10 @@ void listenToPropertiesJs(void Function(String) callback) {}
 void stopListeningToPropertiesJs() {}
 void listenToPropertyDetailsJs(String propertyId, void Function(String) callback) {}
 void stopListeningToPropertyDetailsJs() {}
+void listenToPropertyRenterRequestsJs(String renteeId, void Function(String) callback) {}
+void stopListeningToPropertyRenterRequestsJs() {}
+void listenToPropertyHostRequestsJs(String hostId, void Function(String) callback) {}
+void stopListeningToPropertyHostRequestsJs() {}
 
 String getUrlOrigin() => 'http://localhost:8080';
 Map<String, String> getUrlQueryParams() => const {};

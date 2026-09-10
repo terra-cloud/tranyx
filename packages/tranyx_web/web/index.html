@@ -1462,6 +1462,36 @@
       return unsub;
     };
 
+    window.listenToRenterRequests = function (renteeId, callback) {
+      if (!firebase.apps.length || !renteeId) return () => { };
+      const db = firebase.firestore();
+      const unsub = db.collection('rental_requests')
+        .where('renteeId', '==', renteeId)
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
+          callback(JSON.stringify(list));
+        }, (error) => {
+          console.error("Renter requests listener error:", error);
+        });
+      return unsub;
+    };
+
+    window.listenToHostRequests = function (hostId, callback) {
+      if (!firebase.apps.length || !hostId) return () => { };
+      const db = firebase.firestore();
+      const unsub = db.collection('rental_requests')
+        .where('hostId', '==', hostId)
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
+          callback(JSON.stringify(list));
+        }, (error) => {
+          console.error("Host requests listener error:", error);
+        });
+      return unsub;
+    };
+
     // ── OSRM route helper (CSP-safe — real script, not eval) ──────────
     window._osrmRoute = async function (elementId, fromLat, fromLng, toLat, toLng, color, midLat, midLng) {
       const map = window['__lmap_' + elementId];
@@ -2031,6 +2061,36 @@
           }
         }, (error) => {
           console.error("Property details listener error:", error);
+        });
+      return unsub;
+    };
+
+    window.listenToPropertyRenterRequests = function (renteeId, callback) {
+      if (!firebase.apps.length || !renteeId) return () => { };
+      const db = firebase.firestore();
+      const unsub = db.collection('property_requests')
+        .where('renteeId', '==', renteeId)
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
+          callback(JSON.stringify(list));
+        }, (error) => {
+          console.error("Property renter requests listener error:", error);
+        });
+      return unsub;
+    };
+
+    window.listenToPropertyHostRequests = function (hostId, callback) {
+      if (!firebase.apps.length || !hostId) return () => { };
+      const db = firebase.firestore();
+      const unsub = db.collection('property_requests')
+        .where('hostId', '==', hostId)
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
+          callback(JSON.stringify(list));
+        }, (error) => {
+          console.error("Property host requests listener error:", error);
         });
       return unsub;
     };

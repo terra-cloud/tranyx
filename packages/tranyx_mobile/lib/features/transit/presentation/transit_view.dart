@@ -687,7 +687,11 @@ class _TransitViewState extends ConsumerState<TransitView> {
 
                       final upcoming = bookings.where((b) {
                         final st = (b['status'] ?? '').toString().toLowerCase();
-                        return st == 'booked' || st == 'awaiting signature' || st == 'approved';
+                        final isUpcomingStatus = st == 'booked' || st == 'awaiting signature' || st == 'approved';
+                        if (!isUpcomingStatus) return false;
+                        final endMs = getEpochMs(b['endDate'] ?? b['returnDate']);
+                        final nowMs = DateTime.now().millisecondsSinceEpoch;
+                        return endMs == 0 || endMs > nowMs;
                       }).toList();
 
                       Widget buildRentalCard(Map<String, dynamic> act, bool isOngoingTrip) {
@@ -832,7 +836,11 @@ class _TransitViewState extends ConsumerState<TransitView> {
 
                       final upcomingLeases = leases.where((l) {
                         final st = (l['status'] ?? '').toString().toLowerCase();
-                        return st == 'booked' || st == 'awaiting signature' || st == 'approved';
+                        final isUpcomingStatus = st == 'booked' || st == 'awaiting signature' || st == 'approved';
+                        if (!isUpcomingStatus) return false;
+                        final endMs = getEpochMs(l['endDate'] ?? l['checkOutDate']);
+                        final nowMs = DateTime.now().millisecondsSinceEpoch;
+                        return endMs == 0 || endMs > nowMs;
                       }).toList();
 
                       Widget buildLeaseCard(Map<String, dynamic> act, bool isOngoing) {

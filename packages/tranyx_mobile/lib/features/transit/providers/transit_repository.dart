@@ -556,12 +556,28 @@ class TransitRepository {
   }
 
   Future<void> signVehicleContract(String rentalId, String signatureDataUrl, {String? signatureHash, String? requestId}) async {
-    final doc = await _firestore.collection('rentals').doc(rentalId).get();
+    String actualRentalId = rentalId;
+    String? resolvedReqId = requestId;
+
+    var doc = await _firestore.collection('rentals').doc(actualRentalId).get();
+    if (!doc.exists) {
+      final reqDoc = await _firestore.collection('rental_requests').doc(actualRentalId).get();
+      if (reqDoc.exists) {
+        resolvedReqId = actualRentalId;
+        final rId = reqDoc.data()?['rentalId']?.toString();
+        if (rId != null && rId.isNotEmpty) {
+          actualRentalId = rId;
+          doc = await _firestore.collection('rentals').doc(actualRentalId).get();
+        }
+      }
+    } else {
+      resolvedReqId ??= (doc.data()?['currentRequestId'] as String?);
+    }
+
     if (!doc.exists) throw Exception('Rental listing not found.');
 
     final data = doc.data()!;
     final now = DateTime.now();
-    final resolvedReqId = requestId ?? (data['currentRequestId'] as String?);
 
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       try {
@@ -574,7 +590,7 @@ class TransitRepository {
       } catch (_) {}
     }
 
-    await _firestore.collection('rentals').doc(rentalId).update({
+    await _firestore.collection('rentals').doc(actualRentalId).update({
       'status': 'Booked',
       'renteeSignatureName': signatureDataUrl,
       'signedAt': now.millisecondsSinceEpoch,
@@ -594,8 +610,23 @@ class TransitRepository {
   }
 
   Future<void> updateRentalStatus(String rentalId, String status, {String? requestId}) async {
-    final doc = await _firestore.collection('rentals').doc(rentalId).get();
-    final resolvedReqId = requestId ?? (doc.data()?['currentRequestId'] as String?);
+    String actualRentalId = rentalId;
+    String? resolvedReqId = requestId;
+
+    var doc = await _firestore.collection('rentals').doc(actualRentalId).get();
+    if (!doc.exists) {
+      final reqDoc = await _firestore.collection('rental_requests').doc(actualRentalId).get();
+      if (reqDoc.exists) {
+        resolvedReqId = actualRentalId;
+        final rId = reqDoc.data()?['rentalId']?.toString();
+        if (rId != null && rId.isNotEmpty) {
+          actualRentalId = rId;
+          doc = await _firestore.collection('rentals').doc(actualRentalId).get();
+        }
+      }
+    } else {
+      resolvedReqId ??= (doc.data()?['currentRequestId'] as String?);
+    }
 
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       try {
@@ -603,10 +634,9 @@ class TransitRepository {
       } catch (_) {}
     }
 
-    await _firestore.collection('rentals').doc(rentalId).update({'status': status});
-
     if (doc.exists) {
-      final rental = VehicleRental.fromMap(doc.data()!, rentalId);
+      await _firestore.collection('rentals').doc(actualRentalId).update({'status': status});
+      final rental = VehicleRental.fromMap(doc.data()!, actualRentalId);
       if (rental.renteeId != null) {
         await createNotification(
           uid: rental.renteeId!,
@@ -619,6 +649,10 @@ class TransitRepository {
         title: 'Rental Status Update',
         message: 'Your vehicle ${rental.brand} ${rental.model} is now: $status.',
       );
+    } else {
+      try {
+        await _firestore.collection('rentals').doc(actualRentalId).update({'status': status});
+      } catch (_) {}
     }
   }
 
@@ -630,14 +664,31 @@ class TransitRepository {
   }
 
   Future<void> completeRental(String rentalId, {String? requestId}) async {
-    final doc = await _firestore.collection('rentals').doc(rentalId).get();
+    String actualRentalId = rentalId;
+    String? resolvedReqId = requestId;
+
+    var doc = await _firestore.collection('rentals').doc(actualRentalId).get();
+    Map<String, dynamic>? bookingDoc;
+
+    if (!doc.exists) {
+      resolvedReqId = actualRentalId;
+      final bDoc = await _firestore.collection('rental_requests').doc(resolvedReqId).get();
+      if (bDoc.exists) {
+        bookingDoc = bDoc.data();
+        final rId = bookingDoc?['rentalId']?.toString();
+        if (rId != null && rId.isNotEmpty) {
+          actualRentalId = rId;
+          doc = await _firestore.collection('rentals').doc(actualRentalId).get();
+        }
+      }
+    }
+
     if (!doc.exists) throw Exception('Rental listing not found.');
 
-    final rental = VehicleRental.fromMap(doc.data()!, rentalId);
-    final resolvedReqId = requestId ?? (doc.data()!['currentRequestId'] as String?);
+    final rental = VehicleRental.fromMap(doc.data()!, actualRentalId);
+    resolvedReqId ??= (doc.data()!['currentRequestId'] as String?);
 
-    Map<String, dynamic>? bookingDoc;
-    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+    if (bookingDoc == null && resolvedReqId != null && resolvedReqId.isNotEmpty) {
       final bDoc = await _firestore.collection('rental_requests').doc(resolvedReqId).get();
       if (bDoc.exists) bookingDoc = bDoc.data();
     }
@@ -652,7 +703,7 @@ class TransitRepository {
       if (reqEscrow.exists) escrowDoc = reqEscrow;
     }
     if (escrowDoc == null || !escrowDoc.exists) {
-      final rentEscrow = await _firestore.collection('rental_escrows').doc(rentalId).get();
+      final rentEscrow = await _firestore.collection('rental_escrows').doc(actualRentalId).get();
       if (rentEscrow.exists) escrowDoc = rentEscrow;
     }
 
@@ -686,14 +737,14 @@ class TransitRepository {
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       await _firestore.collection('rental_escrows').doc(resolvedReqId).update(escrowRelease);
     }
-    await _firestore.collection('rental_escrows').doc(rentalId).update(escrowRelease);
+    await _firestore.collection('rental_escrows').doc(actualRentalId).update(escrowRelease);
 
     final historyId = 'rh_${DateTime.now().microsecondsSinceEpoch}';
     final historyDoc = {
       ...doc.data()!,
       ...?bookingDoc,
       'id': historyId,
-      'rentalId': rentalId,
+      'rentalId': actualRentalId,
       'requestId': resolvedReqId ?? '',
       'status': 'Completed',
       'completedAt': DateTime.now().millisecondsSinceEpoch,
@@ -713,7 +764,7 @@ class TransitRepository {
     }
 
     // Check remaining active bookings on listing
-    final allRequests = await getAllRequestsForVehicle(rentalId);
+    final allRequests = await getAllRequestsForVehicle(actualRentalId);
     final remainingActive = allRequests.where((r) {
       if (r['id'] == resolvedReqId) return false;
       final st = (r['status'] ?? '').toString().toLowerCase();
@@ -721,7 +772,7 @@ class TransitRepository {
     }).toList();
 
     if (remainingActive.isEmpty) {
-      await _firestore.collection('rentals').doc(rentalId).update({
+      await _firestore.collection('rentals').doc(actualRentalId).update({
         'status': 'Available',
         'renteeId': '',
         'renteeName': '',
@@ -740,7 +791,7 @@ class TransitRepository {
       });
     } else {
       final nextReq = remainingActive.first;
-      await _firestore.collection('rentals').doc(rentalId).update({
+      await _firestore.collection('rentals').doc(actualRentalId).update({
         'status': nextReq['status'] ?? 'Booked',
         'renteeId': nextReq['renteeId'] ?? '',
         'renteeName': nextReq['renteeName'] ?? '',
@@ -1284,12 +1335,28 @@ class TransitRepository {
   }
 
   Future<void> signPropertyContract(String propertyId, String signatureDataUrl, {String? signatureHash, String? requestId}) async {
-    final doc = await _firestore.collection('properties').doc(propertyId).get();
+    String actualPropertyId = propertyId;
+    String? resolvedReqId = requestId;
+
+    var doc = await _firestore.collection('properties').doc(actualPropertyId).get();
+    if (!doc.exists) {
+      final reqDoc = await _firestore.collection('property_requests').doc(actualPropertyId).get();
+      if (reqDoc.exists) {
+        resolvedReqId = actualPropertyId;
+        final pId = reqDoc.data()?['propertyId']?.toString();
+        if (pId != null && pId.isNotEmpty) {
+          actualPropertyId = pId;
+          doc = await _firestore.collection('properties').doc(actualPropertyId).get();
+        }
+      }
+    } else {
+      resolvedReqId ??= (doc.data()?['currentRequestId'] as String?);
+    }
+
     if (!doc.exists) throw Exception('Property listing not found.');
 
     final data = doc.data()!;
     final now = DateTime.now();
-    final resolvedReqId = requestId ?? (data['currentRequestId'] as String?);
 
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       try {
@@ -1302,7 +1369,7 @@ class TransitRepository {
       } catch (_) {}
     }
 
-    await _firestore.collection('properties').doc(propertyId).update({
+    await _firestore.collection('properties').doc(actualPropertyId).update({
       'status': 'Booked',
       'renteeSignatureName': signatureDataUrl,
       'signedAt': now.millisecondsSinceEpoch,
@@ -1321,8 +1388,23 @@ class TransitRepository {
   }
 
   Future<void> updatePropertyStatus(String propertyId, String status, {String? requestId}) async {
-    final doc = await _firestore.collection('properties').doc(propertyId).get();
-    final resolvedReqId = requestId ?? (doc.data()?['currentRequestId'] as String?);
+    String actualPropertyId = propertyId;
+    String? resolvedReqId = requestId;
+
+    var doc = await _firestore.collection('properties').doc(actualPropertyId).get();
+    if (!doc.exists) {
+      final reqDoc = await _firestore.collection('property_requests').doc(actualPropertyId).get();
+      if (reqDoc.exists) {
+        resolvedReqId = actualPropertyId;
+        final pId = reqDoc.data()?['propertyId']?.toString();
+        if (pId != null && pId.isNotEmpty) {
+          actualPropertyId = pId;
+          doc = await _firestore.collection('properties').doc(actualPropertyId).get();
+        }
+      }
+    } else {
+      resolvedReqId ??= (doc.data()?['currentRequestId'] as String?);
+    }
 
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       try {
@@ -1330,10 +1412,9 @@ class TransitRepository {
       } catch (_) {}
     }
 
-    await _firestore.collection('properties').doc(propertyId).update({'status': status});
-
     if (doc.exists) {
-      final property = PropertyRental.fromMap(doc.data()!, propertyId);
+      await _firestore.collection('properties').doc(actualPropertyId).update({'status': status});
+      final property = PropertyRental.fromMap(doc.data()!, actualPropertyId);
       if (property.renteeId != null) {
         await createNotification(
           uid: property.renteeId!,
@@ -1346,18 +1427,39 @@ class TransitRepository {
         title: 'Lease Status Update',
         message: 'Your property "${property.title}" lease is now: $status.',
       );
+    } else {
+      try {
+        await _firestore.collection('properties').doc(actualPropertyId).update({'status': status});
+      } catch (_) {}
     }
   }
 
   Future<void> completePropertyRental(String propertyId, {String? requestId}) async {
-    final doc = await _firestore.collection('properties').doc(propertyId).get();
+    String actualPropertyId = propertyId;
+    String? resolvedReqId = requestId;
+
+    var doc = await _firestore.collection('properties').doc(actualPropertyId).get();
+    Map<String, dynamic>? bookingDoc;
+
+    if (!doc.exists) {
+      resolvedReqId = actualPropertyId;
+      final bDoc = await _firestore.collection('property_requests').doc(resolvedReqId).get();
+      if (bDoc.exists) {
+        bookingDoc = bDoc.data();
+        final pId = bookingDoc?['propertyId']?.toString();
+        if (pId != null && pId.isNotEmpty) {
+          actualPropertyId = pId;
+          doc = await _firestore.collection('properties').doc(actualPropertyId).get();
+        }
+      }
+    }
+
     if (!doc.exists) throw Exception('Property listing not found.');
 
-    final property = PropertyRental.fromMap(doc.data()!, propertyId);
-    final resolvedReqId = requestId ?? (doc.data()!['currentRequestId'] as String?);
+    final property = PropertyRental.fromMap(doc.data()!, actualPropertyId);
+    resolvedReqId ??= (doc.data()!['currentRequestId'] as String?);
 
-    Map<String, dynamic>? bookingDoc;
-    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+    if (bookingDoc == null && resolvedReqId != null && resolvedReqId.isNotEmpty) {
       final bDoc = await _firestore.collection('property_requests').doc(resolvedReqId).get();
       if (bDoc.exists) bookingDoc = bDoc.data();
     }
@@ -1372,7 +1474,7 @@ class TransitRepository {
       if (reqEscrow.exists) escrowDoc = reqEscrow;
     }
     if (escrowDoc == null || !escrowDoc.exists) {
-      final propEscrow = await _firestore.collection('property_escrows').doc(propertyId).get();
+      final propEscrow = await _firestore.collection('property_escrows').doc(actualPropertyId).get();
       if (propEscrow.exists) escrowDoc = propEscrow;
     }
 
@@ -1385,14 +1487,14 @@ class TransitRepository {
         (doc.data()!['hostCommissionRate'] as num?)?.toDouble() ??
         feeConfig.propertyHostCommissionRate;
 
-    final baseRent = (escrowData['baseRentAmount'] as num?)?.toDouble() ??
-        (doc.data()!['baseRentAmount'] as num?)?.toDouble() ??
-        property.totalCost ??
-        0.0;
-
     final securityDeposit = (escrowData['securityDepositAmount'] as num?)?.toDouble() ??
         (doc.data()!['securityDepositAmount'] as num?)?.toDouble() ??
         0.0;
+    final totalCustomerPaid = (escrowData['totalCustomerPaid'] as num?)?.toDouble() ??
+        (escrowData['amount'] as num).toDouble();
+    final customerFee = (escrowData['customerPlatformFeeAmount'] as num?)?.toDouble() ?? 0.0;
+    final baseRent = (escrowData['baseRentAmount'] as num?)?.toDouble() ??
+        (totalCustomerPaid - securityDeposit - customerFee).clamp(0.0, 9999999.0);
 
     final hostCommission = double.parse((baseRent * hostCommRate).toStringAsFixed(2));
     final hostPayout = double.parse((baseRent - hostCommission).toStringAsFixed(2));
@@ -1405,12 +1507,12 @@ class TransitRepository {
       'type': 'payment',
       'amount': hostPayout,
       'baseRentAmount': baseRent,
-      'securityDepositAmount': securityDeposit,
+      'securityDepositAmount': 0.0,
       'hostCommissionRate': hostCommRate,
-      'commissionFee': hostCommission,
-      'commissionLabel': 'Host Success Commission (${PlatformFeeConfig.formatPercent(hostCommRate)})',
+      'hostCommissionAmount': hostCommission,
       'title': 'Property Rental Payout',
-      'desc': 'Earnings payout for "${property.title}" (${PlatformFeeConfig.formatPercent(hostCommRate)} host commission of ₱${hostCommission.toStringAsFixed(2)} deducted from ₱${baseRent.toStringAsFixed(2)} base rent)',
+      'desc':
+          'Earnings payout for "${property.title}" (${PlatformFeeConfig.formatPercent(hostCommRate)} TRANYX commission of ₱${hostCommission.toStringAsFixed(2)} deducted)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
@@ -1426,7 +1528,7 @@ class TransitRepository {
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       await _firestore.collection('property_escrows').doc(resolvedReqId).update(escrowRelease);
     }
-    await _firestore.collection('property_escrows').doc(propertyId).update(escrowRelease);
+    await _firestore.collection('property_escrows').doc(actualPropertyId).update(escrowRelease);
 
     // Refund security deposit to rentee upon lease completion
     final targetRentee = bookingDoc?['renteeId'] ?? property.renteeId;
@@ -1455,7 +1557,7 @@ class TransitRepository {
       ...doc.data()!,
       ...?bookingDoc,
       'id': historyId,
-      'propertyId': propertyId,
+      'propertyId': actualPropertyId,
       'requestId': resolvedReqId ?? '',
       'status': 'Completed',
       'completedAt': DateTime.now().millisecondsSinceEpoch,
@@ -1477,7 +1579,7 @@ class TransitRepository {
       } catch (_) {}
     }
 
-    final allRequests = await getAllRequestsForProperty(propertyId);
+    final allRequests = await getAllRequestsForProperty(actualPropertyId);
     final remainingActive = allRequests.where((r) {
       if (r['id'] == resolvedReqId) return false;
       final st = (r['status'] ?? '').toString().toLowerCase();
@@ -1485,7 +1587,7 @@ class TransitRepository {
     }).toList();
 
     if (remainingActive.isEmpty) {
-      await _firestore.collection('properties').doc(propertyId).update({
+      await _firestore.collection('properties').doc(actualPropertyId).update({
         'status': 'Available',
         'renteeId': '',
         'renteeName': '',
@@ -1505,7 +1607,7 @@ class TransitRepository {
       });
     } else {
       final nextReq = remainingActive.first;
-      await _firestore.collection('properties').doc(propertyId).update({
+      await _firestore.collection('properties').doc(actualPropertyId).update({
         'status': nextReq['status'] ?? 'Booked',
         'renteeId': nextReq['renteeId'] ?? '',
         'renteeName': nextReq['renteeName'] ?? '',
@@ -1573,10 +1675,23 @@ class TransitRepository {
         .collection('rental_requests')
         .where('renteeId', isEqualTo: renteeId)
         .snapshots()
-        .map((snap) => snap.docs
-            .map((doc) => doc.data()..['id'] = doc.id)
-            .where((data) => activeStatuses.contains((data['status'] ?? '').toString().toLowerCase()))
-            .toList());
+        .map((snap) {
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      return snap.docs
+          .map((doc) => doc.data()..['id'] = doc.id)
+          .where((data) {
+            final st = (data['status'] ?? '').toString().toLowerCase();
+            if (!activeStatuses.contains(st)) return false;
+            final isUpcoming = st == 'approved' || st == 'awaiting signature' || st == 'booked';
+            final endMs = getEpochMs(data['endDate']);
+            if (isUpcoming && endMs > 0 && endMs <= nowMs) {
+              // Past booking whose scheduled trip elapsed - exclude from active/upcoming
+              return false;
+            }
+            return true;
+          })
+          .toList();
+    });
   }
 
   Stream<List<Map<String, dynamic>>> getPropertyRenterActiveBookingsStream(String renteeId) {
@@ -1586,16 +1701,30 @@ class TransitRepository {
       'booked',
       'ongoing',
       'active',
+      'occupied',
       'returning',
     };
     return _firestore
         .collection('property_requests')
         .where('renteeId', isEqualTo: renteeId)
         .snapshots()
-        .map((snap) => snap.docs
-            .map((doc) => doc.data()..['id'] = doc.id)
-            .where((data) => activeStatuses.contains((data['status'] ?? '').toString().toLowerCase()))
-            .toList());
+        .map((snap) {
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      return snap.docs
+          .map((doc) => doc.data()..['id'] = doc.id)
+          .where((data) {
+            final st = (data['status'] ?? '').toString().toLowerCase();
+            if (!activeStatuses.contains(st)) return false;
+            final isUpcoming = st == 'approved' || st == 'awaiting signature' || st == 'booked';
+            final endMs = getEpochMs(data['endDate']);
+            if (isUpcoming && endMs > 0 && endMs <= nowMs) {
+              // Past lease whose scheduled term elapsed - exclude from active/upcoming
+              return false;
+            }
+            return true;
+          })
+          .toList();
+    });
   }
 
   Stream<List<Map<String, dynamic>>> getHostPendingRequestsStream(String hostId) {

@@ -198,9 +198,17 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         return st == 'ongoing' || st == 'active' || st == 'on the way to rentee' || st == 'returning';
       }).toList();
 
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
       final upcomingRentals = activeRentals.where((r) {
         final st = (r['status'] ?? '').toString().toLowerCase();
-        return st == 'booked' || st == 'awaiting signature' || st == 'approved';
+        final isUpcoming = st == 'booked' || st == 'awaiting signature' || st == 'approved';
+        if (!isUpcoming) return false;
+        final endMs = getEpochMs(r['endDate']);
+        if (endMs > 0 && endMs <= nowMs) {
+          // Scheduled rental period already elapsed — exclude from upcoming
+          return false;
+        }
+        return true;
       }).toList();
 
       return div(classes: 'space-y-6', [
@@ -318,9 +326,18 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         return st == 'ongoing' || st == 'active' || st == 'occupied';
       }).toList();
 
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
       final upcomingLeases = activeLeases.where((dynamic lease) {
         final st = (lease is PropertyRental ? lease.status : (lease is Map ? lease['status']?.toString() : '') ?? '').toLowerCase();
-        return st == 'booked' || st == 'awaiting signature' || st == 'approved';
+        final isUpcoming = st == 'booked' || st == 'awaiting signature' || st == 'approved';
+        if (!isUpcoming) return false;
+        final endVal = lease is PropertyRental ? lease.endDate : (lease is Map ? lease['endDate'] : null);
+        final endMs = getEpochMs(endVal);
+        if (endMs > 0 && endMs <= nowMs) {
+          // Scheduled lease period already elapsed — exclude from upcoming
+          return false;
+        }
+        return true;
       }).toList();
 
       return div(classes: 'space-y-6', [
