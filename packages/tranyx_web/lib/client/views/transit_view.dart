@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -16,6 +17,8 @@ class TransitViewComponent extends StatefulComponent {
 }
 
 class _TransitViewComponentState extends State<TransitViewComponent> {
+  Timer? _tickTimer;
+
   // Common filters
   String _searchQuery = '';
   double? _maxPrice;
@@ -24,6 +27,22 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
   // Property specific filters
   PropertyCategory? _selectedCategory;
   PropertyType? _selectedType;
+
+  @override
+  void initState() {
+    super.initState();
+    _tickTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tickTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Component build(BuildContext context) {
@@ -173,13 +192,34 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         return aDist.compareTo(bDist);
       });
 
+      // Partition activeRentals into Ongoing/Active vs Upcoming/Booked
+      final ongoingRentals = activeRentals.where((r) {
+        final st = (r['status'] ?? '').toString().toLowerCase();
+        return st == 'ongoing' || st == 'active' || st == 'on the way to rentee' || st == 'returning';
+      }).toList();
+
+      final upcomingRentals = activeRentals.where((r) {
+        final st = (r['status'] ?? '').toString().toLowerCase();
+        return st == 'booked' || st == 'awaiting signature' || st == 'approved';
+      }).toList();
+
       return div(classes: 'space-y-6', [
-        // Active vehicle rentals list
-        if (activeRentals.isNotEmpty) ...[
-          h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2', [
-            Component.text('Active Rentals & Schedules'),
+        // 1. Active vehicle rentals currently in motion
+        if (ongoingRentals.isNotEmpty) ...[
+          h3(classes: 'text-sm font-bold text-emerald-400 uppercase tracking-wider mb-2 flex items-center gap-2', [
+            span(classes: 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse', []),
+            Component.text('Active Rentals (In Progress)'),
           ]),
-          for (final active in activeRentals) _activeVehicleCard(active, isDark),
+          for (final active in ongoingRentals) _activeVehicleCard(active, isDark),
+        ],
+
+        // 2. Upcoming vehicle schedules & reservations
+        if (upcomingRentals.isNotEmpty) ...[
+          h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2 flex items-center gap-2', [
+            lIcon('calendar', cls: 'w-4 h-4 text-purple-400 inline'),
+            Component.text('Upcoming Rental Schedules (${upcomingRentals.length})'),
+          ]),
+          for (final upcoming in upcomingRentals) _activeVehicleCard(upcoming, isDark),
         ],
 
         // Renter pending requests
@@ -273,13 +313,33 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         return aDist.compareTo(bDist);
       });
 
+      final ongoingLeases = activeLeases.where((dynamic lease) {
+        final st = (lease is PropertyRental ? lease.status : (lease is Map ? lease['status']?.toString() : '') ?? '').toLowerCase();
+        return st == 'ongoing' || st == 'active' || st == 'occupied';
+      }).toList();
+
+      final upcomingLeases = activeLeases.where((dynamic lease) {
+        final st = (lease is PropertyRental ? lease.status : (lease is Map ? lease['status']?.toString() : '') ?? '').toLowerCase();
+        return st == 'booked' || st == 'awaiting signature' || st == 'approved';
+      }).toList();
+
       return div(classes: 'space-y-6', [
-        // Active Leases list
-        if (activeLeases.isNotEmpty) ...[
-          h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2', [
-            Component.text('Active Leases'),
+        // 1. Active Leases currently occupied
+        if (ongoingLeases.isNotEmpty) ...[
+          h3(classes: 'text-sm font-bold text-emerald-400 uppercase tracking-wider mb-2 flex items-center gap-2', [
+            span(classes: 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse', []),
+            Component.text('Active Leases (Current Residence)'),
           ]),
-          for (final active in activeLeases) _activePropertyCard(active, isDark),
+          for (final active in ongoingLeases) _activePropertyCard(active, isDark),
+        ],
+
+        // 2. Upcoming Property Leases
+        if (upcomingLeases.isNotEmpty) ...[
+          h3(classes: 'text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2 flex items-center gap-2', [
+            lIcon('calendar', cls: 'w-4 h-4 text-purple-400 inline'),
+            Component.text('Upcoming Leases & Schedules (${upcomingLeases.length})'),
+          ]),
+          for (final upcoming in upcomingLeases) _activePropertyCard(upcoming, isDark),
         ],
 
         // Renter pending property requests
@@ -621,28 +681,61 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final s = component.state;
     final status = active['status'] as String? ?? 'Booked';
     final rentalId = (active['rentalId'] ?? active['id'])?.toString() ?? '';
+    final isOngoing = status == 'Ongoing' || status == 'Active' || status == 'On the way to Rentee' || status == 'Returning';
+
+    // Cross-reference listing from realtimeRentals to safely recover metadata and plate number
+    final listing = s.realtimeRentals.firstWhere(
+      (element) => element['id'] == rentalId,
+      orElse: () => <String, dynamic>{},
+    );
+
+    final rawBrand = (active['brand'] ?? listing['brand'] ?? '').toString().trim();
+    final rawModel = (active['model'] ?? listing['model'] ?? '').toString().trim();
+    final vehicleTitle = '$rawBrand $rawModel'.trim().isNotEmpty ? '$rawBrand $rawModel'.trim() : 'Vehicle Rental';
+
+    final rawPlate = (active['plateNumber'] ?? listing['plateNumber'])?.toString().trim();
+    final hasValidPlate = rawPlate != null && rawPlate.isNotEmpty && rawPlate.toLowerCase() != 'null';
+    final plateBadge = hasValidPlate ? ' • $rawPlate' : '';
+
     final chatId = 'rental_${rentalId}_${s.userProfile?.uid}';
     final unreadCount = s.getUnreadChatCount(chatId);
 
+    final endMs = (active['endDate'] as num?)?.toInt() ?? (listing['endDate'] as num?)?.toInt();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final isOverdue = isOngoing && endMs != null && nowMs > endMs;
+
     return div(
       classes:
-          'p-5 rounded-2xl border border-purple-500/30 bg-purple-500/10 cursor-pointer hover:bg-purple-500/20 transition-colors mb-4',
+          'p-5 rounded-2xl border ${isOverdue ? "border-red-500/50 bg-red-500/10" : (isOngoing ? "border-emerald-500/40 bg-emerald-500/10" : "border-purple-500/30 bg-purple-500/10")} cursor-pointer hover:opacity-95 transition-all mb-4',
       events: {
         'click': (_) => s.setState(() {
           s.selectedRentalData = active;
-          s.showRentalTrackerMap = true;
+          if (isOngoing) {
+            s.showRentalTrackerMap = true;
+          }
         }),
       },
       [
         div(classes: 'flex items-center justify-between mb-3', [
           div(classes: 'flex items-center gap-3', [
-            div(classes: 'p-2 rounded-xl bg-purple-500/20', [lIcon('car', cls: 'w-5 h-5 text-purple-400')]),
+            div(
+              classes: 'p-2 rounded-xl ${isOverdue ? "bg-red-500/20" : (isOngoing ? "bg-emerald-500/20" : "bg-purple-500/20")}',
+              [lIcon(isOverdue ? 'alert-triangle' : 'car', cls: 'w-5 h-5 ${isOverdue ? "text-red-400" : (isOngoing ? "text-emerald-400" : "text-purple-400")}')],
+            ),
             div([
-              p(classes: 'text-xs font-semibold text-purple-400 uppercase tracking-wider', [
-                Component.text('Active Vehicle Rental • $status'),
-              ]),
-              p(classes: 'font-bold', [
-                Component.text('${active['brand']} ${active['model']} • ${active['plateNumber']}'),
+              p(
+                classes:
+                    'text-xs font-semibold ${isOverdue ? "text-red-400 animate-pulse" : (isOngoing ? "text-emerald-400" : "text-purple-400")} uppercase tracking-wider',
+                [
+                  Component.text(
+                    isOverdue
+                        ? '🚨 Overdue Return • Return Required'
+                        : (isOngoing ? 'Active Vehicle Rental • $status' : 'Upcoming Schedule • $status'),
+                  ),
+                ],
+              ),
+              p(classes: 'font-bold text-base', [
+                Component.text('$vehicleTitle$plateBadge'),
               ]),
             ]),
           ]),
@@ -650,14 +743,14 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             if (status == 'Awaiting Signature')
               button(
                 classes:
-                    'px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer',
+                    'px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer animate-bounce',
                 events: {
                   'click': (e) {
                     e.stopPropagation();
                     s.setState(() {
                       s.signingContractId = rentalId;
                       s.signingContractRequestId = active['id']?.toString();
-                      s.signingContractTitle = '${active['brand']} ${active['model']} Rental Agreement';
+                      s.signingContractTitle = '$vehicleTitle Rental Agreement';
                       s.signingContractTerms = active['contractTerms'] ?? 'Rental Agreement terms';
                       s.signingContractIsProperty = false;
                       s.showSignContractModal = true;
@@ -677,36 +770,39 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               ),
           ]),
         ]),
-        div(classes: 'flex items-center justify-between text-xs text-purple-300', [
-          p([Component.text('Click card to view tracker and live trip map')]),
+        div(classes: 'flex items-center justify-between text-xs ${isOverdue ? "text-red-300" : (isOngoing ? "text-emerald-300/80" : "text-purple-300/80")}', [
+          p([
+            Component.text(
+              isOverdue
+                  ? 'Scheduled return has passed. Please return immediately to avoid late penalties.'
+                  : (isOngoing ? 'Click card to view tracker and live trip map' : 'Reservation confirmed. Handover will begin at scheduled time.'),
+            ),
+          ]),
           div(classes: 'flex items-center gap-2', [
             if (active['allowChat'] == true)
-              () {
-                final chatId = 'rental_${active['id']}_${s.userProfile?.uid}';
-                return button(
-                  classes:
-                      'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative',
-                  events: {
-                    'click': (e) {
-                      e.stopPropagation();
-                      s.openChat(chatId);
-                    },
+              button(
+                classes:
+                    'px-3 py-1.5 rounded-lg text-xs font-bold text-blue-400 hover:bg-blue-500/15 border border-blue-500/30 cursor-pointer bg-transparent relative',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    s.openChat(chatId);
                   },
-                  [
-                    lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
-                    Component.text('Chat Host'),
-                    if (s.getUnreadChatCount(chatId) > 0)
-                      span(
-                        classes:
-                            'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
-                        [Component.text('${s.getUnreadChatCount(chatId)}')],
-                      ),
-                  ],
-                );
-              }()
+                },
+                [
+                  lIcon('message-square', cls: 'w-3.5 h-3.5 mr-1 inline'),
+                  Component.text('Chat Host'),
+                  if (unreadCount > 0)
+                    span(
+                      classes:
+                          'absolute -top-1 -right-1 px-1.5 py-0.5 text-[9px] font-black text-white bg-red-500 rounded-full border border-white animate-pulse',
+                      [Component.text('$unreadCount')],
+                    ),
+                ],
+              )
             else
               span(classes: 'text-zinc-550 italic mr-1', [Component.text('Chat disabled')]),
-            if (status == 'Booked' || status == 'Active' || status == 'Ongoing')
+            if (isOngoing && !isOverdue)
               button(
                 classes:
                     'px-4 py-2 rounded-xl text-xs font-bold bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors border-0 cursor-pointer',
@@ -720,6 +816,12 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                   },
                 },
                 [Component.text('Extend')],
+              )
+            else if (isOverdue)
+              span(
+                classes:
+                    'px-3 py-1.5 rounded-xl text-xs font-bold bg-red-500/20 text-red-300 border border-red-500/30',
+                [Component.text('Overdue')],
               ),
           ]),
         ]),
@@ -1162,11 +1264,68 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               builder: (context) {
                 final statusStr = r['status']?.toString() ?? 'Available';
                 final isNotAccepting = statusStr == 'Not Accepting Bookings' || r['acceptingBookings'] == false;
+                if (isNotAccepting) {
+                  return span(
+                    classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-400',
+                    [Component.text('Not Accepting Bookings')],
+                  );
+                }
+
+                // Check if vehicle is actively rented or ongoing and compute public return time
+                final isRented = statusStr == 'Rented' || statusStr == 'Ongoing' || statusStr == 'Active';
+                final endMs = (r['endDate'] as num?)?.toInt();
+                final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+                if (isRented && endMs != null) {
+                  if (endMs > nowMs) {
+                    final diffMs = endMs - nowMs;
+                    final diffMins = (diffMs / (60 * 1000)).round();
+
+                    if (diffMins <= 60) {
+                      return span(
+                        classes:
+                            'px-2 py-1 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-400 flex items-center gap-1 animate-pulse',
+                        [
+                          lIcon('clock', cls: 'w-3 h-3 text-emerald-400'),
+                          Component.text('In Use • Returns in ${diffMins > 0 ? diffMins : 1}m'),
+                        ],
+                      );
+                    } else if (diffMins <= 1440) {
+                      final hours = (diffMins / 60).floor();
+                      final remainingMins = diffMins % 60;
+                      return span(
+                        classes:
+                            'px-2 py-1 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-400 flex items-center gap-1',
+                        [
+                          lIcon('clock', cls: 'w-3 h-3 text-amber-400'),
+                          Component.text('In Use • Returns in ${hours}h ${remainingMins}m'),
+                        ],
+                      );
+                    } else {
+                      final returnDate = DateTime.fromMillisecondsSinceEpoch(endMs);
+                      final dateStr = '${returnDate.month}/${returnDate.day}';
+                      return span(
+                        classes: 'px-2 py-1 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-400',
+                        [Component.text('In Use • Available $dateStr')],
+                      );
+                    }
+                  } else {
+                    return span(
+                      classes:
+                          'px-2 py-1 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-400 flex items-center gap-1 animate-pulse',
+                      [
+                        lIcon('alert-triangle', cls: 'w-3 h-3 text-amber-400'),
+                        Component.text('Turnaround Pending'),
+                      ],
+                    );
+                  }
+                }
+
                 return span(
                   classes:
-                      'px-2 py-1 rounded-lg text-xs font-bold ${isNotAccepting ? "bg-amber-500/20 text-amber-400" : (statusStr == 'Rented' ? "bg-amber-500/20 text-amber-400" : "bg-purple-500/20 text-purple-400")}',
+                      'px-2 py-1 rounded-lg text-xs font-bold ${statusStr == 'Rented' ? "bg-amber-500/20 text-amber-400" : "bg-purple-500/20 text-purple-400"}',
                   [
-                    Component.text(isNotAccepting ? 'Not Accepting Bookings' : (statusStr == 'Rented' ? 'Active • Dates Available' : statusStr)),
+                    Component.text(statusStr == 'Rented' ? 'Active • Dates Available' : statusStr),
                   ],
                 );
               },

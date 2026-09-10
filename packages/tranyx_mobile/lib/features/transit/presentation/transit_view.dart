@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -28,9 +29,21 @@ class TransitView extends ConsumerStatefulWidget {
 
 class _TransitViewState extends ConsumerState<TransitView> {
   final _searchController = TextEditingController();
+  Timer? _countdownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
 
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -667,103 +680,137 @@ class _TransitViewState extends ConsumerState<TransitView> {
                     data: (bookings) {
                       if (bookings.isEmpty) return const SizedBox.shrink();
 
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'ACTIVE VEHICLE RENTALS',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey,
+                      final ongoing = bookings.where((b) {
+                        final st = (b['status'] ?? '').toString().toLowerCase();
+                        return st == 'ongoing' || st == 'active' || st == 'on the way to rentee' || st == 'returning';
+                      }).toList();
+
+                      final upcoming = bookings.where((b) {
+                        final st = (b['status'] ?? '').toString().toLowerCase();
+                        return st == 'booked' || st == 'awaiting signature' || st == 'approved';
+                      }).toList();
+
+                      Widget buildRentalCard(Map<String, dynamic> act, bool isOngoingTrip) {
+                        final brand = (act['brand'] ?? '').toString().trim();
+                        final model = (act['model'] ?? '').toString().trim();
+                        final title = '$brand $model'.trim().isNotEmpty ? '$brand $model'.trim() : 'Vehicle Rental';
+                        final rawPlate = act['plateNumber']?.toString().trim();
+                        final hasPlate = rawPlate != null && rawPlate.isNotEmpty && rawPlate.toLowerCase() != 'null';
+                        final plateStr = hasPlate ? ' • $rawPlate' : '';
+
+                        final status = (act['status'] ?? 'BOOKED').toString();
+                        final pickupAddress = act['deliveryAddress'] ?? act['pickupAddress'] ?? 'Pickup point';
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isOngoingTrip
+                                ? Colors.green.withValues(alpha: 0.08)
+                                : AppColors.indigo.withValues(alpha: 0.08),
+                            border: Border.all(
+                              color: isOngoingTrip
+                                  ? Colors.green.withValues(alpha: 0.3)
+                                  : AppColors.indigo.withValues(alpha: 0.3),
                             ),
+                            borderRadius: BorderRadius.circular(24),
                           ),
-                          const SizedBox(height: 12),
-                          ...bookings.map((act) {
-                            final brand = act['brand'] ?? '';
-                            final model = act['model'] ?? '';
-                            final status = (act['status'] ?? 'BOOKED').toString();
-                            final pickupAddress = act['deliveryAddress'] ?? act['pickupAddress'] ?? 'Pickup point';
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: AppColors.indigo.withValues(alpha: 0.1),
-                                border: Border.all(
-                                  color: AppColors.indigo.withValues(
-                                    alpha: 0.3,
-                                  ),
-                                ),
-                                borderRadius: BorderRadius.circular(24),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        '$brand $model',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
+                                  Expanded(
+                                    child: Text(
+                                      '$title$plateStr',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
                                       ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green.withValues(
-                                            alpha: 0.15,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          status.toUpperCase(),
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            color: Colors.green,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Handover address: $pickupAddress',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey,
                                     ),
                                   ),
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: ElevatedButton(
-                                          onPressed: () => _openActiveTripSheet(
-                                            act,
-                                            false,
-                                          ),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: AppColors.indigo,
-                                            foregroundColor: Colors.white,
-                                          ),
-                                          child: const Text('Open Tracker Map'),
-                                        ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isOngoingTrip
+                                          ? Colors.green.withValues(alpha: 0.15)
+                                          : Colors.orange.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      status.toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: isOngoingTrip ? Colors.green : Colors.orange,
+                                        fontWeight: FontWeight.bold,
                                       ),
-                                    ],
+                                    ),
                                   ),
                                 ],
                               ),
-                            );
-                          }),
+                              const SizedBox(height: 4),
+                              Text(
+                                isOngoingTrip
+                                    ? 'Current trip handover address: $pickupAddress'
+                                    : 'Scheduled handover address: $pickupAddress',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      onPressed: () => _openActiveTripSheet(act, false),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: isOngoingTrip ? Colors.green.shade700 : AppColors.indigo,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      child: Text(isOngoingTrip ? 'Open Tracker & Telemetry' : 'View Trip Itinerary'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (ongoing.isNotEmpty) ...[
+                            const Text(
+                              'ACTIVE VEHICLE RENTALS (IN PROGRESS)',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ...ongoing.map((act) => buildRentalCard(act, true)),
+                          ],
+                          if (upcoming.isNotEmpty) ...[
+                            const Text(
+                              'UPCOMING RENTAL SCHEDULES',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ...upcoming.map((act) => buildRentalCard(act, false)),
+                          ],
                         ],
                       );
                     },
@@ -778,102 +825,123 @@ class _TransitViewState extends ConsumerState<TransitView> {
                     data: (leases) {
                       if (leases.isEmpty) return const SizedBox.shrink();
 
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'ACTIVE REAL ESTATE LEASES',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey,
+                      final ongoingLeases = leases.where((l) {
+                        final st = (l['status'] ?? '').toString().toLowerCase();
+                        return st == 'ongoing' || st == 'active' || st == 'occupied';
+                      }).toList();
+
+                      final upcomingLeases = leases.where((l) {
+                        final st = (l['status'] ?? '').toString().toLowerCase();
+                        return st == 'booked' || st == 'awaiting signature' || st == 'approved';
+                      }).toList();
+
+                      Widget buildLeaseCard(Map<String, dynamic> act, bool isOngoing) {
+                        final title = (act['title'] ?? 'Property Lease').toString();
+                        final status = (act['status'] ?? 'BOOKED').toString();
+                        final address = (act['address'] ?? '').toString();
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isOngoing ? Colors.teal.withValues(alpha: 0.08) : AppColors.indigo.withValues(alpha: 0.08),
+                            border: Border.all(
+                              color: isOngoing ? Colors.teal.withValues(alpha: 0.3) : AppColors.indigo.withValues(alpha: 0.3),
                             ),
+                            borderRadius: BorderRadius.circular(24),
                           ),
-                          const SizedBox(height: 12),
-                          ...leases.map((act) {
-                            final title = act['title'] ?? 'Property Lease';
-                            final status = (act['status'] ?? 'BOOKED').toString();
-                            final address = act['address'] ?? '';
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.teal.withValues(alpha: 0.1),
-                                border: Border.all(
-                                  color: Colors.teal.withValues(alpha: 0.3),
-                                ),
-                                borderRadius: BorderRadius.circular(24),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        title,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
+                                  Expanded(
+                                    child: Text(
+                                      title,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
                                       ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green.withValues(
-                                            alpha: 0.15,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          status.toUpperCase(),
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            color: Colors.green,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Address: $address',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey,
                                     ),
                                   ),
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: ElevatedButton(
-                                          onPressed: () => _openActiveTripSheet(
-                                            act,
-                                            true,
-                                          ),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.teal,
-                                            foregroundColor: Colors.white,
-                                          ),
-                                          child: const Text(
-                                            'Open Lease Portal',
-                                          ),
-                                        ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isOngoing ? Colors.green.withValues(alpha: 0.15) : Colors.orange.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      status.toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: isOngoing ? Colors.green : Colors.orange,
+                                        fontWeight: FontWeight.bold,
                                       ),
-                                    ],
+                                    ),
                                   ),
                                 ],
                               ),
-                            );
-                          }),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Address: $address',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      onPressed: () => _openActiveTripSheet(act, true),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: isOngoing ? Colors.teal.shade700 : AppColors.indigo,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      child: Text(isOngoing ? 'View Lease Details' : 'View Reservation Itinerary'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (ongoingLeases.isNotEmpty) ...[
+                            const Text(
+                              'ACTIVE REAL ESTATE LEASES (CURRENT RESIDENCE)',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.teal,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ...ongoingLeases.map((act) => buildLeaseCard(act, true)),
+                          ],
+                          if (upcomingLeases.isNotEmpty) ...[
+                            const Text(
+                              'UPCOMING PROPERTY LEASES & SCHEDULES',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ...upcomingLeases.map((act) => buildLeaseCard(act, false)),
+                          ],
                         ],
                       );
                     },
@@ -1336,12 +1404,101 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                               ),
                                             ),
                                             const SizedBox(height: 2),
-                                            Text(
-                                              '${item.transmission} • ${item.fuelType}',
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey,
-                                              ),
+                                            Wrap(
+                                              crossAxisAlignment: WrapCrossAlignment.center,
+                                              spacing: 6,
+                                              children: [
+                                                Text(
+                                                  '${item.transmission} • ${item.fuelType}',
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
+                                                Builder(
+                                                  builder: (context) {
+                                                    final statusStr = item.status;
+                                                    final isRented = statusStr == 'Rented' || statusStr == 'Ongoing' || statusStr == 'Active';
+                                                    final endMs = item.endDate?.millisecondsSinceEpoch;
+                                                    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+                                                    if (isRented && endMs != null) {
+                                                      if (endMs > nowMs) {
+                                                        final diffMins = ((endMs - nowMs) / (60 * 1000)).round();
+                                                        if (diffMins <= 60) {
+                                                          return Container(
+                                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                            decoration: BoxDecoration(
+                                                              color: Colors.green.withValues(alpha: 0.15),
+                                                              borderRadius: BorderRadius.circular(6),
+                                                            ),
+                                                            child: Text(
+                                                              'Returns in ${diffMins > 0 ? diffMins : 1}m',
+                                                              style: const TextStyle(
+                                                                fontSize: 10,
+                                                                fontWeight: FontWeight.bold,
+                                                                color: Colors.green,
+                                                              ),
+                                                            ),
+                                                          );
+                                                        } else if (diffMins <= 1440) {
+                                                          final hours = (diffMins / 60).floor();
+                                                          final remMins = diffMins % 60;
+                                                          return Container(
+                                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                            decoration: BoxDecoration(
+                                                              color: Colors.orange.withValues(alpha: 0.15),
+                                                              borderRadius: BorderRadius.circular(6),
+                                                            ),
+                                                            child: Text(
+                                                              'Returns in ${hours}h ${remMins}m',
+                                                              style: const TextStyle(
+                                                                fontSize: 10,
+                                                                fontWeight: FontWeight.bold,
+                                                                color: Colors.orange,
+                                                              ),
+                                                            ),
+                                                          );
+                                                        } else {
+                                                          final returnDate = DateTime.fromMillisecondsSinceEpoch(endMs);
+                                                          return Container(
+                                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                            decoration: BoxDecoration(
+                                                              color: Colors.purple.withValues(alpha: 0.15),
+                                                              borderRadius: BorderRadius.circular(6),
+                                                            ),
+                                                            child: Text(
+                                                              'Available ${returnDate.month}/${returnDate.day}',
+                                                              style: const TextStyle(
+                                                                fontSize: 10,
+                                                                fontWeight: FontWeight.bold,
+                                                                color: Colors.purple,
+                                                              ),
+                                                            ),
+                                                          );
+                                                        }
+                                                      } else {
+                                                        return Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                          decoration: BoxDecoration(
+                                                            color: Colors.amber.withValues(alpha: 0.15),
+                                                            borderRadius: BorderRadius.circular(6),
+                                                          ),
+                                                          child: const Text(
+                                                            'Turnaround Pending',
+                                                            style: TextStyle(
+                                                              fontSize: 10,
+                                                              fontWeight: FontWeight.bold,
+                                                              color: Colors.amber,
+                                                            ),
+                                                          ),
+                                                        );
+                                                      }
+                                                    }
+                                                    return const SizedBox.shrink();
+                                                  },
+                                                ),
+                                              ],
                                             ),
                                             const SizedBox(height: 8),
                                             Row(

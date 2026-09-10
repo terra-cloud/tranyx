@@ -339,6 +339,7 @@ class TransitRepository {
       'brand': rental.brand,
       'model': rental.model,
       'year': rental.year,
+      'plateNumber': rental.plateNumber,
       'frontPhotoUrl': rental.frontPhotoUrl,
       'photoUrl': rental.frontPhotoUrl.isNotEmpty ? rental.frontPhotoUrl : rental.interiorPhotoUrl,
       'pickupAddress': rental.pickupAddress,

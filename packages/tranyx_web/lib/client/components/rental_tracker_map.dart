@@ -53,20 +53,26 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
     }
     final newRental = component.appState.selectedRentalData;
     if (newRental != null) {
-      final rId = newRental['id'] as String?;
+      final lookupId = (newRental['rentalId'] ?? newRental['id']) as String?;
       final r = component.appState.realtimeRentals.firstWhere(
-        (element) => element['id'] == rId,
+        (element) => element['id'] == lookupId,
         orElse: () => newRental,
       );
       final status = r['status'] as String? ?? 'Unknown';
       final currentUid = component.appState.userProfile?.uid;
       final isHost = r['hostId'] == currentUid;
-      final isRentee = r['renteeId'] == currentUid;
+      final isRentee = r['renteeId'] == currentUid || newRental['renteeId'] == currentUid;
+
+      // Privacy guard: Only Host or active Rentee can track
+      if (!isHost && !isRentee) {
+        return;
+      }
+
       final isDriver = (isHost && status == 'On the way to Rentee') || (isRentee && status == 'Returning');
 
       if (isDriver) {
-        if (_watchId == -1 && rId != null) {
-          _startBroadcasting(rId);
+        if (_watchId == -1 && lookupId != null) {
+          _startBroadcasting(lookupId);
         }
       } else {
         if (_watchId != -1) {
@@ -394,14 +400,26 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
     }
 
     final isDark = component.appState.isDark;
-    final rId = component.appState.selectedRentalData?['id'] as String?;
+    final selectedData = component.appState.selectedRentalData!;
+    final lookupId = (selectedData['rentalId'] ?? selectedData['id']) as String?;
     final r = component.appState.realtimeRentals.firstWhere(
-      (element) => element['id'] == rId,
-      orElse: () => component.appState.selectedRentalData!,
+      (element) => element['id'] == lookupId,
+      orElse: () => selectedData,
     );
     final currentUid = component.appState.userProfile?.uid;
     final isHost = r['hostId'] == currentUid;
-    final isRentee = r['renteeId'] == currentUid;
+    final isRentee = r['renteeId'] == currentUid || selectedData['renteeId'] == currentUid;
+
+    // Strict Privacy Guard: Renter B cannot track Renter A
+    if (!isHost && !isRentee) {
+      Future.microtask(() {
+        component.appState.setState(() {
+          component.appState.showRentalTrackerMap = false;
+          component.appState.selectedRentalData = null;
+        });
+      });
+      return div([]);
+    }
 
     final status = r['status'] as String? ?? 'Unknown';
     final model = r['model'] ?? 'Unknown';
