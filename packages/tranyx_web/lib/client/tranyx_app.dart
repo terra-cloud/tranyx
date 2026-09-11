@@ -665,6 +665,8 @@ class TranyxAppState extends State<TranyxApp> {
     fetchSolToPhpRate();
     _loadOfflineLocationBuffer();
     _initUserLocation();
+    _startListeningRentals();
+    _startListeningProperties();
     final startTime = DateTime.now();
     void scheduleDismissal() {
       final elapsed = DateTime.now().difference(startTime);

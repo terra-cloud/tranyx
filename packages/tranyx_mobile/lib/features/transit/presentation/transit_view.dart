@@ -1287,7 +1287,6 @@ class _TransitViewState extends ConsumerState<TransitView> {
                         final status = r.status.toLowerCase();
                         if (status == 'inactive' || status == 'unpublished' || status == 'archived' || status == 'deleted' || status == 'not accepting bookings') return false;
                         if (r.isDeleted || !r.acceptingBookings) return false;
-                        if (r.hostId == userProfile.uid) return false;
 
                         if (sq.isNotEmpty) {
                           final title = '${r.brand} ${r.model} ${r.type.name}'
@@ -1344,6 +1343,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final item = filtered[index];
+                          final isMyListing = item.hostId == userProfile.uid;
                           final dist = calculateDistance(
                             userLat,
                             userLng,
@@ -1423,6 +1423,39 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                                     color: Colors.grey,
                                                   ),
                                                 ),
+                                                if (isMyListing)
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2,
+                                                    ),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.purple.withValues(alpha: 0.15),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                      border: Border.all(
+                                                        color: Colors.purple.withValues(alpha: 0.3),
+                                                      ),
+                                                    ),
+                                                    child: const Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(
+                                                          Icons.person,
+                                                          size: 10,
+                                                          color: Colors.purple,
+                                                        ),
+                                                        SizedBox(width: 2),
+                                                        Text(
+                                                          'Your Listing',
+                                                          style: TextStyle(
+                                                            fontSize: 10,
+                                                            fontWeight: FontWeight.bold,
+                                                            color: Colors.purple,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
                                                 Builder(
                                                   builder: (context) {
                                                     final statusStr = item.status;
@@ -1535,11 +1568,15 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                                   ],
                                                 ),
                                                 ElevatedButton(
-                                                  onPressed: () =>
-                                                      _openBookingSheet(
-                                                        item.toMap(),
-                                                        false,
-                                                      ),
+                                                  onPressed: () => isMyListing
+                                                      ? _openManageListingSheet(
+                                                          item.toMap(),
+                                                          false,
+                                                        )
+                                                      : _openBookingSheet(
+                                                          item.toMap(),
+                                                          false,
+                                                        ),
                                                   style: ElevatedButton.styleFrom(
                                                     backgroundColor:
                                                         AppColors.indigo,
@@ -1558,9 +1595,9 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                                         MaterialTapTargetSize
                                                             .shrinkWrap,
                                                   ),
-                                                  child: const Text(
-                                                    'Book Now',
-                                                    style: TextStyle(
+                                                  child: Text(
+                                                    isMyListing ? 'Manage' : 'Book Now',
+                                                    style: const TextStyle(
                                                       fontSize: 12,
                                                       fontWeight: FontWeight.bold,
                                                     ),
@@ -1608,7 +1645,6 @@ class _TransitViewState extends ConsumerState<TransitView> {
                         final status = p.status.toLowerCase();
                         if (status == 'inactive' || status == 'unpublished' || status == 'archived' || status == 'deleted' || status == 'not accepting bookings') return false;
                         if (p.isDeleted || !p.acceptingBookings) return false;
-                        if (p.hostId == userProfile.uid) return false;
 
                         if (sq.isNotEmpty) {
                           final title =
@@ -1701,6 +1737,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final item = filtered[index];
+                          final isMyProperty = item.hostId == userProfile.uid;
                           final dist = calculateDistance(
                             userLat,
                             userLng,
@@ -1774,12 +1811,51 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                               ),
                                             ),
                                             const SizedBox(height: 2),
-                                            Text(
-                                              '${item.category.label} • ${item.type.label}',
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey,
-                                              ),
+                                            Wrap(
+                                              crossAxisAlignment: WrapCrossAlignment.center,
+                                              spacing: 6,
+                                              children: [
+                                                Text(
+                                                  '${item.category.label} • ${item.type.label}',
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
+                                                if (isMyProperty)
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2,
+                                                    ),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.purple.withValues(alpha: 0.15),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                      border: Border.all(
+                                                        color: Colors.purple.withValues(alpha: 0.3),
+                                                      ),
+                                                    ),
+                                                    child: const Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(
+                                                          Icons.person,
+                                                          size: 10,
+                                                          color: Colors.purple,
+                                                        ),
+                                                        SizedBox(width: 2),
+                                                        Text(
+                                                          'Your Property',
+                                                          style: TextStyle(
+                                                            fontSize: 10,
+                                                            fontWeight: FontWeight.bold,
+                                                            color: Colors.purple,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                              ],
                                             ),
                                             const SizedBox(height: 8),
                                             Row(
@@ -1808,11 +1884,15 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                                   ],
                                                 ),
                                                 ElevatedButton(
-                                                  onPressed: () =>
-                                                      _openBookingSheet(
-                                                        item.toMap(),
-                                                        true,
-                                                      ),
+                                                  onPressed: () => isMyProperty
+                                                      ? _openManageListingSheet(
+                                                          item.toMap(),
+                                                          true,
+                                                        )
+                                                      : _openBookingSheet(
+                                                          item.toMap(),
+                                                          true,
+                                                        ),
                                                   style: ElevatedButton.styleFrom(
                                                     backgroundColor: Colors.teal,
                                                     foregroundColor: Colors.white,
@@ -1830,9 +1910,9 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                                         MaterialTapTargetSize
                                                             .shrinkWrap,
                                                   ),
-                                                  child: const Text(
-                                                    'Rent Now',
-                                                    style: TextStyle(
+                                                  child: Text(
+                                                    isMyProperty ? 'Manage' : 'Rent Now',
+                                                    style: const TextStyle(
                                                       fontSize: 12,
                                                       fontWeight: FontWeight.bold,
                                                     ),

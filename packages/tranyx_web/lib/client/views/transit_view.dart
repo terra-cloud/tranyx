@@ -154,7 +154,6 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         if (status == 'Inactive' || status == 'Unpublished' || status == 'Archived' || status == 'Deleted' || status == 'Not Accepting Bookings') return false;
         if (r['isDeleted'] == true || r['acceptingBookings'] == false) return false;
         if (r['isPublished'] == false) return false;
-        if (r['hostId'] == currentUid) return false;
 
         if (_searchQuery.isNotEmpty) {
           final query = _searchQuery.toLowerCase();
@@ -265,7 +264,6 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         final status = prop.status;
         if (status == 'Inactive' || status == 'Unpublished' || status == 'Archived' || status == 'Deleted' || status == 'Not Accepting Bookings') return false;
         if (prop.isDeleted || !prop.acceptingBookings) return false;
-        if (prop.hostId == currentUid) return false;
 
         if (_searchQuery.isNotEmpty) {
           final query = _searchQuery.toLowerCase();
@@ -1199,6 +1197,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final transmission = r['transmission'] as String? ?? 'Automatic';
 
     final renteeId = r['renteeId']?.toString();
+    final hostId = r['hostId']?.toString();
+    final isMyListing = s.userProfile?.uid != null && hostId == s.userProfile?.uid;
     final hasActiveRenter = renteeId != null && renteeId.isNotEmpty;
     final chatId = hasActiveRenter ? 'rental_${r['id']}_$renteeId' : null;
     final unreadCount = chatId != null ? s.getUnreadChatCount(chatId) : 0;
@@ -1277,6 +1277,15 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 ],
               ),
             ],
+            if (!isHostView && isMyListing)
+              span(
+                classes:
+                    'px-2 py-1 rounded-lg text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1',
+                [
+                  lIcon('user', cls: 'w-2.5 h-2.5'),
+                  Component.text('Your Listing'),
+                ],
+              ),
             Builder(
               builder: (context) {
                 final statusStr = r['status']?.toString() ?? 'Available';
@@ -1489,7 +1498,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                     });
                   },
                 },
-                [Component.text('Book Now')],
+                [Component.text(isMyListing ? 'Manage' : 'Book Now')],
               ),
             ]),
         ]),
@@ -1509,6 +1518,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final hasPhoto = prop.photoUrls.isNotEmpty && prop.photoUrls.first.isNotEmpty;
 
     final renteeId = prop.renteeId;
+    final isMyProperty = s.userProfile?.uid != null && prop.hostId == s.userProfile?.uid;
     final hasActiveRenter = renteeId != null && renteeId.isNotEmpty;
     final chatId = hasActiveRenter ? 'property_${prop.id}_$renteeId' : null;
     final unreadCount = chatId != null ? s.getUnreadChatCount(chatId) : 0;
@@ -1537,6 +1547,15 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 [
                   lIcon('message-square', cls: 'w-3 h-3 text-red-500'),
                   Component.text('$unreadCount New'),
+                ],
+              ),
+            if (!isHostView && isMyProperty)
+              span(
+                classes:
+                    'px-2 py-1 rounded-lg text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1',
+                [
+                  lIcon('user', cls: 'w-2.5 h-2.5'),
+                  Component.text('Your Property'),
                 ],
               ),
             Builder(
@@ -1694,7 +1713,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                     });
                   },
                 },
-                [Component.text('Rent Now')],
+                [Component.text(isMyProperty ? 'Manage' : 'Rent Now')],
               ),
             ]),
         ]),
