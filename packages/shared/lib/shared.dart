@@ -21,3 +21,4 @@ export 'src/property_pricing_model.dart';
 export 'src/withdrawal_request.dart';
 export 'src/date_utils.dart';
 export 'src/booking_availability.dart';
+export 'src/rental_nav_role.dart';

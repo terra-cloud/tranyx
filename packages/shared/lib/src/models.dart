@@ -77,6 +77,7 @@ class UserProfile {
   final int terraPoints;
   final List<String> earnedRewards;
   final String? role;
+  final int abandonedJobs;
 
   bool get isAdmin => role == 'admin' || role == 'staff' || role == 'support';
 
@@ -120,6 +121,7 @@ class UserProfile {
     this.terraPoints = 0,
     this.earnedRewards = const [],
     this.role,
+    this.abandonedJobs = 0,
   });
 
   factory UserProfile.fromMap(String uid, Map map) {
@@ -220,6 +222,7 @@ class UserProfile {
       terraPoints: parseInt(map['terraPoints']),
       earnedRewards: parseStringList(map['earnedRewards']) ?? const [],
       role: map['role'] as String?,
+      abandonedJobs: parseInt(map['abandonedJobs']),
     );
   }
 
@@ -263,6 +266,7 @@ class UserProfile {
     'terraPoints': terraPoints,
     'earnedRewards': earnedRewards,
     if (role != null) 'role': role,
+    'abandonedJobs': abandonedJobs,
   };
 
   UserProfile copyWith({
@@ -304,6 +308,7 @@ class UserProfile {
     int? terraPoints,
     List<String>? earnedRewards,
     String? role,
+    int? abandonedJobs,
   }) {
     return UserProfile(
       uid: uid,
@@ -345,6 +350,7 @@ class UserProfile {
       terraPoints: terraPoints ?? this.terraPoints,
       earnedRewards: earnedRewards ?? this.earnedRewards,
       role: role ?? this.role,
+      abandonedJobs: abandonedJobs ?? this.abandonedJobs,
     );
   }
 }
@@ -447,6 +453,16 @@ class Job {
 
   /// True if posted within 2 days.
   bool get isRecent => isRecentlyPosted(createdAt, maxDays: 2);
+
+  /// True if the gig has been marked as Abandoned.
+  bool get isAbandoned => status.trim().toLowerCase() == 'abandoned';
+
+  /// True if the gig has had no activity or update for at least [thresholdHours] (default 48h).
+  bool isInactive({int thresholdHours = 48, DateTime? currentTime}) {
+    final now = currentTime ?? DateTime.now();
+    final lastActiveTime = updatedAt ?? createdAt;
+    return now.difference(lastActiveTime).inHours >= thresholdHours;
+  }
 
   Map<String, dynamic> toMap() {
     return {
