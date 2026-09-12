@@ -111,7 +111,17 @@ class _NavigationViewState extends ConsumerState<NavigationView> {
 
     try {
       final router = ref.read(osrmRouterProvider);
-      final points = widget.stops!.map((s) => s.position).toList();
+      var waypoints = List<NavWaypoint>.from(widget.stops!);
+      if (waypoints.length == 1) {
+        final dest = waypoints.first;
+        final origin = NavWaypoint.fromCoords(
+          latitude: dest.position.latitude - 0.035,
+          longitude: dest.position.longitude - 0.025,
+          title: 'Start Location',
+        );
+        waypoints = [origin, dest];
+      }
+      final points = waypoints.map((s) => s.position).toList();
 
       final payload = await router.getRoute(
         points: points,
@@ -120,7 +130,7 @@ class _NavigationViewState extends ConsumerState<NavigationView> {
 
       final engine = NavigationEngine(
         route: payload,
-        waypoints: widget.stops,
+        waypoints: waypoints,
         options: const NavigationEngineOptions(
           enableBackgroundIsolates: true,
           offRouteThresholdMeters: 40.0,

@@ -198,8 +198,6 @@ class _WebFollowerViewState extends State<WebFollowerView> {
   String? _actionToast;
   Timer? _toastTimer;
 
-  VoidCallback? get _effectiveOnClose => component.onClose ?? component.onExit;
-
   bool _isDarkMode() {
     try {
       return web.window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -255,6 +253,20 @@ class _WebFollowerViewState extends State<WebFollowerView> {
   }
 
   @override
+  void didUpdateComponent(WebFollowerView oldWidget) {
+    super.didUpdateComponent(oldWidget);
+    if (component.stops != oldWidget.stops || component.channelId != oldWidget.channelId) {
+      _sim?.stop();
+      _simEngine?.dispose();
+      _simEngine = null;
+      _subscribeTelemetry();
+      if (component.stops != null && component.stops!.isNotEmpty) {
+        _initRouteAndSimulation();
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _toastTimer?.cancel();
     _sim?.stop();
@@ -304,7 +316,16 @@ class _WebFollowerViewState extends State<WebFollowerView> {
 
     try {
       final router = context.read(jasprOsrmRouterProvider);
-      final waypoints = component.stops!;
+      var waypoints = List<NavWaypoint>.from(component.stops!);
+      if (waypoints.length == 1) {
+        final dest = waypoints.first;
+        final origin = NavWaypoint.fromCoords(
+          latitude: dest.position.latitude - 0.035,
+          longitude: dest.position.longitude - 0.025,
+          title: 'Start Location',
+        );
+        waypoints = [origin, dest];
+      }
       final points = waypoints.map((w) => w.position).toList();
 
       final payload = await router.getRoute(
@@ -325,7 +346,7 @@ class _WebFollowerViewState extends State<WebFollowerView> {
       if (component.autoSimulateIfIdle) {
         final engine = NavigationEngine(
           route: payload,
-          waypoints: component.stops,
+          waypoints: waypoints,
         );
         _simEngine = engine;
 

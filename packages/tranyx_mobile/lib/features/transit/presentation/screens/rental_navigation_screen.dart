@@ -25,7 +25,10 @@ class RentalNavigationScreen extends ConsumerWidget {
     final currentUid = user?.uid ?? '';
 
     final hostId = (rentalData['hostId'] ?? '').toString();
-    final renteeId = (rentalData['renteeId'] ?? '').toString();
+    var renteeId = (rentalData['renteeId'] ?? '').toString();
+    if (renteeId.isEmpty) {
+      renteeId = (rentalData['renterId'] ?? rentalData['userId'] ?? '').toString();
+    }
     final status = (rentalData['status'] ?? '').toString();
     final rentalType = (rentalData['rentalType'] ?? 'pickup').toString();
     final rentalId = (rentalData['rentalId'] ?? rentalData['id'] ?? '').toString();
@@ -138,7 +141,11 @@ class RentalNavigationScreen extends ConsumerWidget {
   }
 
   List<NavWaypoint> _buildWaypoints(Map<String, dynamic> data, String status) {
-    if (status == 'On the way to Rentee') {
+    final normStatus = status.trim().toLowerCase();
+    final isDelivering = normStatus == 'on the way to rentee' || normStatus == 'delivering';
+    final isReturning = normStatus == 'returning' || normStatus == 'return' || normStatus == 'arrived at return location';
+
+    if (isDelivering) {
       final destLat = (data['deliveryLat'] as num?)?.toDouble() ??
           (data['dropoffLat'] as num?)?.toDouble() ??
           (data['pickupLat'] as num?)?.toDouble() ??
@@ -147,16 +154,40 @@ class RentalNavigationScreen extends ConsumerWidget {
           (data['dropoffLng'] as num?)?.toDouble() ??
           (data['pickupLng'] as num?)?.toDouble() ??
           120.9842;
-      final destTitle = (data['deliveryAddress'] as String?) ?? 'Rentee Delivery Location';
+      final destTitle = (data['deliveryAddress'] as String?) ??
+          (data['dropoffAddress'] as String?) ??
+          'Rentee Delivery Location';
+
+      var originLat = (data['pickupLat'] as num?)?.toDouble() ??
+          (data['hostLat'] as num?)?.toDouble() ??
+          (data['currentLat'] as num?)?.toDouble() ??
+          (destLat - 0.035);
+      var originLng = (data['pickupLng'] as num?)?.toDouble() ??
+          (data['hostLng'] as num?)?.toDouble() ??
+          (data['currentLng'] as num?)?.toDouble() ??
+          (destLng - 0.025);
+      final originTitle = (data['pickupAddress'] as String?) ??
+          (data['pickupLocation'] as String?) ??
+          'Vehicle Departure Point';
+
+      if ((originLat - destLat).abs() < 0.0001 && (originLng - destLng).abs() < 0.0001) {
+        originLat = destLat - 0.035;
+        originLng = destLng - 0.025;
+      }
 
       return [
+        NavWaypoint.fromCoords(
+          latitude: originLat,
+          longitude: originLng,
+          title: originTitle,
+        ),
         NavWaypoint.fromCoords(
           latitude: destLat,
           longitude: destLng,
           title: destTitle,
         ),
       ];
-    } else if (status == 'Returning') {
+    } else if (isReturning) {
       final destLat = (data['pickupLat'] as num?)?.toDouble() ??
           (data['returnLat'] as num?)?.toDouble() ??
           14.5995;
@@ -165,9 +196,32 @@ class RentalNavigationScreen extends ConsumerWidget {
           120.9842;
       final destTitle = (data['pickupAddress'] as String?) ??
           (data['pickupLocation'] as String?) ??
+          (data['returnAddress'] as String?) ??
           'Host Return Location';
 
+      var originLat = (data['currentLat'] as num?)?.toDouble() ??
+          (data['deliveryLat'] as num?)?.toDouble() ??
+          (data['dropoffLat'] as num?)?.toDouble() ??
+          (destLat - 0.035);
+      var originLng = (data['currentLng'] as num?)?.toDouble() ??
+          (data['deliveryLng'] as num?)?.toDouble() ??
+          (data['dropoffLng'] as num?)?.toDouble() ??
+          (destLng - 0.025);
+      final originTitle = (data['currentAddress'] as String?) ??
+          (data['deliveryAddress'] as String?) ??
+          'Current Location';
+
+      if ((originLat - destLat).abs() < 0.0001 && (originLng - destLng).abs() < 0.0001) {
+        originLat = destLat - 0.035;
+        originLng = destLng - 0.025;
+      }
+
       return [
+        NavWaypoint.fromCoords(
+          latitude: originLat,
+          longitude: originLng,
+          title: originTitle,
+        ),
         NavWaypoint.fromCoords(
           latitude: destLat,
           longitude: destLng,

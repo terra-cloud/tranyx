@@ -70,49 +70,51 @@ void main() {
 
     group('Return phase ("Returning")', () {
       test('Rentee is publisher, Host is subscriber regardless of rentalType', () {
-        expect(
-          resolveRentalNavRole(
-            currentUserId: renteeId,
-            hostId: hostId,
-            renteeId: renteeId,
-            status: 'Returning',
-            rentalType: 'deliver',
-          ),
-          equals(RentalNavRole.publisher),
-        );
+        for (final st in ['Returning', 'returning', 'return', 'Arrived at Return Location', 'arrived at return location']) {
+          expect(
+            resolveRentalNavRole(
+              currentUserId: renteeId,
+              hostId: hostId,
+              renteeId: renteeId,
+              status: st,
+              rentalType: 'deliver',
+            ),
+            equals(RentalNavRole.publisher),
+          );
 
-        expect(
-          resolveRentalNavRole(
-            currentUserId: hostId,
-            hostId: hostId,
-            renteeId: renteeId,
-            status: 'Returning',
-            rentalType: 'deliver',
-          ),
-          equals(RentalNavRole.subscriber),
-        );
+          expect(
+            resolveRentalNavRole(
+              currentUserId: hostId,
+              hostId: hostId,
+              renteeId: renteeId,
+              status: st,
+              rentalType: 'deliver',
+            ),
+            equals(RentalNavRole.subscriber),
+          );
 
-        expect(
-          resolveRentalNavRole(
-            currentUserId: renteeId,
-            hostId: hostId,
-            renteeId: renteeId,
-            status: 'Returning',
-            rentalType: 'pickup',
-          ),
-          equals(RentalNavRole.publisher),
-        );
+          expect(
+            resolveRentalNavRole(
+              currentUserId: renteeId,
+              hostId: hostId,
+              renteeId: renteeId,
+              status: st,
+              rentalType: 'pickup',
+            ),
+            equals(RentalNavRole.publisher),
+          );
 
-        expect(
-          resolveRentalNavRole(
-            currentUserId: hostId,
-            hostId: hostId,
-            renteeId: renteeId,
-            status: 'Returning',
-            rentalType: 'pickup',
-          ),
-          equals(RentalNavRole.subscriber),
-        );
+          expect(
+            resolveRentalNavRole(
+              currentUserId: hostId,
+              hostId: hostId,
+              renteeId: renteeId,
+              status: st,
+              rentalType: 'pickup',
+            ),
+            equals(RentalNavRole.subscriber),
+          );
+        }
       });
     });
 

@@ -54,6 +54,22 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
 
       // Optimistic local state update
       r['status'] = newStatus;
+      final selectedData = component.appState.selectedRentalData;
+      if (selectedData != null) {
+        selectedData['status'] = newStatus;
+      }
+      for (final item in component.appState.realtimeRentals) {
+        final itemId = (item['rentalId'] ?? item['id'] ?? '').toString();
+        if (itemId.isNotEmpty && (itemId == rawId || itemId == rentalId)) {
+          item['status'] = newStatus;
+        }
+      }
+      for (final item in component.appState.renterActiveBookings) {
+        final itemId = (item['rentalId'] ?? item['id'] ?? '').toString();
+        if (itemId.isNotEmpty && (itemId == rawId || itemId == rentalId)) {
+          item['status'] = newStatus;
+        }
+      }
       component.appState.setState(() {});
 
       if (newStatus == 'Completed' || newStatus == 'Complete') {
@@ -124,12 +140,29 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
     );
 
     final currentUid = component.appState.userProfile?.uid ?? '';
-    final hostId = (r['hostId'] ?? '').toString();
-    final renteeId =
-        (r['renteeId'] ?? selectedData['renteeId'] ?? '').toString();
+    final hostId = (r['hostId'] ?? selectedData['hostId'] ?? '').toString();
+    var renteeId = (r['renteeId'] ?? selectedData['renteeId'] ?? '').toString();
+    if (renteeId.isEmpty) {
+      renteeId = (r['renterId'] ??
+              selectedData['renterId'] ??
+              r['userId'] ??
+              selectedData['userId'] ??
+              '')
+          .toString();
+    }
+
+    final rentalId = (r['rentalId'] ?? r['id'] ?? selectedData['rentalId'] ?? selectedData['id'] ?? '').toString();
+
+    final isUserInActiveBookings = component.appState.renterActiveBookings.any((booking) {
+      final bId = (booking['rentalId'] ?? booking['id'] ?? '').toString();
+      return bId.isNotEmpty && (bId == lookupId || bId == rentalId);
+    });
 
     final isHost = currentUid.isNotEmpty && currentUid == hostId;
-    final isRentee = currentUid.isNotEmpty && currentUid == renteeId;
+    var isRentee = (currentUid.isNotEmpty && currentUid == renteeId) || isUserInActiveBookings;
+    if (renteeId.isEmpty && isRentee) {
+      renteeId = currentUid;
+    }
 
     // Strict privacy guard: Only Host or designated Rentee can track
     if (!isHost && !isRentee) {
@@ -137,19 +170,22 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
       return div([]);
     }
 
-    final status = r['status'] as String? ?? 'Unknown';
-    final model = r['model'] ?? 'Unknown';
-    final brand = r['brand'] ?? 'Unknown';
-    final rentalType = r['rentalType'] as String? ?? 'pickup';
-    final rentalId = (r['rentalId'] ?? r['id'] ?? '').toString();
+    final status = (selectedData['status'] == 'Returning' || selectedData['status'] == 'Arrived at Return Location')
+        ? (selectedData['status'] as String)
+        : (r['status'] as String? ?? selectedData['status'] as String? ?? 'Unknown');
+    final model = r['model'] ?? selectedData['model'] ?? 'Unknown';
+    final brand = r['brand'] ?? selectedData['brand'] ?? 'Unknown';
+    final rentalType = (r['rentalType'] ?? selectedData['rentalType'] as String?) ?? 'pickup';
     final channelId = 'rental_$rentalId';
 
     final addressLabel =
         rentalType == 'deliver' ? 'Delivery Address' : 'Pickup Location';
     final addressValue = rentalType == 'deliver'
-        ? (r['deliveryAddress'] as String? ?? 'N/A')
+        ? (r['deliveryAddress'] as String? ?? selectedData['deliveryAddress'] as String? ?? 'N/A')
         : (r['pickupAddress'] as String? ??
             r['pickupLocation'] as String? ??
+            selectedData['pickupAddress'] as String? ??
+            selectedData['pickupLocation'] as String? ??
             'N/A');
 
     // Directional Role Enforcement via shared helper
@@ -248,6 +284,14 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
                             'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
                         onClick: () => _updateStatus('Ongoing'),
                       ),
+                    if (isRentee && (status == 'Returning' || status == 'Arrived at Return Location'))
+                      FollowerAction(
+                        label: 'Arrived at Return Location',
+                        isPrimary: true,
+                        iconSvgPath:
+                            'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z',
+                        onClick: () => _updateStatus('Arrived at Return Location'),
+                      ),
                   ],
                 )
               else if (navRole == RentalNavRole.subscriber)
@@ -265,7 +309,7 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
                   broadcasterSubtitle: '$brand $model',
                   onClose: _closeModal,
                   actions: [
-                    if (isHost && status == 'Returning')
+                    if (isHost && (status == 'Returning' || status == 'Arrived at Return Location'))
                       FollowerAction(
                         label: 'Confirm Vehicle Returned',
                         isPrimary: true,
@@ -461,7 +505,7 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
                 [Component.text('Handed Over (Ongoing)')],
               ),
 
-            // Rentee: Start Return Trip
+            // Rentee: Start Return Trip or Arrived
             if (isRentee && status == 'Ongoing') ...[
               button(
                 classes:
@@ -482,8 +526,30 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
               ),
             ],
 
+            if (isRentee && (status == 'Returning' || status == 'Arrived at Return Location')) ...[
+              div(
+                classes:
+                    'flex-1 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 font-bold text-xs flex items-center justify-between gap-3',
+                [
+                  span([
+                    Component.text(status == 'Arrived at Return Location'
+                        ? 'Arrived at Host • Awaiting Host Confirmation'
+                        : 'Return Navigation in Progress'),
+                  ]),
+                  if (status != 'Arrived at Return Location')
+                    button(
+                      classes:
+                          'px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors cursor-pointer flex-shrink-0',
+                      events: {'click': (_) => _updateStatus('Arrived at Return Location')},
+                      disabled: _isUpdating,
+                      [Component.text('Arrived at Host')],
+                    ),
+                ],
+              ),
+            ],
+
             // Host: Confirm Vehicle Returned
-            if (isHost && status == 'Returning' && navRole != RentalNavRole.subscriber)
+            if (isHost && (status == 'Returning' || status == 'Arrived at Return Location') && navRole != RentalNavRole.subscriber)
               button(
                 classes:
                     'flex-1 py-3 px-4 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700 transition-colors text-sm',
@@ -516,7 +582,11 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
   }
 
   List<NavWaypoint> _buildStops(Map<String, dynamic> r, String status) {
-    if (status == 'On the way to Rentee') {
+    final normStatus = status.trim().toLowerCase();
+    final isDelivering = normStatus == 'on the way to rentee' || normStatus == 'delivering';
+    final isReturning = normStatus == 'returning' || normStatus == 'return' || normStatus == 'arrived at return location';
+
+    if (isDelivering) {
       final destLat = (r['deliveryLat'] as num?)?.toDouble() ??
           (r['dropoffLat'] as num?)?.toDouble() ??
           (r['pickupLat'] as num?)?.toDouble() ??
@@ -526,16 +596,38 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
           (r['pickupLng'] as num?)?.toDouble() ??
           120.9842;
       final destTitle =
-          (r['deliveryAddress'] as String?) ?? 'Rentee Delivery Location';
+          (r['deliveryAddress'] as String?) ?? (r['dropoffAddress'] as String?) ?? 'Rentee Delivery Location';
+
+      var originLat = (r['pickupLat'] as num?)?.toDouble() ??
+          (r['hostLat'] as num?)?.toDouble() ??
+          (r['currentLat'] as num?)?.toDouble() ??
+          (destLat - 0.035);
+      var originLng = (r['pickupLng'] as num?)?.toDouble() ??
+          (r['hostLng'] as num?)?.toDouble() ??
+          (r['currentLng'] as num?)?.toDouble() ??
+          (destLng - 0.025);
+      final originTitle = (r['pickupAddress'] as String?) ??
+          (r['pickupLocation'] as String?) ??
+          'Vehicle Departure Point';
+
+      if ((originLat - destLat).abs() < 0.0001 && (originLng - destLng).abs() < 0.0001) {
+        originLat = destLat - 0.035;
+        originLng = destLng - 0.025;
+      }
 
       return [
+        NavWaypoint.fromCoords(
+          latitude: originLat,
+          longitude: originLng,
+          title: originTitle,
+        ),
         NavWaypoint.fromCoords(
           latitude: destLat,
           longitude: destLng,
           title: destTitle,
         ),
       ];
-    } else if (status == 'Returning') {
+    } else if (isReturning) {
       final destLat = (r['pickupLat'] as num?)?.toDouble() ??
           (r['returnLat'] as num?)?.toDouble() ??
           14.5995;
@@ -544,9 +636,32 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
           120.9842;
       final destTitle = (r['pickupAddress'] as String?) ??
           (r['pickupLocation'] as String?) ??
+          (r['returnAddress'] as String?) ??
           'Host Return Location';
 
+      var originLat = (r['currentLat'] as num?)?.toDouble() ??
+          (r['deliveryLat'] as num?)?.toDouble() ??
+          (r['dropoffLat'] as num?)?.toDouble() ??
+          (destLat - 0.035);
+      var originLng = (r['currentLng'] as num?)?.toDouble() ??
+          (r['deliveryLng'] as num?)?.toDouble() ??
+          (r['dropoffLng'] as num?)?.toDouble() ??
+          (destLng - 0.025);
+      final originTitle = (r['currentAddress'] as String?) ??
+          (r['deliveryAddress'] as String?) ??
+          'Current Location';
+
+      if ((originLat - destLat).abs() < 0.0001 && (originLng - destLng).abs() < 0.0001) {
+        originLat = destLat - 0.035;
+        originLng = destLng - 0.025;
+      }
+
       return [
+        NavWaypoint.fromCoords(
+          latitude: originLat,
+          longitude: originLng,
+          title: originTitle,
+        ),
         NavWaypoint.fromCoords(
           latitude: destLat,
           longitude: destLng,

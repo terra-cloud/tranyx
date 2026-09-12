@@ -128,7 +128,6 @@ class _WebNavigationViewState extends State<WebNavigationView> {
   bool _routeLayerAdded = false;
   List<List<double>>? _pendingRouteCoords;
 
-  VoidCallback? get _effectiveOnClose => component.onClose ?? component.onExit;
   double _currentCameraBearing = 0.0;
   bool _isFirstCameraUpdate = true;
 
@@ -442,15 +441,35 @@ class _WebNavigationViewState extends State<WebNavigationView> {
     } catch (_) {}
   }
 
+  @override
+  void didUpdateComponent(WebNavigationView oldWidget) {
+    super.didUpdateComponent(oldWidget);
+    if (component.stops != oldWidget.stops || component.channelId != oldWidget.channelId) {
+      _isRouteInitialized = false;
+      _initializeRoute();
+    }
+  }
+
   Future<void> _initializeRoute() async {
-    if (_isRouteInitialized || component.stops == null || component.stops!.length < 2) return;
+    if (_isRouteInitialized || component.stops == null || component.stops!.isEmpty) return;
     _isRouteInitialized = true;
 
     final db = WebLocalStorageRouteDatabase();
     final router = OsrmFossgisRouter(database: db);
 
     try {
-      final points = component.stops!.map((wp) => wp.position).toList();
+      var waypoints = List<NavWaypoint>.from(component.stops!);
+      if (waypoints.length == 1) {
+        final dest = waypoints.first;
+        final origin = NavWaypoint.fromCoords(
+          latitude: dest.position.latitude - 0.035,
+          longitude: dest.position.longitude - 0.025,
+          title: 'Start Location',
+        );
+        waypoints = [origin, dest];
+      }
+
+      final points = waypoints.map((wp) => wp.position).toList();
       final payload = await router.getRoute(
         points: points,
         mode: component.travelMode,
@@ -464,7 +483,7 @@ class _WebNavigationViewState extends State<WebNavigationView> {
 
       final engine = NavigationEngine(
         route: payload,
-        waypoints: component.stops,
+        waypoints: waypoints,
         onArrived: component.onArrived,
       );
       _engine = engine;
@@ -1195,7 +1214,7 @@ class _WebNavigationViewState extends State<WebNavigationView> {
                           [
                             Component.text(
                               component.stops?.isNotEmpty == true
-                                  ? (component.stops!.first.title ?? 'Route Navigation')
+                                  ? component.stops!.first.title
                                   : 'Route Navigation',
                             ),
                           ],

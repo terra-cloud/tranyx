@@ -873,7 +873,42 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               )
             else
               span(classes: 'text-zinc-550 italic mr-1', [Component.text('Chat disabled')]),
-            if (isOngoing && !isOverdue)
+            if (status == 'Returning' || status == 'Arrived at Return Location')
+              button(
+                classes:
+                    'px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-500/30 transition-all border-0 cursor-pointer flex items-center gap-1.5 animate-pulse',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    s.setState(() {
+                      s.selectedRentalData = active;
+                      s.showRentalTrackerMap = true;
+                    });
+                  },
+                },
+                [
+                  lIcon('navigation', cls: 'w-3.5 h-3.5 text-white'),
+                  Component.text('Return Navigation'),
+                ],
+              )
+            else if (isOngoing && !isOverdue) ...[
+              button(
+                classes:
+                    'px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-blue-600/80 hover:bg-blue-600 transition-colors border-0 cursor-pointer flex items-center gap-1.5',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    s.setState(() {
+                      s.selectedRentalData = active;
+                      s.showRentalTrackerMap = true;
+                    });
+                  },
+                },
+                [
+                  lIcon('navigation', cls: 'w-3.5 h-3.5 text-white'),
+                  Component.text('Return Trip'),
+                ],
+              ),
               button(
                 classes:
                     'px-4 py-2 rounded-xl text-xs font-bold bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors border-0 cursor-pointer',
@@ -887,13 +922,31 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                   },
                 },
                 [Component.text('Extend')],
-              )
-            else if (isOverdue)
+              ),
+            ] else if (isOverdue) ...[
+              button(
+                classes:
+                    'px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-500 shadow-md shadow-red-500/30 transition-all border-0 cursor-pointer flex items-center gap-1.5 animate-pulse',
+                events: {
+                  'click': (e) {
+                    e.stopPropagation();
+                    s.setState(() {
+                      s.selectedRentalData = active;
+                      s.showRentalTrackerMap = true;
+                    });
+                  },
+                },
+                [
+                  lIcon('navigation', cls: 'w-3.5 h-3.5 text-white'),
+                  Component.text('Return Vehicle Now'),
+                ],
+              ),
               span(
                 classes:
                     'px-3 py-1.5 rounded-xl text-xs font-bold bg-red-500/20 text-red-300 border border-red-500/30',
                 [Component.text('Overdue')],
               ),
+            ],
           ]),
         ]),
         if (active['signatureHash'] != null)

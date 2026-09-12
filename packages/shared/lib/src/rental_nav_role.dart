@@ -26,7 +26,7 @@ RentalNavRole resolveRentalNavRole({
   final isDelivery = rentalType.trim().toLowerCase() == 'deliver';
 
   // 1. Delivery Phase
-  if (normalizedStatus == 'on the way to rentee') {
+  if (normalizedStatus == 'on the way to rentee' || normalizedStatus == 'delivering') {
     if (isDelivery) {
       if (currentUserId == hostId) return RentalNavRole.publisher;
       if (currentUserId == renteeId) return RentalNavRole.subscriber;
@@ -35,7 +35,9 @@ RentalNavRole resolveRentalNavRole({
   }
 
   // 2. Return Phase
-  if (normalizedStatus == 'returning') {
+  if (normalizedStatus == 'returning' ||
+      normalizedStatus == 'return' ||
+      normalizedStatus == 'arrived at return location') {
     if (currentUserId == renteeId) return RentalNavRole.publisher;
     if (currentUserId == hostId) return RentalNavRole.subscriber;
     return RentalNavRole.none;
