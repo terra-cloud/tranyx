@@ -260,6 +260,66 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     }
   }
 
+  void _revokeApproval(String? requestId) async {
+    final r = component.appState.selectedRentalData;
+    if (r == null) return;
+
+    final confirmed = confirmDialog(
+      'Are you sure you want to revoke approval for this booking request? The renter will be 100% refunded and the vehicle will reopen for new bookings.',
+    );
+    if (!confirmed) return;
+
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+
+    try {
+      await component.appState.firestore.revokeApproval(r['id'], requestId: requestId);
+      await component.appState.loadUserProfile();
+      component.appState.showAppToast('Approval Revoked', 'Request cancelled and renter fully refunded.');
+      _loadRequests();
+      component.appState.setState(() {
+        component.appState.showManageVehicleModal = false;
+        component.appState.selectedRentalData = null;
+      });
+    } catch (e) {
+      setState(() => _error = 'Failed to revoke approval: $e');
+    } finally {
+      setState(() => _isProcessing = false);
+    }
+  }
+
+  void _cancelRental(String? requestId) async {
+    final r = component.appState.selectedRentalData;
+    if (r == null) return;
+
+    final confirmed = confirmDialog(
+      'Are you sure you want to cancel this rental booking? The renter will be refunded minus the standard platform cancellation fee.',
+    );
+    if (!confirmed) return;
+
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+
+    try {
+      await component.appState.firestore.cancelRental(r['id'], requestId: requestId);
+      await component.appState.loadUserProfile();
+      component.appState.showAppToast('Rental Cancelled', 'The rental has been cancelled and refunded.');
+      _loadRequests();
+      component.appState.setState(() {
+        component.appState.showManageVehicleModal = false;
+        component.appState.selectedRentalData = null;
+      });
+    } catch (e) {
+      setState(() => _error = 'Failed to cancel rental: $e');
+    } finally {
+      setState(() => _isProcessing = false);
+    }
+  }
+
   void _saveGps() async {
     final r = component.appState.selectedRentalData;
     if (r == null) return;
@@ -798,29 +858,59 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
 
                 // Controls to advance status
                 div(classes: 'flex flex-col gap-3', [
-                  if (status == 'Booked')
-                    if (rentalType == 'deliver')
+                  if (status == 'Awaiting Signature')
+                    div(classes: 'flex flex-col gap-2', [
+                      div(
+                        classes:
+                            'p-4 rounded-xl border border-yellow-500/20 bg-yellow-500/10 text-yellow-500 text-xs text-center font-semibold',
+                        [Component.text('Awaiting rentee to sign the rental agreement to activate this trip.')],
+                      ),
                       button(
                         classes:
-                            'w-full py-3 rounded-2xl text-sm font-semibold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2',
-                        events: {'click': (_) => _updateStatus('On the way to Rentee')},
+                            'w-full py-2.5 rounded-xl text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer',
+                        events: {'click': (_) => _revokeApproval(r['currentRequestId']?.toString())},
                         disabled: _isProcessing,
                         [
-                          lIcon('truck', cls: 'w-5 h-5'),
-                          Component.text('Start Delivery (On the way)'),
+                          lIcon('rotate-ccw', cls: 'w-4 h-4'),
+                          Component.text('Revoke Approval & Reopen Listing'),
                         ],
-                      )
-                    else
+                      ),
+                    ])
+                  else if (status == 'Booked')
+                    div(classes: 'flex flex-col sm:flex-row gap-2', [
+                      if (rentalType == 'deliver')
+                        button(
+                          classes:
+                              'flex-1 py-3 rounded-2xl text-sm font-semibold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2 cursor-pointer border-0',
+                          events: {'click': (_) => _updateStatus('On the way to Rentee')},
+                          disabled: _isProcessing,
+                          [
+                            lIcon('truck', cls: 'w-5 h-5'),
+                            Component.text('Start Delivery (On the way)'),
+                          ],
+                        )
+                      else
+                        button(
+                          classes:
+                              'flex-1 py-3 rounded-2xl text-sm font-semibold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2 cursor-pointer border-0',
+                          events: {'click': (_) => _updateStatus('Ongoing')},
+                          disabled: _isProcessing,
+                          [
+                            lIcon('key', cls: 'w-5 h-5'),
+                            Component.text('Hand Over & Start Rental'),
+                          ],
+                        ),
                       button(
                         classes:
-                            'w-full py-3 rounded-2xl text-sm font-semibold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2',
-                        events: {'click': (_) => _updateStatus('Ongoing')},
+                            'px-4 py-3 rounded-2xl text-xs font-bold text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer',
+                        events: {'click': (_) => _cancelRental(r['currentRequestId']?.toString())},
                         disabled: _isProcessing,
                         [
-                          lIcon('key', cls: 'w-5 h-5'),
-                          Component.text('Hand Over & Start Rental'),
+                          lIcon('x', cls: 'w-4 h-4'),
+                          Component.text('Cancel Rental'),
                         ],
-                      )
+                      ),
+                    ])
                   else if (status == 'On the way to Rentee')
                     button(
                       classes:
@@ -1085,7 +1175,20 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                           () {
                             final reqStatus = (req['status'] ?? '').toString();
                             final isDeliver = (req['rentalType'] ?? r['rentalType']) == 'deliver';
-                            if (reqStatus == 'Booked') {
+                            if (reqStatus == 'Approved' || reqStatus == 'Awaiting Signature') {
+                              return div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center gap-2', [
+                                button(
+                                  classes:
+                                      'flex-1 py-2 rounded-xl text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer',
+                                  events: {'click': (_) => _revokeApproval(req['id'])},
+                                  disabled: _isProcessing,
+                                  [
+                                    lIcon('rotate-ccw', cls: 'w-4 h-4'),
+                                    Component.text('Revoke Approval & Reopen Listing'),
+                                  ],
+                                ),
+                              ]);
+                            } else if (reqStatus == 'Booked') {
                               return div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center gap-2', [
                                 button(
                                   classes:
@@ -1095,6 +1198,16 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                                   [
                                     lIcon(isDeliver ? 'truck' : 'key', cls: 'w-4 h-4'),
                                     Component.text(isDeliver ? 'Start Delivery' : 'Hand Over & Start Rental'),
+                                  ],
+                                ),
+                                button(
+                                  classes:
+                                      'px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:bg-red-500/10 border border-red-500/30 transition-colors flex items-center justify-center gap-1 cursor-pointer bg-transparent',
+                                  events: {'click': (_) => _cancelRental(req['id'])},
+                                  disabled: _isProcessing,
+                                  [
+                                    lIcon('x', cls: 'w-3.5 h-3.5'),
+                                    Component.text('Cancel Rental'),
                                   ],
                                 ),
                               ]);

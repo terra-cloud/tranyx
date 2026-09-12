@@ -4,6 +4,7 @@ import 'package:web/web.dart' as web;
 import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
+import '../../services/web_interop.dart';
 
 class ManagePropertyModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -196,6 +197,91 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
       component.appState.showAppToast('Lease Completed', 'Lease earnings have been deposited into your wallet.');
     } catch (e) {
       setState(() => _error = 'Failed to complete lease: $e');
+    } finally {
+      setState(() => _isProcessing = false);
+    }
+  }
+
+  void _revokeApproval({String? requestId}) async {
+    final prop = component.appState.selectedPropertyData;
+    if (prop == null) return;
+
+    final confirmed = confirmDialog(
+      'Are you sure you want to revoke approval for this lease request? The tenant will be 100% refunded and the listing will reopen for new bookings.',
+    );
+    if (!confirmed) return;
+
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+
+    try {
+      await component.appState.firestore.revokePropertyApproval(prop['id'], requestId: requestId);
+      await component.appState.loadUserProfile();
+      component.appState.showAppToast('Approval Revoked', 'Lease request cancelled and tenant refunded.');
+      _loadRequests();
+      component.appState.setState(() {
+        component.appState.showManagePropertyModal = false;
+        component.appState.selectedPropertyData = null;
+      });
+    } catch (e) {
+      setState(() => _error = 'Failed to revoke approval: $e');
+    } finally {
+      setState(() => _isProcessing = false);
+    }
+  }
+
+  void _activateLease({String? requestId}) async {
+    final prop = component.appState.selectedPropertyData;
+    if (prop == null) return;
+
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+
+    try {
+      await component.appState.firestore.updatePropertyStatus(prop['id'], 'Active', requestId: requestId);
+      component.appState.showAppToast('Lease Activated', 'Keys handed over. The tenant residency is now Active.');
+      _loadRequests();
+      final updated = Map<String, dynamic>.from(prop);
+      updated['status'] = 'Active';
+      component.appState.setState(() {
+        component.appState.selectedPropertyData = updated;
+      });
+    } catch (e) {
+      setState(() => _error = 'Failed to activate lease: $e');
+    } finally {
+      setState(() => _isProcessing = false);
+    }
+  }
+
+  void _cancelLease({String? requestId}) async {
+    final prop = component.appState.selectedPropertyData;
+    if (prop == null) return;
+
+    final confirmed = confirmDialog(
+      'Are you sure you want to cancel this lease? Tenant will be refunded minus standard cancellation processing fee.',
+    );
+    if (!confirmed) return;
+
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+
+    try {
+      await component.appState.firestore.cancelPropertyRental(prop['id'], requestId: requestId);
+      await component.appState.loadUserProfile();
+      component.appState.showAppToast('Lease Cancelled', 'Lease has been cancelled and refunded.');
+      _loadRequests();
+      component.appState.setState(() {
+        component.appState.showManagePropertyModal = false;
+        component.appState.selectedPropertyData = null;
+      });
+    } catch (e) {
+      setState(() => _error = 'Failed to cancel lease: $e');
     } finally {
       setState(() => _isProcessing = false);
     }
@@ -532,23 +618,71 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                 ),
 
                 if (status == 'Awaiting Signature')
-                  div(
-                    classes:
-                        'p-4 rounded-xl border border-yellow-500/20 bg-yellow-500/10 text-yellow-500 text-xs text-center font-semibold mb-6',
-                    [Component.text('Awaiting tenant to sign the contract and finalize this lease.')],
-                  ),
+                  div(classes: 'flex flex-col gap-2 mb-6', [
+                    div(
+                      classes:
+                          'p-4 rounded-xl border border-yellow-500/20 bg-yellow-500/10 text-yellow-500 text-xs text-center font-semibold',
+                      [Component.text('Awaiting tenant to sign the contract and finalize this lease.')],
+                    ),
+                    button(
+                      classes:
+                          'w-full py-2.5 rounded-xl text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer',
+                      events: {'click': (_) => _revokeApproval()},
+                      disabled: _isProcessing,
+                      [
+                        lIcon('rotate-ccw', cls: 'w-4 h-4'),
+                        Component.text('Revoke Approval & Reopen Listing'),
+                      ],
+                    ),
+                  ]),
 
-                if (status == 'Booked' || status == 'Active')
-                  button(
-                    classes:
-                        'w-full py-3.5 rounded-2xl text-sm font-bold text-white bg-green-500 hover:bg-green-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 border-0 cursor-pointer',
-                    events: {'click': (_) => _completeLease()},
-                    disabled: _isProcessing,
-                    [
-                      lIcon('check-circle', cls: 'w-5 h-5'),
-                      Component.text('Complete Lease & Release Payout'),
-                    ],
-                  ),
+                if (status == 'Booked')
+                  div(classes: 'flex flex-col sm:flex-row gap-2 mb-6', [
+                    button(
+                      classes:
+                          'flex-1 py-3.5 rounded-2xl text-sm font-bold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2 border-0 cursor-pointer shadow-lg shadow-purple-600/20',
+                      events: {'click': (_) => _activateLease()},
+                      disabled: _isProcessing,
+                      [
+                        lIcon('key', cls: 'w-5 h-5'),
+                        Component.text('Hand Over Keys & Activate Lease'),
+                      ],
+                    ),
+                    button(
+                      classes:
+                          'px-4 py-3.5 rounded-2xl text-xs font-bold text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer',
+                      events: {'click': (_) => _cancelLease()},
+                      disabled: _isProcessing,
+                      [
+                        lIcon('x', cls: 'w-4 h-4'),
+                        Component.text('Cancel Lease'),
+                      ],
+                    ),
+                  ]),
+
+                if (status == 'Active')
+                  div(classes: 'flex flex-col sm:flex-row gap-2 mb-6', [
+                    button(
+                      classes:
+                          'flex-1 py-3.5 rounded-2xl text-sm font-bold text-white bg-green-500 hover:bg-green-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 border-0 cursor-pointer',
+                      events: {'click': (_) => _completeLease()},
+                      disabled: _isProcessing,
+                      [
+                        lIcon('check-circle', cls: 'w-5 h-5'),
+                        Component.text('Complete Lease & Release Payout'),
+                      ],
+                    ),
+                    button(
+                      classes:
+                          'px-4 py-3.5 rounded-2xl text-xs font-bold text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer',
+                      events: {'click': (_) => _cancelLease()},
+                      disabled: _isProcessing,
+                      [
+                        lIcon('x', cls: 'w-4 h-4'),
+                        Component.text('Cancel Lease'),
+                      ],
+                    ),
+                  ]),
               ],
 
               // Lease Bookings & Applications (Always visible to host)
@@ -732,7 +866,43 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                           ),
                           () {
                             final reqStatus = (req['status'] ?? '').toString().toLowerCase();
-                            if (reqStatus == 'booked' || reqStatus == 'active' || reqStatus == 'ongoing' || reqStatus == 'returning') {
+                            if (reqStatus == 'approved' || reqStatus == 'awaiting signature') {
+                              return div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center gap-2', [
+                                button(
+                                  classes:
+                                      'flex-1 py-2 rounded-xl text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer',
+                                  events: {'click': (_) => _revokeApproval(requestId: req['id'])},
+                                  disabled: _isProcessing,
+                                  [
+                                    lIcon('rotate-ccw', cls: 'w-4 h-4'),
+                                    Component.text('Revoke Approval & Reopen Listing'),
+                                  ],
+                                ),
+                              ]);
+                            } else if (reqStatus == 'booked') {
+                              return div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center gap-2', [
+                                button(
+                                  classes:
+                                      'flex-1 py-2 rounded-xl text-xs font-bold text-white logo-gradient hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-1.5 cursor-pointer border-0',
+                                  events: {'click': (_) => _activateLease(requestId: req['id'])},
+                                  disabled: _isProcessing,
+                                  [
+                                    lIcon('key', cls: 'w-4 h-4'),
+                                    Component.text('Hand Over Keys & Activate'),
+                                  ],
+                                ),
+                                button(
+                                  classes:
+                                      'px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:bg-red-500/10 border border-red-500/30 transition-colors flex items-center justify-center gap-1 cursor-pointer bg-transparent',
+                                  events: {'click': (_) => _cancelLease(requestId: req['id'])},
+                                  disabled: _isProcessing,
+                                  [
+                                    lIcon('x', cls: 'w-3.5 h-3.5'),
+                                    Component.text('Cancel Lease'),
+                                  ],
+                                ),
+                              ]);
+                            } else if (reqStatus == 'active' || reqStatus == 'ongoing' || reqStatus == 'returning') {
                               return div(classes: 'mt-3 pt-3 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center gap-2', [
                                 button(
                                   classes:
@@ -742,6 +912,16 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                                   [
                                     lIcon('check-circle', cls: 'w-4 h-4'),
                                     Component.text('Complete Lease & Release Earnings'),
+                                  ],
+                                ),
+                                button(
+                                  classes:
+                                      'px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:bg-red-500/10 border border-red-500/30 transition-colors flex items-center justify-center gap-1 cursor-pointer bg-transparent',
+                                  events: {'click': (_) => _cancelLease(requestId: req['id'])},
+                                  disabled: _isProcessing,
+                                  [
+                                    lIcon('x', cls: 'w-3.5 h-3.5'),
+                                    Component.text('Cancel Lease'),
                                   ],
                                 ),
                               ]);

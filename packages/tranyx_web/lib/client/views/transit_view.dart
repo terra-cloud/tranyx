@@ -782,7 +782,31 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             ]),
           ]),
           div(classes: 'flex items-center gap-2', [
-            if (isAwaitingSignature)
+            if (isAwaitingSignature) ...[
+              button(
+                classes:
+                    'px-3 py-2 rounded-xl text-xs font-bold text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 transition-all cursor-pointer flex items-center gap-1.5',
+                events: {
+                  'click': (e) async {
+                    e.stopPropagation();
+                    final confirmed = confirmDialog(
+                      'Are you sure you want to cancel this booking request? Your locked funds will be 100% refunded.',
+                    );
+                    if (confirmed) {
+                      try {
+                        final targetReqId = active['id']?.toString() ?? rentalId;
+                        await s.firestore.cancelBookingRequest(targetReqId);
+                        await s.loadRenterPendingRequests();
+                        await s.loadUserProfile();
+                        s.showAppToast('Booking Cancelled', 'Your request has been cancelled and full refund credited.');
+                      } catch (err) {
+                        s.showAppToast('Error', 'Failed to cancel request: $err');
+                      }
+                    }
+                  },
+                },
+                [lIcon('x', cls: 'w-3.5 h-3.5'), Component.text('Cancel Request')],
+              ),
               button(
                 classes:
                     'px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-600/30 border-0 cursor-pointer flex items-center gap-1.5 animate-pulse',
@@ -801,6 +825,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 },
                 [lIcon('file-signature', cls: 'w-3.5 h-3.5'), Component.text('Review & Sign')],
               ),
+            ],
             if (!isAwaitingSignature && unreadCount > 0)
               span(
                 classes:
@@ -957,7 +982,31 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             ]),
           ]),
           div(classes: 'flex items-center gap-2', [
-            if (isAwaitingSignature)
+            if (isAwaitingSignature) ...[
+              button(
+                classes:
+                    'px-3 py-2 rounded-xl text-xs font-bold text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 transition-all cursor-pointer flex items-center gap-1.5',
+                events: {
+                  'click': (e) async {
+                    e.stopPropagation();
+                    final confirmed = confirmDialog(
+                      'Are you sure you want to cancel this lease request? Your locked funds will be 100% refunded.',
+                    );
+                    if (confirmed) {
+                      try {
+                        final targetReqId = (reqId != null && reqId.isNotEmpty) ? reqId : propId;
+                        await s.firestore.cancelPropertyBookingRequest(targetReqId);
+                        await s.loadRenterPendingRequests();
+                        await s.loadUserProfile();
+                        s.showAppToast('Lease Request Cancelled', 'Your request has been cancelled and full refund credited.');
+                      } catch (err) {
+                        s.showAppToast('Error', 'Failed to cancel lease request: $err');
+                      }
+                    }
+                  },
+                },
+                [lIcon('x', cls: 'w-3.5 h-3.5'), Component.text('Cancel Request')],
+              ),
               button(
                 classes:
                     'px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-600/30 border-0 cursor-pointer flex items-center gap-1.5 animate-pulse',
@@ -976,6 +1025,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 },
                 [lIcon('file-signature', cls: 'w-3.5 h-3.5'), Component.text('Review & Sign')],
               ),
+            ],
             if (!isAwaitingSignature && unreadCount > 0)
               span(
                 classes:
