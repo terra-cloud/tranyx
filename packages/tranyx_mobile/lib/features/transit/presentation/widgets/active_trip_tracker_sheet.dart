@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' show Random;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -46,7 +45,6 @@ class _ActiveTripTrackerSheetState
     _trackingLng = (widget.item['trackingLng'] as num?)?.toDouble() ?? 120.9842;
     if (widget.item['status'] == 'Active' ||
         widget.item['status'] == 'Ongoing') {
-      _startGpsSimulation();
       _checkExtensionAvailability();
     }
   }
@@ -115,24 +113,7 @@ class _ActiveTripTrackerSheetState
     super.dispose();
   }
 
-  void _startGpsSimulation() {
-    _gpsTimer = Timer.periodic(const Duration(seconds: 8), (timer) {
-      if (widget.isProperty) return;
-      final rand = Random();
-      setState(() {
-        // Move coordinates slightly (approx 10-100m)
-        _trackingLat += (rand.nextDouble() - 0.5) * 0.001;
-        _trackingLng += (rand.nextDouble() - 0.5) * 0.001;
-        _speed = 30.0 + rand.nextDouble() * 40.0; // 30-70 km/h
-      });
 
-      // Update Firestore in background
-      final id = widget.item['id'] as String;
-      ref
-          .read(transitRepositoryProvider)
-          .updateRentalTracking(id, _trackingLat, _trackingLng);
-    });
-  }
 
   void _openSignaturePad(String id, String terms, {String? requestId}) {
     showDialog(
@@ -953,6 +934,7 @@ class _ActiveTripTrackerSheetState
                                   ],
                                 ),
                               );
+                            } else {
                               final extensionRatePerHour = (widget.item['extensionRatePerHour'] as num?)?.toDouble() ??
                                   (widget.item['latePenaltyRatePerHour'] as num?)?.toDouble() ??
                                   (widget.item['extensionPenaltyPerHour'] as num?)?.toDouble() ??

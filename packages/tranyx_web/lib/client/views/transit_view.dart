@@ -738,19 +738,10 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           'p-5 rounded-2xl border ${isOverdue ? "border-red-500/50 bg-red-500/10" : (isOngoing ? "border-emerald-500/40 bg-emerald-500/10" : (isAwaitingSignature ? "border-amber-500/50 bg-amber-500/10" : "border-purple-500/30 bg-purple-500/10"))} cursor-pointer hover:opacity-95 transition-all mb-4',
       events: {
         'click': (_) => s.setState(() {
-          if (isAwaitingSignature) {
-            s.signingContractId = rentalId;
-            s.signingContractRequestId = active['id']?.toString();
-            s.signingContractTitle = '$vehicleTitle Rental Agreement';
-            s.signingContractTerms = active['contractTerms'] ?? listing['contractTerms'] ?? 'Rental Agreement terms';
-            s.signingContractIsProperty = false;
-            s.showSignContractModal = true;
-          } else {
-            s.selectedRentalData = active;
-            if (isOngoing) {
-              s.showRentalTrackerMap = true;
-            }
-          }
+          s.selectedRentalData = active;
+          s.selectedRentalDetailsData = active;
+          s.selectedRentalDetailsIsProperty = false;
+          s.showRentalDetailsModal = true;
         }),
       },
       [
@@ -1000,16 +991,12 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           'p-5 rounded-2xl border ${isAwaitingSignature ? "border-amber-500/50 bg-amber-500/10" : "border-purple-500/30 bg-purple-500/10"} cursor-pointer hover:opacity-95 transition-all mb-4',
       events: {
         'click': (_) {
-          if (isAwaitingSignature) {
-            s.setState(() {
-              s.signingContractId = propId;
-              s.signingContractRequestId = reqId;
-              s.signingContractTitle = '$title Lease Agreement';
-              s.signingContractTerms = contractTerms;
-              s.signingContractIsProperty = true;
-              s.showSignContractModal = true;
-            });
-          }
+          s.setState(() {
+            s.selectedPropertyData = active;
+            s.selectedRentalDetailsData = active;
+            s.selectedRentalDetailsIsProperty = true;
+            s.showRentalDetailsModal = true;
+          });
         },
       },
       [
@@ -1391,6 +1378,11 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           'click': (_) => s.setState(() {
             s.selectedRentalData = r;
             s.showBookVehicleModal = true;
+          })
+        else
+          'click': (_) => s.setState(() {
+            s.selectedRentalData = r;
+            s.showManageVehicleModal = true;
           }),
       },
       [
@@ -1707,10 +1699,16 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     return div(
       classes: 'p-5 rounded-2xl border transition-all card-hover cursor-pointer $cardCls',
       events: {
-        'click': (_) => s.setState(() {
-          s.selectedPropertyData = prop.toMap();
-          s.showBookPropertyModal = true;
-        }),
+        if (!isHostView)
+          'click': (_) => s.setState(() {
+            s.selectedPropertyData = prop.toMap();
+            s.showBookPropertyModal = true;
+          })
+        else
+          'click': (_) => s.setState(() {
+            s.selectedPropertyData = prop.toMap();
+            s.showManagePropertyModal = true;
+          }),
       },
       [
         div(classes: 'flex items-start justify-between mb-4', [

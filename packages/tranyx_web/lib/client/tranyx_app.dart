@@ -35,6 +35,7 @@ import '../client/widgets/delete_confirm_modal.dart';
 import '../client/components/list_vehicle_modal.dart';
 import '../client/components/book_vehicle_modal.dart';
 import '../client/components/extend_rental_modal.dart';
+import '../client/components/rental_details_modal.dart';
 import '../client/components/rental_tracker_map.dart';
 import '../client/components/manage_vehicle_modal.dart';
 import '../client/components/vehicle_qa_modal.dart';
@@ -154,6 +155,11 @@ class TranyxAppState extends State<TranyxApp> {
   bool showVehicleQaModal = false;
   bool showEditVehicleModal = false;
   Map<String, dynamic>? selectedRentalData;
+
+  // ── Rental Details View Modal ────────────────────────────────
+  bool showRentalDetailsModal = false;
+  Map<String, dynamic>? selectedRentalDetailsData;
+  bool selectedRentalDetailsIsProperty = false;
 
   // ── Property state ──────────────────────────────────────────
   RentalCategory activeRentalCategory = RentalCategory.vehicles;
@@ -7432,6 +7438,19 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Rental Tracker Map overlay
       if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this, key: const ValueKey('rental-tracker-map')),
+
+      // Rental Details modal overlay (for reviewing confirmed bookings and leases)
+      if (showRentalDetailsModal && selectedRentalDetailsData != null)
+        RentalDetailsModalComponent(
+          appState: this,
+          rentalData: selectedRentalDetailsData!,
+          isProperty: selectedRentalDetailsIsProperty,
+          key: const ValueKey('rental-details-modal'),
+          onClose: () => setState(() {
+            showRentalDetailsModal = false;
+            selectedRentalDetailsData = null;
+          }),
+        ),
 
       // Extend Rental modal overlay
       if (showExtendRentalModal) ExtendRentalModalComponent(appState: this, key: const ValueKey('extend-rental-modal')),

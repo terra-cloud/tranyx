@@ -16,6 +16,7 @@ import 'package:tranyx_mobile/features/transit/presentation/widgets/booking_wiza
 import 'package:tranyx_mobile/features/transit/presentation/widgets/active_trip_tracker_sheet.dart';
 import 'package:tranyx_mobile/features/transit/presentation/widgets/listing_wizard_sheet.dart';
 import 'package:tranyx_mobile/features/transit/presentation/widgets/manage_listing_sheet.dart';
+import 'package:tranyx_mobile/features/transit/presentation/widgets/rental_details_sheet.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane.dart';
 
 class TransitView extends ConsumerStatefulWidget {
@@ -136,6 +137,16 @@ class _TransitViewState extends ConsumerState<TransitView> {
       backgroundColor: Colors.transparent,
       builder: (context) =>
           ManageListingSheet(item: item, isProperty: isProperty),
+    );
+  }
+
+  void _openRentalDetailsSheet(Map<String, dynamic> item, bool isProperty) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) =>
+          RentalDetailsSheet(item: item, isProperty: isProperty),
     );
   }
 
@@ -717,7 +728,6 @@ class _TransitViewState extends ConsumerState<TransitView> {
 
                         return Container(
                           margin: const EdgeInsets.only(bottom: 16),
-                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: isOngoingTrip
                                 ? Colors.green.withValues(alpha: 0.08)
@@ -733,21 +743,45 @@ class _TransitViewState extends ConsumerState<TransitView> {
                             ),
                             borderRadius: BorderRadius.circular(24),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      '$title$plateStr',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ),
+                          child: Material(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(24),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(24),
+                              onTap: () => _openRentalDetailsSheet(act, false),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(
+                                          child: Row(
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  '$title$plateStr',
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 16,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Icon(
+                                                Icons.chevron_right_rounded,
+                                                size: 20,
+                                                color: isOngoingTrip
+                                                    ? Colors.green
+                                                    : (isAwaitingSignature
+                                                        ? Colors.amber
+                                                        : AppColors.indigo),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 8,
@@ -874,8 +908,11 @@ class _TransitViewState extends ConsumerState<TransitView> {
                               ),
                             ],
                           ),
-                        );
-                      }
+                        ),
+                      ),
+                    ),
+                  );
+                }
 
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -951,7 +988,6 @@ class _TransitViewState extends ConsumerState<TransitView> {
 
                         return Container(
                           margin: const EdgeInsets.only(bottom: 16),
-                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: isOngoing
                                 ? Colors.teal.withValues(alpha: 0.08)
@@ -967,21 +1003,45 @@ class _TransitViewState extends ConsumerState<TransitView> {
                             ),
                             borderRadius: BorderRadius.circular(24),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      title,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ),
+                          child: Material(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(24),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(24),
+                              onTap: () => _openRentalDetailsSheet(act, true),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(
+                                          child: Row(
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  title,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 16,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Icon(
+                                                Icons.chevron_right_rounded,
+                                                size: 20,
+                                                color: isOngoing
+                                                    ? Colors.teal
+                                                    : (isAwaitingSignature
+                                                        ? Colors.amber
+                                                        : AppColors.indigo),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 8,
@@ -1108,8 +1168,11 @@ class _TransitViewState extends ConsumerState<TransitView> {
                               ),
                             ],
                           ),
-                        );
-                      }
+                        ),
+                      ),
+                    ),
+                  );
+                }
 
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1559,8 +1622,9 @@ class _TransitViewState extends ConsumerState<TransitView> {
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(24),
                                 mouseCursor: SystemMouseCursors.click,
-                                onTap: () =>
-                                    _openDetailDialog(item.toMap(), false),
+                                onTap: () => isMyListing
+                                    ? _openManageListingSheet(item.toMap(), false)
+                                    : _openDetailDialog(item.toMap(), false),
                                 child: Padding(
                                   padding: const EdgeInsets.all(16),
                                   child: Row(
@@ -1954,8 +2018,9 @@ class _TransitViewState extends ConsumerState<TransitView> {
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(24),
                                 mouseCursor: SystemMouseCursors.click,
-                                onTap: () =>
-                                    _openDetailDialog(item.toMap(), true),
+                                onTap: () => isMyProperty
+                                    ? _openManageListingSheet(item.toMap(), true)
+                                    : _openDetailDialog(item.toMap(), true),
                                 child: Padding(
                                   padding: const EdgeInsets.all(16),
                                   child: Row(
