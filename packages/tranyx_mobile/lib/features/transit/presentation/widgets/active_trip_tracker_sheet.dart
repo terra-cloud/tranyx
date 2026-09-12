@@ -689,10 +689,79 @@ class _ActiveTripTrackerSheetState
                       const SizedBox(height: 16),
                       _isProcessing
                           ? const Center(child: CircularProgressIndicator())
-                          : UIHelpers.buildPrimaryButton(
-                              'Sign Contract Agreement',
-                              () => _openSignaturePad(rentalId, terms, requestId: requestId),
-                              isDarkMode,
+                          : Column(
+                              children: [
+                                UIHelpers.buildPrimaryButton(
+                                  'Sign Contract Agreement',
+                                  () => _openSignaturePad(rentalId, terms, requestId: requestId),
+                                  isDarkMode,
+                                ),
+                                const SizedBox(height: 8),
+                                OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final confirm = await showDialog<bool>(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        title: const Text('Cancel Approved Request?'),
+                                        content: const Text(
+                                          'Are you sure you want to cancel this approved booking request before signing? Your escrow deposit will be 100% refunded immediately.',
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx, false),
+                                            child: const Text('Keep Booking'),
+                                          ),
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx, true),
+                                            style: TextButton.styleFrom(foregroundColor: Colors.red),
+                                            child: const Text('Cancel Request'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (confirm == true) {
+                                      setState(() => _isProcessing = true);
+                                      try {
+                                        final repo = ref.read(transitRepositoryProvider);
+                                        final targetId = (requestId != null && requestId.isNotEmpty) ? requestId : rentalId;
+                                        if (widget.isProperty) {
+                                          await repo.cancelPropertyBookingRequest(targetId);
+                                        } else {
+                                          await repo.cancelBookingRequest(targetId);
+                                        }
+                                        ref.invalidate(realtimeRentalsProvider);
+                                        ref.invalidate(realtimePropertiesProvider);
+                                        ref.invalidate(renterActiveBookingsProvider);
+                                        ref.invalidate(propertyRenterActiveBookingsProvider);
+                                        if (mounted) {
+                                          Navigator.pop(context);
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Request cancelled and escrow refunded.'),
+                                              backgroundColor: Colors.green,
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text('Error: $e')),
+                                          );
+                                        }
+                                      } finally {
+                                        setState(() => _isProcessing = false);
+                                      }
+                                    }
+                                  },
+                                  icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                                  label: const Text('Cancel Booking Request', style: TextStyle(color: Colors.red)),
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(48),
+                                    side: const BorderSide(color: Colors.red),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  ),
+                                ),
+                              ],
                             ),
                     ],
 
@@ -1289,7 +1358,7 @@ class _ActiveTripTrackerSheetState
                                 },
                                 isDarkMode,
                               ),
-                      ] else if (status == 'Active' || status == 'Ongoing') ...[
+                      ] else if (status == 'Active' || status == 'Ongoing' || status == 'Returning') ...[
                         _isProcessing
                             ? const Center(child: CircularProgressIndicator())
                             : UIHelpers.buildPrimaryButton(
@@ -1344,6 +1413,99 @@ class _ActiveTripTrackerSheetState
                                 },
                                 isDarkMode,
                               ),
+                      ],
+                    ] else ...[
+                      // Renter Actions
+                      if (!widget.isProperty && (status == 'Active' || status == 'Ongoing')) ...[
+                        _isProcessing
+                            ? const Center(child: CircularProgressIndicator())
+                            : UIHelpers.buildPrimaryButton(
+                                'Start Vehicle Return Trip',
+                                () async {
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Start Return Trip?'),
+                                      content: const Text(
+                                        'Are you ready to begin returning this vehicle to the host at the designated return address? The host will be notified to prepare for vehicle inspection.',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx, false),
+                                          child: const Text('Not Yet'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx, true),
+                                          child: const Text('Start Return'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirm == true) {
+                                    setState(() => _isProcessing = true);
+                                    try {
+                                      final repo = ref.read(transitRepositoryProvider);
+                                      await repo.updateRentalStatus(
+                                        rentalId,
+                                        'Returning',
+                                        requestId: requestId,
+                                      );
+                                      ref.invalidate(realtimeRentalsProvider);
+                                      ref.invalidate(renterActiveBookingsProvider);
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Vehicle is now in Returning status. Proceed to handover location!',
+                                            ),
+                                            backgroundColor: Colors.blue,
+                                          ),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Error: $e')),
+                                        );
+                                      }
+                                    } finally {
+                                      setState(() => _isProcessing = false);
+                                    }
+                                  }
+                                },
+                                isDarkMode,
+                              ),
+                      ] else if (!widget.isProperty && status == 'Returning') ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 14,
+                            horizontal: 16,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.blue.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.directions_car, color: Colors.blue),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Return in progress. Deliver vehicle to host and await host completion inspection.',
+                                  style: TextStyle(
+                                    color: Colors.blue,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ],
                     const SizedBox(height: 48),

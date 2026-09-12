@@ -790,6 +790,64 @@ class _TransitViewState extends ConsumerState<TransitView> {
                               const SizedBox(height: 16),
                               Row(
                                 children: [
+                                  if (isAwaitingSignature) ...[
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () async {
+                                          final confirmed = await showDialog<bool>(
+                                            context: context,
+                                            builder: (ctx) => AlertDialog(
+                                              title: const Text('Cancel Approved Request?'),
+                                              content: const Text(
+                                                'Are you sure you want to cancel this approved rental request before signing? Your escrow deposit will be 100% refunded immediately.',
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(ctx, false),
+                                                  child: const Text('Keep Rental'),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(ctx, true),
+                                                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                                                  child: const Text('Cancel Request'),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                          if (confirmed == true) {
+                                            try {
+                                              await ref
+                                                  .read(transitRepositoryProvider)
+                                                  .cancelBookingRequest(act['id']?.toString() ?? '');
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('Rental request cancelled and escrow refunded.'),
+                                                    backgroundColor: Colors.green,
+                                                  ),
+                                                );
+                                              }
+                                            } catch (e) {
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('Failed to cancel request: $e'),
+                                                    backgroundColor: Colors.red,
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                          }
+                                        },
+                                        icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                                        label: const Text('Cancel', style: TextStyle(color: Colors.red)),
+                                        style: OutlinedButton.styleFrom(
+                                          side: const BorderSide(color: Colors.red),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
                                   Expanded(
                                     child: ElevatedButton.icon(
                                       onPressed: () => _openActiveTripSheet(act, false),
@@ -966,6 +1024,64 @@ class _TransitViewState extends ConsumerState<TransitView> {
                               const SizedBox(height: 16),
                               Row(
                                 children: [
+                                  if (isAwaitingSignature) ...[
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () async {
+                                          final confirmed = await showDialog<bool>(
+                                            context: context,
+                                            builder: (ctx) => AlertDialog(
+                                              title: const Text('Cancel Approved Lease?'),
+                                              content: const Text(
+                                                'Are you sure you want to cancel this approved lease request before signing? Your escrow deposit will be 100% refunded immediately.',
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(ctx, false),
+                                                  child: const Text('Keep Lease'),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(ctx, true),
+                                                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                                                  child: const Text('Cancel Lease'),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                          if (confirmed == true) {
+                                            try {
+                                              await ref
+                                                  .read(transitRepositoryProvider)
+                                                  .cancelPropertyBookingRequest(act['id']?.toString() ?? '');
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('Lease request cancelled and escrow refunded.'),
+                                                    backgroundColor: Colors.green,
+                                                  ),
+                                                );
+                                              }
+                                            } catch (e) {
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('Failed to cancel request: $e'),
+                                                    backgroundColor: Colors.red,
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                          }
+                                        },
+                                        icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                                        label: const Text('Cancel', style: TextStyle(color: Colors.red)),
+                                        style: OutlinedButton.styleFrom(
+                                          side: const BorderSide(color: Colors.red),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
                                   Expanded(
                                     child: ElevatedButton.icon(
                                       onPressed: () => _openActiveTripSheet(act, true),

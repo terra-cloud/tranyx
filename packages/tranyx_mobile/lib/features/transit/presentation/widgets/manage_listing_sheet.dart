@@ -156,17 +156,18 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
     try {
       final repo = ref.read(transitRepositoryProvider);
       final id = widget.item['id'] as String;
+      final reqId = requestId.isEmpty ? null : requestId;
       if (widget.isProperty) {
         if (newStatus == 'Completed') {
-          await repo.completePropertyRental(id, requestId: requestId);
+          await repo.completePropertyRental(id, requestId: reqId);
         } else {
-          await repo.updatePropertyStatus(id, newStatus, requestId: requestId);
+          await repo.updatePropertyStatus(id, newStatus, requestId: reqId);
         }
       } else {
         if (newStatus == 'Completed') {
-          await repo.completeRental(id, requestId: requestId);
+          await repo.completeRental(id, requestId: reqId);
         } else {
-          await repo.updateRentalStatus(id, newStatus, requestId: requestId);
+          await repo.updateRentalStatus(id, newStatus, requestId: reqId);
         }
       }
 
@@ -189,6 +190,122 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
       setState(() {
         _isProcessing = false;
         _error = 'Error updating status: $e';
+      });
+    }
+  }
+
+  void _revokeApproval(String requestId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Revoke Approval?'),
+        content: const Text(
+          'Are you sure you want to revoke your approval? The renter will receive a full 100% refund and this listing will immediately be reopened for bookings.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep Approval'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Revoke Approval'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+    try {
+      final repo = ref.read(transitRepositoryProvider);
+      final id = widget.item['id'] as String;
+      final reqId = requestId.isEmpty ? null : requestId;
+      if (widget.isProperty) {
+        await repo.revokePropertyApproval(id, requestId: reqId);
+      } else {
+        await repo.revokeApproval(id, requestId: reqId);
+      }
+      ref.invalidate(realtimeRentalsProvider);
+      ref.invalidate(realtimePropertiesProvider);
+      await _loadRequests();
+      setState(() => _isProcessing = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Approval revoked and listing reopened.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isProcessing = false;
+        _error = 'Error revoking approval: $e';
+      });
+    }
+  }
+
+  void _cancelRental({String? requestId}) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(widget.isProperty ? 'Cancel Real Estate Lease?' : 'Cancel Vehicle Rental?'),
+        content: Text(
+          widget.isProperty
+              ? 'Are you sure you want to cancel this lease? The escrow funds will be refunded (less the standard platform fee) and the property will be returned to Available.'
+              : 'Are you sure you want to cancel this rental? The escrow funds will be refunded and the vehicle will be returned to Available.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep Active'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Cancel Rental', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+    try {
+      final repo = ref.read(transitRepositoryProvider);
+      final id = widget.item['id'] as String;
+      final reqId = (requestId == null || requestId.isEmpty) ? null : requestId;
+      if (widget.isProperty) {
+        await repo.cancelPropertyRental(id, requestId: reqId);
+      } else {
+        await repo.cancelRental(id, requestId: reqId);
+      }
+      ref.invalidate(realtimeRentalsProvider);
+      ref.invalidate(realtimePropertiesProvider);
+      await _loadRequests();
+      setState(() => _isProcessing = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${widget.isProperty ? 'Lease' : 'Rental'} cancelled successfully.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isProcessing = false;
+        _error = 'Error cancelling: $e';
       });
     }
   }
@@ -1074,10 +1191,53 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                       ),
                       const SizedBox(height: 24),
 
-                      // Actions to complete lease
-                      if (status == 'Booked' ||
-                          status == 'Active' ||
-                          status == 'Ongoing') ...[
+                      // Actions on active/booked listing
+                      if (status == 'Booked') ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _isProcessing
+                                    ? null
+                                    : () => _updateBookingStatus('', widget.isProperty ? 'Active' : 'Ongoing'),
+                                icon: const Icon(
+                                  Icons.vpn_key,
+                                  color: Colors.white,
+                                ),
+                                label: Text(
+                                  widget.isProperty
+                                      ? 'Hand Over Keys & Activate'
+                                      : 'Hand Over & Start Rental',
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: widget.isProperty ? Colors.teal.shade700 : AppColors.indigo,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              onPressed: _isProcessing ? null : () => _cancelRental(),
+                              icon: const Icon(Icons.cancel, color: Colors.red),
+                              label: Text(
+                                widget.isProperty ? 'Cancel Lease' : 'Cancel Rental',
+                                style: const TextStyle(color: Colors.red),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Colors.red),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                  horizontal: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else if (status == 'Active' ||
+                          status == 'Ongoing' ||
+                          status == 'Returning') ...[
                         Row(
                           children: [
                             Expanded(
@@ -1089,14 +1249,32 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                                   Icons.check_circle,
                                   color: Colors.white,
                                 ),
-                                label: const Text(
-                                  'Complete Lease & Payout Earnings',
+                                label: Text(
+                                  widget.isProperty
+                                      ? 'Complete Lease & Payout Earnings'
+                                      : 'Complete Rental & Payout Escrow',
                                 ),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.green,
                                   padding: const EdgeInsets.symmetric(
                                     vertical: 16,
                                   ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              onPressed: _isProcessing ? null : () => _cancelRental(),
+                              icon: const Icon(Icons.cancel, color: Colors.red),
+                              label: Text(
+                                widget.isProperty ? 'Cancel Lease' : 'Cancel Rental',
+                                style: const TextStyle(color: Colors.red),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Colors.red),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                  horizontal: 12,
                                 ),
                               ),
                             ),
@@ -1118,7 +1296,7 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                               SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  'Awaiting renter signature on lease contract. Payout cannot be released yet.',
+                                  'Awaiting renter signature on contract agreement. Payout cannot be released yet.',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.amber,
@@ -1127,6 +1305,22 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                                 ),
                               ),
                             ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _isProcessing ? null : () => _revokeApproval(''),
+                            icon: const Icon(Icons.undo, color: Colors.red),
+                            label: const Text(
+                              'Revoke Approval & Reopen Listing',
+                              style: TextStyle(color: Colors.red),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Colors.red),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
                           ),
                         ),
                       ],
@@ -1196,7 +1390,8 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                           final durationType = req['durationType'] ?? 'daily';
                           final reqId = req['id'] as String;
                           final reqStatus = req['status'] as String? ?? 'Pending';
-                          final isPending = reqStatus.toLowerCase() == 'pending';
+                          final cardStatus = reqStatus.toLowerCase();
+                          final isPending = cardStatus == 'pending';
                           final startMs = req['startDate'] as int?;
                           final endMs = req['endDate'] as int?;
 
@@ -1305,118 +1500,243 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                                       ),
                                     ],
                                   ),
-                                ] else if (widget.isProperty) ...[
-                                  if (['booked', 'active', 'ongoing', 'returning'].contains(status)) ...[
-                                    const SizedBox(height: 12),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: ElevatedButton.icon(
-                                        onPressed: _isProcessing
-                                            ? null
-                                            : () => _updateBookingStatus(reqId, 'Completed'),
-                                        icon: const Icon(
-                                          Icons.check_circle,
-                                          size: 16,
-                                          color: Colors.white,
-                                        ),
-                                        label: const Text(
-                                          'Complete Lease & Payout Earnings',
-                                          style: TextStyle(fontSize: 12),
-                                        ),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.green,
-                                        ),
+                                ] else if (cardStatus == 'approved' || cardStatus == 'awaiting signature') ...[
+                                  const SizedBox(height: 12),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: OutlinedButton.icon(
+                                      onPressed: _isProcessing
+                                          ? null
+                                          : () => _revokeApproval(reqId),
+                                      icon: const Icon(Icons.undo, size: 16, color: Colors.red),
+                                      label: const Text(
+                                        'Revoke Approval & Reopen',
+                                        style: TextStyle(fontSize: 12, color: Colors.red),
                                       ),
+                                      style: OutlinedButton.styleFrom(
+                                        side: const BorderSide(color: Colors.red),
+                                      ),
+                                    ),
+                                  ),
+                                ] else if (widget.isProperty) ...[
+                                  if (cardStatus == 'booked' || status.toLowerCase() == 'booked') ...[
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: _isProcessing
+                                                ? null
+                                                : () => _updateBookingStatus(reqId, 'Active'),
+                                            icon: const Icon(
+                                              Icons.vpn_key,
+                                              size: 16,
+                                              color: Colors.white,
+                                            ),
+                                            label: const Text(
+                                              'Hand Over Keys & Activate',
+                                              style: TextStyle(fontSize: 12),
+                                            ),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.teal.shade700,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        OutlinedButton.icon(
+                                          onPressed: _isProcessing
+                                              ? null
+                                              : () => _cancelRental(requestId: reqId),
+                                          icon: const Icon(Icons.cancel, size: 16, color: Colors.red),
+                                          label: const Text('Cancel', style: TextStyle(fontSize: 12, color: Colors.red)),
+                                          style: OutlinedButton.styleFrom(
+                                            side: const BorderSide(color: Colors.red),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ] else if (['active', 'ongoing', 'returning'].contains(cardStatus) ||
+                                      ['active', 'ongoing', 'returning'].contains(status.toLowerCase())) ...[
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: _isProcessing
+                                                ? null
+                                                : () => _updateBookingStatus(reqId, 'Completed'),
+                                            icon: const Icon(
+                                              Icons.check_circle,
+                                              size: 16,
+                                              color: Colors.white,
+                                            ),
+                                            label: const Text(
+                                              'Complete Lease & Payout Earnings',
+                                              style: TextStyle(fontSize: 12),
+                                            ),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.green,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        OutlinedButton.icon(
+                                          onPressed: _isProcessing
+                                              ? null
+                                              : () => _cancelRental(requestId: reqId),
+                                          icon: const Icon(Icons.cancel, size: 16, color: Colors.red),
+                                          label: const Text('Cancel', style: TextStyle(fontSize: 12, color: Colors.red)),
+                                          style: OutlinedButton.styleFrom(
+                                            side: const BorderSide(color: Colors.red),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ] else ...[
-                                  if (status == 'booked') ...[
+                                  if (cardStatus == 'booked' || status.toLowerCase() == 'booked') ...[
                                     const SizedBox(height: 12),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: ElevatedButton.icon(
-                                        onPressed: _isProcessing
-                                            ? null
-                                            : () => _updateBookingStatus(reqId, 'Ongoing'),
-                                        icon: const Icon(
-                                          Icons.vpn_key,
-                                          size: 16,
-                                          color: Colors.white,
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: _isProcessing
+                                                ? null
+                                                : () => _updateBookingStatus(reqId, 'Ongoing'),
+                                            icon: const Icon(
+                                              Icons.vpn_key,
+                                              size: 16,
+                                              color: Colors.white,
+                                            ),
+                                            label: const Text(
+                                              'Hand Over & Start Rental',
+                                              style: TextStyle(fontSize: 12),
+                                            ),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: AppColors.indigo,
+                                            ),
+                                          ),
                                         ),
-                                        label: const Text(
-                                          'Hand Over & Start Rental',
-                                          style: TextStyle(fontSize: 12),
+                                        const SizedBox(width: 8),
+                                        OutlinedButton.icon(
+                                          onPressed: _isProcessing
+                                              ? null
+                                              : () => _cancelRental(requestId: reqId),
+                                          icon: const Icon(Icons.cancel, size: 16, color: Colors.red),
+                                          label: const Text('Cancel', style: TextStyle(fontSize: 12, color: Colors.red)),
+                                          style: OutlinedButton.styleFrom(
+                                            side: const BorderSide(color: Colors.red),
+                                          ),
                                         ),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: AppColors.indigo,
-                                        ),
-                                      ),
+                                      ],
                                     ),
-                                  ] else if (status == 'on the way to rentee') ...[
+                                  ] else if (cardStatus == 'on the way to rentee') ...[
                                     const SizedBox(height: 12),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: ElevatedButton.icon(
-                                        onPressed: _isProcessing
-                                            ? null
-                                            : () => _updateBookingStatus(reqId, 'Ongoing'),
-                                        icon: const Icon(
-                                          Icons.vpn_key,
-                                          size: 16,
-                                          color: Colors.white,
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: _isProcessing
+                                                ? null
+                                                : () => _updateBookingStatus(reqId, 'Ongoing'),
+                                            icon: const Icon(
+                                              Icons.vpn_key,
+                                              size: 16,
+                                              color: Colors.white,
+                                            ),
+                                            label: const Text(
+                                              'Hand Over & Start Rental',
+                                              style: TextStyle(fontSize: 12),
+                                            ),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: AppColors.indigo,
+                                            ),
+                                          ),
                                         ),
-                                        label: const Text(
-                                          'Hand Over & Start Rental',
-                                          style: TextStyle(fontSize: 12),
+                                        const SizedBox(width: 8),
+                                        OutlinedButton.icon(
+                                          onPressed: _isProcessing
+                                              ? null
+                                              : () => _cancelRental(requestId: reqId),
+                                          icon: const Icon(Icons.cancel, size: 16, color: Colors.red),
+                                          label: const Text('Cancel', style: TextStyle(fontSize: 12, color: Colors.red)),
+                                          style: OutlinedButton.styleFrom(
+                                            side: const BorderSide(color: Colors.red),
+                                          ),
                                         ),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: AppColors.indigo,
-                                        ),
-                                      ),
+                                      ],
                                     ),
-                                  ] else if (status == 'ongoing') ...[
+                                  ] else if (cardStatus == 'ongoing' || status.toLowerCase() == 'ongoing') ...[
                                     const SizedBox(height: 12),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: ElevatedButton.icon(
-                                        onPressed: _isProcessing
-                                            ? null
-                                            : () => _updateBookingStatus(reqId, 'Returning'),
-                                        icon: const Icon(
-                                          Icons.sync,
-                                          size: 16,
-                                          color: Colors.white,
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: _isProcessing
+                                                ? null
+                                                : () => _updateBookingStatus(reqId, 'Returning'),
+                                            icon: const Icon(
+                                              Icons.sync,
+                                              size: 16,
+                                              color: Colors.white,
+                                            ),
+                                            label: const Text(
+                                              'Mark as Returning',
+                                              style: TextStyle(fontSize: 12),
+                                            ),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.purple,
+                                            ),
+                                          ),
                                         ),
-                                        label: const Text(
-                                          'Mark as Returning',
-                                          style: TextStyle(fontSize: 12),
+                                        const SizedBox(width: 8),
+                                        OutlinedButton.icon(
+                                          onPressed: _isProcessing
+                                              ? null
+                                              : () => _cancelRental(requestId: reqId),
+                                          icon: const Icon(Icons.cancel, size: 16, color: Colors.red),
+                                          label: const Text('Cancel', style: TextStyle(fontSize: 12, color: Colors.red)),
+                                          style: OutlinedButton.styleFrom(
+                                            side: const BorderSide(color: Colors.red),
+                                          ),
                                         ),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.purple,
-                                        ),
-                                      ),
+                                      ],
                                     ),
-                                  ] else if (status == 'returning') ...[
+                                  ] else if (cardStatus == 'returning' || status.toLowerCase() == 'returning') ...[
                                     const SizedBox(height: 12),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: ElevatedButton.icon(
-                                        onPressed: _isProcessing
-                                            ? null
-                                            : () => _updateBookingStatus(reqId, 'Completed'),
-                                        icon: const Icon(
-                                          Icons.check_circle,
-                                          size: 16,
-                                          color: Colors.white,
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: _isProcessing
+                                                ? null
+                                                : () => _updateBookingStatus(reqId, 'Completed'),
+                                            icon: const Icon(
+                                              Icons.check_circle,
+                                              size: 16,
+                                              color: Colors.white,
+                                            ),
+                                            label: const Text(
+                                              'Confirm Returned & Complete',
+                                              style: TextStyle(fontSize: 12),
+                                            ),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.green,
+                                            ),
+                                          ),
                                         ),
-                                        label: const Text(
-                                          'Confirm Returned & Complete',
-                                          style: TextStyle(fontSize: 12),
+                                        const SizedBox(width: 8),
+                                        OutlinedButton.icon(
+                                          onPressed: _isProcessing
+                                              ? null
+                                              : () => _cancelRental(requestId: reqId),
+                                          icon: const Icon(Icons.cancel, size: 16, color: Colors.red),
+                                          label: const Text('Cancel', style: TextStyle(fontSize: 12, color: Colors.red)),
+                                          style: OutlinedButton.styleFrom(
+                                            side: const BorderSide(color: Colors.red),
+                                          ),
                                         ),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.green,
-                                        ),
-                                      ),
+                                      ],
                                     ),
                                   ],
                                 ],
