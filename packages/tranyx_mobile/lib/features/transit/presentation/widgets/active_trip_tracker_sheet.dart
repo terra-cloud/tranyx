@@ -11,6 +11,7 @@ import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart
 import 'package:tranyx_mobile/features/transit/presentation/widgets/signature_pad_dialog.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/payment_pane.dart';
 import 'package:shared/shared.dart';
+import 'package:tranyx_mobile/features/transit/presentation/screens/rental_navigation_screen.dart';
 
 class ActiveTripTrackerSheet extends ConsumerStatefulWidget {
   final Map<String, dynamic> item;
@@ -802,12 +803,33 @@ class _ActiveTripTrackerSheetState
                       ),
                     ],
 
-                    // GPS Simulator Block
+                    // GPS Navigation & Tracker Block
                     if (!widget.isProperty &&
-                        (status == 'Active' || status == 'Ongoing')) ...[
+                        (status == 'Active' ||
+                            status == 'Ongoing' ||
+                            status == 'On the way to Rentee' ||
+                            status == 'Returning')) ...[
                       const SizedBox(height: 24),
+                      UIHelpers.buildPrimaryButton(
+                        status == 'On the way to Rentee'
+                            ? 'Open Live Delivery Navigation'
+                            : (status == 'Returning'
+                                ? 'Open Live Return Navigation'
+                                : 'Open Live Navigation & Map'),
+                        () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => RentalNavigationScreen(
+                                rentalData: widget.item,
+                              ),
+                            ),
+                          );
+                        },
+                        isDarkMode,
+                      ),
+                      const SizedBox(height: 14),
                       const Text(
-                        'LIVE GPS TRACKER (SIMULATED)',
+                        'LIVE GPS TRACKER',
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
@@ -1505,6 +1527,20 @@ class _ActiveTripTrackerSheetState
                               ),
                             ],
                           ),
+                        ),
+                        const SizedBox(height: 12),
+                        UIHelpers.buildPrimaryButton(
+                          'Open Turn-by-Turn Return Navigation',
+                          () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => RentalNavigationScreen(
+                                  rentalData: widget.item,
+                                ),
+                              ),
+                            );
+                          },
+                          isDarkMode,
                         ),
                       ],
                     ],

@@ -7,6 +7,7 @@ import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart
 import 'package:intl/intl.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 import 'listing_wizard_sheet.dart';
+import 'package:tranyx_mobile/features/transit/presentation/screens/rental_navigation_screen.dart';
 
 class ManageListingSheet extends ConsumerStatefulWidget {
   final Map<String, dynamic> item;
@@ -1238,6 +1239,36 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                       ] else if (status == 'Active' ||
                           status == 'Ongoing' ||
                           status == 'Returning') ...[
+                        if (!widget.isProperty && (status == 'Returning' || status == 'On the way to Rentee')) ...[
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => RentalNavigationScreen(rentalData: widget.item),
+                                ),
+                              );
+                            },
+                            icon: Icon(
+                              status == 'On the way to Rentee' ? Icons.navigation : Icons.radio,
+                              color: Colors.white,
+                            ),
+                            label: Text(
+                              status == 'On the way to Rentee'
+                                  ? 'Open Turn-by-Turn Delivery Navigation'
+                                  : 'Track Vehicle Return Live',
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: status == 'On the way to Rentee'
+                                  ? Colors.blue.shade700
+                                  : AppColors.indigo,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         Row(
                           children: [
                             Expanded(
@@ -1632,6 +1663,27 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                                     ),
                                   ] else if (cardStatus == 'on the way to rentee') ...[
                                     const SizedBox(height: 12),
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => RentalNavigationScreen(
+                                              rentalData: {
+                                                ...widget.item,
+                                                ...req,
+                                              },
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(Icons.navigation, size: 16, color: Colors.white),
+                                      label: const Text('Open Turn-by-Turn Delivery Navigation', style: TextStyle(fontSize: 12)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.blue.shade700,
+                                        minimumSize: const Size.fromHeight(38),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
                                     Row(
                                       children: [
                                         Expanded(
@@ -1704,6 +1756,27 @@ class _ManageListingSheetState extends ConsumerState<ManageListingSheet> {
                                     ),
                                   ] else if (cardStatus == 'returning' || status.toLowerCase() == 'returning') ...[
                                     const SizedBox(height: 12),
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => RentalNavigationScreen(
+                                              rentalData: {
+                                                ...widget.item,
+                                                ...req,
+                                              },
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(Icons.radio, size: 16, color: Colors.white),
+                                      label: const Text('Track Vehicle Return Live', style: TextStyle(fontSize: 12)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppColors.indigo,
+                                        minimumSize: const Size.fromHeight(38),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
                                     Row(
                                       children: [
                                         Expanded(
