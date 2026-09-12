@@ -2109,6 +2109,21 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  /// Returns true if the current user is an accepted worker on any job that is still ongoing/incomplete.
+  bool get hasOngoingNyxianJob {
+    final uid = userProfile?.uid ?? SessionStorage.uid;
+    if (uid == null || uid.isEmpty) return false;
+    return myJobs.any((j) {
+      if (j['acceptedApplicantId'] != uid) return false;
+      final s = (j['status'] as String? ?? '').trim().toLowerCase();
+      return s.isNotEmpty &&
+          s != 'completed' &&
+          s != 'cancelled' &&
+          s != 'admin_cancelled' &&
+          s != 'abandoned';
+    });
+  }
+
   void handleHomeSearch(String query) {
     if (query.trim().isEmpty) return;
     setState(() {
@@ -5457,6 +5472,12 @@ class TranyxAppState extends State<TranyxApp> {
     final creatorId = selectedJobData?['creatorId'] as String?;
     if (creatorId == uid) {
       showAppToast('Invalid Action', 'You cannot apply to your own job posting.');
+      return;
+    }
+
+    if (hasOngoingNyxianJob) {
+      showAppToast('Application Restricted', ongoingJobRestrictionMessage);
+      setState(() => applyError = ongoingJobRestrictionMessage);
       return;
     }
 

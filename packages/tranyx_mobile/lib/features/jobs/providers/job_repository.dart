@@ -131,6 +131,26 @@ class JobRepository {
   }
 
   Future<void> applyToJob(JobApplication application) async {
+    // Check if Nyxian already has an ongoing accepted job
+    final existingAcceptedQuery = await _firestore
+        .collection('jobs')
+        .where('acceptedApplicantId', isEqualTo: application.applicantUid)
+        .get();
+
+    final hasOngoing = existingAcceptedQuery.docs.any((doc) {
+      final data = doc.data();
+      final s = (data['status'] as String? ?? '').trim().toLowerCase();
+      return s.isNotEmpty &&
+          s != 'completed' &&
+          s != 'cancelled' &&
+          s != 'admin_cancelled' &&
+          s != 'abandoned';
+    });
+
+    if (hasOngoing) {
+      throw Exception(ongoingJobRestrictionMessage);
+    }
+
     final jobRef = _firestore.collection('jobs').doc(application.jobId);
     final applicationRef = jobRef
         .collection('applications')
@@ -1396,3 +1416,14 @@ final jobQuestionsStreamProvider =
     StreamProvider.family<List<JobQuestion>, String>((ref, jobId) {
       return ref.watch(jobRepositoryProvider).getJobQuestions(jobId);
     });
+
+final hasOngoingNyxianJobProvider = Provider<bool>((ref) {
+  final user = ref.watch(userProvider);
+  if (user == null) return false;
+  final myJobsAsync = ref.watch(myJobsProvider);
+  return myJobsAsync.maybeWhen(
+    data: (jobs) => jobs.any((job) => job.isOngoingForNyxian(user.uid)),
+    orElse: () => false,
+  );
+});
+

@@ -1856,47 +1856,77 @@ class _JobDetails extends StatelessComponent {
               );
             }
 
-            return div(classes: 'flex gap-3', [
-              button(
-                classes: hasReported
-                    ? 'py-4 px-6 rounded-2xl font-semibold border bg-zinc-400 opacity-50 cursor-not-allowed border-zinc-500 text-zinc-100'
-                    : 'py-4 px-6 rounded-2xl font-semibold border ${isDark ? "border-red-500/30 text-red-400 hover:bg-red-500/10" : "border-red-200 text-red-500 hover:bg-red-50"} transition-colors',
-                attributes: hasReported ? {'disabled': 'true'} : {},
-                events: hasReported ? {} : {'click': (_) => s.handleReportJob()},
-                [lIcon('flag', cls: 'w-5 h-5')],
-              ),
-              Builder(
-                builder: (context) {
-                  final isFilled = s.selectedJobData?['acceptedApplicantId'] != null;
-                  if (isFilled) {
+            return div(classes: 'space-y-3', [
+              if (s.hasOngoingNyxianJob && !hasApplied)
+                div(
+                  classes:
+                      'w-full p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-500 text-xs flex items-start gap-3',
+                  [
+                    lIcon('alert-triangle', cls: 'w-4 h-4 flex-shrink-0 mt-0.5'),
+                    div([
+                      p(classes: 'font-bold text-sm', [Component.text('You have an ongoing job to complete.')]),
+                      p(classes: 'text-xs mt-1 text-amber-500/90 leading-relaxed', [
+                        Component.text('Please complete your current task before applying for another job to avoid conflicts in your responsibilities.'),
+                      ]),
+                    ]),
+                  ],
+                ),
+              div(classes: 'flex gap-3', [
+                button(
+                  classes: hasReported
+                      ? 'py-4 px-6 rounded-2xl font-semibold border bg-zinc-400 opacity-50 cursor-not-allowed border-zinc-500 text-zinc-100'
+                      : 'py-4 px-6 rounded-2xl font-semibold border ${isDark ? "border-red-500/30 text-red-400 hover:bg-red-500/10" : "border-red-200 text-red-500 hover:bg-red-50"} transition-colors',
+                  attributes: hasReported ? {'disabled': 'true'} : {},
+                  events: hasReported ? {} : {'click': (_) => s.handleReportJob()},
+                  [lIcon('flag', cls: 'w-5 h-5')],
+                ),
+                Builder(
+                  builder: (context) {
+                    final isFilled = s.selectedJobData?['acceptedApplicantId'] != null;
+                    if (isFilled) {
+                      return button(
+                        classes:
+                            'flex-1 py-4 rounded-2xl font-semibold text-white bg-zinc-400 opacity-50 cursor-not-allowed',
+                        attributes: {'disabled': 'true'},
+                        events: {},
+                        [Component.text('Position Filled')],
+                      );
+                    }
+                    if (s.hasOngoingNyxianJob && !hasApplied) {
+                      return button(
+                        classes:
+                            'flex-1 py-4 rounded-2xl font-semibold text-white bg-amber-500/80 hover:bg-amber-500 transition-colors flex items-center justify-center gap-2 cursor-not-allowed',
+                        attributes: {'disabled': 'true', 'title': ongoingJobRestrictionMessage},
+                        events: {
+                          'click': (_) => s.showAppToast('Active Task Incomplete', ongoingJobRestrictionMessage),
+                        },
+                        [
+                          lIcon('alert-triangle', cls: 'w-4 h-4 text-white'),
+                          Component.text('Ongoing Task Incomplete'),
+                        ],
+                      );
+                    }
                     return button(
-                      classes:
-                          'flex-1 py-4 rounded-2xl font-semibold text-white bg-zinc-400 opacity-50 cursor-not-allowed',
-                      attributes: {'disabled': 'true'},
-                      events: {},
-                      [Component.text('Position Filled')],
+                      classes: (hasApplied || hasReported)
+                          ? 'flex-1 py-4 rounded-2xl font-semibold text-white bg-zinc-400 opacity-50 cursor-not-allowed'
+                          : 'flex-1 py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity',
+                      attributes: (hasApplied || hasReported) ? {'disabled': 'true'} : {},
+                      events: (hasApplied || hasReported)
+                          ? {}
+                          : {'click': (_) => s.setState(() => s.jobsView = JobsView.apply)},
+                      [
+                        Component.text(
+                          hasApplied
+                              ? 'Already Applied'
+                              : hasReported
+                              ? 'Cannot Apply'
+                              : 'Proceed to Apply',
+                        ),
+                      ],
                     );
-                  }
-                  return button(
-                    classes: (hasApplied || hasReported)
-                        ? 'flex-1 py-4 rounded-2xl font-semibold text-white bg-zinc-400 opacity-50 cursor-not-allowed'
-                        : 'flex-1 py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity',
-                    attributes: (hasApplied || hasReported) ? {'disabled': 'true'} : {},
-                    events: (hasApplied || hasReported)
-                        ? {}
-                        : {'click': (_) => s.setState(() => s.jobsView = JobsView.apply)},
-                    [
-                      Component.text(
-                        hasApplied
-                            ? 'Already Applied'
-                            : hasReported
-                            ? 'Cannot Apply'
-                            : 'Proceed to Apply',
-                      ),
-                    ],
-                  );
-                },
-              ),
+                  },
+                ),
+              ]),
             ]);
           } else {
             // --- EMPLOYER VIEW ---
@@ -3313,18 +3343,42 @@ class _ApplyJob extends StatelessComponent {
           [Component.text(s.coverNote)],
         ),
       ]),
+      if (s.hasOngoingNyxianJob)
+        div(
+          classes:
+              'p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-500 text-xs flex items-start gap-3',
+          [
+            lIcon('alert-triangle', cls: 'w-5 h-5 flex-shrink-0 mt-0.5'),
+            div([
+              p(classes: 'font-bold text-sm', [Component.text('You have an ongoing job to complete.')]),
+              p(classes: 'text-xs mt-1 text-amber-500/90 leading-relaxed', [
+                Component.text('Please complete your current task before applying for another job to avoid conflicts in your responsibilities.'),
+              ]),
+            ]),
+          ],
+        ),
       if (s.applyError != null && s.applyError!.isNotEmpty)
         div(classes: 'p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs font-medium flex items-center gap-2', [
           lIcon('alert-circle', cls: 'w-4 h-4 shrink-0'),
           Component.text(s.applyError!),
         ]),
       button(
-        classes:
-            'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
-        events: {'click': (_) => s.handleApplyJob()},
+        classes: s.hasOngoingNyxianJob
+            ? 'w-full py-4 rounded-2xl font-semibold text-white bg-amber-500/80 cursor-not-allowed flex items-center justify-center gap-2'
+            : 'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+        attributes: s.hasOngoingNyxianJob ? {'disabled': 'true'} : {},
+        events: s.hasOngoingNyxianJob
+            ? {'click': (_) => s.showAppToast('Active Task Incomplete', ongoingJobRestrictionMessage)}
+            : {'click': (_) => s.handleApplyJob()},
         [
           if (s.isSubmittingApplication) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-          Component.text(s.isSubmittingApplication ? 'Submitting...' : 'Submit Application'),
+          Component.text(
+            s.isSubmittingApplication
+                ? 'Submitting...'
+                : s.hasOngoingNyxianJob
+                ? 'Ongoing Task Incomplete'
+                : 'Submit Application',
+          ),
         ],
       ),
     ]);

@@ -1483,6 +1483,20 @@ class FirestoreService {
       }
     }
 
+    // Eligibility check: ensure applicant has no active, ongoing accepted jobs
+    final acceptedJobs = await getAcceptedJobs(applicantUid);
+    final hasOngoing = acceptedJobs.any((j) {
+      final s = (j['status'] as String? ?? '').trim().toLowerCase();
+      return s.isNotEmpty &&
+          s != 'completed' &&
+          s != 'cancelled' &&
+          s != 'admin_cancelled' &&
+          s != 'abandoned';
+    });
+    if (hasOngoing) {
+      throw Exception(ongoingJobRestrictionMessage);
+    }
+
     final now = DateTime.now().millisecondsSinceEpoch;
     final appData = {
       'jobId': jobId,

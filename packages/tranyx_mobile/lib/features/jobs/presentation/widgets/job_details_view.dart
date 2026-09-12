@@ -2675,38 +2675,106 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
       );
     }
 
-    return Row(
+    final hasOngoingNyxianJob = ref.watch(hasOngoingNyxianJobProvider);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (currentViewMode == AccountType.nyxian &&
-            job.creatorType == AccountType.employer)
-          Expanded(
-            child: hasApplied
-                ? UIHelpers.buildPrimaryButton(
-                    "Already applied",
-                    null,
-                    isDarkMode,
-                    isOutlined: true,
-                  )
-                : UIHelpers.buildPrimaryButton("Proceed to application", () {
-                    ref.read(isCounterOfferProvider.notifier).state = false;
-                    ref.read(jobsViewProvider.notifier).state = 'apply';
-                  }, isDarkMode),
+            job.creatorType == AccountType.employer &&
+            hasOngoingNyxianJob &&
+            !hasApplied) ...[
+          Container(
+            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: AppColors.amber.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: AppColors.amber.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: AppColors.amber,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'You have an ongoing job to complete.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isDarkMode ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Please complete your current task before applying for another job to avoid conflicts in your responsibilities.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDarkMode
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        if (currentViewMode == AccountType.employer &&
-            job.creatorType == AccountType.nyxian)
-          Expanded(
-            child: hasApplied
-                ? UIHelpers.buildPrimaryButton(
-                    "Already Contacted",
-                    null,
-                    isDarkMode,
-                    isOutlined: true,
-                  )
-                : UIHelpers.buildPrimaryButton("Contact Nyxian", () {
-                    ref.read(isCounterOfferProvider.notifier).state = false;
-                    ref.read(jobsViewProvider.notifier).state = 'apply';
-                  }, isDarkMode),
-          ),
+        ],
+        Row(
+          children: [
+            if (currentViewMode == AccountType.nyxian &&
+                job.creatorType == AccountType.employer)
+              Expanded(
+                child: hasApplied
+                    ? UIHelpers.buildPrimaryButton(
+                        "Already applied",
+                        null,
+                        isDarkMode,
+                        isOutlined: true,
+                      )
+                    : hasOngoingNyxianJob
+                    ? UIHelpers.buildPrimaryButton(
+                        "Ongoing Task Incomplete",
+                        null,
+                        isDarkMode,
+                        isOutlined: true,
+                      )
+                    : UIHelpers.buildPrimaryButton("Proceed to application", () {
+                        ref.read(isCounterOfferProvider.notifier).state = false;
+                        ref.read(jobsViewProvider.notifier).state = 'apply';
+                      }, isDarkMode),
+              ),
+            if (currentViewMode == AccountType.employer &&
+                job.creatorType == AccountType.nyxian)
+              Expanded(
+                child: hasApplied
+                    ? UIHelpers.buildPrimaryButton(
+                        "Already Contacted",
+                        null,
+                        isDarkMode,
+                        isOutlined: true,
+                      )
+                    : UIHelpers.buildPrimaryButton("Contact Nyxian", () {
+                        ref.read(isCounterOfferProvider.notifier).state = false;
+                        ref.read(jobsViewProvider.notifier).state = 'apply';
+                      }, isDarkMode),
+              ),
+          ],
+        ),
       ],
     );
   }

@@ -666,12 +666,24 @@ class Job {
   bool get isTerminal =>
       status.toLowerCase() == 'completed' ||
       status.toLowerCase() == 'cancelled' ||
-      status.toUpperCase() == 'ADMIN_CANCELLED';
+      status.toUpperCase() == 'ADMIN_CANCELLED' ||
+      isAbandoned;
   bool get isCancelled =>
       status.toLowerCase() == 'cancelled' ||
       status.toUpperCase() == 'ADMIN_CANCELLED';
   bool get isCompleted => status.toLowerCase() == 'completed';
+
+  /// Returns true if this job is an accepted, active commitment for the given Nyxian that is not yet finished.
+  bool isOngoingForNyxian(String nyxianUid) {
+    if (nyxianUid.trim().isEmpty) return false;
+    final accepted = acceptedApplicantId?.trim();
+    if (accepted == null || accepted != nyxianUid.trim()) return false;
+    return !isTerminal;
+  }
 }
+
+const String ongoingJobRestrictionMessage =
+    'You have an ongoing job to complete. Please complete your current task before applying for another job to avoid conflicts in your responsibilities.';
 
 class JobApplication {
   final String id;

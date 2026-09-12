@@ -898,6 +898,144 @@ void main() {
         expect(log.data()['status'], equals('ABANDONED'));
       });
     });
+
+    group('Ongoing Job Application Restriction Guardrail', () {
+      test('Nyxian with ongoing accepted job is blocked from applying to another job', () async {
+        // Active job where nyxian999 is accepted
+        firestore.db['jobs/ongoing_job_1'] = {
+          'id': 'ongoing_job_1',
+          'creatorId': 'employer1',
+          'title': 'Active Task',
+          'status': 'In Progress',
+          'acceptedApplicantId': 'nyxian999',
+        };
+
+        // Open job nyxian999 wants to apply to
+        firestore.db['jobs/target_job'] = {
+          'id': 'target_job',
+          'creatorId': 'employer2',
+          'title': 'New Target Job',
+          'status': 'Open',
+          'applicantCount': 0,
+          'applicantUids': <String>[],
+          'recentApplicantPhotos': <String>[],
+        };
+
+        final app = JobApplication(
+          id: 'app_new',
+          jobId: 'target_job',
+          applicantUid: 'nyxian999',
+          applicantName: 'Busy Nyxian',
+          coverNote: 'I want this gig too',
+          proposalRate: 1000.0,
+          isCounterOffer: false,
+          createdAt: DateTime.now(),
+        );
+
+        expect(
+          () => repo.applyToJob(app),
+          throwsA(predicate((e) =>
+              e.toString().contains(ongoingJobRestrictionMessage))),
+        );
+
+        // Verify target job was NOT updated with this application
+        final targetDoc = await firestore.collection('jobs').doc('target_job').get();
+        expect(targetDoc.data()!['applicantCount'], equals(0));
+        expect(List<String>.from(targetDoc.data()!['applicantUids']), isEmpty);
+      });
+
+      test('Nyxian with only terminal accepted jobs (Completed, Cancelled, Abandoned) CAN apply', () async {
+        firestore.db['jobs/finished_job_1'] = {
+          'id': 'finished_job_1',
+          'creatorId': 'employer1',
+          'title': 'Completed Task',
+          'status': 'Completed',
+          'acceptedApplicantId': 'nyxian999',
+        };
+
+        firestore.db['jobs/cancelled_job_2'] = {
+          'id': 'cancelled_job_2',
+          'creatorId': 'employer2',
+          'title': 'Cancelled Task',
+          'status': 'Cancelled',
+          'acceptedApplicantId': 'nyxian999',
+        };
+
+        firestore.db['jobs/abandoned_job_3'] = {
+          'id': 'abandoned_job_3',
+          'creatorId': 'employer3',
+          'title': 'Abandoned Task',
+          'status': 'Abandoned',
+          'acceptedApplicantId': 'nyxian999',
+        };
+
+        firestore.db['jobs/target_job_free'] = {
+          'id': 'target_job_free',
+          'creatorId': 'employer4',
+          'title': 'Free Target Job',
+          'status': 'Open',
+          'applicantCount': 0,
+          'applicantUids': <String>[],
+          'recentApplicantPhotos': <String>[],
+        };
+
+        final app = JobApplication(
+          id: 'app_free',
+          jobId: 'target_job_free',
+          applicantUid: 'nyxian999',
+          applicantName: 'Available Nyxian',
+          coverNote: 'Ready to work',
+          proposalRate: 800.0,
+          isCounterOffer: false,
+          createdAt: DateTime.now(),
+        );
+
+        await repo.applyToJob(app);
+
+        final targetDoc = await firestore.collection('jobs').doc('target_job_free').get();
+        expect(targetDoc.data()!['applicantCount'], equals(1));
+        expect(List<String>.from(targetDoc.data()!['applicantUids']), contains('nyxian999'));
+      });
+
+      test('Nyxian with pending applications on other jobs (not accepted) CAN apply', () async {
+        // Nyxian applied to another job, but is NOT accepted (acceptedApplicantId is null)
+        firestore.db['jobs/applied_job_1'] = {
+          'id': 'applied_job_1',
+          'creatorId': 'employer1',
+          'title': 'Pending Job',
+          'status': 'Open',
+          'acceptedApplicantId': null,
+          'applicantUids': ['nyxian999'],
+        };
+
+        firestore.db['jobs/target_job_multi'] = {
+          'id': 'target_job_multi',
+          'creatorId': 'employer2',
+          'title': 'Another Target Job',
+          'status': 'Open',
+          'applicantCount': 0,
+          'applicantUids': <String>[],
+          'recentApplicantPhotos': <String>[],
+        };
+
+        final app = JobApplication(
+          id: 'app_multi',
+          jobId: 'target_job_multi',
+          applicantUid: 'nyxian999',
+          applicantName: 'Multi Applicant Nyxian',
+          coverNote: 'Applying to multiple open jobs',
+          proposalRate: 1200.0,
+          isCounterOffer: false,
+          createdAt: DateTime.now(),
+        );
+
+        await repo.applyToJob(app);
+
+        final targetDoc = await firestore.collection('jobs').doc('target_job_multi').get();
+        expect(targetDoc.data()!['applicantCount'], equals(1));
+        expect(List<String>.from(targetDoc.data()!['applicantUids']), contains('nyxian999'));
+      });
+    });
   });
 }
 
