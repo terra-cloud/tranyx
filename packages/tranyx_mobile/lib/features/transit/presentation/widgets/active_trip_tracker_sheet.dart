@@ -953,8 +953,12 @@ class _ActiveTripTrackerSheetState
                                   ],
                                 ),
                               );
-                            } else {
-                              final extensionRatePerHour = (widget.item['extensionRatePerHour'] as num?)?.toDouble() ?? 200.0;
+                              final extensionRatePerHour = (widget.item['extensionRatePerHour'] as num?)?.toDouble() ??
+                                  (widget.item['latePenaltyRatePerHour'] as num?)?.toDouble() ??
+                                  (widget.item['extensionPenaltyPerHour'] as num?)?.toDouble() ??
+                                  ((widget.item['priceDaily'] as num?) != null
+                                      ? (widget.item['priceDaily'] as num).toDouble() / 24 * 1.5
+                                      : 200.0);
                               final fee = _extendHours * extensionRatePerHour;
                               final userBalance = userProfile.tyxBalance;
                               final hasInsufficientBalance = userBalance < fee;
@@ -1147,11 +1151,16 @@ class _ActiveTripTrackerSheetState
                                                     : () async {
                                                         setState(() => _isProcessing = true);
                                                         try {
+                                                          final reqId = (widget.item['currentRequestId'] ??
+                                                                  widget.item['requestId'] ??
+                                                                  (widget.item.containsKey('rentalId') ? widget.item['id'] : null))
+                                                              ?.toString();
                                                           await ref.read(transitRepositoryProvider).createExtensionRequest(
                                                             rentalId: id,
                                                             renteeId: userProfile.uid,
                                                             extendHours: _extendHours,
                                                             fee: fee,
+                                                            requestId: reqId,
                                                           );
                                                           ref.invalidate(realtimeRentalsProvider);
                                                           if (mounted) {

@@ -7430,11 +7430,11 @@ class TranyxAppState extends State<TranyxApp> {
       // Book Vehicle modal overlay
       if (showBookVehicleModal) BookVehicleModalComponent(appState: this, key: const ValueKey('book-vehicle-modal')),
 
-      // Extend Rental modal overlay
-      if (showExtendRentalModal) ExtendRentalModalComponent(appState: this, key: const ValueKey('extend-rental-modal')),
-
       // Rental Tracker Map overlay
       if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this, key: const ValueKey('rental-tracker-map')),
+
+      // Extend Rental modal overlay
+      if (showExtendRentalModal) ExtendRentalModalComponent(appState: this, key: const ValueKey('extend-rental-modal')),
 
       // Manage Vehicle modal overlay
       if (showManageVehicleModal)

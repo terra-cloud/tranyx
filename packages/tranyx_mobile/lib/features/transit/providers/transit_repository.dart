@@ -2503,6 +2503,7 @@ class TransitRepository {
     required String renteeId,
     required int extendHours,
     required double fee,
+    String? requestId,
   }) async {
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
@@ -2533,6 +2534,7 @@ class TransitRepository {
     await _firestore.collection('rental_extensions').doc(extensionId).set({
       'id': extensionId,
       'rentalId': rentalId,
+      'requestId': ?requestId,
       'renteeId': renteeId,
       'extendHours': extendHours,
       'fee': fee,
@@ -2544,6 +2546,7 @@ class TransitRepository {
     await _firestore.collection('rental_extension_escrows').doc(extensionId).set({
       'extensionId': extensionId,
       'rentalId': rentalId,
+      'requestId': ?requestId,
       'renteeId': renteeId,
       'amount': fee,
       'status': 'Held',
@@ -2604,6 +2607,17 @@ class TransitRepository {
           'amount': currentAmount + fee,
         });
       }
+      final resolvedReqId = extData['requestId'] as String? ?? rentalData['currentRequestId'] as String?;
+      if (resolvedReqId != null && resolvedReqId.isNotEmpty && resolvedReqId != rentalId) {
+        final reqEscrowDoc = await _firestore.collection('rental_escrows').doc(resolvedReqId).get();
+        if (reqEscrowDoc.exists) {
+          final reqEscrowData = reqEscrowDoc.data()!;
+          final currentAmount = (reqEscrowData['amount'] as num? ?? 0.0).toDouble();
+          await _firestore.collection('rental_escrows').doc(resolvedReqId).update({
+            'amount': currentAmount + fee,
+          });
+        }
+      }
       await _firestore.collection('rental_extension_escrows').doc(extensionId).delete();
     }
 
@@ -2616,6 +2630,19 @@ class TransitRepository {
       'endDate': newEndDate.millisecondsSinceEpoch,
       'totalCost': currentCost + fee,
     });
+
+    final resolvedReqId = extData['requestId'] as String? ?? rentalData['currentRequestId'] as String?;
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      final reqRef = _firestore.collection('rental_requests').doc(resolvedReqId);
+      final reqDoc = await reqRef.get();
+      if (reqDoc.exists) {
+        final reqCost = (reqDoc.data()?['totalCost'] as num? ?? 0.0).toDouble();
+        await reqRef.update({
+          'endDate': newEndDate.millisecondsSinceEpoch,
+          'totalCost': reqCost + fee,
+        });
+      }
+    }
   }
 
   Future<void> rejectExtension(String extensionId) async {

@@ -3608,6 +3608,7 @@ class FirestoreService {
     required String renteeId,
     required int extendHours,
     required double fee,
+    String? requestId,
   }) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
@@ -3646,6 +3647,18 @@ class FirestoreService {
       });
     }
 
+    final resolvedReqId = requestId ?? rentalDoc['currentRequestId'] as String?;
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty && resolvedReqId != rentalId) {
+      final reqEscrowDoc = await getDocument('rental_escrows/$resolvedReqId');
+      if (reqEscrowDoc != null) {
+        final currentAmount = (reqEscrowDoc['amount'] as num? ?? 0.0).toDouble();
+        await setDocument('rental_escrows/$resolvedReqId', {
+          ...reqEscrowDoc,
+          'amount': currentAmount + fee,
+        });
+      }
+    }
+
     // Update rental endDate and totalCost
     final currentEndMs = rentalDoc['endDate'] as int? ?? DateTime.now().millisecondsSinceEpoch;
     final currentCost = (rentalDoc['totalCost'] as num? ?? 0.0).toDouble();
@@ -3657,6 +3670,19 @@ class FirestoreService {
       'endDate': newEndDate.millisecondsSinceEpoch,
       'totalCost': currentCost + fee,
     });
+
+    // Also update canonical rental_requests record so renterActiveBookings reflects the extended return time
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      final reqDoc = await getDocument('rental_requests/$resolvedReqId');
+      if (reqDoc != null) {
+        final reqCost = (reqDoc['totalCost'] as num? ?? 0.0).toDouble();
+        await setDocument('rental_requests/$resolvedReqId', {
+          ...reqDoc,
+          'endDate': newEndDate.millisecondsSinceEpoch,
+          'totalCost': reqCost + fee,
+        });
+      }
+    }
   }
 
   /// Approve pending extension request (move escrow and update rental)
@@ -3686,6 +3712,17 @@ class FirestoreService {
           'amount': currentAmount + fee,
         });
       }
+      final resolvedReqId = extDoc['requestId'] as String? ?? rentalDoc['currentRequestId'] as String?;
+      if (resolvedReqId != null && resolvedReqId.isNotEmpty && resolvedReqId != rentalId) {
+        final reqEscrowDoc = await getDocument('rental_escrows/$resolvedReqId');
+        if (reqEscrowDoc != null) {
+          final currentAmount = (reqEscrowDoc['amount'] as num? ?? 0.0).toDouble();
+          await setDocument('rental_escrows/$resolvedReqId', {
+            ...reqEscrowDoc,
+            'amount': currentAmount + fee,
+          });
+        }
+      }
       await deleteDocument('rental_extension_escrows/$extensionId');
     }
 
@@ -3700,6 +3737,19 @@ class FirestoreService {
       'endDate': newEndDate.millisecondsSinceEpoch,
       'totalCost': currentCost + fee,
     });
+
+    final resolvedReqId = extDoc['requestId'] as String? ?? rentalDoc['currentRequestId'] as String?;
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      final reqDoc = await getDocument('rental_requests/$resolvedReqId');
+      if (reqDoc != null) {
+        final reqCost = (reqDoc['totalCost'] as num? ?? 0.0).toDouble();
+        await setDocument('rental_requests/$resolvedReqId', {
+          ...reqDoc,
+          'endDate': newEndDate.millisecondsSinceEpoch,
+          'totalCost': reqCost + fee,
+        });
+      }
+    }
   }
 
   /// Reject pending extension request (refund rentee and delete request escrow)
