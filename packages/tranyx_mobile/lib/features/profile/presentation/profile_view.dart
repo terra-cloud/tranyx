@@ -792,7 +792,11 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
               'professional',
             ),
             const SizedBox(height: 12),
-            buildProfileMenu(Icons.star_rounded, "Hybrid PRO Subscription", 'subscription'),
+            buildProfileMenu(
+              Icons.settings_outlined,
+              "Account Settings",
+              'subscription',
+            ),
             const SizedBox(height: 12),
             buildProfileMenu(Icons.security, "Trust & Verification", 'trust'),
             const SizedBox(height: 12),

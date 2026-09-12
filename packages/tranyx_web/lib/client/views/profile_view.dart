@@ -68,6 +68,7 @@ class _ProfileMenu extends StatelessComponent {
     final items = [
       (ProfileView.personal, 'user', 'Personal Information'),
       (ProfileView.professional, 'briefcase', 'Professional Info'),
+      (ProfileView.main, 'settings', 'Account Settings'),
       (ProfileView.payment, 'credit-card', 'Payment Methods'),
       (ProfileView.trust, 'shield-check', 'Trust & Verification'),
       (ProfileView.support, 'help-circle', 'Help & Support'),
@@ -146,7 +147,7 @@ class _ProfileMenu extends StatelessComponent {
   }
 
   Component _menuItem(ProfileView view, String icon, String label, TranyxAppState s, bool isDark) {
-    final isActive = s.profileView == view;
+    final isActive = s.profileView == view || (view == ProfileView.main && s.profileView == ProfileView.subscription);
     final activeCls = isDark ? 'bg-indigo-600/20 text-indigo-400' : 'bg-indigo-50 text-indigo-700';
     final inactiveCls = isDark ? 'text-zinc-400 hover:bg-zinc-800' : 'text-zinc-600 hover:bg-zinc-50';
     return button(
@@ -159,6 +160,11 @@ class _ProfileMenu extends StatelessComponent {
           } else {
             s.profileView = view;
             s.initializeProfileEditing();
+            if (view == ProfileView.main) {
+              try {
+                web.document.getElementById('account-settings-content')?.scrollIntoView(web.ScrollIntoViewOptions(behavior: 'smooth'));
+              } catch (_) {}
+            }
           }
         }),
       },
@@ -211,8 +217,11 @@ class _ProfileMainState extends State<_ProfileMain> {
     final isDark = s.isDark;
     final cardCls = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
 
-    return div(classes: 'space-y-6', [
-      h2(classes: 'text-2xl font-bold hidden md:block', [Component.text('Account Settings')]),
+    return div(
+      attributes: {'id': 'account-settings-content'},
+      classes: 'space-y-6',
+      [
+        h2(classes: 'text-2xl font-bold', [Component.text('Account Settings')]),
 
       if (s.userProfile == null)
         div(
@@ -5744,7 +5753,10 @@ class _RewardsViewState extends State<_RewardsView> {
                   'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm hover:bg-amber-500/25 transition-colors cursor-pointer',
               events: {
                 'click': (_) => s.setState(() {
-                  s.profileView = ProfileView.subscription;
+                  s.profileView = ProfileView.main;
+                  try {
+                    web.document.getElementById('account-settings-content')?.scrollIntoView(web.ScrollIntoViewOptions(behavior: 'smooth'));
+                  } catch (_) {}
                 }),
               },
               [Component.text('🔓 Subscribe Now')],
