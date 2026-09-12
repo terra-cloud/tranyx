@@ -7455,18 +7455,26 @@ class TranyxAppState extends State<TranyxApp> {
           isProperty: signingContractIsProperty,
           key: const ValueKey('sign-contract-modal'),
           onSigned: () {
+            final isProp = signingContractIsProperty;
             setState(() {
               showSignContractModal = false;
               signingContractId = null;
               signingContractRequestId = null;
               signingContractTitle = null;
               signingContractTerms = null;
+              signingContractIsProperty = false;
             });
             loadRenterPendingRequests();
-            if (signingContractIsProperty) {
+            if (isProp) {
               _startListeningProperties();
+              if (userProfile?.uid != null) {
+                _startListeningPropertyRenterRequests(userProfile!.uid);
+              }
             } else {
-              _restoreSession();
+              _startListeningRentals();
+              if (userProfile?.uid != null) {
+                _startListeningRenterRequests(userProfile!.uid);
+              }
             }
           },
         ),

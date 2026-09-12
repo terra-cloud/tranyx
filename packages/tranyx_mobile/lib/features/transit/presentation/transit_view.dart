@@ -702,7 +702,17 @@ class _TransitViewState extends ConsumerState<TransitView> {
                         final hasPlate = rawPlate != null && rawPlate.isNotEmpty && rawPlate.toLowerCase() != 'null';
                         final plateStr = hasPlate ? ' • $rawPlate' : '';
 
-                        final status = (act['status'] ?? 'BOOKED').toString();
+                        final rawStatus = (act['status'] ?? 'BOOKED').toString();
+                        final isSigned = (act['signedAt'] != null && (act['signedAt'] as num) > 0) ||
+                            (act['renteeSignatureName'] != null && act['renteeSignatureName'].toString().isNotEmpty && act['renteeSignatureName'].toString() != 'null') ||
+                            (act['signatureName'] != null && act['signatureName'].toString().isNotEmpty && act['signatureName'].toString() != 'null') ||
+                            (act['signatureHash'] != null && act['signatureHash'].toString().isNotEmpty);
+
+                        final isAwaitingSignature = !isSigned && (
+                          rawStatus.toLowerCase() == 'awaiting signature' ||
+                          rawStatus.toLowerCase() == 'approved'
+                        );
+                        final displayStatus = isAwaitingSignature ? 'Awaiting Signature' : rawStatus;
                         final pickupAddress = act['deliveryAddress'] ?? act['pickupAddress'] ?? 'Pickup point';
 
                         return Container(
@@ -711,11 +721,15 @@ class _TransitViewState extends ConsumerState<TransitView> {
                           decoration: BoxDecoration(
                             color: isOngoingTrip
                                 ? Colors.green.withValues(alpha: 0.08)
-                                : AppColors.indigo.withValues(alpha: 0.08),
+                                : (isAwaitingSignature
+                                    ? Colors.amber.withValues(alpha: 0.08)
+                                    : AppColors.indigo.withValues(alpha: 0.08)),
                             border: Border.all(
                               color: isOngoingTrip
                                   ? Colors.green.withValues(alpha: 0.3)
-                                  : AppColors.indigo.withValues(alpha: 0.3),
+                                  : (isAwaitingSignature
+                                      ? Colors.amber.withValues(alpha: 0.4)
+                                      : AppColors.indigo.withValues(alpha: 0.3)),
                             ),
                             borderRadius: BorderRadius.circular(24),
                           ),
@@ -742,14 +756,18 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                     decoration: BoxDecoration(
                                       color: isOngoingTrip
                                           ? Colors.green.withValues(alpha: 0.15)
-                                          : Colors.orange.withValues(alpha: 0.15),
+                                          : (isAwaitingSignature
+                                              ? Colors.amber.withValues(alpha: 0.15)
+                                              : Colors.orange.withValues(alpha: 0.15)),
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Text(
-                                      status.toUpperCase(),
+                                      isAwaitingSignature ? 'ACTION REQUIRED • SIGN' : displayStatus.toUpperCase(),
                                       style: TextStyle(
                                         fontSize: 10,
-                                        color: isOngoingTrip ? Colors.green : Colors.orange,
+                                        color: isOngoingTrip
+                                            ? Colors.green
+                                            : (isAwaitingSignature ? Colors.amber.shade800 : Colors.orange),
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
@@ -760,23 +778,38 @@ class _TransitViewState extends ConsumerState<TransitView> {
                               Text(
                                 isOngoingTrip
                                     ? 'Current trip handover address: $pickupAddress'
-                                    : 'Scheduled handover address: $pickupAddress',
-                                style: const TextStyle(
+                                    : (isAwaitingSignature
+                                        ? 'Host approved your rental! Please review & sign the agreement to activate.'
+                                        : 'Scheduled handover address: $pickupAddress'),
+                                style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.grey,
+                                  color: isAwaitingSignature ? Colors.amber.shade700 : Colors.grey,
+                                  fontWeight: isAwaitingSignature ? FontWeight.w500 : FontWeight.normal,
                                 ),
                               ),
                               const SizedBox(height: 16),
                               Row(
                                 children: [
                                   Expanded(
-                                    child: ElevatedButton(
+                                    child: ElevatedButton.icon(
                                       onPressed: () => _openActiveTripSheet(act, false),
+                                      icon: Icon(
+                                        isOngoingTrip
+                                            ? Icons.location_on
+                                            : (isAwaitingSignature ? Icons.draw : Icons.route),
+                                        size: 16,
+                                      ),
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: isOngoingTrip ? Colors.green.shade700 : AppColors.indigo,
+                                        backgroundColor: isOngoingTrip
+                                            ? Colors.green.shade700
+                                            : (isAwaitingSignature ? Colors.green.shade700 : AppColors.indigo),
                                         foregroundColor: Colors.white,
                                       ),
-                                      child: Text(isOngoingTrip ? 'Open Tracker & Telemetry' : 'View Trip Itinerary'),
+                                      label: Text(
+                                        isOngoingTrip
+                                            ? 'Open Tracker & Telemetry'
+                                            : (isAwaitingSignature ? 'Review & Sign Agreement' : 'View Trip Itinerary'),
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -845,16 +878,34 @@ class _TransitViewState extends ConsumerState<TransitView> {
 
                       Widget buildLeaseCard(Map<String, dynamic> act, bool isOngoing) {
                         final title = (act['title'] ?? 'Property Lease').toString();
-                        final status = (act['status'] ?? 'BOOKED').toString();
+                        final rawStatus = (act['status'] ?? 'BOOKED').toString();
+                        final isSigned = (act['signedAt'] != null && (act['signedAt'] as num) > 0) ||
+                            (act['renteeSignatureName'] != null && act['renteeSignatureName'].toString().isNotEmpty && act['renteeSignatureName'].toString() != 'null') ||
+                            (act['signatureName'] != null && act['signatureName'].toString().isNotEmpty && act['signatureName'].toString() != 'null') ||
+                            (act['signatureHash'] != null && act['signatureHash'].toString().isNotEmpty);
+
+                        final isAwaitingSignature = !isSigned && (
+                          rawStatus.toLowerCase() == 'awaiting signature' ||
+                          rawStatus.toLowerCase() == 'approved'
+                        );
+                        final displayStatus = isAwaitingSignature ? 'Awaiting Signature' : rawStatus;
                         final address = (act['address'] ?? '').toString();
 
                         return Container(
                           margin: const EdgeInsets.only(bottom: 16),
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: isOngoing ? Colors.teal.withValues(alpha: 0.08) : AppColors.indigo.withValues(alpha: 0.08),
+                            color: isOngoing
+                                ? Colors.teal.withValues(alpha: 0.08)
+                                : (isAwaitingSignature
+                                    ? Colors.amber.withValues(alpha: 0.08)
+                                    : AppColors.indigo.withValues(alpha: 0.08)),
                             border: Border.all(
-                              color: isOngoing ? Colors.teal.withValues(alpha: 0.3) : AppColors.indigo.withValues(alpha: 0.3),
+                              color: isOngoing
+                                  ? Colors.teal.withValues(alpha: 0.3)
+                                  : (isAwaitingSignature
+                                      ? Colors.amber.withValues(alpha: 0.4)
+                                      : AppColors.indigo.withValues(alpha: 0.3)),
                             ),
                             borderRadius: BorderRadius.circular(24),
                           ),
@@ -879,14 +930,20 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                       vertical: 4,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: isOngoing ? Colors.green.withValues(alpha: 0.15) : Colors.orange.withValues(alpha: 0.15),
+                                      color: isOngoing
+                                          ? Colors.green.withValues(alpha: 0.15)
+                                          : (isAwaitingSignature
+                                              ? Colors.amber.withValues(alpha: 0.15)
+                                              : Colors.orange.withValues(alpha: 0.15)),
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Text(
-                                      status.toUpperCase(),
+                                      isAwaitingSignature ? 'ACTION REQUIRED • SIGN' : displayStatus.toUpperCase(),
                                       style: TextStyle(
                                         fontSize: 10,
-                                        color: isOngoing ? Colors.green : Colors.orange,
+                                        color: isOngoing
+                                            ? Colors.green
+                                            : (isAwaitingSignature ? Colors.amber.shade800 : Colors.orange),
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
@@ -895,23 +952,40 @@ class _TransitViewState extends ConsumerState<TransitView> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Address: $address',
-                                style: const TextStyle(
+                                isOngoing
+                                    ? 'Address: $address'
+                                    : (isAwaitingSignature
+                                        ? 'Host approved your lease! Please review & sign the agreement to activate.'
+                                        : 'Address: $address'),
+                                style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.grey,
+                                  color: isAwaitingSignature ? Colors.amber.shade700 : Colors.grey,
+                                  fontWeight: isAwaitingSignature ? FontWeight.w500 : FontWeight.normal,
                                 ),
                               ),
                               const SizedBox(height: 16),
                               Row(
                                 children: [
                                   Expanded(
-                                    child: ElevatedButton(
+                                    child: ElevatedButton.icon(
                                       onPressed: () => _openActiveTripSheet(act, true),
+                                      icon: Icon(
+                                        isOngoing
+                                            ? Icons.apartment
+                                            : (isAwaitingSignature ? Icons.draw : Icons.receipt_long),
+                                        size: 16,
+                                      ),
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: isOngoing ? Colors.teal.shade700 : AppColors.indigo,
+                                        backgroundColor: isOngoing
+                                            ? Colors.teal.shade700
+                                            : (isAwaitingSignature ? Colors.green.shade700 : AppColors.indigo),
                                         foregroundColor: Colors.white,
                                       ),
-                                      child: Text(isOngoing ? 'View Lease Details' : 'View Reservation Itinerary'),
+                                      label: Text(
+                                        isOngoing
+                                            ? 'View Lease Details'
+                                            : (isAwaitingSignature ? 'Review & Sign Agreement' : 'View Reservation Itinerary'),
+                                      ),
                                     ),
                                   ),
                                 ],

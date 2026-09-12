@@ -694,15 +694,29 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
   Component _activeVehicleCard(Map<String, dynamic> active, bool isDark) {
     final s = component.state;
-    final status = active['status'] as String? ?? 'Booked';
     final rentalId = (active['rentalId'] ?? active['id'])?.toString() ?? '';
-    final isOngoing = status == 'Ongoing' || status == 'Active' || status == 'On the way to Rentee' || status == 'Returning';
 
     // Cross-reference listing from realtimeRentals to safely recover metadata and plate number
     final listing = s.realtimeRentals.firstWhere(
       (element) => element['id'] == rentalId,
       orElse: () => <String, dynamic>{},
     );
+
+    final rawStatus = (active['status'] ?? listing['status'] ?? 'Booked').toString();
+    final isSigned = (active['signedAt'] != null && (active['signedAt'] as num) > 0) ||
+        (active['signatureName'] != null && active['signatureName'].toString().isNotEmpty && active['signatureName'].toString() != 'null') ||
+        (active['signatureHash'] != null && active['signatureHash'].toString().isNotEmpty) ||
+        (listing['signedAt'] != null && (listing['signedAt'] as num) > 0) ||
+        (listing['renteeSignatureName'] != null && listing['renteeSignatureName'].toString().isNotEmpty && listing['renteeSignatureName'].toString() != 'null') ||
+        (listing['signatureHash'] != null && listing['signatureHash'].toString().isNotEmpty);
+
+    final isAwaitingSignature = !isSigned && (
+      rawStatus.toLowerCase() == 'awaiting signature' ||
+      rawStatus.toLowerCase() == 'approved' ||
+      listing['status']?.toString().toLowerCase() == 'awaiting signature'
+    );
+    final status = isAwaitingSignature ? 'Awaiting Signature' : (active['status'] as String? ?? 'Booked');
+    final isOngoing = status == 'Ongoing' || status == 'Active' || status == 'On the way to Rentee' || status == 'Returning';
 
     final rawBrand = (active['brand'] ?? listing['brand'] ?? '').toString().trim();
     final rawModel = (active['model'] ?? listing['model'] ?? '').toString().trim();
@@ -721,12 +735,21 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
     return div(
       classes:
-          'p-5 rounded-2xl border ${isOverdue ? "border-red-500/50 bg-red-500/10" : (isOngoing ? "border-emerald-500/40 bg-emerald-500/10" : "border-purple-500/30 bg-purple-500/10")} cursor-pointer hover:opacity-95 transition-all mb-4',
+          'p-5 rounded-2xl border ${isOverdue ? "border-red-500/50 bg-red-500/10" : (isOngoing ? "border-emerald-500/40 bg-emerald-500/10" : (isAwaitingSignature ? "border-amber-500/50 bg-amber-500/10" : "border-purple-500/30 bg-purple-500/10"))} cursor-pointer hover:opacity-95 transition-all mb-4',
       events: {
         'click': (_) => s.setState(() {
-          s.selectedRentalData = active;
-          if (isOngoing) {
-            s.showRentalTrackerMap = true;
+          if (isAwaitingSignature) {
+            s.signingContractId = rentalId;
+            s.signingContractRequestId = active['id']?.toString();
+            s.signingContractTitle = '$vehicleTitle Rental Agreement';
+            s.signingContractTerms = active['contractTerms'] ?? listing['contractTerms'] ?? 'Rental Agreement terms';
+            s.signingContractIsProperty = false;
+            s.showSignContractModal = true;
+          } else {
+            s.selectedRentalData = active;
+            if (isOngoing) {
+              s.showRentalTrackerMap = true;
+            }
           }
         }),
       },
@@ -734,18 +757,22 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         div(classes: 'flex items-center justify-between mb-3', [
           div(classes: 'flex items-center gap-3', [
             div(
-              classes: 'p-2 rounded-xl ${isOverdue ? "bg-red-500/20" : (isOngoing ? "bg-emerald-500/20" : "bg-purple-500/20")}',
-              [lIcon(isOverdue ? 'alert-triangle' : 'car', cls: 'w-5 h-5 ${isOverdue ? "text-red-400" : (isOngoing ? "text-emerald-400" : "text-purple-400")}')],
+              classes: 'p-2 rounded-xl ${isOverdue ? "bg-red-500/20" : (isOngoing ? "bg-emerald-500/20" : (isAwaitingSignature ? "bg-amber-500/20" : "bg-purple-500/20"))}',
+              [lIcon(isOverdue ? 'alert-triangle' : (isAwaitingSignature ? 'file-signature' : 'car'), cls: 'w-5 h-5 ${isOverdue ? "text-red-400" : (isOngoing ? "text-emerald-400" : (isAwaitingSignature ? "text-amber-400" : "text-purple-400"))}')],
             ),
             div([
               p(
                 classes:
-                    'text-xs font-semibold ${isOverdue ? "text-red-400 animate-pulse" : (isOngoing ? "text-emerald-400" : "text-purple-400")} uppercase tracking-wider',
+                    'text-xs font-semibold ${isOverdue ? "text-red-400 animate-pulse" : (isOngoing ? "text-emerald-400" : (isAwaitingSignature ? "text-amber-400 animate-pulse" : "text-purple-400"))} uppercase tracking-wider',
                 [
                   Component.text(
                     isOverdue
                         ? '🚨 Overdue Return • Return Required'
-                        : (isOngoing ? 'Active Vehicle Rental • $status' : 'Upcoming Schedule • $status'),
+                        : (isOngoing
+                            ? 'Active Vehicle Rental • $status'
+                            : (isAwaitingSignature
+                                ? 'Upcoming Schedule • Action Required (Review & Sign)'
+                                : 'Upcoming Schedule • $status')),
                   ),
                 ],
               ),
@@ -755,10 +782,10 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             ]),
           ]),
           div(classes: 'flex items-center gap-2', [
-            if (status == 'Awaiting Signature')
+            if (isAwaitingSignature)
               button(
                 classes:
-                    'px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer animate-bounce',
+                    'px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-600/30 border-0 cursor-pointer flex items-center gap-1.5 animate-pulse',
                 events: {
                   'click': (e) {
                     e.stopPropagation();
@@ -766,15 +793,15 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                       s.signingContractId = rentalId;
                       s.signingContractRequestId = active['id']?.toString();
                       s.signingContractTitle = '$vehicleTitle Rental Agreement';
-                      s.signingContractTerms = active['contractTerms'] ?? 'Rental Agreement terms';
+                      s.signingContractTerms = active['contractTerms'] ?? listing['contractTerms'] ?? 'Rental Agreement terms';
                       s.signingContractIsProperty = false;
                       s.showSignContractModal = true;
                     });
                   },
                 },
-                [Component.text('Sign Contract')],
+                [lIcon('file-signature', cls: 'w-3.5 h-3.5'), Component.text('Review & Sign')],
               ),
-            if (status != 'Awaiting Signature' && unreadCount > 0)
+            if (!isAwaitingSignature && unreadCount > 0)
               span(
                 classes:
                     'px-2 py-1 rounded-lg text-xs font-black bg-red-500/10 text-red-500 border border-red-500/30 flex items-center gap-1 animate-pulse',
@@ -785,12 +812,16 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               ),
           ]),
         ]),
-        div(classes: 'flex items-center justify-between text-xs ${isOverdue ? "text-red-300" : (isOngoing ? "text-emerald-300/80" : "text-purple-300/80")}', [
+        div(classes: 'flex items-center justify-between text-xs ${isOverdue ? "text-red-300" : (isOngoing ? "text-emerald-300/80" : (isAwaitingSignature ? "text-amber-300/90" : "text-purple-300/80"))}', [
           p([
             Component.text(
               isOverdue
                   ? 'Scheduled return has passed. Please return immediately to avoid late penalties.'
-                  : (isOngoing ? 'Click card to view tracker and live trip map' : 'Reservation confirmed. Handover will begin at scheduled time.'),
+                  : (isOngoing
+                      ? 'Click card to view tracker and live trip map'
+                      : (isAwaitingSignature
+                          ? 'Action Required: Host approved your booking! Review and sign the agreement to activate.'
+                          : 'Reservation confirmed. Handover will begin at scheduled time.')),
             ),
           ]),
           div(classes: 'flex items-center gap-2', [
@@ -856,7 +887,6 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
   Component _activePropertyCard(dynamic active, bool isDark) {
     final s = component.state;
     final isModel = active is PropertyRental;
-    final status = isModel ? active.status : (active['status']?.toString() ?? 'Booked');
     final propId = isModel ? active.id : (active['propertyId'] ?? active['id'])?.toString() ?? '';
     final reqId = isModel ? active.currentRequestId : active['id']?.toString();
     final title = isModel ? active.title : (active['title']?.toString() ?? 'Property Lease');
@@ -868,26 +898,72 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final chatId = 'property_${propId}_${s.userProfile?.uid}';
     final unreadCount = s.getUnreadChatCount(chatId);
 
+    // Cross-reference listing from realtimeProperties if available
+    final PropertyRental? listing = s.realtimeProperties.any((element) => element.id == propId)
+        ? s.realtimeProperties.firstWhere((element) => element.id == propId)
+        : null;
+
+    final rawStatus = isModel ? active.status : (active['status']?.toString() ?? 'Booked');
+    final isSigned = (isModel ? active.signedAt != null : (active['signedAt'] != null && (active['signedAt'] is num ? (active['signedAt'] as num) > 0 : true))) ||
+        (signatureHash != null && signatureHash.isNotEmpty && signatureHash != 'null') ||
+        (isModel ? (active.renteeSignatureName != null && active.renteeSignatureName!.isNotEmpty) : (active['renteeSignatureName'] != null && active['renteeSignatureName'].toString().isNotEmpty && active['renteeSignatureName'].toString() != 'null')) ||
+        (listing?.signedAt != null) ||
+        (listing?.renteeSignatureName != null && listing!.renteeSignatureName!.isNotEmpty);
+
+    final isAwaitingSignature = !isSigned && (
+      rawStatus.toLowerCase() == 'awaiting signature' ||
+      rawStatus.toLowerCase() == 'approved' ||
+      (listing != null && listing.status.toLowerCase() == 'awaiting signature')
+    );
+    final status = isAwaitingSignature ? 'Awaiting Signature' : rawStatus;
+
     return div(
-      classes: 'p-5 rounded-2xl border border-purple-500/30 bg-purple-500/10 transition-colors mb-4',
+      classes:
+          'p-5 rounded-2xl border ${isAwaitingSignature ? "border-amber-500/50 bg-amber-500/10" : "border-purple-500/30 bg-purple-500/10"} cursor-pointer hover:opacity-95 transition-all mb-4',
+      events: {
+        'click': (_) {
+          if (isAwaitingSignature) {
+            s.setState(() {
+              s.signingContractId = propId;
+              s.signingContractRequestId = reqId;
+              s.signingContractTitle = '$title Lease Agreement';
+              s.signingContractTerms = contractTerms;
+              s.signingContractIsProperty = true;
+              s.showSignContractModal = true;
+            });
+          }
+        },
+      },
       [
         div(classes: 'flex items-center justify-between mb-3', [
           div(classes: 'flex items-center gap-3', [
-            div(classes: 'p-2 rounded-xl bg-purple-500/20', [lIcon('home', cls: 'w-5 h-5 text-purple-400')]),
+            div(
+              classes: 'p-2 rounded-xl ${isAwaitingSignature ? "bg-amber-500/20" : "bg-purple-500/20"}',
+              [lIcon(isAwaitingSignature ? 'file-signature' : 'home', cls: 'w-5 h-5 ${isAwaitingSignature ? "text-amber-400" : "text-purple-400"}')],
+            ),
             div([
-              p(classes: 'text-xs font-semibold text-purple-400 uppercase tracking-wider', [
-                Component.text('Active Lease • $status'),
-              ]),
+              p(
+                classes:
+                    'text-xs font-semibold ${isAwaitingSignature ? "text-amber-400 animate-pulse" : "text-purple-400"} uppercase tracking-wider',
+                [
+                  Component.text(
+                    isAwaitingSignature
+                        ? 'Upcoming Lease • Action Required (Review & Sign)'
+                        : 'Active Lease • $status',
+                  ),
+                ],
+              ),
               p(classes: 'font-bold', [Component.text(title)]),
             ]),
           ]),
           div(classes: 'flex items-center gap-2', [
-            if (status == 'Awaiting Signature')
+            if (isAwaitingSignature)
               button(
                 classes:
-                    'px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer',
+                    'px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-600/30 border-0 cursor-pointer flex items-center gap-1.5 animate-pulse',
                 events: {
-                  'click': (_) {
+                  'click': (e) {
+                    e.stopPropagation();
                     s.setState(() {
                       s.signingContractId = propId;
                       s.signingContractRequestId = reqId;
@@ -898,9 +974,9 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                     });
                   },
                 },
-                [Component.text('Sign Contract')],
+                [lIcon('file-signature', cls: 'w-3.5 h-3.5'), Component.text('Review & Sign')],
               ),
-            if (status != 'Awaiting Signature' && unreadCount > 0)
+            if (!isAwaitingSignature && unreadCount > 0)
               span(
                 classes:
                     'px-2 py-1 rounded-lg text-xs font-black bg-red-500/10 text-red-500 border border-red-500/30 flex items-center gap-1 animate-pulse',
@@ -911,10 +987,12 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               ),
           ]),
         ]),
-        div(classes: 'flex items-center justify-between text-xs text-purple-300', [
+        div(classes: 'flex items-center justify-between text-xs ${isAwaitingSignature ? "text-amber-300/90" : "text-purple-300"}', [
           p([
             Component.text(
-              'Rent: ₱ ${priceMonthly.toStringAsFixed(0)}/mo • Deposit: $depositMonths mo',
+              isAwaitingSignature
+                  ? 'Action Required: Host approved your request! Review and sign the lease agreement to activate.'
+                  : 'Rent: ₱ ${priceMonthly.toStringAsFixed(0)}/mo • Deposit: $depositMonths mo',
             ),
           ]),
           if (allowChat)

@@ -518,12 +518,21 @@ class _ActiveTripTrackerSheetState
     final brand = widget.item['brand'] as String? ?? '';
     final model = widget.item['model'] as String? ?? '';
     final title = widget.item['title'] as String? ?? '$brand $model';
-    final status = widget.item['status'] as String? ?? 'Awaiting Signature';
+    final rawStatus = widget.item['status'] as String? ?? 'Awaiting Signature';
+    final status = rawStatus;
     final hostId = widget.item['hostId'] as String? ?? '';
     final isHost = hostId == userProfile.uid;
 
-    final signature = widget.item['renteeSignatureName'] as String? ?? '';
+    final signature = (widget.item['renteeSignatureName'] ?? widget.item['signatureName'] ?? '') as String;
     final signatureHash = widget.item['signatureHash'] as String? ?? '';
+    final isSigned = (widget.item['signedAt'] != null && (widget.item['signedAt'] as num) > 0) ||
+        signature.isNotEmpty ||
+        signatureHash.isNotEmpty;
+
+    final isAwaitingSignature = !isHost && !isSigned &&
+        (rawStatus.toLowerCase() == 'awaiting signature' || rawStatus.toLowerCase() == 'approved');
+
+    final displayStatus = isAwaitingSignature ? 'Awaiting Signature' : rawStatus;
     final terms =
         widget.item['contractTerms'] as String? ??
         'Rental terms & conditions...';
@@ -533,19 +542,19 @@ class _ActiveTripTrackerSheetState
     final s1Active = true;
 
     final s2Completed =
-        signature.isNotEmpty ||
-        status == 'Booked' ||
-        status == 'Active' ||
-        status == 'Ongoing' ||
-        status == 'Completed';
-    final s2Active = status == 'Awaiting Signature';
+        isSigned ||
+        rawStatus == 'Booked' ||
+        rawStatus == 'Active' ||
+        rawStatus == 'Ongoing' ||
+        rawStatus == 'Completed';
+    final s2Active = isAwaitingSignature;
 
     final s3Completed =
-        status == 'Active' || status == 'Ongoing' || status == 'Completed';
-    final s3Active = status == 'Booked';
+        rawStatus == 'Active' || rawStatus == 'Ongoing' || rawStatus == 'Completed';
+    final s3Active = !isAwaitingSignature && rawStatus == 'Booked';
 
-    final s4Completed = status == 'Completed';
-    final s4Active = status == 'Active' || status == 'Ongoing';
+    final s4Completed = rawStatus == 'Completed';
+    final s4Active = rawStatus == 'Active' || rawStatus == 'Ongoing';
 
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
@@ -628,10 +637,10 @@ class _ActiveTripTrackerSheetState
                           ),
                         ),
                         _pill(
-                          status,
-                          status == 'Active' || status == 'Ongoing'
+                          displayStatus,
+                          displayStatus == 'Active' || displayStatus == 'Ongoing'
                               ? Colors.green
-                              : Colors.orange,
+                              : (isAwaitingSignature ? Colors.amber.shade800 : Colors.orange),
                         ),
                       ],
                     ),
@@ -648,16 +657,18 @@ class _ActiveTripTrackerSheetState
                     _buildStep(
                       2,
                       'Lease Agreement Signed',
-                      signature.isNotEmpty
-                          ? 'Signed: $signature'
-                          : 'Awaiting renter electronic signature.',
+                      isSigned
+                          ? 'Signed: ${signature.isNotEmpty ? signature : "Digitally Verified"}'
+                          : (isAwaitingSignature
+                              ? 'Action Required: Review and sign lease agreement.'
+                              : 'Awaiting renter electronic signature.'),
                       s2Completed,
                       s2Active,
                     ),
                     _buildStep(
                       3,
                       'Handover Executed',
-                      status == 'Active' || status == 'Ongoing'
+                      rawStatus == 'Active' || rawStatus == 'Ongoing'
                           ? 'Asset handed over to renter.'
                           : 'Awaiting keys handover.',
                       s3Completed,
@@ -666,7 +677,7 @@ class _ActiveTripTrackerSheetState
                     _buildStep(
                       4,
                       'Trip Ongoing & Tracked',
-                      status == 'Completed'
+                      rawStatus == 'Completed'
                           ? 'Trip has ended.'
                           : 'Active lease period.',
                       s4Completed,
@@ -674,7 +685,7 @@ class _ActiveTripTrackerSheetState
                     ),
 
                     // Renter Signature Action
-                    if (!isHost && status == 'Awaiting Signature') ...[
+                    if (isAwaitingSignature) ...[
                       const SizedBox(height: 16),
                       _isProcessing
                           ? const Center(child: CircularProgressIndicator())
