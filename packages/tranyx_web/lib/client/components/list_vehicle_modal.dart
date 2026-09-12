@@ -22,12 +22,34 @@ class ListVehicleModalComponent extends StatefulComponent {
 class _ListVehicleModalState extends State<ListVehicleModalComponent> {
   int _step = 1;
   int? _lastScrolledStep;
+  bool _isEnteringStep2 = false;
 
   void _scrollToTop() {
     void doScroll() {
+      try {
+        (web.document.activeElement as web.HTMLElement?)?.blur();
+      } catch (_) {}
+
       final container = web.document.getElementById('list-vehicle-modal-container');
       if (container != null) {
         container.scrollTop = 0;
+        container.scrollLeft = 0;
+      }
+
+      final topAnchor = web.document.getElementById('list-vehicle-modal-top');
+      if (topAnchor != null) {
+        try {
+          topAnchor.scrollIntoView();
+        } catch (_) {}
+      }
+
+      if (_step == 2) {
+        final pricingTop = web.document.getElementById('step-2-pricing-top');
+        if (pricingTop != null) {
+          try {
+            pricingTop.scrollIntoView();
+          } catch (_) {}
+        }
       }
     }
 
@@ -35,9 +57,37 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
     Future.microtask(doScroll);
     Future.delayed(Duration.zero, doScroll);
     Future.delayed(const Duration(milliseconds: 20), doScroll);
-    Future.delayed(const Duration(milliseconds: 80), doScroll);
-    Future.delayed(const Duration(milliseconds: 250), doScroll);
-    Future.delayed(const Duration(milliseconds: 650), doScroll);
+    Future.delayed(const Duration(milliseconds: 50), doScroll);
+    Future.delayed(const Duration(milliseconds: 100), doScroll);
+    Future.delayed(const Duration(milliseconds: 200), doScroll);
+    Future.delayed(const Duration(milliseconds: 350), doScroll);
+    Future.delayed(const Duration(milliseconds: 500), doScroll);
+    Future.delayed(const Duration(milliseconds: 750), doScroll);
+    Future.delayed(const Duration(milliseconds: 1000), doScroll);
+    Future.delayed(const Duration(milliseconds: 1500), doScroll);
+  }
+
+  void _onEnterStep(int targetStep) {
+    if (targetStep == 2) {
+      _isEnteringStep2 = true;
+      _scrollToTop();
+      for (int ms in [150, 300, 500, 750, 1000, 1300]) {
+        Future.delayed(Duration(milliseconds: ms), () {
+          if (_isEnteringStep2 && _step == 2) {
+            final container = web.document.getElementById('list-vehicle-modal-container');
+            if (container != null && container.scrollTop > 10) {
+              container.scrollTop = 0;
+            }
+          }
+        });
+      }
+      Future.delayed(const Duration(milliseconds: 1600), () {
+        _isEnteringStep2 = false;
+      });
+    } else {
+      _isEnteringStep2 = false;
+      _scrollToTop();
+    }
   }
 
   @override
@@ -287,21 +337,23 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
       _pickupLng = component.appState.pickupLng;
     }
 
-    setState(() => _step++);
-    _scrollToTop();
+    final nextStep = _step + 1;
+    setState(() => _step = nextStep);
+    _onEnterStep(nextStep);
   }
 
   @override
   Component build(BuildContext context) {
     if (!component.appState.showListVehicleModal) {
       _lastScrolledStep = null;
+      _isEnteringStep2 = false;
       return div([]);
     }
     final isDark = component.appState.isDark;
 
     if (_lastScrolledStep != _step) {
       _lastScrolledStep = _step;
-      _scrollToTop();
+      _onEnterStep(_step);
     }
 
     return div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in', [
@@ -309,6 +361,18 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
         id: 'list-vehicle-modal-container',
         classes:
             'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
+        events: {
+          'wheel': (e) => _isEnteringStep2 = false,
+          'touchmove': (e) => _isEnteringStep2 = false,
+          'scroll': (e) {
+            if (_isEnteringStep2 && _step == 2) {
+              final container = web.document.getElementById('list-vehicle-modal-container');
+              if (container != null && container.scrollTop > 30) {
+                container.scrollTop = 0;
+              }
+            }
+          },
+        },
         [
           // Header
           div(
@@ -333,6 +397,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
 
           // Body
           div(classes: 'p-6 flex-1 space-y-6', [
+            div(id: 'list-vehicle-modal-top', classes: 'h-0 w-full p-0 m-0 overflow-hidden', []),
             if (_error != null)
               div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium', [
                 Component.text(_error!),
@@ -590,6 +655,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
               ),
             ] else if (_step == 2) ...[
               // Step 2: Pricing & Location
+              div(id: 'step-2-pricing-top', classes: 'h-0 w-full p-0 m-0 overflow-hidden', []),
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Location')]),
               div(classes: 'grid grid-cols-2 gap-4', [
                 _inputField(
@@ -1004,8 +1070,9 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                       'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
                   events: {
                     'click': (e) {
-                      setState(() => _step--);
-                      _scrollToTop();
+                      final prevStep = _step - 1;
+                      setState(() => _step = prevStep);
+                      _onEnterStep(prevStep);
                     },
                   },
                   [Component.text('Back')],

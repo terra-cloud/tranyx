@@ -150,6 +150,7 @@ Future<void> initMap(
   bool isDark = true,
   double pitch = 0,
   double bearing = 0,
+  bool keyboard = true,
 }) async {
   final found = await _waitForElement(elementId);
   if (!found) {
@@ -184,6 +185,7 @@ Future<void> initMap(
     opts.setProperty('container'.toJS, elementId.toJS);
     opts.setProperty('style'.toJS, vectorStyleUrl.toJS);
     opts.setProperty('_isDark'.toJS, isDark.toJS);
+    opts.setProperty('keyboard'.toJS, keyboard.toJS);
 
     // MapLibre expects center as [lng, lat]
     opts.setProperty('center'.toJS, [lng.toJS, lat.toJS].toJS);

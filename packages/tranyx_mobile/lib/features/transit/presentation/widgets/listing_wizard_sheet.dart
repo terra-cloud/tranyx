@@ -186,7 +186,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
   double get _listingFee => 0.0; // Vehicle & Property listings are 100% FREE (0% upfront fee)
 
   void _scrollToTop(ScrollController scrollController, {bool immediate = false}) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    void doScroll() {
       if (scrollController.hasClients) {
         if (immediate) {
           scrollController.jumpTo(0);
@@ -198,6 +198,13 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           );
         }
       }
+    }
+
+    doScroll();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      doScroll();
+      Future.delayed(const Duration(milliseconds: 50), doScroll);
+      Future.delayed(const Duration(milliseconds: 150), doScroll);
     });
   }
 
@@ -558,6 +565,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         if (didPop) return;
         if (_isProcessing) return;
         if (_step > 1) {
+          FocusScope.of(context).unfocus();
           setState(() {
             _step--;
           });
@@ -640,6 +648,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         if (_step == 1) {
                           Navigator.pop(context);
                         } else {
+                          FocusScope.of(context).unfocus();
                           setState(() => _step--);
                           _scrollToTop(scrollController, immediate: true);
                         }
@@ -652,6 +661,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
 
               Expanded(
                 child: ListView(
+                  key: ValueKey('listing_wizard_step_$_step'),
                   controller: scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   children: [
@@ -1667,17 +1677,19 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                                           : 'Publish Listing')
                                       : 'Next Step',
                                   () {
-                                    if (_step == 1) {
-                                      if (_validateStep1(scrollController)) {
-                                        setState(() => _step = 2);
-                                        _scrollToTop(scrollController, immediate: true);
-                                      }
-                                    } else if (_step == 2) {
-                                      if (_validateStep2(scrollController)) {
-                                        setState(() => _step = 3);
-                                        _scrollToTop(scrollController, immediate: true);
-                                      }
-                                    } else {
+                                     if (_step == 1) {
+                                       if (_validateStep1(scrollController)) {
+                                         FocusScope.of(context).unfocus();
+                                         setState(() => _step = 2);
+                                         _scrollToTop(scrollController, immediate: true);
+                                       }
+                                     } else if (_step == 2) {
+                                       if (_validateStep2(scrollController)) {
+                                         FocusScope.of(context).unfocus();
+                                         setState(() => _step = 3);
+                                         _scrollToTop(scrollController, immediate: true);
+                                       }
+                                     } else {
                                       _submitListing(scrollController);
                                     }
                                   },

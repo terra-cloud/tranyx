@@ -359,7 +359,11 @@
         return null;
       }
       try {
-        const map = new maplibregl.Map(options);
+        const mapOptions = Object.assign({}, options);
+        if (options.keyboard === false) {
+          mapOptions.keyboard = false;
+        }
+        const map = new maplibregl.Map(mapOptions);
         console.log("DEBUG: maplibregl.Map constructed successfully");
         map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
