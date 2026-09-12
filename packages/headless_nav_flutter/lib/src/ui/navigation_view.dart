@@ -2,8 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:maplibre_gl/mapbox_gl.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:headless_nav_core/headless_nav_core.dart';
 import '../adapters/flutter_tts_adapter.dart';
+import '../adapters/geolocator_adapter.dart';
 import '../state/flutter_nav_providers.dart';
 import 'turn_instruction_banner.dart';
 import 'telemetry_share_sheet.dart';
@@ -39,7 +41,7 @@ class NavigationView extends ConsumerStatefulWidget {
   final bool enableTts;
 
   /// Optional live GPS position stream (e.g. from [GeolocatorAdapter.getPositionStream]).
-  /// If omitted, falls back to [SimulatedLocationProvider] along the route.
+  /// If omitted, falls back to [GeolocatorAdapter] for live device GPS updates.
   final Stream<NavPosition>? locationStream;
 
   /// Optional telemetry broadcaster. If omitted, falls back to [locationBroadcasterProvider].
@@ -112,6 +114,34 @@ class _NavigationViewState extends ConsumerState<NavigationView> {
     try {
       final router = ref.read(osrmRouterProvider);
       var waypoints = List<NavWaypoint>.from(widget.stops!);
+
+      // Query actual hardware GPS location of the driver
+      try {
+        final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (serviceEnabled) {
+          var permission = await Geolocator.checkPermission();
+          if (permission == LocationPermission.denied) {
+            permission = await Geolocator.requestPermission();
+          }
+          if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
+            final pos = await Geolocator.getCurrentPosition(
+              desiredAccuracy: LocationAccuracy.high,
+              timeLimit: const Duration(seconds: 4),
+            );
+            final origin = NavWaypoint.fromCoords(
+              latitude: pos.latitude,
+              longitude: pos.longitude,
+              title: 'Current Location',
+            );
+            if (waypoints.length == 1) {
+              waypoints = [origin, waypoints.first];
+            } else if (waypoints.length >= 2) {
+              waypoints[0] = origin;
+            }
+          }
+        }
+      } catch (_) {}
+
       if (waypoints.length == 1) {
         final dest = waypoints.first;
         final origin = NavWaypoint.fromCoords(
@@ -139,15 +169,15 @@ class _NavigationViewState extends ConsumerState<NavigationView> {
         onArrived: widget.onArrived,
       );
 
-      // If a live locationStream is provided, connect it. Otherwise, use simulation.
+      // Connect live hardware GPS location stream of the actual driver
       if (widget.locationStream != null) {
         engine.start(widget.locationStream!);
       } else {
-        final sim = SimulatedLocationProvider(
-          route: payload,
-          speedKmh: widget.travelMode == NavTravelMode.foot ? 5.0 : 45.0,
+        const geolocatorAdapter = GeolocatorAdapter(
+          desiredAccuracy: LocationAccuracy.high,
+          distanceFilter: 2,
         );
-        engine.start(sim.stream());
+        engine.start(geolocatorAdapter.getPositionStream());
       }
 
       ref.read(navEngineProvider.notifier).state = engine;

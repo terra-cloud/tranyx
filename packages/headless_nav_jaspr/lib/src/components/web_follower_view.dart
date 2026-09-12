@@ -166,7 +166,7 @@ class WebFollowerView extends StatefulComponent {
     this.headerBuilder,
     this.streaming,
     this.broadcaster,
-    this.autoSimulateIfIdle = true,
+    this.autoSimulateIfIdle = false,
     this.onClose,
     this.onExit,
     this.styleUrl,
@@ -191,8 +191,6 @@ class _WebFollowerViewState extends State<WebFollowerView> {
   StreamSubscription<BroadcasterTelemetry>? _telemetrySub;
   BroadcasterTelemetry? _currentTelemetry;
 
-  NavigationEngine? _simEngine;
-  SimulatedLocationProvider? _sim;
   final List<MapLibreMarker> _stopMarkers = [];
   final bool _autoFollowCamera = true;
   String? _actionToast;
@@ -256,9 +254,6 @@ class _WebFollowerViewState extends State<WebFollowerView> {
   void didUpdateComponent(WebFollowerView oldWidget) {
     super.didUpdateComponent(oldWidget);
     if (component.stops != oldWidget.stops || component.channelId != oldWidget.channelId) {
-      _sim?.stop();
-      _simEngine?.dispose();
-      _simEngine = null;
       _subscribeTelemetry();
       if (component.stops != null && component.stops!.isNotEmpty) {
         _initRouteAndSimulation();
@@ -269,8 +264,6 @@ class _WebFollowerViewState extends State<WebFollowerView> {
   @override
   void dispose() {
     _toastTimer?.cancel();
-    _sim?.stop();
-    _simEngine?.dispose();
     _clearStopMarkers();
     _vehicleMarker?.remove();
     _map?.remove();
@@ -341,56 +334,8 @@ class _WebFollowerViewState extends State<WebFollowerView> {
           _addStopMarkers();
         }
       }
-
-      // Auto-simulate driver movement along route if enabled
-      if (component.autoSimulateIfIdle) {
-        final engine = NavigationEngine(
-          route: payload,
-          waypoints: waypoints,
-        );
-        _simEngine = engine;
-
-        final sim = SimulatedLocationProvider(
-          route: payload,
-          speedKmh: component.travelMode == NavTravelMode.foot ? 5.0 : 45.0,
-          interval: const Duration(milliseconds: 350),
-        );
-        _sim = sim;
-
-        engine.stateStream.listen((state) {
-          try {
-            final broadcaster = component.broadcaster ??
-                context.read(jasprLocationBroadcasterProvider);
-            broadcaster?.broadcast(
-              component.channelId,
-              BroadcasterTelemetry(
-                channelId: component.channelId,
-                broadcasterId: 'simulated-driver',
-                rawPosition: state.snappedLocation,
-                snappedPosition: state.snappedLocation,
-                currentBearing: state.currentBearing,
-                remainingDistance: state.remainingDistance,
-                remainingDuration: state.remainingDuration,
-                currentInstruction: state.currentInstruction,
-                routeCoordinates: state.slicedRouteCoordinates,
-                travelMode: component.travelMode,
-                currentStopIndex: state.currentStopIndex,
-                totalStopsCount: state.totalStopsCount,
-                currentStopTitle: state.currentStopTitle,
-                distanceToCurrentStop: state.distanceToCurrentStop,
-                durationToCurrentStop: state.durationToCurrentStop,
-                currentStopEta: state.currentStopEta,
-                currentSpeedKmh: state.currentSpeedKmh,
-                timestamp: DateTime.now(),
-              ),
-            );
-          } catch (_) {}
-        });
-
-        engine.start(sim.stream());
-      }
     } catch (e) {
-      web.console.error('HeadlessFollower: _initRouteAndSimulation error: $e'.toJS);
+      web.console.error('HeadlessFollower: _initRoute error: $e'.toJS);
     }
   }
 

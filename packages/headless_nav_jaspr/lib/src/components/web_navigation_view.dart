@@ -6,6 +6,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:web/web.dart' as web;
 import 'package:headless_nav_core/headless_nav_core.dart';
 import '../adapters/web_speech_adapter.dart';
+import '../adapters/browser_geolocation_adapter.dart';
 import '../interop/maplibre_interop.dart';
 import '../state/jaspr_nav_providers.dart';
 import '../storage/web_local_storage_database.dart';
@@ -63,7 +64,7 @@ class WebNavigationView extends StatefulComponent {
   final String? routeCasingColor;
 
   /// Optional live GPS position stream (e.g. from [BrowserGeolocationAdapter.stream]).
-  /// If omitted, falls back to [SimulatedLocationProvider] for desktop browser testing.
+  /// If omitted, falls back to [BrowserGeolocationAdapter] for live browser GPS updates.
   final Stream<NavPosition>? locationStream;
 
   /// Optional telemetry broadcaster. If omitted, falls back to [jasprLocationBroadcasterProvider].
@@ -132,7 +133,7 @@ class _WebNavigationViewState extends State<WebNavigationView> {
   bool _isFirstCameraUpdate = true;
 
   NavigationEngine? _engine;
-  SimulatedLocationProvider? _sim;
+  BrowserGeolocationAdapter? _geoAdapter;
   StreamSubscription<NavigationState>? _stateSub;
   StreamSubscription<NavEvent>? _eventSub;
   NavigationState? _currentState;
@@ -459,6 +460,24 @@ class _WebNavigationViewState extends State<WebNavigationView> {
 
     try {
       var waypoints = List<NavWaypoint>.from(component.stops!);
+
+      // Query actual hardware/browser GPS location of the driver
+      try {
+        final actualPos = await BrowserGeolocationAdapter.getCurrentLocation();
+        if (actualPos != null) {
+          final origin = NavWaypoint.fromCoords(
+            latitude: actualPos.latitude,
+            longitude: actualPos.longitude,
+            title: 'Current Location',
+          );
+          if (waypoints.length == 1) {
+            waypoints = [origin, waypoints.first];
+          } else if (waypoints.length >= 2) {
+            waypoints[0] = origin;
+          }
+        }
+      } catch (_) {}
+
       if (waypoints.length == 1) {
         final dest = waypoints.first;
         final origin = NavWaypoint.fromCoords(
@@ -557,19 +576,20 @@ class _WebNavigationViewState extends State<WebNavigationView> {
         }
       });
 
-      // If a live locationStream is provided, connect it. Otherwise, use simulation.
+      // Connect live hardware/browser GPS location stream of the actual driver
       if (component.locationStream != null) {
         engine.start(component.locationStream!);
-        web.console.log('HeadlessNav: Live GPS location stream started.'.toJS);
+        web.console.log('HeadlessNav: Live custom GPS location stream started.'.toJS);
       } else {
-        final sim = SimulatedLocationProvider(
-          route: payload,
-          speedKmh: component.travelMode == NavTravelMode.foot ? 5.0 : 45.0,
-          interval: const Duration(milliseconds: 300),
+        _geoAdapter?.dispose();
+        final adapter = BrowserGeolocationAdapter(
+          enableHighAccuracy: true,
+          timeoutMs: 15000,
+          maximumAgeMs: 0,
         );
-        _sim = sim;
-        engine.start(sim.stream());
-        web.console.log('HeadlessNav: Route simulation started successfully.'.toJS);
+        _geoAdapter = adapter;
+        engine.start(adapter.stream());
+        web.console.log('HeadlessNav: Live actual driver GPS stream started via BrowserGeolocationAdapter.'.toJS);
       }
 
       try {
@@ -1335,7 +1355,7 @@ class _WebNavigationViewState extends State<WebNavigationView> {
     _clearStopMarkers();
     _stateSub?.cancel();
     _eventSub?.cancel();
-    _sim?.stop();
+    _geoAdapter?.dispose();
     _engine?.dispose();
     _speechAdapter?.dispose();
     _map?.remove();

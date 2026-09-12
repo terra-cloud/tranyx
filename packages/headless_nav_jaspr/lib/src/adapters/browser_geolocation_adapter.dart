@@ -27,6 +27,56 @@ class BrowserGeolocationAdapter {
     return _controller!.stream;
   }
 
+  /// Fetches the user's current location once via `navigator.geolocation.getCurrentPosition`.
+  static Future<NavPosition?> getCurrentLocation({
+    bool enableHighAccuracy = true,
+    int timeoutMs = 8000,
+  }) async {
+    try {
+      final completer = Completer<NavPosition?>();
+      final geolocation = web.window.navigator.geolocation;
+      final options = web.PositionOptions(
+        enableHighAccuracy: enableHighAccuracy,
+        timeout: timeoutMs,
+      );
+
+      final successCallback = ((web.GeolocationPosition position) {
+        final coords = position.coords;
+        if (!completer.isCompleted) {
+          completer.complete(NavPosition(
+            latitude: coords.latitude.toDouble(),
+            longitude: coords.longitude.toDouble(),
+            heading: coords.heading != null && !coords.heading!.isNaN
+                ? coords.heading!.toDouble()
+                : null,
+            speed: coords.speed != null && !coords.speed!.isNaN
+                ? coords.speed!.toDouble()
+                : null,
+            altitude: coords.altitude != null && !coords.altitude!.isNaN
+                ? coords.altitude!.toDouble()
+                : null,
+            accuracy: coords.accuracy.toDouble(),
+            timestamp: DateTime.now().toUtc(),
+          ));
+        }
+      }).toJS;
+
+      final errorCallback = ((web.GeolocationPositionError error) {
+        if (!completer.isCompleted) {
+          completer.complete(null);
+        }
+      }).toJS;
+
+      geolocation.getCurrentPosition(successCallback, errorCallback, options);
+      return await completer.future.timeout(
+        Duration(milliseconds: timeoutMs),
+        onTimeout: () => null,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _startWatching() {
     final geolocation = web.window.navigator.geolocation;
 
@@ -60,6 +110,11 @@ class BrowserGeolocationAdapter {
     final errorCallback = ((web.GeolocationPositionError error) {
       _controller?.addError(Exception('Geolocation error (${error.code}): ${error.message}'));
     }).toJS;
+
+    // Immediately request current location for instant fix
+    try {
+      geolocation.getCurrentPosition(successCallback, errorCallback, options);
+    } catch (_) {}
 
     _watchId = geolocation.watchPosition(
       successCallback,
