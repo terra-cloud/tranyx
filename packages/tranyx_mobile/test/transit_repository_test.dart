@@ -2157,5 +2157,224 @@ void main() {
         expect(firestore.db['property_escrows/$reqId'], isNull);
       });
     });
+
+    group('Unsigned Cancellation, Revocation, and Active Lease Cancellation Parity Tests', () {
+      test('Vehicle: Renter cancelling an Approved / Awaiting Signature request reopens listing and 100% refunds', () async {
+        firestore.db['users/host_v'] = {'name': 'Host V', 'tyxBalance': 500.0};
+        firestore.db['users/renter_v'] = {'name': 'Renter V', 'tyxBalance': 10000.0};
+        firestore.db['rentals/v_deadlock'] = {
+          'hostId': 'host_v',
+          'brand': 'Toyota',
+          'model': 'Yaris',
+          'priceDaily': 1000.0,
+          'status': 'Awaiting Signature',
+          'currentRequestId': 'req_v_deadlock',
+          'renteeId': 'renter_v',
+        };
+        firestore.db['rental_requests/req_v_deadlock'] = {
+          'id': 'req_v_deadlock',
+          'rentalId': 'v_deadlock',
+          'hostId': 'host_v',
+          'renteeId': 'renter_v',
+          'brand': 'Toyota',
+          'model': 'Yaris',
+          'status': 'Approved',
+          'totalCost': 2000.0,
+          'bookingFee': 60.0,
+        };
+        firestore.db['rental_escrows/req_v_deadlock'] = {'status': 'Held', 'amount': 2060.0};
+        firestore.db['rental_escrows/v_deadlock'] = {'status': 'Held', 'amount': 2060.0};
+
+        await repo.cancelBookingRequest('req_v_deadlock');
+
+        // 100% refunded
+        expect(firestore.db['users/renter_v']!['tyxBalance'], equals(12060.0));
+        expect(firestore.db['rental_requests/req_v_deadlock']!['status'], equals('Cancelled'));
+        expect(firestore.db['rentals/v_deadlock']!['status'], equals('Available'));
+        expect(firestore.db['rentals/v_deadlock']!['renteeId'], isNull);
+        expect(firestore.db['rental_escrows/req_v_deadlock'], isNull);
+        expect(firestore.db['rental_escrows/v_deadlock'], isNull);
+      });
+
+      test('Vehicle: Host revoking approval reopens listing and 100% refunds renter', () async {
+        firestore.db['users/host_v'] = {'name': 'Host V', 'tyxBalance': 500.0};
+        firestore.db['users/renter_v'] = {'name': 'Renter V', 'tyxBalance': 10000.0};
+        firestore.db['rentals/v_revoke'] = {
+          'hostId': 'host_v',
+          'brand': 'Honda',
+          'model': 'City',
+          'priceDaily': 1500.0,
+          'status': 'Awaiting Signature',
+          'currentRequestId': 'req_v_revoke',
+          'renteeId': 'renter_v',
+        };
+        firestore.db['rental_requests/req_v_revoke'] = {
+          'id': 'req_v_revoke',
+          'rentalId': 'v_revoke',
+          'hostId': 'host_v',
+          'renteeId': 'renter_v',
+          'brand': 'Honda',
+          'model': 'City',
+          'status': 'Approved',
+          'totalCost': 3000.0,
+          'bookingFee': 90.0,
+        };
+        firestore.db['rental_escrows/req_v_revoke'] = {'status': 'Held', 'amount': 3090.0};
+        firestore.db['rental_escrows/v_revoke'] = {'status': 'Held', 'amount': 3090.0};
+
+        await repo.revokeApproval('v_revoke');
+
+        expect(firestore.db['users/renter_v']!['tyxBalance'], equals(13090.0));
+        expect(firestore.db['rental_requests/req_v_revoke']!['status'], equals('Cancelled'));
+        expect(firestore.db['rentals/v_revoke']!['status'], equals('Available'));
+        expect(firestore.db['rentals/v_revoke']!['renteeId'], isNull);
+        expect(firestore.db['rental_escrows/req_v_revoke'], isNull);
+        expect(firestore.db['rental_escrows/v_revoke'], isNull);
+      });
+
+      test('Vehicle: cancelRental cancels signed rental with 2.0 flat fee deducted', () async {
+        firestore.db['users/host_v'] = {'name': 'Host V', 'tyxBalance': 500.0};
+        firestore.db['users/renter_v'] = {'name': 'Renter V', 'tyxBalance': 10000.0};
+        firestore.db['rentals/v_signed'] = {
+          'hostId': 'host_v',
+          'brand': 'Mitsubishi',
+          'model': 'Mirage',
+          'priceDaily': 1000.0,
+          'status': 'Booked',
+          'currentRequestId': 'req_v_signed',
+          'renteeId': 'renter_v',
+          'totalCost': 2000.0,
+          'bookingFee': 60.0,
+        };
+        firestore.db['rental_requests/req_v_signed'] = {
+          'id': 'req_v_signed',
+          'rentalId': 'v_signed',
+          'hostId': 'host_v',
+          'renteeId': 'renter_v',
+          'brand': 'Mitsubishi',
+          'model': 'Mirage',
+          'status': 'Booked',
+          'totalCost': 2000.0,
+          'bookingFee': 60.0,
+        };
+        firestore.db['rental_escrows/req_v_signed'] = {'status': 'Held', 'amount': 2060.0};
+        firestore.db['rental_escrows/v_signed'] = {'status': 'Held', 'amount': 2060.0};
+
+        await repo.cancelRental('v_signed');
+
+        // Total was 2060, minus 2.0 = 2058 refunded
+        expect(firestore.db['users/renter_v']!['tyxBalance'], equals(12058.0));
+        expect(firestore.db['rental_requests/req_v_signed']!['status'], equals('Cancelled'));
+        expect(firestore.db['rentals/v_signed']!['status'], equals('Available'));
+        expect(firestore.db['rentals/v_signed']!['renteeId'], isNull);
+        expect(firestore.db['rental_escrows/v_signed']!['status'], equals('Refunded'));
+      });
+
+      test('Property: Renter cancelling an Approved / Awaiting Signature request reopens listing and 100% refunds', () async {
+        firestore.db['users/host_p'] = {'name': 'Host P', 'tyxBalance': 500.0};
+        firestore.db['users/renter_p'] = {'name': 'Renter P', 'tyxBalance': 20000.0};
+        firestore.db['properties/p_deadlock'] = {
+          'hostId': 'host_p',
+          'title': 'Studio Unit',
+          'status': 'Awaiting Signature',
+          'currentRequestId': 'req_p_deadlock',
+          'renteeId': 'renter_p',
+        };
+        firestore.db['property_requests/req_p_deadlock'] = {
+          'id': 'req_p_deadlock',
+          'propertyId': 'p_deadlock',
+          'hostId': 'host_p',
+          'renteeId': 'renter_p',
+          'title': 'Studio Unit',
+          'status': 'Approved',
+          'totalCost': 5000.0,
+          'bookingFee': 150.0,
+          'totalCustomerPaid': 5150.0,
+        };
+        firestore.db['property_escrows/req_p_deadlock'] = {'status': 'Held', 'amount': 5150.0};
+        firestore.db['property_escrows/p_deadlock'] = {'status': 'Held', 'amount': 5150.0};
+
+        await repo.cancelPropertyBookingRequest('req_p_deadlock');
+
+        expect(firestore.db['users/renter_p']!['tyxBalance'], equals(25150.0));
+        expect(firestore.db['property_requests/req_p_deadlock']!['status'], equals('Cancelled'));
+        expect(firestore.db['properties/p_deadlock']!['status'], equals('Available'));
+        expect(firestore.db['properties/p_deadlock']!['renteeId'], isNull);
+        expect(firestore.db['property_escrows/req_p_deadlock'], isNull);
+        expect(firestore.db['property_escrows/p_deadlock'], isNull);
+      });
+
+      test('Property: Host revoking approval reopens listing and 100% refunds renter', () async {
+        firestore.db['users/host_p'] = {'name': 'Host P', 'tyxBalance': 500.0};
+        firestore.db['users/renter_p'] = {'name': 'Renter P', 'tyxBalance': 20000.0};
+        firestore.db['properties/p_revoke'] = {
+          'hostId': 'host_p',
+          'title': 'Penthouse',
+          'status': 'Awaiting Signature',
+          'currentRequestId': 'req_p_revoke',
+          'renteeId': 'renter_p',
+        };
+        firestore.db['property_requests/req_p_revoke'] = {
+          'id': 'req_p_revoke',
+          'propertyId': 'p_revoke',
+          'hostId': 'host_p',
+          'renteeId': 'renter_p',
+          'title': 'Penthouse',
+          'status': 'Approved',
+          'totalCost': 10000.0,
+          'bookingFee': 300.0,
+          'totalCustomerPaid': 10300.0,
+        };
+        firestore.db['property_escrows/req_p_revoke'] = {'status': 'Held', 'amount': 10300.0};
+        firestore.db['property_escrows/p_revoke'] = {'status': 'Held', 'amount': 10300.0};
+
+        await repo.revokePropertyApproval('p_revoke');
+
+        expect(firestore.db['users/renter_p']!['tyxBalance'], equals(30300.0));
+        expect(firestore.db['property_requests/req_p_revoke']!['status'], equals('Cancelled'));
+        expect(firestore.db['properties/p_revoke']!['status'], equals('Available'));
+        expect(firestore.db['properties/p_revoke']!['renteeId'], isNull);
+        expect(firestore.db['property_escrows/req_p_revoke'], isNull);
+        expect(firestore.db['property_escrows/p_revoke'], isNull);
+      });
+
+      test('Property: cancelPropertyRental cancels signed lease with 2.0 flat fee deducted', () async {
+        firestore.db['users/host_p'] = {'name': 'Host P', 'tyxBalance': 500.0};
+        firestore.db['users/renter_p'] = {'name': 'Renter P', 'tyxBalance': 20000.0};
+        firestore.db['properties/p_signed'] = {
+          'hostId': 'host_p',
+          'title': 'Condo Unit',
+          'status': 'Booked',
+          'currentRequestId': 'req_p_signed',
+          'renteeId': 'renter_p',
+          'totalCost': 8000.0,
+          'bookingFee': 240.0,
+          'totalCustomerPaid': 8240.0,
+        };
+        firestore.db['property_requests/req_p_signed'] = {
+          'id': 'req_p_signed',
+          'propertyId': 'p_signed',
+          'hostId': 'host_p',
+          'renteeId': 'renter_p',
+          'title': 'Condo Unit',
+          'status': 'Booked',
+          'totalCost': 8000.0,
+          'bookingFee': 240.0,
+          'totalCustomerPaid': 8240.0,
+        };
+        firestore.db['property_escrows/req_p_signed'] = {'status': 'Held', 'amount': 8240.0};
+        firestore.db['property_escrows/p_signed'] = {'status': 'Held', 'amount': 8240.0};
+
+        await repo.cancelPropertyRental('p_signed');
+
+        // Total was 8240, minus 2.0 = 8238 refunded
+        expect(firestore.db['users/renter_p']!['tyxBalance'], equals(28238.0));
+        expect(firestore.db['property_requests/req_p_signed']!['status'], equals('Cancelled'));
+        expect(firestore.db['properties/p_signed']!['status'], equals('Available'));
+        expect(firestore.db['properties/p_signed']!['renteeId'], isNull);
+        expect(firestore.db['property_escrows/p_signed']!['status'], equals('Refunded'));
+      });
+    });
   });
 }
+

@@ -2540,20 +2540,43 @@ class FirestoreService {
     );
   }
 
-  /// Cancel a pending booking request by the rentee and refund their wallet
+  /// Cancel a booking request by the rentee and refund their wallet (supports Pending and Approved/Awaiting Signature)
   Future<void> cancelBookingRequest(String requestId) async {
     final reqDoc = await getDocument('rental_requests/$requestId');
     if (reqDoc == null) return;
-    if (reqDoc['status'] != 'Pending') return;
+    final st = reqDoc['status']?.toString();
+    if (st != 'Pending' && st != 'Approved' && st != 'Awaiting Signature') return;
 
     final renteeId = reqDoc['renteeId'] as String;
     final hostId = reqDoc['hostId'] as String;
     final totalCost = (reqDoc['totalCost'] as num).toDouble();
-    final bookingFee = (reqDoc['bookingFee'] as num).toDouble();
+    final bookingFee = (reqDoc['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03);
     final refundAmount = totalCost + bookingFee;
+    final rentalId = reqDoc['rentalId']?.toString();
 
     // Set request status to Cancelled
     await setDocument('rental_requests/$requestId', {'status': 'Cancelled'});
+
+    // If it was Approved / Awaiting Signature, reopen the vehicle listing
+    if (rentalId != null && (st == 'Approved' || st == 'Awaiting Signature')) {
+      final rentalDoc = await getDocument('rentals/$rentalId');
+      if (rentalDoc != null && rentalDoc['currentRequestId']?.toString() == requestId) {
+        await setDocument('rentals/$rentalId', {
+          'status': 'Available',
+          'renteeId': null,
+          'renteeName': null,
+          'renteePhotoUrl': null,
+          'startDate': null,
+          'endDate': null,
+          'totalCost': null,
+          'bookingFee': null,
+          'currentRequestId': null,
+          'renteeSignatureName': null,
+          'signedAt': null,
+        });
+      }
+      await deleteDocument('rental_escrows/$rentalId');
+    }
 
     // Revert promo usage
     final promoCode = reqDoc['promoCode'] as String?;
@@ -2588,8 +2611,72 @@ class FirestoreService {
       uid: hostId,
       title: 'Booking Request Cancelled',
       message:
-          '${reqDoc['renteeName'] ?? "Renter"} has cancelled their booking request for your ${reqDoc['brand']} ${reqDoc['model']}.',
+          '${reqDoc['renteeName'] ?? "Renter"} has cancelled their booking request for your ${reqDoc['brand']} ${reqDoc['model']}. Listing is now available.',
     );
+  }
+
+  /// Host revokes an approved vehicle booking request before it is signed, reopening listing and issuing 100% refund to renter
+  Future<void> revokeApproval(String rentalId, {String? requestId}) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    final resolvedReqId = requestId ?? (rentalDoc?['currentRequestId'] as String?);
+
+    if (resolvedReqId != null) {
+      final reqDoc = await getDocument('rental_requests/$resolvedReqId');
+      if (reqDoc != null) {
+        final renteeId = reqDoc['renteeId'] as String;
+        final totalCost = (reqDoc['totalCost'] as num).toDouble();
+        final bookingFee = (reqDoc['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03);
+        final refundAmount = totalCost + bookingFee;
+
+        await setDocument('rental_requests/$resolvedReqId', {'status': 'Cancelled'});
+
+        final promoCode = reqDoc['promoCode'] as String?;
+        if (promoCode != null) {
+          await decrementPromoUsage(promoCode, renteeId);
+        }
+
+        final rentee = await getUser(renteeId);
+        if (rentee != null) {
+          await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
+
+          final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+          final txData = {
+            'uid': renteeId,
+            'type': 'refund',
+            'amount': refundAmount,
+            'title': 'Booking Approval Revoked',
+            'desc': 'Host revoked approval for ${reqDoc['brand']} ${reqDoc['model']}. 100% refund issued.',
+            'method': 'Tranyx Wallet',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+          };
+          await setDocument('transactions/$txId', txData);
+        }
+
+        await deleteDocument('rental_escrows/$resolvedReqId');
+
+        await createNotification(
+          uid: renteeId,
+          title: 'Booking Approval Revoked',
+          message:
+              'The host has revoked approval for vehicle ${reqDoc['brand']} ${reqDoc['model']}. Full refund of ₱ ${refundAmount.toStringAsFixed(2)} has been credited to your wallet.',
+        );
+      }
+    }
+
+    await setDocument('rentals/$rentalId', {
+      'status': 'Available',
+      'renteeId': null,
+      'renteeName': null,
+      'renteePhotoUrl': null,
+      'startDate': null,
+      'endDate': null,
+      'totalCost': null,
+      'bookingFee': null,
+      'currentRequestId': null,
+      'renteeSignatureName': null,
+      'signedAt': null,
+    });
+    await deleteDocument('rental_escrows/$rentalId');
   }
 
   /// Fetch all pending requests for a specific vehicle, filtered in-memory
@@ -4043,19 +4130,47 @@ class FirestoreService {
     );
   }
 
-  /// Cancel a pending property booking request by the rentee and refund their wallet
+  /// Cancel a property booking request by the rentee and refund their wallet (supports Pending, Approved, Awaiting Signature)
   Future<void> cancelPropertyBookingRequest(String requestId) async {
     final reqDoc = await getDocument('property_requests/$requestId');
     if (reqDoc == null) return;
-    if (reqDoc['status'] != 'Pending') return;
+    final st = reqDoc['status']?.toString();
+    if (st != 'Pending' && st != 'Approved' && st != 'Awaiting Signature') return;
 
     final renteeId = reqDoc['renteeId'] as String;
     final hostId = reqDoc['hostId'] as String;
     final totalRefund = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ??
         ((reqDoc['totalCost'] as num).toDouble() + ((reqDoc['bookingFee'] as num?)?.toDouble() ?? 0.0));
+    final propertyId = reqDoc['propertyId']?.toString();
 
     // Set request status to Cancelled
     await setDocument('property_requests/$requestId', {'status': 'Cancelled'});
+
+    // If it was Approved / Awaiting Signature, reopen the property listing if this was the current request
+    if (propertyId != null && (st == 'Approved' || st == 'Awaiting Signature')) {
+      final propDoc = await getDocument('properties/$propertyId');
+      if (propDoc != null && propDoc['currentRequestId']?.toString() == requestId) {
+        await setDocument('properties/$propertyId', {
+          'status': 'Available',
+          'renteeId': null,
+          'renteeName': null,
+          'renteePhotoUrl': null,
+          'rentalDurationType': null,
+          'rentalMultiplier': null,
+          'startDate': null,
+          'endDate': null,
+          'totalCost': null,
+          'baseRentAmount': null,
+          'securityDepositAmount': null,
+          'bookingFee': null,
+          'renteeSignatureName': null,
+          'signedAt': null,
+          'currentRequestId': null,
+          'licenseNumber': null,
+        });
+      }
+      await deleteDocument('property_escrows/$propertyId');
+    }
 
     // Revert promo usage
     final promoCode = reqDoc['promoCode'] as String?;
@@ -4063,7 +4178,7 @@ class FirestoreService {
       await decrementPromoUsage(promoCode, renteeId);
     }
 
-    // Refund rentee
+    // Refund rentee (100% full refund since contract was not executed yet)
     final rentee = await getUser(renteeId);
     if (rentee != null) {
       await updateTyxBalance(renteeId, rentee.tyxBalance + totalRefund);
@@ -4076,7 +4191,7 @@ class FirestoreService {
         'category': 'refund',
         'amount': totalRefund,
         'title': 'Property Booking Cancelled',
-        'desc': 'Refund for cancelled request of property "${reqDoc['title']}"',
+        'desc': 'Refund for cancelled request of property "${reqDoc['title'] ?? 'Listing'}"',
         'method': 'Tranyx Wallet',
         'originRail': 'internal_balance',
         'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -4093,9 +4208,204 @@ class FirestoreService {
       uid: hostId,
       title: 'Property Booking Request Cancelled',
       message:
-          '${reqDoc['renteeName'] ?? "Renter"} has cancelled their booking request for your property "${reqDoc['title']}".',
+          '${reqDoc['renteeName'] ?? "Renter"} has cancelled their booking request for your property "${reqDoc['title'] ?? 'Listing'}". Listing is now available.',
     );
   }
+
+  /// Host revokes an approved property booking request before it is signed, reopening listing and issuing 100% refund to renter
+  Future<void> revokePropertyApproval(String propertyId, {String? requestId}) async {
+    final propDoc = await getDocument('properties/$propertyId');
+    final resolvedReqId = requestId ?? (propDoc?['currentRequestId'] as String?);
+
+    if (resolvedReqId != null) {
+      final reqDoc = await getDocument('property_requests/$resolvedReqId');
+      if (reqDoc != null) {
+        final renteeId = reqDoc['renteeId'] as String;
+        final totalRefund = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ??
+            ((reqDoc['totalCost'] as num).toDouble() + ((reqDoc['bookingFee'] as num?)?.toDouble() ?? 0.0));
+
+        await setDocument('property_requests/$resolvedReqId', {'status': 'Cancelled'});
+
+        final promoCode = reqDoc['promoCode'] as String?;
+        if (promoCode != null) {
+          await decrementPromoUsage(promoCode, renteeId);
+        }
+
+        final rentee = await getUser(renteeId);
+        if (rentee != null) {
+          await updateTyxBalance(renteeId, rentee.tyxBalance + totalRefund);
+
+          final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+          final txData = {
+            'uid': renteeId,
+            'type': 'refund',
+            'category': 'refund',
+            'amount': totalRefund,
+            'title': 'Property Booking Approval Revoked',
+            'desc': 'Host revoked approval for "${reqDoc['title'] ?? 'Listing'}". 100% refund issued.',
+            'method': 'Tranyx Wallet',
+            'originRail': 'internal_balance',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+            'status': 'Completed',
+          };
+          await setDocument('transactions/$txId', txData);
+        }
+
+        await deleteDocument('property_escrows/$resolvedReqId');
+
+        await createNotification(
+          uid: renteeId,
+          title: 'Property Booking Approval Revoked',
+          message:
+              'The host has revoked approval for property "${reqDoc['title'] ?? 'Listing'}". Full refund of ₱ ${totalRefund.toStringAsFixed(2)} has been credited to your wallet.',
+        );
+      }
+    }
+
+    await setDocument('properties/$propertyId', {
+      'status': 'Available',
+      'renteeId': null,
+      'renteeName': null,
+      'renteePhotoUrl': null,
+      'rentalDurationType': null,
+      'rentalMultiplier': null,
+      'startDate': null,
+      'endDate': null,
+      'totalCost': null,
+      'baseRentAmount': null,
+      'securityDepositAmount': null,
+      'bookingFee': null,
+      'renteeSignatureName': null,
+      'signedAt': null,
+      'currentRequestId': null,
+      'licenseNumber': null,
+    });
+    await deleteDocument('property_escrows/$propertyId');
+  }
+
+  /// Cancel property lease rental — full refund (totalCost + bookingFee - 2.0 TYXBIT platform fee) back to rentee
+  Future<void> cancelPropertyRental(String propertyId, {String? requestId}) async {
+    String actualPropertyId = propertyId;
+    String? resolvedReqId = requestId;
+
+    Map<String, dynamic>? propDoc = await getDocument('properties/$actualPropertyId');
+    if (propDoc == null) {
+      resolvedReqId = actualPropertyId;
+      final reqDoc = await getDocument('property_requests/$resolvedReqId');
+      if (reqDoc != null && reqDoc['propertyId'] != null) {
+        actualPropertyId = reqDoc['propertyId'].toString();
+        propDoc = await getDocument('properties/$actualPropertyId');
+      }
+    }
+
+    if (propDoc == null) throw Exception('Property listing not found.');
+    resolvedReqId ??= propDoc['currentRequestId'] as String?;
+
+    final property = PropertyRental.fromMap(propDoc, actualPropertyId);
+
+    if (property.renteeId == null || property.renteeId!.isEmpty) {
+      await setDocument('properties/$actualPropertyId', {'status': 'Available'});
+      if (resolvedReqId != null) {
+        await setDocument('property_requests/$resolvedReqId', {'status': 'Cancelled'});
+      }
+      return;
+    }
+
+    final rentee = await getUser(property.renteeId!);
+    if (rentee == null) throw Exception('Rentee profile not found.');
+
+    final baseCost = (propDoc['totalCost'] as num?)?.toDouble() ?? property.totalCost ?? 0.0;
+    double bookingFee = (propDoc['bookingFee'] as num?)?.toDouble() ?? 0.0;
+    if (bookingFee == 0.0) {
+      Map<String, dynamic>? escrowDoc;
+      if (resolvedReqId != null) {
+        escrowDoc = await getDocument('property_escrows/$resolvedReqId');
+      }
+      escrowDoc ??= await getDocument('property_escrows/$actualPropertyId');
+      bookingFee = (escrowDoc?['customerPlatformFeeAmount'] as num?)?.toDouble() ??
+          (escrowDoc?['bookingFee'] as num?)?.toDouble() ??
+          baseCost * 0.03;
+    }
+    final fullRefundAmount = (propDoc['totalCustomerPaid'] as num?)?.toDouble() ?? (baseCost + bookingFee);
+    const cancellationFee = 2.0; // flat platform cancellation processing fee
+    final refundToRentee = (fullRefundAmount - cancellationFee).clamp(0.0, double.infinity);
+
+    // Refund (total - 2 TYXBIT fee) to rentee
+    await updateTyxBalance(property.renteeId!, rentee.tyxBalance + refundToRentee);
+
+    // Save refund transaction
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    final txData = {
+      'uid': property.renteeId!,
+      'type': 'refund',
+      'category': 'refund',
+      'amount': refundToRentee,
+      'title': 'Property Lease Cancellation — Refund',
+      'desc':
+          'Refund for cancelled property lease: "${property.title}" (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
+      'method': 'Tranyx Wallet',
+      'originRail': 'internal_balance',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'status': 'Completed',
+    };
+    await setDocument('transactions/$txId', txData);
+
+    // Mark escrow as Refunded
+    final escrowRefund = {
+      'status': 'Refunded',
+      'cancelledAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    if (resolvedReqId != null) {
+      await setDocument('property_escrows/$resolvedReqId', escrowRefund);
+    }
+    await setDocument('property_escrows/$actualPropertyId', escrowRefund);
+
+    // Mark request as Cancelled
+    if (resolvedReqId != null) {
+      final reqDoc = await getDocument('property_requests/$resolvedReqId');
+      if (reqDoc != null) {
+        final promoCode = reqDoc['promoCode'] as String?;
+        if (promoCode != null) {
+          await decrementPromoUsage(promoCode, property.renteeId!);
+        }
+      }
+      await setDocument('property_requests/$resolvedReqId', {'status': 'Cancelled'});
+    }
+
+    // Reset property listing to Available
+    await setDocument('properties/$actualPropertyId', {
+      'status': 'Available',
+      'renteeId': null,
+      'renteeName': null,
+      'renteePhotoUrl': null,
+      'rentalDurationType': null,
+      'rentalMultiplier': null,
+      'startDate': null,
+      'endDate': null,
+      'totalCost': null,
+      'baseRentAmount': null,
+      'securityDepositAmount': null,
+      'bookingFee': null,
+      'renteeSignatureName': null,
+      'signedAt': null,
+      'currentRequestId': null,
+      'licenseNumber': null,
+    });
+
+    // Notifications
+    await createNotification(
+      uid: property.hostId,
+      title: 'Property Lease Cancelled',
+      message: 'Lease for "${property.title}" was cancelled. The listing is now available again.',
+    );
+    await createNotification(
+      uid: property.renteeId!,
+      title: 'Property Lease Cancelled — Refund Issued',
+      message:
+          'Your lease was cancelled. ${refundToRentee.toStringAsFixed(2)} TYXBIT refunded (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee).',
+    );
+  }
+
 
   /// Sign property contract to activate lease
   Future<void> signPropertyContract(String propertyId, String signatureDataUrl, {String? signatureHash, String? requestId}) async {

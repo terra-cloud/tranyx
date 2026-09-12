@@ -522,19 +522,49 @@ class TransitRepository {
     );
   }
 
+  /// Cancel a booking request by the rentee and refund their wallet (supports Pending and Approved/Awaiting Signature)
   Future<void> cancelBookingRequest(String requestId) async {
     final doc = await _firestore.collection('rental_requests').doc(requestId).get();
     if (!doc.exists) return;
 
     final data = doc.data()!;
-    if (data['status'] != 'Pending') return;
+    final st = data['status']?.toString();
+    if (st != 'Pending' && st != 'Approved' && st != 'Awaiting Signature') return;
 
     final renteeId = data['renteeId'] as String;
     final totalCost = (data['totalCost'] as num).toDouble();
     final bookingFee = (data['bookingFee'] as num? ?? totalCost * 0.03).toDouble();
     final refundAmount = totalCost + bookingFee;
+    final rentalId = data['rentalId']?.toString();
 
     await _firestore.collection('rental_requests').doc(requestId).update({'status': 'Cancelled'});
+
+    // If it was Approved / Awaiting Signature, reopen vehicle listing if currentRequestId matches
+    if (rentalId != null && (st == 'Approved' || st == 'Awaiting Signature')) {
+      final rentDoc = await _firestore.collection('rentals').doc(rentalId).get();
+      if (rentDoc.exists && rentDoc.data()?['currentRequestId']?.toString() == requestId) {
+        await _firestore.collection('rentals').doc(rentalId).update({
+          'status': 'Available',
+          'renteeId': null,
+          'renteeName': null,
+          'renteePhotoUrl': null,
+          'startDate': null,
+          'endDate': null,
+          'totalCost': null,
+          'bookingFee': null,
+          'currentRequestId': null,
+          'renteeSignatureName': null,
+          'signedAt': null,
+        });
+      }
+      await _firestore.collection('rental_escrows').doc(rentalId).delete();
+    }
+
+    // Revert promo usage
+    final promoCode = data['promoCode'] as String?;
+    if (promoCode != null && promoCode.trim().isNotEmpty) {
+      await decrementPromoUsage(promoCode, renteeId);
+    }
 
     final rentee = await getUser(renteeId);
     if (rentee != null) {
@@ -542,6 +572,7 @@ class TransitRepository {
 
       final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
       await _firestore.collection('transactions').doc(txId).set({
+        'id': txId,
         'uid': renteeId,
         'type': 'refund',
         'amount': refundAmount,
@@ -553,6 +584,219 @@ class TransitRepository {
     }
 
     await _firestore.collection('rental_escrows').doc(requestId).delete();
+
+    final hostId = data['hostId'] as String?;
+    if (hostId != null && hostId.isNotEmpty) {
+      await createNotification(
+        uid: hostId,
+        title: 'Booking Request Cancelled',
+        message: '${data['renteeName'] ?? "Renter"} has cancelled their booking request for your ${data['brand']} ${data['model']}. Listing is now available.',
+      );
+    }
+  }
+
+  /// Host revokes an approved vehicle booking request before it is signed, reopening listing and issuing 100% refund to renter
+  Future<void> revokeApproval(String rentalId, {String? requestId}) async {
+    String actualRentalId = rentalId;
+    String? resolvedReqId = requestId;
+
+    var doc = await _firestore.collection('rentals').doc(actualRentalId).get();
+    if (!doc.exists) {
+      final reqDoc = await _firestore.collection('rental_requests').doc(actualRentalId).get();
+      if (reqDoc.exists) {
+        resolvedReqId = actualRentalId;
+        final rId = reqDoc.data()?['rentalId']?.toString();
+        if (rId != null && rId.isNotEmpty) {
+          actualRentalId = rId;
+          doc = await _firestore.collection('rentals').doc(actualRentalId).get();
+        }
+      }
+    } else {
+      resolvedReqId ??= (doc.data()?['currentRequestId'] as String?);
+    }
+
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      final reqDoc = await _firestore.collection('rental_requests').doc(resolvedReqId).get();
+      if (reqDoc.exists) {
+        final reqData = reqDoc.data()!;
+        final renteeId = reqData['renteeId'] as String;
+        final totalCost = (reqData['totalCost'] as num).toDouble();
+        final bookingFee = (reqData['bookingFee'] as num? ?? totalCost * 0.03).toDouble();
+        final refundAmount = totalCost + bookingFee;
+
+        await _firestore.collection('rental_requests').doc(resolvedReqId).update({'status': 'Cancelled'});
+
+        final promoCode = reqData['promoCode'] as String?;
+        if (promoCode != null && promoCode.trim().isNotEmpty) {
+          await decrementPromoUsage(promoCode, renteeId);
+        }
+
+        final rentee = await getUser(renteeId);
+        if (rentee != null) {
+          await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
+
+          final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+          await _firestore.collection('transactions').doc(txId).set({
+            'id': txId,
+            'uid': renteeId,
+            'type': 'refund',
+            'amount': refundAmount,
+            'title': 'Booking Approval Revoked',
+            'desc': 'Host revoked approval for ${reqData['brand']} ${reqData['model']}. 100% refund issued.',
+            'method': 'Tranyx Wallet',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+          });
+        }
+
+        await _firestore.collection('rental_escrows').doc(resolvedReqId).delete();
+
+        await createNotification(
+          uid: renteeId,
+          title: 'Booking Approval Revoked',
+          message:
+              'The host has revoked approval for vehicle ${reqData['brand']} ${reqData['model']}. Full refund of ₱ ${refundAmount.toStringAsFixed(2)} has been credited to your wallet.',
+        );
+      }
+    }
+
+    if (doc.exists) {
+      await _firestore.collection('rentals').doc(actualRentalId).update({
+        'status': 'Available',
+        'renteeId': null,
+        'renteeName': null,
+        'renteePhotoUrl': null,
+        'startDate': null,
+        'endDate': null,
+        'totalCost': null,
+        'bookingFee': null,
+        'currentRequestId': null,
+        'renteeSignatureName': null,
+        'signedAt': null,
+      });
+    }
+    await _firestore.collection('rental_escrows').doc(actualRentalId).delete();
+  }
+
+  /// Cancel vehicle rental — full refund (totalCost + bookingFee - 2.0 TYXBIT platform fee) back to rentee
+  Future<void> cancelRental(String rentalId, {String? requestId}) async {
+    String actualRentalId = rentalId;
+    String? resolvedReqId = requestId;
+
+    var doc = await _firestore.collection('rentals').doc(actualRentalId).get();
+    if (!doc.exists) {
+      final reqDoc = await _firestore.collection('rental_requests').doc(actualRentalId).get();
+      if (reqDoc.exists) {
+        resolvedReqId = actualRentalId;
+        final rId = reqDoc.data()?['rentalId']?.toString();
+        if (rId != null && rId.isNotEmpty) {
+          actualRentalId = rId;
+          doc = await _firestore.collection('rentals').doc(actualRentalId).get();
+        }
+      }
+    } else {
+      resolvedReqId ??= (doc.data()?['currentRequestId'] as String?);
+    }
+
+    if (!doc.exists) throw Exception('Rental listing not found.');
+
+    final rental = VehicleRental.fromMap(doc.data()!, actualRentalId);
+
+    if (rental.renteeId == null || rental.renteeId!.isEmpty) {
+      await _firestore.collection('rentals').doc(actualRentalId).update({'status': 'Available'});
+      if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+        await _firestore.collection('rental_requests').doc(resolvedReqId).update({'status': 'Cancelled'});
+      }
+      return;
+    }
+
+    final rentee = await getUser(rental.renteeId!);
+    if (rentee == null) throw Exception('Rentee profile not found.');
+
+    final baseCost = rental.totalCost ?? 0.0;
+    double bookingFee = (doc.data()!['bookingFee'] as num?)?.toDouble() ?? 0.0;
+    if (bookingFee == 0.0) {
+      DocumentSnapshot<Map<String, dynamic>>? escrowDoc;
+      if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+        final rDoc = await _firestore.collection('rental_escrows').doc(resolvedReqId).get();
+        if (rDoc.exists) escrowDoc = rDoc;
+      }
+      if (escrowDoc == null || !escrowDoc.exists) {
+        final rentEscrow = await _firestore.collection('rental_escrows').doc(actualRentalId).get();
+        if (rentEscrow.exists) escrowDoc = rentEscrow;
+      }
+      bookingFee = (escrowDoc?.data()?['bookingFee'] as num?)?.toDouble() ?? baseCost * 0.03;
+    }
+    final fullRefundAmount = baseCost + bookingFee;
+    const cancellationFee = 2.0; // flat platform cancellation processing fee
+    final refundToRentee = (fullRefundAmount - cancellationFee).clamp(0.0, double.infinity);
+
+    await updateTyxBalance(rental.renteeId!, rentee.tyxBalance + refundToRentee);
+
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    await _firestore.collection('transactions').doc(txId).set({
+      'id': txId,
+      'uid': rental.renteeId!,
+      'type': 'refund',
+      'amount': refundToRentee,
+      'title': 'Rental Cancellation — Refund',
+      'desc':
+          'Refund for cancelled rental: ${rental.brand} ${rental.model} (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
+      'method': 'Tranyx Wallet',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    final escrowRefund = {
+      'status': 'Refunded',
+      'cancelledAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      await _firestore.collection('rental_escrows').doc(resolvedReqId).update(escrowRefund);
+    }
+    await _firestore.collection('rental_escrows').doc(actualRentalId).update(escrowRefund);
+
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      final reqDoc = await _firestore.collection('rental_requests').doc(resolvedReqId).get();
+      if (reqDoc.exists) {
+        final promoCode = reqDoc.data()?['promoCode'] as String?;
+        if (promoCode != null && promoCode.trim().isNotEmpty) {
+          await decrementPromoUsage(promoCode, rental.renteeId!);
+        }
+      }
+      await _firestore.collection('rental_requests').doc(resolvedReqId).update({'status': 'Cancelled'});
+    }
+
+    await _firestore.collection('rentals').doc(actualRentalId).update({
+      'status': 'Available',
+      'renteeId': null,
+      'renteeName': null,
+      'renteePhotoUrl': null,
+      'rentalDurationType': null,
+      'rentalMultiplier': null,
+      'startDate': null,
+      'endDate': null,
+      'totalCost': null,
+      'bookingFee': null,
+      'renteeSignatureName': null,
+      'renteeLicenseNumber': null,
+      'signedAt': null,
+      'trackingLat': null,
+      'trackingLng': null,
+      'rentalType': null,
+      'deliveryAddress': null,
+      'currentRequestId': null,
+    });
+
+    await createNotification(
+      uid: rental.hostId,
+      title: 'Rental Booking Cancelled',
+      message: 'Rental booking for ${rental.brand} ${rental.model} was cancelled. The listing is now available again.',
+    );
+    await createNotification(
+      uid: rental.renteeId!,
+      title: 'Rental Cancelled — Refund Issued',
+      message:
+          'Your rental was cancelled. ${refundToRentee.toStringAsFixed(2)} TYXBIT refunded (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee).',
+    );
   }
 
   Future<void> signVehicleContract(String rentalId, String signatureDataUrl, {String? signatureHash, String? requestId}) async {
@@ -1284,20 +1528,49 @@ class TransitRepository {
     );
   }
 
+  /// Cancel a property booking request by the rentee and refund their wallet (supports Pending, Approved, Awaiting Signature)
   Future<void> cancelPropertyBookingRequest(String requestId) async {
     final doc = await _firestore.collection('property_requests').doc(requestId).get();
     if (!doc.exists) return;
 
     final data = doc.data()!;
-    if (data['status'] != 'Pending') return;
+    final st = data['status']?.toString();
+    if (st != 'Pending' && st != 'Approved' && st != 'Awaiting Signature') return;
 
     final renteeId = data['renteeId'] as String;
     final hostId = data['hostId'] as String;
     final totalCost = (data['totalCost'] as num).toDouble();
     final bookingFee = (data['bookingFee'] as num? ?? totalCost * 0.03).toDouble();
-    final refundAmount = totalCost + bookingFee;
+    final refundAmount = (data['totalCustomerPaid'] as num?)?.toDouble() ?? (totalCost + bookingFee);
+    final propertyId = data['propertyId']?.toString();
 
     await _firestore.collection('property_requests').doc(requestId).update({'status': 'Cancelled'});
+
+    // If it was Approved / Awaiting Signature, reopen property listing if currentRequestId matches
+    if (propertyId != null && (st == 'Approved' || st == 'Awaiting Signature')) {
+      final propDoc = await _firestore.collection('properties').doc(propertyId).get();
+      if (propDoc.exists && propDoc.data()?['currentRequestId']?.toString() == requestId) {
+        await _firestore.collection('properties').doc(propertyId).update({
+          'status': 'Available',
+          'renteeId': null,
+          'renteeName': null,
+          'renteePhotoUrl': null,
+          'rentalDurationType': null,
+          'rentalMultiplier': null,
+          'startDate': null,
+          'endDate': null,
+          'totalCost': null,
+          'baseRentAmount': null,
+          'securityDepositAmount': null,
+          'bookingFee': null,
+          'renteeSignatureName': null,
+          'signedAt': null,
+          'currentRequestId': null,
+          'licenseNumber': null,
+        });
+      }
+      await _firestore.collection('property_escrows').doc(propertyId).delete();
+    }
 
     // Revert promo usage
     final promoCode = data['promoCode'] as String?;
@@ -1330,7 +1603,222 @@ class TransitRepository {
     await createNotification(
       uid: hostId,
       title: 'Property Booking Request Cancelled',
-      message: '${data['renteeName'] ?? "Renter"} has cancelled their booking request for your property "${data['title']}".',
+      message: '${data['renteeName'] ?? "Renter"} has cancelled their booking request for your property "${data['title']}". Listing is now available.',
+    );
+  }
+
+  /// Host revokes an approved property booking request before it is signed, reopening listing and issuing 100% refund to renter
+  Future<void> revokePropertyApproval(String propertyId, {String? requestId}) async {
+    String actualPropertyId = propertyId;
+    String? resolvedReqId = requestId;
+
+    var propDoc = await _firestore.collection('properties').doc(actualPropertyId).get();
+    if (!propDoc.exists) {
+      final reqDoc = await _firestore.collection('property_requests').doc(actualPropertyId).get();
+      if (reqDoc.exists) {
+        resolvedReqId = actualPropertyId;
+        final pId = reqDoc.data()?['propertyId']?.toString();
+        if (pId != null && pId.isNotEmpty) {
+          actualPropertyId = pId;
+          propDoc = await _firestore.collection('properties').doc(actualPropertyId).get();
+        }
+      }
+    } else {
+      resolvedReqId ??= (propDoc.data()?['currentRequestId'] as String?);
+    }
+
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      final reqDoc = await _firestore.collection('property_requests').doc(resolvedReqId).get();
+      if (reqDoc.exists) {
+        final reqData = reqDoc.data()!;
+        final renteeId = reqData['renteeId'] as String;
+        final totalRefund = (reqData['totalCustomerPaid'] as num?)?.toDouble() ??
+            ((reqData['totalCost'] as num).toDouble() + ((reqData['bookingFee'] as num?)?.toDouble() ?? 0.0));
+
+        await _firestore.collection('property_requests').doc(resolvedReqId).update({'status': 'Cancelled'});
+
+        final promoCode = reqData['promoCode'] as String?;
+        if (promoCode != null && promoCode.trim().isNotEmpty) {
+          await decrementPromoUsage(promoCode, renteeId);
+        }
+
+        final rentee = await getUser(renteeId);
+        if (rentee != null) {
+          await updateTyxBalance(renteeId, rentee.tyxBalance + totalRefund);
+
+          final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+          await _firestore.collection('transactions').doc(txId).set({
+            'id': txId,
+            'uid': renteeId,
+            'type': 'refund',
+            'category': 'refund',
+            'amount': totalRefund,
+            'title': 'Property Booking Approval Revoked',
+            'desc': 'Host revoked approval for "${reqData['title'] ?? 'Listing'}". 100% refund issued.',
+            'method': 'Tranyx Wallet',
+            'originRail': 'internal_balance',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+            'status': 'Completed',
+          });
+        }
+
+        await _firestore.collection('property_escrows').doc(resolvedReqId).delete();
+
+        await createNotification(
+          uid: renteeId,
+          title: 'Property Booking Approval Revoked',
+          message:
+              'The host has revoked approval for property "${reqData['title'] ?? 'Listing'}". Full refund of ₱ ${totalRefund.toStringAsFixed(2)} has been credited to your wallet.',
+        );
+      }
+    }
+
+    if (propDoc.exists) {
+      await _firestore.collection('properties').doc(actualPropertyId).update({
+        'status': 'Available',
+        'renteeId': null,
+        'renteeName': null,
+        'renteePhotoUrl': null,
+        'rentalDurationType': null,
+        'rentalMultiplier': null,
+        'startDate': null,
+        'endDate': null,
+        'totalCost': null,
+        'baseRentAmount': null,
+        'securityDepositAmount': null,
+        'bookingFee': null,
+        'renteeSignatureName': null,
+        'signedAt': null,
+        'currentRequestId': null,
+        'licenseNumber': null,
+      });
+    }
+    await _firestore.collection('property_escrows').doc(actualPropertyId).delete();
+  }
+
+  /// Cancel property lease rental — full refund (totalCost + bookingFee - 2.0 TYXBIT platform fee) back to rentee
+  Future<void> cancelPropertyRental(String propertyId, {String? requestId}) async {
+    String actualPropertyId = propertyId;
+    String? resolvedReqId = requestId;
+
+    var propDoc = await _firestore.collection('properties').doc(actualPropertyId).get();
+    if (!propDoc.exists) {
+      final reqDoc = await _firestore.collection('property_requests').doc(actualPropertyId).get();
+      if (reqDoc.exists) {
+        resolvedReqId = actualPropertyId;
+        final pId = reqDoc.data()?['propertyId']?.toString();
+        if (pId != null && pId.isNotEmpty) {
+          actualPropertyId = pId;
+          propDoc = await _firestore.collection('properties').doc(actualPropertyId).get();
+        }
+      }
+    } else {
+      resolvedReqId ??= (propDoc.data()?['currentRequestId'] as String?);
+    }
+
+    if (!propDoc.exists) throw Exception('Property listing not found.');
+
+    final propData = propDoc.data()!;
+    final property = PropertyRental.fromMap(propData, actualPropertyId);
+
+    if (property.renteeId == null || property.renteeId!.isEmpty) {
+      await _firestore.collection('properties').doc(actualPropertyId).update({'status': 'Available'});
+      if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+        await _firestore.collection('property_requests').doc(resolvedReqId).update({'status': 'Cancelled'});
+      }
+      return;
+    }
+
+    final rentee = await getUser(property.renteeId!);
+    if (rentee == null) throw Exception('Rentee profile not found.');
+
+    final baseCost = (propData['totalCost'] as num?)?.toDouble() ?? property.totalCost ?? 0.0;
+    double bookingFee = (propData['bookingFee'] as num?)?.toDouble() ?? 0.0;
+    if (bookingFee == 0.0) {
+      DocumentSnapshot<Map<String, dynamic>>? escrowDoc;
+      if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+        final rDoc = await _firestore.collection('property_escrows').doc(resolvedReqId).get();
+        if (rDoc.exists) escrowDoc = rDoc;
+      }
+      if (escrowDoc == null || !escrowDoc.exists) {
+        final pEscrow = await _firestore.collection('property_escrows').doc(actualPropertyId).get();
+        if (pEscrow.exists) escrowDoc = pEscrow;
+      }
+      bookingFee = (escrowDoc?.data()?['customerPlatformFeeAmount'] as num?)?.toDouble() ??
+          (escrowDoc?.data()?['bookingFee'] as num?)?.toDouble() ??
+          baseCost * 0.03;
+    }
+    final fullRefundAmount = (propData['totalCustomerPaid'] as num?)?.toDouble() ?? (baseCost + bookingFee);
+    const cancellationFee = 2.0; // flat platform cancellation processing fee
+    final refundToRentee = (fullRefundAmount - cancellationFee).clamp(0.0, double.infinity);
+
+    await updateTyxBalance(property.renteeId!, rentee.tyxBalance + refundToRentee);
+
+    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+    await _firestore.collection('transactions').doc(txId).set({
+      'id': txId,
+      'uid': property.renteeId!,
+      'type': 'refund',
+      'category': 'refund',
+      'amount': refundToRentee,
+      'title': 'Property Lease Cancellation — Refund',
+      'desc':
+          'Refund for cancelled property lease: "${property.title}" (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
+      'method': 'Tranyx Wallet',
+      'originRail': 'internal_balance',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'status': 'Completed',
+    });
+
+    final escrowRefund = {
+      'status': 'Refunded',
+      'cancelledAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      await _firestore.collection('property_escrows').doc(resolvedReqId).update(escrowRefund);
+    }
+    await _firestore.collection('property_escrows').doc(actualPropertyId).update(escrowRefund);
+
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      final reqDoc = await _firestore.collection('property_requests').doc(resolvedReqId).get();
+      if (reqDoc.exists) {
+        final promoCode = reqDoc.data()?['promoCode'] as String?;
+        if (promoCode != null && promoCode.trim().isNotEmpty) {
+          await decrementPromoUsage(promoCode, property.renteeId!);
+        }
+      }
+      await _firestore.collection('property_requests').doc(resolvedReqId).update({'status': 'Cancelled'});
+    }
+
+    await _firestore.collection('properties').doc(actualPropertyId).update({
+      'status': 'Available',
+      'renteeId': null,
+      'renteeName': null,
+      'renteePhotoUrl': null,
+      'rentalDurationType': null,
+      'rentalMultiplier': null,
+      'startDate': null,
+      'endDate': null,
+      'totalCost': null,
+      'baseRentAmount': null,
+      'securityDepositAmount': null,
+      'bookingFee': null,
+      'renteeSignatureName': null,
+      'signedAt': null,
+      'currentRequestId': null,
+      'licenseNumber': null,
+    });
+
+    await createNotification(
+      uid: property.hostId,
+      title: 'Property Lease Cancelled',
+      message: 'Lease for "${property.title}" was cancelled. The listing is now available again.',
+    );
+    await createNotification(
+      uid: property.renteeId!,
+      title: 'Property Lease Cancelled — Refund Issued',
+      message:
+          'Your lease was cancelled. ${refundToRentee.toStringAsFixed(2)} TYXBIT refunded (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee).',
     );
   }
 
