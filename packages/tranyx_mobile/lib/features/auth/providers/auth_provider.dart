@@ -54,6 +54,21 @@ final userProfileProvider = StreamProvider<UserProfile?>((ref) {
       });
 });
 
+final userProfileByUidProvider = StreamProvider.family<UserProfile?, String>((ref, uid) {
+  if (uid.isEmpty) return Stream.value(null);
+  return ref
+      .watch(firestoreProvider)
+      .collection('users')
+      .doc(uid)
+      .snapshots()
+      .map((doc) {
+        if (!doc.exists || doc.data() == null) {
+          return null;
+        }
+        return UserProfile.fromMap(uid, doc.data()!);
+      });
+});
+
 class AuthController {
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;

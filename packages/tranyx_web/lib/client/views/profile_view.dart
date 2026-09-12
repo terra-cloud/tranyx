@@ -248,7 +248,7 @@ class _ProfileMainState extends State<_ProfileMain> {
 
       // Stats row
       div(
-        classes: 'grid grid-cols-2 md:grid-cols-${s.accountType == AccountType.employer ? "2" : "3"} gap-4',
+        classes: 'grid grid-cols-2 md:grid-cols-${(s.userProfile?.abandonedJobs ?? 0) > 0 ? (s.accountType == AccountType.employer ? "3" : "4") : (s.accountType == AccountType.employer ? "2" : "3")} gap-4',
         [
           // Rating - Always shown
           _stat(
@@ -266,6 +266,16 @@ class _ProfileMainState extends State<_ProfileMain> {
               'Jobs Done',
               'briefcase',
               'text-indigo-400',
+              isDark,
+            ),
+
+          // Abandoned Gigs - Shown if any
+          if ((s.userProfile?.abandonedJobs ?? 0) > 0)
+            _stat(
+              (s.userProfile!.abandonedJobs).toString(),
+              'Abandoned Gigs',
+              'alert-triangle',
+              'text-red-400',
               isDark,
             ),
 

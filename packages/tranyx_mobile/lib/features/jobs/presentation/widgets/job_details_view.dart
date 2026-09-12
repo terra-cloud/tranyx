@@ -610,6 +610,80 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
   }
 
   Widget _buildProtectedHireBanner(Job job, bool isDarkMode) {
+    final bool isStale = job.isInactive(thresholdHours: 48);
+
+    if (isStale) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.only(top: 12),
+        decoration: BoxDecoration(
+          color: AppColors.red.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.red.withValues(alpha: 0.35)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: AppColors.red,
+                  size: 22,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Gig Inactive (Over 48h Without Progress)',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: AppColors.red,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This gig has had zero progress or updates for over 48 hours. As the employer, you can reclaim this gig now. 100% of your escrow deposit will be immediately refunded to your wallet balance, and the job will be marked Abandoned.',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDarkMode
+                    ? AppColors.darkTextMuted
+                    : AppColors.lightTextMuted,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isLoading ? null : () => _handleReclaimInactiveJob(job),
+                icon: const Icon(Icons.restore, size: 18, color: Colors.white),
+                label: const Text(
+                  'Reclaim Inactive Gig (100% Escrow Refund)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: Colors.white,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.red,
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -768,6 +842,90 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text('Error cancelling job: $e')));
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
+    }
+  }
+
+  Future<void> _handleReclaimInactiveJob(Job job) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+        return AlertDialog(
+          backgroundColor: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: AppColors.red),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Reclaim Inactive Gig?',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'This gig has been inactive for 48+ hours without progress. Reclaiming it will immediately refund 100% of your escrow deposit to your wallet balance and mark this gig as Abandoned.\n\nAre you sure you want to proceed?',
+            style: TextStyle(
+              fontSize: 13,
+              color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.red,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Reclaim Gig', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() => _isLoading = true);
+      try {
+        final userProfile = ref.read(userProfileProvider).value;
+        await ref.read(jobRepositoryProvider).reclaimInactiveJob(
+          jobId: job.id,
+          employerUid: userProfile?.uid ?? '',
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Gig reclaimed successfully. 100% escrow refunded to your wallet.'),
+              backgroundColor: AppColors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error reclaiming gig: $e'),
+              backgroundColor: AppColors.red,
+            ),
+          );
         }
       } finally {
         if (mounted) {
@@ -1743,8 +1901,10 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
     final isEmployer = job.creatorId == user?.uid;
 
     if (status.toLowerCase() == 'cancelled' ||
-        status.toUpperCase() == 'ADMIN_CANCELLED') {
+        status.toUpperCase() == 'ADMIN_CANCELLED' ||
+        status.toLowerCase() == 'abandoned') {
       final isAdminCancelled = status.toUpperCase() == 'ADMIN_CANCELLED';
+      final isAbandoned = status.toLowerCase() == 'abandoned';
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(16),
@@ -1759,7 +1919,9 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
             const Icon(Icons.cancel, color: AppColors.red),
             const SizedBox(width: 8),
             Text(
-              isAdminCancelled
+              isAbandoned
+                  ? 'This gig was abandoned and reclaimed by the employer.'
+                  : isAdminCancelled
                   ? 'This gig was cancelled by an Administrator (Admin Override).'
                   : 'This gig has been cancelled.',
               style: const TextStyle(

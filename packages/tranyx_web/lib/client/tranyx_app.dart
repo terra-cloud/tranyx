@@ -3997,6 +3997,7 @@ class TranyxAppState extends State<TranyxApp> {
           if (userDoc != null) {
             copy['isBonded'] = userDoc['isBonded'] as bool? ?? false;
             copy['certificationUrls'] = userDoc['certificationUrls'];
+            copy['abandonedJobs'] = (userDoc['abandonedJobs'] as num?)?.toInt() ?? 0;
           }
         }
         enrichedApps.add(copy);
@@ -4889,6 +4890,34 @@ class TranyxAppState extends State<TranyxApp> {
     } catch (e) {
       setState(() => isUpdatingJobStatus = false);
       alertDialog('Error', 'Failed to override cancel job: $e');
+    }
+  }
+
+  Future<void> handleReclaimInactiveJob(Map<String, dynamic> job) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) return;
+
+    setState(() => isUpdatingJobStatus = true);
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final jobId = (job['id'] ?? job['jobId'] ?? '').toString();
+      await svc.reclaimInactiveJob(jobId, uid);
+
+      await loadUserProfile();
+      walletBalance = userProfile?.tyxBalance ?? walletBalance;
+      await loadJobs();
+      if (selectedJobData != null && selectedJobData!['id'] == jobId) {
+        selectJobAndLoadDetails({
+          ...selectedJobData!,
+          'status': 'Abandoned',
+        });
+      }
+      setState(() => isUpdatingJobStatus = false);
+      alertDialog('Gig Reclaimed', 'The inactive gig has been marked Abandoned and 100% of your escrow deposit has been refunded to your wallet.');
+    } catch (e) {
+      setState(() => isUpdatingJobStatus = false);
+      alertDialog('Error', 'Failed to reclaim gig: $e');
     }
   }
 

@@ -744,6 +744,35 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                         ),
                       ),
                     ),
+                    if ((profile?.abandonedJobs ?? 0) > 0) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.red.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: AppColors.red.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.warning_amber_rounded, size: 12, color: AppColors.red),
+                            const SizedBox(width: 4),
+                            Text(
+                              "${profile!.abandonedJobs} ABANDONED GIG${profile.abandonedJobs > 1 ? 'S' : ''}".toUpperCase(),
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.red,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ],

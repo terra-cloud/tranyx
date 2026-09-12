@@ -423,14 +423,14 @@ class JobsViewComponent extends StatelessComponent {
         jobs = s.myJobs.where((j) {
           final isWorker = j['acceptedApplicantId'] == myUid;
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
-          final isTerminal = stat == 'completed' || stat == 'closed' || stat == 'cancelled';
+          final isTerminal = stat == 'completed' || stat == 'closed' || stat == 'cancelled' || stat == 'abandoned';
           return isWorker && isTerminal;
         }).toList();
       } else if (s.activeJobPane == 'active') {
         jobs = s.myJobs.where((j) {
           final isWorker = j['acceptedApplicantId'] == myUid;
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
-          final isActive = stat != 'completed' && stat != 'closed' && stat != 'cancelled';
+          final isActive = stat != 'completed' && stat != 'closed' && stat != 'cancelled' && stat != 'abandoned';
           return isWorker && isActive;
         }).toList();
       } else if (s.activeJobPane == 'applied') {
@@ -447,14 +447,14 @@ class JobsViewComponent extends StatelessComponent {
         jobs = s.myJobs.where((j) {
           final isCreator = j['creatorId'] == myUid;
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
-          final isTerminal = stat == 'completed' || stat == 'closed' || stat == 'cancelled' || stat == 'done';
+          final isTerminal = stat == 'completed' || stat == 'closed' || stat == 'cancelled' || stat == 'done' || stat == 'abandoned';
           return isCreator && isTerminal;
         }).toList();
       } else {
         jobs = s.myJobs.where((j) {
           final isCreator = j['creatorId'] == myUid;
           final stat = (j['status'] as String?)?.toLowerCase() ?? 'open';
-          final isActive = stat != 'completed' && stat != 'closed' && stat != 'cancelled' && stat != 'done';
+          final isActive = stat != 'completed' && stat != 'closed' && stat != 'cancelled' && stat != 'done' && stat != 'abandoned';
           return isCreator && isActive;
         }).toList();
       }
@@ -1805,19 +1805,22 @@ class _JobDetails extends StatelessComponent {
                       ],
                     ),
                 ]);
-              } else if (status == 'Cancelled' || status == 'ADMIN_CANCELLED' || status == 'admin_cancelled') {
+              } else if (status == 'Cancelled' || status == 'ADMIN_CANCELLED' || status == 'admin_cancelled' || status == 'Abandoned' || status == 'abandoned') {
                 final isAdminCancelled = status == 'ADMIN_CANCELLED' || status == 'admin_cancelled';
+                final isAbandoned = status == 'Abandoned' || status == 'abandoned';
                 return div(
                   classes: 'p-4 rounded-2xl border border-red-500/30 bg-red-500/10 flex items-center gap-3',
                   [
                     lIcon('x-circle', cls: 'w-6 h-6 text-red-400'),
                     div([
                       p(classes: 'font-bold text-red-400 text-sm', [
-                        Component.text(isAdminCancelled ? 'Admin Cancelled' : 'Gig Cancelled'),
+                        Component.text(isAbandoned ? 'Gig Abandoned' : isAdminCancelled ? 'Admin Cancelled' : 'Gig Cancelled'),
                       ]),
                       p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
                         Component.text(
-                          isAdminCancelled
+                          isAbandoned
+                              ? 'This gig was abandoned and reclaimed by the employer.'
+                              : isAdminCancelled
                               ? 'This gig was cancelled by an Administrator (Admin Override).'
                               : 'This gig has been cancelled.',
                         ),
@@ -1905,6 +1908,22 @@ class _JobDetails extends StatelessComponent {
                 status == 'arrived_pickup' ||
                 status == 'paid_cashier' ||
                 status == 'in_transit') {
+              DateTime? parseDate(dynamic val) {
+                if (val == null) return null;
+                if (val is DateTime) return val;
+                if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+                if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+                if (val is String) {
+                  final dt = DateTime.tryParse(val);
+                  if (dt != null) return dt;
+                  final n = num.tryParse(val);
+                  if (n != null) return DateTime.fromMillisecondsSinceEpoch(n.toInt());
+                }
+                return null;
+              }
+              final lastActive = parseDate(s.selectedJobData?['updatedAt']) ?? parseDate(s.selectedJobData?['createdAt']) ?? DateTime.now();
+              final isStale = DateTime.now().difference(lastActive).inHours >= 48;
+
               return div(classes: 'space-y-3', [
                 div(classes: 'p-4 rounded-2xl border border-blue-500/30 bg-blue-500/10 flex items-center gap-3', [
                   lIcon('clock', cls: 'w-5 h-5 text-blue-400'),
@@ -1921,43 +1940,77 @@ class _JobDetails extends StatelessComponent {
                     ]),
                   ]),
                 ]),
-                div(
-                  classes:
-                      'p-4 rounded-2xl border ${isDark ? "bg-amber-950/20 border-amber-500/30" : "bg-amber-50 border-amber-200"} flex flex-col gap-3',
-                  [
-                    div(classes: 'flex items-start gap-3', [
-                      lIcon('shield-alert', cls: 'w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5'),
-                      div([
-                        p(classes: 'font-bold text-amber-500 text-sm', [Component.text('Cancellation Locked (Active Hire)')]),
-                        p(classes: 'text-xs mt-0.5 ${isDark ? "text-amber-200/70" : "text-amber-800/80"}', [
-                          Component.text(
-                            'A Nyxian has been hired for this gig. Unilateral cancellation is disabled to safeguard committed preparation and resources.',
-                          ),
+                if (isStale)
+                  div(
+                    classes:
+                        'p-4 rounded-2xl border border-red-500/35 bg-red-500/10 flex flex-col gap-3',
+                    [
+                      div(classes: 'flex items-start gap-3', [
+                        lIcon('alert-triangle', cls: 'w-5 h-5 text-red-500 flex-shrink-0 mt-0.5'),
+                        div([
+                          p(classes: 'font-bold text-red-500 text-sm', [Component.text('Gig Inactive (Over 48h Without Progress)')]),
+                          p(classes: 'text-xs mt-0.5 ${isDark ? "text-red-200/80" : "text-red-800/80"}', [
+                            Component.text(
+                              'This gig has had zero progress or updates for over 48 hours. As the employer, you can reclaim this gig now. 100% of your escrow deposit will be immediately refunded to your wallet balance, and the job will be marked Abandoned.',
+                            ),
+                          ]),
                         ]),
                       ]),
-                    ]),
-                    button(
-                      classes:
-                          'w-full py-2.5 px-4 rounded-xl font-medium text-xs ${isDark ? "bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20" : "bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200"} transition-colors flex items-center justify-center gap-2 cursor-pointer',
-                      events: {
-                        'click': (_) {
-                          if (s.selectedJobData != null) {
-                            s.handleRequestJobDispute(s.selectedJobData!);
-                          } else {
-                            s.alertDialog(
-                              'Dispute & Support Assistance',
-                              'Unilateral cancellation is locked because an active Nyxian is hired. If you need assistance, please contact Tranyx Support.',
-                            );
-                          }
+                      button(
+                        classes:
+                            'w-full py-2.5 px-4 rounded-xl font-bold text-xs bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm',
+                        events: {
+                          'click': (_) {
+                            if (s.selectedJobData != null) {
+                              s.handleReclaimInactiveJob(s.selectedJobData!);
+                            }
+                          },
                         },
-                      },
-                      [
-                        lIcon('help-circle', cls: 'w-4 h-4'),
-                        Component.text('Contact Admin / Support Dispute'),
-                      ],
-                    ),
-                  ],
-                ),
+                        [
+                          lIcon('rotate-ccw', cls: 'w-4 h-4'),
+                          Component.text('Reclaim Inactive Gig (100% Escrow Refund)'),
+                        ],
+                      ),
+                    ],
+                  )
+                else
+                  div(
+                    classes:
+                        'p-4 rounded-2xl border ${isDark ? "bg-amber-950/20 border-amber-500/30" : "bg-amber-50 border-amber-200"} flex flex-col gap-3',
+                    [
+                      div(classes: 'flex items-start gap-3', [
+                        lIcon('shield-alert', cls: 'w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5'),
+                        div([
+                          p(classes: 'font-bold text-amber-500 text-sm', [Component.text('Cancellation Locked (Active Hire)')]),
+                          p(classes: 'text-xs mt-0.5 ${isDark ? "text-amber-200/70" : "text-amber-800/80"}', [
+                            Component.text(
+                              'A Nyxian has been hired for this gig. Unilateral cancellation is disabled to safeguard committed preparation and resources.',
+                            ),
+                          ]),
+                        ]),
+                      ]),
+                      button(
+                        classes:
+                            'w-full py-2.5 px-4 rounded-xl font-medium text-xs ${isDark ? "bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20" : "bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200"} transition-colors flex items-center justify-center gap-2 cursor-pointer',
+                        events: {
+                          'click': (_) {
+                            if (s.selectedJobData != null) {
+                              s.handleRequestJobDispute(s.selectedJobData!);
+                            } else {
+                              s.alertDialog(
+                                'Dispute & Support Assistance',
+                                'Unilateral cancellation is locked because an active Nyxian is hired. If you need assistance, please contact Tranyx Support.',
+                              );
+                            }
+                          },
+                        },
+                        [
+                          lIcon('help-circle', cls: 'w-4 h-4'),
+                          Component.text('Contact Admin / Support Dispute'),
+                        ],
+                      ),
+                    ],
+                  ),
                 if ((s.selectedJobData?['receiptUrl'] as String?) != null)
                   div(classes: 'mt-2 p-3 rounded-xl border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
                     p(classes: 'text-xs font-bold text-indigo-400 mb-2', [Component.text('Receipt / Item Photo')]),
@@ -2084,19 +2137,22 @@ class _JobDetails extends StatelessComponent {
               ]);
             }
 
-            if (status == 'Cancelled' || status == 'ADMIN_CANCELLED' || status == 'admin_cancelled') {
+            if (status == 'Cancelled' || status == 'ADMIN_CANCELLED' || status == 'admin_cancelled' || status == 'Abandoned' || status == 'abandoned') {
               final isAdminCancelled = status == 'ADMIN_CANCELLED' || status == 'admin_cancelled';
+              final isAbandoned = status == 'Abandoned' || status == 'abandoned';
               return div(
                 classes: 'p-4 rounded-2xl border border-red-500/30 bg-red-500/10 flex items-center gap-3',
                 [
                   lIcon('x-circle', cls: 'w-6 h-6 text-red-400'),
                   div([
                     p(classes: 'font-bold text-red-400 text-sm', [
-                      Component.text(isAdminCancelled ? 'Admin Cancelled' : 'Gig Cancelled'),
+                      Component.text(isAbandoned ? 'Gig Abandoned' : isAdminCancelled ? 'Admin Cancelled' : 'Gig Cancelled'),
                     ]),
                     p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
                       Component.text(
-                        isAdminCancelled
+                        isAbandoned
+                            ? 'This gig was abandoned and reclaimed by the employer.'
+                            : isAdminCancelled
                             ? 'This job posting was cancelled by an Administrator (Admin Override).'
                             : 'This job posting has been cancelled.',
                       ),
@@ -3372,6 +3428,17 @@ class _ReviewApplicants extends StatelessComponent {
                                       Component.text('Bonded & Protected'),
                                     ],
                                   ),
+                                if (((acceptedApp?['abandonedJobs'] ?? s.acceptedApplicantProfile?['abandonedJobs']) as num? ?? 0) > 0)
+                                  span(
+                                    classes:
+                                        'px-2 py-0.5 rounded-lg text-[9px] font-bold bg-red-500/15 text-red-400 border border-red-500/25 flex items-center gap-0.5',
+                                    [
+                                      lIcon('alert-triangle', cls: 'w-2.5 h-2.5'),
+                                      Component.text(
+                                        '${((acceptedApp?['abandonedJobs'] ?? s.acceptedApplicantProfile?['abandonedJobs']) as num).toInt()} Abandoned Gig${((acceptedApp?['abandonedJobs'] ?? s.acceptedApplicantProfile?['abandonedJobs']) as num).toInt() > 1 ? 's' : ''}',
+                                      ),
+                                    ],
+                                  ),
                               ]),
                             ]),
                           ],
@@ -3463,6 +3530,17 @@ class _ReviewApplicants extends StatelessComponent {
                                         [
                                           lIcon('shield-check', cls: 'w-2.5 h-2.5'),
                                           Component.text('Bonded & Protected'),
+                                        ],
+                                      ),
+                                    if ((app['abandonedJobs'] as num? ?? 0) > 0)
+                                      span(
+                                        classes:
+                                            'px-2 py-0.5 rounded-lg text-[9px] font-bold bg-red-500/15 text-red-400 border border-red-500/25 flex items-center gap-0.5',
+                                        [
+                                          lIcon('alert-triangle', cls: 'w-2.5 h-2.5'),
+                                          Component.text(
+                                            '${(app['abandonedJobs'] as num).toInt()} Abandoned Gig${(app['abandonedJobs'] as num).toInt() > 1 ? 's' : ''}',
+                                          ),
                                         ],
                                       ),
                                     if (app['certificationUrls'] != null &&
