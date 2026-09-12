@@ -86,17 +86,14 @@ class _RentalDetailsModalState extends State<RentalDetailsModalComponent> {
     final hasValidPlate = plate != null && plate.isNotEmpty && plate.toLowerCase() != 'null';
 
     // Status logic
-    final rawStatus = (data['status'] ?? listingVehicle['status'] ?? listingProperty['status'] ?? 'Approved').toString();
+    final rawStatus = (data['status'] ?? 'Approved').toString();
     final isSigned = (data['signedAt'] != null && (data['signedAt'] as num) > 0) ||
         (data['signatureName'] != null && data['signatureName'].toString().isNotEmpty && data['signatureName'].toString() != 'null') ||
-        (data['signatureHash'] != null && data['signatureHash'].toString().isNotEmpty) ||
-        (listingVehicle['signedAt'] != null && (listingVehicle['signedAt'] as num) > 0) ||
-        (listingVehicle['signatureHash'] != null && listingVehicle['signatureHash'].toString().isNotEmpty);
+        (data['signatureHash'] != null && data['signatureHash'].toString().isNotEmpty);
 
     final isAwaitingSignature = !isSigned && (
       rawStatus.toLowerCase() == 'awaiting signature' ||
-      rawStatus.toLowerCase() == 'approved' ||
-      listingVehicle['status']?.toString().toLowerCase() == 'awaiting signature'
+      rawStatus.toLowerCase() == 'approved'
     );
 
     final status = isAwaitingSignature ? 'Awaiting Signature' : rawStatus;
@@ -141,8 +138,8 @@ class _RentalDetailsModalState extends State<RentalDetailsModalComponent> {
     final handoverInstructions = (data['handoverInstructions'] ?? data['instructions'] ?? 'Follow standard safety and handover procedure. Inspect before departure.').toString();
 
     // Signatures and Cryptography
-    final signatureHash = (data['signatureHash'] ?? listingVehicle['signatureHash'] ?? '0x8f3c7b2a9e1d4a0b5c6e7f8a9b0c1d2e3f4a5b6c').toString();
-    final signedAtMs = (data['signedAt'] as num?)?.toInt() ?? (listingVehicle['signedAt'] as num?)?.toInt();
+    final signatureHash = (data['signatureHash'] ?? (isSigned ? '0x8f3c7b2a9e1d4a0b5c6e7f8a9b0c1d2e3f4a5b6c' : 'Pending Signature')).toString();
+    final signedAtMs = (data['signedAt'] as num?)?.toInt();
     final signedAtStr = signedAtMs != null ? DateTime.fromMillisecondsSinceEpoch(signedAtMs).toLocal().toString().substring(0, 16) : 'Pending';
     final signatoryName = (data['signatureName'] ?? component.appState.userProfile?.name ?? 'Verified Rentee').toString();
     final contractTerms = (data['contractTerms'] ?? listingVehicle['contractTerms'] ?? listingProperty['contractTerms'] ?? 'Standard P2P Rental Terms and Conditions apply. Both parties agree to escrow protection, vehicle inspection protocols, and timely handover.').toString();

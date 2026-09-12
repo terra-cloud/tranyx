@@ -823,26 +823,77 @@ class TransitRepository {
     final data = doc.data()!;
     final now = DateTime.now();
 
+    Map<String, dynamic>? bookingData;
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       try {
+        final reqSnap = await _firestore.collection('rental_requests').doc(resolvedReqId).get();
+        if (reqSnap.exists) bookingData = reqSnap.data();
+        final contractId = 'contract_${resolvedReqId}_${now.millisecondsSinceEpoch}';
         await _firestore.collection('rental_requests').doc(resolvedReqId).update({
           'status': 'Booked',
           'signatureName': signatureDataUrl,
           'signedAt': now.millisecondsSinceEpoch,
+          'contractId': contractId,
           'signatureHash': ?signatureHash,
         });
       } catch (_) {}
     }
 
-    await _firestore.collection('rentals').doc(actualRentalId).update({
-      'status': 'Booked',
-      'renteeSignatureName': signatureDataUrl,
-      'signedAt': now.millisecondsSinceEpoch,
+    final isCurrentTrip = data['currentRequestId'] == null ||
+        data['currentRequestId'] == resolvedReqId ||
+        data['status'] == 'Available' ||
+        data['status'] == 'Awaiting Signature';
+
+    if (isCurrentTrip) {
+      await _firestore.collection('rentals').doc(actualRentalId).update({
+        'status': 'Booked',
+        if (resolvedReqId != null) 'currentRequestId': resolvedReqId,
+        'renteeSignatureName': signatureDataUrl,
+        'signedAt': now.millisecondsSinceEpoch,
+        'signatureHash': signatureHash ?? '',
+      });
+    }
+
+    // Freeze permanent immutable contract snapshot in /rental_contracts/{contractId}
+    final contractId = 'contract_${resolvedReqId ?? actualRentalId}_${now.millisecondsSinceEpoch}';
+    final hostIsVerified = data['hostIsVerified'] == true || data['hostVerificationStatus'] == 'VERIFIED';
+    final renteeIsVerified = (bookingData?['renteeIsVerified'] ?? data['renteeIsVerified']) == true ||
+        (bookingData?['renteeVerificationStatus'] ?? data['renteeVerificationStatus']) == 'VERIFIED';
+    final renteeId = bookingData?['renteeId'] ?? data['renteeId'];
+    final renteeName = bookingData?['renteeName'] ?? data['renteeName'] ?? 'Renter';
+
+    final contractDoc = {
+      'contractId': contractId,
+      'rentalId': actualRentalId,
+      if (resolvedReqId != null) 'requestId': resolvedReqId,
+      'contractType': data['contractType'] ?? 'tranyx',
+      'contractTerms': data['contractTerms'] ?? 'Standard P2P terms',
+      'hostId': data['hostId'],
+      'hostName': data['hostName'],
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': data['hostVerificationStatus'] ?? (hostIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'hostVerificationTier': data['hostVerificationTier'] ?? (hostIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeId': renteeId,
+      'renteeName': renteeName,
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': bookingData?['renteeVerificationStatus'] ?? data['renteeVerificationStatus'] ?? (renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'renteeVerificationTier': bookingData?['renteeVerificationTier'] ?? data['renteeVerificationTier'] ?? (renteeIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeLicenseNumber': bookingData?['renteeLicenseNumber'] ?? data['renteeLicenseNumber'] ?? '',
+      'renteeSignature': signatureDataUrl,
       'signatureHash': signatureHash ?? '',
-    });
+      'signedAt': now.millisecondsSinceEpoch,
+      'totalCost': bookingData?['totalCost'] ?? data['totalCost'],
+      'startDate': bookingData?['startDate'] ?? data['startDate'],
+      'endDate': bookingData?['endDate'] ?? data['endDate'],
+      'status': 'Executed',
+      'isImmutableSnapshot': true,
+      'executedAt': now.millisecondsSinceEpoch,
+    };
+    try {
+      await _firestore.collection('rental_contracts').doc(contractId).set(contractDoc);
+    } catch (_) {}
 
     final hostId = data['hostId'] as String;
-    final renteeName = data['renteeName'] as String? ?? 'Renter';
     final brand = data['brand'] ?? '';
     final model = data['model'] ?? '';
 
@@ -1846,26 +1897,79 @@ class TransitRepository {
     final data = doc.data()!;
     final now = DateTime.now();
 
+    Map<String, dynamic>? bookingData;
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       try {
+        final reqSnap = await _firestore.collection('property_requests').doc(resolvedReqId).get();
+        if (reqSnap.exists) bookingData = reqSnap.data();
+        final contractId = 'contract_${resolvedReqId}_${now.millisecondsSinceEpoch}';
         await _firestore.collection('property_requests').doc(resolvedReqId).update({
           'status': 'Booked',
           'signatureName': signatureDataUrl,
           'signedAt': now.millisecondsSinceEpoch,
+          'contractId': contractId,
           'signatureHash': ?signatureHash,
         });
       } catch (_) {}
     }
 
-    await _firestore.collection('properties').doc(actualPropertyId).update({
-      'status': 'Booked',
-      'renteeSignatureName': signatureDataUrl,
-      'signedAt': now.millisecondsSinceEpoch,
+    final isCurrentTrip = data['currentRequestId'] == null ||
+        data['currentRequestId'] == resolvedReqId ||
+        data['status'] == 'Available' ||
+        data['status'] == 'Awaiting Signature';
+
+    if (isCurrentTrip) {
+      await _firestore.collection('properties').doc(actualPropertyId).update({
+        'status': 'Booked',
+        if (resolvedReqId != null) 'currentRequestId': resolvedReqId,
+        'renteeSignatureName': signatureDataUrl,
+        'signedAt': now.millisecondsSinceEpoch,
+        'signatureHash': signatureHash ?? '',
+      });
+    }
+
+    // Freeze permanent immutable contract snapshot in /rental_contracts/{contractId}
+    final contractId = 'contract_${resolvedReqId ?? actualPropertyId}_${now.millisecondsSinceEpoch}';
+    final hostIsVerified = data['hostIsVerified'] == true || data['hostVerificationStatus'] == 'VERIFIED';
+    final renteeIsVerified = (bookingData?['renteeIsVerified'] ?? data['renteeIsVerified']) == true ||
+        (bookingData?['renteeVerificationStatus'] ?? data['renteeVerificationStatus']) == 'VERIFIED';
+    final renteeId = bookingData?['renteeId'] ?? data['renteeId'];
+    final renteeName = bookingData?['renteeName'] ?? data['renteeName'] ?? 'Renter';
+
+    final contractDoc = {
+      'contractId': contractId,
+      'propertyId': actualPropertyId,
+      if (resolvedReqId != null) 'requestId': resolvedReqId,
+      'contractType': data['contractType'] ?? 'tranyx',
+      'contractTerms': data['contractTerms'] ?? 'Standard P2P lease terms',
+      'hostId': data['hostId'],
+      'hostName': data['hostName'],
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': data['hostVerificationStatus'] ?? (hostIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'hostVerificationTier': data['hostVerificationTier'] ?? (hostIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeId': renteeId,
+      'renteeName': renteeName,
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': bookingData?['renteeVerificationStatus'] ?? data['renteeVerificationStatus'] ?? (renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'renteeVerificationTier': bookingData?['renteeVerificationTier'] ?? data['renteeVerificationTier'] ?? (renteeIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeLicenseNumber': bookingData?['licenseNumber'] ?? bookingData?['renteeLicenseNumber'] ?? data['licenseNumber'] ?? '',
+      'renteeSignature': signatureDataUrl,
       'signatureHash': signatureHash ?? '',
-    });
+      'signedAt': now.millisecondsSinceEpoch,
+      'totalCost': bookingData?['totalCost'] ?? data['totalCost'],
+      'baseRentAmount': bookingData?['baseRentAmount'] ?? data['baseRentAmount'],
+      'securityDepositAmount': bookingData?['securityDepositAmount'] ?? data['securityDepositAmount'],
+      'startDate': bookingData?['startDate'] ?? data['startDate'],
+      'endDate': bookingData?['endDate'] ?? data['endDate'],
+      'status': 'Executed',
+      'isImmutableSnapshot': true,
+      'executedAt': now.millisecondsSinceEpoch,
+    };
+    try {
+      await _firestore.collection('rental_contracts').doc(contractId).set(contractDoc);
+    } catch (_) {}
 
     final hostId = data['hostId'] as String;
-    final renteeName = data['renteeName'] as String? ?? 'Renter';
     final title = data['title'] ?? '';
 
     await createNotification(

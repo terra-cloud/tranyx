@@ -1177,6 +1177,169 @@ class VehicleRental {
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
     );
   }
+
+  VehicleRental copyWith({
+    String? id,
+    String? hostId,
+    String? hostName,
+    String? hostPhotoUrl,
+    String? brand,
+    String? model,
+    int? year,
+    VehicleType? type,
+    String? plateNumber,
+    double? vehicleValue,
+    String? ltoCrNumber,
+    String? ltoOrNumber,
+    String? insuranceProvider,
+    String? insurancePolicyNumber,
+    String? franchisePermit,
+    String? interiorPhotoUrl,
+    String? frontPhotoUrl,
+    String? backPhotoUrl,
+    String? contractType,
+    String? contractTerms,
+    double? price12h,
+    double? priceDaily,
+    double? priceWeekly,
+    double? priceMonthly,
+    double? extensionRatePerHour,
+    double? latePenaltyRatePerHour,
+    String? status,
+    bool? offersDriver,
+    double? driverDailyPrice,
+    String? driverNote,
+    String? driverLicenseNumber,
+    String? renteeId,
+    String? renteeName,
+    String? renteePhotoUrl,
+    String? rentalDurationType,
+    int? rentalMultiplier,
+    DateTime? startDate,
+    DateTime? endDate,
+    double? totalCost,
+    String? renteeSignatureName,
+    String? renteeLicenseNumber,
+    DateTime? signedAt,
+    bool? hireWithDriver,
+    bool? hostIsVerified,
+    String? hostVerificationStatus,
+    String? hostVerificationTier,
+    bool? renteeIsVerified,
+    String? renteeVerificationStatus,
+    String? renteeVerificationTier,
+    double? trackingLat,
+    double? trackingLng,
+    String? fuelType,
+    String? transmission,
+    String? pickupAddress,
+    double? pickupLat,
+    double? pickupLng,
+    DateTime? createdAt,
+    bool? acceptingBookings,
+    bool? isDeleted,
+  }) {
+    return VehicleRental(
+      id: id ?? this.id,
+      hostId: hostId ?? this.hostId,
+      hostName: hostName ?? this.hostName,
+      hostPhotoUrl: hostPhotoUrl ?? this.hostPhotoUrl,
+      brand: brand ?? this.brand,
+      model: model ?? this.model,
+      year: year ?? this.year,
+      type: type ?? this.type,
+      plateNumber: plateNumber ?? this.plateNumber,
+      vehicleValue: vehicleValue ?? this.vehicleValue,
+      ltoCrNumber: ltoCrNumber ?? this.ltoCrNumber,
+      ltoOrNumber: ltoOrNumber ?? this.ltoOrNumber,
+      insuranceProvider: insuranceProvider ?? this.insuranceProvider,
+      insurancePolicyNumber: insurancePolicyNumber ?? this.insurancePolicyNumber,
+      franchisePermit: franchisePermit ?? this.franchisePermit,
+      interiorPhotoUrl: interiorPhotoUrl ?? this.interiorPhotoUrl,
+      frontPhotoUrl: frontPhotoUrl ?? this.frontPhotoUrl,
+      backPhotoUrl: backPhotoUrl ?? this.backPhotoUrl,
+      contractType: contractType ?? this.contractType,
+      contractTerms: contractTerms ?? this.contractTerms,
+      price12h: price12h ?? this.price12h,
+      priceDaily: priceDaily ?? this.priceDaily,
+      priceWeekly: priceWeekly ?? this.priceWeekly,
+      priceMonthly: priceMonthly ?? this.priceMonthly,
+      extensionRatePerHour: extensionRatePerHour ?? this.extensionRatePerHour,
+      latePenaltyRatePerHour: latePenaltyRatePerHour ?? this.latePenaltyRatePerHour,
+      status: status ?? this.status,
+      offersDriver: offersDriver ?? this.offersDriver,
+      driverDailyPrice: driverDailyPrice ?? this.driverDailyPrice,
+      driverNote: driverNote ?? this.driverNote,
+      driverLicenseNumber: driverLicenseNumber ?? this.driverLicenseNumber,
+      renteeId: renteeId ?? this.renteeId,
+      renteeName: renteeName ?? this.renteeName,
+      renteePhotoUrl: renteePhotoUrl ?? this.renteePhotoUrl,
+      rentalDurationType: rentalDurationType ?? this.rentalDurationType,
+      rentalMultiplier: rentalMultiplier ?? this.rentalMultiplier,
+      startDate: startDate ?? this.startDate,
+      endDate: endDate ?? this.endDate,
+      totalCost: totalCost ?? this.totalCost,
+      renteeSignatureName: renteeSignatureName ?? this.renteeSignatureName,
+      renteeLicenseNumber: renteeLicenseNumber ?? this.renteeLicenseNumber,
+      signedAt: signedAt ?? this.signedAt,
+      hireWithDriver: hireWithDriver ?? this.hireWithDriver,
+      hostIsVerified: hostIsVerified ?? this.hostIsVerified,
+      hostVerificationStatus: hostVerificationStatus ?? this.hostVerificationStatus,
+      hostVerificationTier: hostVerificationTier ?? this.hostVerificationTier,
+      renteeIsVerified: renteeIsVerified ?? this.renteeIsVerified,
+      renteeVerificationStatus: renteeVerificationStatus ?? this.renteeVerificationStatus,
+      renteeVerificationTier: renteeVerificationTier ?? this.renteeVerificationTier,
+      trackingLat: trackingLat ?? this.trackingLat,
+      trackingLng: trackingLng ?? this.trackingLng,
+      fuelType: fuelType ?? this.fuelType,
+      transmission: transmission ?? this.transmission,
+      pickupAddress: pickupAddress ?? this.pickupAddress,
+      pickupLat: pickupLat ?? this.pickupLat,
+      pickupLng: pickupLng ?? this.pickupLng,
+      createdAt: createdAt ?? this.createdAt,
+      acceptingBookings: acceptingBookings ?? this.acceptingBookings,
+      isDeleted: isDeleted ?? this.isDeleted,
+    );
+  }
+
+  static VehicleRental fromBookingRequest(VehicleRental baseListing, Map<String, dynamic> req) {
+    DateTime? parseEpochOrDate(dynamic val) {
+      if (val == null) return null;
+      if (val is DateTime) return val;
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+      if (val is String) {
+        final parsed = DateTime.tryParse(val);
+        if (parsed != null) return parsed;
+        final asNum = num.tryParse(val);
+        if (asNum != null) return DateTime.fromMillisecondsSinceEpoch(asNum.toInt());
+      }
+      return null;
+    }
+
+    final start = parseEpochOrDate(req['startDate']);
+    final end = parseEpochOrDate(req['endDate']);
+    final sigTime = parseEpochOrDate(req['signedAt']);
+    final sig = (req['signatureName'] ?? req['renteeSignatureName']) as String?;
+
+    return baseListing.copyWith(
+      renteeId: req['renteeId'] as String? ?? req['renterId'] as String? ?? baseListing.renteeId,
+      renteeName: req['renteeName'] as String? ?? req['renterName'] as String? ?? baseListing.renteeName,
+      renteePhotoUrl: req['renteePhotoUrl'] as String? ?? req['renterPhotoUrl'] as String? ?? baseListing.renteePhotoUrl,
+      startDate: start ?? baseListing.startDate,
+      endDate: end ?? baseListing.endDate,
+      rentalDurationType: req['rentalDurationType'] as String? ?? req['durationType'] as String? ?? baseListing.rentalDurationType,
+      rentalMultiplier: (req['rentalMultiplier'] as num?)?.toInt() ?? (req['durationMultiplier'] as num?)?.toInt() ?? baseListing.rentalMultiplier,
+      totalCost: (req['totalCost'] as num?)?.toDouble() ?? (req['totalAmount'] as num?)?.toDouble() ?? baseListing.totalCost,
+      renteeSignatureName: sig ?? baseListing.renteeSignatureName,
+      renteeLicenseNumber: req['renteeLicenseNumber'] as String? ?? req['renterLicenseNumber'] as String? ?? baseListing.renteeLicenseNumber,
+      signedAt: sigTime ?? baseListing.signedAt,
+      hireWithDriver: req['hireWithDriver'] as bool? ?? baseListing.hireWithDriver,
+      renteeIsVerified: req['renteeIsVerified'] as bool? ?? baseListing.renteeIsVerified,
+      renteeVerificationStatus: req['renteeVerificationStatus'] as String? ?? baseListing.renteeVerificationStatus,
+      renteeVerificationTier: req['renteeVerificationTier'] as String? ?? baseListing.renteeVerificationTier,
+    );
+  }
 }
 
 class PropertyRental {
@@ -1441,6 +1604,150 @@ class PropertyRental {
       rentalDurationType: map['rentalDurationType'],
       signatureHash: map['signatureHash'],
       renteeLicenseNumber: map['renteeLicenseNumber'],
+    );
+  }
+
+  PropertyRental copyWith({
+    String? id,
+    String? hostId,
+    String? hostName,
+    String? hostPhotoUrl,
+    String? title,
+    String? description,
+    PropertyType? type,
+    PropertyCategory? category,
+    double? priceMonthly,
+    double? priceWeekly,
+    double? priceDaily,
+    int? depositMonths,
+    String? address,
+    double? latitude,
+    double? longitude,
+    List<String>? photoUrls,
+    List<String>? amenities,
+    String? status,
+    String? contractType,
+    String? contractTerms,
+    DateTime? createdAt,
+    bool? allowChat,
+    double? securityDepositAmount,
+    double? advanceAmount,
+    DepositType? depositType,
+    double? depositValue,
+    bool? isListingFeeWaived,
+    List<String>? allowedDurations,
+    bool? hostIsVerified,
+    String? hostVerificationStatus,
+    String? hostVerificationTier,
+    bool? renteeIsVerified,
+    String? renteeVerificationStatus,
+    String? renteeVerificationTier,
+    String? renteeId,
+    String? renteeName,
+    String? renteePhotoUrl,
+    DateTime? startDate,
+    DateTime? endDate,
+    double? totalCost,
+    String? renteeSignatureName,
+    DateTime? signedAt,
+    String? currentRequestId,
+    int? rentalMultiplier,
+    String? rentalDurationType,
+    String? signatureHash,
+    String? renteeLicenseNumber,
+    bool? acceptingBookings,
+    bool? isDeleted,
+  }) {
+    return PropertyRental(
+      id: id ?? this.id,
+      hostId: hostId ?? this.hostId,
+      hostName: hostName ?? this.hostName,
+      hostPhotoUrl: hostPhotoUrl ?? this.hostPhotoUrl,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      type: type ?? this.type,
+      category: category ?? this.category,
+      priceMonthly: priceMonthly ?? this.priceMonthly,
+      priceWeekly: priceWeekly ?? this.priceWeekly,
+      priceDaily: priceDaily ?? this.priceDaily,
+      depositMonths: depositMonths ?? this.depositMonths,
+      address: address ?? this.address,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      photoUrls: photoUrls ?? this.photoUrls,
+      amenities: amenities ?? this.amenities,
+      status: status ?? this.status,
+      contractType: contractType ?? this.contractType,
+      contractTerms: contractTerms ?? this.contractTerms,
+      createdAt: createdAt ?? this.createdAt,
+      allowChat: allowChat ?? this.allowChat,
+      securityDepositAmount: securityDepositAmount ?? this.securityDepositAmount,
+      advanceAmount: advanceAmount ?? this.advanceAmount,
+      depositType: depositType ?? this.depositType,
+      depositValue: depositValue ?? this.depositValue,
+      isListingFeeWaived: isListingFeeWaived ?? this.isListingFeeWaived,
+      allowedDurations: allowedDurations ?? this.allowedDurations,
+      hostIsVerified: hostIsVerified ?? this.hostIsVerified,
+      hostVerificationStatus: hostVerificationStatus ?? this.hostVerificationStatus,
+      hostVerificationTier: hostVerificationTier ?? this.hostVerificationTier,
+      renteeIsVerified: renteeIsVerified ?? this.renteeIsVerified,
+      renteeVerificationStatus: renteeVerificationStatus ?? this.renteeVerificationStatus,
+      renteeVerificationTier: renteeVerificationTier ?? this.renteeVerificationTier,
+      renteeId: renteeId ?? this.renteeId,
+      renteeName: renteeName ?? this.renteeName,
+      renteePhotoUrl: renteePhotoUrl ?? this.renteePhotoUrl,
+      startDate: startDate ?? this.startDate,
+      endDate: endDate ?? this.endDate,
+      totalCost: totalCost ?? this.totalCost,
+      renteeSignatureName: renteeSignatureName ?? this.renteeSignatureName,
+      signedAt: signedAt ?? this.signedAt,
+      currentRequestId: currentRequestId ?? this.currentRequestId,
+      rentalMultiplier: rentalMultiplier ?? this.rentalMultiplier,
+      rentalDurationType: rentalDurationType ?? this.rentalDurationType,
+      signatureHash: signatureHash ?? this.signatureHash,
+      renteeLicenseNumber: renteeLicenseNumber ?? this.renteeLicenseNumber,
+      acceptingBookings: acceptingBookings ?? this.acceptingBookings,
+      isDeleted: isDeleted ?? this.isDeleted,
+    );
+  }
+
+  static PropertyRental fromBookingRequest(PropertyRental baseListing, Map<String, dynamic> req) {
+    DateTime? parseEpochOrDate(dynamic val) {
+      if (val == null) return null;
+      if (val is DateTime) return val;
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+      if (val is String) {
+        final parsed = DateTime.tryParse(val);
+        if (parsed != null) return parsed;
+        final asNum = num.tryParse(val);
+        if (asNum != null) return DateTime.fromMillisecondsSinceEpoch(asNum.toInt());
+      }
+      return null;
+    }
+
+    final start = parseEpochOrDate(req['startDate']);
+    final end = parseEpochOrDate(req['endDate']);
+    final sigTime = parseEpochOrDate(req['signedAt']);
+    final sig = (req['signatureName'] ?? req['renteeSignatureName']) as String?;
+
+    return baseListing.copyWith(
+      renteeId: req['renteeId'] as String? ?? req['renterId'] as String? ?? baseListing.renteeId,
+      renteeName: req['renteeName'] as String? ?? req['renterName'] as String? ?? baseListing.renteeName,
+      renteePhotoUrl: req['renteePhotoUrl'] as String? ?? req['renterPhotoUrl'] as String? ?? baseListing.renteePhotoUrl,
+      startDate: start ?? baseListing.startDate,
+      endDate: end ?? baseListing.endDate,
+      rentalDurationType: req['rentalDurationType'] as String? ?? req['durationType'] as String? ?? baseListing.rentalDurationType,
+      rentalMultiplier: (req['rentalMultiplier'] as num?)?.toInt() ?? (req['durationMultiplier'] as num?)?.toInt() ?? baseListing.rentalMultiplier,
+      totalCost: (req['totalCost'] as num?)?.toDouble() ?? (req['totalAmount'] as num?)?.toDouble() ?? baseListing.totalCost,
+      renteeSignatureName: sig ?? baseListing.renteeSignatureName,
+      signedAt: sigTime ?? baseListing.signedAt,
+      signatureHash: req['signatureHash'] as String? ?? baseListing.signatureHash,
+      renteeLicenseNumber: req['renteeLicenseNumber'] as String? ?? req['renterLicenseNumber'] as String? ?? baseListing.renteeLicenseNumber,
+      renteeIsVerified: req['renteeIsVerified'] as bool? ?? baseListing.renteeIsVerified,
+      renteeVerificationStatus: req['renteeVerificationStatus'] as String? ?? baseListing.renteeVerificationStatus,
+      renteeVerificationTier: req['renteeVerificationTier'] as String? ?? baseListing.renteeVerificationTier,
+      currentRequestId: req['id'] as String? ?? req['requestId'] as String? ?? baseListing.currentRequestId,
     );
   }
 }

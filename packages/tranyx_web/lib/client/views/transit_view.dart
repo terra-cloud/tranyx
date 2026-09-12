@@ -702,18 +702,14 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       orElse: () => <String, dynamic>{},
     );
 
-    final rawStatus = (active['status'] ?? listing['status'] ?? 'Booked').toString();
+    final rawStatus = (active['status'] ?? 'Booked').toString();
     final isSigned = (active['signedAt'] != null && (active['signedAt'] as num) > 0) ||
         (active['signatureName'] != null && active['signatureName'].toString().isNotEmpty && active['signatureName'].toString() != 'null') ||
-        (active['signatureHash'] != null && active['signatureHash'].toString().isNotEmpty) ||
-        (listing['signedAt'] != null && (listing['signedAt'] as num) > 0) ||
-        (listing['renteeSignatureName'] != null && listing['renteeSignatureName'].toString().isNotEmpty && listing['renteeSignatureName'].toString() != 'null') ||
-        (listing['signatureHash'] != null && listing['signatureHash'].toString().isNotEmpty);
+        (active['signatureHash'] != null && active['signatureHash'].toString().isNotEmpty);
 
     final isAwaitingSignature = !isSigned && (
       rawStatus.toLowerCase() == 'awaiting signature' ||
-      rawStatus.toLowerCase() == 'approved' ||
-      listing['status']?.toString().toLowerCase() == 'awaiting signature'
+      rawStatus.toLowerCase() == 'approved'
     );
     final status = isAwaitingSignature ? 'Awaiting Signature' : (active['status'] as String? ?? 'Booked');
     final isOngoing = status == 'Ongoing' || status == 'Active' || status == 'On the way to Rentee' || status == 'Returning';
@@ -967,22 +963,14 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final chatId = 'property_${propId}_${s.userProfile?.uid}';
     final unreadCount = s.getUnreadChatCount(chatId);
 
-    // Cross-reference listing from realtimeProperties if available
-    final PropertyRental? listing = s.realtimeProperties.any((element) => element.id == propId)
-        ? s.realtimeProperties.firstWhere((element) => element.id == propId)
-        : null;
-
     final rawStatus = isModel ? active.status : (active['status']?.toString() ?? 'Booked');
     final isSigned = (isModel ? active.signedAt != null : (active['signedAt'] != null && (active['signedAt'] is num ? (active['signedAt'] as num) > 0 : true))) ||
         (signatureHash != null && signatureHash.isNotEmpty && signatureHash != 'null') ||
-        (isModel ? (active.renteeSignatureName != null && active.renteeSignatureName!.isNotEmpty) : (active['renteeSignatureName'] != null && active['renteeSignatureName'].toString().isNotEmpty && active['renteeSignatureName'].toString() != 'null')) ||
-        (listing?.signedAt != null) ||
-        (listing?.renteeSignatureName != null && listing!.renteeSignatureName!.isNotEmpty);
+        (isModel ? (active.renteeSignatureName != null && active.renteeSignatureName!.isNotEmpty) : (active['renteeSignatureName'] != null && active['renteeSignatureName'].toString().isNotEmpty && active['renteeSignatureName'].toString() != 'null'));
 
     final isAwaitingSignature = !isSigned && (
       rawStatus.toLowerCase() == 'awaiting signature' ||
-      rawStatus.toLowerCase() == 'approved' ||
-      (listing != null && listing.status.toLowerCase() == 'awaiting signature')
+      rawStatus.toLowerCase() == 'approved'
     );
     final status = isAwaitingSignature ? 'Awaiting Signature' : rawStatus;
 

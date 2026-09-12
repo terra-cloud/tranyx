@@ -2615,30 +2615,47 @@ class FirestoreService {
 
     final now = DateTime.now();
 
-    // Update canonical booking request record
+    Map<String, dynamic>? bookingData;
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      bookingData = await getDocument('rental_requests/$resolvedReqId');
+      final contractId = 'contract_${resolvedReqId}_${now.millisecondsSinceEpoch}';
       await setDocument('rental_requests/$resolvedReqId', {
         'status': 'Booked',
         'signatureName': signatureDataUrl,
+        'signedAt': now.millisecondsSinceEpoch,
+        'contractId': contractId,
+        'signatureHash': ?signatureHash,
+      });
+    }
+
+    // Only update listing document's active rentee fields if this is the active/current request
+    final isCurrentTrip = rentalDoc['currentRequestId'] == null ||
+        rentalDoc['currentRequestId'] == resolvedReqId ||
+        rentalDoc['status'] == 'Available' ||
+        rentalDoc['status'] == 'Awaiting Signature';
+
+    if (isCurrentTrip) {
+      await setDocument('rentals/$rentalId', {
+        'status': 'Booked',
+        if (resolvedReqId != null) 'currentRequestId': resolvedReqId,
+        'renteeSignatureName': signatureDataUrl,
         'signedAt': now.millisecondsSinceEpoch,
         'signatureHash': ?signatureHash,
       });
     }
 
-    await setDocument('rentals/$rentalId', {
-      'status': 'Booked',
-      'renteeSignatureName': signatureDataUrl,
-      'signedAt': now.millisecondsSinceEpoch,
-      'signatureHash': ?signatureHash,
-    });
-
     // Freeze permanent immutable contract snapshot in /rental_contracts/{contractId}
-    final contractId = 'contract_${rentalId}_${now.millisecondsSinceEpoch}';
+    final contractId = 'contract_${resolvedReqId ?? rentalId}_${now.millisecondsSinceEpoch}';
     final hostIsVerified = rentalDoc['hostIsVerified'] == true || rentalDoc['hostVerificationStatus'] == 'VERIFIED';
-    final renteeIsVerified = rentalDoc['renteeIsVerified'] == true || rentalDoc['renteeVerificationStatus'] == 'VERIFIED';
+    final renteeIsVerified = (bookingData?['renteeIsVerified'] ?? rentalDoc['renteeIsVerified']) == true ||
+        (bookingData?['renteeVerificationStatus'] ?? rentalDoc['renteeVerificationStatus']) == 'VERIFIED';
+    final renteeId = bookingData?['renteeId'] ?? rentalDoc['renteeId'];
+    final renteeName = bookingData?['renteeName'] ?? rentalDoc['renteeName'] ?? 'Renter';
+
     final contractDoc = {
       'contractId': contractId,
       'rentalId': rentalId,
+      if (resolvedReqId != null) 'requestId': resolvedReqId,
       'contractType': rentalDoc['contractType'] ?? 'tranyx',
       'contractTerms': rentalDoc['contractTerms'] ?? 'Standard P2P terms',
       'hostId': rentalDoc['hostId'],
@@ -2646,18 +2663,18 @@ class FirestoreService {
       'hostIsVerified': hostIsVerified,
       'hostVerificationStatus': rentalDoc['hostVerificationStatus'] ?? (hostIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
       'hostVerificationTier': rentalDoc['hostVerificationTier'] ?? (hostIsVerified ? 'Government ID Verified' : 'None'),
-      'renteeId': rentalDoc['renteeId'],
-      'renteeName': rentalDoc['renteeName'],
+      'renteeId': renteeId,
+      'renteeName': renteeName,
       'renteeIsVerified': renteeIsVerified,
-      'renteeVerificationStatus': rentalDoc['renteeVerificationStatus'] ?? (renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
-      'renteeVerificationTier': rentalDoc['renteeVerificationTier'] ?? (renteeIsVerified ? 'Government ID Verified' : 'None'),
-      'renteeLicenseNumber': rentalDoc['renteeLicenseNumber'] ?? '',
+      'renteeVerificationStatus': bookingData?['renteeVerificationStatus'] ?? rentalDoc['renteeVerificationStatus'] ?? (renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'renteeVerificationTier': bookingData?['renteeVerificationTier'] ?? rentalDoc['renteeVerificationTier'] ?? (renteeIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeLicenseNumber': bookingData?['renteeLicenseNumber'] ?? rentalDoc['renteeLicenseNumber'] ?? '',
       'renteeSignature': signatureDataUrl,
       'signatureHash': signatureHash ?? '',
       'signedAt': now.millisecondsSinceEpoch,
-      'totalCost': rentalDoc['totalCost'],
-      'startDate': rentalDoc['startDate'],
-      'endDate': rentalDoc['endDate'],
+      'totalCost': bookingData?['totalCost'] ?? rentalDoc['totalCost'],
+      'startDate': bookingData?['startDate'] ?? rentalDoc['startDate'],
+      'endDate': bookingData?['endDate'] ?? rentalDoc['endDate'],
       'status': 'Executed',
       'isImmutableSnapshot': true,
       'executedAt': now.millisecondsSinceEpoch,
@@ -2665,7 +2682,6 @@ class FirestoreService {
     await setDocument('rental_contracts/$contractId', contractDoc);
 
     final hostId = rentalDoc['hostId'] as String;
-    final renteeName = rentalDoc['renteeName'] as String? ?? 'Renter';
     final brand = rentalDoc['brand'] ?? '';
     final model = rentalDoc['model'] ?? '';
 
@@ -4652,30 +4668,47 @@ class FirestoreService {
 
     final now = DateTime.now();
 
-    // Update canonical booking request record
+    Map<String, dynamic>? bookingData;
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      bookingData = await getDocument('property_requests/$resolvedReqId');
+      final contractId = 'contract_${resolvedReqId}_${now.millisecondsSinceEpoch}';
       await setDocument('property_requests/$resolvedReqId', {
         'status': 'Booked',
         'signatureName': signatureDataUrl,
+        'signedAt': now.millisecondsSinceEpoch,
+        'contractId': contractId,
+        'signatureHash': ?signatureHash,
+      });
+    }
+
+    // Only update listing document's active rentee fields if this is the active/current request
+    final isCurrentTrip = propDoc['currentRequestId'] == null ||
+        propDoc['currentRequestId'] == resolvedReqId ||
+        propDoc['status'] == 'Available' ||
+        propDoc['status'] == 'Awaiting Signature';
+
+    if (isCurrentTrip) {
+      await setDocument('properties/$propertyId', {
+        'status': 'Booked',
+        if (resolvedReqId != null) 'currentRequestId': resolvedReqId,
+        'renteeSignatureName': signatureDataUrl,
         'signedAt': now.millisecondsSinceEpoch,
         'signatureHash': ?signatureHash,
       });
     }
 
-    await setDocument('properties/$propertyId', {
-      'status': 'Booked',
-      'renteeSignatureName': signatureDataUrl,
-      'signedAt': now.millisecondsSinceEpoch,
-      'signatureHash': ?signatureHash,
-    });
-
     // Freeze permanent immutable contract snapshot in /rental_contracts/{contractId}
-    final contractId = 'contract_${propertyId}_${now.millisecondsSinceEpoch}';
+    final contractId = 'contract_${resolvedReqId ?? propertyId}_${now.millisecondsSinceEpoch}';
     final hostIsVerified = propDoc['hostIsVerified'] == true || propDoc['hostVerificationStatus'] == 'VERIFIED';
-    final renteeIsVerified = propDoc['renteeIsVerified'] == true || propDoc['renteeVerificationStatus'] == 'VERIFIED';
+    final renteeIsVerified = (bookingData?['renteeIsVerified'] ?? propDoc['renteeIsVerified']) == true ||
+        (bookingData?['renteeVerificationStatus'] ?? propDoc['renteeVerificationStatus']) == 'VERIFIED';
+    final renteeId = bookingData?['renteeId'] ?? propDoc['renteeId'];
+    final renteeName = bookingData?['renteeName'] ?? propDoc['renteeName'] ?? 'Renter';
+
     final contractDoc = {
       'contractId': contractId,
       'propertyId': propertyId,
+      if (resolvedReqId != null) 'requestId': resolvedReqId,
       'contractType': propDoc['contractType'] ?? 'tranyx',
       'contractTerms': propDoc['contractTerms'] ?? 'Standard P2P lease terms',
       'hostId': propDoc['hostId'],
@@ -4683,20 +4716,20 @@ class FirestoreService {
       'hostIsVerified': hostIsVerified,
       'hostVerificationStatus': propDoc['hostVerificationStatus'] ?? (hostIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
       'hostVerificationTier': propDoc['hostVerificationTier'] ?? (hostIsVerified ? 'Government ID Verified' : 'None'),
-      'renteeId': propDoc['renteeId'],
-      'renteeName': propDoc['renteeName'],
+      'renteeId': renteeId,
+      'renteeName': renteeName,
       'renteeIsVerified': renteeIsVerified,
-      'renteeVerificationStatus': propDoc['renteeVerificationStatus'] ?? (renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
-      'renteeVerificationTier': propDoc['renteeVerificationTier'] ?? (renteeIsVerified ? 'Government ID Verified' : 'None'),
-      'renteeLicenseNumber': propDoc['licenseNumber'] ?? '',
+      'renteeVerificationStatus': bookingData?['renteeVerificationStatus'] ?? propDoc['renteeVerificationStatus'] ?? (renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'renteeVerificationTier': bookingData?['renteeVerificationTier'] ?? propDoc['renteeVerificationTier'] ?? (renteeIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeLicenseNumber': bookingData?['licenseNumber'] ?? bookingData?['renteeLicenseNumber'] ?? propDoc['licenseNumber'] ?? '',
       'renteeSignature': signatureDataUrl,
       'signatureHash': signatureHash ?? '',
       'signedAt': now.millisecondsSinceEpoch,
-      'totalCost': propDoc['totalCost'],
-      'baseRentAmount': propDoc['baseRentAmount'],
-      'securityDepositAmount': propDoc['securityDepositAmount'],
-      'startDate': propDoc['startDate'],
-      'endDate': propDoc['endDate'],
+      'totalCost': bookingData?['totalCost'] ?? propDoc['totalCost'],
+      'baseRentAmount': bookingData?['baseRentAmount'] ?? propDoc['baseRentAmount'],
+      'securityDepositAmount': bookingData?['securityDepositAmount'] ?? propDoc['securityDepositAmount'],
+      'startDate': bookingData?['startDate'] ?? propDoc['startDate'],
+      'endDate': bookingData?['endDate'] ?? propDoc['endDate'],
       'status': 'Executed',
       'isImmutableSnapshot': true,
       'executedAt': now.millisecondsSinceEpoch,
@@ -4704,7 +4737,6 @@ class FirestoreService {
     await setDocument('rental_contracts/$contractId', contractDoc);
 
     final hostId = propDoc['hostId'] as String;
-    final renteeName = propDoc['renteeName'] as String? ?? 'Renter';
     final title = propDoc['title'] ?? '';
 
     await createNotification(

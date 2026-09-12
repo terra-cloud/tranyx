@@ -864,6 +864,29 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                                 }(),
                             ],
                           ),
+                          if (req['signatureName'] != null && req['signatureName'].toString().isNotEmpty) ...[
+                            div(classes: 'mt-2.5 p-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 flex items-center justify-between gap-2', [
+                              div(classes: 'flex items-center gap-2', [
+                                lIcon('check-circle', cls: 'w-4 h-4 text-emerald-400'),
+                                span(classes: 'text-xs font-bold text-emerald-400', [Component.text('Contract Digitally Signed')]),
+                              ]),
+                              if (req['signatureName'].toString().startsWith('data:image/'))
+                                img(
+                                  src: req['signatureName'].toString(),
+                                  classes: 'h-6 max-w-[90px] object-contain rounded bg-white/10 p-0.5 border border-zinc-700 cursor-zoom-in',
+                                  events: {
+                                    'click': (_) => component.appState.showFullScreenPhoto(req['signatureName'].toString()),
+                                  },
+                                )
+                              else
+                                span(classes: 'text-xs text-zinc-400', [Component.text(req['signatureName'])]),
+                            ]),
+                          ] else if ((req['status'] ?? '').toString().toLowerCase() == 'approved' || (req['status'] ?? '').toString().toLowerCase() == 'awaiting signature') ...[
+                            div(classes: 'mt-2.5 p-2 rounded-xl border border-amber-500/20 bg-amber-500/5 flex items-center gap-2', [
+                              lIcon('clock', cls: 'w-4 h-4 text-amber-400'),
+                              span(classes: 'text-xs text-amber-400 font-medium', [Component.text('Awaiting Tenant Signature')]),
+                            ]),
+                          ],
                           () {
                             final reqStatus = (req['status'] ?? '').toString().toLowerCase();
                             if (reqStatus == 'approved' || reqStatus == 'awaiting signature') {

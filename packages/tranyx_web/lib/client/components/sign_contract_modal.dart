@@ -51,9 +51,23 @@ class _SignContractModalState extends State<SignContractModalComponent> {
     try {
       if (component.isProperty) {
         final prop = await component.appState.firestore.getPropertyRental(component.rentalId);
+        if (prop != null && component.requestId != null) {
+          final reqDoc = await component.appState.firestore.getDocument('property_requests/${component.requestId}');
+          if (reqDoc != null) {
+            setState(() => _propertyRental = PropertyRental.fromBookingRequest(prop, reqDoc));
+            return;
+          }
+        }
         setState(() => _propertyRental = prop);
       } else {
         final vehicle = await component.appState.firestore.getRental(component.rentalId);
+        if (vehicle != null && component.requestId != null) {
+          final reqDoc = await component.appState.firestore.getDocument('rental_requests/${component.requestId}');
+          if (reqDoc != null) {
+            setState(() => _vehicleRental = VehicleRental.fromBookingRequest(vehicle, reqDoc));
+            return;
+          }
+        }
         setState(() => _vehicleRental = vehicle);
       }
     } catch (_) {}
@@ -61,7 +75,7 @@ class _SignContractModalState extends State<SignContractModalComponent> {
   }
 
   void _submitSignature() async {
-    final canvasId = 'sign-contract-pad-${component.rentalId}';
+    final canvasId = 'sign-contract-pad-${component.requestId ?? component.rentalId}';
     if (isSignaturePadEmptyJs(canvasId)) {
       setState(() => _error = 'Please draw your signature on the pad before proceeding.');
       return;
@@ -112,7 +126,7 @@ class _SignContractModalState extends State<SignContractModalComponent> {
   @override
   Component build(BuildContext context) {
     final isDark = component.appState.isDark;
-    final canvasId = 'sign-contract-pad-${component.rentalId}';
+    final canvasId = 'sign-contract-pad-${component.requestId ?? component.rentalId}';
 
     // Initialize signature pad after first paint
     Future.microtask(() => initSignaturePadJs(canvasId));
