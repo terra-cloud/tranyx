@@ -247,7 +247,22 @@ class TranyxAppState extends State<TranyxApp> {
   List<String> jobImageUrls = [];
   bool isUploadingImages = false;
   bool isPostingJob = false;
-  String? postJobError;
+  String? _postJobError;
+  String? get postJobError => _postJobError;
+  set postJobError(String? val) {
+    _postJobError = val;
+    if (val != null) {
+      final lower = val.toLowerCase();
+      if (lower.contains('404') ||
+          lower.contains('user profile not found') ||
+          lower.contains('profile not found') ||
+          lower.contains('not logged in') ||
+          lower.contains('id-token-expired') ||
+          lower.contains('401')) {
+        triggerSessionExpired();
+      }
+    }
+  }
   String? jobPromoCode;
   double jobDiscountAmount = 0.0;
   String profilePromoCodeInput = '';
@@ -507,10 +522,16 @@ class TranyxAppState extends State<TranyxApp> {
     final lowerTitle = title.toLowerCase();
     final lowerMsg = message.toLowerCase();
     if (lowerTitle.contains('401') ||
+        lowerTitle.contains('404') ||
         lowerTitle.contains('not logged in') ||
+        lowerTitle.contains('user profile not found') ||
+        lowerTitle.contains('profile not found') ||
         lowerMsg.contains('401') ||
+        lowerMsg.contains('404') ||
         lowerMsg.contains('not logged in') ||
-        lowerMsg.contains('id-token-expired')) {
+        lowerMsg.contains('id-token-expired') ||
+        lowerMsg.contains('user profile not found') ||
+        lowerMsg.contains('profile not found')) {
       triggerSessionExpired();
       return;
     }
@@ -2178,7 +2199,10 @@ class TranyxAppState extends State<TranyxApp> {
   Future<void> handlePostJob() async {
     final uid = SessionStorage.uid;
     final token = SessionStorage.idToken;
-    if (uid == null || token == null) return;
+    if (uid == null || token == null) {
+      triggerSessionExpired();
+      return;
+    }
 
     if (checkProfanity(newJobTitle) || checkProfanity(newJobDesc)) {
       setState(() {
@@ -2206,8 +2230,34 @@ class TranyxAppState extends State<TranyxApp> {
       final svc = FirestoreService(token, _handleTokenRefresh);
 
       // 1. Check user balance first
-      final userDoc = await svc.getDocument('users/$uid');
-      if (userDoc == null) throw 'User profile not found';
+      var userDoc = await svc.getDocument('users/$uid');
+      if (userDoc == null) {
+        if (userProfile != null) {
+          try {
+            await svc.createOrUpdate('users/$uid', userProfile!.toMap());
+            userDoc = await svc.getDocument('users/$uid') ?? userProfile!.toMap();
+          } catch (_) {}
+        } else if (userName.isNotEmpty || userEmail.isNotEmpty) {
+          final newProfile = UserProfile(
+            uid: uid,
+            email: userEmail,
+            name: userName.isNotEmpty ? userName : 'User',
+            photoUrl: userPhotoUrl,
+            accountType: accountType,
+            tyxBalance: walletBalance,
+          );
+          try {
+            await svc.createOrUpdate('users/$uid', newProfile.toMap());
+            userProfile = newProfile;
+            userDoc = newProfile.toMap();
+          } catch (_) {}
+        }
+      }
+
+      if (userDoc == null) {
+        triggerSessionExpired();
+        throw 'User profile not found. Please relogin.';
+      }
 
       final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
       final discountedPrice = (price - jobDiscountAmount).clamp(0.0, 999999.0);
@@ -2347,8 +2397,17 @@ class TranyxAppState extends State<TranyxApp> {
 
       await loadJobs();
     } catch (e) {
+      final errStr = e.toString();
+      final lowerErr = errStr.toLowerCase();
+      if (lowerErr.contains('404') ||
+          lowerErr.contains('user profile not found') ||
+          lowerErr.contains('profile not found') ||
+          lowerErr.contains('401') ||
+          lowerErr.contains('not logged in')) {
+        triggerSessionExpired();
+      }
       setState(() {
-        postJobError = e.toString();
+        postJobError = errStr;
         isPostingJob = false;
         showDepositModal = false;
       });

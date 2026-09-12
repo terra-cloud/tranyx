@@ -173,7 +173,12 @@ Future<http.Response> _rawRequestWithRetry(
 
 void _handleGlobalSessionExpiration(FirebaseException e) {
   final lowerMsg = e.message.toLowerCase();
-  if (e.statusCode == 401 || lowerMsg.contains('not logged in') || lowerMsg.contains('id-token-expired')) {
+  if (e.statusCode == 401 ||
+      e.statusCode == 404 ||
+      lowerMsg.contains('not logged in') ||
+      lowerMsg.contains('id-token-expired') ||
+      lowerMsg.contains('user profile not found') ||
+      lowerMsg.contains('profile not found')) {
     final cb = onSessionExpiredGlobal;
     if (cb != null) cb();
   }
@@ -258,7 +263,12 @@ class FirebaseException implements Exception {
   final int? statusCode;
   FirebaseException(this.message, [this.statusCode]) {
     final lowerMsg = message.toLowerCase();
-    if (statusCode == 401 || lowerMsg.contains('not logged in') || lowerMsg.contains('id-token-expired')) {
+    if (statusCode == 401 ||
+        statusCode == 404 ||
+        lowerMsg.contains('not logged in') ||
+        lowerMsg.contains('id-token-expired') ||
+        lowerMsg.contains('user profile not found') ||
+        lowerMsg.contains('profile not found')) {
       final cb = onSessionExpiredGlobal;
       if (cb != null) cb();
     }
