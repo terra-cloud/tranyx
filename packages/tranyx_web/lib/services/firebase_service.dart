@@ -1171,6 +1171,169 @@ class FirestoreService {
     });
   }
 
+  /// Reclaims a gig that has been inactive/stalled for at least 48 hours.
+  /// Refunds 100% of escrow to the employer, transitions status to 'Abandoned',
+  /// and increments the assigned worker's `abandonedJobs` metric.
+  Future<void> reclaimInactiveJob(String jobId, String employerUid, [String? reason]) async {
+    final jobDoc = await getDocument('jobs/$jobId');
+    if (jobDoc == null) throw Exception('Job not found.');
+
+    final employerId = jobDoc['creatorId'] as String? ?? '';
+    if (employerId != employerUid) {
+      throw Exception('UNAUTHORIZED: Only the job creator can reclaim this job.');
+    }
+
+    final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+    if (status == 'completed') {
+      throw Exception('INVALID_STATE: Cannot reclaim a completed job.');
+    }
+    if (status == 'cancelled' || status == 'admin_cancelled') {
+      throw Exception('INVALID_STATE: Job is already cancelled.');
+    }
+    if (status == 'abandoned') {
+      throw Exception('INVALID_STATE: Job is already marked abandoned.');
+    }
+
+    DateTime? parseTs(dynamic val) {
+      if (val == null) return null;
+      if (val is DateTime) return val;
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+      if (val is String) {
+        final dt = DateTime.tryParse(val);
+        if (dt != null) return dt;
+        final n = num.tryParse(val);
+        if (n != null) return DateTime.fromMillisecondsSinceEpoch(n.toInt());
+      }
+      return null;
+    }
+
+    final lastActive = parseTs(jobDoc['updatedAt']) ?? parseTs(jobDoc['createdAt']) ?? DateTime.now();
+    final inactiveHours = DateTime.now().difference(lastActive).inHours;
+    if (inactiveHours < 48) {
+      throw Exception('JOB_NOT_STALE: Inactivity threshold of 48 hours has not been reached ($inactiveHours hours elapsed).');
+    }
+
+    final now = DateTime.now();
+    final nowMillis = now.millisecondsSinceEpoch;
+    final nyxianId = jobDoc['acceptedApplicantId'] as String? ?? jobDoc['nyxianId'] as String?;
+
+    final escrowDoc = await getEscrow(jobId);
+    final isAlreadyRefunded = escrowDoc != null && (escrowDoc['status'] as String? ?? '').toLowerCase() == 'refunded';
+
+    if (!isAlreadyRefunded && employerId.isNotEmpty) {
+      double totalEscrow = (escrowDoc?['amount'] as num?)?.toDouble() ?? 0.0;
+      if (totalEscrow <= 0.0) {
+        final pricing = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
+        final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+        totalEscrow = (pricing - discount).clamp(0.0, 999999.0);
+      }
+
+      if (totalEscrow > 0.0) {
+        final empDoc = await getDocument('users/$employerId');
+        if (empDoc != null) {
+          final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+          await createOrUpdate('users/$employerId', {
+            ...empDoc,
+            'tyxBalance': currentBal + totalEscrow,
+          });
+        }
+
+        await createOrUpdate('escrow/$jobId', {
+          if (escrowDoc != null) ...escrowDoc,
+          'jobId': jobId,
+          'employerId': employerId,
+          'amount': totalEscrow,
+          'refundAmount': totalEscrow,
+          'status': 'refunded',
+          'refundedAt': nowMillis,
+          'refundedTo': employerId,
+        });
+
+        final jobTitle = (jobDoc['title'] as String?) ?? 'Job';
+        await createOrUpdate('transactions/refund_stale_job_$jobId', {
+          'id': 'refund_stale_job_$jobId',
+          'uid': employerId,
+          'jobId': jobId,
+          'type': 'refund',
+          'category': 'refund',
+          'amount': totalEscrow,
+          'title': 'Inactive Gig Escrow Reclaim',
+          'desc': '100% Escrow refund for reclaimed inactive gig "$jobTitle"',
+          'status': 'Completed',
+          'method': 'Tranyx Escrow',
+          'originRail': 'internal_balance',
+          'createdAt': nowMillis,
+        });
+      }
+    }
+
+    // Increment nyxian abandonedJobs
+    if (nyxianId != null && nyxianId.trim().isNotEmpty) {
+      final nyxDoc = await getDocument('users/$nyxianId');
+      if (nyxDoc != null) {
+        final currentAbandoned = (nyxDoc['abandonedJobs'] as num?)?.toInt() ?? 0;
+        await createOrUpdate('users/$nyxianId', {
+          ...nyxDoc,
+          'abandonedJobs': currentAbandoned + 1,
+        });
+      }
+    }
+
+    // Update job doc to Abandoned
+    await createOrUpdate('jobs/$jobId', {
+      ...jobDoc,
+      'status': 'Abandoned',
+      'updatedAt': nowMillis,
+      'abandonedAt': nowMillis,
+      'abandonReason': reason?.trim().isNotEmpty == true
+          ? reason!.trim()
+          : 'Job reclaimed by employer due to 48+ hours of inactivity',
+    });
+
+    // Write cancellation log
+    final logId = 'log_$nowMillis';
+    await createOrUpdate('job_cancellation_logs/$logId', {
+      'jobId': jobId,
+      'cancelledBy': employerUid,
+      'role': 'employer',
+      'action': 'RECLAIM_INACTIVE_JOB',
+      'status': 'ABANDONED',
+      'reason': reason?.trim().isNotEmpty == true
+          ? reason!.trim()
+          : 'Job reclaimed by employer due to 48+ hours of inactivity',
+      'previousStatus': jobDoc['status'] ?? 'In Progress',
+      'acceptedApplicantId': nyxianId,
+      'timestamp': nowMillis,
+    });
+
+    // Notify employer
+    final empPrefix = employerId.length > 5 ? employerId.substring(0, 5) : employerId;
+    await createOrUpdate('notifications/notif_reclaim_emp_${nowMillis}_$empPrefix', {
+      'uid': employerId,
+      'title': 'Gig Reclaimed 🛡️',
+      'message': 'You successfully reclaimed inactive gig "${jobDoc['title']}". 100% of escrow has been refunded to your wallet.',
+      'type': 'job_reclaimed',
+      'jobId': jobId,
+      'isRead': false,
+      'createdAt': nowMillis,
+    });
+
+    // Notify Nyxian if assigned
+    if (nyxianId != null && nyxianId.trim().isNotEmpty) {
+      final nyxPrefix = nyxianId.length > 5 ? nyxianId.substring(0, 5) : nyxianId;
+      await createOrUpdate('notifications/notif_reclaim_nyx_${nowMillis}_$nyxPrefix', {
+        'uid': nyxianId,
+        'title': 'Gig Reclaimed by Employer ⚠️',
+        'message': 'Gig "${jobDoc['title']}" was marked Abandoned due to 48+ hours without progress.',
+        'type': 'job_abandoned',
+        'jobId': jobId,
+        'isRead': false,
+        'createdAt': nowMillis,
+      });
+    }
+  }
+
   Future<void> adminOverrideCancelJob(String jobId, String adminUid, String reason) async {
     if (reason.trim().length < 20) {
       throw Exception('Admin override requires a justification reason of at least 20 characters.');

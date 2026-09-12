@@ -1005,6 +1005,196 @@ class JobRepository {
     });
   }
 
+  /// Reclaims a gig that has been inactive/stalled for at least 48 hours.
+  /// Refunds 100% of escrow to the employer, transitions status to 'Abandoned',
+  /// and increments the assigned worker's `abandonedJobs` metric.
+  Future<void> reclaimInactiveJob({
+    required String jobId,
+    required String employerUid,
+    String? reason,
+  }) async {
+    final jobRef = _firestore.collection('jobs').doc(jobId);
+    final escrowRef = _firestore.collection('escrow').doc(jobId);
+
+    await _firestore.runTransaction((transaction) async {
+      // 1. ALL READS FIRST
+      final jobSnap = await transaction.get(jobRef);
+      if (!jobSnap.exists) throw Exception('Job not found.');
+      final jobData = jobSnap.data()!;
+
+      final String employerId = jobData['creatorId'] as String? ?? '';
+      if (employerId != employerUid) {
+        throw Exception('UNAUTHORIZED: Only the job creator can reclaim this job.');
+      }
+
+      final String currentStatus = (jobData['status'] as String? ?? '').toLowerCase();
+      if (currentStatus == 'completed') {
+        throw Exception('INVALID_STATE: Cannot reclaim a completed job.');
+      }
+      if (currentStatus == 'cancelled' || currentStatus == 'admin_cancelled') {
+        throw Exception('INVALID_STATE: Job is already cancelled.');
+      }
+      if (currentStatus == 'abandoned') {
+        throw Exception('INVALID_STATE: Job is already marked abandoned.');
+      }
+
+      DateTime? parseTs(dynamic val) {
+        if (val == null) return null;
+        if (val is DateTime) return val;
+        if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+        if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+        if (val is String) {
+          final dt = DateTime.tryParse(val);
+          if (dt != null) return dt;
+          final n = num.tryParse(val);
+          if (n != null) return DateTime.fromMillisecondsSinceEpoch(n.toInt());
+        }
+        return null;
+      }
+
+      final lastActive = parseTs(jobData['updatedAt']) ?? parseTs(jobData['createdAt']) ?? DateTime.now();
+      final inactiveHours = DateTime.now().difference(lastActive).inHours;
+      if (inactiveHours < 48) {
+        throw Exception('JOB_NOT_STALE: Inactivity threshold of 48 hours has not been reached ($inactiveHours hours elapsed).');
+      }
+
+      final String? nyxianId = jobData['acceptedApplicantId'] as String? ?? jobData['nyxianId'] as String?;
+
+      final escrowSnap = await transaction.get(escrowRef);
+      final bool isAlreadyRefunded = escrowSnap.exists && (escrowSnap.data()!['status'] as String? ?? '').toLowerCase() == 'refunded';
+
+      DocumentSnapshot<Map<String, dynamic>>? empSnap;
+      final empRef = employerId.isNotEmpty ? _firestore.collection('users').doc(employerId) : null;
+      if (empRef != null) {
+        empSnap = await transaction.get(empRef);
+      }
+
+      DocumentSnapshot<Map<String, dynamic>>? nyxianSnap;
+      DocumentReference<Map<String, dynamic>>? nyxianRef;
+      if (nyxianId != null && nyxianId.trim().isNotEmpty) {
+        nyxianRef = _firestore.collection('users').doc(nyxianId.trim());
+        nyxianSnap = await transaction.get(nyxianRef);
+      }
+
+      // 2. ALL WRITES AFTER READS
+      final now = DateTime.now();
+      final nowMillis = now.millisecondsSinceEpoch;
+
+      if (!isAlreadyRefunded && employerId.isNotEmpty) {
+        double totalEscrow = 0.0;
+        if (escrowSnap.exists) {
+          totalEscrow = (escrowSnap.data()!['amount'] as num?)?.toDouble() ?? 0.0;
+        }
+        if (totalEscrow <= 0.0) {
+          final double price = (jobData['pricingValue'] as num?)?.toDouble() ?? 0.0;
+          final double discount = (jobData['discountAmount'] as num?)?.toDouble() ?? 0.0;
+          totalEscrow = (price - discount).clamp(0.0, 999999.0);
+        }
+
+        if (totalEscrow > 0.0) {
+          if (empRef != null && empSnap != null && empSnap.exists) {
+            final double currentBal = (empSnap.data()!['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            transaction.update(empRef, {
+              'tyxBalance': currentBal + totalEscrow,
+            });
+          }
+
+          transaction.set(escrowRef, {
+            if (escrowSnap.exists) ...escrowSnap.data()!,
+            'jobId': jobId,
+            'employerId': employerId,
+            'amount': totalEscrow,
+            'refundAmount': totalEscrow,
+            'status': 'refunded',
+            'refundedAt': nowMillis,
+            'refundedTo': employerId,
+          });
+
+          final txRef = _firestore.collection('transactions').doc('refund_stale_job_$jobId');
+          final jobTitle = (jobData['title'] as String?) ?? 'Job';
+          transaction.set(txRef, {
+            'id': 'refund_stale_job_$jobId',
+            'uid': employerId,
+            'jobId': jobId,
+            'type': 'refund',
+            'category': 'refund',
+            'amount': totalEscrow,
+            'title': 'Inactive Gig Escrow Reclaim',
+            'desc': '100% Escrow refund for reclaimed inactive gig "$jobTitle"',
+            'status': 'Completed',
+            'method': 'Tranyx Escrow',
+            'originRail': 'internal_balance',
+            'createdAt': nowMillis,
+          });
+        }
+      }
+
+      // Update worker\'s abandonedJobs count if a worker was accepted
+      if (nyxianRef != null && nyxianSnap != null && nyxianSnap.exists) {
+        final currentAbandoned = (nyxianSnap.data()!['abandonedJobs'] as num?)?.toInt() ?? 0;
+        transaction.update(nyxianRef, {
+          'abandonedJobs': currentAbandoned + 1,
+        });
+      }
+
+      // Update job status to Abandoned
+      transaction.update(jobRef, {
+        'status': 'Abandoned',
+        'updatedAt': nowMillis,
+        'abandonedAt': nowMillis,
+        'abandonReason': reason?.trim().isNotEmpty == true
+            ? reason!.trim()
+            : 'Job reclaimed by employer due to 48+ hours of inactivity',
+      });
+
+      // Write to job_cancellation_logs
+      final logRef = _firestore.collection('job_cancellation_logs').doc();
+      transaction.set(logRef, {
+        'jobId': jobId,
+        'cancelledBy': employerUid,
+        'role': 'employer',
+        'action': 'RECLAIM_INACTIVE_JOB',
+        'status': 'ABANDONED',
+        'reason': reason?.trim().isNotEmpty == true
+            ? reason!.trim()
+            : 'Job reclaimed by employer due to 48+ hours of inactivity',
+        'previousStatus': jobData['status'] ?? 'In Progress',
+        'acceptedApplicantId': nyxianId,
+        'timestamp': nowMillis,
+      });
+
+      // Notification to employer
+      if (employerId.isNotEmpty) {
+        final prefix = employerId.length > 5 ? employerId.substring(0, 5) : employerId;
+        final notifRef = _firestore.collection('notifications').doc('notif_reclaim_emp_${nowMillis}_$prefix');
+        transaction.set(notifRef, {
+          'uid': employerId,
+          'title': 'Gig Reclaimed 🛡️',
+          'message': 'You successfully reclaimed inactive gig "${jobData['title']}". 100% of escrow has been refunded to your wallet.',
+          'type': 'job_reclaimed',
+          'jobId': jobId,
+          'isRead': false,
+          'createdAt': nowMillis,
+        });
+      }
+
+      // Notification to Nyxian if assigned
+      if (nyxianId != null && nyxianId.trim().isNotEmpty) {
+        final prefix = nyxianId.length > 5 ? nyxianId.substring(0, 5) : nyxianId;
+        final notifRef = _firestore.collection('notifications').doc('notif_reclaim_nyx_${nowMillis}_$prefix');
+        transaction.set(notifRef, {
+          'uid': nyxianId,
+          'title': 'Gig Reclaimed by Employer ⚠️',
+          'message': 'Gig "${jobData['title']}" was marked Abandoned due to 48+ hours without progress.',
+          'type': 'job_abandoned',
+          'jobId': jobId,
+          'isRead': false,
+          'createdAt': nowMillis,
+        });
+      }
+    });
+  }
+
   Future<void> deleteJob({
     required String jobId,
     required String currentUserUid,

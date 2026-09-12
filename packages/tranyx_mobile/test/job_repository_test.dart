@@ -797,6 +797,107 @@ void main() {
         );
       });
     });
+
+    group('reclaimInactiveJob (48-Hour Inactivity Guardrail)', () {
+      test('Throws JOB_NOT_STALE if job activity is under 48 hours', () async {
+        final recentTime = DateTime.now().subtract(const Duration(hours: 24));
+        firestore.db['jobs/job_recent'] = {
+          'id': 'job_recent',
+          'creatorId': 'emp123',
+          'title': 'Recent Moving Gig',
+          'status': 'In Progress',
+          'updatedAt': recentTime.millisecondsSinceEpoch,
+          'acceptedApplicantId': 'worker456',
+        };
+
+        expect(
+          () => repo.reclaimInactiveJob(jobId: 'job_recent', employerUid: 'emp123'),
+          throwsA(predicate((e) => e.toString().contains('JOB_NOT_STALE'))),
+        );
+      });
+
+      test('Throws UNAUTHORIZED if non-creator attempts to reclaim', () async {
+        final staleTime = DateTime.now().subtract(const Duration(hours: 50));
+        firestore.db['jobs/job_stale_1'] = {
+          'id': 'job_stale_1',
+          'creatorId': 'emp123',
+          'title': 'Stale Gig',
+          'status': 'In Progress',
+          'updatedAt': staleTime.millisecondsSinceEpoch,
+        };
+
+        expect(
+          () => repo.reclaimInactiveJob(jobId: 'job_stale_1', employerUid: 'stranger999'),
+          throwsA(predicate((e) => e.toString().contains('UNAUTHORIZED'))),
+        );
+      });
+
+      test('Successfully reclaims job after 48h, refunds 100% escrow, marks Abandoned, and penalizes worker', () async {
+        final staleTime = DateTime.now().subtract(const Duration(hours: 72));
+
+        firestore.db['users/emp_stale'] = {
+          'uid': 'emp_stale',
+          'name': 'Employer Stale',
+          'tyxBalance': 500.0,
+        };
+
+        firestore.db['users/worker_stale'] = {
+          'uid': 'worker_stale',
+          'name': 'Slacking Worker',
+          'abandonedJobs': 1,
+        };
+
+        firestore.db['jobs/job_stale_2'] = {
+          'id': 'job_stale_2',
+          'creatorId': 'emp_stale',
+          'title': 'Fence Painting',
+          'status': 'In Progress',
+          'pricingValue': 1200.0,
+          'discountAmount': 0.0,
+          'acceptedApplicantId': 'worker_stale',
+          'updatedAt': staleTime.millisecondsSinceEpoch,
+        };
+
+        firestore.db['escrow/job_stale_2'] = {
+          'jobId': 'job_stale_2',
+          'employerId': 'emp_stale',
+          'amount': 1200.0,
+          'status': 'held',
+        };
+
+        await repo.reclaimInactiveJob(jobId: 'job_stale_2', employerUid: 'emp_stale');
+
+        // 1. Employer balance refunded (500 + 1200 = 1700)
+        final empDoc = await firestore.collection('users').doc('emp_stale').get();
+        expect(empDoc.data()!['tyxBalance'], equals(1700.0));
+
+        // 2. Escrow marked refunded
+        final escrowDoc = await firestore.collection('escrow').doc('job_stale_2').get();
+        expect(escrowDoc.data()!['status'], equals('refunded'));
+        expect(escrowDoc.data()!['refundAmount'], equals(1200.0));
+
+        // 3. Worker abandonedJobs incremented (1 + 1 = 2)
+        final workerDoc = await firestore.collection('users').doc('worker_stale').get();
+        expect(workerDoc.data()!['abandonedJobs'], equals(2));
+
+        // 4. Job status set to Abandoned
+        final jobDoc = await firestore.collection('jobs').doc('job_stale_2').get();
+        expect(jobDoc.data()!['status'], equals('Abandoned'));
+        expect(jobDoc.data()!['abandonReason'], contains('48+ hours'));
+
+        // 5. Transaction log created
+        final txDoc = await firestore.collection('transactions').doc('refund_stale_job_job_stale_2').get();
+        expect(txDoc.exists, isTrue);
+        expect(txDoc.data()!['amount'], equals(1200.0));
+        expect(txDoc.data()!['type'], equals('refund'));
+
+        // 6. Cancellation log created
+        final logs = await firestore.collection('job_cancellation_logs').get();
+        final log = logs.docs.firstWhere((d) => d.data()['jobId'] == 'job_stale_2');
+        expect(log.data()['action'], equals('RECLAIM_INACTIVE_JOB'));
+        expect(log.data()['status'], equals('ABANDONED'));
+      });
+    });
   });
 }
 
