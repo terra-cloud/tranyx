@@ -116,8 +116,9 @@ class _ProfileMenu extends StatelessComponent {
         p(classes: 'font-bold text-lg', [Component.text(s.userName.isNotEmpty ? s.userName : 'User')]),
         div(classes: 'flex justify-center gap-2 mt-1.5', [
           span(
-            classes: 'inline-block px-3 py-1 rounded-md text-xs font-bold ${s.accountType.badgeClasses}',
-            [Component.text(s.accountType.label)],
+            classes:
+                'inline-block px-3 py-1 rounded-md text-xs font-bold ${s.userProfile?.isPremium == true || s.accountType == AccountType.hybrid ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : s.accountType.badgeClasses}',
+            [Component.text(s.userProfile?.tierLabel ?? s.accountType.label)],
           ),
           if (s.userProfile?.isBonded == true)
             span(
@@ -191,8 +192,18 @@ class _ProfileMain extends StatefulComponent {
 
 class _ProfileMainState extends State<_ProfileMain> {
   String selectedPlan = 'monthly'; // 'monthly' | 'yearly'
+  String selectedPaymentMethod = 'tyxbit'; // 'tyxbit' | 'sol' | 'cash'
   bool isProcessing = false;
   String? errorMessage;
+  String? successMessage;
+  bool showConfirmModal = false;
+  String cashRefInput = '';
+  bool copiedTxId = false;
+
+  String _formatDate(DateTime dt) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
 
   Component _perkRow(String text, bool active) {
     final isDark = component.state.isDark;
@@ -386,229 +397,862 @@ class _ProfileMainState extends State<_ProfileMain> {
         ]),
 
       // Perks & SOL Pricing Cards (Lite vs Pro comparison from reference)
-      if (s.accountType != AccountType.hybrid)
-        Builder(
-          builder: (context) {
-            final rate = s.solToPhpRate > 0 ? s.solToPhpRate : 8500.0;
-            final double monthlySolPrice = 299.0 / rate;
-            final double yearlySolPrice = 2999.0 / rate;
-            final double activeSolPrice = selectedPlan == 'yearly' ? yearlySolPrice : monthlySolPrice;
-            final hasWallet = s.walletState == WalletState.connected;
-            final displayAddress = s.walletAddress.isNotEmpty
-                ? s.walletAddress
-                : (s.userProfile?.walletPublicKey ?? '');
-            final textCls = isDark ? 'text-white' : 'text-zinc-900';
+      if (s.userProfile?.isPremium == true || s.accountType == AccountType.hybrid)
+        _buildActiveSubscriptionCard(s, isDark, cardCls)
+      else if (s.userProfile?.pendingSubscription != null)
+        _buildPendingSubscriptionCard(s, isDark, cardCls)
+      else
+        _buildUpgradeSection(s, isDark, cardCls),
 
-            return div(classes: 'mt-10 pt-8 border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} space-y-6', [
-              // Header section
-              div(classes: 'text-center max-w-xl mx-auto space-y-2', [
-                h3(classes: 'text-xl font-black $textCls', [Component.text('Upgrade to Pro')]),
-                p(classes: 'text-xs text-zinc-500 mt-1', [
-                  Component.text('Choose the plan that fits your business needs. Pay with SOL to upgrade instantly.'),
-                ]),
-              ]),
+      if (showConfirmModal)
+        _buildConfirmModal(s, isDark, cardCls),
+    ]);
+  }
 
-              // Plan Cards Selector
-              div(classes: 'grid grid-cols-2 gap-4 max-w-md mx-auto', [
-                // Monthly
-                div(
-                  classes:
-                      'p-4 rounded-2xl border text-center transition-all cursor-pointer relative '
-                      '${selectedPlan == 'monthly' ? "border-indigo-500 bg-indigo-500/10 shadow-lg shadow-indigo-500/5" : cardCls}',
-                  events: {
-                    'click': (_) => setState(() => selectedPlan = 'monthly'),
-                  },
-                  [
-                    h4(classes: 'text-sm font-black $textCls', [Component.text('Monthly Plan')]),
-                    p(classes: 'text-[10px] text-zinc-500 mt-0.5', [Component.text('₱299 PHP basis')]),
-                    p(classes: 'text-xs font-black text-indigo-400 mt-2', [
-                      Component.text('◎ ${monthlySolPrice.toStringAsFixed(4)} SOL / mo'),
-                    ]),
-                  ],
-                ),
+  Component _buildActiveSubscriptionCard(TranyxAppState s, bool isDark, String cardCls) {
+    final textCls = isDark ? 'text-white' : 'text-zinc-900';
+    final profile = s.userProfile;
+    final plan = profile?.subscriptionPlan ?? 'monthly';
+    final planName = plan == 'yearly' ? 'Pro Yearly' : 'Pro Monthly';
+    final billingDesc = plan == 'yearly' ? '₱2,999 / year' : '₱299 / month';
+    final paymentMethod = profile?.subscriptionPaymentMethod ?? 'Solana (SOL)';
+    final amountPaid = profile?.subscriptionPaymentAmount != null
+        ? '₱${profile!.subscriptionPaymentAmount!.toStringAsFixed(0)}'
+        : (plan == 'yearly' ? '₱2,999' : '₱299');
+    final startedAt = profile?.subscriptionStartedAt != null
+        ? _formatDate(profile!.subscriptionStartedAt!)
+        : 'Active';
+    final renewsAt = profile?.premiumUntil != null
+        ? _formatDate(profile!.premiumUntil!)
+        : 'Ongoing';
+    final txId = profile?.subscriptionTxId ?? 'N/A';
 
-                // Yearly
-                div(
-                  classes:
-                      'p-4 rounded-2xl border text-center transition-all cursor-pointer relative overflow-visible '
-                      '${selectedPlan == 'yearly' ? "border-indigo-500 bg-indigo-500/10 shadow-lg shadow-indigo-500/5" : cardCls}',
-                  events: {
-                    'click': (_) => setState(() => selectedPlan = 'yearly'),
-                  },
-                  [
-                    div(
-                      classes:
-                          'absolute -top-2.5 right-2 px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-red-500 text-white shadow-sm border border-red-400/20',
-                      [Component.text('16% Saved')],
-                    ),
-                    h4(classes: 'text-sm font-black $textCls', [Component.text('Yearly Plan')]),
-                    p(classes: 'text-[10px] text-zinc-500 mt-0.5', [Component.text('₱2,999 PHP basis')]),
-                    p(classes: 'text-xs font-black text-indigo-400 mt-2', [
-                      Component.text('◎ ${yearlySolPrice.toStringAsFixed(4)} SOL / yr'),
-                    ]),
-                  ],
-                ),
-              ]),
+    return div(
+      classes: 'mt-10 pt-8 border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} space-y-6',
+      [
+        div(classes: 'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3', [
+          div(classes: 'space-y-1', [
+            div(classes: 'flex items-center gap-2', [
+              h3(classes: 'text-xl font-black $textCls', [Component.text('Active Subscription')]),
+              span(
+                classes:
+                    'px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5',
+                [
+                  span(classes: 'w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse', []),
+                  Component.text('ACTIVE PRO'),
+                ],
+              ),
+            ]),
+            p(classes: 'text-xs text-zinc-500', [
+              Component.text('You have an active Hybrid Pro subscription with unlocked dual-role privileges.'),
+            ]),
+          ]),
+          button(
+            classes:
+                'px-3 py-1.5 rounded-xl text-xs font-semibold border ${isDark ? "border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-700"} transition-colors cursor-pointer flex items-center gap-1.5 self-start sm:self-auto',
+            events: {'click': (_) => s.loadUserProfile()},
+            [
+              lIcon('refresh-cw', cls: 'w-3.5 h-3.5'),
+              Component.text('Refresh Status'),
+            ],
+          ),
+        ]),
 
-              // Columns comparison grid
-              div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-6', [
-                // Lite Card
-                div(classes: 'p-6 rounded-[2rem] border $cardCls flex flex-col justify-between relative space-y-6', [
-                  div(classes: 'space-y-4', [
+        div(
+          classes:
+              'p-6 sm:p-8 rounded-[2rem] border bg-gradient-to-br ${isDark ? "from-zinc-900 via-indigo-950/20 to-zinc-900 border-indigo-500/30 shadow-2xl shadow-indigo-950/30" : "from-white via-indigo-50/30 to-white border-indigo-200 shadow-xl shadow-indigo-500/5"} relative overflow-hidden',
+          [
+            div(
+              classes:
+                  'absolute -right-20 -top-20 w-60 h-60 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none',
+              [],
+            ),
+            div(classes: 'relative space-y-6', [
+              div(classes: 'flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b ${isDark ? "border-zinc-800" : "border-zinc-150"}', [
+                div(classes: 'flex items-center gap-4', [
+                  div(
+                    classes:
+                        'w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400',
+                    [lIcon('star', cls: 'w-7 h-7')],
+                  ),
+                  div([
                     div(classes: 'flex items-center gap-2', [
-                      span([], classes: 'w-2 h-6 bg-zinc-400 rounded-sm'),
-                      h4(classes: 'text-base font-black $textCls', [Component.text('Lite')]),
+                      h4(classes: 'text-lg font-black $textCls', [Component.text(planName)]),
+                      span(
+                        classes:
+                            'px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30',
+                        [Component.text(billingDesc)],
+                      ),
                     ]),
-                    p(classes: 'text-xs text-zinc-500 leading-normal', [
-                      Component.text('Basic account with a single active role'),
-                    ]),
-                    div(
-                      classes:
-                          'flex items-baseline gap-2 py-2 border-y ${isDark ? "border-zinc-800" : "border-zinc-150"}',
-                      [
-                        span(classes: 'text-3xl font-black $textCls', [Component.text('Single')]),
-                        p(classes: 'text-[10px] text-zinc-500 leading-snug', [
-                          Component.text('Choose either Nyxian or Employer role'),
-                        ]),
-                      ],
-                    ),
-                    div(classes: 'space-y-3 pt-2', [
-                      _perkRow('Single account role active at a time', true),
-                      _perkRow('Standard search exposure ranking', true),
-                      _perkRow('Standard 3% platform service fee', true),
-                      _perkRow('Limited daily messaging tools', true),
+                    p(classes: 'text-xs text-zinc-500 mt-0.5', [
+                      Component.text('Hybrid Account Permissions • Dual Nyxian & Employer Access'),
                     ]),
                   ]),
-
-                  button(
-                    classes:
-                        'w-full py-3.5 rounded-2xl text-xs font-bold text-center border transition-all cursor-not-allowed '
-                        '${isDark ? "bg-zinc-800 border-zinc-800 text-zinc-500" : "bg-zinc-100 border-zinc-200 text-zinc-400"}',
-                    attributes: {'disabled': 'true'},
-                    [Component.text('Your plan')],
-                  ),
                 ]),
+                div(classes: 'text-left sm:text-right', [
+                  span(classes: 'text-[10px] uppercase font-bold tracking-wider text-zinc-500 block', [
+                    Component.text('Amount Paid'),
+                  ]),
+                  span(classes: 'text-xl font-black text-indigo-400', [Component.text(amountPaid)]),
+                ]),
+              ]),
 
-                // Pro Card
+              div(classes: 'grid grid-cols-2 sm:grid-cols-4 gap-4', [
+                div(classes: 'p-3.5 rounded-xl ${isDark ? "bg-zinc-800/50" : "bg-zinc-100/70"} border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+                  span(classes: 'text-[10px] uppercase font-bold text-zinc-500 block', [Component.text('Payment Method')]),
+                  span(classes: 'text-xs font-bold $textCls block mt-1 flex items-center gap-1.5', [
+                    lIcon(paymentMethod.contains('Tyxbit') ? 'wallet' : (paymentMethod.contains('Solana') ? 'coins' : 'banknote'), cls: 'w-3.5 h-3.5 text-indigo-400'),
+                    Component.text(paymentMethod),
+                  ]),
+                ]),
+                div(classes: 'p-3.5 rounded-xl ${isDark ? "bg-zinc-800/50" : "bg-zinc-100/70"} border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+                  span(classes: 'text-[10px] uppercase font-bold text-zinc-500 block', [Component.text('Started On')]),
+                  span(classes: 'text-xs font-bold $textCls block mt-1', [Component.text(startedAt)]),
+                ]),
+                div(classes: 'p-3.5 rounded-xl ${isDark ? "bg-zinc-800/50" : "bg-zinc-100/70"} border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+                  span(classes: 'text-[10px] uppercase font-bold text-zinc-500 block', [Component.text('Renews / Expires')]),
+                  span(classes: 'text-xs font-bold text-emerald-400 block mt-1', [Component.text(renewsAt)]),
+                ]),
+                div(classes: 'p-3.5 rounded-xl ${isDark ? "bg-zinc-800/50" : "bg-zinc-100/70"} border ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+                  span(classes: 'text-[10px] uppercase font-bold text-zinc-500 block', [Component.text('Transaction Ref')]),
+                  div(classes: 'flex items-center gap-1.5 mt-1', [
+                    span(
+                      classes: 'text-xs font-mono font-bold $textCls truncate max-w-[100px]',
+                      attributes: {'title': txId},
+                      [Component.text(txId.length > 10 ? '${txId.substring(0, 5)}...${txId.substring(txId.length - 4)}' : txId)],
+                    ),
+                    if (txId != 'N/A')
+                      button(
+                        classes: 'text-zinc-400 hover:text-indigo-400 transition-colors p-0.5 cursor-pointer bg-transparent border-0',
+                        events: {
+                          'click': (_) {
+                            web.window.navigator.clipboard.writeText(txId);
+                            setState(() => copiedTxId = true);
+                            Timer(const Duration(seconds: 2), () {
+                              if (mounted) setState(() => copiedTxId = false);
+                            });
+                          },
+                        },
+                        attributes: {'title': 'Copy reference ID'},
+                        [lIcon(copiedTxId ? 'check' : 'copy', cls: 'w-3 h-3 text-indigo-400')],
+                      ),
+                  ]),
+                ]),
+              ]),
+
+              div(classes: 'pt-2 space-y-3', [
+                p(classes: 'text-xs font-bold uppercase tracking-wider text-zinc-400', [Component.text('Your Pro Privileges Active')]),
+                div(classes: 'grid grid-cols-1 sm:grid-cols-2 gap-2.5', [
+                  _perkRow('Dual Nyxian & Employer role switching', true),
+                  _perkRow('Reduced platform service fee (1.5% cut)', true),
+                  _perkRow('Priority search exposure & badge display', true),
+                  _perkRow('Unlimited client & freelancer direct messaging', true),
+                ]),
+              ]),
+            ]),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Component _buildPendingSubscriptionCard(TranyxAppState s, bool isDark, String cardCls) {
+    final textCls = isDark ? 'text-white' : 'text-zinc-900';
+    final pending = s.userProfile?.pendingSubscription;
+    final plan = (pending?['plan'] as String?) ?? 'monthly';
+    final amount = (pending?['amount'] as num?)?.toDouble() ?? (plan == 'yearly' ? 2999.0 : 299.0);
+    final ref = (pending?['referenceNumber'] as String?) ?? 'P2P-PENDING';
+    final createdAtMs = pending?['createdAt'] as int?;
+    final submittedDate = createdAtMs != null
+        ? _formatDate(DateTime.fromMillisecondsSinceEpoch(createdAtMs))
+        : 'Recently';
+
+    return div(
+      classes: 'mt-10 pt-8 border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} space-y-6',
+      [
+        div(classes: 'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3', [
+          div(classes: 'space-y-1', [
+            div(classes: 'flex items-center gap-2', [
+              h3(classes: 'text-xl font-black $textCls', [Component.text('Subscription Pending Verification')]),
+              span(
+                classes:
+                    'px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1.5',
+                [
+                  span(classes: 'w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse', []),
+                  Component.text('AWAITING AGENT'),
+                ],
+              ),
+            ]),
+            p(classes: 'text-xs text-zinc-500', [
+              Component.text('Your Cash (P2P) subscription payment has been recorded and is currently awaiting verification.'),
+            ]),
+          ]),
+          button(
+            classes:
+                'px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer flex items-center gap-1.5 self-start sm:self-auto',
+            events: {'click': (_) => s.loadUserProfile()},
+            [
+              lIcon('refresh-cw', cls: 'w-3.5 h-3.5'),
+              Component.text('Check Verification Status'),
+            ],
+          ),
+        ]),
+
+        div(
+          classes:
+              'p-6 sm:p-8 rounded-[2rem] border bg-gradient-to-br ${isDark ? "from-zinc-900 via-amber-950/15 to-zinc-900 border-amber-500/30" : "from-white via-amber-50/40 to-white border-amber-200 shadow-md"} space-y-6',
+          [
+            div(classes: 'flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b ${isDark ? "border-zinc-800" : "border-zinc-150"}', [
+              div(classes: 'flex items-center gap-4', [
                 div(
                   classes:
-                      'p-6 rounded-[2rem] border flex flex-col justify-between relative space-y-6 '
-                      '${selectedPlan == 'monthly' ? "border-indigo-500 bg-indigo-500/5 shadow-xl shadow-indigo-500/5" : "border-indigo-600 bg-indigo-650/5 shadow-xl shadow-indigo-600/5"}',
-                  [
+                      'w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400',
+                  [lIcon('clock', cls: 'w-7 h-7')],
+                ),
+                div([
+                  h4(classes: 'text-lg font-black $textCls', [
+                    Component.text('Hybrid Pro (${plan == 'yearly' ? 'Yearly' : 'Monthly'})'),
+                  ]),
+                  p(classes: 'text-xs text-zinc-500 mt-0.5', [
+                    Component.text('Payment Method: Cash (P2P) Rail • Submitted on $submittedDate'),
+                  ]),
+                ]),
+              ]),
+              div(classes: 'text-left sm:text-right', [
+                span(classes: 'text-[10px] uppercase font-bold text-zinc-500 block', [Component.text('Payment Due / Submitted')]),
+                span(classes: 'text-xl font-black text-amber-400', [Component.text('₱${amount.toStringAsFixed(0)}')]),
+              ]),
+            ]),
+
+            div(classes: 'p-4 rounded-2xl ${isDark ? "bg-zinc-800/60" : "bg-zinc-100"} border ${isDark ? "border-zinc-800" : "border-zinc-200"} flex flex-col sm:flex-row sm:items-center justify-between gap-3', [
+              div([
+                span(classes: 'text-[10px] uppercase font-bold text-zinc-500 block', [Component.text('Your Verification Reference Code')]),
+                div(classes: 'flex items-center gap-2 mt-1', [
+                  span(classes: 'font-mono text-base font-black text-indigo-400 tracking-wider', [Component.text(ref)]),
+                  button(
+                    classes: 'p-1 rounded text-zinc-400 hover:text-white bg-transparent border-0 cursor-pointer',
+                    events: {
+                      'click': (_) {
+                        web.window.navigator.clipboard.writeText(ref);
+                        setState(() => copiedTxId = true);
+                        Timer(const Duration(seconds: 2), () {
+                          if (mounted) setState(() => copiedTxId = false);
+                        });
+                      },
+                    },
+                    attributes: {'title': 'Copy reference code'},
+                    [lIcon(copiedTxId ? 'check' : 'copy', cls: 'w-4 h-4 text-indigo-400')],
+                  ),
+                ]),
+              ]),
+              div(classes: 'text-xs text-zinc-400 max-w-sm', [
+                Component.text('Present this Reference Code to your assigned P2P Agent when depositing cash. Once confirmed, your account instantly upgrades.'),
+              ]),
+            ]),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Component _buildUpgradeSection(TranyxAppState s, bool isDark, String cardCls) {
+    final rate = s.solToPhpRate > 0 ? s.solToPhpRate : 8500.0;
+    final double price = selectedPlan == 'yearly' ? 2999.0 : 299.0;
+    final double monthlySolPrice = 299.0 / rate;
+    final double yearlySolPrice = 2999.0 / rate;
+    final double activeSolPrice = selectedPlan == 'yearly' ? yearlySolPrice : monthlySolPrice;
+    final hasWallet = s.walletState == WalletState.connected;
+    final displayAddress = s.walletAddress.isNotEmpty
+        ? s.walletAddress
+        : (s.userProfile?.walletPublicKey ?? '');
+    final textCls = isDark ? 'text-white' : 'text-zinc-900';
+    final currentTyx = s.userProfile?.tyxBalance ?? 0.0;
+    final bool hasSufficientTyx = currentTyx >= price;
+    final bool hasSufficientSol = s.walletBalance >= activeSolPrice;
+
+    return div(classes: 'mt-10 pt-8 border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} space-y-6', [
+      // Header section
+      div(classes: 'text-center max-w-xl mx-auto space-y-2', [
+        h3(classes: 'text-xl font-black $textCls', [Component.text('Upgrade to Pro')]),
+        p(classes: 'text-xs text-zinc-500 mt-1', [
+          Component.text('Choose the plan and payment method that fit your workflow. Pay using Tyxbit balance, Solana SOL, or Cash (P2P).'),
+        ]),
+      ]),
+
+      if (successMessage != null)
+        div(classes: 'p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold text-center', [
+          Component.text(successMessage!),
+        ]),
+
+      // 1. Plan Cards Selector
+      div(classes: 'grid grid-cols-2 gap-4 max-w-md mx-auto', [
+        // Monthly
+        div(
+          classes:
+              'p-4 rounded-2xl border text-center transition-all cursor-pointer relative '
+              '${selectedPlan == 'monthly' ? "border-indigo-500 bg-indigo-500/10 shadow-lg shadow-indigo-500/5" : cardCls}',
+          events: {
+            'click': (_) => setState(() => selectedPlan = 'monthly'),
+          },
+          [
+            h4(classes: 'text-sm font-black $textCls', [Component.text('Monthly Plan')]),
+            p(classes: 'text-base font-black text-indigo-400 mt-1', [Component.text('₱299 / mo')]),
+            p(classes: 'text-[10px] text-zinc-500 mt-1', [
+              Component.text('◎ ${monthlySolPrice.toStringAsFixed(4)} SOL equivalent'),
+            ]),
+          ],
+        ),
+
+        // Yearly
+        div(
+          classes:
+              'p-4 rounded-2xl border text-center transition-all cursor-pointer relative overflow-visible '
+              '${selectedPlan == 'yearly' ? "border-indigo-500 bg-indigo-500/10 shadow-lg shadow-indigo-500/5" : cardCls}',
+          events: {
+            'click': (_) => setState(() => selectedPlan = 'yearly'),
+          },
+          [
+            div(
+              classes:
+                  'absolute -top-2.5 right-2 px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-red-500 text-white shadow-sm border border-red-400/20',
+              [Component.text('16% Saved')],
+            ),
+            h4(classes: 'text-sm font-black $textCls', [Component.text('Yearly Plan')]),
+            p(classes: 'text-base font-black text-indigo-400 mt-1', [Component.text('₱2,999 / yr')]),
+            p(classes: 'text-[10px] text-zinc-500 mt-1', [
+              Component.text('◎ ${yearlySolPrice.toStringAsFixed(4)} SOL equivalent'),
+            ]),
+          ],
+        ),
+      ]),
+
+      // 2. Payment Method Selector Header
+      div(classes: 'space-y-3 pt-2', [
+        div(classes: 'flex items-center justify-between', [
+          h4(classes: 'text-sm font-bold uppercase tracking-wider text-zinc-400', [
+            Component.text('Select Payment Method'),
+          ]),
+          span(classes: 'text-xs text-zinc-500', [Component.text('Choose 1 of 3 supported rails')]),
+        ]),
+
+        // 3 Rails Options Grid
+        div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
+          // Rail 1: Tyxbit Balance
+          div(
+            classes:
+                'p-4 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between '
+                '${selectedPaymentMethod == 'tyxbit' ? "border-indigo-500 bg-indigo-500/10 shadow-md ring-2 ring-indigo-500/20" : cardCls}',
+            events: {
+              'click': (_) => setState(() => selectedPaymentMethod = 'tyxbit'),
+            },
+            [
+              div(classes: 'space-y-3', [
+                div(classes: 'flex items-center justify-between', [
+                  div(classes: 'flex items-center gap-2.5', [
                     div(
                       classes:
-                          'absolute top-6 right-6 px-3 py-1 rounded-full text-[9px] font-black uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30',
-                      [Component.text('Recommended')],
+                          'w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center',
+                      [lIcon('wallet', cls: 'w-4 h-4')],
                     ),
-
-                    div(classes: 'space-y-4', [
-                      div(classes: 'flex items-center gap-2', [
-                        span([], classes: 'w-2 h-6 bg-indigo-500 rounded-sm'),
-                        h4(classes: 'text-base font-black $textCls', [
-                          Component.text('Pro '),
-                          span(classes: 'text-xs', [Component.text('🔥')]),
-                        ]),
-                      ]),
-                      p(classes: 'text-xs text-zinc-500 leading-normal', [
-                        Component.text('Unlock full Hybrid permissions & tools 🔥'),
-                      ]),
-                      div(
-                        classes:
-                            'flex items-baseline gap-2 py-2 border-y ${isDark ? "border-zinc-800" : "border-zinc-150"}',
-                        [
-                          span(classes: 'text-3xl font-black text-indigo-400', [Component.text('Hybrid')]),
-                          p(classes: 'text-[10px] text-zinc-500 leading-snug', [
-                            Component.text('Simultaneously hire and work with no friction'),
-                          ]),
-                        ],
+                    div([
+                      h5(classes: 'text-xs font-black $textCls', [Component.text('Tyxbit Balance')]),
+                      p(classes: 'text-[10px] text-zinc-500', [Component.text('Instant wallet deduction')]),
+                    ]),
+                  ]),
+                  div(
+                    classes:
+                        'w-4 h-4 rounded-full border flex items-center justify-center '
+                        '${selectedPaymentMethod == 'tyxbit' ? "border-indigo-500 bg-indigo-500" : "border-zinc-600"}',
+                    [
+                      if (selectedPaymentMethod == 'tyxbit')
+                        div(classes: 'w-1.5 h-1.5 rounded-full bg-white', []),
+                    ],
+                  ),
+                ]),
+                div(classes: 'pt-2 border-t ${isDark ? "border-zinc-800" : "border-zinc-150"}', [
+                  div(classes: 'flex items-center justify-between text-xs', [
+                    span(classes: 'text-zinc-500 text-[11px]', [Component.text('Available: ₱${currentTyx.toStringAsFixed(2)}')]),
+                    if (hasSufficientTyx)
+                      span(classes: 'text-emerald-400 text-[10px] font-bold flex items-center gap-1', [
+                        lIcon('check', cls: 'w-3 h-3'),
+                        Component.text('Sufficient'),
+                      ])
+                    else
+                      button(
+                        classes: 'text-red-400 hover:text-red-300 text-[10px] font-bold underline bg-transparent border-0 cursor-pointer p-0',
+                        events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
+                        [Component.text('Top Up Balance')],
                       ),
-                      div(classes: 'space-y-3 pt-2', [
-                        _perkRow('Dual Nyxian & Employer permissions', true),
-                        _perkRow('Priority search & listing exposure', true),
-                        _perkRow('Reduced service fee (1.5% platform cut)', true),
-                        _perkRow('Unlimited client/employer messages', true),
-                        _perkRow('Premium Hybrid profile badge', true),
-                      ]),
+                  ]),
+                ]),
+              ]),
+            ],
+          ),
+
+          // Rail 2: Solana (SOL)
+          div(
+            classes:
+                'p-4 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between '
+                '${selectedPaymentMethod == 'sol' ? "border-indigo-500 bg-indigo-500/10 shadow-md ring-2 ring-indigo-500/20" : cardCls}',
+            events: {
+              'click': (_) => setState(() => selectedPaymentMethod = 'sol'),
+            },
+            [
+              div(classes: 'space-y-3', [
+                div(classes: 'flex items-center justify-between', [
+                  div(classes: 'flex items-center gap-2.5', [
+                    div(
+                      classes:
+                          'w-9 h-9 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center',
+                      [lIcon('coins', cls: 'w-4 h-4')],
+                    ),
+                    div([
+                      h5(classes: 'text-xs font-black $textCls', [Component.text('Solana (SOL)')]),
+                      p(classes: 'text-[10px] text-zinc-500', [Component.text('Pay on-chain Web3')]),
                     ]),
-
-                    div(classes: 'space-y-4 pt-2', [
-                      if (errorMessage != null)
-                        p(classes: 'text-xs text-red-400 font-semibold text-center', [Component.text(errorMessage!)]),
-
-                      if (!hasWallet) ...[
-                        button(
-                          classes:
-                              'w-full py-3.5 rounded-2xl text-xs font-bold text-center bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition-all border-0 cursor-pointer',
-                          events: {
-                            'click': (_) => s.handleConnectWallet(),
-                          },
-                          [Component.text('Connect Solana Wallet to Upgrade')],
-                        ),
-                      ] else ...[
-                        div(classes: 'p-3.5 rounded-xl border $cardCls flex items-center justify-between text-xs', [
-                          div([
-                            span(classes: 'text-zinc-500 block text-[10px]', [Component.text('Connected Wallet')]),
-                            span(classes: 'font-mono text-zinc-400 font-bold block mt-0.5', [
-                              Component.text(
-                                displayAddress.length > 12
-                                    ? '${displayAddress.substring(0, 6)}...${displayAddress.substring(displayAddress.length - 6)}'
-                                    : displayAddress,
-                              ),
-                            ]),
-                          ]),
-                          div(classes: 'text-right', [
-                            span(classes: 'text-zinc-500 block text-[10px]', [Component.text('SOL Balance')]),
-                            span(classes: 'font-semibold text-zinc-350 block mt-0.5', [
-                              Component.text('${s.walletBalance.toStringAsFixed(4)} SOL'),
-                            ]),
-                          ]),
-                        ]),
-
-                        button(
-                          classes:
-                              'w-full py-3.5 rounded-2xl text-xs font-bold text-center text-white shadow-lg transition-all border-0 cursor-pointer '
-                              '${s.walletBalance < activeSolPrice ? "bg-zinc-800/80 text-zinc-555 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20"}',
-                          events: {
-                            'click': (_) async {
-                              if (s.walletBalance < activeSolPrice || isProcessing) return;
-                              setState(() {
-                                isProcessing = true;
-                                errorMessage = null;
-                              });
-                              try {
-                                await s.processSubscriptionPayment(activeSolPrice, selectedPlan);
-                              } catch (e) {
-                                setState(() {
-                                  errorMessage = e.toString();
-                                });
-                              } finally {
-                                setState(() {
-                                  isProcessing = false;
-                                });
-                              }
-                            },
-                          },
-                          [
-                            if (isProcessing)
-                              lIcon('loader-2', cls: 'w-4 h-4 animate-spin mr-1.5 inline')
-                            else
-                              lIcon('star', cls: 'w-4 h-4 mr-1.5 inline'),
-                            Component.text(
-                              s.walletBalance < activeSolPrice
-                                  ? 'Insufficient SOL (Need ◎ ${activeSolPrice.toStringAsFixed(4)} SOL)'
-                                  : 'Upgrade now (◎ ${activeSolPrice.toStringAsFixed(4)} SOL)',
-                            ),
-                          ],
-                        ),
-                      ],
+                  ]),
+                  div(
+                    classes:
+                        'w-4 h-4 rounded-full border flex items-center justify-center '
+                        '${selectedPaymentMethod == 'sol' ? "border-indigo-500 bg-indigo-500" : "border-zinc-600"}',
+                    [
+                      if (selectedPaymentMethod == 'sol')
+                        div(classes: 'w-1.5 h-1.5 rounded-full bg-white', []),
+                    ],
+                  ),
+                ]),
+                div(classes: 'pt-2 border-t ${isDark ? "border-zinc-800" : "border-zinc-150"}', [
+                  div(classes: 'flex items-center justify-between text-xs', [
+                    span(classes: 'text-zinc-500 text-[11px]', [
+                      Component.text('◎ ${activeSolPrice.toStringAsFixed(4)} SOL'),
                     ]),
+                    if (!hasWallet)
+                      button(
+                        classes: 'text-indigo-400 hover:text-indigo-300 text-[10px] font-bold underline bg-transparent border-0 cursor-pointer p-0',
+                        events: {'click': (_) => s.handleConnectWallet()},
+                        [Component.text('Connect')],
+                      )
+                    else if (hasSufficientSol)
+                      span(classes: 'text-emerald-400 text-[10px] font-bold flex items-center gap-1', [
+                        lIcon('check', cls: 'w-3 h-3'),
+                        Component.text('Connected'),
+                      ])
+                    else
+                      span(classes: 'text-amber-400 text-[10px] font-bold', [Component.text('Low SOL')]),
+                  ]),
+                ]),
+              ]),
+            ],
+          ),
+
+          // Rail 3: Cash (P2P)
+          div(
+            classes:
+                'p-4 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between '
+                '${selectedPaymentMethod == 'cash' ? "border-indigo-500 bg-indigo-500/10 shadow-md ring-2 ring-indigo-500/20" : cardCls}',
+            events: {
+              'click': (_) => setState(() => selectedPaymentMethod = 'cash'),
+            },
+            [
+              div(classes: 'space-y-3', [
+                div(classes: 'flex items-center justify-between', [
+                  div(classes: 'flex items-center gap-2.5', [
+                    div(
+                      classes:
+                          'w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center',
+                      [lIcon('banknote', cls: 'w-4 h-4')],
+                    ),
+                    div([
+                      h5(classes: 'text-xs font-black $textCls', [Component.text('Cash (P2P)')]),
+                      p(classes: 'text-[10px] text-zinc-500', [Component.text('Local Agent deposit rail')]),
+                    ]),
+                  ]),
+                  div(
+                    classes:
+                        'w-4 h-4 rounded-full border flex items-center justify-center '
+                        '${selectedPaymentMethod == 'cash' ? "border-indigo-500 bg-indigo-500" : "border-zinc-600"}',
+                    [
+                      if (selectedPaymentMethod == 'cash')
+                        div(classes: 'w-1.5 h-1.5 rounded-full bg-white', []),
+                    ],
+                  ),
+                ]),
+                div(classes: 'pt-2 border-t ${isDark ? "border-zinc-800" : "border-zinc-150"}', [
+                  div(classes: 'flex items-center justify-between text-xs', [
+                    span(classes: 'text-zinc-500 text-[11px]', [Component.text('₱${price.toStringAsFixed(0)}')]),
+                    span(classes: 'text-amber-400 text-[10px] font-bold flex items-center gap-1', [
+                      lIcon('clock', cls: 'w-3 h-3'),
+                      Component.text('Pending Verification'),
+                    ]),
+                  ]),
+                ]),
+              ]),
+            ],
+          ),
+        ]),
+      ]),
+
+      // 3. Comparison Columns (Lite vs Pro)
+      div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-6 pt-2', [
+        // Lite Card
+        div(classes: 'p-6 rounded-[2rem] border $cardCls flex flex-col justify-between relative space-y-6', [
+          div(classes: 'space-y-4', [
+            div(classes: 'flex items-center gap-2', [
+              span([], classes: 'w-2 h-6 bg-zinc-400 rounded-sm'),
+              h4(classes: 'text-base font-black $textCls', [Component.text('Lite')]),
+            ]),
+            p(classes: 'text-xs text-zinc-500 leading-normal', [
+              Component.text('Basic account with a single active role'),
+            ]),
+            div(
+              classes:
+                  'flex items-baseline gap-2 py-2 border-y ${isDark ? "border-zinc-800" : "border-zinc-150"}',
+              [
+                span(classes: 'text-3xl font-black $textCls', [Component.text('Single')]),
+                p(classes: 'text-[10px] text-zinc-500 leading-snug', [
+                  Component.text('Choose either Nyxian or Employer role'),
+                ]),
+              ],
+            ),
+            div(classes: 'space-y-3 pt-2', [
+              _perkRow('Single account role active at a time', true),
+              _perkRow('Standard search exposure ranking', true),
+              _perkRow('Standard 3% platform service fee', true),
+              _perkRow('Limited daily messaging tools', true),
+            ]),
+          ]),
+
+          button(
+            classes:
+                'w-full py-3.5 rounded-2xl text-xs font-bold text-center border transition-all cursor-not-allowed '
+                '${isDark ? "bg-zinc-800 border-zinc-800 text-zinc-500" : "bg-zinc-100 border-zinc-200 text-zinc-400"}',
+            attributes: {'disabled': 'true'},
+            [Component.text('Current Plan (Lite)')],
+          ),
+        ]),
+
+        // Pro Card
+        div(
+          classes:
+              'p-6 rounded-[2rem] border flex flex-col justify-between relative space-y-6 '
+              'border-indigo-500 bg-indigo-500/5 shadow-xl shadow-indigo-500/5',
+          [
+            div(
+              classes:
+                  'absolute top-6 right-6 px-3 py-1 rounded-full text-[9px] font-black uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30',
+              [Component.text('Recommended')],
+            ),
+
+            div(classes: 'space-y-4', [
+              div(classes: 'flex items-center gap-2', [
+                span([], classes: 'w-2 h-6 bg-indigo-500 rounded-sm'),
+                h4(classes: 'text-base font-black $textCls', [
+                  Component.text('Pro '),
+                  span(classes: 'text-xs', [Component.text('🔥')]),
+                ]),
+              ]),
+              p(classes: 'text-xs text-zinc-500 leading-normal', [
+                Component.text('Unlock full Hybrid permissions & tools 🔥'),
+              ]),
+              div(
+                classes:
+                    'flex items-baseline gap-2 py-2 border-y ${isDark ? "border-zinc-800" : "border-zinc-150"}',
+                [
+                  span(classes: 'text-3xl font-black text-indigo-400', [Component.text('Hybrid')]),
+                  p(classes: 'text-[10px] text-zinc-500 leading-snug', [
+                    Component.text('Simultaneously hire and work with no friction'),
+                  ]),
+                ],
+              ),
+              div(classes: 'space-y-3 pt-2', [
+                _perkRow('Dual Nyxian & Employer permissions', true),
+                _perkRow('Priority search & listing exposure', true),
+                _perkRow('Reduced service fee (1.5% platform cut)', true),
+                _perkRow('Unlimited client/employer messages', true),
+                _perkRow('Premium Hybrid profile badge', true),
+              ]),
+            ]),
+
+            div(classes: 'space-y-4 pt-2', [
+              if (errorMessage != null)
+                p(classes: 'text-xs text-red-400 font-semibold text-center', [Component.text(errorMessage!)]),
+
+              // CTA button corresponding to selected method
+              if (selectedPaymentMethod == 'tyxbit') ...[
+                button(
+                  classes:
+                      'w-full py-3.5 rounded-2xl text-xs font-bold text-center text-white shadow-lg transition-all border-0 cursor-pointer '
+                      '${hasSufficientTyx ? "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20" : "bg-red-600/80 hover:bg-red-500"}',
+                  events: {
+                    'click': (_) {
+                      if (!hasSufficientTyx) {
+                        s.setState(() => s.showDepositModal = true);
+                      } else {
+                        setState(() {
+                          showConfirmModal = true;
+                          errorMessage = null;
+                        });
+                      }
+                    },
+                  },
+                  [
+                    lIcon(hasSufficientTyx ? 'arrow-right' : 'plus-circle', cls: 'w-4 h-4 mr-1.5 inline'),
+                    Component.text(
+                      hasSufficientTyx
+                          ? 'Review & Pay with Tyxbit (₱${price.toStringAsFixed(0)})'
+                          : 'Insufficient Balance • Click to Top Up (Need ₱${price.toStringAsFixed(0)})',
+                    ),
                   ],
                 ),
-              ]),
-            ]);
-          },
+              ] else if (selectedPaymentMethod == 'sol') ...[
+                if (!hasWallet)
+                  button(
+                    classes:
+                        'w-full py-3.5 rounded-2xl text-xs font-bold text-center bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition-all border-0 cursor-pointer',
+                    events: {'click': (_) => s.handleConnectWallet()},
+                    [
+                      lIcon('wallet', cls: 'w-4 h-4 mr-1.5 inline'),
+                      Component.text('Connect Solana Wallet to Upgrade'),
+                    ],
+                  )
+                else
+                  button(
+                    classes:
+                        'w-full py-3.5 rounded-2xl text-xs font-bold text-center text-white shadow-lg transition-all border-0 cursor-pointer '
+                        '${hasSufficientSol ? "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20" : "bg-zinc-800/80 text-zinc-500 cursor-not-allowed"}',
+                    events: {
+                      'click': (_) {
+                        if (!hasSufficientSol) return;
+                        setState(() {
+                          showConfirmModal = true;
+                          errorMessage = null;
+                        });
+                      },
+                    },
+                    [
+                      lIcon('arrow-right', cls: 'w-4 h-4 mr-1.5 inline'),
+                      Component.text(
+                        hasSufficientSol
+                            ? 'Review & Pay with Solana (◎ ${activeSolPrice.toStringAsFixed(4)} SOL)'
+                            : 'Insufficient SOL (Need ◎ ${activeSolPrice.toStringAsFixed(4)} SOL)',
+                      ),
+                    ],
+                  ),
+              ] else ...[
+                // Cash (P2P)
+                button(
+                  classes:
+                      'w-full py-3.5 rounded-2xl text-xs font-bold text-center bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 transition-all border-0 cursor-pointer',
+                  events: {
+                    'click': (_) {
+                      setState(() {
+                        showConfirmModal = true;
+                        errorMessage = null;
+                      });
+                    },
+                  },
+                  [
+                    lIcon('arrow-right', cls: 'w-4 h-4 mr-1.5 inline'),
+                    Component.text('Continue with Cash (P2P) • ₱${price.toStringAsFixed(0)}'),
+                  ],
+                ),
+              ],
+            ]),
+          ],
         ),
+      ]),
     ]);
+  }
+
+  Component _buildConfirmModal(TranyxAppState s, bool isDark, String cardCls) {
+    final textCls = isDark ? 'text-white' : 'text-zinc-900';
+    final rate = s.solToPhpRate > 0 ? s.solToPhpRate : 8500.0;
+    final double price = selectedPlan == 'yearly' ? 2999.0 : 299.0;
+    final double activeSolPrice = price / rate;
+    final planName = selectedPlan == 'yearly' ? 'Pro Yearly Plan (365 Days)' : 'Pro Monthly Plan (30 Days)';
+    final currentTyx = s.userProfile?.tyxBalance ?? 0.0;
+
+    String methodLabel = 'Tyxbit Balance';
+    String methodIcon = 'wallet';
+    if (selectedPaymentMethod == 'sol') {
+      methodLabel = 'Solana (SOL)';
+      methodIcon = 'coins';
+    } else if (selectedPaymentMethod == 'cash') {
+      methodLabel = 'Cash (P2P)';
+      methodIcon = 'banknote';
+    }
+
+    return div(
+      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in',
+      [
+        div(
+          classes:
+              'w-full max-w-lg p-6 sm:p-8 rounded-[2rem] border $cardCls shadow-2xl space-y-6 relative animate-scale-up',
+          [
+            // Header
+            div(classes: 'flex items-center justify-between pb-4 border-b ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+              div(classes: 'flex items-center gap-3', [
+                div(
+                  classes:
+                      'w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center',
+                  [lIcon(methodIcon, cls: 'w-5 h-5')],
+                ),
+                div([
+                  h4(classes: 'text-base font-black $textCls', [Component.text('Confirm Upgrade')]),
+                  p(classes: 'text-xs text-zinc-500', [Component.text('Review your subscription details')]),
+                ]),
+              ]),
+              button(
+                classes: 'text-zinc-400 hover:text-white p-1 rounded-lg bg-transparent border-0 cursor-pointer',
+                events: {'click': (_) => setState(() { showConfirmModal = false; errorMessage = null; })},
+                [lIcon('x', cls: 'w-5 h-5')],
+              ),
+            ]),
+
+            // Summary Card
+            div(classes: 'p-4 rounded-2xl ${isDark ? "bg-zinc-800/40" : "bg-zinc-50"} border ${isDark ? "border-zinc-800" : "border-zinc-200"} space-y-3', [
+              div(classes: 'flex justify-between items-center text-xs', [
+                span(classes: 'text-zinc-500', [Component.text('Selected Plan')]),
+                span(classes: 'font-bold $textCls', [Component.text(planName)]),
+              ]),
+              div(classes: 'flex justify-between items-center text-xs', [
+                span(classes: 'text-zinc-500', [Component.text('Payment Rail')]),
+                span(classes: 'font-bold text-indigo-400', [Component.text(methodLabel)]),
+              ]),
+              div(classes: 'flex justify-between items-center text-xs', [
+                span(classes: 'text-zinc-500', [Component.text('Total Price')]),
+                span(classes: 'font-black text-sm text-emerald-400', [
+                  Component.text(selectedPaymentMethod == 'sol'
+                      ? '◎ ${activeSolPrice.toStringAsFixed(4)} SOL (₱${price.toStringAsFixed(0)})'
+                      : '₱${price.toStringAsFixed(0)} PHP'),
+                ]),
+              ]),
+            ]),
+
+            // Rail-specific info
+            if (selectedPaymentMethod == 'tyxbit') ...[
+              div(classes: 'p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-800/20" : "border-zinc-200 bg-white"} space-y-2 text-xs', [
+                div(classes: 'flex justify-between', [
+                  span(classes: 'text-zinc-500', [Component.text('Current Tyxbit Balance')]),
+                  span(classes: 'font-bold $textCls', [Component.text('₱${currentTyx.toStringAsFixed(2)}')]),
+                ]),
+                div(classes: 'flex justify-between', [
+                  span(classes: 'text-zinc-500', [Component.text('Amount to Deduct')]),
+                  span(classes: 'font-bold text-red-400', [Component.text('-₱${price.toStringAsFixed(2)}')]),
+                ]),
+                div(classes: 'flex justify-between pt-2 border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} font-black', [
+                  span(classes: '$textCls', [Component.text('Remaining Tyxbit Balance')]),
+                  span(classes: 'text-emerald-400', [Component.text('₱${(currentTyx - price).toStringAsFixed(2)}')]),
+                ]),
+              ]),
+            ] else if (selectedPaymentMethod == 'sol') ...[
+              div(classes: 'p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-800/20" : "border-zinc-200 bg-white"} space-y-2 text-xs', [
+                div(classes: 'flex justify-between', [
+                  span(classes: 'text-zinc-500', [Component.text('Connected Wallet')]),
+                  span(classes: 'font-mono text-zinc-400 font-bold', [
+                    Component.text(s.walletAddress.length > 12
+                        ? '${s.walletAddress.substring(0, 6)}...${s.walletAddress.substring(s.walletAddress.length - 6)}'
+                        : s.walletAddress),
+                  ]),
+                ]),
+                div(classes: 'flex justify-between', [
+                  span(classes: 'text-zinc-500', [Component.text('SOL Wallet Balance')]),
+                  span(classes: 'font-bold $textCls', [Component.text('${s.walletBalance.toStringAsFixed(4)} SOL')]),
+                ]),
+                p(classes: 'text-[11px] text-zinc-500 pt-1', [
+                  Component.text('Clicking confirm will trigger a Solana wallet transaction signature request.'),
+                ]),
+              ]),
+            ] else ...[
+              // Cash (P2P)
+              div(classes: 'p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-800/20" : "border-zinc-200 bg-white"} space-y-3', [
+                p(classes: 'text-xs text-zinc-400', [
+                  Component.text('Enter your P2P Agent transaction / deposit reference number, or submit now to generate a pending reference for your agent:'),
+                ]),
+                input(
+                  type: InputType.text,
+                  classes:
+                      'w-full px-4 py-2.5 rounded-xl border text-xs font-mono '
+                      '${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-zinc-50 border-zinc-300 text-zinc-900"} focus:outline-none focus:border-indigo-500',
+                  attributes: {
+                    'placeholder': 'Optional: Enter Agent Reference (e.g. GCASH-123456)',
+                    'value': cashRefInput,
+                  },
+                  events: {
+                    'input': (e) {
+                      final target = e.target as web.HTMLInputElement;
+                      cashRefInput = target.value;
+                    },
+                  },
+                ),
+                p(classes: 'text-[10px] text-amber-400 font-medium', [
+                  Component.text('Note: Cash payments require manual verification by an authorized agent before activation.'),
+                ]),
+              ]),
+            ],
+
+            if (errorMessage != null)
+              p(classes: 'text-xs text-red-400 font-semibold text-center', [Component.text(errorMessage!)]),
+
+            // Actions
+            div(classes: 'flex gap-3 pt-2', [
+              button(
+                classes:
+                    'flex-1 py-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer '
+                    '${isDark ? "border-zinc-800 bg-zinc-800 hover:bg-zinc-700 text-zinc-300" : "border-zinc-200 bg-zinc-100 hover:bg-zinc-200 text-zinc-700"}',
+                events: {'click': (_) => setState(() { showConfirmModal = false; errorMessage = null; })},
+                [Component.text('Cancel')],
+              ),
+              button(
+                classes:
+                    'flex-1 py-3 rounded-xl text-xs font-bold text-white transition-all border-0 cursor-pointer '
+                    '${isProcessing ? "bg-indigo-800 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-600/20"}',
+                events: {
+                  'click': (_) async {
+                    if (isProcessing) return;
+                    setState(() {
+                      isProcessing = true;
+                      errorMessage = null;
+                    });
+                    try {
+                      if (selectedPaymentMethod == 'tyxbit') {
+                        await s.processTyxbitSubscriptionPayment(selectedPlan);
+                      } else if (selectedPaymentMethod == 'sol') {
+                        await s.processSubscriptionPayment(activeSolPrice, selectedPlan);
+                      } else {
+                        final ref = cashRefInput.trim().isNotEmpty
+                            ? cashRefInput.trim()
+                            : 'P2P-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+                        await s.processCashSubscriptionPayment(selectedPlan, referenceNumber: ref);
+                      }
+                      setState(() {
+                        showConfirmModal = false;
+                        isProcessing = false;
+                        successMessage = selectedPaymentMethod == 'cash'
+                            ? 'Cash subscription registered! Awaiting agent verification.'
+                            : 'Pro subscription successfully activated!';
+                      });
+                    } catch (e) {
+                      setState(() {
+                        errorMessage = e.toString();
+                        isProcessing = false;
+                      });
+                    }
+                  },
+                },
+                [
+                  if (isProcessing)
+                    lIcon('loader-2', cls: 'w-4 h-4 animate-spin mr-1.5 inline')
+                  else
+                    lIcon('check', cls: 'w-4 h-4 mr-1.5 inline'),
+                  Component.text(isProcessing ? 'Processing Upgrade...' : 'Confirm & Upgrade'),
+                ],
+              ),
+            ]),
+          ],
+        ),
+      ],
+    );
   }
 
   Component _stat(
