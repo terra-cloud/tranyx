@@ -39,6 +39,8 @@ class _SignContractModalState extends State<SignContractModalComponent> {
   VehicleRental? _vehicleRental;
   PropertyRental? _propertyRental;
   bool _isLoadingRental = false;
+  bool _loadFailed = false;
+  String? _loadErrorMessage;
 
   @override
   void initState() {
@@ -46,35 +48,93 @@ class _SignContractModalState extends State<SignContractModalComponent> {
     _loadRentalDetails();
   }
 
+  bool get _hasValidAgreementContent =>
+      _vehicleRental != null ||
+      _propertyRental != null ||
+      component.contractTerms.trim().isNotEmpty;
+
   void _loadRentalDetails() async {
-    setState(() => _isLoadingRental = true);
+    if (_isLoadingRental) return;
+
+    setState(() {
+      _isLoadingRental = true;
+      _loadFailed = false;
+      _loadErrorMessage = null;
+    });
+
     try {
       if (component.isProperty) {
-        final prop = await component.appState.firestore.getPropertyRental(component.rentalId);
+        final prop = await component.appState.firestore
+            .getPropertyRental(component.rentalId)
+            .timeout(const Duration(seconds: 10));
         if (prop != null && component.requestId != null) {
-          final reqDoc = await component.appState.firestore.getDocument('property_requests/${component.requestId}');
+          final reqDoc = await component.appState.firestore
+              .getDocument('property_requests/${component.requestId}')
+              .timeout(const Duration(seconds: 10));
           if (reqDoc != null) {
-            setState(() => _propertyRental = PropertyRental.fromBookingRequest(prop, reqDoc));
-            return;
+            if (mounted) {
+              setState(() {
+                _propertyRental = PropertyRental.fromBookingRequest(prop, reqDoc);
+              });
+            }
+          } else if (mounted) {
+            setState(() => _propertyRental = prop);
           }
+        } else if (mounted) {
+          setState(() => _propertyRental = prop);
         }
-        setState(() => _propertyRental = prop);
       } else {
-        final vehicle = await component.appState.firestore.getRental(component.rentalId);
+        final vehicle = await component.appState.firestore
+            .getRental(component.rentalId)
+            .timeout(const Duration(seconds: 10));
         if (vehicle != null && component.requestId != null) {
-          final reqDoc = await component.appState.firestore.getDocument('rental_requests/${component.requestId}');
+          final reqDoc = await component.appState.firestore
+              .getDocument('rental_requests/${component.requestId}')
+              .timeout(const Duration(seconds: 10));
           if (reqDoc != null) {
-            setState(() => _vehicleRental = VehicleRental.fromBookingRequest(vehicle, reqDoc));
-            return;
+            if (mounted) {
+              setState(() {
+                _vehicleRental = VehicleRental.fromBookingRequest(vehicle, reqDoc);
+              });
+            }
+          } else if (mounted) {
+            setState(() => _vehicleRental = vehicle);
           }
+        } else if (mounted) {
+          setState(() => _vehicleRental = vehicle);
         }
-        setState(() => _vehicleRental = vehicle);
       }
-    } catch (_) {}
-    setState(() => _isLoadingRental = false);
+
+      if (_vehicleRental == null && _propertyRental == null && component.contractTerms.trim().isEmpty) {
+        if (mounted) {
+          setState(() {
+            _loadFailed = true;
+            _loadErrorMessage = 'Rental agreement record not found or inaccessible.';
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loadFailed = true;
+          _loadErrorMessage = 'We couldn\'t load the rental agreement. Please check your connection and try again.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingRental = false;
+        });
+      }
+    }
   }
 
   void _submitSignature() async {
+    if (_isLoadingRental || _loadFailed || !_hasValidAgreementContent) {
+      setState(() => _error = 'Please wait for the agreement details to load properly before signing.');
+      return;
+    }
+
     final canvasId = 'sign-contract-pad-${component.requestId ?? component.rentalId}';
     if (isSignaturePadEmptyJs(canvasId)) {
       setState(() => _error = 'Please draw your signature on the pad before proceeding.');
@@ -131,6 +191,8 @@ class _SignContractModalState extends State<SignContractModalComponent> {
     // Initialize signature pad after first paint
     Future.microtask(() => initSignaturePadJs(canvasId));
 
+    final canSign = !_isLoadingRental && !_loadFailed && _hasValidAgreementContent && !_isSigning;
+
     return div(
       classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
       [
@@ -171,10 +233,52 @@ class _SignContractModalState extends State<SignContractModalComponent> {
 
               // Scrollable Terms
               if (_isLoadingRental)
-                div(classes: 'py-8 flex flex-col items-center justify-center gap-3', [
-                  lIcon('loader', cls: 'w-6 h-6 animate-spin text-purple-500'),
-                  p(classes: 'text-xs text-zinc-500', [Component.text('Loading agreement details...')]),
-                ])
+                div(
+                  classes:
+                      'py-10 px-6 rounded-2xl border flex flex-col items-center justify-center text-center gap-3 '
+                      '${isDark ? "bg-zinc-900/40 border-zinc-800" : "bg-zinc-50 border-zinc-200"}',
+                  [
+                    lIcon('loader', cls: 'w-7 h-7 animate-spin text-purple-500'),
+                    p(classes: 'text-sm font-bold ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                      Component.text('Loading agreement details...'),
+                    ]),
+                    p(classes: 'text-xs text-zinc-500 max-w-xs', [
+                      Component.text('Retrieving contract terms, pricing parameters, and party information...'),
+                    ]),
+                  ],
+                )
+              else if (_loadFailed)
+                div(
+                  classes:
+                      'py-8 px-6 rounded-2xl border flex flex-col items-center justify-center text-center gap-3 '
+                      '${isDark ? "bg-red-500/5 border-red-500/20 text-zinc-300" : "bg-red-50 border-red-200 text-zinc-800"}',
+                  [
+                    div(classes: 'p-3 rounded-full bg-red-500/10 text-red-500 mb-1', [
+                      lIcon('alert-triangle', cls: 'w-7 h-7'),
+                    ]),
+                    h3(classes: 'text-base font-bold text-red-500', [Component.text('Unable to Load Agreement')]),
+                    p(classes: 'text-xs text-zinc-400 max-w-sm leading-relaxed', [
+                      Component.text(
+                        _loadErrorMessage ??
+                            'We couldn\'t load the rental agreement. Please check your connection and try again.',
+                      ),
+                    ]),
+                    div(classes: 'flex flex-wrap items-center justify-center gap-3 mt-2', [
+                      button(
+                        classes:
+                            'px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer border-0',
+                        events: {'click': (_) => _loadRentalDetails()},
+                        [
+                          lIcon('refresh-cw', cls: 'w-3.5 h-3.5'),
+                          Component.text('Retry'),
+                        ],
+                      ),
+                      p(classes: 'text-[11px] text-zinc-500', [
+                        Component.text('If this issue persists, please contact support or your host.'),
+                      ]),
+                    ]),
+                  ],
+                )
               else
                 ContractViewerComponent(
                   vehicleRental: _vehicleRental,
@@ -248,9 +352,10 @@ class _SignContractModalState extends State<SignContractModalComponent> {
                 ),
                 button(
                   classes:
-                      'px-6 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 text-sm border-0 cursor-pointer',
-                  events: {'click': (_) => _submitSignature()},
-                  disabled: _isSigning,
+                      'px-6 py-2 rounded-xl font-bold transition-colors flex items-center gap-2 text-sm border-0 '
+                      '${canSign ? "text-white bg-green-500 hover:bg-green-600 cursor-pointer shadow-lg shadow-green-500/20" : "bg-zinc-800 text-zinc-500 cursor-not-allowed border-zinc-700/50"}',
+                  events: canSign ? {'click': (_) => _submitSignature()} : {},
+                  disabled: !canSign,
                   [
                     if (_isSigning) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
                     Component.text(_isSigning ? 'Activating...' : 'Sign & Activate'),

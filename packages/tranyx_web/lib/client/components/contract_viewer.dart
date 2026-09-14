@@ -54,14 +54,24 @@ class ContractViewerComponent extends StatelessComponent {
 
   // ── CUSTOM CONTRACTS PREVIEW ──────────────────────────────────────────────
   List<Component> _buildCustomContract(bool isDark) {
-    final terms = customTerms ?? 'No custom contract terms provided.';
+    final terms = (customTerms != null && customTerms!.isNotEmpty)
+        ? customTerms!
+        : (vehicleRental?.contractTerms.isNotEmpty == true
+            ? vehicleRental!.contractTerms
+            : (propertyRental?.contractTerms.isNotEmpty == true
+                ? propertyRental!.contractTerms
+                : 'No custom contract terms provided.'));
+    final trimmedTerms = terms.trim();
+    final isUrl = trimmedTerms.startsWith('http://') || trimmedTerms.startsWith('https://');
+    final isPdf = isUrl && (trimmedTerms.toLowerCase().contains('.pdf') || trimmedTerms.toLowerCase().contains('/pdf'));
+
     return [
       div(classes: 'flex flex-col items-center text-center mb-6', [
         div(classes: 'p-3 rounded-full bg-amber-500/10 text-amber-400 mb-3', [
           lIcon('file-text', cls: 'w-8 h-8'),
         ]),
         h2(classes: 'text-lg font-black tracking-tight ${isDark ? "text-white" : "text-zinc-900"}', [
-          Component.text('CUSTOM LEASE & RENTAL AGREEMENT'),
+          Component.text(isPdf ? 'HOST CUSTOM CONTRACT DOCUMENT' : 'CUSTOM LEASE & RENTAL AGREEMENT'),
         ]),
         p(classes: 'text-xs text-zinc-500 mt-1', [
           Component.text('Underwritten and defined by the listing host'),
@@ -69,13 +79,42 @@ class ContractViewerComponent extends StatelessComponent {
       ]),
 
       div(classes: 'border-t border-b ${isDark ? "border-zinc-800" : "border-zinc-200"} py-4 my-4', [
-        p(classes: 'text-xs text-zinc-400 font-bold mb-2 uppercase tracking-wide', [
-          Component.text('Contract Terms & Conditions'),
+        div(classes: 'flex items-center justify-between mb-3', [
+          p(classes: 'text-xs text-zinc-400 font-bold uppercase tracking-wide', [
+            Component.text(isPdf ? 'Attached Contract Document (PDF)' : 'Contract Terms & Conditions'),
+          ]),
+          if (isUrl)
+            a(
+              href: trimmedTerms,
+              target: Target.blank,
+              classes:
+                  'inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-colors border border-purple-500/20',
+              [
+                lIcon('external-link', cls: 'w-3.5 h-3.5'),
+                Component.text('Open in New Tab'),
+              ],
+            ),
         ]),
-        div(
-          classes: 'whitespace-pre-wrap text-sm leading-relaxed ${isDark ? "text-zinc-300" : "text-zinc-700"}',
-          [Component.text(terms)],
-        ),
+        if (isPdf)
+          div(classes: 'space-y-3', [
+            Component.element(
+              tag: 'iframe',
+              classes:
+                  'w-full h-96 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-900" : "border-zinc-200 bg-white"} shadow-inner',
+              attributes: {
+                'src': trimmedTerms,
+                'title': 'Contract Agreement Document',
+              },
+            ),
+            p(classes: 'text-[11px] text-zinc-500 text-center', [
+              Component.text('If the document preview does not load above, click "Open in New Tab" to view it directly.'),
+            ]),
+          ])
+        else
+          div(
+            classes: 'whitespace-pre-wrap text-sm leading-relaxed ${isDark ? "text-zinc-300" : "text-zinc-700"}',
+            [Component.text(terms)],
+          ),
       ]),
 
       _buildSafetyNotice(isDark),

@@ -7875,7 +7875,7 @@ class TranyxAppState extends State<TranyxApp> {
           rentalId: signingContractId!,
           requestId: signingContractRequestId,
           isProperty: signingContractIsProperty,
-          key: const ValueKey('sign-contract-modal'),
+          key: ValueKey('sign-contract-modal-${signingContractId}-${signingContractRequestId ?? ""}'),
           onSigned: () {
             final isProp = signingContractIsProperty;
             setState(() {
