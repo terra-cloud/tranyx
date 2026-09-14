@@ -78,8 +78,24 @@ class UserProfile {
   final List<String> earnedRewards;
   final String? role;
   final int abandonedJobs;
+  final String? subscriptionPlan;
+  final DateTime? subscriptionStartedAt;
+  final String? subscriptionPaymentMethod;
+  final double? subscriptionPaymentAmount;
+  final String? subscriptionTxId;
+  final String? subscriptionStatus;
+  final Map<String, dynamic>? pendingSubscription;
 
   bool get isAdmin => role == 'admin' || role == 'staff' || role == 'support';
+
+  String get tierLabel {
+    if (isPremium || accountType == AccountType.hybrid) {
+      final roleStr = accountType == AccountType.employer ? 'Employer' : (accountType == AccountType.hybrid ? 'Hybrid' : 'Nyxian');
+      return '$roleStr — Pro';
+    }
+    final roleStr = accountType == AccountType.employer ? 'Employer' : 'Nyxian';
+    return '$roleStr — Lite';
+  }
 
   const UserProfile({
     required this.uid,
@@ -122,6 +138,13 @@ class UserProfile {
     this.earnedRewards = const [],
     this.role,
     this.abandonedJobs = 0,
+    this.subscriptionPlan,
+    this.subscriptionStartedAt,
+    this.subscriptionPaymentMethod,
+    this.subscriptionPaymentAmount,
+    this.subscriptionTxId,
+    this.subscriptionStatus,
+    this.pendingSubscription,
   });
 
   factory UserProfile.fromMap(String uid, Map map) {
@@ -223,6 +246,15 @@ class UserProfile {
       earnedRewards: parseStringList(map['earnedRewards']) ?? const [],
       role: map['role'] as String?,
       abandonedJobs: parseInt(map['abandonedJobs']),
+      subscriptionPlan: map['subscriptionPlan'] as String?,
+      subscriptionStartedAt: parseDate(map['subscriptionStartedAt']),
+      subscriptionPaymentMethod: map['subscriptionPaymentMethod'] as String?,
+      subscriptionPaymentAmount: (map['subscriptionPaymentAmount'] as num?)?.toDouble(),
+      subscriptionTxId: map['subscriptionTxId'] as String?,
+      subscriptionStatus: map['subscriptionStatus'] as String?,
+      pendingSubscription: map['pendingSubscription'] is Map
+          ? Map<String, dynamic>.from(map['pendingSubscription'] as Map)
+          : null,
     );
   }
 
@@ -267,6 +299,16 @@ class UserProfile {
     'earnedRewards': earnedRewards,
     if (role != null) 'role': role,
     'abandonedJobs': abandonedJobs,
+    if (subscriptionPlan != null) 'subscriptionPlan': subscriptionPlan,
+    if (subscriptionStartedAt != null)
+      'subscriptionStartedAt': subscriptionStartedAt?.millisecondsSinceEpoch,
+    if (subscriptionPaymentMethod != null)
+      'subscriptionPaymentMethod': subscriptionPaymentMethod,
+    if (subscriptionPaymentAmount != null)
+      'subscriptionPaymentAmount': subscriptionPaymentAmount,
+    if (subscriptionTxId != null) 'subscriptionTxId': subscriptionTxId,
+    if (subscriptionStatus != null) 'subscriptionStatus': subscriptionStatus,
+    if (pendingSubscription != null) 'pendingSubscription': pendingSubscription,
   };
 
   UserProfile copyWith({
@@ -309,6 +351,13 @@ class UserProfile {
     List<String>? earnedRewards,
     String? role,
     int? abandonedJobs,
+    String? subscriptionPlan,
+    DateTime? subscriptionStartedAt,
+    String? subscriptionPaymentMethod,
+    double? subscriptionPaymentAmount,
+    String? subscriptionTxId,
+    String? subscriptionStatus,
+    Map<String, dynamic>? pendingSubscription,
   }) {
     return UserProfile(
       uid: uid,
@@ -351,6 +400,13 @@ class UserProfile {
       earnedRewards: earnedRewards ?? this.earnedRewards,
       role: role ?? this.role,
       abandonedJobs: abandonedJobs ?? this.abandonedJobs,
+      subscriptionPlan: subscriptionPlan ?? this.subscriptionPlan,
+      subscriptionStartedAt: subscriptionStartedAt ?? this.subscriptionStartedAt,
+      subscriptionPaymentMethod: subscriptionPaymentMethod ?? this.subscriptionPaymentMethod,
+      subscriptionPaymentAmount: subscriptionPaymentAmount ?? this.subscriptionPaymentAmount,
+      subscriptionTxId: subscriptionTxId ?? this.subscriptionTxId,
+      subscriptionStatus: subscriptionStatus ?? this.subscriptionStatus,
+      pendingSubscription: pendingSubscription ?? this.pendingSubscription,
     );
   }
 }
