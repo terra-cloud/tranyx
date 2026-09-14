@@ -174,11 +174,11 @@ Future<http.Response> _rawRequestWithRetry(
 void _handleGlobalSessionExpiration(FirebaseException e) {
   final lowerMsg = e.message.toLowerCase();
   if (e.statusCode == 401 ||
-      e.statusCode == 404 ||
       lowerMsg.contains('not logged in') ||
       lowerMsg.contains('id-token-expired') ||
-      lowerMsg.contains('user profile not found') ||
-      lowerMsg.contains('profile not found')) {
+      lowerMsg.contains('token has expired') ||
+      lowerMsg.contains('unauthenticated') ||
+      lowerMsg.contains('auth/id-token-expired')) {
     final cb = onSessionExpiredGlobal;
     if (cb != null) cb();
   }
@@ -264,11 +264,11 @@ class FirebaseException implements Exception {
   FirebaseException(this.message, [this.statusCode]) {
     final lowerMsg = message.toLowerCase();
     if (statusCode == 401 ||
-        statusCode == 404 ||
         lowerMsg.contains('not logged in') ||
         lowerMsg.contains('id-token-expired') ||
-        lowerMsg.contains('user profile not found') ||
-        lowerMsg.contains('profile not found')) {
+        lowerMsg.contains('token has expired') ||
+        lowerMsg.contains('unauthenticated') ||
+        lowerMsg.contains('auth/id-token-expired')) {
       final cb = onSessionExpiredGlobal;
       if (cb != null) cb();
     }
@@ -932,7 +932,7 @@ class FirestoreService {
   Future<List<Map<String, dynamic>>> getAvailableJobs(AccountType viewerType) async {
     final creatorTypeToFetch = viewerType == AccountType.nyxian ? AccountType.employer : AccountType.nyxian;
 
-    return _queryJobs([
+    final jobs = await _queryJobs([
       {
         'fieldFilter': {
           'field': {'fieldPath': 'creatorType'},
@@ -948,6 +948,30 @@ class FirestoreService {
         },
       },
     ]);
+
+    if (jobs.isEmpty) {
+      final lowercaseJobs = await _queryJobs([
+        {
+          'fieldFilter': {
+            'field': {'fieldPath': 'creatorType'},
+            'op': 'EQUAL',
+            'value': {'stringValue': creatorTypeToFetch.name},
+          },
+        },
+        {
+          'fieldFilter': {
+            'field': {'fieldPath': 'status'},
+            'op': 'EQUAL',
+            'value': {'stringValue': 'open'},
+          },
+        },
+      ]);
+      if (lowercaseJobs.isNotEmpty) {
+        return lowercaseJobs;
+      }
+    }
+
+    return jobs;
   }
 
   Future<void> updateJobStatus(String jobId, String status) async {
@@ -1014,40 +1038,62 @@ class FirestoreService {
     final url =
         'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
     
-    final Map<String, dynamic> structuredQuery = {
-      'from': [
-        {'collectionId': 'jobs'},
-      ],
-      'where': filters.length == 1
-          ? filters.first
-          : {
-              'compositeFilter': {
-                'op': 'AND',
-                'filters': filters,
+    Map<String, dynamic> buildPayload(bool withOrderBy, List<Map<String, dynamic>> currentFilters) {
+      final Map<String, dynamic> sq = {
+        'from': [
+          {'collectionId': 'jobs'},
+        ],
+        'where': currentFilters.length == 1
+            ? currentFilters.first
+            : {
+                'compositeFilter': {
+                  'op': 'AND',
+                  'filters': currentFilters,
+                },
               },
-            },
-      'limit': 50,
-    };
+        'limit': 50,
+      };
 
-    if (orderByCreatedAt) {
-      structuredQuery['orderBy'] = [
-        {
-          'field': {'fieldPath': 'createdAt'},
-          'direction': 'DESCENDING',
-        },
-      ];
+      if (withOrderBy) {
+        sq['orderBy'] = [
+          {
+            'field': {'fieldPath': 'createdAt'},
+            'direction': 'DESCENDING',
+          },
+        ];
+      }
+
+      return {'structuredQuery': sq};
     }
 
-    final body = jsonEncode({
-      'structuredQuery': structuredQuery,
-    });
-
     try {
-      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+      var req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
         final headers = <String, String>{'Content-Type': 'application/json'};
         if (token != null) headers['Authorization'] = 'Bearer $token';
-        return _client.post(Uri.parse(url), headers: headers, body: body);
+        return _client.post(Uri.parse(url), headers: headers, body: jsonEncode(buildPayload(orderByCreatedAt, filters)));
       });
+
+      // If failed with >= 400 (e.g. Missing composite index on orderBy), retry without orderBy
+      if (req.statusCode >= 400 && orderByCreatedAt) {
+        print('Firestore query requires composite index for orderBy (${req.statusCode}). Retrying without server-side orderBy...');
+        req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+          final headers = <String, String>{'Content-Type': 'application/json'};
+          if (token != null) headers['Authorization'] = 'Bearer $token';
+          return _client.post(Uri.parse(url), headers: headers, body: jsonEncode(buildPayload(false, filters)));
+        });
+      }
+
+      // If still failing with composite filter (e.g. Missing multi-field composite index), fallback to querying by primary filter alone and filtering in Dart
+      var resultsNeedSecondaryFilter = false;
+      if (req.statusCode >= 400 && filters.length > 1) {
+        print('Firestore query requires composite index for multiple filters (${req.statusCode}). Retrying with primary filter...');
+        resultsNeedSecondaryFilter = true;
+        req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+          final headers = <String, String>{'Content-Type': 'application/json'};
+          if (token != null) headers['Authorization'] = 'Bearer $token';
+          return _client.post(Uri.parse(url), headers: headers, body: jsonEncode(buildPayload(false, [filters.first])));
+        });
+      }
 
       if (req.statusCode >= 400) {
         print('FIRESTORE QUERY ERROR: ${req.statusCode} - ${req.body}');
@@ -1055,15 +1101,36 @@ class FirestoreService {
       }
 
       final results = jsonDecode(req.body) as List;
-      final list = results.where((r) => (r as Map).containsKey('document')).map((r) {
+      var list = results.where((r) => (r as Map).containsKey('document')).map((r) {
         final doc = (r as Map)['document'] as Map;
         final id = _docId(doc);
         return <String, dynamic>{..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
 
-      if (!orderByCreatedAt) {
-        list.sort((a, b) => (b['createdAt'] as int? ?? 0).compareTo(a['createdAt'] as int? ?? 0));
+      // If we fell back to primary filter, apply secondary filters in Dart memory
+      if (resultsNeedSecondaryFilter && filters.length > 1) {
+        for (var i = 1; i < filters.length; i++) {
+          final f = filters[i]['fieldFilter'];
+          if (f != null) {
+            final fieldPath = f['field']?['fieldPath'] as String?;
+            final expectedVal = f['value']?['stringValue'] as String?;
+            if (fieldPath != null && expectedVal != null) {
+              list = list.where((j) {
+                final actual = (j[fieldPath] as String? ?? '').toLowerCase();
+                return actual == expectedVal.toLowerCase();
+              }).toList();
+            }
+          }
+        }
       }
+
+      // Always sort by createdAt DESC in Dart memory to guarantee newest first
+      list.sort((a, b) {
+        final aTime = a['createdAt'] as int? ?? 0;
+        final bTime = b['createdAt'] as int? ?? 0;
+        return bTime.compareTo(aTime);
+      });
+
       return list;
     } catch (e) {
       print('FIRESTORE QUERY ERROR: $e');

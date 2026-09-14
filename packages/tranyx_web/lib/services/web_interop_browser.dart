@@ -581,6 +581,8 @@ class SessionStorage {
   static const _pendingApplicantData = 'tranyx_pending_applicant_data';
   static const _locationBuffer = 'tranyx_offline_location_buffer';
 
+  static const _activeTabKey = 'tranyx_active_tab';
+
   static void save(dynamic auth) {
     web.window.localStorage.setItem(_uid, auth.uid as String);
     web.window.localStorage.setItem(_tok, auth.idToken as String);
@@ -618,7 +620,16 @@ class SessionStorage {
   static String? get email => web.window.localStorage.getItem(_eml);
   static String? get accountType => web.window.localStorage.getItem(_act);
   static String? get photoUrl => web.window.localStorage.getItem(_pho);
-  static bool get hasSession => uid != null && idToken != null;
+  static bool get hasSession => uid != null && (idToken != null || refreshToken != null);
+
+  static String? get activeTab => web.window.localStorage.getItem(_activeTabKey);
+  static set activeTab(String? val) {
+    if (val != null) {
+      web.window.localStorage.setItem(_activeTabKey, val);
+    } else {
+      web.window.localStorage.removeItem(_activeTabKey);
+    }
+  }
 
   static String? get pendingQrJobId => web.window.localStorage.getItem(_qrJobId);
   static set pendingQrJobId(String? val) {
@@ -713,6 +724,9 @@ class SessionStorage {
       _eml,
       _act,
       _pho,
+      _activeTabKey,
+      _qrJobId,
+      _qrCode,
       _pendingPropertyBooking,
       _pendingVehicleBooking,
       _pendingJobId,

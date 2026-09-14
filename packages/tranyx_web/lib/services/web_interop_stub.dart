@@ -12,6 +12,8 @@ class SessionStorage {
   static String? get accountType => null;
   static String? get photoUrl => null;
   static bool get hasSession => false;
+  static String? get activeTab => null;
+  static set activeTab(String? val) {}
   static void clear() {}
   static void updateIdToken(String token) {}
 
