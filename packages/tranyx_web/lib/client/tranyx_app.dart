@@ -1530,6 +1530,10 @@ class TranyxAppState extends State<TranyxApp> {
     final uid = SessionStorage.uid;
     if (uid == null) return;
     try {
+      final claimed = await _firestore.reconcilePendingEscrows(uid);
+      if (claimed > 0) {
+        await loadUserProfile();
+      }
       final results = await Future.wait([
         _firestore.getRenterPendingRequests(uid),
         _firestore.getPropertyPendingRequestsForRenter(uid),
@@ -1582,6 +1586,15 @@ class TranyxAppState extends State<TranyxApp> {
       if (token != null) {
         await svc.checkAndAwardOnboardingQuests(uid);
         await checkAndExpireSubscription(uid, svc);
+        try {
+          final claimed = await svc.reconcilePendingEscrows(uid);
+          if (claimed > 0) {
+            showAppToast(
+              'Escrow Reconciled',
+              '$claimed pending refund(s) credited to your wallet.',
+            );
+          }
+        } catch (_) {}
       }
 
       UserProfile? profile;

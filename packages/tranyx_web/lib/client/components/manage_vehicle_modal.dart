@@ -103,6 +103,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   }
 
   void _approveRequest(String requestId) async {
+    if (_isProcessing) return;
     final r = component.appState.selectedRentalData;
     if (r == null) return;
 
@@ -113,6 +114,11 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
 
     try {
       await component.appState.firestore.approveBookingRequest(requestId, r['id'], _allowChat);
+
+      component.appState.showAppToast(
+        'Rental Request Accepted',
+        "Booking request approved. Awaiting renter's signature.",
+      );
 
       // Close modal and clear selected state
       component.appState.setState(() {
@@ -127,6 +133,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   }
 
   void _rejectRequest(String requestId) async {
+    if (_isProcessing) return;
     setState(() {
       _isProcessing = true;
       _error = null;
@@ -143,6 +150,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   }
 
   void _approveExtension(String extensionId) async {
+    if (_isProcessing) return;
     setState(() {
       _isProcessing = true;
       _error = null;
@@ -171,6 +179,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   }
 
   void _rejectExtension(String extensionId) async {
+    if (_isProcessing) return;
     setState(() {
       _isProcessing = true;
       _error = null;

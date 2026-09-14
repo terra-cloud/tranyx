@@ -727,6 +727,244 @@ class FirestoreService {
     }
   }
 
+  // ── Automated Escrow Reconciliation Engine ───────────────────────
+  Future<List<Map<String, dynamic>>> _queryUserEscrows(String collectionId, String uid) async {
+    final results = <Map<String, dynamic>>[];
+    final seenIds = <String>{};
+
+    for (final field in ['renteeId', 'renterId']) {
+      final url =
+          'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+      final body = jsonEncode({
+        'structuredQuery': {
+          'from': [
+            {'collectionId': collectionId},
+          ],
+          'where': {
+            'fieldFilter': {
+              'field': {'fieldPath': field},
+              'op': 'EQUAL',
+              'value': {'stringValue': uid},
+            },
+          },
+        },
+      });
+
+      try {
+        final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+          final headers = <String, String>{'Content-Type': 'application/json'};
+          if (token != null) headers['Authorization'] = 'Bearer $token';
+          return _client.post(Uri.parse(url), headers: headers, body: body);
+        });
+
+        if (req.statusCode < 400) {
+          final List<dynamic> list = jsonDecode(req.body);
+          for (final res in list) {
+            if (res is Map && res.containsKey('document')) {
+              final doc = res['document'] as Map;
+              final id = _docId(doc);
+              if (!seenIds.contains(id)) {
+                seenIds.add(id);
+                results.add(<String, dynamic>{..._fromFirestoreDoc(doc), 'id': id});
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    return results;
+  }
+
+  /// Tier 1: Automated Escrow Reconciliation
+  /// Checks for any escrows marked 'RefundPending' for this user and safely credits their balance.
+  Future<int> reconcilePendingEscrows(String uid) async {
+    if (uid.isEmpty) return 0;
+    int claimedCount = 0;
+
+    try {
+      // 1. Vehicle Rental Escrows
+      final rentalEscrows = await _queryUserEscrows('rental_escrows', uid);
+      for (final escrow in rentalEscrows) {
+        final st = (escrow['status'] as String? ?? '').toLowerCase();
+        if (st == 'refundpending' || st == 'refund_pending') {
+          final amt = (escrow['refundAmount'] as num?)?.toDouble() ??
+              (escrow['amount'] as num?)?.toDouble() ??
+              0.0;
+          if (amt > 0.0) {
+            final userDoc = await getDocument('users/$uid');
+            if (userDoc != null) {
+              final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final newBal = currentBal + amt;
+              await setDocument('users/$uid', {'tyxBalance': newBal});
+
+              final txId = 'tx_ref_${escrow['id'] ?? DateTime.now().microsecondsSinceEpoch}';
+              final existingTx = await getDocument('transactions/$txId');
+              if (existingTx == null) {
+                await setDocument('transactions/$txId', {
+                  'id': txId,
+                  'uid': uid,
+                  'type': 'refund',
+                  'amount': amt,
+                  'title': 'Rental Booking Refund',
+                  'desc': escrow['refundReason'] ?? 'Automated escrow refund for rejected/cancelled rental booking',
+                  'method': 'Tranyx Wallet',
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                  'status': 'Completed',
+                });
+              }
+
+              final escrowId = (escrow['id'] ?? escrow['requestId'] ?? '').toString();
+              if (escrowId.isNotEmpty) {
+                await setDocument('rental_escrows/$escrowId', {
+                  ...escrow,
+                  'status': 'Refunded',
+                  'refundClaimedAt': DateTime.now().millisecondsSinceEpoch,
+                });
+              }
+              claimedCount++;
+            }
+          }
+        }
+      }
+
+      // 2. Property Rental Escrows
+      final propertyEscrows = await _queryUserEscrows('property_escrows', uid);
+      for (final escrow in propertyEscrows) {
+        final st = (escrow['status'] as String? ?? '').toLowerCase();
+        final secStatus = (escrow['securityDepositStatus'] as String? ?? '').toLowerCase();
+
+        // Handle full booking refund
+        if (st == 'refundpending' || st == 'refund_pending') {
+          final amt = (escrow['refundAmount'] as num?)?.toDouble() ??
+              (escrow['amount'] as num?)?.toDouble() ??
+              0.0;
+          if (amt > 0.0) {
+            final userDoc = await getDocument('users/$uid');
+            if (userDoc != null) {
+              final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final newBal = currentBal + amt;
+              await setDocument('users/$uid', {'tyxBalance': newBal});
+
+              final txId = 'tx_ref_${escrow['id'] ?? DateTime.now().microsecondsSinceEpoch}';
+              final existingTx = await getDocument('transactions/$txId');
+              if (existingTx == null) {
+                await setDocument('transactions/$txId', {
+                  'id': txId,
+                  'uid': uid,
+                  'type': 'refund',
+                  'amount': amt,
+                  'title': 'Property Booking Refund',
+                  'desc': escrow['refundReason'] ?? 'Automated escrow refund for rejected/cancelled property booking',
+                  'method': 'Tranyx Wallet',
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                  'status': 'Completed',
+                });
+              }
+
+              final escrowId = (escrow['id'] ?? escrow['requestId'] ?? '').toString();
+              if (escrowId.isNotEmpty) {
+                await setDocument('property_escrows/$escrowId', {
+                  ...escrow,
+                  'status': 'Refunded',
+                  'refundClaimedAt': DateTime.now().millisecondsSinceEpoch,
+                });
+              }
+              claimedCount++;
+            }
+          }
+        } else if (secStatus == 'refundpending' || secStatus == 'refund_pending') {
+          // Handle security deposit refund upon lease completion
+          final secAmt = (escrow['securityDepositAmount'] as num?)?.toDouble() ?? 0.0;
+          if (secAmt > 0.0) {
+            final userDoc = await getDocument('users/$uid');
+            if (userDoc != null) {
+              final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final newBal = currentBal + secAmt;
+              await setDocument('users/$uid', {'tyxBalance': newBal});
+
+              final txId = 'dep_ref_${escrow['id'] ?? DateTime.now().microsecondsSinceEpoch}';
+              final existingTx = await getDocument('transactions/$txId');
+              if (existingTx == null) {
+                await setDocument('transactions/$txId', {
+                  'id': txId,
+                  'uid': uid,
+                  'type': 'refund',
+                  'category': 'refund',
+                  'amount': secAmt,
+                  'title': 'Security Deposit Refund',
+                  'desc': '100% refund of security deposit for completed lease',
+                  'method': 'Tranyx Wallet',
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                  'status': 'Completed',
+                });
+              }
+
+              final escrowId = (escrow['id'] ?? escrow['requestId'] ?? '').toString();
+              if (escrowId.isNotEmpty) {
+                await setDocument('property_escrows/$escrowId', {
+                  ...escrow,
+                  'securityDepositStatus': 'Refunded',
+                  'securityDepositClaimedAt': DateTime.now().millisecondsSinceEpoch,
+                });
+              }
+              claimedCount++;
+            }
+          }
+        }
+      }
+
+      // 3. Rental Extension Escrows
+      final extensionEscrows = await _queryUserEscrows('rental_extension_escrows', uid);
+      for (final escrow in extensionEscrows) {
+        final st = (escrow['status'] as String? ?? '').toLowerCase();
+        if (st == 'refundpending' || st == 'refund_pending') {
+          final amt = (escrow['refundAmount'] as num?)?.toDouble() ??
+              (escrow['amount'] as num?)?.toDouble() ??
+              0.0;
+          if (amt > 0.0) {
+            final userDoc = await getDocument('users/$uid');
+            if (userDoc != null) {
+              final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final newBal = currentBal + amt;
+              await setDocument('users/$uid', {'tyxBalance': newBal});
+
+              final txId = 'tx_ref_ext_${escrow['id'] ?? DateTime.now().microsecondsSinceEpoch}';
+              final existingTx = await getDocument('transactions/$txId');
+              if (existingTx == null) {
+                await setDocument('transactions/$txId', {
+                  'id': txId,
+                  'uid': uid,
+                  'type': 'refund',
+                  'amount': amt,
+                  'title': 'Rental Extension Refund',
+                  'desc': escrow['refundReason'] ?? 'Automated escrow refund for rejected extension request',
+                  'method': 'Tranyx Wallet',
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                  'status': 'Completed',
+                });
+              }
+
+              final extId = (escrow['id'] ?? escrow['extensionId'] ?? '').toString();
+              if (extId.isNotEmpty) {
+                await setDocument('rental_extension_escrows/$extId', {
+                  ...escrow,
+                  'status': 'Refunded',
+                  'refundClaimedAt': DateTime.now().millisecondsSinceEpoch,
+                });
+              }
+              claimedCount++;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('[EscrowReconciliation] Error during reconciliation: $e');
+    }
+
+    return claimedCount;
+  }
+
   // ── Wallet Links ───────────────────────────────────────────
   /// Stores a mapping from walletPublicKey -> uid in walletLinks collection.
   Future<void> linkWalletToUser(String uid, String walletPublicKey, {String? refreshToken}) async {
@@ -2873,7 +3111,7 @@ class FirestoreService {
     );
   }
 
-  /// Reject a booking request and refund the rentee's wallet
+  /// Reject a booking request and set escrow to RefundPending for automated reconciliation
   Future<void> rejectBookingRequest(String requestId) async {
     final reqDoc = await getDocument('rental_requests/$requestId');
     if (reqDoc == null) return;
@@ -2881,45 +3119,46 @@ class FirestoreService {
 
     final renteeId = reqDoc['renteeId'] as String;
     final totalCost = (reqDoc['totalCost'] as num).toDouble();
-    final bookingFee = (reqDoc['bookingFee'] as num).toDouble();
+    final bookingFee = (reqDoc['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03);
     final refundAmount = totalCost + bookingFee;
+    final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Set request status to Rejected
-    await setDocument('rental_requests/$requestId', {'status': 'Rejected'});
+    // 1. Set request status to Rejected
+    await setDocument('rental_requests/$requestId', {
+      'status': 'Rejected',
+      'rejectedAt': now,
+    });
 
-    // Revert promo usage
+    // 2. Revert promo usage
     final promoCode = reqDoc['promoCode'] as String?;
     if (promoCode != null) {
-      await decrementPromoUsage(promoCode, renteeId);
+      try {
+        await decrementPromoUsage(promoCode, renteeId);
+      } catch (_) {}
     }
 
-    // Refund rentee
-    final rentee = await getUser(renteeId);
-    if (rentee != null) {
-      await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
+    // 3. Set escrow status to RefundPending for automatic claim by renter
+    final existingEscrow = await getDocument('rental_escrows/$requestId');
+    final escrowData = {
+      if (existingEscrow != null) ...existingEscrow,
+      'id': requestId,
+      'requestId': requestId,
+      'rentalId': reqDoc['rentalId'] ?? '',
+      'renteeId': renteeId,
+      'renterId': renteeId,
+      'hostId': reqDoc['hostId'] ?? '',
+      'status': 'RefundPending',
+      'refundAmount': refundAmount,
+      'refundReason': 'Host rejected booking request for ${reqDoc['brand'] ?? ''} ${reqDoc['model'] ?? ''}',
+      'rejectedAt': now,
+    };
+    await setDocument('rental_escrows/$requestId', escrowData);
 
-      // Save transaction record for refund
-      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-      final txData = {
-        'uid': renteeId,
-        'type': 'refund',
-        'amount': refundAmount,
-        'title': 'Booking Request Refund',
-        'desc': 'Refund for rejected request of ${reqDoc['brand']} ${reqDoc['model']}',
-        'method': 'Tranyx Wallet',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-      };
-      await setDocument('transactions/$txId', txData);
-    }
-
-    // Release/delete the held escrow
-    await deleteDocument('rental_escrows/$requestId');
-
-    // Notify renter
+    // 4. Notify renter
     await createNotification(
       uid: renteeId,
       title: 'Booking Request Rejected',
-      message: 'Your request to book ${reqDoc['brand']} ${reqDoc['model']} was rejected. Funds have been refunded.',
+      message: 'Your request to book ${reqDoc['brand']} ${reqDoc['model']} was rejected. Funds of ₱${refundAmount.toStringAsFixed(2)} will be refunded to your wallet.',
     );
   }
 
@@ -2936,11 +3175,15 @@ class FirestoreService {
     final bookingFee = (reqDoc['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03);
     final refundAmount = totalCost + bookingFee;
     final rentalId = reqDoc['rentalId']?.toString();
+    final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Set request status to Cancelled
-    await setDocument('rental_requests/$requestId', {'status': 'Cancelled'});
+    // 1. Set request status to Cancelled
+    await setDocument('rental_requests/$requestId', {
+      'status': 'Cancelled',
+      'cancelledAt': now,
+    });
 
-    // If it was Approved / Awaiting Signature, reopen the vehicle listing
+    // 2. If it was Approved / Awaiting Signature, reopen the vehicle listing
     if (rentalId != null && (st == 'Approved' || st == 'Awaiting Signature')) {
       final rentalDoc = await getDocument('rentals/$rentalId');
       if (rentalDoc != null && rentalDoc['currentRequestId']?.toString() == requestId) {
@@ -2958,38 +3201,50 @@ class FirestoreService {
           'signedAt': null,
         });
       }
-      await deleteDocument('rental_escrows/$rentalId');
     }
 
-    // Revert promo usage
+    // 3. Revert promo usage
     final promoCode = reqDoc['promoCode'] as String?;
     if (promoCode != null) {
-      await decrementPromoUsage(promoCode, renteeId);
+      try {
+        await decrementPromoUsage(promoCode, renteeId);
+      } catch (_) {}
     }
 
-    // Refund rentee
+    // 4. Refund rentee immediately (caller is rentee)
     final rentee = await getUser(renteeId);
     if (rentee != null) {
       await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
 
-      // Save transaction record for refund
-      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txId = 'tx_cancel_${DateTime.now().microsecondsSinceEpoch}';
       final txData = {
+        'id': txId,
         'uid': renteeId,
         'type': 'refund',
         'amount': refundAmount,
         'title': 'Booking Request Cancelled',
         'desc': 'Refund for cancelled request of ${reqDoc['brand']} ${reqDoc['model']}',
         'method': 'Tranyx Wallet',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'createdAt': now,
+        'status': 'Completed',
       };
       await setDocument('transactions/$txId', txData);
     }
 
-    // Release/delete the held escrow
-    await deleteDocument('rental_escrows/$requestId');
+    // 5. Mark escrow as Refunded
+    final existingEscrow = await getDocument('rental_escrows/$requestId');
+    final escrowRefund = {
+      if (existingEscrow != null) ...existingEscrow,
+      'status': 'Refunded',
+      'refundAmount': refundAmount,
+      'refundClaimedAt': now,
+    };
+    await setDocument('rental_escrows/$requestId', escrowRefund);
+    if (rentalId != null) {
+      await setDocument('rental_escrows/$rentalId', escrowRefund);
+    }
 
-    // Notify host
+    // 6. Notify host
     await createNotification(
       uid: hostId,
       title: 'Booking Request Cancelled',
@@ -3002,6 +3257,7 @@ class FirestoreService {
   Future<void> revokeApproval(String rentalId, {String? requestId}) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     final resolvedReqId = requestId ?? (rentalDoc?['currentRequestId'] as String?);
+    final now = DateTime.now().millisecondsSinceEpoch;
 
     if (resolvedReqId != null) {
       final reqDoc = await getDocument('rental_requests/$resolvedReqId');
@@ -3011,37 +3267,42 @@ class FirestoreService {
         final bookingFee = (reqDoc['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03);
         final refundAmount = totalCost + bookingFee;
 
-        await setDocument('rental_requests/$resolvedReqId', {'status': 'Cancelled'});
+        await setDocument('rental_requests/$resolvedReqId', {
+          'status': 'Cancelled',
+          'cancelledAt': now,
+        });
 
         final promoCode = reqDoc['promoCode'] as String?;
         if (promoCode != null) {
-          await decrementPromoUsage(promoCode, renteeId);
+          try {
+            await decrementPromoUsage(promoCode, renteeId);
+          } catch (_) {}
         }
 
-        final rentee = await getUser(renteeId);
-        if (rentee != null) {
-          await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
-
-          final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-          final txData = {
-            'uid': renteeId,
-            'type': 'refund',
-            'amount': refundAmount,
-            'title': 'Booking Approval Revoked',
-            'desc': 'Host revoked approval for ${reqDoc['brand']} ${reqDoc['model']}. 100% refund issued.',
-            'method': 'Tranyx Wallet',
-            'createdAt': DateTime.now().millisecondsSinceEpoch,
-          };
-          await setDocument('transactions/$txId', txData);
-        }
-
-        await deleteDocument('rental_escrows/$resolvedReqId');
+        // Set escrow status to RefundPending for automated self-claim by renter
+        final existingEscrow = await getDocument('rental_escrows/$resolvedReqId') ??
+            await getDocument('rental_escrows/$rentalId');
+        final escrowMap = {
+          if (existingEscrow != null) ...existingEscrow,
+          'id': resolvedReqId,
+          'requestId': resolvedReqId,
+          'rentalId': rentalId,
+          'renteeId': renteeId,
+          'renterId': renteeId,
+          'hostId': rentalDoc?['hostId'] ?? '',
+          'status': 'RefundPending',
+          'refundAmount': refundAmount,
+          'refundReason': 'Host revoked approval for ${reqDoc['brand'] ?? ''} ${reqDoc['model'] ?? ''}',
+          'revokedAt': now,
+        };
+        await setDocument('rental_escrows/$resolvedReqId', escrowMap);
+        await setDocument('rental_escrows/$rentalId', escrowMap);
 
         await createNotification(
           uid: renteeId,
           title: 'Booking Approval Revoked',
           message:
-              'The host has revoked approval for vehicle ${reqDoc['brand']} ${reqDoc['model']}. Full refund of ₱ ${refundAmount.toStringAsFixed(2)} has been credited to your wallet.',
+              'The host has revoked approval for vehicle ${reqDoc['brand']} ${reqDoc['model']}. Full refund of ₱${refundAmount.toStringAsFixed(2)} will be refunded to your wallet.',
         );
       }
     }
@@ -3059,7 +3320,6 @@ class FirestoreService {
       'renteeSignatureName': null,
       'signedAt': null,
     });
-    await deleteDocument('rental_escrows/$rentalId');
   }
 
   /// Fetch all pending requests for a specific vehicle, filtered in-memory
@@ -3463,33 +3723,48 @@ class FirestoreService {
     final fullRefundAmount = baseCost + bookingFee;
     const cancellationFee = 2.0; // flat platform cancellation processing fee
     final refundToRentee = (fullRefundAmount - cancellationFee).clamp(0.0, double.infinity);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    bool directRefundSuccess = false;
+    try {
+      await updateTyxBalance(rental.renteeId!, rentee.tyxBalance + refundToRentee);
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'id': txId,
+        'uid': rental.renteeId!,
+        'type': 'refund',
+        'amount': refundToRentee,
+        'title': 'Rental Cancellation — Refund',
+        'desc':
+            'Refund for cancelled rental: ${rental.brand} ${rental.model} (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
+        'method': 'Tranyx Wallet',
+        'createdAt': now,
+        'status': 'Completed',
+      };
+      await setDocument('transactions/$txId', txData);
+      directRefundSuccess = true;
+    } catch (_) {
+      directRefundSuccess = false;
+    }
 
-    // Refund (total - 2 TYXBIT fee) to rentee
-    await updateTyxBalance(rental.renteeId!, rentee.tyxBalance + refundToRentee);
-
-    // Save refund transaction
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': rental.renteeId!,
-      'type': 'refund',
-      'amount': refundToRentee,
-      'title': 'Rental Cancellation — Refund',
-      'desc':
-          'Refund for cancelled rental: ${rental.brand} ${rental.model} (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
-
-    // Mark escrow as Refunded
-    final escrowRefund = {
-      'status': 'Refunded',
-      'cancelledAt': DateTime.now().millisecondsSinceEpoch,
+    // Mark escrow as Refunded or RefundPending for automated self-claim
+    final escrowData = {
+      'status': directRefundSuccess ? 'Refunded' : 'RefundPending',
+      'refundAmount': refundToRentee,
+      'refundReason': 'Cancelled rental: ${rental.brand} ${rental.model}',
+      'cancelledAt': now,
     };
     if (resolvedReqId != null) {
-      await setDocument('rental_escrows/$resolvedReqId', escrowRefund);
+      final existing = await getDocument('rental_escrows/$resolvedReqId');
+      await setDocument('rental_escrows/$resolvedReqId', {
+        if (existing != null) ...existing,
+        ...escrowData,
+      });
     }
-    await setDocument('rental_escrows/$actualRentalId', escrowRefund);
+    final existingRentalEscrow = await getDocument('rental_escrows/$actualRentalId');
+    await setDocument('rental_escrows/$actualRentalId', {
+      if (existingRentalEscrow != null) ...existingRentalEscrow,
+      ...escrowData,
+    });
 
     // Mark request as Cancelled
     if (resolvedReqId != null) {
@@ -3947,7 +4222,7 @@ class FirestoreService {
     }
   }
 
-  /// Reject pending extension request (refund rentee and delete request escrow)
+  /// Reject pending extension request (set escrow to RefundPending for automated reconciliation)
   Future<void> rejectExtension(String extensionId) async {
     final extDoc = await getDocument('rental_extensions/$extensionId');
     if (extDoc == null) return;
@@ -3955,31 +4230,34 @@ class FirestoreService {
 
     final renteeId = extDoc['renteeId'] as String;
     final fee = (extDoc['fee'] as num).toDouble();
+    final now = DateTime.now().millisecondsSinceEpoch;
 
     // 1. Mark request rejected
-    await setDocument('rental_extensions/$extensionId', {'status': 'Rejected'});
+    await setDocument('rental_extensions/$extensionId', {
+      'status': 'Rejected',
+      'rejectedAt': now,
+    });
 
-    // 2. Refund rentee
-    final rentee = await getUser(renteeId);
-    if (rentee != null) {
-      await updateTyxBalance(renteeId, rentee.tyxBalance + fee);
+    // 2. Mark extension escrow as RefundPending for automatic claim by rentee
+    final existingEscrow = await getDocument('rental_extension_escrows/$extensionId');
+    await setDocument('rental_extension_escrows/$extensionId', {
+      if (existingEscrow != null) ...existingEscrow,
+      'id': extensionId,
+      'extensionId': extensionId,
+      'renteeId': renteeId,
+      'renterId': renteeId,
+      'status': 'RefundPending',
+      'refundAmount': fee,
+      'refundReason': 'Host rejected rental extension request',
+      'rejectedAt': now,
+    });
 
-      // Save refund transaction
-      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-      final txData = {
-        'uid': renteeId,
-        'type': 'refund',
-        'amount': fee,
-        'title': 'Rental Extension Refund',
-        'desc': 'Refund for rejected rental extension request.',
-        'method': 'Tranyx Wallet',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-      };
-      await setDocument('transactions/$txId', txData);
-    }
-
-    // 3. Delete extension escrow
-    await deleteDocument('rental_extension_escrows/$extensionId');
+    // 3. Notify rentee
+    await createNotification(
+      uid: renteeId,
+      title: 'Rental Extension Rejected',
+      message: 'Your extension request was rejected. The extension fee of ₱${fee.toStringAsFixed(2)} will be refunded to your wallet.',
+    );
   }
 
   // ── Property Rentals ──────────────────────────────────────────
@@ -4488,7 +4766,7 @@ class FirestoreService {
     );
   }
 
-  /// Reject a property booking request and refund rentee
+  /// Reject a property booking request and set escrow to RefundPending for automated reconciliation
   Future<void> rejectPropertyBookingRequest(String requestId) async {
     final reqDoc = await getDocument('property_requests/$requestId');
     if (reqDoc == null) return;
@@ -4497,38 +4775,42 @@ class FirestoreService {
     final renteeId = reqDoc['renteeId'] as String;
     final totalRefund = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ??
         ((reqDoc['totalCost'] as num).toDouble() + ((reqDoc['bookingFee'] as num?)?.toDouble() ?? 0.0));
+    final now = DateTime.now().millisecondsSinceEpoch;
 
-    await setDocument('property_requests/$requestId', {'status': 'Rejected'});
+    await setDocument('property_requests/$requestId', {
+      'status': 'Rejected',
+      'rejectedAt': now,
+    });
 
     // Revert promo usage
     final promoCode = reqDoc['promoCode'] as String?;
     if (promoCode != null) {
-      await decrementPromoUsage(promoCode, renteeId);
+      try {
+        await decrementPromoUsage(promoCode, renteeId);
+      } catch (_) {}
     }
 
-    final rentee = await getUser(renteeId);
-    if (rentee != null) {
-      await updateTyxBalance(renteeId, rentee.tyxBalance + totalRefund);
-
-      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-      final txData = {
-        'uid': renteeId,
-        'type': 'refund',
-        'amount': totalRefund,
-        'title': 'Property Booking Refund',
-        'desc': 'Refund for rejected request of property "${reqDoc['title']}"',
-        'method': 'Tranyx Wallet',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-      };
-      await setDocument('transactions/$txId', txData);
-    }
-
-    await deleteDocument('property_escrows/$requestId');
+    // Set escrow status to RefundPending for automatic claim by renter
+    final existingEscrow = await getDocument('property_escrows/$requestId');
+    final escrowMap = {
+      if (existingEscrow != null) ...existingEscrow,
+      'id': requestId,
+      'requestId': requestId,
+      'propertyId': reqDoc['propertyId'] ?? '',
+      'renteeId': renteeId,
+      'renterId': renteeId,
+      'hostId': reqDoc['hostId'] ?? '',
+      'status': 'RefundPending',
+      'refundAmount': totalRefund,
+      'refundReason': 'Host rejected property booking request for "${reqDoc['title'] ?? 'Listing'}"',
+      'rejectedAt': now,
+    };
+    await setDocument('property_escrows/$requestId', escrowMap);
 
     await createNotification(
       uid: renteeId,
       title: 'Booking Request Rejected',
-      message: 'Your request to rent "${reqDoc['title']}" was rejected. Funds have been refunded.',
+      message: 'Your request to rent "${reqDoc['title']}" was rejected. Refund of ₱${totalRefund.toStringAsFixed(2)} will be refunded to your wallet.',
     );
   }
 
@@ -4544,11 +4826,15 @@ class FirestoreService {
     final totalRefund = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ??
         ((reqDoc['totalCost'] as num).toDouble() + ((reqDoc['bookingFee'] as num?)?.toDouble() ?? 0.0));
     final propertyId = reqDoc['propertyId']?.toString();
+    final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Set request status to Cancelled
-    await setDocument('property_requests/$requestId', {'status': 'Cancelled'});
+    // 1. Set request status to Cancelled
+    await setDocument('property_requests/$requestId', {
+      'status': 'Cancelled',
+      'cancelledAt': now,
+    });
 
-    // If it was Approved / Awaiting Signature, reopen the property listing if this was the current request
+    // 2. If it was Approved / Awaiting Signature, reopen the property listing if this was the current request
     if (propertyId != null && (st == 'Approved' || st == 'Awaiting Signature')) {
       final propDoc = await getDocument('properties/$propertyId');
       if (propDoc != null && propDoc['currentRequestId']?.toString() == requestId) {
@@ -4561,6 +4847,8 @@ class FirestoreService {
           'rentalMultiplier': null,
           'startDate': null,
           'endDate': null,
+          'checkInDate': null,
+          'checkOutDate': null,
           'totalCost': null,
           'baseRentAmount': null,
           'securityDepositAmount': null,
@@ -4571,41 +4859,51 @@ class FirestoreService {
           'licenseNumber': null,
         });
       }
-      await deleteDocument('property_escrows/$propertyId');
     }
 
-    // Revert promo usage
+    // 3. Revert promo usage
     final promoCode = reqDoc['promoCode'] as String?;
     if (promoCode != null) {
-      await decrementPromoUsage(promoCode, renteeId);
+      try {
+        await decrementPromoUsage(promoCode, renteeId);
+      } catch (_) {}
     }
 
-    // Refund rentee (100% full refund since contract was not executed yet)
+    // 4. Refund rentee immediately (caller is rentee)
     final rentee = await getUser(renteeId);
     if (rentee != null) {
       await updateTyxBalance(renteeId, rentee.tyxBalance + totalRefund);
 
-      // Save transaction record for refund
-      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txId = 'tx_cancel_${DateTime.now().millisecondsSinceEpoch}';
       final txData = {
+        'id': txId,
         'uid': renteeId,
         'type': 'refund',
         'category': 'refund',
         'amount': totalRefund,
         'title': 'Property Booking Cancelled',
-        'desc': 'Refund for cancelled request of property "${reqDoc['title'] ?? 'Listing'}"',
+        'desc': 'Refund for cancelled request of property "${reqDoc['title']}"',
         'method': 'Tranyx Wallet',
         'originRail': 'internal_balance',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'createdAt': now,
         'status': 'Completed',
       };
       await setDocument('transactions/$txId', txData);
     }
 
-    // Release/delete the held escrow
-    await deleteDocument('property_escrows/$requestId');
+    // 5. Mark escrow as Refunded
+    final existingEscrow = await getDocument('property_escrows/$requestId');
+    final escrowRefund = {
+      if (existingEscrow != null) ...existingEscrow,
+      'status': 'Refunded',
+      'refundAmount': totalRefund,
+      'refundClaimedAt': now,
+    };
+    await setDocument('property_escrows/$requestId', escrowRefund);
+    if (propertyId != null) {
+      await setDocument('property_escrows/$propertyId', escrowRefund);
+    }
 
-    // Notify host
     await createNotification(
       uid: hostId,
       title: 'Property Booking Request Cancelled',
@@ -4618,6 +4916,7 @@ class FirestoreService {
   Future<void> revokePropertyApproval(String propertyId, {String? requestId}) async {
     final propDoc = await getDocument('properties/$propertyId');
     final resolvedReqId = requestId ?? (propDoc?['currentRequestId'] as String?);
+    final now = DateTime.now().millisecondsSinceEpoch;
 
     if (resolvedReqId != null) {
       final reqDoc = await getDocument('property_requests/$resolvedReqId');
@@ -4626,40 +4925,42 @@ class FirestoreService {
         final totalRefund = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ??
             ((reqDoc['totalCost'] as num).toDouble() + ((reqDoc['bookingFee'] as num?)?.toDouble() ?? 0.0));
 
-        await setDocument('property_requests/$resolvedReqId', {'status': 'Cancelled'});
+        await setDocument('property_requests/$resolvedReqId', {
+          'status': 'Cancelled',
+          'cancelledAt': now,
+        });
 
         final promoCode = reqDoc['promoCode'] as String?;
         if (promoCode != null) {
-          await decrementPromoUsage(promoCode, renteeId);
+          try {
+            await decrementPromoUsage(promoCode, renteeId);
+          } catch (_) {}
         }
 
-        final rentee = await getUser(renteeId);
-        if (rentee != null) {
-          await updateTyxBalance(renteeId, rentee.tyxBalance + totalRefund);
-
-          final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-          final txData = {
-            'uid': renteeId,
-            'type': 'refund',
-            'category': 'refund',
-            'amount': totalRefund,
-            'title': 'Property Booking Approval Revoked',
-            'desc': 'Host revoked approval for "${reqDoc['title'] ?? 'Listing'}". 100% refund issued.',
-            'method': 'Tranyx Wallet',
-            'originRail': 'internal_balance',
-            'createdAt': DateTime.now().millisecondsSinceEpoch,
-            'status': 'Completed',
-          };
-          await setDocument('transactions/$txId', txData);
-        }
-
-        await deleteDocument('property_escrows/$resolvedReqId');
+        // Set escrow status to RefundPending for automatic claim by renter
+        final existingEscrow = await getDocument('property_escrows/$resolvedReqId') ??
+            await getDocument('property_escrows/$propertyId');
+        final escrowMap = {
+          if (existingEscrow != null) ...existingEscrow,
+          'id': resolvedReqId,
+          'requestId': resolvedReqId,
+          'propertyId': propertyId,
+          'renteeId': renteeId,
+          'renterId': renteeId,
+          'hostId': propDoc?['hostId'] ?? '',
+          'status': 'RefundPending',
+          'refundAmount': totalRefund,
+          'refundReason': 'Host revoked approval for property "${reqDoc['title'] ?? 'Listing'}"',
+          'revokedAt': now,
+        };
+        await setDocument('property_escrows/$resolvedReqId', escrowMap);
+        await setDocument('property_escrows/$propertyId', escrowMap);
 
         await createNotification(
           uid: renteeId,
           title: 'Property Booking Approval Revoked',
           message:
-              'The host has revoked approval for property "${reqDoc['title'] ?? 'Listing'}". Full refund of ₱ ${totalRefund.toStringAsFixed(2)} has been credited to your wallet.',
+              'The host has revoked approval for property "${reqDoc['title'] ?? 'Listing'}". Full refund of ₱${totalRefund.toStringAsFixed(2)} will be refunded to your wallet.',
         );
       }
     }
@@ -4673,6 +4974,8 @@ class FirestoreService {
       'rentalMultiplier': null,
       'startDate': null,
       'endDate': null,
+      'checkInDate': null,
+      'checkOutDate': null,
       'totalCost': null,
       'baseRentAmount': null,
       'securityDepositAmount': null,
@@ -4682,7 +4985,6 @@ class FirestoreService {
       'currentRequestId': null,
       'licenseNumber': null,
     });
-    await deleteDocument('property_escrows/$propertyId');
   }
 
   /// Cancel property lease rental — full refund (totalCost + bookingFee - 2.0 TYXBIT platform fee) back to rentee
@@ -4731,36 +5033,50 @@ class FirestoreService {
     final fullRefundAmount = (propDoc['totalCustomerPaid'] as num?)?.toDouble() ?? (baseCost + bookingFee);
     const cancellationFee = 2.0; // flat platform cancellation processing fee
     final refundToRentee = (fullRefundAmount - cancellationFee).clamp(0.0, double.infinity);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    bool directRefundSuccess = false;
+    try {
+      await updateTyxBalance(property.renteeId!, rentee.tyxBalance + refundToRentee);
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'id': txId,
+        'uid': property.renteeId!,
+        'type': 'refund',
+        'category': 'refund',
+        'amount': refundToRentee,
+        'title': 'Property Lease Cancellation — Refund',
+        'desc':
+            'Refund for cancelled property lease: "${property.title}" (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
+        'method': 'Tranyx Wallet',
+        'originRail': 'internal_balance',
+        'createdAt': now,
+        'status': 'Completed',
+      };
+      await setDocument('transactions/$txId', txData);
+      directRefundSuccess = true;
+    } catch (_) {
+      directRefundSuccess = false;
+    }
 
-    // Refund (total - 2 TYXBIT fee) to rentee
-    await updateTyxBalance(property.renteeId!, rentee.tyxBalance + refundToRentee);
-
-    // Save refund transaction
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': property.renteeId!,
-      'type': 'refund',
-      'category': 'refund',
-      'amount': refundToRentee,
-      'title': 'Property Lease Cancellation — Refund',
-      'desc':
-          'Refund for cancelled property lease: "${property.title}" (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
-      'method': 'Tranyx Wallet',
-      'originRail': 'internal_balance',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-      'status': 'Completed',
-    };
-    await setDocument('transactions/$txId', txData);
-
-    // Mark escrow as Refunded
-    final escrowRefund = {
-      'status': 'Refunded',
-      'cancelledAt': DateTime.now().millisecondsSinceEpoch,
+    // Mark escrow as Refunded or RefundPending for automated self-claim
+    final escrowData = {
+      'status': directRefundSuccess ? 'Refunded' : 'RefundPending',
+      'refundAmount': refundToRentee,
+      'refundReason': 'Cancelled lease: "${property.title}"',
+      'cancelledAt': now,
     };
     if (resolvedReqId != null) {
-      await setDocument('property_escrows/$resolvedReqId', escrowRefund);
+      final existing = await getDocument('property_escrows/$resolvedReqId');
+      await setDocument('property_escrows/$resolvedReqId', {
+        if (existing != null) ...existing,
+        ...escrowData,
+      });
     }
-    await setDocument('property_escrows/$actualPropertyId', escrowRefund);
+    final existingPropEscrow = await getDocument('property_escrows/$actualPropertyId');
+    await setDocument('property_escrows/$actualPropertyId', {
+      if (existingPropEscrow != null) ...existingPropEscrow,
+      ...escrowData,
+    });
 
     // Mark request as Cancelled
     if (resolvedReqId != null) {
@@ -5027,32 +5343,52 @@ class FirestoreService {
       'hostCommissionDeducted': commission,
       'hostPayout': hostPayout,
       'securityDepositRefunded': secDeposit,
+      'securityDepositStatus': secDeposit > 0.0 ? 'RefundPending' : 'None',
+      'securityDepositAmount': secDeposit,
       'releasedAt': DateTime.now().millisecondsSinceEpoch,
     };
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
-      await setDocument('property_escrows/$resolvedReqId', escrowRelease);
+      final ex = await getDocument('property_escrows/$resolvedReqId');
+      await setDocument('property_escrows/$resolvedReqId', {
+        if (ex != null) ...ex,
+        ...escrowRelease,
+      });
     }
-    await setDocument('property_escrows/$actualPropertyId', escrowRelease);
+    final exProp = await getDocument('property_escrows/$actualPropertyId');
+    await setDocument('property_escrows/$actualPropertyId', {
+      if (exProp != null) ...exProp,
+      ...escrowRelease,
+    });
 
-    // Refund security deposit to rentee upon lease completion
+    // Attempt direct security deposit refund if caller has permissions, otherwise reconcilePendingEscrows handles it automatically
     final targetRentee = bookingDoc?['renteeId'] ?? property.renteeId;
     if (targetRentee != null && targetRentee.toString().isNotEmpty && secDeposit > 0.0) {
-      final rentee = await getUser(targetRentee.toString());
-      if (rentee != null) {
-        await updateTyxBalance(targetRentee.toString(), rentee.tyxBalance + secDeposit);
-        final depTxId = 'dep_ref_${DateTime.now().microsecondsSinceEpoch}';
-        await setDocument('transactions/$depTxId', {
-          'uid': targetRentee.toString(),
-          'type': 'refund',
-          'category': 'refund',
-          'amount': secDeposit,
-          'title': 'Security Deposit Refund',
-          'desc': '100% refund of security deposit for completed lease "${property.title}"',
-          'method': 'Tranyx Wallet',
-          'originRail': 'internal_balance',
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-          'status': 'Completed',
-        });
+      try {
+        final rentee = await getUser(targetRentee.toString());
+        if (rentee != null) {
+          await updateTyxBalance(targetRentee.toString(), rentee.tyxBalance + secDeposit);
+          final depTxId = 'dep_ref_${DateTime.now().microsecondsSinceEpoch}';
+          await setDocument('transactions/$depTxId', {
+            'id': depTxId,
+            'uid': targetRentee.toString(),
+            'type': 'refund',
+            'category': 'refund',
+            'amount': secDeposit,
+            'title': 'Security Deposit Refund',
+            'desc': '100% refund of security deposit for completed lease "${property.title}"',
+            'method': 'Tranyx Wallet',
+            'originRail': 'internal_balance',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+            'status': 'Completed',
+          });
+          if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+            await setDocument('property_escrows/$resolvedReqId', {'securityDepositStatus': 'Refunded'});
+          }
+          await setDocument('property_escrows/$actualPropertyId', {'securityDepositStatus': 'Refunded'});
+        }
+      } catch (_) {
+        // Expected if Host is completing: Security deposit remains in 'RefundPending' state
+        // and is claimed automatically by rentee via reconcilePendingEscrows()!
       }
     }
 

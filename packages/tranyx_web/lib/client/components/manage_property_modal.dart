@@ -92,6 +92,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
   }
 
   void _approveRequest(String requestId) async {
+    if (_isProcessing) return;
     final prop = component.appState.selectedPropertyData;
     if (prop == null) return;
 
@@ -102,6 +103,11 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
 
     try {
       await component.appState.firestore.approvePropertyBookingRequest(requestId, prop['id'], _allowChat);
+
+      component.appState.showAppToast(
+        'Rental Request Accepted',
+        "Booking request approved. Awaiting renter's signature.",
+      );
 
       // Close modal and clear selected state
       component.appState.setState(() {
@@ -116,6 +122,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
   }
 
   void _rejectRequest(String requestId) async {
+    if (_isProcessing) return;
     setState(() {
       _isProcessing = true;
       _error = null;
