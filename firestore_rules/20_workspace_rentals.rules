@@ -1,0 +1,102 @@
+    // ------------------------------------------------------------------------
+    // WORKSPACE: VEHICLE RENTALS & ESCROWS
+    // ------------------------------------------------------------------------
+
+    // Helper to check if current user is the renter, rentee, or host of an escrow
+    function isRentalEscrowParty(data) {
+      return ('renterId' in data && data.renterId == request.auth.uid) || 
+             ('renteeId' in data && data.renteeId == request.auth.uid) || 
+             ('hostId' in data && data.hostId == request.auth.uid);
+    }
+
+    // Vehicle Rentals Collection (Anti-Exploitation: Host CANNOT alter pricing once booked)
+    match /rentals/{rentalId} {
+      allow read: if true;
+      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid;
+      
+      allow update: if 
+        // 1. Host (Vehicle Owner): Can update vehicle/price details ONLY when status is 'Available' or 'available'
+        (isActiveUser() && resource.data.hostId == request.auth.uid && 
+          (resource.data.status == 'Available' || resource.data.status == 'available') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'brand', 'model', 'year', 'type', 'plateNumber', 'vehicleValue', 
+            'ltoCrNumber', 'ltoOrNumber', 'insuranceProvider', 'insurancePolicyNumber', 
+            'franchisePermit', 'interiorPhotoUrl', 'frontPhotoUrl', 'backPhotoUrl', 
+            'contractType', 'contractTerms', 'price12h', 'priceDaily', 'priceWeekly', 
+            'priceMonthly', 'extensionRatePerHour', 'latePenaltyRatePerHour', 'status', 
+            'fuelType', 'transmission', 'offersDriver', 'driverDailyPrice', 'driverNote', 
+            'driverLicenseNumber', 'renteeId', 'renteeName', 'renteePhotoUrl', 
+            'renteePhone', 'renteeRating', 'startEpoch', 'endEpoch', 'expectedReturnEpoch', 
+            'deliveryType', 'deliveryAddress', 'deliveryFee', 'currentLocationLat', 
+            'currentLocationLng', 'fuelLevel', 'odoMeter', 'pickupPhotos', 
+            'dropoffPhotos', 'hostRated', 'renteeRated'
+          ])
+        ) ||
+        // 1b. Host: When vehicle is active/booked, can ONLY submit host rating
+        (isActiveUser() && resource.data.hostId == request.auth.uid && 
+          resource.data.status != 'Available' && resource.data.status != 'available' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hostRated'])
+        ) ||
+        // 2. Assigned Rentee / Nyxian: Can update trip status, return info & location tracking
+        (isActiveUser() && 'renteeId' in resource.data && resource.data.renteeId == request.auth.uid && 
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'currentLocationLat', 'currentLocationLng', 'fuelLevel', 
+            'odoMeter', 'dropoffPhotos', 'renteeRated'
+          ])
+        ) ||
+        // 3. Admin / Staff
+        isAdminOrStaff();
+
+      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
+
+      match /questions/{questionId} {
+        allow read: if true;
+        allow write: if isActiveUser();
+      }
+    }
+
+    // Rental Requests Collection
+    match /rental_requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow write: if isActiveUser() || isAdminOrStaff();
+    }
+
+    // Rental Extensions Collection
+    match /rental_extensions/{extId} {
+      allow read: if isAuthenticated();
+      allow write: if isActiveUser() || isAdminOrStaff();
+    }
+
+    // Rental History Collection
+    match /rental_history/{historyId} {
+      allow read: if isAuthenticated();
+      allow write: if isActiveUser() || isAdminOrStaff();
+    }
+
+    // Rental Escrows Collection (Dual-field support for renteeId & renterId)
+    match /rental_escrows/{rentalId} {
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        isRentalEscrowParty(resource.data) || 
+        isAdminOrStaff()
+      );
+      allow create, update: if isActiveUser() && (
+        isRentalEscrowParty(request.resource.data) || 
+        isAdminOrStaff()
+      );
+      allow delete: if (isActiveUser() && isRentalEscrowParty(resource.data)) || isAdminOrStaff();
+    }
+
+    // Rental Extension Escrows Collection
+    match /rental_extension_escrows/{extensionId} {
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        isRentalEscrowParty(resource.data) || 
+        isAdminOrStaff()
+      );
+      allow create, update: if isActiveUser() && (
+        isRentalEscrowParty(request.resource.data) || 
+        isAdminOrStaff()
+      );
+      allow delete: if (isActiveUser() && isRentalEscrowParty(resource.data)) || isAdminOrStaff();
+    }

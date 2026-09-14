@@ -1,0 +1,113 @@
+    // ------------------------------------------------------------------------
+    // ADMIN PORTAL OPERATIONS, P2P DESK & SYSTEM CONFIGURATION
+    // ------------------------------------------------------------------------
+
+    // P2P Agents Collection (Publicly readable verified agent QR credentials)
+    match /p2p_agents/{agentId} {
+      allow read: if true;
+      allow write: if isAdminOrStaff() || (isOwner(agentId) && isStaffEmail());
+    }
+
+    // Unified Requests Collection (Admin Portal: Enforces 3-Min Claim Limit & Single-Agent Lock)
+    match /requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow delete: if isAdminOrStaff();
+      
+      allow update: if isAuthenticated() && (
+        isAdminOrStaff() ||
+        // 1. Agent accepting their assignment WITHIN 3 minutes
+        (
+          resource.data.status == 'ASSIGNED' && 
+          (resource.data.assignedTo == request.auth.uid || resource.data.assignedAgentId == request.auth.uid) &&
+          (resource.data.claimDeadline == null || request.time < resource.data.claimDeadline)
+        ) ||
+        // 2. Any agent taking a request whose claimDeadline HAS PASSED
+        (
+          resource.data.status == 'ASSIGNED' && 
+          resource.data.claimDeadline != null &&
+          request.time > resource.data.claimDeadline
+        ) ||
+        // 3. Claiming an unassigned pending request
+        (
+          (resource.data.status == 'PENDING' || resource.data.status == 'OPEN') && 
+          (resource.data.assignedTo == null || resource.data.assignedAgentId == null)
+        ) ||
+        // 4. Updating an active IN_PROGRESS request owned by self
+        (
+          (resource.data.status == 'IN_PROGRESS' || resource.data.status == 'In Progress') && 
+          (resource.data.assignedTo == request.auth.uid || resource.data.assignedAgentId == request.auth.uid)
+        )
+      );
+    }
+
+    // Email & Mail Logging Collections
+    match /mail/{mailId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /emails/{mailId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Audit Logs Collections
+    match /audit_logs/{logId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdminOrStaff();
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdminOrStaff();
+    }
+
+    match /admin_audit_logs/{logId} {
+      allow read, write: if isAdminOrStaff();
+    }
+
+    match /system_logs/{logId} {
+      allow read, write: if isAdminOrStaff();
+    }
+
+    // System Config Collection (Treasury keys and backend config - Admin only!)
+    match /system_config/{docId} {
+      allow read, write: if isAdminOrStaff();
+    }
+
+    // Config Collection (App-level public read-only config)
+    match /config/app_config {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // Platform Fees Collection (Admin managed)
+    match /platform_fees/{feeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdminOrStaff();
+    }
+
+    // Promos Collection
+    match /promos/{promoId} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdminOrStaff();
+      allow update: if isAdminOrStaff() || 
+        (isActiveUser() && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount', 'usedBy']));
+    }
+
+    // News & Promotions Collections
+    match /news_posts/{postId} {
+      allow read: if true;
+      allow write: if isAdminOrStaff();
+    }
+    match /news/{newsId} {
+      allow read: if true;
+      allow write: if isAdminOrStaff();
+    }
+
+    // KYC Submissions Collection
+    match /kyc_submissions/{submissionId} {
+      allow read: if isAuthenticated() && (request.auth.uid == submissionId || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow write: if (isActiveUser() && (request.auth.uid == submissionId)) || isAdminOrStaff();
+    }

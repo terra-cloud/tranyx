@@ -1,0 +1,29 @@
+    // ------------------------------------------------------------------------
+    // COMMON AUTHENTICATION & IDENTITY HELPERS
+    // ------------------------------------------------------------------------
+
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper to check if the user is accessing their own document or matches the user ID
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Helper to check if a user is currently banned or suspended
+    function isUserBlocked(uid) {
+      let path = /databases/$(database)/documents/users/$(uid);
+      let docExists = exists(path);
+      let userDoc = docExists ? get(path).data : {};
+      return docExists && (
+        ('banned' in userDoc && userDoc.banned == true) ||
+        ('suspendedUntil' in userDoc && userDoc.suspendedUntil is int && userDoc.suspendedUntil > request.time.toMillis())
+      );
+    }
+
+    // Helper to check if current request user is authenticated and NOT blocked
+    function isActiveUser() {
+      return isAuthenticated() && !isUserBlocked(request.auth.uid);
+    }
