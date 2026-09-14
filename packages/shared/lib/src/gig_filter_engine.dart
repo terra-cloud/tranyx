@@ -99,22 +99,21 @@ class GigFilterEngine {
         final jobLng = (gig['longitude'] as num?)?.toDouble() ??
             (gig['pickupLng'] as num?)?.toDouble();
 
-        if (jobLat == null ||
-            jobLng == null ||
-            userLat == null ||
-            userLng == null) {
-          // If distance filtering is active and coordinates are missing, exclude
-          return false;
-        }
-
-        final distKm = calculateHaversineDistance(
-          userLat,
-          userLng,
-          jobLat,
-          jobLng,
-        );
-        if (distKm > maxRadiusKm) {
-          return false; // Excluded by distance radius
+        // Only enforce distance cutoff if both user and gig coordinates are present.
+        // If coordinates are missing, do not drop the gig.
+        if (jobLat != null &&
+            jobLng != null &&
+            userLat != null &&
+            userLng != null) {
+          final distKm = calculateHaversineDistance(
+            userLat,
+            userLng,
+            jobLat,
+            jobLng,
+          );
+          if (distKm > maxRadiusKm) {
+            return false; // Excluded by distance radius
+          }
         }
       }
     }

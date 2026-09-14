@@ -313,5 +313,39 @@ void main() {
       expect(summary.distanceSummary, equals('Any Distance'));
       expect(summary.remoteSummary, equals('Including Remote Gigs'));
     });
+
+    test('Scenario 11: On-site gigs with missing coordinates or user without coordinates are retained during distance filtering', () {
+      final gigWithoutCoords = {
+        'id': 'gig-no-coords',
+        'title': 'General Warehouse Maintenance',
+        'category': 'General',
+        'description': 'Maintenance work at depot',
+        'pricingValue': 1200.0,
+        'locationType': 'on-site',
+        'createdAt': 5000,
+      };
+
+      // User has coordinates, gig does not -> should match
+      final matchGigNoCoords = GigFilterEngine.evaluateGigMatch(
+        gig: gigWithoutCoords,
+        categoryFilter: 'All',
+        includeRemote: true,
+        maxRadiusKm: 30.0,
+        userLat: userLat,
+        userLng: userLng,
+      );
+      expect(matchGigNoCoords, isTrue);
+
+      // User has no coordinates, gig has coordinates -> should match
+      final matchUserNoCoords = GigFilterEngine.evaluateGigMatch(
+        gig: mockNearOnSiteGig,
+        categoryFilter: 'All',
+        includeRemote: true,
+        maxRadiusKm: 30.0,
+        userLat: null,
+        userLng: null,
+      );
+      expect(matchUserNoCoords, isTrue);
+    });
   });
 }
