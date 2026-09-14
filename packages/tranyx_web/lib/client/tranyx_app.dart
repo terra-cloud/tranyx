@@ -201,7 +201,7 @@ class TranyxAppState extends State<TranyxApp> {
   List<Map<String, dynamic>> propertyHostPendingRequests = [];
   bool isLoadingJobs = false;
   String? jobsError;
-  String activeJobFilter = 'Recommended';
+  String activeJobFilter = 'All';
   String jobSortOrder = 'Newest'; // 'Newest' or 'Oldest'
   String activeJobPane = 'active'; // 'active'/'history' for employer, 'browse'/'my_gigs' for nyxian
   Map<String, dynamic>? ongoingJob; // first 'In Progress' job
@@ -253,11 +253,9 @@ class TranyxAppState extends State<TranyxApp> {
     _postJobError = val;
     if (val != null) {
       final lower = val.toLowerCase();
-      if (lower.contains('404') ||
-          lower.contains('user profile not found') ||
-          lower.contains('profile not found') ||
-          lower.contains('not logged in') ||
+      if (lower.contains('not logged in') ||
           lower.contains('id-token-expired') ||
+          lower.contains('auth/id-token-expired') ||
           lower.contains('401')) {
         triggerSessionExpired();
       }
@@ -522,16 +520,12 @@ class TranyxAppState extends State<TranyxApp> {
     final lowerTitle = title.toLowerCase();
     final lowerMsg = message.toLowerCase();
     if (lowerTitle.contains('401') ||
-        lowerTitle.contains('404') ||
         lowerTitle.contains('not logged in') ||
-        lowerTitle.contains('user profile not found') ||
-        lowerTitle.contains('profile not found') ||
+        lowerTitle.contains('auth/id-token-expired') ||
         lowerMsg.contains('401') ||
-        lowerMsg.contains('404') ||
         lowerMsg.contains('not logged in') ||
         lowerMsg.contains('id-token-expired') ||
-        lowerMsg.contains('user profile not found') ||
-        lowerMsg.contains('profile not found')) {
+        lowerMsg.contains('auth/id-token-expired')) {
       triggerSessionExpired();
       return;
     }
@@ -859,85 +853,128 @@ class TranyxAppState extends State<TranyxApp> {
         await Future.delayed(const Duration(milliseconds: 250));
       }
 
-      if (profile != null) {
-        final prof = profile;
-        final type = prof.accountType;
-        final resolvedName = (prof.name.isNotEmpty && prof.name != 'User')
-            ? prof.name
-            : (SessionStorage.displayName ?? (userName.isNotEmpty && userName != 'User' ? userName : prof.name));
-        final resolvedPhoto = prof.photoUrl ?? userPhotoUrl ?? SessionStorage.photoUrl;
+      if (profile == null) {
+        final storedName = SessionStorage.displayName ?? 'User';
+        final storedEmail = SessionStorage.email ?? '';
+        final storedTypeStr = SessionStorage.accountType;
+        final storedType = storedTypeStr != null
+            ? AccountType.values.firstWhere(
+                (e) => e.name == storedTypeStr,
+                orElse: () => AccountType.employer,
+              )
+            : AccountType.employer;
+        final storedPhoto = SessionStorage.photoUrl;
 
-        SessionStorage.saveProfile(
-          name: resolvedName,
-          email: prof.email,
-          accountType: type.name,
-          photoUrl: resolvedPhoto,
+        final fallbackProfile = UserProfile(
+          uid: uid,
+          name: storedName,
+          email: storedEmail,
+          accountType: storedType,
+          photoUrl: storedPhoto,
+          tyxBalance: 0.0,
         );
-        setState(() {
-          isAuthenticated = true;
-          userProfile = prof;
-          userName = resolvedName;
-          userEmail = prof.email;
-          userPhotoUrl = resolvedPhoto;
-          accountType = type;
-          hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-        });
+        // Persist profile to Firestore non-destructively so future reads succeed
+        svc.createOrUpdate('users/$uid', fallbackProfile.toMap()).catchError((_) {});
+        profile = fallbackProfile;
+      }
 
-        initializeProfileEditing();
-        // Load jobs for current tab
-        await loadJobs();
-        await loadTransactions();
-        await loadRenterPendingRequests();
-        await loadHostPendingRequests();
-        await checkActivePendingP2pOrders();
-        _startP2pHeartbeat();
-        _startListeningNotifications();
-        _startListeningJobs();
-        _startAllRentalAndPropertyListeners(uid);
-        await handleQrVerificationParams();
-        checkAndTriggerWalkthrough();
+      final prof = profile;
+      final type = prof.accountType;
+      final resolvedName = (prof.name.isNotEmpty && prof.name != 'User')
+          ? prof.name
+          : (SessionStorage.displayName ?? (userName.isNotEmpty && userName != 'User' ? userName : prof.name));
+      final resolvedPhoto = prof.photoUrl ?? userPhotoUrl ?? SessionStorage.photoUrl;
 
-        // Auto-execute pending QR verification if one exists and we are logged in
-        if (pendingQrJobId != null && pendingQrCode != null) {
-          await executePendingQrVerification();
-        }
-      } else {
-        // User document does not exist in Firestore -> clear session and prompt login
-        SessionStorage.clear();
-        setState(() {
-          isAuthenticated = false;
-          userProfile = null;
-          authView = AuthView.login;
-        });
+      SessionStorage.saveProfile(
+        name: resolvedName,
+        email: prof.email,
+        accountType: type.name,
+        photoUrl: resolvedPhoto,
+      );
+
+      final savedTabName = SessionStorage.activeTab;
+      AppTab restoredTab = AppTab.home;
+      if (savedTabName != null) {
+        restoredTab = AppTab.values.firstWhere(
+          (t) => t.name == savedTabName,
+          orElse: () => AppTab.home,
+        );
+      }
+
+      setState(() {
+        isAuthenticated = true;
+        userProfile = prof;
+        userName = resolvedName;
+        userEmail = prof.email;
+        userPhotoUrl = resolvedPhoto;
+        accountType = type;
+        hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+        activeTab = restoredTab;
+      });
+
+      initializeProfileEditing();
+      // Load jobs for current tab
+      await loadJobs();
+      await loadTransactions();
+      await loadRenterPendingRequests();
+      await loadHostPendingRequests();
+      await checkActivePendingP2pOrders();
+      _startP2pHeartbeat();
+      _startListeningNotifications();
+      _startListeningJobs();
+      _startAllRentalAndPropertyListeners(uid);
+      await handleQrVerificationParams();
+      checkAndTriggerWalkthrough();
+
+      // Auto-execute pending QR verification if one exists and we are logged in
+      if (pendingQrJobId != null && pendingQrCode != null) {
+        await executePendingQrVerification();
       }
     } catch (e) {
-      // In case of temporary network glitch, retain cached session profile if present
-      final storedName = SessionStorage.displayName;
-      final storedEmail = SessionStorage.email;
-      if (storedName != null && storedEmail != null) {
-        final storedType = SessionStorage.accountType;
-        AccountType type = AccountType.employer;
-        if (storedType != null) {
-          type = AccountType.values.firstWhere(
-            (e) => e.name == storedType,
-            orElse: () => AccountType.employer,
-          );
-        }
-        setState(() {
-          isAuthenticated = true;
-          accountType = type;
-          hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-          userName = storedName;
-          userEmail = storedEmail;
-        });
-      } else {
-        SessionStorage.clear();
-        setState(() {
-          isAuthenticated = false;
-          userProfile = null;
-          authView = AuthView.login;
-        });
+      print('Notice restoring session: $e');
+      final storedName = SessionStorage.displayName ?? 'User';
+      final storedEmail = SessionStorage.email ?? '';
+      final storedTypeStr = SessionStorage.accountType;
+      final storedType = storedTypeStr != null
+          ? AccountType.values.firstWhere(
+              (e) => e.name == storedTypeStr,
+              orElse: () => AccountType.employer,
+            )
+          : AccountType.employer;
+      final storedPhoto = SessionStorage.photoUrl;
+
+      final fallbackProfile = UserProfile(
+        uid: uid,
+        name: storedName,
+        email: storedEmail,
+        accountType: storedType,
+        photoUrl: storedPhoto,
+        tyxBalance: 0.0,
+      );
+
+      final savedTabName = SessionStorage.activeTab;
+      AppTab restoredTab = AppTab.home;
+      if (savedTabName != null) {
+        restoredTab = AppTab.values.firstWhere(
+          (t) => t.name == savedTabName,
+          orElse: () => AppTab.home,
+        );
       }
+
+      setState(() {
+        isAuthenticated = true;
+        userProfile = fallbackProfile;
+        accountType = storedType;
+        hybridToggle = storedType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+        userName = storedName;
+        userEmail = storedEmail;
+        userPhotoUrl = storedPhoto;
+        activeTab = restoredTab;
+      });
+
+      loadJobs().catchError((_) {});
+      loadTransactions().catchError((_) {});
+      _startListeningJobs();
     }
   }
 
@@ -1188,6 +1225,21 @@ class TranyxAppState extends State<TranyxApp> {
         final parsed = rawJobs.map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
         setState(() {
+          if (type == 'open_jobs') {
+            if (currentViewMode == AccountType.nyxian) {
+              availableJobs = parsed.where((j) {
+                final ct = (j['creatorType'] as String? ?? '').toLowerCase();
+                return ct == 'employer' || ct.isEmpty;
+              }).toList();
+            } else {
+              availableJobs = parsed.where((j) {
+                final ct = (j['creatorType'] as String? ?? '').toLowerCase();
+                return ct == 'nyxian';
+              }).toList();
+            }
+            return;
+          }
+
           if (type == 'employer') {
             realtimeEmployerJobs = parsed;
           } else {
@@ -2255,8 +2307,19 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       if (userDoc == null) {
-        triggerSessionExpired();
-        throw 'User profile not found. Please relogin.';
+        final fallbackProfile = UserProfile(
+          uid: uid,
+          email: userEmail.isNotEmpty ? userEmail : (SessionStorage.email ?? ''),
+          name: userName.isNotEmpty ? userName : (SessionStorage.displayName ?? 'User'),
+          photoUrl: userPhotoUrl ?? SessionStorage.photoUrl,
+          accountType: accountType,
+          tyxBalance: walletBalance,
+        );
+        userProfile = fallbackProfile;
+        userDoc = fallbackProfile.toMap();
+        try {
+          await svc.createOrUpdate('users/$uid', userDoc);
+        } catch (_) {}
       }
 
       final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
@@ -2399,11 +2462,10 @@ class TranyxAppState extends State<TranyxApp> {
     } catch (e) {
       final errStr = e.toString();
       final lowerErr = errStr.toLowerCase();
-      if (lowerErr.contains('404') ||
-          lowerErr.contains('user profile not found') ||
-          lowerErr.contains('profile not found') ||
-          lowerErr.contains('401') ||
-          lowerErr.contains('not logged in')) {
+      if (lowerErr.contains('401') ||
+          lowerErr.contains('not logged in') ||
+          lowerErr.contains('id-token-expired') ||
+          lowerErr.contains('auth/id-token-expired')) {
         triggerSessionExpired();
       }
       setState(() {
@@ -6181,6 +6243,8 @@ class TranyxAppState extends State<TranyxApp> {
 
   void switchTab(AppTab tab) {
     if (activeTab == tab) return;
+
+    SessionStorage.activeTab = tab.name;
 
     setState(() {
       activeTab = tab;

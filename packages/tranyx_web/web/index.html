@@ -1381,9 +1381,21 @@
           console.error("Nyxian jobs listener error:", error);
         });
 
+      const unsub3 = db.collection('jobs')
+        .where('status', '==', 'Open')
+        .limit(50)
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
+          callback(JSON.stringify({ type: 'open_jobs', jobs: list }));
+        }, (error) => {
+          console.error("Open jobs listener error:", error);
+        });
+
       return () => {
         unsub1();
         unsub2();
+        unsub3();
       };
     };
 

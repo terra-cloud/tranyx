@@ -143,7 +143,7 @@ class JobsViewComponent extends StatelessComponent {
                   events: {
                     'click': (_) => s.setState(() {
                       s.homeSearchQuery = '';
-                      s.activeJobFilter = 'Recommended';
+                      s.activeJobFilter = 'All';
                     }),
                   },
                   [Component.text('Clear')],
