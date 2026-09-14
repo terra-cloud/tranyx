@@ -3311,10 +3311,19 @@ class TranyxAppState extends State<TranyxApp> {
           'isPremium': true,
           'premiumUntil': premiumUntil.millisecondsSinceEpoch,
           'accountType': 'hybrid',
+          'subscriptionPlan': subType,
+          'subscriptionStartedAt': now.millisecondsSinceEpoch,
+          'subscriptionPaymentMethod': 'Solana (SOL)',
+          'subscriptionPaymentAmount': phpPrice,
+          'subscriptionTxId': signature,
+          'subscriptionStatus': 'active',
+          'pendingSubscription': null,
         };
 
         await svc.createOrUpdate('users/$uid', updatedProfile);
 
+        accountType = AccountType.hybrid;
+        SessionStorage.saveProfile(accountType: 'hybrid');
         if (userProfile != null) {
           userProfile = UserProfile.fromMap(uid, updatedProfile);
         }
@@ -3332,6 +3341,7 @@ class TranyxAppState extends State<TranyxApp> {
           'solanaAmount': amountInSol,
           'createdAt': DateTime.now().millisecondsSinceEpoch,
           'type': 'subscription',
+          'kind': 'subscription',
         });
 
         await loadTransactions();
@@ -3344,6 +3354,226 @@ class TranyxAppState extends State<TranyxApp> {
         isDepositing = false;
       });
       unawaited(handleRefreshBalance());
+    }
+  }
+
+  Future<void> processTyxbitSubscriptionPayment(String subType) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) {
+      setState(() => postJobError = 'Please log in to make a payment.');
+      return;
+    }
+
+    final double price = subType == 'yearly' ? 2999.0 : 299.0;
+    final currentTyx = userProfile?.tyxBalance ?? 0.0;
+    if (currentTyx < price) {
+      throw 'Insufficient Tyxbit balance. Required: ₱${price.toStringAsFixed(0)}, Available: ₱${currentTyx.toStringAsFixed(2)}';
+    }
+
+    setState(() {
+      isDepositing = true;
+      postJobError = null;
+    });
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final userDoc = await svc.getDocument('users/$uid');
+      if (userDoc == null) {
+        throw 'User profile not found.';
+      }
+
+      final docTyx = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+      if (docTyx < price) {
+        throw 'Insufficient Tyxbit balance. Required: ₱${price.toStringAsFixed(0)}, Available: ₱${docTyx.toStringAsFixed(2)}';
+      }
+
+      final double newBalance = docTyx - price;
+      final now = DateTime.now();
+      final premiumUntil = subType == 'yearly'
+          ? now.add(const Duration(days: 365))
+          : now.add(const Duration(days: 30));
+      final txId = 'sub_tyx_${now.millisecondsSinceEpoch}';
+
+      final updatedProfile = {
+        ...userDoc,
+        'tyxBalance': newBalance,
+        'isPremium': true,
+        'premiumUntil': premiumUntil.millisecondsSinceEpoch,
+        'accountType': 'hybrid',
+        'subscriptionPlan': subType,
+        'subscriptionStartedAt': now.millisecondsSinceEpoch,
+        'subscriptionPaymentMethod': 'Tyxbit Balance',
+        'subscriptionPaymentAmount': price,
+        'subscriptionTxId': txId,
+        'subscriptionStatus': 'active',
+        'pendingSubscription': null,
+      };
+
+      await svc.createOrUpdate('users/$uid', updatedProfile);
+
+      // Record transaction
+      await svc.createOrUpdate('transactions/$txId', {
+        'uid': uid,
+        'title': 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
+        'desc': 'Subscribed via Tyxbit Balance (₱${price.toStringAsFixed(0)})',
+        'amount': price,
+        'status': 'Successful',
+        'method': 'Tyxbit',
+        'txId': txId,
+        'createdAt': now.millisecondsSinceEpoch,
+        'type': 'subscription',
+        'kind': 'subscription',
+      });
+
+      accountType = AccountType.hybrid;
+      SessionStorage.saveProfile(accountType: 'hybrid');
+      walletBalance = newBalance;
+      if (userProfile != null) {
+        userProfile = UserProfile.fromMap(uid, updatedProfile);
+      }
+
+      await loadTransactions();
+    } catch (e) {
+      setState(() => postJobError = e.toString());
+      rethrow;
+    } finally {
+      setState(() {
+        isDepositing = false;
+      });
+      unawaited(handleRefreshBalance());
+    }
+  }
+
+  Future<void> processCashSubscriptionPayment(String subType, {String? referenceNumber}) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) {
+      setState(() => postJobError = 'Please log in to make a payment.');
+      return;
+    }
+
+    final double price = subType == 'yearly' ? 2999.0 : 299.0;
+    final refId = (referenceNumber != null && referenceNumber.trim().isNotEmpty)
+        ? referenceNumber.trim()
+        : 'P2P-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+
+    setState(() {
+      isDepositing = true;
+      postJobError = null;
+    });
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final userDoc = await svc.getDocument('users/$uid') ?? <String, dynamic>{};
+      final now = DateTime.now();
+      final txId = 'sub_p2p_${now.millisecondsSinceEpoch}';
+
+      final pendingData = {
+        'plan': subType,
+        'amount': price,
+        'method': 'Cash (P2P)',
+        'referenceNumber': refId,
+        'status': 'PENDING_VERIFICATION',
+        'createdAt': now.millisecondsSinceEpoch,
+        'txId': txId,
+      };
+
+      final updatedProfile = {
+        ...userDoc,
+        'pendingSubscription': pendingData,
+      };
+
+      await svc.createOrUpdate('users/$uid', updatedProfile);
+
+      // Record transaction
+      await svc.createOrUpdate('transactions/$txId', {
+        'uid': uid,
+        'title': 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
+        'desc': 'Cash (P2P) Reference: $refId - Awaiting Agent Verification',
+        'amount': price,
+        'status': 'Pending',
+        'method': 'Cash',
+        'referenceNumber': refId,
+        'txId': txId,
+        'createdAt': now.millisecondsSinceEpoch,
+        'type': 'subscription',
+        'kind': 'subscription',
+      });
+
+      if (userProfile != null) {
+        userProfile = UserProfile.fromMap(uid, updatedProfile);
+      }
+
+      await loadTransactions();
+    } catch (e) {
+      setState(() => postJobError = e.toString());
+      rethrow;
+    } finally {
+      setState(() {
+        isDepositing = false;
+      });
+    }
+  }
+
+  Future<void> approveCashSubscription(String targetUid) async {
+    final token = SessionStorage.idToken;
+    if (token == null) return;
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final userDoc = await svc.getDocument('users/$targetUid');
+      if (userDoc == null) return;
+
+      final pending = userDoc['pendingSubscription'] as Map?;
+      final plan = pending?['plan'] as String? ?? 'monthly';
+      final amount = (pending?['amount'] as num?)?.toDouble() ?? (plan == 'yearly' ? 2999.0 : 299.0);
+      final refId = pending?['referenceNumber'] as String? ?? 'P2P-VERIFIED';
+      final txId = pending?['txId'] as String?;
+
+      final now = DateTime.now();
+      final premiumUntil = plan == 'yearly'
+          ? now.add(const Duration(days: 365))
+          : now.add(const Duration(days: 30));
+
+      final updatedProfile = {
+        ...userDoc,
+        'isPremium': true,
+        'premiumUntil': premiumUntil.millisecondsSinceEpoch,
+        'accountType': 'hybrid',
+        'subscriptionPlan': plan,
+        'subscriptionStartedAt': now.millisecondsSinceEpoch,
+        'subscriptionPaymentMethod': 'Cash (P2P)',
+        'subscriptionPaymentAmount': amount,
+        'subscriptionTxId': refId,
+        'subscriptionStatus': 'active',
+        'pendingSubscription': null,
+      };
+
+      await svc.createOrUpdate('users/$targetUid', updatedProfile);
+
+      if (txId != null) {
+        final txDoc = await svc.getDocument('transactions/$txId');
+        if (txDoc != null) {
+          await svc.createOrUpdate('transactions/$txId', {
+            ...txDoc,
+            'status': 'Successful',
+            'verifiedAt': now.millisecondsSinceEpoch,
+          });
+        }
+      }
+
+      if (targetUid == SessionStorage.uid) {
+        accountType = AccountType.hybrid;
+        SessionStorage.saveProfile(accountType: 'hybrid');
+        if (userProfile != null) {
+          userProfile = UserProfile.fromMap(targetUid, updatedProfile);
+        }
+        await loadTransactions();
+      }
+    } catch (e) {
+      print('Error approving cash subscription: $e');
+      rethrow;
     }
   }
 
