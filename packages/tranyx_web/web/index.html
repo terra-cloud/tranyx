@@ -1950,21 +1950,63 @@
         window.pdfjsLib.GlobalWorkerOptions.workerSrc =
           'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-        const loadingTask = window.pdfjsLib.getDocument(pdfSource);
-        const pdf = await loadingTask.promise;
+        // Document Cache to avoid re-parsing on every page turn or zoom
+        window._pdfDocCache = window._pdfDocCache || {};
+        const cacheKey = typeof pdfSource === 'string'
+          ? (pdfSource.length > 256 ? pdfSource.slice(0, 64) + '_' + pdfSource.length : pdfSource)
+          : 'doc_default';
+
+        let pdf = window._pdfDocCache[cacheKey];
+        if (!pdf) {
+          let loadingTask;
+          if (typeof pdfSource === 'string' && pdfSource.startsWith('data:')) {
+            // Binary decoding for maximum reliability
+            const commaIdx = pdfSource.indexOf(',');
+            const base64Data = commaIdx !== -1 ? pdfSource.substring(commaIdx + 1) : pdfSource;
+            const binaryStr = window.atob(base64Data);
+            const len = binaryStr.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binaryStr.charCodeAt(i);
+            }
+            loadingTask = window.pdfjsLib.getDocument({ data: bytes });
+          } else {
+            loadingTask = window.pdfjsLib.getDocument(pdfSource);
+          }
+          pdf = await loadingTask.promise;
+          window._pdfDocCache[cacheKey] = pdf;
+        }
+
         const totalPages = pdf.numPages;
         const pageToRender = Math.max(1, Math.min(pageNum || 1, totalPages));
-
         const page = await pdf.getPage(pageToRender);
+
         const canvas = document.getElementById(canvasId);
         if (!canvas) {
           return JSON.stringify({ success: false, error: "Target canvas element #" + canvasId + " not found." });
         }
 
-        const ctx = canvas.getContext('2d');
-        const viewport = page.getViewport({ scale: scale || 1.0 });
+        // Cancel previous in-flight render task if active
+        if (canvas._currentRenderTask) {
+          try {
+            canvas._currentRenderTask.cancel();
+          } catch (_) {}
+          canvas._currentRenderTask = null;
+        }
 
-        const dpr = window.devicePixelRatio || 1;
+        // Calculate effective scale
+        let effectiveScale = (typeof scale === 'number' && scale > 0) ? scale : 1.2;
+        if (scale === -1 || scale === 0) {
+          const container = canvas.closest('.overflow-auto') || (canvas.parentElement ? canvas.parentElement.parentElement : null);
+          const containerWidth = container ? (container.clientWidth - 64) : 750;
+          const unscaledVp = page.getViewport({ scale: 1.0 });
+          effectiveScale = Math.max(0.6, Math.min(2.5, containerWidth / unscaledVp.width));
+        }
+
+        const viewport = page.getViewport({ scale: effectiveScale });
+        const ctx = canvas.getContext('2d');
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+
         canvas.width = Math.floor(viewport.width * dpr);
         canvas.height = Math.floor(viewport.height * dpr);
         canvas.style.width = Math.floor(viewport.width) + 'px';
@@ -1976,14 +2018,21 @@
           canvasContext: ctx,
           viewport: viewport,
         };
-        await page.render(renderContext).promise;
+        const renderTask = page.render(renderContext);
+        canvas._currentRenderTask = renderTask;
+        await renderTask.promise;
+        canvas._currentRenderTask = null;
 
         return JSON.stringify({
           success: true,
           totalPages: totalPages,
           currentPage: pageToRender,
+          scale: effectiveScale,
         });
       } catch (err) {
+        if (err && (err.name === 'RenderingCancelledException' || String(err).includes('RenderingCancelledException'))) {
+          return JSON.stringify({ success: true, cancelled: true });
+        }
         console.error("renderPdfPage error", err);
         return JSON.stringify({ success: false, error: (err && err.message) || String(err) });
       }

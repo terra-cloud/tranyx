@@ -18,6 +18,16 @@ class PdfViewerModalComponent extends StatefulComponent {
     super.key,
   });
 
+  static final Map<String, String> _docIdToSourceCache = {};
+
+  static void cachePdfSource(String docId, String source) {
+    if (docId.isNotEmpty && source.isNotEmpty) {
+      _docIdToSourceCache[docId] = source;
+    }
+  }
+
+  static String? getCachedPdfSource(String docId) => _docIdToSourceCache[docId];
+
   @override
   State<PdfViewerModalComponent> createState() => _PdfViewerModalState();
 }
@@ -51,25 +61,30 @@ class _PdfViewerModalState extends State<PdfViewerModalComponent> {
     // Check if source is a contract_document document ID
     if (source.startsWith('contract_document:')) {
       final docId = source.replaceFirst('contract_document:', '').trim();
-      try {
-        final doc = await component.appState.firestore.getDocument('contract_documents/$docId');
-        if (doc != null) {
-          final storageUrl = doc['storageUrl']?.toString();
-          final dataUrl = doc['dataUrl']?.toString();
-          if (storageUrl != null && storageUrl.isNotEmpty) {
-            source = storageUrl;
-          } else if (dataUrl != null && dataUrl.isNotEmpty) {
-            source = dataUrl;
+      if (PdfViewerModalComponent._docIdToSourceCache.containsKey(docId)) {
+        source = PdfViewerModalComponent._docIdToSourceCache[docId]!;
+      } else {
+        try {
+          final doc = await component.appState.firestore.getDocument('contract_documents/$docId');
+          if (doc != null) {
+            final storageUrl = doc['storageUrl']?.toString();
+            final dataUrl = doc['dataUrl']?.toString();
+            if (storageUrl != null && storageUrl.isNotEmpty) {
+              source = storageUrl;
+            } else if (dataUrl != null && dataUrl.isNotEmpty) {
+              source = dataUrl;
+            }
+            PdfViewerModalComponent._docIdToSourceCache[docId] = source;
           }
+        } catch (e) {
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _errorMessage = 'Could not load contract document record: $e';
+            });
+          }
+          return;
         }
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _errorMessage = 'Could not load contract document record: $e';
-          });
-        }
-        return;
       }
     }
 
@@ -92,8 +107,8 @@ class _PdfViewerModalState extends State<PdfViewerModalComponent> {
 
     setState(() => _isLoading = true);
 
-    // Give DOM a microtask to ensure canvas is attached
-    await Future.delayed(const Duration(milliseconds: 50));
+    // Give DOM a microtask to ensure canvas is attached and sized
+    await Future.delayed(const Duration(milliseconds: 60));
     if (!mounted) return;
 
     try {
@@ -107,10 +122,17 @@ class _PdfViewerModalState extends State<PdfViewerModalComponent> {
       if (!mounted) return;
 
       if (result != null && result['success'] == true) {
+        final total = (result['totalPages'] as num?)?.toInt() ?? _totalPages;
+        final current = (result['currentPage'] as num?)?.toInt() ?? _currentPage;
+        final returnedScale = (result['scale'] as num?)?.toDouble();
+
         setState(() {
           _isLoading = false;
-          _totalPages = (result['totalPages'] as num?)?.toInt() ?? _totalPages;
-          _currentPage = (result['currentPage'] as num?)?.toInt() ?? _currentPage;
+          _totalPages = total;
+          _currentPage = current;
+          if (returnedScale != null && returnedScale > 0) {
+            _scale = returnedScale;
+          }
           _errorMessage = null;
         });
       } else {
@@ -146,20 +168,20 @@ class _PdfViewerModalState extends State<PdfViewerModalComponent> {
 
   void _zoomIn() {
     if (_scale < 3.0) {
-      setState(() => _scale += 0.25);
+      setState(() => _scale = (_scale + 0.25).clamp(0.5, 3.0));
       _renderCurrentPage();
     }
   }
 
   void _zoomOut() {
     if (_scale > 0.6) {
-      setState(() => _scale -= 0.25);
+      setState(() => _scale = (_scale - 0.25).clamp(0.5, 3.0));
       _renderCurrentPage();
     }
   }
 
   void _fitWidth() {
-    setState(() => _scale = 1.0);
+    setState(() => _scale = -1.0); // -1 triggers dynamic fit-width computation
     _renderCurrentPage();
   }
 
@@ -278,42 +300,74 @@ class _PdfViewerModalState extends State<PdfViewerModalComponent> {
             div(
               classes: 'flex-1 overflow-auto p-4 md:p-8 flex items-center justify-center relative bg-zinc-950/80',
               [
-                if (_isLoading)
-                  div(classes: 'absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-950/70 z-10', [
-                    lIcon('loader', cls: 'w-8 h-8 animate-spin text-purple-500'),
-                    p(classes: 'text-xs text-zinc-400', [Component.text('Rendering page $_currentPage...')]),
-                  ]),
-
-                if (_errorMessage != null)
-                  div(classes: 'max-w-md p-6 rounded-2xl bg-red-500/10 border border-red-500/20 text-center space-y-3', [
-                    lIcon('alert-triangle', cls: 'w-8 h-8 text-red-400 mx-auto'),
-                    h4(classes: 'text-sm font-bold text-red-400', [Component.text('Unable to Render PDF')]),
-                    p(classes: 'text-xs text-zinc-400 leading-relaxed', [Component.text(_errorMessage!)]),
-                    button(
-                      classes: 'px-4 py-2 rounded-xl text-xs font-bold bg-red-500 hover:bg-red-600 text-white transition-colors cursor-pointer border-0',
-                      events: {'click': (_) => _resolveAndRender()},
-                      [Component.text('Retry Rendering')],
-                    ),
-                  ])
-                else if (_useIframeFallback && _resolvedSource != null)
-                  div(classes: 'w-full h-full flex flex-col items-center justify-center space-y-3', [
+                // Canvas wrapper ALWAYS permanently mounted at Child 0 with fixed Key
+                div(
+                  key: Key('pdf-canvas-wrapper'),
+                  classes:
+                      'shadow-2xl rounded-xl overflow-hidden bg-white max-w-full my-auto relative transition-all '
+                      '${_useIframeFallback ? "hidden" : "block"}',
+                  [
                     Component.element(
-                      tag: 'iframe',
-                      classes: 'w-full h-full rounded-2xl border border-zinc-800 bg-white shadow-2xl',
-                      attributes: {
-                        'src': _resolvedSource!,
-                        'title': component.fileName,
-                      },
+                      tag: 'canvas',
+                      id: _canvasId,
+                      classes: 'block max-w-full h-auto',
                     ),
-                  ])
-                else
+                  ],
+                ),
+
+                // Non-destructive Loading Overlay
+                div(
+                  key: Key('pdf-loading-overlay'),
+                  classes:
+                      'absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-950/75 z-10 backdrop-blur-xs transition-opacity duration-150 '
+                      '${_isLoading ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}',
+                  [
+                    lIcon('loader', cls: 'w-8 h-8 animate-spin text-purple-500'),
+                    p(classes: 'text-xs text-zinc-300 font-medium', [
+                      Component.text('Rendering page $_currentPage of $_totalPages...'),
+                    ]),
+                  ],
+                ),
+
+                // Error overlay
+                if (_errorMessage != null)
                   div(
-                    classes: 'shadow-2xl rounded-xl overflow-hidden bg-white max-w-full my-auto',
+                    key: Key('pdf-error-overlay'),
+                    classes:
+                        'absolute inset-0 flex items-center justify-center p-6 bg-zinc-950/90 z-20',
+                    [
+                      div(
+                        classes:
+                            'max-w-md p-6 rounded-2xl bg-red-500/10 border border-red-500/20 text-center space-y-3',
+                        [
+                          lIcon('alert-triangle', cls: 'w-8 h-8 text-red-400 mx-auto'),
+                          h4(classes: 'text-sm font-bold text-red-400', [Component.text('Unable to Render PDF')]),
+                          p(classes: 'text-xs text-zinc-400 leading-relaxed', [Component.text(_errorMessage!)]),
+                          button(
+                            classes:
+                                'px-4 py-2 rounded-xl text-xs font-bold bg-red-500 hover:bg-red-600 text-white transition-colors cursor-pointer border-0',
+                            events: {'click': (_) => _resolveAndRender()},
+                            [Component.text('Retry Rendering')],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+
+                // Iframe fallback overlay
+                if (_useIframeFallback && _resolvedSource != null)
+                  div(
+                    key: Key('pdf-iframe-overlay'),
+                    classes:
+                        'absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 z-20 p-4',
                     [
                       Component.element(
-                        tag: 'canvas',
-                        id: _canvasId,
-                        classes: 'block max-w-full h-auto',
+                        tag: 'iframe',
+                        classes: 'w-full h-full rounded-2xl border border-zinc-800 bg-white shadow-2xl',
+                        attributes: {
+                          'src': _resolvedSource!,
+                          'title': component.fileName,
+                        },
                       ),
                     ],
                   ),

@@ -10,6 +10,7 @@ import '../../components/map_picker.dart';
 import '../../services/web_interop.dart';
 import '../../services/firebase_service.dart';
 import 'contract_viewer.dart';
+import 'pdf_viewer_modal.dart';
 
 class ListPropertyModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -771,13 +772,29 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                               if (file != null) {
                                 final name = (file.getProperty('name'.toJS) as JSString).toDart;
                                 final lowerName = name.toLowerCase();
-                                if (!lowerName.endsWith('.pdf')) {
-                                  setState(() => _error = 'Invalid file type. Please upload a valid PDF document (.pdf).');
+
+                                String mimeType = '';
+                                if (file.hasProperty('type'.toJS).toDart) {
+                                  mimeType = (file.getProperty('type'.toJS) as JSString?)?.toDart.toLowerCase() ?? '';
+                                }
+
+                                // Strict PDF-only check
+                                final bool isPdfMime = mimeType.isEmpty || mimeType == 'application/pdf' || mimeType == 'application/x-pdf';
+                                final bool isPdfExt = lowerName.endsWith('.pdf');
+
+                                if (!isPdfExt || !isPdfMime) {
+                                  if (targetObj.hasProperty('value'.toJS).toDart) {
+                                    targetObj.setProperty('value'.toJS, ''.toJS);
+                                  }
+                                  setState(() => _error = 'Invalid file type. Only authentic PDF documents (.pdf) are allowed.');
                                   return;
                                 }
 
                                 final size = (file.getProperty('size'.toJS) as JSNumber).toDartInt;
                                 if (size > CustomContractHelper.maxFileSizeBytes) {
+                                  if (targetObj.hasProperty('value'.toJS).toDart) {
+                                    targetObj.setProperty('value'.toJS, ''.toJS);
+                                  }
                                   setState(() => _error = 'File size exceeds the 5MB limit (${CustomContractHelper.formatFileSize(size)}). Please choose a smaller PDF.');
                                   return;
                                 }
@@ -785,8 +802,30 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                                 final reader = web.FileReader();
                                 reader.readAsDataURL(file as web.Blob);
                                 reader.onLoadEnd.listen((_) {
-                                  final dataUrl = reader.result.toString();
+                                  final jsResult = reader.result;
+                                  String dataUrl = '';
+                                  if (jsResult != null) {
+                                    try {
+                                      dataUrl = (jsResult as JSString).toDart;
+                                    } catch (_) {
+                                      dataUrl = jsResult.toString();
+                                    }
+                                  }
+
+                                  // Magic byte check for PDF (%PDF base64 begins with JVBERi)
+                                  if (!dataUrl.startsWith('data:application/pdf') && !dataUrl.contains('JVBERi')) {
+                                    if (targetObj.hasProperty('value'.toJS).toDart) {
+                                      targetObj.setProperty('value'.toJS, ''.toJS);
+                                    }
+                                    setState(() => _error = 'File content is not a valid PDF document. Only authentic PDF files (.pdf) are permitted.');
+                                    return;
+                                  }
+
                                   final docId = 'doc_contract_${DateTime.now().millisecondsSinceEpoch}';
+
+                                  // Cache in memory for instant previewing
+                                  PdfViewerModalComponent.cachePdfSource(docId, dataUrl);
+
                                   // Asynchronously store document in contract_documents
                                   component.appState.firestore.setDocument('contract_documents/$docId', {
                                     'id': docId,
