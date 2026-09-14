@@ -521,6 +521,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
   }
 
   void _book() async {
+    if (_isBooking) return;
     setState(() {
       _isBooking = true;
       _error = null;
@@ -610,12 +611,15 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         discountAmount: _discountAmount,
       );
 
-      // Close modal
+      // Close modal & confirm
       component.appState.setState(() {
         component.appState.showBookVehicleModal = false;
         component.appState.selectedRentalData = null;
       });
-      component.appState.loadRenterPendingRequests();
+      component.appState.showAppToast('Rental Request Submitted', 'Your booking request has been sent to the host.');
+      try {
+        await component.appState.loadRenterPendingRequests();
+      } catch (_) {}
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {

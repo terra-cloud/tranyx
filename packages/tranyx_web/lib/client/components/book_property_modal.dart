@@ -426,6 +426,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
   }
 
   void _book() async {
+    if (_isBooking) return;
     setState(() {
       _isBooking = true;
       _error = null;
@@ -506,16 +507,15 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         discountAmount: _discountAmount,
       );
 
-      // Close modal
+      // Close modal & confirm
       component.appState.setState(() {
         component.appState.showBookPropertyModal = false;
         component.appState.selectedPropertyData = null;
       });
-      await component.appState.loadRenterPendingRequests();
-      // Optionally reload requests
-      if (component.appState.activeTab == AppTab.transit) {
-        // Trigger transit view pending requests reload
-      }
+      component.appState.showAppToast('Booking Request Submitted', 'Your booking request has been sent to the property host.');
+      try {
+        await component.appState.loadRenterPendingRequests();
+      } catch (_) {}
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {

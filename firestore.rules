@@ -86,6 +86,14 @@ service cloud.firestore {
         || 
         // 2. Admin / Staff: Can update admin, moderation & verification fields
         isAdminOrStaff()
+        ||
+        // 3. Subscription verification & activation updates
+        (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isPremium', 'premiumUntil', 'accountType', 'subscriptionPlan', 
+          'subscriptionStartedAt', 'subscriptionPaymentMethod', 'subscriptionPaymentAmount', 
+          'subscriptionTxId', 'subscriptionStatus', 'pendingSubscription', 
+          'lastSubscriptionRejection', 'updatedAt'
+        ]))
       ) &&
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
 
@@ -269,9 +277,9 @@ service cloud.firestore {
 
     // Transactions Collection
     match /transactions/{txId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow read: if true;
       allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$'));
-      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);
+      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid) || (isAuthenticated() && (resource.data.type == 'subscription' || resource.data.kind == 'subscription'));
       allow delete: if isAdminOrStaff();
     }
 
@@ -309,8 +317,7 @@ service cloud.firestore {
     }
 
     match /claimed_p2p_references/{refKey} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow read, write: if true;
     }
 
     match /claimedReferences/{refKey} {
@@ -352,11 +359,12 @@ service cloud.firestore {
       allow read, write: if isAdminOrStaff();
     }
 
-    // Subscriptions Collection
+    // Subscriptions Collection (P2P Hybrid PRO Subscriptions)
     match /subscriptions/{subId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow create: if isActiveUser() && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if false;
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isAdminOrStaff() || isAuthenticated();
+      allow delete: if isAdminOrStaff();
     }
 
     // Withdrawal Requests Collection (Dual-collection sync with withdrawal_requests)
@@ -377,8 +385,8 @@ service cloud.firestore {
 
     // Notifications Collection
     match /notifications/{notifId} {
-      allow read, update, delete: if isActiveUser() && (resource == null || !('uid' in resource.data) || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow create: if isActiveUser();
+      allow read, update, delete: if (resource == null || !('uid' in resource.data) || resource.data.uid == request.auth.uid || isAdminOrStaff() || isAuthenticated());
+      allow create: if isActiveUser() || isAuthenticated() || isAdminOrStaff();
     }
 
     // Escrow Holdbacks Collection
@@ -460,54 +468,63 @@ service cloud.firestore {
     match /rental_escrows/{rentalId} {
       allow read: if isAuthenticated() && (
         resource == null || 
-        resource.data.renterId == request.auth.uid || 
-        resource.data.hostId == request.auth.uid || 
+        ('renterId' in resource.data && resource.data.renterId == request.auth.uid) || 
+        ('renteeId' in resource.data && resource.data.renteeId == request.auth.uid) || 
+        ('hostId' in resource.data && resource.data.hostId == request.auth.uid) || 
         isAdminOrStaff()
       );
       allow create, update: if isActiveUser() && (
-        request.resource.data.renterId == request.auth.uid || 
-        request.resource.data.hostId == request.auth.uid || 
+        ('renterId' in request.resource.data && request.resource.data.renterId == request.auth.uid) || 
+        ('renteeId' in request.resource.data && request.resource.data.renteeId == request.auth.uid) || 
+        ('hostId' in request.resource.data && request.resource.data.hostId == request.auth.uid) || 
         isAdminOrStaff()
       );
       allow delete: if (isActiveUser() && (
-        resource.data.renterId == request.auth.uid || 
-        resource.data.hostId == request.auth.uid
+        ('renterId' in resource.data && resource.data.renterId == request.auth.uid) || 
+        ('renteeId' in resource.data && resource.data.renteeId == request.auth.uid) || 
+        ('hostId' in resource.data && resource.data.hostId == request.auth.uid)
       )) || isAdminOrStaff();
     }
 
     match /rental_extension_escrows/{extensionId} {
       allow read: if isAuthenticated() && (
         resource == null || 
-        resource.data.renterId == request.auth.uid || 
-        resource.data.hostId == request.auth.uid || 
+        ('renterId' in resource.data && resource.data.renterId == request.auth.uid) || 
+        ('renteeId' in resource.data && resource.data.renteeId == request.auth.uid) || 
+        ('hostId' in resource.data && resource.data.hostId == request.auth.uid) || 
         isAdminOrStaff()
       );
       allow create, update: if isActiveUser() && (
-        request.resource.data.renterId == request.auth.uid || 
-        request.resource.data.hostId == request.auth.uid || 
+        ('renterId' in request.resource.data && request.resource.data.renterId == request.auth.uid) || 
+        ('renteeId' in request.resource.data && request.resource.data.renteeId == request.auth.uid) || 
+        ('hostId' in request.resource.data && request.resource.data.hostId == request.auth.uid) || 
         isAdminOrStaff()
       );
       allow delete: if (isActiveUser() && (
-        resource.data.renterId == request.auth.uid || 
-        resource.data.hostId == request.auth.uid
+        ('renterId' in resource.data && resource.data.renterId == request.auth.uid) || 
+        ('renteeId' in resource.data && resource.data.renteeId == request.auth.uid) || 
+        ('hostId' in resource.data && resource.data.hostId == request.auth.uid)
       )) || isAdminOrStaff();
     }
 
     match /property_escrows/{requestId} {
       allow read: if isAuthenticated() && (
         resource == null || 
-        resource.data.renterId == request.auth.uid || 
-        resource.data.hostId == request.auth.uid || 
+        ('renterId' in resource.data && resource.data.renterId == request.auth.uid) || 
+        ('renteeId' in resource.data && resource.data.renteeId == request.auth.uid) || 
+        ('hostId' in resource.data && resource.data.hostId == request.auth.uid) || 
         isAdminOrStaff()
       );
       allow create, update: if isActiveUser() && (
-        request.resource.data.renterId == request.auth.uid || 
-        request.resource.data.hostId == request.auth.uid || 
+        ('renterId' in request.resource.data && request.resource.data.renterId == request.auth.uid) || 
+        ('renteeId' in request.resource.data && request.resource.data.renteeId == request.auth.uid) || 
+        ('hostId' in request.resource.data && request.resource.data.hostId == request.auth.uid) || 
         isAdminOrStaff()
       );
       allow delete: if (isActiveUser() && (
-        resource.data.renterId == request.auth.uid || 
-        resource.data.hostId == request.auth.uid
+        ('renterId' in resource.data && resource.data.renterId == request.auth.uid) || 
+        ('renteeId' in resource.data && resource.data.renteeId == request.auth.uid) || 
+        ('hostId' in resource.data && resource.data.hostId == request.auth.uid)
       )) || isAdminOrStaff();
     }
 
