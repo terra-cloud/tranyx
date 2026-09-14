@@ -59,6 +59,7 @@ class UserProfile {
   final String? walletPublicKey;
   final String? googleEmail;
   final double tyxBalance;
+  final double reservedBalance;
   final int jobsDone;
   final double totalEarned;
   final int verificationLevel;
@@ -87,6 +88,12 @@ class UserProfile {
   final Map<String, dynamic>? pendingSubscription;
 
   bool get isAdmin => role == 'admin' || role == 'staff' || role == 'support';
+
+  /// True if account balance has fallen below zero (system violation)
+  bool get hasNegativeBalance => tyxBalance < 0;
+
+  /// Effective spendable balance: Wallet balance minus any held/reserved funds
+  double get availableBalance => (tyxBalance - reservedBalance).clamp(0.0, double.infinity);
 
   String get tierLabel {
     if (isPremium || accountType == AccountType.hybrid) {
@@ -119,6 +126,7 @@ class UserProfile {
     this.walletPublicKey,
     this.googleEmail,
     this.tyxBalance = 0.0,
+    this.reservedBalance = 0.0,
     this.jobsDone = 0,
     this.totalEarned = 0.0,
     this.verificationLevel = 0,
@@ -227,6 +235,7 @@ class UserProfile {
               map['walletAddress']) as String?,
       googleEmail: map['googleEmail'] as String?,
       tyxBalance: (map['tyxBalance'] as num?)?.toDouble() ?? 0.0,
+      reservedBalance: (map['reservedBalance'] as num?)?.toDouble() ?? 0.0,
       jobsDone: parseInt(map['jobsDone']),
       totalEarned: (map['totalEarned'] as num?)?.toDouble() ?? 0.0,
       verificationLevel: parseInt(map['verificationLevel']),
@@ -280,6 +289,7 @@ class UserProfile {
     'walletPublicKey': walletPublicKey,
     'googleEmail': googleEmail,
     'tyxBalance': tyxBalance,
+    'reservedBalance': reservedBalance,
     'jobsDone': jobsDone,
     'totalEarned': totalEarned,
     'verificationLevel': verificationLevel,
@@ -332,6 +342,7 @@ class UserProfile {
     String? walletPublicKey,
     String? googleEmail,
     double? tyxBalance,
+    double? reservedBalance,
     int? jobsDone,
     double? totalEarned,
     int? verificationLevel,
@@ -381,6 +392,7 @@ class UserProfile {
       walletPublicKey: walletPublicKey ?? this.walletPublicKey,
       googleEmail: googleEmail ?? this.googleEmail,
       tyxBalance: tyxBalance ?? this.tyxBalance,
+      reservedBalance: reservedBalance ?? this.reservedBalance,
       jobsDone: jobsDone ?? this.jobsDone,
       totalEarned: totalEarned ?? this.totalEarned,
       verificationLevel: verificationLevel ?? this.verificationLevel,

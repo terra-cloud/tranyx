@@ -73,18 +73,21 @@ service cloud.firestore {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
       
       // On creation: Regular users can create their own profile document
-      allow create: if (isOwner(userId) && !request.resource.data.keys().hasAny([
+      allow create: if ((isOwner(userId) && !request.resource.data.keys().hasAny([
         'role', 'banned', 'suspendedUntil'
-      ])) || isAdminOrStaff();
+      ])) || isAdminOrStaff()) &&
+      (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
 
-      allow update: if 
+      allow update: if (
         // 1. Regular User: Can update own profile fields (cannot alter admin role, ban, or suspension status)
         (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'role', 'banned', 'suspendedUntil'
         ]))
         || 
         // 2. Admin / Staff: Can update admin, moderation & verification fields
-        isAdminOrStaff();
+        isAdminOrStaff()
+      ) &&
+      (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
 
       allow delete: if isAdminOrStaff();
       
@@ -318,7 +321,8 @@ service cloud.firestore {
     // Wallets Collection (Unified wallet storage & user ledger sub-collections)
     match /wallets/{walletId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow write: if isOwner(walletId) || isAdminOrStaff();
+      allow write: if (isOwner(walletId) || isAdminOrStaff()) &&
+        (!('balance' in request.resource.data) || (request.resource.data.balance is number && request.resource.data.balance >= 0));
 
       match /transactions/{txId} {
         allow read: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());

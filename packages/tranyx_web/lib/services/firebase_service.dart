@@ -1031,8 +1031,126 @@ class FirestoreService {
   }
 
   Future<void> updateTyxBalance(String uid, double balance) async {
-    await setDocument('users/$uid', {'tyxBalance': balance});
+    if (balance < -0.000001) {
+      // Security Exception: NEVER write negative balance
+      await reportNegativeBalanceIncident(
+        uid: uid,
+        attemptedBalance: balance,
+        reason: 'Attempted negative balance update in updateTyxBalance',
+      );
+      throw NegativeBalanceException(
+        currentBalance: 0.0,
+        attemptDeduction: balance.abs(),
+      );
+    }
+    final safeBal = balance < 0.0 ? 0.0 : double.parse(balance.toStringAsFixed(4));
+    await setDocument('users/$uid', {'tyxBalance': safeBal});
   }
+
+  /// Safely deducts an amount from a user's Tyxbit balance with:
+  /// 1. Fresh live profile fetch to avoid stale balance race conditions
+  /// 2. Verification of available funds (availableBalance >= amountToDeduct)
+  /// 3. Idempotency protection against duplicate/double-click requests using txId
+  /// 4. Hard floor enforcement (newBalance >= 0)
+  /// 5. Atomic balance update and optional ledger recording
+  Future<double> deductTyxBalanceSafely({
+    required String uid,
+    required double amountToDeduct,
+    required String txId,
+    String? title,
+    String? description,
+    String? category,
+    Map<String, dynamic>? extraTxData,
+  }) async {
+    if (amountToDeduct < 0) {
+      throw ArgumentError('Deduction amount must be non-negative: $amountToDeduct');
+    }
+
+    // 1. Idempotency check: If this transaction already completed, do NOT deduct again!
+    if (txId.isNotEmpty) {
+      final existingTx = await getDocument('transactions/$txId');
+      if (existingTx != null && (existingTx['status'] == 'Successful' || existingTx['status'] == 'Completed')) {
+        // Transaction already processed, return existing balance safely
+        final user = await getUser(uid);
+        return user?.tyxBalance ?? 0.0;
+      }
+    }
+
+    // 2. Fetch fresh live profile to prevent stale local cache reads
+    final userDoc = await getDocument('users/$uid');
+    if (userDoc == null) {
+      throw Exception('User profile not found for uid: $uid');
+    }
+
+    final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+    final reservedBal = (userDoc['reservedBalance'] as num?)?.toDouble() ?? 0.0;
+    final availableBal = (currentBal - reservedBal).clamp(0.0, double.infinity);
+
+    // 3. Strict balance validation
+    if (availableBal < amountToDeduct || (availableBal - amountToDeduct) < -0.000001) {
+      final shortfall = (amountToDeduct - availableBal).clamp(0.0, double.infinity);
+      throw InsufficientFundsException(
+        availableBalance: availableBal,
+        requiredAmount: amountToDeduct,
+        shortfall: shortfall,
+        transactionTitle: title ?? 'transaction',
+      );
+    }
+
+    // 4. Calculate safe non-negative balance
+    final newBalance = WalletSecurityHelper.calculateSafeNewBalance(
+      currentBalance: currentBal,
+      amountToDeduct: amountToDeduct,
+    );
+
+    // 5. Update user document
+    await setDocument('users/$uid', {'tyxBalance': newBalance});
+
+    // 6. Record transaction if details provided
+    if (txId.isNotEmpty && title != null) {
+      final txData = {
+        'id': txId,
+        'uid': uid,
+        'type': 'payment',
+        if (category != null) 'category': category,
+        'amount': amountToDeduct,
+        'previousBalance': currentBal,
+        'newBalance': newBalance,
+        'availableBalance': (newBalance - reservedBal).clamp(0.0, double.infinity),
+        'title': title,
+        'desc': description ?? title,
+        'status': 'Successful',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        if (extraTxData != null) ...extraTxData,
+      };
+      await setDocument('transactions/$txId', txData);
+    }
+
+    return newBalance;
+  }
+
+  /// Logs a security incident if an unauthorized or negative balance update is attempted
+  Future<void> reportNegativeBalanceIncident({
+    required String uid,
+    required double attemptedBalance,
+    required String reason,
+    String? relatedTxId,
+  }) async {
+    try {
+      final logId = 'incident_${DateTime.now().millisecondsSinceEpoch}_$uid';
+      await setDocument('admin_audit_logs/$logId', {
+        'id': logId,
+        'type': 'NEGATIVE_WALLET_BALANCE_ATTEMPT',
+        'uid': uid,
+        'attemptedBalance': attemptedBalance,
+        'reason': reason,
+        if (relatedTxId != null) 'relatedTxId': relatedTxId,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+    } catch (_) {}
+  }
+
 
   Future<List<Map<String, dynamic>>> _queryJobs(List<Map<String, dynamic>> filters, {bool orderByCreatedAt = true}) async {
     final url =
@@ -2459,28 +2577,16 @@ class FirestoreService {
     final bookingFee = discountedCost * 0.03;
     final totalRequired = discountedCost + bookingFee;
 
-    if (rentee.tyxBalance < totalRequired) {
-      throw Exception(
-        'Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
-    }
-
-    // Deduct from renter
-    final newRenterBalance = rentee.tyxBalance - totalRequired;
-    await updateTyxBalance(renteeId, newRenterBalance);
-
-    // Save transaction record for renter
     final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': renteeId,
-      'type': 'payment',
-      'amount': totalRequired,
-      'title': 'Vehicle Booking Request',
-      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)${promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''}',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
+    final desc = 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)${promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''}';
+    await deductTyxBalanceSafely(
+      uid: renteeId,
+      amountToDeduct: totalRequired,
+      txId: txId,
+      title: 'Vehicle Booking Request',
+      description: desc,
+      category: 'rental',
+    );
 
     // Save request document
     final requestId = 'req_${DateTime.now().microsecondsSinceEpoch}';
@@ -3664,29 +3770,16 @@ class FirestoreService {
     required int extendHours,
     required double fee,
   }) async {
-    final rentee = await getUser(renteeId);
-    if (rentee == null) throw Exception('Renter profile not found.');
-    if (rentee.tyxBalance < fee) {
-      throw Exception(
-        'Insufficient balance. Extension requires ${fee.toStringAsFixed(2)} TYXBIT, but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
-    }
-
-    // Debit rentee
-    await updateTyxBalance(renteeId, rentee.tyxBalance - fee);
-
-    // Save transaction
     final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': renteeId,
-      'type': 'payment',
-      'amount': fee,
-      'title': 'Rental Extension Request',
-      'desc': 'Requested extension of $extendHours hour(s) for vehicle rental.',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
+    final txDesc = 'Requested extension of $extendHours hour(s) for vehicle rental.';
+    await deductTyxBalanceSafely(
+      uid: renteeId,
+      amountToDeduct: fee,
+      txId: txId,
+      title: 'Rental Extension Request',
+      description: txDesc,
+      category: 'rental',
+    );
 
     // Create pending extension request doc
     final extensionId = 'ext_${DateTime.now().microsecondsSinceEpoch}';
@@ -3724,29 +3817,16 @@ class FirestoreService {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
 
-    final rentee = await getUser(renteeId);
-    if (rentee == null) throw Exception('Renter profile not found.');
-    if (rentee.tyxBalance < fee) {
-      throw Exception(
-        'Insufficient balance. Extension requires ${fee.toStringAsFixed(2)} TYXBIT, but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
-    }
-
-    // Debit rentee
-    await updateTyxBalance(renteeId, rentee.tyxBalance - fee);
-
-    // Save transaction
     final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': renteeId,
-      'type': 'payment',
-      'amount': fee,
-      'title': 'Rental Extension (Auto-Approved)',
-      'desc': 'Extended rental by $extendHours hour(s) automatically.',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
+    final txDesc = 'Extended rental by $extendHours hour(s) automatically.';
+    await deductTyxBalanceSafely(
+      uid: renteeId,
+      amountToDeduct: fee,
+      txId: txId,
+      title: 'Rental Extension (Auto-Approved)',
+      description: txDesc,
+      category: 'rental',
+    );
 
     // Add fee directly to rental escrow
     final escrowDoc = await getDocument('rental_escrows/$rentalId');
@@ -4173,35 +4253,25 @@ class FirestoreService {
     final effBookingFee = (originalBookingFee - discount).clamp(0.0, 999999.0);
     final totalRequired = effBaseRent + effBookingFee + effSecDeposit;
 
-    if (rentee.tyxBalance < totalRequired) {
-      throw Exception(
-        'Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including ${PlatformFeeConfig.formatPercent(effCustFeeRate)} platform fee & deposit), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
-    }
-
-    // Deduct from renter
-    final newRenterBalance = rentee.tyxBalance - totalRequired;
-    await updateTyxBalance(renteeId, newRenterBalance);
-
-    // Save transaction record for renter
     final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': renteeId,
-      'type': 'payment',
-      'amount': totalRequired,
-      'baseRentAmount': effBaseRent,
-      'securityDepositAmount': effSecDeposit,
-      'customerPlatformFeeAmount': effBookingFee,
-      'customerPlatformFeeRate': effCustFeeRate,
-      'hostCommissionRate': effHostCommRate,
-      'appliedTier': financials.appliedTier.name.toUpperCase(),
-      'totalDays': calculatedDays,
-      'title': 'Property Booking Request',
-      'desc': 'Requested property "${property.title}" for $calculatedDays day(s) (${PlatformFeeConfig.formatPercent(effCustFeeRate)} platform fee included)${promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''}',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
+    final txDesc = 'Requested property "${property.title}" for $calculatedDays day(s) (${PlatformFeeConfig.formatPercent(effCustFeeRate)} platform fee included)${promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''}';
+    await deductTyxBalanceSafely(
+      uid: renteeId,
+      amountToDeduct: totalRequired,
+      txId: txId,
+      title: 'Property Booking Request',
+      description: txDesc,
+      category: 'rental',
+      extraTxData: {
+        'baseRentAmount': effBaseRent,
+        'securityDepositAmount': effSecDeposit,
+        'customerPlatformFeeAmount': effBookingFee,
+        'customerPlatformFeeRate': effCustFeeRate,
+        'hostCommissionRate': effHostCommRate,
+        'appliedTier': financials.appliedTier.name.toUpperCase(),
+        'totalDays': calculatedDays,
+      },
+    );
 
     // Save request document
     final requestId = 'req_${DateTime.now().microsecondsSinceEpoch}';

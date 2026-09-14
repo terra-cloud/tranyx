@@ -22,28 +22,56 @@ class JobRepository {
       final userData = userSnap.data()!;
 
       final double currentBal = (userData['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+      final double reservedBal = (userData['reservedBalance'] as num?)?.toDouble() ?? 0.0;
+      final double availableBal = (currentBal - reservedBal).clamp(0.0, double.infinity);
       final double price = job.pricingValue;
       final double discount = job.discountAmount ?? 0.0;
       final double discountedPrice = (price - discount).clamp(0.0, 999999.0);
+      final double txFeeRate = 0.07;
+      final double convFeeRate = 0.03;
 
-      if (currentBal < discountedPrice) {
-        throw Exception('Insufficient balance. Please deposit at least ₱${(discountedPrice - currentBal).toStringAsFixed(2)} to post this job.');
+      final double employerFees = WalletSecurityHelper.calculateJobEmployerFees(
+        price: price,
+        discount: discount,
+        txFeeRate: txFeeRate,
+        convFeeRate: convFeeRate,
+      );
+      final double totalRequired = WalletSecurityHelper.calculateJobTotalEmployerCost(
+        price: price,
+        discount: discount,
+        txFeeRate: txFeeRate,
+        convFeeRate: convFeeRate,
+      );
+
+      if (availableBal < totalRequired) {
+        throw Exception(
+            'Insufficient available balance. Required: ₱${totalRequired.toStringAsFixed(2)} (Gig: ₱${discountedPrice.toStringAsFixed(2)} + Fees: ₱${employerFees.toStringAsFixed(2)}), Available: ₱${availableBal.toStringAsFixed(2)}');
       }
 
       // 1. Deduct balance
       transaction.update(userRef, {
-        'tyxBalance': currentBal - discountedPrice,
+        'tyxBalance': currentBal - totalRequired,
       });
 
       // 2. Set job doc
       transaction.set(jobDocRef, {
         ...job.toMap(),
         'id': docId,
+        'transactionFeeRate': txFeeRate,
+        'convenienceFeeRate': convFeeRate,
+        'employerFees': employerFees,
+        'totalEscrowed': totalRequired,
       });
 
       // 3. Set escrow doc
       transaction.set(escrowRef, {
         'amount': discountedPrice,
+        'employerFees': employerFees,
+        'totalEscrowed': totalRequired,
+        'transactionFee': discountedPrice * txFeeRate,
+        'convenienceFee': discountedPrice * convFeeRate,
+        'transactionFeeRate': txFeeRate,
+        'convenienceFeeRate': convFeeRate,
         'employerId': job.creatorId,
         'status': 'held',
         'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -454,6 +482,15 @@ class JobRepository {
       if (!jobSnap.exists) throw Exception('Job not found.');
       final jobData = jobSnap.data()!;
 
+      final escrowSnap = await transaction.get(escrowRef);
+      final double? escrowEmployerFees =
+          escrowSnap.exists ? (escrowSnap.data()!['employerFees'] as num?)?.toDouble() : null;
+      final bool isFeePreFunded = escrowEmployerFees != null && escrowEmployerFees > 0;
+
+      final employerId = jobData['creatorId'] as String?;
+      final empRef = employerId != null ? _firestore.collection('users').doc(employerId) : null;
+      final empSnap = empRef != null ? await transaction.get(empRef) : null;
+
       final String status = (jobData['status'] as String? ?? '').toLowerCase();
       if (status == 'completed') {
         throw Exception('This job is already completed.');
@@ -604,23 +641,26 @@ class JobRepository {
       final double totalFees = txFee + convFee;
 
       if (employerId != null) {
-        final empRef = _firestore.collection('users').doc(employerId);
-        final empSnap = await transaction.get(empRef);
-        if (empSnap.exists) {
+        if (!isFeePreFunded && empSnap != null && empSnap.exists) {
           final empData = empSnap.data()!;
           final double currentBal = (empData['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+          final double safeBal = (currentBal - totalFees).clamp(0.0, double.infinity);
 
-          transaction.update(empRef, {
-            'tyxBalance': currentBal - totalFees,
+          transaction.update(empRef!, {
+            'tyxBalance': safeBal,
           });
         }
 
-        // Log fee deduction transaction for Employer with snapshotted rates
+        // Log fee deduction / settlement transaction for Employer with snapshotted rates
         final feeTxRef = _firestore.collection('transactions').doc('fees_emp_$jobId');
         transaction.set(feeTxRef, {
           'uid': employerId,
-          'title': 'Job Completion Fees (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
-          'desc': '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
+          'title': isFeePreFunded
+              ? 'Job Platform Fees Settled (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})'
+              : 'Job Completion Fees (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
+          'desc': isFeePreFunded
+              ? '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) settled from escrow for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}'
+              : '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
           'amount': totalFees,
           'baseAmount': discountedPrice,
           'transactionFee': txFee,
@@ -631,7 +671,7 @@ class JobRepository {
           'markupRate': markupRate,
           'discountAmount': discount,
           'status': 'Successful',
-          'method': 'Tranyx Wallet',
+          'method': isFeePreFunded ? 'Tranyx Escrow' : 'Tranyx Wallet',
           'createdAt': DateTime.now().millisecondsSinceEpoch,
           'type': 'fee_deduction',
         });

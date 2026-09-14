@@ -29,7 +29,46 @@ class ProfileViewComponent extends StatelessComponent {
       ),
 
       // Right pane — content
-      div(classes: 'flex-1 animate-fade-up', [
+      div(classes: 'flex-1 animate-fade-up space-y-4', [
+        if (s.userProfile?.hasNegativeBalance == true)
+          div(
+            classes:
+                'p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-rose-500/5',
+            [
+              div(classes: 'flex items-center gap-3', [
+                div(
+                  classes:
+                      'w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 font-bold',
+                  [lIcon('alert-triangle', cls: 'w-5 h-5 text-rose-400')],
+                ),
+                div(classes: 'space-y-0.5', [
+                  p(classes: 'text-sm font-bold text-rose-400', [
+                    Component.text(
+                        'Account Deficit: ₱${(s.userProfile?.tyxBalance ?? 0.0).toStringAsFixed(2)}'),
+                  ]),
+                  p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
+                    Component.text(
+                      'Your balance is below zero. Please top up your wallet immediately to settle the ₱${(-(s.userProfile?.tyxBalance ?? 0.0)).toStringAsFixed(2)} deficit and unlock all transactions.',
+                    ),
+                  ]),
+                ]),
+              ]),
+              button(
+                classes:
+                    'px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shrink-0 cursor-pointer shadow-md shadow-rose-600/20 border-0',
+                events: {
+                  'click': (_) {
+                    s.setState(() {
+                      s.depositAmount =
+                          (-(s.userProfile?.tyxBalance ?? 0.0)).clamp(100.0, 50000.0);
+                      s.showDepositModal = true;
+                    });
+                  }
+                },
+                [Component.text('Top Up Now')],
+              ),
+            ],
+          ),
         _buildSubView(s, isDark),
       ]),
     ]);
@@ -310,14 +349,25 @@ class _ProfileMainState extends State<_ProfileMain> {
                     'w-10 h-10 rounded-xl bg-zinc-500/5 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform duration-300',
                 [lIcon('wallet', cls: 'w-5 h-5 text-blue-400')],
               ),
-              p(classes: 'font-black text-xl md:text-2xl tracking-tight ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text('₱ ${(s.userProfile?.tyxBalance ?? 0.0).toStringAsFixed(2)}'),
-              ]),
               p(
                 classes:
-                    'text-[10px] uppercase font-black tracking-widest mt-1 ${isDark ? "text-zinc-500" : "text-zinc-400"}',
-                [Component.text('Balance')],
+                    'font-black text-xl md:text-2xl tracking-tight ${s.userProfile?.hasNegativeBalance == true ? "text-rose-500" : (isDark ? "text-white" : "text-zinc-900")}',
+                [
+                  Component.text('₱ ${(s.userProfile?.tyxBalance ?? 0.0).toStringAsFixed(2)}'),
+                ],
               ),
+              p(
+                classes:
+                    'text-[10px] uppercase font-black tracking-widest mt-1 ${s.userProfile?.hasNegativeBalance == true ? "text-rose-400 font-bold" : (isDark ? "text-zinc-500" : "text-zinc-400")}',
+                [Component.text(s.userProfile?.hasNegativeBalance == true ? 'Deficit' : 'Balance')],
+              ),
+              if ((s.userProfile?.reservedBalance ?? 0.0) > 0)
+                p(
+                  classes: 'text-[9px] text-zinc-400 mt-1 font-semibold',
+                  [
+                    Component.text('Avail: ₱${(s.userProfile?.availableBalance ?? 0.0).toStringAsFixed(2)} · Res: ₱${(s.userProfile?.reservedBalance ?? 0.0).toStringAsFixed(2)}'),
+                  ],
+                ),
               Builder(
                 builder: (context) {
                   final pendingTotal = s.pendingHoldbacks.fold<double>(0.0, (sum, item) {
@@ -666,7 +716,7 @@ class _ProfileMainState extends State<_ProfileMain> {
         ? s.walletAddress
         : (s.userProfile?.walletPublicKey ?? '');
     final textCls = isDark ? 'text-white' : 'text-zinc-900';
-    final currentTyx = s.userProfile?.tyxBalance ?? 0.0;
+    final currentTyx = s.userProfile?.availableBalance ?? 0.0;
     final bool hasSufficientTyx = currentTyx >= price;
     final bool hasSufficientSol = s.walletBalance >= activeSolPrice;
 
@@ -1070,7 +1120,7 @@ class _ProfileMainState extends State<_ProfileMain> {
     final double price = selectedPlan == 'yearly' ? 2999.0 : 299.0;
     final double activeSolPrice = price / rate;
     final planName = selectedPlan == 'yearly' ? 'Pro Yearly Plan (365 Days)' : 'Pro Monthly Plan (30 Days)';
-    final currentTyx = s.userProfile?.tyxBalance ?? 0.0;
+    final currentTyx = s.userProfile?.availableBalance ?? 0.0;
 
     String methodLabel = 'Tyxbit Balance';
     String methodIcon = 'wallet';
@@ -2177,7 +2227,7 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
       return;
     }
 
-    final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
+    final tyxBal = s.userProfile?.availableBalance ?? 0.0;
     final amount = double.tryParse(_amountInput.trim()) ?? 0.0;
 
     if (amount < 100) {
@@ -2306,9 +2356,12 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
             : 'Requested ₱${amount.toStringAsFixed(2)} withdrawal to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin)',
       });
 
-      // 4. Deduct from user profile balance
-      final newBalance = (tyxBal - amount).clamp(0.0, double.infinity);
-      await svc.createOrUpdate('users/$uid', {'tyxBalance': newBalance});
+      // 4. Deduct from user profile balance safely
+      final newBalance = await svc.deductTyxBalanceSafely(
+        uid: uid,
+        amountToDeduct: amount,
+        txId: 'tx_$timestamp',
+      );
 
       s.setState(() {
         if (s.userProfile != null) {
@@ -2338,7 +2391,7 @@ class _WithdrawPaneState extends State<_WithdrawPane> {
   Component build(BuildContext context) {
     final s = component.state;
     final isDark = s.isDark;
-    final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
+    final tyxBal = s.userProfile?.availableBalance ?? 0.0;
     final walletKey = s.walletAddress.isNotEmpty ? s.walletAddress : (s.userProfile?.walletPublicKey ?? '');
     final hasWallet = walletKey.isNotEmpty;
     final cardBg = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';

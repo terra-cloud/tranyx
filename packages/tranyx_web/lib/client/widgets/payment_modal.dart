@@ -49,6 +49,45 @@ class PaymentModalComponent extends StatelessComponent {
 
             // Body
             div(classes: 'p-6 space-y-5 max-h-[68vh] overflow-y-auto custom-scrollbar', [
+              // Wallet Balance / Shortfall Summary
+              if (s.userProfile != null)
+                div(
+                  classes:
+                      'p-3.5 rounded-2xl border text-xs flex items-center justify-between '
+                      '${s.userProfile!.hasNegativeBalance ? "bg-rose-500/10 border-rose-500/30 text-rose-300" : (isDark ? "bg-zinc-950/40 border-zinc-800 text-zinc-300" : "bg-zinc-50 border-zinc-200 text-zinc-700")}',
+                  [
+                    div(classes: 'space-y-0.5', [
+                      span(
+                        classes:
+                            'text-[10px] uppercase font-bold tracking-wider block ${s.userProfile!.hasNegativeBalance ? "text-rose-400" : (isDark ? "text-zinc-500" : "text-zinc-400")}',
+                        [Component.text(s.userProfile!.hasNegativeBalance ? 'Current Deficit' : 'Available Balance')],
+                      ),
+                      span(
+                        classes:
+                            'text-sm font-black ${s.userProfile!.hasNegativeBalance ? "text-rose-400" : (isDark ? "text-white" : "text-zinc-900")}',
+                        [
+                          Component.text(
+                            s.userProfile!.hasNegativeBalance
+                                ? '₱${s.userProfile!.tyxBalance.toStringAsFixed(2)}'
+                                : '₱${s.userProfile!.availableBalance.toStringAsFixed(2)}',
+                          ),
+                        ],
+                      ),
+                    ]),
+                    if (s.depositAmount > 0)
+                      div(classes: 'text-right space-y-0.5', [
+                        span(
+                          classes:
+                              'text-[10px] uppercase font-bold tracking-wider block text-indigo-400',
+                          [Component.text('Target Top-Up')],
+                        ),
+                        span(classes: 'text-sm font-black text-indigo-400', [
+                          Component.text('₱${s.depositAmount.toStringAsFixed(2)}'),
+                        ]),
+                      ]),
+                  ],
+                ),
+
               // Top Rail Selector
               div(classes: 'p-1 rounded-2xl $cardBg grid grid-cols-2 gap-1', [
                 button(

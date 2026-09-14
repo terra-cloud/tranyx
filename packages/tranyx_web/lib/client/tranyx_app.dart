@@ -2293,6 +2293,8 @@ class TranyxAppState extends State<TranyxApp> {
 
     final price = double.tryParse(priceRate) ?? 0.0;
 
+    if (isPostingJob) return;
+
     setState(() {
       isPostingJob = true;
       postJobError = null;
@@ -2342,32 +2344,72 @@ class TranyxAppState extends State<TranyxApp> {
         } catch (_) {}
       }
 
+      final feeConfig = await svc.getPlatformFeeConfig();
+      final txFeeRate = feeConfig.transactionFeeRate;
+      final convFeeRate = feeConfig.convenienceFeeRate;
+      final serviceFeeRate = feeConfig.serviceFeeRate;
+      final markupRate = feeConfig.markupRate;
+      final commissionRate = feeConfig.commissionRate;
+
       final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+      final reservedBal = (userDoc['reservedBalance'] as num?)?.toDouble() ?? 0.0;
+      final availableBal = (currentBal - reservedBal).clamp(0.0, double.infinity);
       final discountedPrice = (price - jobDiscountAmount).clamp(0.0, 999999.0);
-      if (currentBal < discountedPrice) {
+
+      final employerFees = WalletSecurityHelper.calculateJobEmployerFees(
+        price: price,
+        discount: jobDiscountAmount,
+        txFeeRate: txFeeRate,
+        convFeeRate: convFeeRate,
+      );
+      final totalRequired = WalletSecurityHelper.calculateJobTotalEmployerCost(
+        price: price,
+        discount: jobDiscountAmount,
+        txFeeRate: txFeeRate,
+        convFeeRate: convFeeRate,
+      );
+
+      if (availableBal < totalRequired) {
         setState(() {
-          depositAmount = discountedPrice - currentBal;
+          depositAmount = (totalRequired - availableBal).clamp(0.0, double.infinity);
           showDepositModal = true;
           isPostingJob = false;
+          postJobError =
+              'Insufficient available balance. Required: ₱${totalRequired.toStringAsFixed(2)} (Gig: ₱${discountedPrice.toStringAsFixed(2)} + Fees: ₱${employerFees.toStringAsFixed(2)}), Available: ₱${availableBal.toStringAsFixed(2)}';
         });
         return;
       }
 
-      // 2. Sufficient balance: Deduct and Move to Escrow
-      await svc.createOrUpdate('users/$uid', {
-        ...userDoc,
-        'tyxBalance': currentBal - discountedPrice,
-      });
+      final now = DateTime.now();
+      final txId = 'job_escrow_${now.millisecondsSinceEpoch}';
+
+      // 2. Sufficient balance: Safely Deduct Full Employer Cost and Move to Escrow
+      final newBal = await svc.deductTyxBalanceSafely(
+        uid: uid,
+        amountToDeduct: totalRequired,
+        txId: txId,
+        title: 'Gig Escrow & Platform Fees',
+        description:
+            'Funded escrow for gig: "$newJobTitle" (₱${discountedPrice.toStringAsFixed(2)} gig payout + ₱${employerFees.toStringAsFixed(2)} fees)',
+        category: 'escrow_funding',
+        extraTxData: {
+          'jobPrice': price,
+          'discountedPrice': discountedPrice,
+          'employerFees': employerFees,
+          'totalRequired': totalRequired,
+          'transactionFeeRate': txFeeRate,
+          'convenienceFeeRate': convFeeRate,
+        },
+      );
 
       // Update local state balance
-      walletBalance = currentBal - discountedPrice;
+      walletBalance = newBal;
       if (userProfile != null) {
         userProfile = userProfile!.copyWith(
           tyxBalance: walletBalance,
         );
       }
 
-      final now = DateTime.now();
       final jobData = {
         'creatorId': uid,
         'creatorName': userName,
@@ -2400,6 +2442,13 @@ class TranyxAppState extends State<TranyxApp> {
         'applicantUids': <String>[],
         'hasTracker': hasTracker && locType == LocType.onsite,
         'hasInspectionHoldback': hasInspectionHoldback,
+        'transactionFeeRate': txFeeRate,
+        'convenienceFeeRate': convFeeRate,
+        'serviceFeeRate': serviceFeeRate,
+        'markupRate': markupRate,
+        'commissionRate': commissionRate,
+        'employerFees': employerFees,
+        'totalEscrowed': totalRequired,
         if (jobPromoCode != null) 'promoCode': jobPromoCode,
         if (jobPromoCode != null) 'discountAmount': jobDiscountAmount,
       };
@@ -2423,10 +2472,16 @@ class TranyxAppState extends State<TranyxApp> {
         print('Notice updating employer skills list: $skillErr');
       }
 
-      // Create escrow record with holdback metadata if chosen
+      // Create escrow record with holdback metadata and pre-funded employer fees
       try {
         await svc.createOrUpdate('escrow/$jobId', {
           'amount': discountedPrice,
+          'employerFees': employerFees,
+          'totalEscrowed': totalRequired,
+          'transactionFee': discountedPrice * txFeeRate,
+          'convenienceFee': discountedPrice * convFeeRate,
+          'transactionFeeRate': txFeeRate,
+          'convenienceFeeRate': convFeeRate,
           'employerId': uid,
           'creatorId': uid,
           'status': 'held',
@@ -3386,9 +3441,9 @@ class TranyxAppState extends State<TranyxApp> {
     }
 
     final double price = subType == 'yearly' ? 2999.0 : 299.0;
-    final currentTyx = userProfile?.tyxBalance ?? 0.0;
+    final currentTyx = userProfile?.availableBalance ?? 0.0;
     if (currentTyx < price) {
-      throw 'Insufficient Tyxbit balance. Required: ₱${price.toStringAsFixed(0)}, Available: ₱${currentTyx.toStringAsFixed(2)}';
+      throw 'Insufficient available Tyxbit balance. Required: ₱${price.toStringAsFixed(0)}, Available: ₱${currentTyx.toStringAsFixed(2)}';
     }
 
     setState(() {
@@ -3398,22 +3453,27 @@ class TranyxAppState extends State<TranyxApp> {
 
     try {
       final svc = FirestoreService(token, _handleTokenRefresh);
-      final userDoc = await svc.getDocument('users/$uid');
-      if (userDoc == null) {
-        throw 'User profile not found.';
-      }
-
-      final docTyx = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-      if (docTyx < price) {
-        throw 'Insufficient Tyxbit balance. Required: ₱${price.toStringAsFixed(0)}, Available: ₱${docTyx.toStringAsFixed(2)}';
-      }
-
-      final double newBalance = docTyx - price;
       final now = DateTime.now();
+      final txId = 'sub_tyx_${now.millisecondsSinceEpoch}';
+
+      final newBalance = await svc.deductTyxBalanceSafely(
+        uid: uid,
+        amountToDeduct: price,
+        txId: txId,
+        title: 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
+        description: 'Subscribed via Tyxbit Balance (₱${price.toStringAsFixed(0)})',
+        category: 'subscription',
+        extraTxData: {
+          'subscriptionPlan': subType,
+          'method': 'Tyxbit',
+          'kind': 'subscription',
+        },
+      );
+
+      final userDoc = await svc.getDocument('users/$uid') ?? {};
       final premiumUntil = subType == 'yearly'
           ? now.add(const Duration(days: 365))
           : now.add(const Duration(days: 30));
-      final txId = 'sub_tyx_${now.millisecondsSinceEpoch}';
 
       final updatedProfile = {
         ...userDoc,
@@ -3431,20 +3491,6 @@ class TranyxAppState extends State<TranyxApp> {
       };
 
       await svc.createOrUpdate('users/$uid', updatedProfile);
-
-      // Record transaction
-      await svc.createOrUpdate('transactions/$txId', {
-        'uid': uid,
-        'title': 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
-        'desc': 'Subscribed via Tyxbit Balance (₱${price.toStringAsFixed(0)})',
-        'amount': price,
-        'status': 'Successful',
-        'method': 'Tyxbit',
-        'txId': txId,
-        'createdAt': now.millisecondsSinceEpoch,
-        'type': 'subscription',
-        'kind': 'subscription',
-      });
 
       accountType = AccountType.hybrid;
       SessionStorage.saveProfile(accountType: 'hybrid');
@@ -4424,68 +4470,108 @@ class TranyxAppState extends State<TranyxApp> {
           final rate = (appData['proposalRate'] as num).toDouble();
           final originalPrice = (jobDoc['pricingValue'] as num).toDouble();
 
-          if (rate > originalPrice) {
-            final diff = rate - originalPrice;
+          final txFeeRate = (jobDoc['transactionFeeRate'] as num?)?.toDouble() ?? 0.07;
+          final convFeeRate = (jobDoc['convenienceFeeRate'] as num?)?.toDouble() ?? 0.03;
+          final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+
+          final oldCost = WalletSecurityHelper.calculateJobTotalEmployerCost(
+            price: originalPrice,
+            discount: discount,
+            txFeeRate: txFeeRate,
+            convFeeRate: convFeeRate,
+          );
+          final newCost = WalletSecurityHelper.calculateJobTotalEmployerCost(
+            price: rate,
+            discount: discount,
+            txFeeRate: txFeeRate,
+            convFeeRate: convFeeRate,
+          );
+          final diff = newCost - oldCost;
+
+          if (diff > 0) {
             final uid = SessionStorage.uid;
             final userDoc = await svc.getDocument('users/$uid');
             final currentBal = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            final reservedBal = (userDoc?['reservedBalance'] as num?)?.toDouble() ?? 0.0;
+            final availBal = (currentBal - reservedBal).clamp(0.0, double.infinity);
 
-            if (currentBal < diff) {
+            if (availBal < diff) {
               setState(() {
-                depositAmount = diff - currentBal;
+                depositAmount = (diff - availBal).clamp(0.0, double.infinity);
                 showDepositModal = true;
                 isUpdatingJobStatus = false;
-
+                postJobError =
+                    'Insufficient balance for counter offer. Required: ₱${diff.toStringAsFixed(2)}, Available: ₱${availBal.toStringAsFixed(2)}';
                 pendingJobId = jobId;
                 pendingApplicantData = appData;
               });
               return;
             } else {
-              // Deduct difference from user balance
-              await svc.createOrUpdate('users/$uid', {
-                ...userDoc!,
-                'tyxBalance': currentBal - diff,
-              });
+              final newBal = await svc.deductTyxBalanceSafely(
+                uid: uid!,
+                amountToDeduct: diff,
+                txId: 'counter_offer_${jobId}_${DateTime.now().millisecondsSinceEpoch}',
+                title: 'Gig Counter Offer Adjustment',
+                description: 'Additional funds for accepted counter offer on job $jobId',
+                category: 'escrow_funding',
+              );
 
-              walletBalance = currentBal - diff;
+              walletBalance = newBal;
               if (userProfile != null) {
                 userProfile = userProfile!.copyWith(tyxBalance: walletBalance);
               }
 
-              // Update escrow amount
+              // Update escrow amount and fees
+              final newDiscountedPrice = (rate - discount).clamp(0.0, 999999.0);
+              final newEmployerFees = WalletSecurityHelper.calculateJobEmployerFees(
+                price: rate,
+                discount: discount,
+                txFeeRate: txFeeRate,
+                convFeeRate: convFeeRate,
+              );
               final escrowDoc = await svc.getDocument('escrow/$jobId');
               if (escrowDoc != null) {
                 await svc.createOrUpdate('escrow/$jobId', {
                   ...escrowDoc,
-                  'amount': rate,
+                  'amount': newDiscountedPrice,
+                  'employerFees': newEmployerFees,
+                  'totalEscrowed': newCost,
                 });
               }
             }
-          } else if (rate < originalPrice && rate > 0) {
-            // Refund the difference if the counter offer is lower than the original price
-            final diff = originalPrice - rate;
+          } else if (diff < 0 && rate > 0) {
+            final refundDiff = (oldCost - newCost).clamp(0.0, double.infinity);
             final uid = SessionStorage.uid;
             final userDoc = await svc.getDocument('users/$uid');
             final currentBal = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
 
-            if (userDoc != null) {
+            if (userDoc != null && refundDiff > 0) {
+              final newBal = currentBal + refundDiff;
               await svc.createOrUpdate('users/$uid', {
                 ...userDoc,
-                'tyxBalance': currentBal + diff,
+                'tyxBalance': newBal,
               });
 
-              walletBalance = currentBal + diff;
+              walletBalance = newBal;
               if (userProfile != null) {
                 userProfile = userProfile!.copyWith(tyxBalance: walletBalance);
               }
             }
 
-            // Update escrow amount
+            final newDiscountedPrice = (rate - discount).clamp(0.0, 999999.0);
+            final newEmployerFees = WalletSecurityHelper.calculateJobEmployerFees(
+              price: rate,
+              discount: discount,
+              txFeeRate: txFeeRate,
+              convFeeRate: convFeeRate,
+            );
             final escrowDoc = await svc.getDocument('escrow/$jobId');
             if (escrowDoc != null) {
               await svc.createOrUpdate('escrow/$jobId', {
                 ...escrowDoc,
-                'amount': rate,
+                'amount': newDiscountedPrice,
+                'employerFees': newEmployerFees,
+                'totalEscrowed': newCost,
               });
             }
           }
@@ -4660,23 +4746,45 @@ class TranyxAppState extends State<TranyxApp> {
         final convFee = price * convFeeRate;
         final totalFees = txFee + convFee;
 
+        final escrowEmployerFees = (escrowDoc?['employerFees'] as num?)?.toDouble();
+        final isFeePreFunded = escrowEmployerFees != null && escrowEmployerFees > 0;
+
         if (employerId != null) {
           final txEmpDoc = await svc.getDocument('transactions/fees_emp_${job['id']}');
           if (txEmpDoc == null) {
-            final empDoc = await svc.getDocument('users/$employerId');
-            if (empDoc != null) {
-              final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-              await svc.createOrUpdate('users/$employerId', {
-                ...empDoc,
-                'tyxBalance': currentBal - totalFees,
-              });
-
-              // Log fee deduction transaction for Employer
+            if (!isFeePreFunded) {
+              // Legacy job fallback: only deduct if employer has sufficient balance, never plunge negative!
+              final empDoc = await svc.getDocument('users/$employerId');
+              if (empDoc != null) {
+                final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+                final reservedBal = (empDoc['reservedBalance'] as num?)?.toDouble() ?? 0.0;
+                final avail = (currentBal - reservedBal).clamp(0.0, double.infinity);
+                if (avail >= totalFees) {
+                  await svc.deductTyxBalanceSafely(
+                    uid: employerId,
+                    amountToDeduct: totalFees,
+                    txId: 'fees_emp_${job['id']}',
+                    title: 'Job Completion Fees (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
+                    description:
+                        '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) for job ${job['id']}',
+                    category: 'fee_deduction',
+                  );
+                } else {
+                  await svc.reportNegativeBalanceIncident(
+                    uid: employerId,
+                    attemptedBalance: currentBal - totalFees,
+                    reason: 'Legacy job completion fee shortfall for job ${job['id']}',
+                    relatedTxId: 'fees_emp_${job['id']}',
+                  );
+                }
+              }
+            } else {
+              // Pre-funded via Escrow: Record fee settlement without deducting from employer wallet again
               await svc.createOrUpdate('transactions/fees_emp_${job['id']}', {
                 'uid': employerId,
-                'title': 'Job Completion Fees (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
+                'title': 'Job Platform Fees Settled (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
                 'desc':
-                    '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) for job ${job['id']}',
+                    '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) settled from escrow for job ${job['id']}',
                 'amount': totalFees,
                 'baseAmount': price,
                 'transactionFee': txFee,
@@ -4686,7 +4794,7 @@ class TranyxAppState extends State<TranyxApp> {
                 'serviceFeeRate': serviceFeeRate,
                 'markupRate': markupRate,
                 'status': 'Successful',
-                'method': 'Tranyx Wallet',
+                'method': 'Tranyx Escrow',
                 'createdAt': DateTime.now().millisecondsSinceEpoch,
                 'type': 'fee_deduction',
               });
@@ -4752,12 +4860,14 @@ class TranyxAppState extends State<TranyxApp> {
               totalEarned: userProfile!.totalEarned + immediatePayout,
             );
           } else if (jobDoc['creatorId'] == uid && userProfile != null) {
-            final txFee = price * 0.07;
-            final convFee = price * 0.03;
-            final totalFees = txFee + convFee;
-            userProfile = userProfile!.copyWith(
-              tyxBalance: userProfile!.tyxBalance - totalFees,
-            );
+            if (!isFeePreFunded) {
+              final txFee = price * 0.07;
+              final convFee = price * 0.03;
+              final totalFees = txFee + convFee;
+              userProfile = userProfile!.copyWith(
+                tyxBalance: (userProfile!.tyxBalance - totalFees).clamp(0.0, double.infinity),
+              );
+            }
           }
           if (targetId != null) {
             showRatingPopup = true;
@@ -4918,6 +5028,10 @@ class TranyxAppState extends State<TranyxApp> {
       final immediatePayout = nyxianPayout - holdbackAmount;
 
       // 1. Release escrow
+      final escrowDoc = await svc.getDocument('escrow/$jobId');
+      final escrowEmployerFees = (escrowDoc?['employerFees'] as num?)?.toDouble();
+      final isFeePreFunded = escrowEmployerFees != null && escrowEmployerFees > 0;
+
       await svc.deleteDocument('escrow/$jobId');
 
       // 1.1 Create escrow holdback record if enabled
@@ -5001,20 +5115,39 @@ class TranyxAppState extends State<TranyxApp> {
       if (employerId != null) {
         final txEmpDoc = await svc.getDocument('transactions/fees_emp_$jobId');
         if (txEmpDoc == null) {
-          final empDoc = await svc.getDocument('users/$employerId');
-          if (empDoc != null) {
-            final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            await svc.createOrUpdate('users/$employerId', {
-              ...empDoc,
-              'tyxBalance': currentBal - totalFees,
-            });
-
-            // Log fee deduction transaction for Employer
+          if (!isFeePreFunded) {
+            // Legacy job fallback: only deduct if employer has sufficient balance, never plunge negative!
+            final empDoc = await svc.getDocument('users/$employerId');
+            if (empDoc != null) {
+              final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final reservedBal = (empDoc['reservedBalance'] as num?)?.toDouble() ?? 0.0;
+              final avail = (currentBal - reservedBal).clamp(0.0, double.infinity);
+              if (avail >= totalFees) {
+                await svc.deductTyxBalanceSafely(
+                  uid: employerId,
+                  amountToDeduct: totalFees,
+                  txId: 'fees_emp_$jobId',
+                  title: 'Job Completion Fees (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
+                  description:
+                      '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
+                  category: 'fee_deduction',
+                );
+              } else {
+                await svc.reportNegativeBalanceIncident(
+                  uid: employerId,
+                  attemptedBalance: currentBal - totalFees,
+                  reason: 'Legacy job completion fee shortfall for job $jobId',
+                  relatedTxId: 'fees_emp_$jobId',
+                );
+              }
+            }
+          } else {
+            // Pre-funded via Escrow: Record fee settlement without deducting from employer wallet again
             await svc.createOrUpdate('transactions/fees_emp_$jobId', {
               'uid': employerId,
-              'title': 'Job Completion Fees (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
+              'title': 'Job Platform Fees Settled (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
               'desc':
-                  '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
+                  '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) settled from escrow for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
               'amount': totalFees,
               'baseAmount': discountedPrice,
               'transactionFee': txFee,
@@ -5025,7 +5158,7 @@ class TranyxAppState extends State<TranyxApp> {
               'markupRate': markupRate,
               'discountAmount': discount,
               'status': 'Successful',
-              'method': 'Tranyx Wallet',
+              'method': 'Tranyx Escrow',
               'createdAt': DateTime.now().millisecondsSinceEpoch,
               'type': 'fee_deduction',
             });
@@ -5530,12 +5663,22 @@ class TranyxAppState extends State<TranyxApp> {
       final escrowDoc = await svc.getEscrow(jobId);
       double refundAmount = 0.0;
       if (escrowDoc != null && (escrowDoc['status'] as String? ?? '').toLowerCase() != 'refunded') {
-        refundAmount = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+        refundAmount = (escrowDoc['totalEscrowed'] as num?)?.toDouble() ??
+            (escrowDoc['amount'] as num?)?.toDouble() ??
+            0.0;
       }
       if (refundAmount <= 0.0 && status == 'open') {
         final pricing = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
         final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
-        refundAmount = (pricing - discount).clamp(0.0, 999999.0);
+        final txFeeRate = (jobDoc['transactionFeeRate'] as num?)?.toDouble() ?? 0.07;
+        final convFeeRate = (jobDoc['convenienceFeeRate'] as num?)?.toDouble() ?? 0.03;
+        refundAmount = (jobDoc['totalEscrowed'] as num?)?.toDouble() ??
+            WalletSecurityHelper.calculateJobTotalEmployerCost(
+              price: pricing,
+              discount: discount,
+              txFeeRate: txFeeRate,
+              convFeeRate: convFeeRate,
+            );
       }
 
       // 2. Refund to Employer if open and unrefunded
