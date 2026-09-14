@@ -52,6 +52,7 @@ import '../client/components/kyc_bg_modal.dart';
 import '../client/widgets/session_expired_modal.dart';
 import '../client/widgets/withdraw_modal.dart';
 import '../client/components/interactive_walkthrough_modal.dart';
+import '../client/components/pdf_viewer_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -169,6 +170,25 @@ class TranyxAppState extends State<TranyxApp> {
   bool showEditPropertyModal = false;
   bool showPropertyQaModal = false;
   bool showSignContractModal = false;
+  bool showPdfViewerModal = false;
+  String? pdfViewerSource;
+  String? pdfViewerFileName;
+
+  void openPdfViewer(String source, String fileName) {
+    setState(() {
+      pdfViewerSource = source;
+      pdfViewerFileName = fileName;
+      showPdfViewerModal = true;
+    });
+  }
+
+  void closePdfViewer() {
+    setState(() {
+      showPdfViewerModal = false;
+      pdfViewerSource = null;
+      pdfViewerFileName = null;
+    });
+  }
   Map<String, dynamic>? selectedPropertyData;
   UserProfile? renterProfilePreview;
   List<PropertyRental> realtimeProperties = [];
@@ -7899,6 +7919,16 @@ class TranyxAppState extends State<TranyxApp> {
               }
             }
           },
+        ),
+
+      // PDF Viewer Modal overlay
+      if (showPdfViewerModal && pdfViewerSource != null)
+        PdfViewerModalComponent(
+          appState: this,
+          pdfSource: pdfViewerSource!,
+          fileName: pdfViewerFileName ?? 'Contract Document.pdf',
+          key: ValueKey('pdf-viewer-${pdfViewerSource.hashCode}'),
+          onClose: closePdfViewer,
         ),
 
       // Session Expired modal overlay

@@ -942,6 +942,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     signedAt: null,
                   );
                   return ContractViewerComponent(
+                    appState: component.appState,
                     propertyRental: pData['contractType'] == 'Custom Contract' ? null : previewProperty,
                     customTerms: pData['contractType'] == 'Custom Contract' ? pData['contractTerms'] : null,
                     contractType: pData['contractType'] as String?,

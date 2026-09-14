@@ -69,6 +69,7 @@
 
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="anonymous">
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="styles.css">
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
@@ -1937,6 +1938,69 @@
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+
+    // ── PDF Document Viewer & Downloader ──────────────────────────────────────
+    window.renderPdfPage = async function (canvasId, pdfSource, pageNum, scale) {
+      try {
+        if (!window.pdfjsLib) {
+          console.warn("PDF.js library not loaded yet.");
+          return JSON.stringify({ success: false, error: "PDF.js viewer library is loading or unavailable." });
+        }
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        const loadingTask = window.pdfjsLib.getDocument(pdfSource);
+        const pdf = await loadingTask.promise;
+        const totalPages = pdf.numPages;
+        const pageToRender = Math.max(1, Math.min(pageNum || 1, totalPages));
+
+        const page = await pdf.getPage(pageToRender);
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) {
+          return JSON.stringify({ success: false, error: "Target canvas element #" + canvasId + " not found." });
+        }
+
+        const ctx = canvas.getContext('2d');
+        const viewport = page.getViewport({ scale: scale || 1.0 });
+
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.floor(viewport.width * dpr);
+        canvas.height = Math.floor(viewport.height * dpr);
+        canvas.style.width = Math.floor(viewport.width) + 'px';
+        canvas.style.height = Math.floor(viewport.height) + 'px';
+
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const renderContext = {
+          canvasContext: ctx,
+          viewport: viewport,
+        };
+        await page.render(renderContext).promise;
+
+        return JSON.stringify({
+          success: true,
+          totalPages: totalPages,
+          currentPage: pageToRender,
+        });
+      } catch (err) {
+        console.error("renderPdfPage error", err);
+        return JSON.stringify({ success: false, error: (err && err.message) || String(err) });
+      }
+    };
+
+    window.downloadPdfFile = function (pdfSource, fileName) {
+      try {
+        const link = document.createElement('a');
+        link.href = pdfSource;
+        link.download = fileName || 'contract_document.pdf';
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (e) {
+        console.error("downloadPdfFile error", e);
+      }
     };
 
     window.isSignaturePadEmpty = function (canvasId) {

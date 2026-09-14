@@ -2,18 +2,24 @@ import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
 import '../../components/ui_helpers.dart';
+import '../../services/web_interop.dart';
+import '../tranyx_app.dart';
 
 class ContractViewerComponent extends StatelessComponent {
   final VehicleRental? vehicleRental;
   final PropertyRental? propertyRental;
   final String? customTerms;
   final String? contractType;
+  final TranyxAppState? appState;
+  final void Function(String source, String fileName)? onOpenPdfViewer;
 
   const ContractViewerComponent({
     this.vehicleRental,
     this.propertyRental,
     this.customTerms,
     this.contractType,
+    this.appState,
+    this.onOpenPdfViewer,
     super.key,
   });
 
@@ -24,6 +30,9 @@ class ContractViewerComponent extends StatelessComponent {
     // Determine mode
     final isCustom =
         (contractType == 'Custom Contract') ||
+        CustomContractHelper.isCustomPdf(customTerms) ||
+        CustomContractHelper.isCustomPdf(vehicleRental?.contractTerms) ||
+        CustomContractHelper.isCustomPdf(propertyRental?.contractTerms) ||
         (customTerms != null &&
             customTerms!.isNotEmpty &&
             customTerms != 'Standard P2P terms' &&
@@ -61,9 +70,9 @@ class ContractViewerComponent extends StatelessComponent {
             : (propertyRental?.contractTerms.isNotEmpty == true
                 ? propertyRental!.contractTerms
                 : 'No custom contract terms provided.'));
-    final trimmedTerms = terms.trim();
-    final isUrl = trimmedTerms.startsWith('http://') || trimmedTerms.startsWith('https://');
-    final isPdf = isUrl && (trimmedTerms.toLowerCase().contains('.pdf') || trimmedTerms.toLowerCase().contains('/pdf'));
+    final isPdf = CustomContractHelper.isCustomPdf(terms);
+    final fileName = CustomContractHelper.extractFileName(terms);
+    final source = CustomContractHelper.extractPdfSource(terms);
 
     return [
       div(classes: 'flex flex-col items-center text-center mb-6', [
@@ -78,43 +87,72 @@ class ContractViewerComponent extends StatelessComponent {
         ]),
       ]),
 
-      div(classes: 'border-t border-b ${isDark ? "border-zinc-800" : "border-zinc-200"} py-4 my-4', [
-        div(classes: 'flex items-center justify-between mb-3', [
-          p(classes: 'text-xs text-zinc-400 font-bold uppercase tracking-wide', [
-            Component.text(isPdf ? 'Attached Contract Document (PDF)' : 'Contract Terms & Conditions'),
-          ]),
-          if (isUrl)
-            a(
-              href: trimmedTerms,
-              target: Target.blank,
-              classes:
-                  'inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-colors border border-purple-500/20',
-              [
-                lIcon('external-link', cls: 'w-3.5 h-3.5'),
-                Component.text('Open in New Tab'),
+      div(classes: 'border-t border-b ${isDark ? "border-zinc-800" : "border-zinc-200"} py-4 my-4 space-y-4', [
+        if (isPdf) ...[
+          // Clean Document Card matching Recommended UX
+          div(
+            classes:
+                'p-5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 '
+                '${isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-zinc-50 border-zinc-200"}',
+            [
+              div(classes: 'flex items-center gap-3.5 min-w-0', [
+                div(classes: 'p-3 rounded-2xl bg-red-500/10 text-red-400 shrink-0 border border-red-500/20', [
+                  lIcon('file-text', cls: 'w-6 h-6'),
+                ]),
+                div(classes: 'min-w-0', [
+                  p(classes: 'text-[11px] font-bold uppercase tracking-wider text-purple-400', [
+                    Component.text('Custom Contract Document'),
+                  ]),
+                  p(classes: 'text-sm font-bold truncate ${isDark ? "text-white" : "text-zinc-900"} mt-0.5', [
+                    Component.text(fileName),
+                  ]),
+                  p(classes: 'text-xs text-zinc-500 mt-0.5', [
+                    Component.text('Official PDF agreement underwritten by listing host'),
+                  ]),
+                ]),
+              ]),
+              div(classes: 'flex items-center gap-2.5 w-full sm:w-auto shrink-0', [
+                button(
+                  classes:
+                      'flex-1 sm:flex-none px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors flex items-center justify-center gap-1.5 cursor-pointer border-0 shadow-lg shadow-purple-500/20',
+                  events: {
+                    'click': (_) {
+                      if (appState != null) {
+                        appState!.openPdfViewer(source, fileName);
+                      } else if (onOpenPdfViewer != null) {
+                        onOpenPdfViewer!(source, fileName);
+                      } else {
+                        downloadPdfFileJs(source, fileName);
+                      }
+                    }
+                  },
+                  [
+                    lIcon('eye', cls: 'w-4 h-4'),
+                    Component.text('View Contract'),
+                  ],
+                ),
+                button(
+                  classes:
+                      'px-3 py-2 rounded-xl text-xs font-bold border transition-colors flex items-center justify-center gap-1.5 cursor-pointer '
+                      '${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-100 text-zinc-700"}',
+                  events: {'click': (_) => downloadPdfFileJs(source, fileName)},
+                  [
+                    lIcon('download', cls: 'w-4 h-4'),
+                    span(classes: 'hidden md:inline', [Component.text('Download PDF')]),
+                  ],
+                ),
               ],
             ),
-        ]),
-        if (isPdf)
-          div(classes: 'space-y-3', [
-            Component.element(
-              tag: 'iframe',
-              classes:
-                  'w-full h-96 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-900" : "border-zinc-200 bg-white"} shadow-inner',
-              attributes: {
-                'src': trimmedTerms,
-                'title': 'Contract Agreement Document',
-              },
-            ),
-            p(classes: 'text-[11px] text-zinc-500 text-center', [
-              Component.text('If the document preview does not load above, click "Open in New Tab" to view it directly.'),
+          ] else ...[
+            p(classes: 'text-xs text-zinc-400 font-bold uppercase tracking-wide', [
+              Component.text('Contract Terms & Conditions'),
             ]),
-          ])
-        else
-          div(
-            classes: 'whitespace-pre-wrap text-sm leading-relaxed ${isDark ? "text-zinc-300" : "text-zinc-700"}',
-            [Component.text(terms)],
-          ),
+            div(
+              classes: 'whitespace-pre-wrap text-sm leading-relaxed ${isDark ? "text-zinc-300" : "text-zinc-700"}',
+              [Component.text(CustomContractHelper.sanitizeForDisplay(terms))],
+            ),
+          ],
+        ]),
       ]),
 
       _buildSafetyNotice(isDark),

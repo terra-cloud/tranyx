@@ -159,3 +159,12 @@ String getInputValue(dynamic target) => '';
 void setInputValue(dynamic target, String value) {}
 bool getInputChecked(dynamic target) => false;
 void setInputChecked(dynamic target, bool checked) {}
+
+Future<Map<String, dynamic>?> renderPdfPageJs(
+  String canvasId,
+  String pdfSource,
+  int pageNum,
+  double scale,
+) async => null;
+
+void downloadPdfFileJs(String pdfSource, String fileName) {}

@@ -745,6 +745,7 @@ class _RentalDetailsModalState extends State<RentalDetailsModalComponent> {
         if (_showFullContract)
           div(classes: 'animate-fade-in pt-2', [
             ContractViewerComponent(
+              appState: component.appState,
               vehicleRental: _vehicleRental,
               propertyRental: _propertyRental,
               customTerms: contractTerms,

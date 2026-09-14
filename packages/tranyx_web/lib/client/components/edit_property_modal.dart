@@ -1,3 +1,4 @@
+import 'dart:js_interop';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -43,6 +44,8 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
 
   String _contractType = 'Tranyx Standard';
   String _customTerms = '';
+  String? _uploadedFileName;
+  int? _uploadedFileSize;
   bool _showPreview = false;
 
   // Images
@@ -121,6 +124,9 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
       // Contract
       _contractType = prop['contractType'] as String? ?? 'Tranyx Standard';
       _customTerms = prop['contractTerms'] as String? ?? '';
+      if (CustomContractHelper.isCustomPdf(_customTerms)) {
+        _uploadedFileName = CustomContractHelper.extractFileName(_customTerms);
+      }
 
       // Photos
       final rawPhotos = prop['photoUrls'] as List? ?? [];
@@ -680,6 +686,7 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
                     ]),
                     if (_showPreview)
                       ContractViewerComponent(
+                        appState: component.appState,
                         propertyRental: PropertyRental(
                           id: _propertyId ?? '',
                           hostId: '',
@@ -711,19 +718,187 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
                   ],
                 ),
               ] else ...[
-                div(classes: 'mt-4', [
-                  label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
-                    Component.text('Custom Lease Terms'),
+                div(classes: 'mt-4 space-y-3', [
+                  div(classes: 'flex items-center justify-between', [
+                    label(classes: 'block text-sm font-semibold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                      Component.text('Custom Lease Terms & Rules'),
+                    ]),
+                    span(classes: 'text-xs text-zinc-500', [
+                      Component.text('PDF Document or Plain Text'),
+                    ]),
                   ]),
-                  textarea(
-                    classes:
-                        'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors h-32 resize-none',
+
+                  // If a PDF is attached, display the clean, interactive Document Card
+                  if (CustomContractHelper.isCustomPdf(_customTerms)) ...[
+                    div(
+                      classes:
+                          'p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 '
+                          '${isDark ? "bg-zinc-900 border-zinc-800" : "bg-zinc-50 border-zinc-200"}',
+                      [
+                        div(classes: 'flex items-center gap-3 min-w-0', [
+                          div(classes: 'p-2.5 rounded-xl bg-red-500/10 text-red-400 shrink-0 border border-red-500/20', [
+                            lIcon('file-text', cls: 'w-6 h-6'),
+                          ]),
+                          div(classes: 'min-w-0', [
+                            p(classes: 'text-[11px] font-bold uppercase text-purple-400', [
+                              Component.text('Attached PDF Contract'),
+                            ]),
+                            p(classes: 'text-sm font-bold truncate ${isDark ? "text-white" : "text-zinc-900"}', [
+                              Component.text(_uploadedFileName ?? CustomContractHelper.extractFileName(_customTerms)),
+                            ]),
+                            p(classes: 'text-[11px] text-zinc-500', [
+                              Component.text(
+                                _uploadedFileSize != null
+                                    ? CustomContractHelper.formatFileSize(_uploadedFileSize!)
+                                    : 'PDF Document Ready',
+                              ),
+                            ]),
+                          ]),
+                        ]),
+                        div(classes: 'flex items-center gap-2 w-full sm:w-auto shrink-0', [
+                          button(
+                            classes:
+                                'px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer border-0',
+                            events: {
+                              'click': (_) => component.appState.openPdfViewer(
+                                    CustomContractHelper.extractPdfSource(_customTerms),
+                                    _uploadedFileName ?? CustomContractHelper.extractFileName(_customTerms),
+                                  ),
+                            },
+                            [lIcon('eye', cls: 'w-3.5 h-3.5'), Component.text('View')],
+                          ),
+                          label(
+                            classes:
+                                'px-3 py-1.5 rounded-xl text-xs font-bold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-100 text-zinc-700"} cursor-pointer transition-colors',
+                            attributes: {'for': 'edit-property-contract-upload'},
+                            [Component.text('Replace PDF')],
+                          ),
+                          button(
+                            classes:
+                                'p-2 rounded-xl hover:bg-red-500/10 text-zinc-400 hover:text-red-400 transition-colors border-0 cursor-pointer',
+                            events: {
+                              'click': (_) {
+                                setState(() {
+                                  _customTerms = '';
+                                  _uploadedFileName = null;
+                                  _uploadedFileSize = null;
+                                });
+                              },
+                            },
+                            [lIcon('trash-2', cls: 'w-4 h-4')],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ] else ...[
+                    // Upload PDF Box
+                    div(
+                      classes:
+                          'p-5 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center text-center gap-2 '
+                          '${isDark ? "border-zinc-700 bg-zinc-900/40" : "border-zinc-300 bg-zinc-50"}',
+                      [
+                        div(classes: 'p-3 rounded-2xl bg-purple-500/10 text-purple-400', [
+                          lIcon('file-text', cls: 'w-7 h-7'),
+                        ]),
+                        p(classes: 'text-sm font-bold ${isDark ? "text-white" : "text-zinc-900"}', [
+                          Component.text('Upload Custom Lease Agreement (PDF)'),
+                        ]),
+                        p(classes: 'text-xs text-zinc-400 max-w-sm', [
+                          Component.text('Upload your official lease agreement or house rules. Accepted format: .pdf (Max 5MB).'),
+                        ]),
+                        label(
+                          classes:
+                              'mt-2 px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white cursor-pointer transition-colors flex items-center gap-2 shadow-lg shadow-purple-500/20',
+                          attributes: {'for': 'edit-property-contract-upload'},
+                          [
+                            lIcon('upload', cls: 'w-4 h-4'),
+                            Component.text('Choose PDF Document'),
+                          ],
+                        ),
+                      ],
+                    ),
+
+                    div(classes: 'text-center py-1', [
+                      span(classes: 'text-xs text-zinc-500', [Component.text('— OR enter plain text terms below —')]),
+                    ]),
+
+                    textarea(
+                      classes:
+                          'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors h-32 resize-none text-sm',
+                      attributes: {
+                        'placeholder':
+                            'Enter your custom property lease terms, house rules, water/electricity billing agreements...',
+                      },
+                      events: {'input': (e) => setState(() => _customTerms = getInputValue(e.target))},
+                      [Component.text(_customTerms)],
+                    ),
+                  ],
+
+                  // Hidden file input with strict validation
+                  input(
+                    type: InputType.file,
+                    classes: 'hidden',
                     attributes: {
-                      'placeholder':
-                          'Enter your custom property lease terms, house rules, water/electricity billing agreements...',
+                      'id': 'edit-property-contract-upload',
+                      'accept': '.pdf,application/pdf',
+                      'style': 'display: none;',
                     },
-                    events: {'input': (e) => setState(() => _customTerms = getInputValue(e.target))},
-                    [Component.text(_customTerms)],
+                    events: {
+                      'change': (e) {
+                        final targetObj = e.target as JSObject?;
+                        if (targetObj != null && targetObj.hasProperty('files'.toJS).toDart) {
+                          final filesObj = targetObj.getProperty<JSObject>('files'.toJS);
+                          if (filesObj.hasProperty('length'.toJS).toDart) {
+                            final len = (filesObj.getProperty('length'.toJS) as JSNumber).toDartInt;
+                            if (len > 0) {
+                              final file = filesObj.callMethod<JSObject?>('item'.toJS, 0.toJS);
+                              if (file != null) {
+                                final name = (file.getProperty('name'.toJS) as JSString).toDart;
+                                final lowerName = name.toLowerCase();
+                                if (!lowerName.endsWith('.pdf')) {
+                                  setState(() => _error = 'Invalid file type. Please upload a valid PDF document (.pdf).');
+                                  return;
+                                }
+
+                                final size = (file.getProperty('size'.toJS) as JSNumber).toDartInt;
+                                if (size > CustomContractHelper.maxFileSizeBytes) {
+                                  setState(() => _error = 'File size exceeds the 5MB limit (${CustomContractHelper.formatFileSize(size)}). Please choose a smaller PDF.');
+                                  return;
+                                }
+
+                                final reader = web.FileReader();
+                                reader.readAsDataURL(file as web.Blob);
+                                reader.onLoadEnd.listen((_) {
+                                  final dataUrl = reader.result.toString();
+                                  final docId = 'doc_contract_${DateTime.now().millisecondsSinceEpoch}';
+                                  // Asynchronously store document in contract_documents
+                                  component.appState.firestore.setDocument('contract_documents/$docId', {
+                                    'id': docId,
+                                    'hostId': component.appState.userProfile?.uid ?? '',
+                                    'listingType': 'property',
+                                    'fileName': name,
+                                    'fileSize': size,
+                                    'mimeType': 'application/pdf',
+                                    'uploadedAt': DateTime.now().millisecondsSinceEpoch,
+                                    'dataUrl': dataUrl,
+                                  }).catchError((_) {});
+
+                                  setState(() {
+                                    _error = null;
+                                    _uploadedFileName = name;
+                                    _uploadedFileSize = size;
+                                    _customTerms = CustomContractHelper.formatCleanTerms(
+                                      fileName: name,
+                                      documentId: docId,
+                                    );
+                                  });
+                                });
+                              }
+                            }
+                          }
+                        }
+                      },
+                    },
                   ),
                 ]),
               ],

@@ -1326,3 +1326,38 @@ void setInputChecked(dynamic target, bool checked) {
     }
   } catch (_) {}
 }
+
+Future<Map<String, dynamic>?> renderPdfPageJs(
+  String canvasId,
+  String pdfSource,
+  int pageNum,
+  double scale,
+) async {
+  try {
+    final promise = web.window.callMethod<JSPromise>(
+      'renderPdfPage'.toJS,
+      canvasId.toJS,
+      pdfSource.toJS,
+      pageNum.toJS,
+      scale.toJS,
+    );
+    final result = await promise.toDart;
+    if (result != null) {
+      final jsonStr = (result as JSString).toDart;
+      return jsonDecode(jsonStr) as Map<String, dynamic>;
+    }
+  } catch (e) {
+    return {'success': false, 'error': e.toString()};
+  }
+  return null;
+}
+
+void downloadPdfFileJs(String pdfSource, String fileName) {
+  try {
+    web.window.callMethod(
+      'downloadPdfFile'.toJS,
+      pdfSource.toJS,
+      fileName.toJS,
+    );
+  } catch (_) {}
+}

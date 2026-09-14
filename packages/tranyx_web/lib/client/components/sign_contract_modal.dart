@@ -281,6 +281,7 @@ class _SignContractModalState extends State<SignContractModalComponent> {
                 )
               else
                 ContractViewerComponent(
+                  appState: component.appState,
                   vehicleRental: _vehicleRental,
                   propertyRental: _propertyRental,
                   customTerms: component.contractTerms,
