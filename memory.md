@@ -37,6 +37,7 @@ graph TD
 | 2026-09-07 16:30 | **Regression & Analyze** | `packages/tranyx_mobile` & `packages/tranyx_web` | Full mobile test suite execution (75/75 tests passed), web fee regression tests (9/9 tests passed), and zero-error static analysis. | **PASSED** (All suites green) |
 | 2026-09-07 19:55 | **Unit & Integration** | `packages/tranyx_mobile/test/transit_repository_test.dart` | Stop Receiving Bookings & Safe Listing Deletion (AC1-AC8): pause/resume future bookings, marketplace exclusion, blocking deletion when pending requests exist, soft-delete/archival on confirmed bookings with request preservation, clean deletion with fee refund. | **PASSED** (28/28 tests) |
 | 2026-09-07 19:56 | **Regression & Static Analysis** | `packages/tranyx_mobile`, `packages/tranyx_web`, `packages/shared` | Complete test suites: booking availability (7/7 tests passed), web wallet & fees (9/9 tests passed), mobile transit (28/28 tests passed), dart analyze mobile (0 errors), dart analyze web (0 errors). | **PASSED** (All suites green) |
+| 2026-09-14 16:15 | **Bug Fix & Deploy** | `packages/tranyx_web/lib/client/components/sign_contract_modal.dart`, `contract_viewer.dart`, `tranyx_app.dart`, `firestore.rules` | Fixed Sign Agreement modal infinite loading deadlock (bypassed `_isLoadingRental = false`), added 10s timeout, actionable retry UI, signing button guards, host PDF contract rendering, dynamic modal keying, and redeployed `tranyx-dev` rules to fix 403 `PERMISSION_DENIED`. | **PASSED** (Static analysis 0 errors, rules deployed) |
 
 ---
 
@@ -128,6 +129,34 @@ Validates the full lifecycle controls for pausing booking availability and perfo
    - All historical requests, active contracts, and transactions are preserved.
    - Listing fee is **not** refunded if confirmed bookings exist; for clean listings with zero bookings, the listing fee is refunded to the host wallet.
 
+### F. Sign Agreement Modal Deadlock Resolution & Security Rules Deployment (`2026-09-14`)
+
+1. **Firestore 403 Permission Denied**:
+   - Remote `tranyx-dev` security rules had been overwritten by cross-project deployment from an external project (`VieXpress`).
+   - Re-deployed Tranyx's comprehensive ruleset (`firebase deploy --only firestore:rules --project tranyx-dev`), restoring access to `jobs`, `wallets`, `rentals`, `rental_requests`, `properties`, and `transactions`.
+   - Documented prevention and remediation in `AGENTS.md` and `agents/memory.md`.
+
+2. **Sign Agreement Infinite Loading Deadlock Fix**:
+   - In `SignContractModalComponent._loadRentalDetails()`, when `reqDoc != null` (booking request retrieved), an early `return;` skipped `setState(() => _isLoadingRental = false);`, leaving `_isLoadingRental` permanently stuck on `true`.
+   - Replaced early return with structured assignments and guaranteed `_isLoadingRental = false;` in a `finally` block guarded by `if (mounted)`.
+   - Added a 10-second timeout to all Firestore queries: `.timeout(const Duration(seconds: 10))`.
+   - Added duplicate fetch guards to ignore redundant clicks while loading.
+
+3. **Actionable Error & Retry Card**:
+   - Added `_loadFailed` and `_loadErrorMessage` states.
+   - If loading fails or times out, renders an "Unable to Load Agreement" card with an actionable `[Retry]` button and support instructions instead of spinning infinitely.
+
+4. **Signing Guard & Button Integrity**:
+   - Added `_hasValidAgreementContent` checking whether rental details or custom terms are present.
+   - Disabled "Sign & Activate" button (`bg-zinc-800 text-zinc-500 cursor-not-allowed`) when loading, failed, or when agreement content is missing.
+   - Guarded `_submitSignature()` against premature submission.
+
+5. **Host PDF Contract Document Preview**:
+   - In `ContractViewerComponent`, detected host-provided PDF URLs and rendered responsive `<iframe>` previews with an "Open in New Tab" button.
+
+6. **Dynamic Keying**:
+   - In `tranyx_app.dart`, updated `SignContractModalComponent` to use dynamic keying `ValueKey('sign-contract-modal-${signingContractId}-${signingContractRequestId}')` to prevent stale state retention.
+
 > [!NOTE]
 > All automated tests execute directly against the `tranyx-dev` Firebase project, confirming both code logic correctness and database rule constraints.
 
@@ -185,3 +214,13 @@ To optimize workflow run times and ensure fast merge capabilities:
 >      b. **Pending Request Block on Delete (AC4)**: If a listing has ANY pending booking requests (`status.toLowerCase() == 'pending'`), deletion MUST be strictly blocked. The host must be instructed to accept or reject pending requests first, with a `[View Pending Requests]` action provided.
 >      c. **Confirmed Bookings Soft-Delete / Archival (AC2, AC3, AC5, AC6, AC8)**: Listings with confirmed bookings can be deleted by the host via a warning confirmation dialog. The listing MUST be archived/soft-deleted (`status: 'Archived'`, `isDeleted: true`, `acceptingBookings: false`) rather than physically deleted, preserving all historical requests, contracts, and transactions. Listing fee is NOT refunded if confirmed bookings exist.
 >      d. **Clean Deletion Listing Fee Refund (AC8)**: When deleting a listing with NO bookings, the listing fee is refunded to the host wallet, and the listing is archived.
+>
+> 6. **Sign Agreement Loading, Error Recovery, & Signing Invariants**:
+>    - `packages/tranyx_web/lib/client/components/sign_contract_modal.dart`
+>    - `packages/tranyx_web/lib/client/components/contract_viewer.dart`
+>    - `packages/tranyx_web/lib/client/tranyx_app.dart`
+>    - **Invariants**:
+>      a. **No Infinite Spinners**: Any async contract fetch must be bounded by a timeout (10s) and guaranteed to reset `_isLoadingRental = false` via `finally`.
+>      b. **Actionable Recovery**: Network failures, timeouts, or missing documents must render an actionable error state with an interactive `[Retry]` button.
+>      c. **Signing Disabled Until Loaded**: The "Sign & Activate" button must remain strictly disabled and unclickable whenever agreement details are loading, failed, or empty.
+>      d. **Session Keying**: The modal component in `tranyx_app.dart` must use dynamic session keying based on `signingContractId` and `signingContractRequestId` to prevent state leakage between rentals.
