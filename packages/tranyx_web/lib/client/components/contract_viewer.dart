@@ -143,17 +143,18 @@ class ContractViewerComponent extends StatelessComponent {
                 ),
               ],
             ),
-          ] else ...[
-            p(classes: 'text-xs text-zinc-400 font-bold uppercase tracking-wide', [
-              Component.text('Contract Terms & Conditions'),
-            ]),
-            div(
-              classes: 'whitespace-pre-wrap text-sm leading-relaxed ${isDark ? "text-zinc-300" : "text-zinc-700"}',
-              [Component.text(CustomContractHelper.sanitizeForDisplay(terms))],
-            ),
           ],
+        ),
+      ] else ...[
+        p(classes: 'text-xs text-zinc-400 font-bold uppercase tracking-wide', [
+          Component.text('Contract Terms & Conditions'),
         ]),
-      ]),
+        div(
+          classes: 'whitespace-pre-wrap text-sm leading-relaxed ${isDark ? "text-zinc-300" : "text-zinc-700"}',
+          [Component.text(CustomContractHelper.sanitizeForDisplay(terms))],
+        ),
+      ],
+    ]),
 
       _buildSafetyNotice(isDark),
     ];

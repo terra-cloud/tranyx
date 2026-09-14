@@ -712,9 +712,6 @@ class _ProfileMainState extends State<_ProfileMain> {
     final double yearlySolPrice = 2999.0 / rate;
     final double activeSolPrice = selectedPlan == 'yearly' ? yearlySolPrice : monthlySolPrice;
     final hasWallet = s.walletState == WalletState.connected;
-    final displayAddress = s.walletAddress.isNotEmpty
-        ? s.walletAddress
-        : (s.userProfile?.walletPublicKey ?? '');
     final textCls = isDark ? 'text-white' : 'text-zinc-900';
     final currentTyx = s.userProfile?.availableBalance ?? 0.0;
     final bool hasSufficientTyx = currentTyx >= price;

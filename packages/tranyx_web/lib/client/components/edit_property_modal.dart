@@ -1,4 +1,5 @@
 import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -790,7 +791,8 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
                         ],
                       ),
                     ],
-                  ] else ...[
+                  ),
+                ] else ...[
                     // Upload PDF Box
                     div(
                       classes:

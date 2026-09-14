@@ -1,4 +1,5 @@
 import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -704,7 +705,8 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                         ],
                       ),
                     ],
-                  ] else ...[
+                  ),
+                ] else ...[
                     // Upload PDF Box
                     div(
                       classes:

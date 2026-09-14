@@ -981,7 +981,8 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                         ],
                       ),
                     ],
-                  ] else ...[
+                  ),
+                ] else ...[
                     // Upload PDF Box
                     div(
                       classes:
