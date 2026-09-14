@@ -503,7 +503,6 @@ class JobRepository {
 
       final bool hasTracker = jobData['hasTracker'] == true || jobData['hasTracker'] == 'true';
       final nyxianId = jobData['acceptedApplicantId'] as String? ?? jobData['nyxianId'] as String?;
-      final employerId = jobData['creatorId'] as String?;
 
       if (hasTracker) {
         if (employerId != currentUserUid) {
