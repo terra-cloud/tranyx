@@ -25,7 +25,9 @@
             'signedAt', 'currentRequestId', 'allowChat', 'licenseNumber', 
             'verificationSelfieUrl', 'verificationGovtIdUrl', 'verificationStatus', 
             'hostIsVerified', 'hostVerificationStatus', 'hostVerificationTier', 
-            'renteeIsVerified', 'renteeVerificationStatus', 'renteeVerificationTier'
+            'renteeIsVerified', 'renteeVerificationStatus', 'renteeVerificationTier',
+            // Listing deletion, archival & pause/resume
+            'isDeleted', 'acceptingBookings', 'deletedAt'
           ])
         ) ||
         // 1b. Host: When awaiting signature, can revoke approval (back to Available) or activate lease

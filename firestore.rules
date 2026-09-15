@@ -312,7 +312,9 @@ service cloud.firestore {
             'currentRequestId', 'allowChat', 'verificationSelfieUrl', 
             'verificationGovtIdUrl', 'verificationStatus', 'hostIsVerified', 
             'hostVerificationStatus', 'hostVerificationTier', 'renteeIsVerified', 
-            'renteeVerificationStatus', 'renteeVerificationTier'
+            'renteeVerificationStatus', 'renteeVerificationTier',
+            // Listing deletion, archival, pause/resume & GPS tracking
+            'isDeleted', 'acceptingBookings', 'deletedAt', 'gpsTrackerId'
           ])
         ) ||
         // 1b. Host: When awaiting signature, can revoke approval (back to Available) or activate lease
@@ -571,7 +573,9 @@ service cloud.firestore {
             'signedAt', 'currentRequestId', 'allowChat', 'licenseNumber', 
             'verificationSelfieUrl', 'verificationGovtIdUrl', 'verificationStatus', 
             'hostIsVerified', 'hostVerificationStatus', 'hostVerificationTier', 
-            'renteeIsVerified', 'renteeVerificationStatus', 'renteeVerificationTier'
+            'renteeIsVerified', 'renteeVerificationStatus', 'renteeVerificationTier',
+            // Listing deletion, archival & pause/resume
+            'isDeleted', 'acceptingBookings', 'deletedAt'
           ])
         ) ||
         // 1b. Host: When awaiting signature, can revoke approval (back to Available) or activate lease

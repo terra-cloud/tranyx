@@ -570,8 +570,9 @@ class FirestoreService {
       final res = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       if (res.isEmpty || !res.containsKey('fields')) return null;
       return _fromFirestoreDoc(res);
-    } catch (_) {
-      return null;
+    } on FirebaseException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
     }
   }
 

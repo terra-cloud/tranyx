@@ -37,7 +37,9 @@
             'currentRequestId', 'allowChat', 'verificationSelfieUrl', 
             'verificationGovtIdUrl', 'verificationStatus', 'hostIsVerified', 
             'hostVerificationStatus', 'hostVerificationTier', 'renteeIsVerified', 
-            'renteeVerificationStatus', 'renteeVerificationTier'
+            'renteeVerificationStatus', 'renteeVerificationTier',
+            // Listing deletion, archival, pause/resume & GPS tracking
+            'isDeleted', 'acceptingBookings', 'deletedAt', 'gpsTrackerId'
           ])
         ) ||
         // 1b. Host: When awaiting signature, can revoke approval (back to Available) or activate lease
