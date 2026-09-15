@@ -4,6 +4,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="manifest" href="/site.webmanifest">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
 
   <title>Tranyx — Decentralized Freelance Gig Marketplace</title>
@@ -65,6 +69,7 @@
 
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="anonymous">
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="styles.css">
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
@@ -346,6 +351,8 @@
     }
 
 
+    window._activeMaps = window._activeMaps || new Map();
+
     window._createMap = function (options) {
       console.log("DEBUG: _createMap called with options:", options);
       if (!window.maplibregl) {
@@ -353,9 +360,26 @@
         return null;
       }
       try {
-        const map = new maplibregl.Map(options);
+        const mapOptions = Object.assign({}, options);
+        if (options.keyboard === false) {
+          mapOptions.keyboard = false;
+        }
+        const map = new maplibregl.Map(mapOptions);
         console.log("DEBUG: maplibregl.Map constructed successfully");
         map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+        const containerId = typeof options.container === 'string' ? options.container : options.container?.id;
+        if (containerId) {
+          window._activeMaps.set(containerId, map);
+          map._containerId = containerId;
+        }
+        map._currentIsDark = !!options._isDark;
+
+        map.on('remove', function() {
+          if (containerId) {
+            window._activeMaps.delete(containerId);
+          }
+        });
 
         // Safari WebGL container size fix
         map.on('load', function() {
@@ -384,6 +408,87 @@
         document.body.appendChild(errDiv);
         throw e;
       }
+    };
+
+    window._setMapTheme = function (elementId, isDark) {
+      const mapKey = '__lmap_' + elementId;
+      const map = (window._activeMaps && window._activeMaps.get(elementId)) || window[mapKey];
+      if (!map) return;
+
+      const el = (map.getContainer && map.getContainer()) || document.getElementById(elementId);
+      if (el) {
+        if (isDark) {
+          el.classList.remove('theme-light');
+          el.classList.add('theme-dark');
+        } else {
+          el.classList.remove('theme-dark');
+          el.classList.add('theme-light');
+        }
+      }
+
+      if (map._currentIsDark === isDark) return;
+      map._currentIsDark = isDark;
+
+      const vectorStyleUrl = isDark
+        ? 'https://tiles.openfreemap.org/styles/dark'
+        : 'https://tiles.openfreemap.org/styles/liberty';
+
+      const routeKey = '__lroute_' + elementId;
+      const lastRoute = map._lastRoute || window[routeKey + '_data'];
+
+      const onStyleLoad = function () {
+        map.off('style.load', onStyleLoad);
+        if (lastRoute && lastRoute.rawCoords) {
+          try {
+            if (!map.getSource(lastRoute.sourceId)) {
+              map.addSource(lastRoute.sourceId, {
+                type: 'geojson',
+                data: {
+                  type: 'Feature',
+                  properties: {},
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: lastRoute.rawCoords
+                  }
+                }
+              });
+            }
+            if (!map.getLayer(lastRoute.layerId)) {
+              map.addLayer({
+                id: lastRoute.layerId,
+                type: 'line',
+                source: lastRoute.sourceId,
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                  'line-color': lastRoute.color || '#6366f1',
+                  'line-width': lastRoute.lineWidth || 5,
+                  'line-opacity': lastRoute.lineOpacity || 0.85
+                }
+              });
+            }
+          } catch (err) {
+            console.warn("Could not restore route layer after style reload:", err);
+          }
+        }
+      };
+
+      map.on('style.load', onStyleLoad);
+      try {
+        map.setStyle(vectorStyleUrl);
+      } catch (err) {
+        console.error("Failed to update map style for " + elementId + ":", err);
+      }
+    };
+
+    window._setAllMapsTheme = function (isDark) {
+      if (window._activeMaps) {
+        window._activeMaps.forEach(function (map, containerId) {
+          window._setMapTheme(containerId, isDark);
+        });
+      }
+      ['job-map-picker', 'nav-map', 'rental-tracker-map', 'delivery-map-picker'].forEach(function (id) {
+        window._setMapTheme(id, isDark);
+      });
     };
     window._createMarker = function (options) {
       console.log("DEBUG: _createMarker called with options:", options);
@@ -417,7 +522,10 @@
 
     function getSolanaProvider(type) {
       if (type === 'phantom') {
-        return window.phantom?.solana || (window.solana?.isPhantom ? window.solana : null);
+        if (window.phantom?.solana) return window.phantom.solana;
+        if (window.solana?.isPhantom) return window.solana;
+        if (window.solana && !window.solana.isSolflare && !window.solana.isBackpack && !window.solana.isTrust) return window.solana;
+        return null;
       }
       if (type === 'trust') {
         return window.trustWallet?.solana || (window.solana?.isTrust ? window.solana : null);
@@ -428,15 +536,16 @@
       if (type === 'backpack') {
         return window.backpack || (window.solana?.isBackpack ? window.solana : null);
       }
-      return null;
+      return window.phantom?.solana || window.solflare || window.backpack || window.trustWallet?.solana || window.solana || null;
     }
 
     window.getDetectedSolanaWallets = function () {
       const wallets = [];
       if (window.phantom?.solana || window.solana?.isPhantom) wallets.push('phantom');
-      if (window.trustWallet?.solana || window.solana?.isTrust) wallets.push('trust');
       if (window.solflare || window.solana?.isSolflare) wallets.push('solflare');
       if (window.backpack || window.solana?.isBackpack) wallets.push('backpack');
+      if (window.trustWallet?.solana || window.solana?.isTrust) wallets.push('trust');
+      if (wallets.length === 0 && window.solana) wallets.push('phantom');
       return wallets;
     };
 
@@ -490,14 +599,22 @@
     }
 
     window.connectSolanaWallet = async function (type) {
-      const provider = getSolanaProvider(type);
-      if (!provider) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
-      window.selectedSolanaWallet = type;
-      localStorage.setItem('selectedSolanaWallet', type);
+      let targetType = type || window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+      let provider = getSolanaProvider(targetType);
+      if (!provider) {
+        const detected = window.getDetectedSolanaWallets();
+        if (detected.length > 0) {
+          targetType = detected[0];
+          provider = getSolanaProvider(targetType);
+        }
+      }
+      if (!provider) throw new Error((targetType.charAt(0).toUpperCase() + targetType.slice(1)) + " Wallet is not installed.");
+      window.selectedSolanaWallet = targetType;
+      localStorage.setItem('selectedSolanaWallet', targetType);
       const resp = await provider.connect();
       const pubKey = resp?.publicKey || provider.publicKey;
-      if (!pubKey) throw new Error("Could not retrieve public key from " + type + " Wallet.");
-      setupSolanaWalletListeners(provider, type);
+      if (!pubKey) throw new Error("Could not retrieve public key from " + targetType + " Wallet.");
+      setupSolanaWalletListeners(provider, targetType);
       return pubKey.toString();
     };
 
@@ -542,15 +659,29 @@
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
         }
-        const type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        let type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
         console.log("Using wallet type:", type);
-        const solana = getSolanaProvider(type);
+        let solana = getSolanaProvider(type);
+        if (!solana) {
+          const detected = window.getDetectedSolanaWallets();
+          if (detected.length > 0) {
+            type = detected[0];
+            solana = getSolanaProvider(type);
+          }
+        }
         if (!solana) {
           throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
         }
+        if (!solana.publicKey) {
+          try {
+            await solana.connect();
+          } catch (connErr) {
+            console.warn("Solana connect on payment failed:", connErr);
+          }
+        }
         console.log("Solana provider found:", !!solana, "Public key:", solana.publicKey ? solana.publicKey.toString() : "null");
         if (!solana.publicKey) {
-          throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected.");
+          throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected. Please approve the connection in your browser extension.");
         }
 
         let fallbackRpc = "https://api.testnet.solana.com";
@@ -586,22 +717,15 @@
         transaction.recentBlockhash = latestBlockHash.blockhash;
         transaction.feePayer = fromPubkey;
 
-        console.log("Prompting wallet to sign and send transaction...");
-        const { signature } = await solana.signAndSendTransaction(transaction);
-        console.log("Transaction successfully signed and sent by wallet. Signature:", signature);
+        console.log("Requesting signature from wallet:", type);
+        const signed = await solana.signAndSendTransaction(transaction);
+        const signature = signed.signature || signed;
+        console.log("Transaction successfully broadcasted, signature:", signature);
 
-        console.log("Confirming transaction on-chain...");
-        await connection.confirmTransaction({
-          blockhash: latestBlockHash.blockhash,
-          lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-          signature: signature
-        }, "confirmed");
-
-        console.log("Transaction confirmed successfully on-chain:", signature);
         return signature;
-      } catch (error) {
-        console.error("sendSolPayment failed with error:", error);
-        throw error;
+      } catch (err) {
+        console.error("sendSolPayment transaction error:", err);
+        throw err;
       }
     };
 
@@ -612,12 +736,26 @@
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
         }
-        const type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        let type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
         console.log("Using wallet type:", type);
-        const solana = getSolanaProvider(type);
+        let solana = getSolanaProvider(type);
+        if (!solana) {
+          const detected = window.getDetectedSolanaWallets();
+          if (detected.length > 0) {
+            type = detected[0];
+            solana = getSolanaProvider(type);
+          }
+        }
         if (!solana) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
+        if (!solana.publicKey) {
+          try {
+            await solana.connect();
+          } catch (connErr) {
+            console.warn("Solana connect on USDT payment failed:", connErr);
+          }
+        }
         console.log("Solana provider found:", !!solana, "Public key:", solana.publicKey ? solana.publicKey.toString() : "null");
-        if (!solana.publicKey) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected.");
+        if (!solana.publicKey) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected. Please approve the connection in your browser extension.");
 
         let fallbackRpc = "https://api.testnet.solana.com";
         let fallbackUsdtMint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
@@ -767,6 +905,163 @@
       } catch (e) {
         console.error("signSolanaMessage failed:", e);
         throw e;
+      }
+    };
+
+    function decodeBase58(str) {
+      const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+      const ALPHABET_MAP = {};
+      for (let i = 0; i < ALPHABET.length; i++) ALPHABET_MAP[ALPHABET.charAt(i)] = i;
+      let bytes = [0];
+      for (let i = 0; i < str.length; i++) {
+        const c = str.charAt(i);
+        const val = ALPHABET_MAP[c];
+        if (val === undefined) throw new Error('Invalid Base58 character: ' + c);
+        for (let j = 0; j < bytes.length; j++) bytes[j] *= 58;
+        bytes[0] += val;
+        let carry = 0;
+        for (let j = 0; j < bytes.length; j++) {
+          bytes[j] += carry;
+          carry = bytes[j] >> 8;
+          bytes[j] &= 0xff;
+        }
+        while (carry > 0) {
+          bytes.push(carry & 0xff);
+          carry >>= 8;
+        }
+      }
+      for (let i = 0; i < str.length && str.charAt(i) === '1'; i++) bytes.push(0);
+      return new Uint8Array(bytes.reverse());
+    }
+
+    window.broadcastTreasuryTransfer = async function (treasuryPrivKeyBase58, recipientPubkey, lamports, rpcUrl) {
+      console.log("broadcastTreasuryTransfer started", recipientPubkey, lamports, rpcUrl);
+      ensureBuffer();
+      try {
+        if (!window.solanaWeb3) throw new Error("Solana Web3 is not loaded.");
+        let fallbackRpc = "https://api.testnet.solana.com";
+        try {
+          const hostname = window.location.hostname;
+          if (hostname.includes("uat") || hostname.includes("devnet")) {
+            fallbackRpc = "https://api.devnet.solana.com";
+          } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
+            fallbackRpc = "https://rpc.ankr.com/solana";
+          }
+        } catch (e) {}
+        const finalRpc = rpcUrl || fallbackRpc;
+        const connection = new solanaWeb3.Connection(finalRpc, "confirmed");
+
+        const secretKey = decodeBase58(treasuryPrivKeyBase58);
+        const keypair = solanaWeb3.Keypair.fromSecretKey(secretKey);
+        const toPubkey = new solanaWeb3.PublicKey(recipientPubkey);
+
+        const transaction = new solanaWeb3.Transaction().add(
+          solanaWeb3.SystemProgram.transfer({
+            fromPubkey: keypair.publicKey,
+            toPubkey: toPubkey,
+            lamports: Math.round(lamports),
+          })
+        );
+
+        const signature = await solanaWeb3.sendAndConfirmTransaction(
+          connection,
+          transaction,
+          [keypair],
+          { commitment: 'confirmed' }
+        );
+        console.log("Treasury transfer broadcasted successfully. Signature:", signature);
+        return signature;
+      } catch (error) {
+        console.error("broadcastTreasuryTransfer failed:", error);
+        throw error;
+      }
+    };
+
+    window.broadcastTreasuryTokenTransfer = async function (treasuryPrivKeyBase58, recipientPubkey, amountInUsdt, rpcUrl, tokenMint) {
+      console.log("broadcastTreasuryTokenTransfer started", recipientPubkey, amountInUsdt, rpcUrl, tokenMint);
+      ensureBuffer();
+      try {
+        if (!window.solanaWeb3) throw new Error("Solana Web3 is not loaded.");
+        let fallbackRpc = "https://api.testnet.solana.com";
+        try {
+          const hostname = window.location.hostname;
+          if (hostname.includes("uat") || hostname.includes("devnet")) {
+            fallbackRpc = "https://api.devnet.solana.com";
+          } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
+            fallbackRpc = "https://rpc.ankr.com/solana";
+          }
+        } catch (e) {}
+        const finalRpc = rpcUrl || fallbackRpc;
+        const connection = new solanaWeb3.Connection(finalRpc, "confirmed");
+
+        const secretKey = decodeBase58(treasuryPrivKeyBase58);
+        const keypair = solanaWeb3.Keypair.fromSecretKey(secretKey);
+        const toPubkey = new solanaWeb3.PublicKey(recipientPubkey);
+        const mintAddress = tokenMint || "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr";
+        const mintPubkey = new solanaWeb3.PublicKey(mintAddress);
+
+        const TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+        const ASSOCIATED_TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+        const fromAta = solanaWeb3.PublicKey.findProgramAddressSync(
+          [keypair.publicKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintPubkey.toBuffer()],
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        )[0];
+
+        const toAta = solanaWeb3.PublicKey.findProgramAddressSync(
+          [toPubkey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintPubkey.toBuffer()],
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        )[0];
+
+        const transaction = new solanaWeb3.Transaction();
+
+        const toAtaInfo = await connection.getAccountInfo(toAta);
+        if (!toAtaInfo) {
+          transaction.add(
+            new solanaWeb3.TransactionInstruction({
+              keys: [
+                { pubkey: keypair.publicKey, isSigner: true, isWritable: true },
+                { pubkey: toAta, isSigner: false, isWritable: true },
+                { pubkey: toPubkey, isSigner: false, isWritable: false },
+                { pubkey: mintPubkey, isSigner: false, isWritable: false },
+                { pubkey: solanaWeb3.SystemProgram.programId, isSigner: false, isWritable: false },
+                { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+              ],
+              programId: ASSOCIATED_TOKEN_PROGRAM_ID,
+              data: new Uint8Array(0),
+            })
+          );
+        }
+
+        const microUnits = Math.round(amountInUsdt * 1000000);
+        const data = new Uint8Array(9);
+        data[0] = 3; // Transfer instruction index = 3
+        const view = new DataView(data.buffer);
+        view.setBigUint64(1, BigInt(microUnits), true);
+
+        transaction.add(
+          new solanaWeb3.TransactionInstruction({
+            keys: [
+              { pubkey: fromAta, isSigner: false, isWritable: true },
+              { pubkey: toAta, isSigner: false, isWritable: true },
+              { pubkey: keypair.publicKey, isSigner: true, isWritable: false },
+            ],
+            programId: TOKEN_PROGRAM_ID,
+            data: data,
+          })
+        );
+
+        const signature = await solanaWeb3.sendAndConfirmTransaction(
+          connection,
+          transaction,
+          [keypair],
+          { commitment: 'confirmed' }
+        );
+        console.log("Treasury token transfer broadcasted. Signature:", signature);
+        return signature;
+      } catch (error) {
+        console.error("broadcastTreasuryTokenTransfer failed:", error);
+        throw error;
       }
     };
 
@@ -1087,9 +1382,21 @@
           console.error("Nyxian jobs listener error:", error);
         });
 
+      const unsub3 = db.collection('jobs')
+        .where('status', '==', 'Open')
+        .limit(50)
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
+          callback(JSON.stringify({ type: 'open_jobs', jobs: list }));
+        }, (error) => {
+          console.error("Open jobs listener error:", error);
+        });
+
       return () => {
         unsub1();
         unsub2();
+        unsub3();
       };
     };
 
@@ -1168,6 +1475,36 @@
           }
         }, (error) => {
           console.error("Rental details listener error:", error);
+        });
+      return unsub;
+    };
+
+    window.listenToRenterRequests = function (renteeId, callback) {
+      if (!firebase.apps.length || !renteeId) return () => { };
+      const db = firebase.firestore();
+      const unsub = db.collection('rental_requests')
+        .where('renteeId', '==', renteeId)
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
+          callback(JSON.stringify(list));
+        }, (error) => {
+          console.error("Renter requests listener error:", error);
+        });
+      return unsub;
+    };
+
+    window.listenToHostRequests = function (hostId, callback) {
+      if (!firebase.apps.length || !hostId) return () => { };
+      const db = firebase.firestore();
+      const unsub = db.collection('rental_requests')
+        .where('hostId', '==', hostId)
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
+          callback(JSON.stringify(list));
+        }, (error) => {
+          console.error("Host requests listener error:", error);
         });
       return unsub;
     };
@@ -1296,6 +1633,16 @@
           }
         });
 
+        const routeData = {
+          sourceId: sourceId,
+          layerId: layerId,
+          rawCoords: rawCoords,
+          color: color,
+          lineWidth: 6,
+          lineOpacity: 0.9
+        };
+        map._lastRoute = routeData;
+        window[routeKey + '_data'] = routeData;
         window[routeKey] = { sourceId: sourceId, layerId: layerId };
 
         const bounds = new maplibregl.LngLatBounds();
@@ -1593,6 +1940,118 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     };
 
+    // ── PDF Document Viewer & Downloader ──────────────────────────────────────
+    window.renderPdfPage = async function (canvasId, pdfSource, pageNum, scale) {
+      try {
+        if (!window.pdfjsLib) {
+          console.warn("PDF.js library not loaded yet.");
+          return JSON.stringify({ success: false, error: "PDF.js viewer library is loading or unavailable." });
+        }
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        // Document Cache to avoid re-parsing on every page turn or zoom
+        window._pdfDocCache = window._pdfDocCache || {};
+        const cacheKey = typeof pdfSource === 'string'
+          ? (pdfSource.length > 256 ? pdfSource.slice(0, 64) + '_' + pdfSource.length : pdfSource)
+          : 'doc_default';
+
+        let pdf = window._pdfDocCache[cacheKey];
+        if (!pdf) {
+          let loadingTask;
+          if (typeof pdfSource === 'string' && pdfSource.startsWith('data:')) {
+            // Binary decoding for maximum reliability
+            const commaIdx = pdfSource.indexOf(',');
+            const base64Data = commaIdx !== -1 ? pdfSource.substring(commaIdx + 1) : pdfSource;
+            const binaryStr = window.atob(base64Data);
+            const len = binaryStr.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binaryStr.charCodeAt(i);
+            }
+            loadingTask = window.pdfjsLib.getDocument({ data: bytes });
+          } else {
+            loadingTask = window.pdfjsLib.getDocument(pdfSource);
+          }
+          pdf = await loadingTask.promise;
+          window._pdfDocCache[cacheKey] = pdf;
+        }
+
+        const totalPages = pdf.numPages;
+        const pageToRender = Math.max(1, Math.min(pageNum || 1, totalPages));
+        const page = await pdf.getPage(pageToRender);
+
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) {
+          return JSON.stringify({ success: false, error: "Target canvas element #" + canvasId + " not found." });
+        }
+
+        // Cancel previous in-flight render task if active
+        if (canvas._currentRenderTask) {
+          try {
+            canvas._currentRenderTask.cancel();
+          } catch (_) {}
+          canvas._currentRenderTask = null;
+        }
+
+        // Calculate effective scale
+        let effectiveScale = (typeof scale === 'number' && scale > 0) ? scale : 1.2;
+        if (scale === -1 || scale === 0) {
+          const container = canvas.closest('.overflow-auto') || (canvas.parentElement ? canvas.parentElement.parentElement : null);
+          const containerWidth = container ? (container.clientWidth - 64) : 750;
+          const unscaledVp = page.getViewport({ scale: 1.0 });
+          effectiveScale = Math.max(0.6, Math.min(2.5, containerWidth / unscaledVp.width));
+        }
+
+        const viewport = page.getViewport({ scale: effectiveScale });
+        const ctx = canvas.getContext('2d');
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+
+        canvas.width = Math.floor(viewport.width * dpr);
+        canvas.height = Math.floor(viewport.height * dpr);
+        canvas.style.width = Math.floor(viewport.width) + 'px';
+        canvas.style.height = Math.floor(viewport.height) + 'px';
+
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const renderContext = {
+          canvasContext: ctx,
+          viewport: viewport,
+        };
+        const renderTask = page.render(renderContext);
+        canvas._currentRenderTask = renderTask;
+        await renderTask.promise;
+        canvas._currentRenderTask = null;
+
+        return JSON.stringify({
+          success: true,
+          totalPages: totalPages,
+          currentPage: pageToRender,
+          scale: effectiveScale,
+        });
+      } catch (err) {
+        if (err && (err.name === 'RenderingCancelledException' || String(err).includes('RenderingCancelledException'))) {
+          return JSON.stringify({ success: true, cancelled: true });
+        }
+        console.error("renderPdfPage error", err);
+        return JSON.stringify({ success: false, error: (err && err.message) || String(err) });
+      }
+    };
+
+    window.downloadPdfFile = function (pdfSource, fileName) {
+      try {
+        const link = document.createElement('a');
+        link.href = pdfSource;
+        link.download = fileName || 'contract_document.pdf';
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (e) {
+        console.error("downloadPdfFile error", e);
+      }
+    };
+
     window.isSignaturePadEmpty = function (canvasId) {
       const canvas = document.getElementById(canvasId);
       if (!canvas) return true;
@@ -1735,6 +2194,36 @@
       return unsub;
     };
 
+    window.listenToPropertyRenterRequests = function (renteeId, callback) {
+      if (!firebase.apps.length || !renteeId) return () => { };
+      const db = firebase.firestore();
+      const unsub = db.collection('property_requests')
+        .where('renteeId', '==', renteeId)
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
+          callback(JSON.stringify(list));
+        }, (error) => {
+          console.error("Property renter requests listener error:", error);
+        });
+      return unsub;
+    };
+
+    window.listenToPropertyHostRequests = function (hostId, callback) {
+      if (!firebase.apps.length || !hostId) return () => { };
+      const db = firebase.firestore();
+      const unsub = db.collection('property_requests')
+        .where('hostId', '==', hostId)
+        .onSnapshot((snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
+          callback(JSON.stringify(list));
+        }, (error) => {
+          console.error("Property host requests listener error:", error);
+        });
+      return unsub;
+    };
+
   </script>
 </head>
 
@@ -1750,7 +2239,7 @@
 
     <div class="splash-logo-container">
       <div class="splash-logo-glow"></div>
-      <img src="/images/logo.svg" alt="Tranyx Logo" class="splash-logo-img">
+      <img src="/images/logo.png" alt="Tranyx Logo" class="splash-logo-img rounded-2xl">
     </div>
 
     <h1 class="splash-title">TRANYX</h1>

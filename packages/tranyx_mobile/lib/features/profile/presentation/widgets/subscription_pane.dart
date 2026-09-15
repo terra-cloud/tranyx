@@ -12,6 +12,7 @@ import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
+import 'package:shared/shared.dart';
 
 final rawUserDocProvider =
     StreamProvider.autoDispose<DocumentSnapshot<Map<String, dynamic>>?>((ref) {
@@ -395,11 +396,14 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
 
     try {
       final firestore = ref.read(firestoreProvider);
-      final configDoc = await firestore
-          .collection('system_config')
-          .doc('treasury')
-          .get();
-      final treasuryPublicKey = configDoc.data()?['publicKey'] as String?;
+      String? treasuryPublicKey = Env.solanaPublicKey.isNotEmpty ? Env.solanaPublicKey : null;
+      if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
+        final configDoc = await firestore
+            .collection('system_config')
+            .doc('treasury')
+            .get();
+        treasuryPublicKey = configDoc.data()?['publicKey'] as String?;
+      }
 
       if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
         throw Exception('Treasury wallet is not configured.');

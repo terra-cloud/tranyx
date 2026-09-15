@@ -1,0 +1,17 @@
+name: headless_nav_core
+description: Pure Dart headless turn-by-turn navigation engine with background computation, Turf math, and symmetrical geospatial broadcasting and streaming.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  turf: ^0.0.9
+  meta: ^1.11.0
+  http: ^1.2.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^6.0.0

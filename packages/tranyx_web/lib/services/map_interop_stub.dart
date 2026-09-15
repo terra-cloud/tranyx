@@ -31,6 +31,7 @@ Future<void> initMap(
   bool isDark = true,
   double pitch = 0,
   double bearing = 0,
+  bool keyboard = true,
 }) async {}
 void onMapClick(String elementId, void Function(double lat, double lng) onTap) {}
 void setMarker(String elementId, String markerId, double lat, double lng, String? popupText) {}
@@ -60,3 +61,6 @@ void setupMapInteractionListener(
   void Function() onInteractionStart,
   void Function() onInteractionEnd,
 ) {}
+void setMapTheme(String elementId, {required bool isDark}) {}
+void updateAllMapsTheme({required bool isDark}) {}
+

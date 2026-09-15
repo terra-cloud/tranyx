@@ -1,0 +1,49 @@
+    // ------------------------------------------------------------------------
+    // WORKSPACE: CHATS, COMMUNICATIONS, SUPPORT TICKETS & NOTIFICATIONS
+    // ------------------------------------------------------------------------
+
+    // Notifications Collection
+    match /notifications/{notifId} {
+      allow read, update, delete: if resource == null || !('uid' in resource.data) || resource.data.uid == request.auth.uid || isAdminOrStaff() || isAuthenticated();
+      allow create: if isActiveUser() || isAuthenticated() || isAdminOrStaff();
+    }
+
+    // Direct Chats Collection
+    match /chats/{chatId} {
+      allow read, write: if isActiveUser() || isAdminOrStaff();
+      match /messages/{messageId} {
+        allow read, write: if isActiveUser() || isAdminOrStaff();
+      }
+    }
+
+    // Support Chats Collection
+    match /support_chats/{chatId} {
+      allow read, write: if isActiveUser() || isAdminOrStaff();
+      match /messages/{messageId} {
+        allow read, write: if isActiveUser() || isAdminOrStaff();
+      }
+    }
+
+    // Support Tickets Collections (Cross-platform compatibility)
+    match /supportTickets/{ticketId} {
+      allow read, write: if isActiveUser() || isAdminOrStaff();
+      match /responses/{responseId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    match /support_tickets/{ticketId} {
+      allow read, write: if isActiveUser() || isAdminOrStaff();
+      match /responses/{responseId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    match /tickets/{ticketId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Disputes Collection (Review and resolution portal)
+    match /disputes/{disputeId} {
+      allow read, write: if isActiveUser() || isAdminOrStaff();
+    }

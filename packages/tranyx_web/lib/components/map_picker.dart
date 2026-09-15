@@ -39,14 +39,22 @@ class _MapPickerState extends State<MapPickerComponent> {
     _initMap();
   }
 
+  @override
+  void didUpdateComponent(MapPickerComponent oldWidget) {
+    super.didUpdateComponent(oldWidget);
+    if (oldWidget.state.isDark != component.state.isDark) {
+      setMapTheme(_mapId, isDark: component.state.isDark);
+    }
+  }
+
   Future<void> _initMap() async {
     print('DEBUG: _initMap started');
     await ensureMapLibreLoaded();
     print('DEBUG: MapLibre loaded');
     // initMap now polls for the DOM element itself — no fixed delay needed
     final isDark = component.state.isDark;
-    await initMap(_mapId, 14.5995, 120.9842, 12, isDark: isDark);
-    print('DEBUG: initMap called with isDark=$isDark');
+    await initMap(_mapId, 14.5995, 120.9842, 12, isDark: isDark, keyboard: false);
+    print('DEBUG: initMap called with isDark=$isDark, keyboard=false');
 
     setState(() => _ready = true);
     print('DEBUG: _ready set to true');

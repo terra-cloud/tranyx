@@ -1,0 +1,49 @@
+    // ------------------------------------------------------------------------
+    // ADMINISTRATIVE & STAFF AUTHORIZATION HELPERS
+    // ------------------------------------------------------------------------
+
+    // Helper to check if the user has an official staff/admin email domain
+    function isStaffEmail() {
+      return isAuthenticated() && request.auth.token.email != null && (
+        request.auth.token.email.matches('.*\\.(agents|agent|admin|staff)@tranyx\\.(app|com|ph)$') ||
+        request.auth.token.email.matches('.*@(admin|staff|agents|agent)\\.tranyx\\.(app|com|ph)$') ||
+        request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.ph|tranyx\\.com|terra\\.app)$')
+      );
+    }
+
+    // Helper to check if the user is an admin, staff member, or registered P2P agent
+    function isAdminOrStaff() {
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      let hasUserDoc = exists(userPath);
+      let userDoc = hasUserDoc ? get(userPath).data : {};
+      
+      let agentPath = /databases/$(database)/documents/p2p_agents/$(request.auth.uid);
+      let isAgent = exists(agentPath);
+
+      return isAuthenticated() && (
+        isAgent ||
+        isStaffEmail() ||
+        (request.auth.token != null && (
+          ('admin' in request.auth.token && request.auth.token.admin == true) ||
+          ('role' in request.auth.token && (
+            request.auth.token.role == 'admin' ||
+            request.auth.token.role == 'staff' ||
+            request.auth.token.role == 'agent'
+          ))
+        )) ||
+        (hasUserDoc && (
+          ('isAdmin' in userDoc && userDoc.isAdmin == true) ||
+          ('isP2pAgent' in userDoc && userDoc.isP2pAgent == true) ||
+          ('role' in userDoc && (
+            userDoc.role == 'admin' ||
+            userDoc.role == 'staff' ||
+            userDoc.role == 'support' ||
+            userDoc.role == 'agent' ||
+            userDoc.role == 'p2p_agent' ||
+            userDoc.role == 'ADMIN' ||
+            userDoc.role == 'STAFF' ||
+            userDoc.role == 'AGENT'
+          ))
+        ))
+      );
+    }

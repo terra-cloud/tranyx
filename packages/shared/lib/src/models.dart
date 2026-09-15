@@ -1,7 +1,11 @@
 // Core data models for Tranyx (Shared between Mobile and Web)
 import 'enums.dart';
+import 'property_pricing_model.dart';
+import 'date_utils.dart';
 
 export 'enums.dart';
+export 'property_pricing_model.dart';
+export 'date_utils.dart';
 
 enum AccountType {
   nyxian,
@@ -55,6 +59,7 @@ class UserProfile {
   final String? walletPublicKey;
   final String? googleEmail;
   final double tyxBalance;
+  final double reservedBalance;
   final int jobsDone;
   final double totalEarned;
   final int verificationLevel;
@@ -72,6 +77,32 @@ class UserProfile {
   final List<String> disabledPromos;
   final int terraPoints;
   final List<String> earnedRewards;
+  final String? role;
+  final int abandonedJobs;
+  final String? subscriptionPlan;
+  final DateTime? subscriptionStartedAt;
+  final String? subscriptionPaymentMethod;
+  final double? subscriptionPaymentAmount;
+  final String? subscriptionTxId;
+  final String? subscriptionStatus;
+  final Map<String, dynamic>? pendingSubscription;
+
+  bool get isAdmin => role == 'admin' || role == 'staff' || role == 'support';
+
+  /// True if account balance has fallen below zero (system violation)
+  bool get hasNegativeBalance => tyxBalance < 0;
+
+  /// Effective spendable balance: Wallet balance minus any held/reserved funds
+  double get availableBalance => (tyxBalance - reservedBalance).clamp(0.0, double.infinity);
+
+  String get tierLabel {
+    if (isPremium || accountType == AccountType.hybrid) {
+      final roleStr = accountType == AccountType.employer ? 'Employer' : (accountType == AccountType.hybrid ? 'Hybrid' : 'Nyxian');
+      return '$roleStr — Pro';
+    }
+    final roleStr = accountType == AccountType.employer ? 'Employer' : 'Nyxian';
+    return '$roleStr — Lite';
+  }
 
   const UserProfile({
     required this.uid,
@@ -95,6 +126,7 @@ class UserProfile {
     this.walletPublicKey,
     this.googleEmail,
     this.tyxBalance = 0.0,
+    this.reservedBalance = 0.0,
     this.jobsDone = 0,
     this.totalEarned = 0.0,
     this.verificationLevel = 0,
@@ -112,19 +144,74 @@ class UserProfile {
     this.disabledPromos = const [],
     this.terraPoints = 0,
     this.earnedRewards = const [],
+    this.role,
+    this.abandonedJobs = 0,
+    this.subscriptionPlan,
+    this.subscriptionStartedAt,
+    this.subscriptionPaymentMethod,
+    this.subscriptionPaymentAmount,
+    this.subscriptionTxId,
+    this.subscriptionStatus,
+    this.pendingSubscription,
   });
 
-  factory UserProfile.fromMap(String uid, Map<String, dynamic> map) {
+  factory UserProfile.fromMap(String uid, Map map) {
     final type = AccountType.values.firstWhere(
       (e) => e.name == map['accountType'],
       orElse: () => AccountType.employer,
     );
+
+    DateTime? parseDate(dynamic val) {
+      if (val == null) return null;
+      if (val is DateTime) return val;
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+      if (val is String) {
+        final parsed = DateTime.tryParse(val);
+        if (parsed != null) return parsed;
+        final asNum = num.tryParse(val);
+        if (asNum != null) return DateTime.fromMillisecondsSinceEpoch(asNum.toInt());
+      }
+      try {
+        final dynamic dyn = val;
+        if (dyn.millisecondsSinceEpoch is int) {
+          return DateTime.fromMillisecondsSinceEpoch(dyn.millisecondsSinceEpoch as int);
+        }
+        if (dyn.toDate is Function) {
+          final res = dyn.toDate();
+          if (res is DateTime) return res;
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    int parseInt(dynamic val, [int fallback = 0]) {
+      if (val == null) return fallback;
+      if (val is num) return val.toInt();
+      if (val is String) return int.tryParse(val) ?? fallback;
+      return fallback;
+    }
+
+    List<String>? parseStringList(dynamic val) {
+      if (val == null) return null;
+      if (val is List) {
+        return val.map((e) => e.toString()).toList();
+      }
+      return null;
+    }
+
     return UserProfile(
       uid: uid,
-      name: map['name'] as String? ?? '',
+      name: (map['name'] as String?)?.trim().isNotEmpty == true
+          ? (map['name'] as String).trim()
+          : ((map['displayName'] as String?)?.trim().isNotEmpty == true
+              ? (map['displayName'] as String).trim()
+              : ((map['email'] as String?)?.split('@').first.isNotEmpty == true
+                  ? (map['email'] as String).split('@').first
+                  : 'User')),
       email: map['email'] as String? ?? '',
-      photoUrl: map['photoUrl'] as String?,
-      phoneNumber: map['phoneNumber'] as String?,
+      photoUrl: (map['photoUrl'] ?? map['avatarUrl'] ?? map['picture']) as String?,
+      phoneNumber: (map['phoneNumber'] ?? map['phone'] ?? map['contactNumber']) as String?,
       accountType: type,
       employerType: map['employerType'] != null
           ? EmployerType.values.firstWhere(
@@ -132,49 +219,51 @@ class UserProfile {
               orElse: () => EmployerType.personal,
             )
           : null,
-      businessName: map['businessName'] as String?,
+      businessName: (map['businessName'] ?? map['companyName']) as String?,
       businessPermit: map['businessPermit'] as String?,
       industry: map['industry'] as String?,
-      taxId: map['taxId'] as String?,
-      headline: map['headline'] as String?,
+      taxId: (map['taxId'] ?? map['tin']) as String?,
+      headline: (map['headline'] ?? map['bio'] ?? map['title']) as String?,
       hourlyRate: (map['hourlyRate'] as num?)?.toDouble(),
-      skills: (map['skills'] as List?)?.map((e) => e as String).toList(),
+      skills: parseStringList(map['skills']),
       rating: (map['rating'] as num?)?.toDouble(),
       renterRating: (map['renterRating'] as num?)?.toDouble(),
       hostRating: (map['hostRating'] as num?)?.toDouble(),
-      createdAt: map['createdAt'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int)
-          : null,
-      walletPublicKey: map['walletPublicKey'] as String?,
+      createdAt: parseDate(map['createdAt']),
+      walletPublicKey: (map['walletPublicKey'] ??
+              map['solanaWalletAddress'] ??
+              map['walletAddress']) as String?,
       googleEmail: map['googleEmail'] as String?,
       tyxBalance: (map['tyxBalance'] as num?)?.toDouble() ?? 0.0,
-      jobsDone: map['jobsDone'] as int? ?? 0,
+      reservedBalance: (map['reservedBalance'] as num?)?.toDouble() ?? 0.0,
+      jobsDone: parseInt(map['jobsDone']),
       totalEarned: (map['totalEarned'] as num?)?.toDouble() ?? 0.0,
-      verificationLevel: map['verificationLevel'] as int? ?? 0,
+      verificationLevel: parseInt(map['verificationLevel']),
       emailVerified: map['emailVerified'] as bool? ?? false,
       phoneVerified: map['phoneVerified'] as bool? ?? false,
       idVerified: map['idVerified'] as bool? ?? false,
       bgChecked: map['bgChecked'] as bool? ?? false,
       isPremium: map['isPremium'] as bool? ?? false,
-      premiumUntil: map['premiumUntil'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['premiumUntil'] as int)
-          : null,
+      premiumUntil: parseDate(map['premiumUntil']),
       isBonded: map['isBonded'] as bool? ?? false,
-      certificationUrls: (map['certificationUrls'] as List?)
-          ?.map((e) => e as String)
-          .toList(),
+      certificationUrls: parseStringList(map['certificationUrls']),
       activePromoCode: map['activePromoCode'] as String?,
       activePromoDiscountType: map['activePromoDiscountType'] as String?,
       activePromoDiscountValue: (map['activePromoDiscountValue'] as num?)?.toDouble(),
-      disabledPromos: (map['disabledPromos'] as List?)
-          ?.map((e) => e as String)
-          .toList() ??
-          const [],
-      terraPoints: map['terraPoints'] as int? ?? 0,
-      earnedRewards: (map['earnedRewards'] as List?)
-          ?.map((e) => e as String)
-          .toList() ??
-          const [],
+      disabledPromos: parseStringList(map['disabledPromos']) ?? const [],
+      terraPoints: parseInt(map['terraPoints']),
+      earnedRewards: parseStringList(map['earnedRewards']) ?? const [],
+      role: map['role'] as String?,
+      abandonedJobs: parseInt(map['abandonedJobs']),
+      subscriptionPlan: map['subscriptionPlan'] as String?,
+      subscriptionStartedAt: parseDate(map['subscriptionStartedAt']),
+      subscriptionPaymentMethod: map['subscriptionPaymentMethod'] as String?,
+      subscriptionPaymentAmount: (map['subscriptionPaymentAmount'] as num?)?.toDouble(),
+      subscriptionTxId: map['subscriptionTxId'] as String?,
+      subscriptionStatus: map['subscriptionStatus'] as String?,
+      pendingSubscription: map['pendingSubscription'] is Map
+          ? Map<String, dynamic>.from(map['pendingSubscription'] as Map)
+          : null,
     );
   }
 
@@ -200,6 +289,7 @@ class UserProfile {
     'walletPublicKey': walletPublicKey,
     'googleEmail': googleEmail,
     'tyxBalance': tyxBalance,
+    'reservedBalance': reservedBalance,
     'jobsDone': jobsDone,
     'totalEarned': totalEarned,
     'verificationLevel': verificationLevel,
@@ -217,6 +307,18 @@ class UserProfile {
     'disabledPromos': disabledPromos,
     'terraPoints': terraPoints,
     'earnedRewards': earnedRewards,
+    if (role != null) 'role': role,
+    'abandonedJobs': abandonedJobs,
+    if (subscriptionPlan != null) 'subscriptionPlan': subscriptionPlan,
+    if (subscriptionStartedAt != null)
+      'subscriptionStartedAt': subscriptionStartedAt?.millisecondsSinceEpoch,
+    if (subscriptionPaymentMethod != null)
+      'subscriptionPaymentMethod': subscriptionPaymentMethod,
+    if (subscriptionPaymentAmount != null)
+      'subscriptionPaymentAmount': subscriptionPaymentAmount,
+    if (subscriptionTxId != null) 'subscriptionTxId': subscriptionTxId,
+    if (subscriptionStatus != null) 'subscriptionStatus': subscriptionStatus,
+    if (pendingSubscription != null) 'pendingSubscription': pendingSubscription,
   };
 
   UserProfile copyWith({
@@ -240,6 +342,7 @@ class UserProfile {
     String? walletPublicKey,
     String? googleEmail,
     double? tyxBalance,
+    double? reservedBalance,
     int? jobsDone,
     double? totalEarned,
     int? verificationLevel,
@@ -257,6 +360,15 @@ class UserProfile {
     List<String>? disabledPromos,
     int? terraPoints,
     List<String>? earnedRewards,
+    String? role,
+    int? abandonedJobs,
+    String? subscriptionPlan,
+    DateTime? subscriptionStartedAt,
+    String? subscriptionPaymentMethod,
+    double? subscriptionPaymentAmount,
+    String? subscriptionTxId,
+    String? subscriptionStatus,
+    Map<String, dynamic>? pendingSubscription,
   }) {
     return UserProfile(
       uid: uid,
@@ -280,6 +392,7 @@ class UserProfile {
       walletPublicKey: walletPublicKey ?? this.walletPublicKey,
       googleEmail: googleEmail ?? this.googleEmail,
       tyxBalance: tyxBalance ?? this.tyxBalance,
+      reservedBalance: reservedBalance ?? this.reservedBalance,
       jobsDone: jobsDone ?? this.jobsDone,
       totalEarned: totalEarned ?? this.totalEarned,
       verificationLevel: verificationLevel ?? this.verificationLevel,
@@ -297,6 +410,15 @@ class UserProfile {
       disabledPromos: disabledPromos ?? this.disabledPromos,
       terraPoints: terraPoints ?? this.terraPoints,
       earnedRewards: earnedRewards ?? this.earnedRewards,
+      role: role ?? this.role,
+      abandonedJobs: abandonedJobs ?? this.abandonedJobs,
+      subscriptionPlan: subscriptionPlan ?? this.subscriptionPlan,
+      subscriptionStartedAt: subscriptionStartedAt ?? this.subscriptionStartedAt,
+      subscriptionPaymentMethod: subscriptionPaymentMethod ?? this.subscriptionPaymentMethod,
+      subscriptionPaymentAmount: subscriptionPaymentAmount ?? this.subscriptionPaymentAmount,
+      subscriptionTxId: subscriptionTxId ?? this.subscriptionTxId,
+      subscriptionStatus: subscriptionStatus ?? this.subscriptionStatus,
+      pendingSubscription: pendingSubscription ?? this.pendingSubscription,
     );
   }
 }
@@ -340,6 +462,8 @@ class Job {
   final bool nyxianRated;
   final String? promoCode;
   final double? discountAmount;
+  final List<String> imageUrls;
+  final DateTime? updatedAt;
 
   const Job({
     required this.id,
@@ -379,7 +503,34 @@ class Job {
     this.nyxianRated = false,
     this.promoCode,
     this.discountAmount,
+    this.imageUrls = const [],
+    this.updatedAt,
   });
+
+  /// Formats the original posting date in a user-friendly format (e.g. "Today", "Yesterday", "2 days ago", "Aug 25, 2026").
+  String get formattedPostingDate => formatPostingDate(createdAt);
+
+  /// Formats the original posting date with "Posted " prefix (e.g. "Posted Today", "Posted 2 days ago", "Posted Aug 25, 2026").
+  String get postedDateLabel => formatPostingDate(createdAt, withPrefix: true);
+
+  /// Formats full posting date and time for detail screens (e.g. "Posted on Aug 25, 2026 at 5:05 PM").
+  String get formattedPostingDateTime => formatPostingDateTime(createdAt);
+
+  /// True if posted today.
+  bool get isPostedToday => isRecentlyPosted(createdAt, maxDays: 0);
+
+  /// True if posted within 2 days.
+  bool get isRecent => isRecentlyPosted(createdAt, maxDays: 2);
+
+  /// True if the gig has been marked as Abandoned.
+  bool get isAbandoned => status.trim().toLowerCase() == 'abandoned';
+
+  /// True if the gig has had no activity or update for at least [thresholdHours] (default 48h).
+  bool isInactive({int thresholdHours = 48, DateTime? currentTime}) {
+    final now = currentTime ?? DateTime.now();
+    final lastActiveTime = updatedAt ?? createdAt;
+    return now.difference(lastActiveTime).inHours >= thresholdHours;
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -419,10 +570,12 @@ class Job {
       'nyxianRated': nyxianRated,
       'promoCode': promoCode,
       'discountAmount': discountAmount,
+      'imageUrls': imageUrls,
+      if (updatedAt != null) 'updatedAt': updatedAt?.millisecondsSinceEpoch,
     };
   }
 
-  factory Job.fromMap(Map<String, dynamic> map, String id) {
+  factory Job.fromMap(Map map, String id) {
     return Job(
       id: id,
       creatorId: map['creatorId'] ?? '',
@@ -444,16 +597,14 @@ class Job {
       ),
       employmentType: map['employmentType'] ?? '',
       dateRequirement: map['dateRequirement'] ?? '',
-      jobDate: map['jobDate'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['jobDate'])
-          : null,
+      jobDate: parseDateTime(map['jobDate']),
       timePreference: map['timePreference'] ?? '',
       pricingType: map['pricingType'] ?? '',
       pricingValue: (map['pricingValue'] as num?)?.toDouble() ?? 0.0,
       locationType: map['locationType'] ?? '',
       address: map['address'],
       landmark: map['landmark'],
-      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
+      createdAt: parseDateTime(map['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
       status: map['status'] ?? 'Open',
       applicantCount: map['applicantCount'] ?? 0,
       recentApplicantPhotos: List<String>.from(
@@ -474,6 +625,8 @@ class Job {
       nyxianRated: map['nyxianRated'] ?? false,
       promoCode: map['promoCode'] as String?,
       discountAmount: (map['discountAmount'] as num?)?.toDouble(),
+      imageUrls: List<String>.from(map['imageUrls'] ?? []),
+      updatedAt: parseDateTime(map['updatedAt']),
     );
   }
 
@@ -515,6 +668,8 @@ class Job {
     bool? nyxianRated,
     String? promoCode,
     double? discountAmount,
+    List<String>? imageUrls,
+    DateTime? updatedAt,
   }) {
     return Job(
       id: id ?? this.id,
@@ -555,9 +710,48 @@ class Job {
       nyxianRated: nyxianRated ?? this.nyxianRated,
       promoCode: promoCode ?? this.promoCode,
       discountAmount: discountAmount ?? this.discountAmount,
+      imageUrls: imageUrls ?? this.imageUrls,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
+  String get employerId => creatorId;
+  String? get acceptedNyxianId => acceptedApplicantId;
+  double get budget => pricingValue;
+  bool get isHired => acceptedApplicantId != null && acceptedApplicantId!.trim().isNotEmpty;
+  bool get isEdited => updatedAt != null;
+  String? get formattedEditedDate => updatedAt != null ? formatEditedDate(updatedAt) : null;
+  bool get isPreHire =>
+      !isHired &&
+      (status.toLowerCase() == 'open' || status.toLowerCase() == 'reviewing');
+  bool get canEdit => isPreHire;
+  bool get isCancellationLocked =>
+      isHired ||
+      status.toLowerCase() == 'in progress' ||
+      status.toLowerCase() == 'in_progress' ||
+      status.toUpperCase() == 'ACCEPTED' ||
+      status == 'MUTUAL_CANCEL_PENDING' ||
+      isTerminal;
+  bool get isTerminal =>
+      status.toLowerCase() == 'completed' ||
+      status.toLowerCase() == 'cancelled' ||
+      status.toUpperCase() == 'ADMIN_CANCELLED' ||
+      isAbandoned;
+  bool get isCancelled =>
+      status.toLowerCase() == 'cancelled' ||
+      status.toUpperCase() == 'ADMIN_CANCELLED';
+  bool get isCompleted => status.toLowerCase() == 'completed';
+
+  /// Returns true if this job is an accepted, active commitment for the given Nyxian that is not yet finished.
+  bool isOngoingForNyxian(String nyxianUid) {
+    if (nyxianUid.trim().isEmpty) return false;
+    final accepted = acceptedApplicantId?.trim();
+    if (accepted == null || accepted != nyxianUid.trim()) return false;
+    return !isTerminal;
+  }
 }
+
+const String ongoingJobRestrictionMessage =
+    'You have an ongoing job to complete. Please complete your current task before applying for another job to avoid conflicts in your responsibilities.';
 
 class JobApplication {
   final String id;
@@ -569,6 +763,7 @@ class JobApplication {
   final double proposalRate;
   final bool isCounterOffer;
   final DateTime createdAt;
+  final String status;
 
   const JobApplication({
     required this.id,
@@ -580,6 +775,7 @@ class JobApplication {
     required this.proposalRate,
     required this.isCounterOffer,
     required this.createdAt,
+    this.status = 'PENDING',
   });
 
   Map<String, dynamic> toMap() {
@@ -592,10 +788,11 @@ class JobApplication {
       'proposalRate': proposalRate,
       'isCounterOffer': isCounterOffer,
       'createdAt': createdAt.millisecondsSinceEpoch,
+      'status': status,
     };
   }
 
-  factory JobApplication.fromMap(Map<String, dynamic> map, String id) {
+  factory JobApplication.fromMap(Map map, String id) {
     return JobApplication(
       id: id,
       jobId: map['jobId'] ?? '',
@@ -606,6 +803,88 @@ class JobApplication {
       proposalRate: (map['proposalRate'] as num?)?.toDouble() ?? 0.0,
       isCounterOffer: map['isCounterOffer'] ?? false,
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
+      status: map['status'] ?? 'PENDING',
+    );
+  }
+
+  JobApplication copyWith({
+    String? id,
+    String? jobId,
+    String? applicantUid,
+    String? applicantName,
+    String? applicantPhotoUrl,
+    String? coverNote,
+    double? proposalRate,
+    bool? isCounterOffer,
+    DateTime? createdAt,
+    String? status,
+  }) {
+    return JobApplication(
+      id: id ?? this.id,
+      jobId: jobId ?? this.jobId,
+      applicantUid: applicantUid ?? this.applicantUid,
+      applicantName: applicantName ?? this.applicantName,
+      applicantPhotoUrl: applicantPhotoUrl ?? this.applicantPhotoUrl,
+      coverNote: coverNote ?? this.coverNote,
+      proposalRate: proposalRate ?? this.proposalRate,
+      isCounterOffer: isCounterOffer ?? this.isCounterOffer,
+      createdAt: createdAt ?? this.createdAt,
+      status: status ?? this.status,
+    );
+  }
+}
+
+class JobCancellationLog {
+  final String id;
+  final String jobId;
+  final String cancelledBy;
+  final String role; // 'employer' | 'admin'
+  final String action; // 'UNILATERAL_CANCEL' | 'ADMIN_OVERRIDE_CANCEL'
+  final String status; // 'CANCELLED' | 'ADMIN_CANCELLED'
+  final String reason;
+  final String? previousStatus;
+  final String? acceptedApplicantId;
+  final DateTime timestamp;
+
+  const JobCancellationLog({
+    required this.id,
+    required this.jobId,
+    required this.cancelledBy,
+    required this.role,
+    required this.action,
+    required this.status,
+    required this.reason,
+    this.previousStatus,
+    this.acceptedApplicantId,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'jobId': jobId,
+      'cancelledBy': cancelledBy,
+      'role': role,
+      'action': action,
+      'status': status,
+      'reason': reason,
+      'previousStatus': previousStatus,
+      'acceptedApplicantId': acceptedApplicantId,
+      'timestamp': timestamp.millisecondsSinceEpoch,
+    };
+  }
+
+  factory JobCancellationLog.fromMap(Map map, String id) {
+    return JobCancellationLog(
+      id: id,
+      jobId: map['jobId'] ?? '',
+      cancelledBy: map['cancelledBy'] ?? map['adminUid'] ?? '',
+      role: map['role'] ?? 'employer',
+      action: map['action'] ?? 'UNILATERAL_CANCEL',
+      status: map['status'] ?? 'CANCELLED',
+      reason: map['reason'] ?? '',
+      previousStatus: map['previousStatus'],
+      acceptedApplicantId: map['acceptedApplicantId'],
+      timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] ?? 0),
     );
   }
 }
@@ -643,7 +922,7 @@ class JobQuestion {
     };
   }
 
-  factory JobQuestion.fromMap(Map<String, dynamic> map, String id) {
+  factory JobQuestion.fromMap(Map map, String id) {
     return JobQuestion(
       id: id,
       jobId: map['jobId'] ?? '',
@@ -739,6 +1018,14 @@ class VehicleRental {
   final DateTime? signedAt;
   final bool? hireWithDriver;
 
+  // Party Verification Snapshots
+  final bool? hostIsVerified;
+  final String? hostVerificationStatus; // 'VERIFIED' | 'UNVERIFIED'
+  final String? hostVerificationTier;
+  final bool? renteeIsVerified;
+  final String? renteeVerificationStatus; // 'VERIFIED' | 'UNVERIFIED'
+  final String? renteeVerificationTier;
+
   // Live coordinates
   final double? trackingLat;
   final double? trackingLng;
@@ -748,6 +1035,8 @@ class VehicleRental {
   final double pickupLat;
   final double pickupLng;
   final DateTime createdAt;
+  final bool acceptingBookings;
+  final bool isDeleted;
 
   const VehicleRental({
     required this.id,
@@ -793,6 +1082,12 @@ class VehicleRental {
     this.renteeLicenseNumber,
     this.signedAt,
     this.hireWithDriver,
+    this.hostIsVerified,
+    this.hostVerificationStatus,
+    this.hostVerificationTier,
+    this.renteeIsVerified,
+    this.renteeVerificationStatus,
+    this.renteeVerificationTier,
     this.trackingLat,
     this.trackingLng,
     this.fuelType,
@@ -801,6 +1096,8 @@ class VehicleRental {
     required this.pickupLat,
     required this.pickupLng,
     required this.createdAt,
+    this.acceptingBookings = true,
+    this.isDeleted = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -832,6 +1129,8 @@ class VehicleRental {
       'extensionRatePerHour': extensionRatePerHour,
       'latePenaltyRatePerHour': latePenaltyRatePerHour,
       'status': status,
+      'acceptingBookings': acceptingBookings,
+      'isDeleted': isDeleted,
       'fuelType': fuelType,
       'transmission': transmission,
       'offersDriver': offersDriver,
@@ -850,6 +1149,12 @@ class VehicleRental {
       'renteeLicenseNumber': renteeLicenseNumber,
       'signedAt': signedAt?.millisecondsSinceEpoch,
       'hireWithDriver': hireWithDriver,
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': hostVerificationStatus,
+      'hostVerificationTier': hostVerificationTier,
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': renteeVerificationStatus,
+      'renteeVerificationTier': renteeVerificationTier,
       'trackingLat': trackingLat,
       'trackingLng': trackingLng,
       'pickupAddress': pickupAddress,
@@ -859,11 +1164,15 @@ class VehicleRental {
     };
   }
 
-  factory VehicleRental.fromMap(Map<String, dynamic> map, String id) {
+  factory VehicleRental.fromMap(Map map, String id) {
     final vType = VehicleType.values.firstWhere(
       (e) => e.name == map['type'],
       orElse: () => VehicleType.car,
     );
+    final rawStatus = (map['status'] ?? 'Available').toString();
+    final isDel = map['isDeleted'] as bool? ?? (rawStatus == 'Archived' || rawStatus == 'Deleted');
+    final isAccepting = map['acceptingBookings'] as bool? ?? (rawStatus != 'Not Accepting Bookings');
+
     return VehicleRental(
       id: id,
       hostId: map['hostId'] ?? '',
@@ -895,7 +1204,9 @@ class VehicleRental {
           (map['extensionRatePerHour'] as num?)?.toDouble() ?? 0.0,
       latePenaltyRatePerHour:
           (map['latePenaltyRatePerHour'] as num?)?.toDouble() ?? 0.0,
-      status: map['status'] ?? 'Available',
+      status: rawStatus,
+      acceptingBookings: isAccepting,
+      isDeleted: isDel,
       fuelType: map['fuelType'] as String?,
       transmission: map['transmission'] as String?,
       offersDriver: map['offersDriver'] as bool? ?? false,
@@ -920,12 +1231,181 @@ class VehicleRental {
           ? DateTime.fromMillisecondsSinceEpoch(map['signedAt'])
           : null,
       hireWithDriver: map['hireWithDriver'] as bool?,
+      hostIsVerified: map['hostIsVerified'] as bool?,
+      hostVerificationStatus: map['hostVerificationStatus'] as String?,
+      hostVerificationTier: map['hostVerificationTier'] as String?,
+      renteeIsVerified: map['renteeIsVerified'] as bool?,
+      renteeVerificationStatus: map['renteeVerificationStatus'] as String?,
+      renteeVerificationTier: map['renteeVerificationTier'] as String?,
       trackingLat: (map['trackingLat'] as num?)?.toDouble(),
       trackingLng: (map['trackingLng'] as num?)?.toDouble(),
       pickupAddress: map['pickupAddress'] ?? '',
       pickupLat: (map['pickupLat'] as num?)?.toDouble() ?? 0.0,
       pickupLng: (map['pickupLng'] as num?)?.toDouble() ?? 0.0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
+    );
+  }
+
+  VehicleRental copyWith({
+    String? id,
+    String? hostId,
+    String? hostName,
+    String? hostPhotoUrl,
+    String? brand,
+    String? model,
+    int? year,
+    VehicleType? type,
+    String? plateNumber,
+    double? vehicleValue,
+    String? ltoCrNumber,
+    String? ltoOrNumber,
+    String? insuranceProvider,
+    String? insurancePolicyNumber,
+    String? franchisePermit,
+    String? interiorPhotoUrl,
+    String? frontPhotoUrl,
+    String? backPhotoUrl,
+    String? contractType,
+    String? contractTerms,
+    double? price12h,
+    double? priceDaily,
+    double? priceWeekly,
+    double? priceMonthly,
+    double? extensionRatePerHour,
+    double? latePenaltyRatePerHour,
+    String? status,
+    bool? offersDriver,
+    double? driverDailyPrice,
+    String? driverNote,
+    String? driverLicenseNumber,
+    String? renteeId,
+    String? renteeName,
+    String? renteePhotoUrl,
+    String? rentalDurationType,
+    int? rentalMultiplier,
+    DateTime? startDate,
+    DateTime? endDate,
+    double? totalCost,
+    String? renteeSignatureName,
+    String? renteeLicenseNumber,
+    DateTime? signedAt,
+    bool? hireWithDriver,
+    bool? hostIsVerified,
+    String? hostVerificationStatus,
+    String? hostVerificationTier,
+    bool? renteeIsVerified,
+    String? renteeVerificationStatus,
+    String? renteeVerificationTier,
+    double? trackingLat,
+    double? trackingLng,
+    String? fuelType,
+    String? transmission,
+    String? pickupAddress,
+    double? pickupLat,
+    double? pickupLng,
+    DateTime? createdAt,
+    bool? acceptingBookings,
+    bool? isDeleted,
+  }) {
+    return VehicleRental(
+      id: id ?? this.id,
+      hostId: hostId ?? this.hostId,
+      hostName: hostName ?? this.hostName,
+      hostPhotoUrl: hostPhotoUrl ?? this.hostPhotoUrl,
+      brand: brand ?? this.brand,
+      model: model ?? this.model,
+      year: year ?? this.year,
+      type: type ?? this.type,
+      plateNumber: plateNumber ?? this.plateNumber,
+      vehicleValue: vehicleValue ?? this.vehicleValue,
+      ltoCrNumber: ltoCrNumber ?? this.ltoCrNumber,
+      ltoOrNumber: ltoOrNumber ?? this.ltoOrNumber,
+      insuranceProvider: insuranceProvider ?? this.insuranceProvider,
+      insurancePolicyNumber: insurancePolicyNumber ?? this.insurancePolicyNumber,
+      franchisePermit: franchisePermit ?? this.franchisePermit,
+      interiorPhotoUrl: interiorPhotoUrl ?? this.interiorPhotoUrl,
+      frontPhotoUrl: frontPhotoUrl ?? this.frontPhotoUrl,
+      backPhotoUrl: backPhotoUrl ?? this.backPhotoUrl,
+      contractType: contractType ?? this.contractType,
+      contractTerms: contractTerms ?? this.contractTerms,
+      price12h: price12h ?? this.price12h,
+      priceDaily: priceDaily ?? this.priceDaily,
+      priceWeekly: priceWeekly ?? this.priceWeekly,
+      priceMonthly: priceMonthly ?? this.priceMonthly,
+      extensionRatePerHour: extensionRatePerHour ?? this.extensionRatePerHour,
+      latePenaltyRatePerHour: latePenaltyRatePerHour ?? this.latePenaltyRatePerHour,
+      status: status ?? this.status,
+      offersDriver: offersDriver ?? this.offersDriver,
+      driverDailyPrice: driverDailyPrice ?? this.driverDailyPrice,
+      driverNote: driverNote ?? this.driverNote,
+      driverLicenseNumber: driverLicenseNumber ?? this.driverLicenseNumber,
+      renteeId: renteeId ?? this.renteeId,
+      renteeName: renteeName ?? this.renteeName,
+      renteePhotoUrl: renteePhotoUrl ?? this.renteePhotoUrl,
+      rentalDurationType: rentalDurationType ?? this.rentalDurationType,
+      rentalMultiplier: rentalMultiplier ?? this.rentalMultiplier,
+      startDate: startDate ?? this.startDate,
+      endDate: endDate ?? this.endDate,
+      totalCost: totalCost ?? this.totalCost,
+      renteeSignatureName: renteeSignatureName ?? this.renteeSignatureName,
+      renteeLicenseNumber: renteeLicenseNumber ?? this.renteeLicenseNumber,
+      signedAt: signedAt ?? this.signedAt,
+      hireWithDriver: hireWithDriver ?? this.hireWithDriver,
+      hostIsVerified: hostIsVerified ?? this.hostIsVerified,
+      hostVerificationStatus: hostVerificationStatus ?? this.hostVerificationStatus,
+      hostVerificationTier: hostVerificationTier ?? this.hostVerificationTier,
+      renteeIsVerified: renteeIsVerified ?? this.renteeIsVerified,
+      renteeVerificationStatus: renteeVerificationStatus ?? this.renteeVerificationStatus,
+      renteeVerificationTier: renteeVerificationTier ?? this.renteeVerificationTier,
+      trackingLat: trackingLat ?? this.trackingLat,
+      trackingLng: trackingLng ?? this.trackingLng,
+      fuelType: fuelType ?? this.fuelType,
+      transmission: transmission ?? this.transmission,
+      pickupAddress: pickupAddress ?? this.pickupAddress,
+      pickupLat: pickupLat ?? this.pickupLat,
+      pickupLng: pickupLng ?? this.pickupLng,
+      createdAt: createdAt ?? this.createdAt,
+      acceptingBookings: acceptingBookings ?? this.acceptingBookings,
+      isDeleted: isDeleted ?? this.isDeleted,
+    );
+  }
+
+  static VehicleRental fromBookingRequest(VehicleRental baseListing, Map<String, dynamic> req) {
+    DateTime? parseEpochOrDate(dynamic val) {
+      if (val == null) return null;
+      if (val is DateTime) return val;
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+      if (val is String) {
+        final parsed = DateTime.tryParse(val);
+        if (parsed != null) return parsed;
+        final asNum = num.tryParse(val);
+        if (asNum != null) return DateTime.fromMillisecondsSinceEpoch(asNum.toInt());
+      }
+      return null;
+    }
+
+    final start = parseEpochOrDate(req['startDate']);
+    final end = parseEpochOrDate(req['endDate']);
+    final sigTime = parseEpochOrDate(req['signedAt']);
+    final sig = (req['signatureName'] ?? req['renteeSignatureName']) as String?;
+
+    return baseListing.copyWith(
+      renteeId: req['renteeId'] as String? ?? req['renterId'] as String? ?? baseListing.renteeId,
+      renteeName: req['renteeName'] as String? ?? req['renterName'] as String? ?? baseListing.renteeName,
+      renteePhotoUrl: req['renteePhotoUrl'] as String? ?? req['renterPhotoUrl'] as String? ?? baseListing.renteePhotoUrl,
+      startDate: start ?? baseListing.startDate,
+      endDate: end ?? baseListing.endDate,
+      rentalDurationType: req['rentalDurationType'] as String? ?? req['durationType'] as String? ?? baseListing.rentalDurationType,
+      rentalMultiplier: (req['rentalMultiplier'] as num?)?.toInt() ?? (req['durationMultiplier'] as num?)?.toInt() ?? baseListing.rentalMultiplier,
+      totalCost: (req['totalCost'] as num?)?.toDouble() ?? (req['totalAmount'] as num?)?.toDouble() ?? baseListing.totalCost,
+      renteeSignatureName: sig ?? baseListing.renteeSignatureName,
+      renteeLicenseNumber: req['renteeLicenseNumber'] as String? ?? req['renterLicenseNumber'] as String? ?? baseListing.renteeLicenseNumber,
+      signedAt: sigTime ?? baseListing.signedAt,
+      hireWithDriver: req['hireWithDriver'] as bool? ?? baseListing.hireWithDriver,
+      renteeIsVerified: req['renteeIsVerified'] as bool? ?? baseListing.renteeIsVerified,
+      renteeVerificationStatus: req['renteeVerificationStatus'] as String? ?? baseListing.renteeVerificationStatus,
+      renteeVerificationTier: req['renteeVerificationTier'] as String? ?? baseListing.renteeVerificationTier,
     );
   }
 }
@@ -956,6 +1436,18 @@ class PropertyRental {
   final bool allowChat;
   final double? securityDepositAmount;
   final double? advanceAmount;
+  final DepositType depositType;
+  final double depositValue;
+  final bool isListingFeeWaived;
+  final List<String> allowedDurations;
+
+  // Party Verification Snapshots
+  final bool? hostIsVerified;
+  final String? hostVerificationStatus; // 'VERIFIED' | 'UNVERIFIED'
+  final String? hostVerificationTier;
+  final bool? renteeIsVerified;
+  final String? renteeVerificationStatus; // 'VERIFIED' | 'UNVERIFIED'
+  final String? renteeVerificationTier;
 
   // Renter details
   final String? renteeId;
@@ -971,6 +1463,12 @@ class PropertyRental {
   final String? rentalDurationType;
   final String? signatureHash;
   final String? renteeLicenseNumber;
+  final bool acceptingBookings;
+  final bool isDeleted;
+
+  double get dailyRate => priceDaily;
+  double get weeklyRate => priceWeekly;
+  double get monthlyRate => priceMonthly;
 
   const PropertyRental({
     required this.id,
@@ -997,6 +1495,16 @@ class PropertyRental {
     this.allowChat = false,
     this.securityDepositAmount,
     this.advanceAmount,
+    this.depositType = DepositType.none,
+    this.depositValue = 0.0,
+    this.isListingFeeWaived = true,
+    this.allowedDurations = const ['DAILY', 'WEEKLY', 'MONTHLY'],
+    this.hostIsVerified,
+    this.hostVerificationStatus,
+    this.hostVerificationTier,
+    this.renteeIsVerified,
+    this.renteeVerificationStatus,
+    this.renteeVerificationTier,
     this.renteeId,
     this.renteeName,
     this.renteePhotoUrl,
@@ -1010,6 +1518,8 @@ class PropertyRental {
     this.rentalDurationType,
     this.signatureHash,
     this.renteeLicenseNumber,
+    this.acceptingBookings = true,
+    this.isDeleted = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -1028,16 +1538,32 @@ class PropertyRental {
       'depositMonths': depositMonths,
       'securityDepositAmount': securityDepositAmount,
       'advanceAmount': advanceAmount,
+      'depositType': depositType.nameString,
+      'depositValue': depositValue,
+      'securityDepositPolicy': {
+        'type': depositType.nameString,
+        'value': depositValue,
+      },
+      'isListingFeeWaived': isListingFeeWaived,
+      'allowedDurations': allowedDurations,
       'address': address,
       'latitude': latitude,
       'longitude': longitude,
       'photoUrls': photoUrls,
       'amenities': amenities,
       'status': status,
+      'acceptingBookings': acceptingBookings,
+      'isDeleted': isDeleted,
       'contractType': contractType,
       'contractTerms': contractTerms,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'allowChat': allowChat,
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': hostVerificationStatus,
+      'hostVerificationTier': hostVerificationTier,
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': renteeVerificationStatus,
+      'renteeVerificationTier': renteeVerificationTier,
       'renteeId': renteeId,
       'renteeName': renteeName,
       'renteePhotoUrl': renteePhotoUrl,
@@ -1054,7 +1580,7 @@ class PropertyRental {
     };
   }
 
-  factory PropertyRental.fromMap(Map<String, dynamic> map, String id) {
+  factory PropertyRental.fromMap(Map map, String id) {
     final pType = PropertyType.values.firstWhere(
       (e) => e.name == map['type'],
       orElse: () => PropertyType.house,
@@ -1063,6 +1589,33 @@ class PropertyRental {
       (e) => e.name == map['category'],
       orElse: () => PropertyCategory.residential,
     );
+
+    final monthly = (map['priceMonthly'] as num?)?.toDouble() ?? 0.0;
+    final weekly = (map['priceWeekly'] as num?)?.toDouble() ?? 0.0;
+    final daily = (map['priceDaily'] as num?)?.toDouble() ?? 0.0;
+
+    DepositType dType = DepositType.none;
+    double dVal = 0.0;
+
+    if (map['securityDepositPolicy'] is Map) {
+      final policy = map['securityDepositPolicy'] as Map;
+      dType = DepositTypeHelper.fromString(policy['type']?.toString());
+      dVal = (policy['value'] as num?)?.toDouble() ?? 0.0;
+    } else if (map['depositType'] != null) {
+      dType = DepositTypeHelper.fromString(map['depositType']?.toString());
+      dVal = (map['depositValue'] as num?)?.toDouble() ?? 0.0;
+    } else if (map['securityDepositAmount'] != null && (map['securityDepositAmount'] as num) > 0) {
+      dType = DepositType.fixed;
+      dVal = (map['securityDepositAmount'] as num).toDouble();
+    } else if (map['depositMonths'] != null && (map['depositMonths'] as num) > 0 && monthly > 0) {
+      dType = DepositType.fixed;
+      dVal = (map['depositMonths'] as num).toDouble() * monthly;
+    }
+
+    final rawStatus = (map['status'] ?? 'Available').toString();
+    final isDel = map['isDeleted'] as bool? ?? (rawStatus == 'Archived' || rawStatus == 'Deleted');
+    final isAccepting = map['acceptingBookings'] as bool? ?? (rawStatus != 'Not Accepting Bookings');
+
     return PropertyRental(
       id: id,
       hostId: map['hostId'] ?? '',
@@ -1072,22 +1625,34 @@ class PropertyRental {
       description: map['description'] ?? '',
       type: pType,
       category: pCat,
-      priceMonthly: (map['priceMonthly'] as num?)?.toDouble() ?? 0.0,
-      priceWeekly: (map['priceWeekly'] as num?)?.toDouble() ?? 0.0,
-      priceDaily: (map['priceDaily'] as num?)?.toDouble() ?? 0.0,
+      priceMonthly: monthly,
+      priceWeekly: weekly,
+      priceDaily: daily,
       depositMonths: (map['depositMonths'] as num?)?.toInt() ?? 0,
-      securityDepositAmount: (map['securityDepositAmount'] as num?)?.toDouble(),
+      securityDepositAmount: (map['securityDepositAmount'] as num?)?.toDouble() ?? (dType == DepositType.fixed ? dVal : null),
       advanceAmount: (map['advanceAmount'] as num?)?.toDouble(),
+      depositType: dType,
+      depositValue: dVal,
+      isListingFeeWaived: map['isListingFeeWaived'] as bool? ?? true,
+      allowedDurations: List<String>.from(map['allowedDurations'] ?? ['DAILY', 'WEEKLY', 'MONTHLY']),
       address: map['address'] ?? '',
       latitude: (map['latitude'] as num?)?.toDouble() ?? 0.0,
       longitude: (map['longitude'] as num?)?.toDouble() ?? 0.0,
       photoUrls: List<String>.from(map['photoUrls'] ?? []),
       amenities: List<String>.from(map['amenities'] ?? []),
-      status: map['status'] ?? 'Available',
+      status: rawStatus,
+      acceptingBookings: isAccepting,
+      isDeleted: isDel,
       contractType: map['contractType'] ?? 'tranyx',
       contractTerms: map['contractTerms'] ?? '',
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
       allowChat: map['allowChat'] as bool? ?? false,
+      hostIsVerified: map['hostIsVerified'] as bool?,
+      hostVerificationStatus: map['hostVerificationStatus'] as String?,
+      hostVerificationTier: map['hostVerificationTier'] as String?,
+      renteeIsVerified: map['renteeIsVerified'] as bool?,
+      renteeVerificationStatus: map['renteeVerificationStatus'] as String?,
+      renteeVerificationTier: map['renteeVerificationTier'] as String?,
       renteeId: map['renteeId'],
       renteeName: map['renteeName'],
       renteePhotoUrl: map['renteePhotoUrl'],
@@ -1105,22 +1670,274 @@ class PropertyRental {
       currentRequestId: map['currentRequestId'],
       rentalMultiplier: (map['rentalMultiplier'] as num?)?.toInt(),
       rentalDurationType: map['rentalDurationType'],
-      signatureHash: map['signatureHash'] as String?,
+      signatureHash: map['signatureHash'],
       renteeLicenseNumber: map['renteeLicenseNumber'],
     );
+  }
+
+  PropertyRental copyWith({
+    String? id,
+    String? hostId,
+    String? hostName,
+    String? hostPhotoUrl,
+    String? title,
+    String? description,
+    PropertyType? type,
+    PropertyCategory? category,
+    double? priceMonthly,
+    double? priceWeekly,
+    double? priceDaily,
+    int? depositMonths,
+    String? address,
+    double? latitude,
+    double? longitude,
+    List<String>? photoUrls,
+    List<String>? amenities,
+    String? status,
+    String? contractType,
+    String? contractTerms,
+    DateTime? createdAt,
+    bool? allowChat,
+    double? securityDepositAmount,
+    double? advanceAmount,
+    DepositType? depositType,
+    double? depositValue,
+    bool? isListingFeeWaived,
+    List<String>? allowedDurations,
+    bool? hostIsVerified,
+    String? hostVerificationStatus,
+    String? hostVerificationTier,
+    bool? renteeIsVerified,
+    String? renteeVerificationStatus,
+    String? renteeVerificationTier,
+    String? renteeId,
+    String? renteeName,
+    String? renteePhotoUrl,
+    DateTime? startDate,
+    DateTime? endDate,
+    double? totalCost,
+    String? renteeSignatureName,
+    DateTime? signedAt,
+    String? currentRequestId,
+    int? rentalMultiplier,
+    String? rentalDurationType,
+    String? signatureHash,
+    String? renteeLicenseNumber,
+    bool? acceptingBookings,
+    bool? isDeleted,
+  }) {
+    return PropertyRental(
+      id: id ?? this.id,
+      hostId: hostId ?? this.hostId,
+      hostName: hostName ?? this.hostName,
+      hostPhotoUrl: hostPhotoUrl ?? this.hostPhotoUrl,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      type: type ?? this.type,
+      category: category ?? this.category,
+      priceMonthly: priceMonthly ?? this.priceMonthly,
+      priceWeekly: priceWeekly ?? this.priceWeekly,
+      priceDaily: priceDaily ?? this.priceDaily,
+      depositMonths: depositMonths ?? this.depositMonths,
+      address: address ?? this.address,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      photoUrls: photoUrls ?? this.photoUrls,
+      amenities: amenities ?? this.amenities,
+      status: status ?? this.status,
+      contractType: contractType ?? this.contractType,
+      contractTerms: contractTerms ?? this.contractTerms,
+      createdAt: createdAt ?? this.createdAt,
+      allowChat: allowChat ?? this.allowChat,
+      securityDepositAmount: securityDepositAmount ?? this.securityDepositAmount,
+      advanceAmount: advanceAmount ?? this.advanceAmount,
+      depositType: depositType ?? this.depositType,
+      depositValue: depositValue ?? this.depositValue,
+      isListingFeeWaived: isListingFeeWaived ?? this.isListingFeeWaived,
+      allowedDurations: allowedDurations ?? this.allowedDurations,
+      hostIsVerified: hostIsVerified ?? this.hostIsVerified,
+      hostVerificationStatus: hostVerificationStatus ?? this.hostVerificationStatus,
+      hostVerificationTier: hostVerificationTier ?? this.hostVerificationTier,
+      renteeIsVerified: renteeIsVerified ?? this.renteeIsVerified,
+      renteeVerificationStatus: renteeVerificationStatus ?? this.renteeVerificationStatus,
+      renteeVerificationTier: renteeVerificationTier ?? this.renteeVerificationTier,
+      renteeId: renteeId ?? this.renteeId,
+      renteeName: renteeName ?? this.renteeName,
+      renteePhotoUrl: renteePhotoUrl ?? this.renteePhotoUrl,
+      startDate: startDate ?? this.startDate,
+      endDate: endDate ?? this.endDate,
+      totalCost: totalCost ?? this.totalCost,
+      renteeSignatureName: renteeSignatureName ?? this.renteeSignatureName,
+      signedAt: signedAt ?? this.signedAt,
+      currentRequestId: currentRequestId ?? this.currentRequestId,
+      rentalMultiplier: rentalMultiplier ?? this.rentalMultiplier,
+      rentalDurationType: rentalDurationType ?? this.rentalDurationType,
+      signatureHash: signatureHash ?? this.signatureHash,
+      renteeLicenseNumber: renteeLicenseNumber ?? this.renteeLicenseNumber,
+      acceptingBookings: acceptingBookings ?? this.acceptingBookings,
+      isDeleted: isDeleted ?? this.isDeleted,
+    );
+  }
+
+  static PropertyRental fromBookingRequest(PropertyRental baseListing, Map<String, dynamic> req) {
+    DateTime? parseEpochOrDate(dynamic val) {
+      if (val == null) return null;
+      if (val is DateTime) return val;
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+      if (val is String) {
+        final parsed = DateTime.tryParse(val);
+        if (parsed != null) return parsed;
+        final asNum = num.tryParse(val);
+        if (asNum != null) return DateTime.fromMillisecondsSinceEpoch(asNum.toInt());
+      }
+      return null;
+    }
+
+    final start = parseEpochOrDate(req['startDate']);
+    final end = parseEpochOrDate(req['endDate']);
+    final sigTime = parseEpochOrDate(req['signedAt']);
+    final sig = (req['signatureName'] ?? req['renteeSignatureName']) as String?;
+
+    return baseListing.copyWith(
+      renteeId: req['renteeId'] as String? ?? req['renterId'] as String? ?? baseListing.renteeId,
+      renteeName: req['renteeName'] as String? ?? req['renterName'] as String? ?? baseListing.renteeName,
+      renteePhotoUrl: req['renteePhotoUrl'] as String? ?? req['renterPhotoUrl'] as String? ?? baseListing.renteePhotoUrl,
+      startDate: start ?? baseListing.startDate,
+      endDate: end ?? baseListing.endDate,
+      rentalDurationType: req['rentalDurationType'] as String? ?? req['durationType'] as String? ?? baseListing.rentalDurationType,
+      rentalMultiplier: (req['rentalMultiplier'] as num?)?.toInt() ?? (req['durationMultiplier'] as num?)?.toInt() ?? baseListing.rentalMultiplier,
+      totalCost: (req['totalCost'] as num?)?.toDouble() ?? (req['totalAmount'] as num?)?.toDouble() ?? baseListing.totalCost,
+      renteeSignatureName: sig ?? baseListing.renteeSignatureName,
+      signedAt: sigTime ?? baseListing.signedAt,
+      signatureHash: req['signatureHash'] as String? ?? baseListing.signatureHash,
+      renteeLicenseNumber: req['renteeLicenseNumber'] as String? ?? req['renterLicenseNumber'] as String? ?? baseListing.renteeLicenseNumber,
+      renteeIsVerified: req['renteeIsVerified'] as bool? ?? baseListing.renteeIsVerified,
+      renteeVerificationStatus: req['renteeVerificationStatus'] as String? ?? baseListing.renteeVerificationStatus,
+      renteeVerificationTier: req['renteeVerificationTier'] as String? ?? baseListing.renteeVerificationTier,
+      currentRequestId: req['id'] as String? ?? req['requestId'] as String? ?? baseListing.currentRequestId,
+    );
+  }
+}
+
+class PartyVerificationHelper {
+  static bool isPartyVerified({
+    bool? isVerified,
+    String? status,
+    int? level,
+    bool? idVerified,
+  }) {
+    if (isVerified == true) return true;
+    if (status != null && (status.toUpperCase() == 'VERIFIED' || status.toUpperCase() == 'ID_VERIFIED')) {
+      return true;
+    }
+    if (idVerified == true) return true;
+    if (level != null && level >= 2) return true;
+    return false;
+  }
+
+  static String formatVerificationTier({
+    bool? isVerified,
+    String? status,
+    int? level,
+    bool? idVerified,
+    String? explicitTier,
+  }) {
+    if (explicitTier != null && explicitTier.isNotEmpty && explicitTier != 'None' && explicitTier != 'Unverified') {
+      return explicitTier;
+    }
+    final verified = isPartyVerified(
+      isVerified: isVerified,
+      status: status,
+      level: level,
+      idVerified: idVerified,
+    );
+    if (!verified) return 'Unverified Account';
+    if (level == 3) return 'Level 3 Pro Verified';
+    if (level == 2 || idVerified == true) return 'Government ID Verified';
+    if (level == 1) return 'Basic Verified';
+    return 'Government ID Verified';
+  }
+
+  static String formatIdentityStatusLabel({
+    bool? isVerified,
+    String? status,
+    int? level,
+    bool? idVerified,
+    String? explicitTier,
+  }) {
+    final verified = isPartyVerified(
+      isVerified: isVerified,
+      status: status,
+      level: level,
+      idVerified: idVerified,
+    );
+    if (!verified) return 'Identity Status: Unverified Account';
+    final tier = formatVerificationTier(
+      isVerified: isVerified,
+      status: status,
+      level: level,
+      idVerified: idVerified,
+      explicitTier: explicitTier,
+    );
+    return 'Identity Status: Verified ($tier)';
+  }
+}
+
+class PromoCalculationResult {
+  final double basePrice; // Amount belonging to the provider/owner (NEVER reduced by promo)
+  final double originalPlatformFee; // TRANYX fees (platform fee, transaction fee, convenience fee, etc.)
+  final double discountAmount; // Promotional discount applied ONLY to eligible TRANYX fees
+  final double finalPlatformFee; // originalPlatformFee - discountAmount
+  final double finalCustomerAmount; // basePrice + finalPlatformFee
+  final double providerSettlement; // basePrice (100% untouched)
+  final double tranyxRevenue; // finalPlatformFee
+  final double tranyxPromoCost; // discountAmount
+
+  const PromoCalculationResult({
+    required this.basePrice,
+    required this.originalPlatformFee,
+    required this.discountAmount,
+    required this.finalPlatformFee,
+    required this.finalCustomerAmount,
+    required this.providerSettlement,
+    required this.tranyxRevenue,
+    required this.tranyxPromoCost,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'basePrice': basePrice,
+      'originalPlatformFee': originalPlatformFee,
+      'discountAmount': discountAmount,
+      'finalPlatformFee': finalPlatformFee,
+      'finalCustomerAmount': finalCustomerAmount,
+      'providerSettlement': providerSettlement,
+      'tranyxRevenue': tranyxRevenue,
+      'tranyxPromoCost': tranyxPromoCost,
+    };
   }
 }
 
 class Promo {
   final String code;
-  final String discountType; // 'percentage' | 'flat'
+  final String? name;
+  final String? description;
+  final String discountType; // 'percentage' | 'flat' | 'fixed'
   final double discountValue;
+  final String applicableFee; // 'platform_fee' | 'transaction_fee' | 'convenience_fee' | 'service_fee' | 'all_fees'
   final String applicableTo; // 'services' | 'rentals' | 'both'
+  final List<String> eligibleModules; // ['jobs', 'services', 'rentals', 'vehicle_rentals', 'property_rentals', 'all']
+  final double? minTransactionAmount;
+  final double? maxDiscountAmount;
   final int? maxUsers;
+  final int maxUsesPerUser;
   final int usedCount;
   final bool isSingleUsePerUser;
   final bool isSingleUseGlobal;
   final List<String> usedBy;
+  final DateTime? startDate;
+  final DateTime? endDate;
   final DateTime? expirationDate;
   final bool isActive;
   final DateTime createdAt;
@@ -1129,17 +1946,29 @@ class Promo {
   final bool onlyForSubscribed;
   final bool onlyForHybrid;
   final List<String> applicableRoles;
+  final String? createdBy;
+  final String? updatedBy;
+  final DateTime? updatedAt;
 
   const Promo({
     required this.code,
+    this.name,
+    this.description,
     required this.discountType,
     required this.discountValue,
+    this.applicableFee = 'platform_fee',
     required this.applicableTo,
+    this.eligibleModules = const ['jobs', 'services', 'rentals', 'vehicle_rentals', 'property_rentals', 'all'],
+    this.minTransactionAmount,
+    this.maxDiscountAmount,
     this.maxUsers,
+    this.maxUsesPerUser = 1,
     this.usedCount = 0,
     this.isSingleUsePerUser = true,
     this.isSingleUseGlobal = false,
     this.usedBy = const [],
+    this.startDate,
+    this.endDate,
     this.expirationDate,
     this.isActive = true,
     required this.createdAt,
@@ -1148,20 +1977,98 @@ class Promo {
     this.onlyForSubscribed = false,
     this.onlyForHybrid = false,
     this.applicableRoles = const [],
+    this.createdBy,
+    this.updatedBy,
+    this.updatedAt,
   });
+
+  /// Calculates the promotion discount strictly against TRANYX-generated platform/transaction fees.
+  /// The base listing price belonging to the provider/host is NEVER discounted or modified.
+  PromoCalculationResult calculateDiscount({
+    required double basePrice,
+    required double platformFee,
+  }) {
+    final effectiveTotal = basePrice + platformFee;
+
+    // Inactive check
+    if (!isActive) {
+      return PromoCalculationResult(
+        basePrice: basePrice,
+        originalPlatformFee: platformFee,
+        discountAmount: 0.0,
+        finalPlatformFee: platformFee,
+        finalCustomerAmount: effectiveTotal,
+        providerSettlement: basePrice,
+        tranyxRevenue: platformFee,
+        tranyxPromoCost: 0.0,
+      );
+    }
+
+    // Minimum transaction requirement check
+    if (minTransactionAmount != null && effectiveTotal < minTransactionAmount!) {
+      return PromoCalculationResult(
+        basePrice: basePrice,
+        originalPlatformFee: platformFee,
+        discountAmount: 0.0,
+        finalPlatformFee: platformFee,
+        finalCustomerAmount: effectiveTotal,
+        providerSettlement: basePrice,
+        tranyxRevenue: platformFee,
+        tranyxPromoCost: 0.0,
+      );
+    }
+
+    // Calculate discount against eligible platform fee
+    double rawDiscount = 0.0;
+    if (discountType == 'percentage') {
+      rawDiscount = platformFee * (discountValue / 100.0);
+    } else {
+      rawDiscount = discountValue;
+    }
+
+    // Cap at max discount if configured
+    if (maxDiscountAmount != null && rawDiscount > maxDiscountAmount!) {
+      rawDiscount = maxDiscountAmount!;
+    }
+
+    // Core Business Rule: Promotion Discount <= Eligible TRANYX Fee
+    // The provider/listing price must remain 100% untouched.
+    final eligibleDiscount = rawDiscount.clamp(0.0, platformFee);
+    final finalFee = platformFee - eligibleDiscount;
+
+    return PromoCalculationResult(
+      basePrice: basePrice,
+      originalPlatformFee: platformFee,
+      discountAmount: eligibleDiscount,
+      finalPlatformFee: finalFee,
+      finalCustomerAmount: basePrice + finalFee,
+      providerSettlement: basePrice,
+      tranyxRevenue: finalFee,
+      tranyxPromoCost: eligibleDiscount,
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {
       'code': code,
+      'name': name ?? code,
+      'description': description,
       'discountType': discountType,
       'discountValue': discountValue,
+      'applicableFee': applicableFee,
       'applicableTo': applicableTo,
+      'eligibleModules': eligibleModules,
+      'minTransactionAmount': minTransactionAmount,
+      'maxDiscountAmount': maxDiscountAmount,
       'maxUsers': maxUsers,
+      'maxUsesPerUser': maxUsesPerUser,
       'usedCount': usedCount,
       'isSingleUsePerUser': isSingleUsePerUser,
       'isSingleUseGlobal': isSingleUseGlobal,
       'usedBy': usedBy,
-      'expirationDate': expirationDate?.millisecondsSinceEpoch,
+      'startDate': startDate?.millisecondsSinceEpoch,
+      'endDate': endDate?.millisecondsSinceEpoch,
+      'expirationDate': (endDate ?? expirationDate)?.millisecondsSinceEpoch,
       'isActive': isActive,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'isAutoApply': isAutoApply,
@@ -1169,27 +2076,43 @@ class Promo {
       'onlyForSubscribed': onlyForSubscribed,
       'onlyForHybrid': onlyForHybrid,
       'applicableRoles': applicableRoles,
+      'createdBy': createdBy,
+      'updatedBy': updatedBy,
+      'updatedAt': updatedAt?.millisecondsSinceEpoch,
     };
   }
 
-  factory Promo.fromMap(Map<String, dynamic> map, String code) {
+  factory Promo.fromMap(Map map, String code) {
+    DateTime? parseDate(dynamic val) {
+      if (val == null) return null;
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return DateTime.tryParse(val.toString());
+    }
+
     return Promo(
       code: code,
+      name: map['name'] as String?,
+      description: map['description'] as String?,
       discountType: map['discountType'] as String? ?? 'flat',
       discountValue: (map['discountValue'] as num?)?.toDouble() ?? 0.0,
+      applicableFee: map['applicableFee'] as String? ?? 'platform_fee',
       applicableTo: map['applicableTo'] as String? ?? 'both',
+      eligibleModules: map['eligibleModules'] != null
+          ? List<String>.from(map['eligibleModules'])
+          : const ['jobs', 'services', 'rentals', 'vehicle_rentals', 'property_rentals', 'all'],
+      minTransactionAmount: (map['minTransactionAmount'] as num?)?.toDouble(),
+      maxDiscountAmount: (map['maxDiscountAmount'] as num?)?.toDouble(),
       maxUsers: map['maxUsers'] as int?,
+      maxUsesPerUser: (map['maxUsesPerUser'] as num?)?.toInt() ?? 1,
       usedCount: map['usedCount'] as int? ?? 0,
       isSingleUsePerUser: map['isSingleUsePerUser'] as bool? ?? true,
       isSingleUseGlobal: map['isSingleUseGlobal'] as bool? ?? false,
       usedBy: List<String>.from(map['usedBy'] ?? []),
-      expirationDate: map['expirationDate'] != null
-          ? (map['expirationDate'] is int
-              ? DateTime.fromMillisecondsSinceEpoch(map['expirationDate'] as int)
-              : DateTime.tryParse(map['expirationDate'].toString()))
-          : null,
+      startDate: parseDate(map['startDate']),
+      endDate: parseDate(map['endDate'] ?? map['expirationDate']),
+      expirationDate: parseDate(map['expirationDate'] ?? map['endDate']),
       isActive: map['isActive'] as bool? ?? true,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int? ?? 0),
+      createdAt: parseDate(map['createdAt']) ?? DateTime.now(),
       isAutoApply: map['isAutoApply'] as bool? ?? false,
       eligibleUserUids: map['eligibleUserUids'] != null
           ? List<String>.from(map['eligibleUserUids'])
@@ -1197,6 +2120,9 @@ class Promo {
       onlyForSubscribed: map['onlyForSubscribed'] as bool? ?? false,
       onlyForHybrid: map['onlyForHybrid'] as bool? ?? false,
       applicableRoles: List<String>.from(map['applicableRoles'] ?? []),
+      createdBy: map['createdBy'] as String?,
+      updatedBy: map['updatedBy'] as String?,
+      updatedAt: parseDate(map['updatedAt']),
     );
   }
 }
@@ -1283,7 +2209,7 @@ class NewsPost {
     'buttonPaddingH': buttonPaddingH,
   };
 
-  factory NewsPost.fromMap(Map<String, dynamic> map, String id) {
+  factory NewsPost.fromMap(Map map, String id) {
     DateTime parseDate(dynamic val) {
       if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
       if (val is String) return DateTime.tryParse(val) ?? DateTime.now();

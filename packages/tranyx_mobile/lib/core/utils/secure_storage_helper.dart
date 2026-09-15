@@ -214,4 +214,15 @@ class SecureStorageHelper {
     final val = await _storage.read(key: _biometricKey);
     return val == 'true';
   }
+
+  static const _onboardingKey = 'has_seen_onboarding';
+
+  static Future<void> saveHasSeenOnboarding(bool value) async {
+    await _storage.write(key: _onboardingKey, value: value.toString());
+  }
+
+  static Future<bool> getHasSeenOnboarding() async {
+    final val = await _storage.read(key: _onboardingKey);
+    return val == 'true';
+  }
 }

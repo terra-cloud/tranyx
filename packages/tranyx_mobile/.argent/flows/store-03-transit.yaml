@@ -1,0 +1,18 @@
+steps:
+  - echo: Launch Tranyx and navigate to Hybrid Account PRO details
+  - launch: com.terraph.tranyx
+  - await:
+      visible:
+        text: Welcome back
+  - tap:
+      text: Create an account
+  - await:
+      visible:
+        text: Hybrid Account
+  - tap:
+      text: Hybrid Account
+  - await:
+      visible:
+        text: Full name
+  - await:
+      idle: true

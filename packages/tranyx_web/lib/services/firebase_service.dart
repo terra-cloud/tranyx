@@ -125,11 +125,11 @@ class SecureFirebaseHttpClient {
       throw FirebaseException(err['message'] as String? ?? 'Request failed', response.statusCode);
     }
 
-    if (decodedJson is! Map<String, dynamic>) {
+    if (decodedJson is! Map) {
       throw FirebaseException('Malformed server response.', response.statusCode);
     }
 
-    return decodedJson;
+    return Map<String, dynamic>.from(decodedJson);
   }
 }
 
@@ -173,7 +173,12 @@ Future<http.Response> _rawRequestWithRetry(
 
 void _handleGlobalSessionExpiration(FirebaseException e) {
   final lowerMsg = e.message.toLowerCase();
-  if (e.statusCode == 401 || lowerMsg.contains('not logged in') || lowerMsg.contains('id-token-expired')) {
+  if (e.statusCode == 401 ||
+      lowerMsg.contains('not logged in') ||
+      lowerMsg.contains('id-token-expired') ||
+      lowerMsg.contains('token has expired') ||
+      lowerMsg.contains('unauthenticated') ||
+      lowerMsg.contains('auth/id-token-expired')) {
     final cb = onSessionExpiredGlobal;
     if (cb != null) cb();
   }
@@ -217,7 +222,7 @@ Future<Map<String, dynamic>> _requestWithRetry(
 
 Future<Map<String, dynamic>> _post(
   String url,
-  Map<String, dynamic> body, {
+  Map body, {
   String? idToken,
   Future<String?> Function()? onTokenRefresh,
 }) async {
@@ -238,7 +243,7 @@ Future<Map<String, dynamic>> _get(String url, {String? idToken, Future<String?> 
 
 Future<Map<String, dynamic>> _patch(
   String url,
-  Map<String, dynamic> body, [
+  Map body, [
   String? idToken,
   Future<String?> Function()? onTokenRefresh,
 ]) async {
@@ -258,7 +263,12 @@ class FirebaseException implements Exception {
   final int? statusCode;
   FirebaseException(this.message, [this.statusCode]) {
     final lowerMsg = message.toLowerCase();
-    if (statusCode == 401 || lowerMsg.contains('not logged in') || lowerMsg.contains('id-token-expired')) {
+    if (statusCode == 401 ||
+        lowerMsg.contains('not logged in') ||
+        lowerMsg.contains('id-token-expired') ||
+        lowerMsg.contains('token has expired') ||
+        lowerMsg.contains('unauthenticated') ||
+        lowerMsg.contains('auth/id-token-expired')) {
       final cb = onSessionExpiredGlobal;
       if (cb != null) cb();
     }
@@ -395,7 +405,7 @@ class FirebaseAuthService {
     );
     final users = res['users'] as List?;
     if (users == null || users.isEmpty) throw FirebaseException('User not found');
-    return users.first as Map<String, dynamic>;
+    return Map<String, dynamic>.from(users.first as Map);
   }
 
   /// Send an email verification link to the user
@@ -433,7 +443,7 @@ class FirebaseAuthService {
 }
 
 // ── Firestore value encoding / decoding ───────────────────────────────────────
-Map<String, dynamic> _toFirestoreFields(Map<String, dynamic> data) {
+Map<String, dynamic> _toFirestoreFields(Map data) {
   Map<String, dynamic> encodeValue(dynamic v) {
     if (v == null) return {'nullValue': null};
     if (v is bool) return {'booleanValue': v};
@@ -450,8 +460,8 @@ Map<String, dynamic> _toFirestoreFields(Map<String, dynamic> data) {
     if (v is Map) {
       return {
         'mapValue': {
-          'fields': {
-            for (final e in v.entries) e.key: encodeValue(e.value),
+          'fields': <String, dynamic>{
+            for (final e in v.entries) e.key.toString(): encodeValue(e.value),
           },
         },
       };
@@ -460,42 +470,46 @@ Map<String, dynamic> _toFirestoreFields(Map<String, dynamic> data) {
   }
 
   return {
-    'fields': {
+    'fields': <String, dynamic>{
       for (final e in data.entries)
-        if (e.value != null) e.key: encodeValue(e.value),
+        if (e.value != null) e.key.toString(): encodeValue(e.value),
     },
   };
 }
 
-Map<String, dynamic> _fromFirestoreDoc(Map<String, dynamic> doc) {
-  dynamic decodeValue(Map<String, dynamic> val) {
+Map<String, dynamic> _fromFirestoreDoc(Map doc) {
+  dynamic decodeValue(dynamic val) {
+    if (val is! Map) return val;
     if (val.containsKey('nullValue')) return null;
     if (val.containsKey('booleanValue')) return val['booleanValue'] as bool;
     if (val.containsKey('integerValue')) return int.parse(val['integerValue'].toString());
     if (val.containsKey('doubleValue')) return (val['doubleValue'] as num).toDouble();
     if (val.containsKey('stringValue')) return val['stringValue'] as String;
+    if (val.containsKey('timestampValue')) return val['timestampValue'] as String;
+    if (val.containsKey('referenceValue')) return val['referenceValue'] as String;
+    if (val.containsKey('geoPointValue')) return val['geoPointValue'];
     if (val.containsKey('arrayValue')) {
-      final arr = val['arrayValue'] as Map;
+      final arr = val['arrayValue'] as Map? ?? {};
       final vals = arr['values'] as List? ?? [];
-      return vals.map((v) => decodeValue(v as Map<String, dynamic>)).toList();
+      return vals.map((v) => decodeValue(v)).toList();
     }
     if (val.containsKey('mapValue')) {
-      final fields = (val['mapValue'] as Map)['fields'] as Map? ?? {};
-      return {
-        for (final e in fields.entries) e.key: decodeValue(e.value as Map<String, dynamic>),
+      final fields = (val['mapValue'] as Map?)?['fields'] as Map? ?? {};
+      return <String, dynamic>{
+        for (final e in fields.entries) e.key.toString(): decodeValue(e.value),
       };
     }
     return null;
   }
 
-  final fields = doc['fields'] as Map<String, dynamic>? ?? {};
-  return {
-    for (final e in fields.entries) e.key: decodeValue(e.value as Map<String, dynamic>),
+  final fields = (doc['fields'] as Map?) ?? {};
+  return <String, dynamic>{
+    for (final e in fields.entries) e.key.toString(): decodeValue(e.value),
   };
 }
 
 /// Extract document ID from a Firestore document name path.
-String _docId(Map<String, dynamic> doc) {
+String _docId(Map doc) {
   final name = doc['name'] as String? ?? '';
   return name.split('/').last;
 }
@@ -522,11 +536,11 @@ class FirestoreService {
   }
 
   // ── Utility ────────────────────────────────────────────────
-  Future<void> setDocument(String path, Map<String, dynamic> data) async {
+  Future<void> setDocument(String path, Map data) async {
     if (data.isEmpty) return;
     final url = '$_firestoreBase/$path';
     final body = _toFirestoreFields(data);
-    final queryString = data.keys.map((k) => 'updateMask.fieldPaths=$k').join('&');
+    final queryString = data.keys.map((k) => 'updateMask.fieldPaths=${k.toString()}').join('&');
     await _patch(
       '$url?$queryString',
       body,
@@ -535,7 +549,7 @@ class FirestoreService {
     );
   }
 
-  Future<void> createOrUpdate(String path, Map<String, dynamic> data) async {
+  Future<void> createOrUpdate(String path, Map data) async {
     final url = '$_firestoreBase/$path';
     final body = _toFirestoreFields(data);
     await _patch(url, body, idToken, _refreshToken);
@@ -556,8 +570,25 @@ class FirestoreService {
       final res = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       if (res.isEmpty || !res.containsKey('fields')) return null;
       return _fromFirestoreDoc(res);
-    } on FirebaseException {
-      return null;
+    } on FirebaseException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getCollection(String path) async {
+    try {
+      final url = '$_firestoreBase/$path';
+      final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
+      final docs = data['documents'] as List? ?? [];
+      final result = docs.map((d) {
+        final doc = d as Map;
+        final id = _docId(doc);
+        return <String, dynamic>{..._fromFirestoreDoc(doc), 'id': id};
+      }).toList();
+      return result;
+    } catch (_) {
+      return [];
     }
   }
 
@@ -578,9 +609,9 @@ class FirestoreService {
       final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       final docs = data['documents'] as List? ?? [];
       final result = docs.map((d) {
-        final doc = d as Map<String, dynamic>;
+        final doc = d as Map;
         final id = _docId(doc);
-        return {..._fromFirestoreDoc(doc), 'id': id};
+        return <String, dynamic>{..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
       result.sort((a, b) => (b['timestamp'] as int? ?? 0).compareTo(a['timestamp'] as int? ?? 0));
       return result;
@@ -624,8 +655,8 @@ class FirestoreService {
 
       final List<dynamic> results = jsonDecode(req.body);
       for (final res in results) {
-        if (res is Map<String, dynamic> && res.containsKey('document')) {
-          final doc = res['document'] as Map<String, dynamic>;
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
           return _fromFirestoreDoc(doc);
         }
       }
@@ -685,16 +716,254 @@ class FirestoreService {
       final List<dynamic> results = jsonDecode(req.body);
       final holdbacks = <Map<String, dynamic>>[];
       for (final res in results) {
-        if (res is Map<String, dynamic> && res.containsKey('document')) {
-          final doc = res['document'] as Map<String, dynamic>;
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
           final id = _docId(doc);
-          holdbacks.add({..._fromFirestoreDoc(doc), 'id': id});
+          holdbacks.add(<String, dynamic>{..._fromFirestoreDoc(doc), 'id': id});
         }
       }
       return holdbacks;
     } catch (_) {
       return [];
     }
+  }
+
+  // ── Automated Escrow Reconciliation Engine ───────────────────────
+  Future<List<Map<String, dynamic>>> _queryUserEscrows(String collectionId, String uid) async {
+    final results = <Map<String, dynamic>>[];
+    final seenIds = <String>{};
+
+    for (final field in ['renteeId', 'renterId']) {
+      final url =
+          'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+      final body = jsonEncode({
+        'structuredQuery': {
+          'from': [
+            {'collectionId': collectionId},
+          ],
+          'where': {
+            'fieldFilter': {
+              'field': {'fieldPath': field},
+              'op': 'EQUAL',
+              'value': {'stringValue': uid},
+            },
+          },
+        },
+      });
+
+      try {
+        final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+          final headers = <String, String>{'Content-Type': 'application/json'};
+          if (token != null) headers['Authorization'] = 'Bearer $token';
+          return _client.post(Uri.parse(url), headers: headers, body: body);
+        });
+
+        if (req.statusCode < 400) {
+          final List<dynamic> list = jsonDecode(req.body);
+          for (final res in list) {
+            if (res is Map && res.containsKey('document')) {
+              final doc = res['document'] as Map;
+              final id = _docId(doc);
+              if (!seenIds.contains(id)) {
+                seenIds.add(id);
+                results.add(<String, dynamic>{..._fromFirestoreDoc(doc), 'id': id});
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    return results;
+  }
+
+  /// Tier 1: Automated Escrow Reconciliation
+  /// Checks for any escrows marked 'RefundPending' for this user and safely credits their balance.
+  Future<int> reconcilePendingEscrows(String uid) async {
+    if (uid.isEmpty) return 0;
+    int claimedCount = 0;
+
+    try {
+      // 1. Vehicle Rental Escrows
+      final rentalEscrows = await _queryUserEscrows('rental_escrows', uid);
+      for (final escrow in rentalEscrows) {
+        final st = (escrow['status'] as String? ?? '').toLowerCase();
+        if (st == 'refundpending' || st == 'refund_pending') {
+          final amt = (escrow['refundAmount'] as num?)?.toDouble() ??
+              (escrow['amount'] as num?)?.toDouble() ??
+              0.0;
+          if (amt > 0.0) {
+            final userDoc = await getDocument('users/$uid');
+            if (userDoc != null) {
+              final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final newBal = currentBal + amt;
+              await setDocument('users/$uid', {'tyxBalance': newBal});
+
+              final txId = 'tx_ref_${escrow['id'] ?? DateTime.now().microsecondsSinceEpoch}';
+              final existingTx = await getDocument('transactions/$txId');
+              if (existingTx == null) {
+                await setDocument('transactions/$txId', {
+                  'id': txId,
+                  'uid': uid,
+                  'type': 'refund',
+                  'amount': amt,
+                  'title': 'Rental Booking Refund',
+                  'desc': escrow['refundReason'] ?? 'Automated escrow refund for rejected/cancelled rental booking',
+                  'method': 'Tranyx Wallet',
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                  'status': 'Completed',
+                });
+              }
+
+              final escrowId = (escrow['id'] ?? escrow['requestId'] ?? '').toString();
+              if (escrowId.isNotEmpty) {
+                await setDocument('rental_escrows/$escrowId', {
+                  ...escrow,
+                  'status': 'Refunded',
+                  'refundClaimedAt': DateTime.now().millisecondsSinceEpoch,
+                });
+              }
+              claimedCount++;
+            }
+          }
+        }
+      }
+
+      // 2. Property Rental Escrows
+      final propertyEscrows = await _queryUserEscrows('property_escrows', uid);
+      for (final escrow in propertyEscrows) {
+        final st = (escrow['status'] as String? ?? '').toLowerCase();
+        final secStatus = (escrow['securityDepositStatus'] as String? ?? '').toLowerCase();
+
+        // Handle full booking refund
+        if (st == 'refundpending' || st == 'refund_pending') {
+          final amt = (escrow['refundAmount'] as num?)?.toDouble() ??
+              (escrow['amount'] as num?)?.toDouble() ??
+              0.0;
+          if (amt > 0.0) {
+            final userDoc = await getDocument('users/$uid');
+            if (userDoc != null) {
+              final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final newBal = currentBal + amt;
+              await setDocument('users/$uid', {'tyxBalance': newBal});
+
+              final txId = 'tx_ref_${escrow['id'] ?? DateTime.now().microsecondsSinceEpoch}';
+              final existingTx = await getDocument('transactions/$txId');
+              if (existingTx == null) {
+                await setDocument('transactions/$txId', {
+                  'id': txId,
+                  'uid': uid,
+                  'type': 'refund',
+                  'amount': amt,
+                  'title': 'Property Booking Refund',
+                  'desc': escrow['refundReason'] ?? 'Automated escrow refund for rejected/cancelled property booking',
+                  'method': 'Tranyx Wallet',
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                  'status': 'Completed',
+                });
+              }
+
+              final escrowId = (escrow['id'] ?? escrow['requestId'] ?? '').toString();
+              if (escrowId.isNotEmpty) {
+                await setDocument('property_escrows/$escrowId', {
+                  ...escrow,
+                  'status': 'Refunded',
+                  'refundClaimedAt': DateTime.now().millisecondsSinceEpoch,
+                });
+              }
+              claimedCount++;
+            }
+          }
+        } else if (secStatus == 'refundpending' || secStatus == 'refund_pending') {
+          // Handle security deposit refund upon lease completion
+          final secAmt = (escrow['securityDepositAmount'] as num?)?.toDouble() ?? 0.0;
+          if (secAmt > 0.0) {
+            final userDoc = await getDocument('users/$uid');
+            if (userDoc != null) {
+              final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final newBal = currentBal + secAmt;
+              await setDocument('users/$uid', {'tyxBalance': newBal});
+
+              final txId = 'dep_ref_${escrow['id'] ?? DateTime.now().microsecondsSinceEpoch}';
+              final existingTx = await getDocument('transactions/$txId');
+              if (existingTx == null) {
+                await setDocument('transactions/$txId', {
+                  'id': txId,
+                  'uid': uid,
+                  'type': 'refund',
+                  'category': 'refund',
+                  'amount': secAmt,
+                  'title': 'Security Deposit Refund',
+                  'desc': '100% refund of security deposit for completed lease',
+                  'method': 'Tranyx Wallet',
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                  'status': 'Completed',
+                });
+              }
+
+              final escrowId = (escrow['id'] ?? escrow['requestId'] ?? '').toString();
+              if (escrowId.isNotEmpty) {
+                await setDocument('property_escrows/$escrowId', {
+                  ...escrow,
+                  'securityDepositStatus': 'Refunded',
+                  'securityDepositClaimedAt': DateTime.now().millisecondsSinceEpoch,
+                });
+              }
+              claimedCount++;
+            }
+          }
+        }
+      }
+
+      // 3. Rental Extension Escrows
+      final extensionEscrows = await _queryUserEscrows('rental_extension_escrows', uid);
+      for (final escrow in extensionEscrows) {
+        final st = (escrow['status'] as String? ?? '').toLowerCase();
+        if (st == 'refundpending' || st == 'refund_pending') {
+          final amt = (escrow['refundAmount'] as num?)?.toDouble() ??
+              (escrow['amount'] as num?)?.toDouble() ??
+              0.0;
+          if (amt > 0.0) {
+            final userDoc = await getDocument('users/$uid');
+            if (userDoc != null) {
+              final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final newBal = currentBal + amt;
+              await setDocument('users/$uid', {'tyxBalance': newBal});
+
+              final txId = 'tx_ref_ext_${escrow['id'] ?? DateTime.now().microsecondsSinceEpoch}';
+              final existingTx = await getDocument('transactions/$txId');
+              if (existingTx == null) {
+                await setDocument('transactions/$txId', {
+                  'id': txId,
+                  'uid': uid,
+                  'type': 'refund',
+                  'amount': amt,
+                  'title': 'Rental Extension Refund',
+                  'desc': escrow['refundReason'] ?? 'Automated escrow refund for rejected extension request',
+                  'method': 'Tranyx Wallet',
+                  'createdAt': DateTime.now().millisecondsSinceEpoch,
+                  'status': 'Completed',
+                });
+              }
+
+              final extId = (escrow['id'] ?? escrow['extensionId'] ?? '').toString();
+              if (extId.isNotEmpty) {
+                await setDocument('rental_extension_escrows/$extId', {
+                  ...escrow,
+                  'status': 'Refunded',
+                  'refundClaimedAt': DateTime.now().millisecondsSinceEpoch,
+                });
+              }
+              claimedCount++;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('[EscrowReconciliation] Error during reconciliation: $e');
+    }
+
+    return claimedCount;
   }
 
   // ── Wallet Links ───────────────────────────────────────────
@@ -744,7 +1013,6 @@ class FirestoreService {
       onTokenRefresh: _refreshToken,
     );
     final docId = _docId(result);
-    await setDocument('jobs/$docId', {'id': docId});
 
     final creatorId = jobData['creatorId'] as String?;
     if (creatorId != null) {
@@ -800,10 +1068,10 @@ class FirestoreService {
       final List<dynamic> results = jsonDecode(req.body);
       final transactions = <Map<String, dynamic>>[];
       for (final res in results) {
-        if (res is Map<String, dynamic> && res.containsKey('document')) {
-          final doc = res['document'] as Map<String, dynamic>;
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
           final id = _docId(doc);
-          transactions.add({..._fromFirestoreDoc(doc), 'id': id});
+          transactions.add(<String, dynamic>{..._fromFirestoreDoc(doc), 'id': id});
         }
       }
       return transactions;
@@ -845,10 +1113,10 @@ class FirestoreService {
       final List<dynamic> results = jsonDecode(req.body);
       final notifications = <Map<String, dynamic>>[];
       for (final res in results) {
-        if (res is Map<String, dynamic> && res.containsKey('document')) {
-          final doc = res['document'] as Map<String, dynamic>;
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
           final id = _docId(doc);
-          notifications.add({..._fromFirestoreDoc(doc), 'id': id});
+          notifications.add(<String, dynamic>{..._fromFirestoreDoc(doc), 'id': id});
         }
       }
       return notifications;
@@ -903,7 +1171,7 @@ class FirestoreService {
   Future<List<Map<String, dynamic>>> getAvailableJobs(AccountType viewerType) async {
     final creatorTypeToFetch = viewerType == AccountType.nyxian ? AccountType.employer : AccountType.nyxian;
 
-    return _queryJobs([
+    final jobs = await _queryJobs([
       {
         'fieldFilter': {
           'field': {'fieldPath': 'creatorType'},
@@ -919,54 +1187,270 @@ class FirestoreService {
         },
       },
     ]);
+
+    if (jobs.isEmpty) {
+      final lowercaseJobs = await _queryJobs([
+        {
+          'fieldFilter': {
+            'field': {'fieldPath': 'creatorType'},
+            'op': 'EQUAL',
+            'value': {'stringValue': creatorTypeToFetch.name},
+          },
+        },
+        {
+          'fieldFilter': {
+            'field': {'fieldPath': 'status'},
+            'op': 'EQUAL',
+            'value': {'stringValue': 'open'},
+          },
+        },
+      ]);
+      if (lowercaseJobs.isNotEmpty) {
+        return lowercaseJobs;
+      }
+    }
+
+    return jobs;
   }
 
   Future<void> updateJobStatus(String jobId, String status) async {
     await setDocument('jobs/$jobId', {'status': status});
   }
 
-  Future<void> updateTyxBalance(String uid, double balance) async {
-    await setDocument('users/$uid', {'tyxBalance': balance});
+  /// Updates open/reviewing job listing details pre-hire.
+  /// Strictly verifies anti-exploitation guardrails and whitelists payload fields.
+  Future<void> updateJobDetails(String jobId, Map<String, dynamic> updates) async {
+    final currentJob = await getDocument('jobs/$jobId');
+    if (currentJob == null) {
+      throw Exception('Job not found.');
+    }
+    final status = (currentJob['status'] as String? ?? '').toLowerCase();
+    final acceptedApplicantId = currentJob['acceptedApplicantId'] as String?;
+
+    if (acceptedApplicantId != null && acceptedApplicantId.trim().isNotEmpty) {
+      throw Exception('Editing locked: A Nyxian has already been hired for this gig.');
+    }
+    if (status != 'open' && status != 'reviewing') {
+      throw Exception('Editing locked: Job status must be Open or Reviewing to edit.');
+    }
+
+    const allowedKeys = {
+      'title',
+      'description',
+      'category',
+      'categoryGroup',
+      'dateRequirement',
+      'jobDate',
+      'timePreference',
+      'locationType',
+      'address',
+      'landmark',
+      'pickupAddress',
+      'pickupLat',
+      'pickupLng',
+      'destinationAddress',
+      'destinationLat',
+      'destinationLng',
+      'imageUrls',
+      'updatedAt',
+    };
+
+    final filteredUpdates = <String, dynamic>{};
+    for (final entry in updates.entries) {
+      if (allowedKeys.contains(entry.key) && entry.value != null) {
+        filteredUpdates[entry.key] = entry.value;
+      }
+    }
+
+    if (!filteredUpdates.containsKey('updatedAt')) {
+      filteredUpdates['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+    }
+
+    await setDocument('jobs/$jobId', filteredUpdates);
   }
+
+  Future<void> updateTyxBalance(String uid, double balance) async {
+    if (balance < -0.000001) {
+      // Security Exception: NEVER write negative balance
+      await reportNegativeBalanceIncident(
+        uid: uid,
+        attemptedBalance: balance,
+        reason: 'Attempted negative balance update in updateTyxBalance',
+      );
+      throw NegativeBalanceException(
+        currentBalance: 0.0,
+        attemptDeduction: balance.abs(),
+      );
+    }
+    final safeBal = balance < 0.0 ? 0.0 : double.parse(balance.toStringAsFixed(4));
+    await setDocument('users/$uid', {'tyxBalance': safeBal});
+  }
+
+  /// Safely deducts an amount from a user's Tyxbit balance with:
+  /// 1. Fresh live profile fetch to avoid stale balance race conditions
+  /// 2. Verification of available funds (availableBalance >= amountToDeduct)
+  /// 3. Idempotency protection against duplicate/double-click requests using txId
+  /// 4. Hard floor enforcement (newBalance >= 0)
+  /// 5. Atomic balance update and optional ledger recording
+  Future<double> deductTyxBalanceSafely({
+    required String uid,
+    required double amountToDeduct,
+    required String txId,
+    String? title,
+    String? description,
+    String? category,
+    Map<String, dynamic>? extraTxData,
+  }) async {
+    if (amountToDeduct < 0) {
+      throw ArgumentError('Deduction amount must be non-negative: $amountToDeduct');
+    }
+
+    // 1. Idempotency check: If this transaction already completed, do NOT deduct again!
+    if (txId.isNotEmpty) {
+      final existingTx = await getDocument('transactions/$txId');
+      if (existingTx != null && (existingTx['status'] == 'Successful' || existingTx['status'] == 'Completed')) {
+        // Transaction already processed, return existing balance safely
+        final user = await getUser(uid);
+        return user?.tyxBalance ?? 0.0;
+      }
+    }
+
+    // 2. Fetch fresh live profile to prevent stale local cache reads
+    final userDoc = await getDocument('users/$uid');
+    if (userDoc == null) {
+      throw Exception('User profile not found for uid: $uid');
+    }
+
+    final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+    final reservedBal = (userDoc['reservedBalance'] as num?)?.toDouble() ?? 0.0;
+    final availableBal = (currentBal - reservedBal).clamp(0.0, double.infinity);
+
+    // 3. Strict balance validation
+    if (availableBal < amountToDeduct || (availableBal - amountToDeduct) < -0.000001) {
+      final shortfall = (amountToDeduct - availableBal).clamp(0.0, double.infinity);
+      throw InsufficientFundsException(
+        availableBalance: availableBal,
+        requiredAmount: amountToDeduct,
+        shortfall: shortfall,
+        transactionTitle: title ?? 'transaction',
+      );
+    }
+
+    // 4. Calculate safe non-negative balance
+    final newBalance = WalletSecurityHelper.calculateSafeNewBalance(
+      currentBalance: currentBal,
+      amountToDeduct: amountToDeduct,
+    );
+
+    // 5. Update user document
+    await setDocument('users/$uid', {'tyxBalance': newBalance});
+
+    // 6. Record transaction if details provided
+    if (txId.isNotEmpty && title != null) {
+      final txData = {
+        'id': txId,
+        'uid': uid,
+        'type': 'payment',
+        if (category != null) 'category': category,
+        'amount': amountToDeduct,
+        'previousBalance': currentBal,
+        'newBalance': newBalance,
+        'availableBalance': (newBalance - reservedBal).clamp(0.0, double.infinity),
+        'title': title,
+        'desc': description ?? title,
+        'status': 'Successful',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        if (extraTxData != null) ...extraTxData,
+      };
+      await setDocument('transactions/$txId', txData);
+    }
+
+    return newBalance;
+  }
+
+  /// Logs a security incident if an unauthorized or negative balance update is attempted
+  Future<void> reportNegativeBalanceIncident({
+    required String uid,
+    required double attemptedBalance,
+    required String reason,
+    String? relatedTxId,
+  }) async {
+    try {
+      final logId = 'incident_${DateTime.now().millisecondsSinceEpoch}_$uid';
+      await setDocument('admin_audit_logs/$logId', {
+        'id': logId,
+        'type': 'NEGATIVE_WALLET_BALANCE_ATTEMPT',
+        'uid': uid,
+        'attemptedBalance': attemptedBalance,
+        'reason': reason,
+        if (relatedTxId != null) 'relatedTxId': relatedTxId,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+    } catch (_) {}
+  }
+
 
   Future<List<Map<String, dynamic>>> _queryJobs(List<Map<String, dynamic>> filters, {bool orderByCreatedAt = true}) async {
     final url =
         'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
     
-    final Map<String, dynamic> structuredQuery = {
-      'from': [
-        {'collectionId': 'jobs'},
-      ],
-      'where': filters.length == 1
-          ? filters.first
-          : {
-              'compositeFilter': {
-                'op': 'AND',
-                'filters': filters,
+    Map<String, dynamic> buildPayload(bool withOrderBy, List<Map<String, dynamic>> currentFilters) {
+      final Map<String, dynamic> sq = {
+        'from': [
+          {'collectionId': 'jobs'},
+        ],
+        'where': currentFilters.length == 1
+            ? currentFilters.first
+            : {
+                'compositeFilter': {
+                  'op': 'AND',
+                  'filters': currentFilters,
+                },
               },
-            },
-      'limit': 50,
-    };
+        'limit': 50,
+      };
 
-    if (orderByCreatedAt) {
-      structuredQuery['orderBy'] = [
-        {
-          'field': {'fieldPath': 'createdAt'},
-          'direction': 'DESCENDING',
-        },
-      ];
+      if (withOrderBy) {
+        sq['orderBy'] = [
+          {
+            'field': {'fieldPath': 'createdAt'},
+            'direction': 'DESCENDING',
+          },
+        ];
+      }
+
+      return {'structuredQuery': sq};
     }
 
-    final body = jsonEncode({
-      'structuredQuery': structuredQuery,
-    });
-
     try {
-      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+      var req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
         final headers = <String, String>{'Content-Type': 'application/json'};
         if (token != null) headers['Authorization'] = 'Bearer $token';
-        return _client.post(Uri.parse(url), headers: headers, body: body);
+        return _client.post(Uri.parse(url), headers: headers, body: jsonEncode(buildPayload(orderByCreatedAt, filters)));
       });
+
+      // If failed with >= 400 (e.g. Missing composite index on orderBy), retry without orderBy
+      if (req.statusCode >= 400 && orderByCreatedAt) {
+        print('Firestore query requires composite index for orderBy (${req.statusCode}). Retrying without server-side orderBy...');
+        req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+          final headers = <String, String>{'Content-Type': 'application/json'};
+          if (token != null) headers['Authorization'] = 'Bearer $token';
+          return _client.post(Uri.parse(url), headers: headers, body: jsonEncode(buildPayload(false, filters)));
+        });
+      }
+
+      // If still failing with composite filter (e.g. Missing multi-field composite index), fallback to querying by primary filter alone and filtering in Dart
+      var resultsNeedSecondaryFilter = false;
+      if (req.statusCode >= 400 && filters.length > 1) {
+        print('Firestore query requires composite index for multiple filters (${req.statusCode}). Retrying with primary filter...');
+        resultsNeedSecondaryFilter = true;
+        req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+          final headers = <String, String>{'Content-Type': 'application/json'};
+          if (token != null) headers['Authorization'] = 'Bearer $token';
+          return _client.post(Uri.parse(url), headers: headers, body: jsonEncode(buildPayload(false, [filters.first])));
+        });
+      }
 
       if (req.statusCode >= 400) {
         print('FIRESTORE QUERY ERROR: ${req.statusCode} - ${req.body}');
@@ -974,20 +1458,444 @@ class FirestoreService {
       }
 
       final results = jsonDecode(req.body) as List;
-      final list = results.where((r) => (r as Map).containsKey('document')).map((r) {
-        final doc = (r as Map<String, dynamic>)['document'] as Map<String, dynamic>;
+      var list = results.where((r) => (r as Map).containsKey('document')).map((r) {
+        final doc = (r as Map)['document'] as Map;
         final id = _docId(doc);
-        return {..._fromFirestoreDoc(doc), 'id': id};
+        return <String, dynamic>{..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
 
-      if (!orderByCreatedAt) {
-        list.sort((a, b) => (b['createdAt'] as int? ?? 0).compareTo(a['createdAt'] as int? ?? 0));
+      // If we fell back to primary filter, apply secondary filters in Dart memory
+      if (resultsNeedSecondaryFilter && filters.length > 1) {
+        for (var i = 1; i < filters.length; i++) {
+          final f = filters[i]['fieldFilter'];
+          if (f != null) {
+            final fieldPath = f['field']?['fieldPath'] as String?;
+            final expectedVal = f['value']?['stringValue'] as String?;
+            if (fieldPath != null && expectedVal != null) {
+              list = list.where((j) {
+                final actual = (j[fieldPath] as String? ?? '').toLowerCase();
+                return actual == expectedVal.toLowerCase();
+              }).toList();
+            }
+          }
+        }
       }
+
+      // Always sort by createdAt DESC in Dart memory to guarantee newest first
+      list.sort((a, b) {
+        final aTime = a['createdAt'] as int? ?? 0;
+        final bTime = b['createdAt'] as int? ?? 0;
+        return bTime.compareTo(aTime);
+      });
+
       return list;
     } catch (e) {
       print('FIRESTORE QUERY ERROR: $e');
       return [];
     }
+  }
+
+  Future<void> cancelJob(String jobId, String currentUserUid) async {
+    final jobDoc = await getDocument('jobs/$jobId');
+    if (jobDoc == null) throw Exception('Job not found.');
+
+    final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+    if (status == 'completed') {
+      throw Exception('INVALID_STATE_TRANSITION: Cannot cancel a completed job.');
+    }
+    if (status == 'cancelled' || status == 'admin_cancelled') {
+      throw Exception('INVALID_STATE_TRANSITION: Job is already cancelled.');
+    }
+
+    final acceptedId = jobDoc['acceptedApplicantId'] as String?;
+    final hasAcceptedNyxian = acceptedId != null && acceptedId.trim().isNotEmpty;
+    final isCommitted = hasAcceptedNyxian ||
+        status == 'in progress' ||
+        status == 'in_progress' ||
+        status == 'accepted' ||
+        jobDoc['status'] == 'MUTUAL_CANCEL_PENDING';
+
+    if (isCommitted) {
+      throw Exception('JOB_ALREADY_COMMITTED: Employer cannot unilaterally cancel a job once a Nyxian has been accepted.');
+    }
+
+    final employerId = jobDoc['creatorId'] as String?;
+    final escrowDoc = await getEscrow(jobId);
+    final isAlreadyRefunded = escrowDoc != null && (escrowDoc['status'] as String? ?? '').toLowerCase() == 'refunded';
+
+    if (!isAlreadyRefunded && employerId != null && employerId.isNotEmpty) {
+      double totalEscrow = (escrowDoc?['amount'] as num?)?.toDouble() ?? 0.0;
+      if (totalEscrow <= 0.0) {
+        // Fallback to job pricing value minus any discount amount
+        final pricing = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
+        final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+        totalEscrow = (pricing - discount).clamp(0.0, 999999.0);
+      }
+
+      if (totalEscrow > 0.0) {
+        final empDoc = await getDocument('users/$employerId');
+        if (empDoc != null) {
+          final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+          await createOrUpdate('users/$employerId', {
+            ...empDoc,
+            'tyxBalance': currentBal + totalEscrow,
+          });
+        }
+
+        // Update escrow document status from held to refunded
+        await createOrUpdate('escrow/$jobId', {
+          if (escrowDoc != null) ...escrowDoc,
+          'jobId': jobId,
+          'employerId': employerId,
+          'amount': totalEscrow,
+          'refundAmount': totalEscrow,
+          'status': 'refunded',
+          'refundedAt': DateTime.now().millisecondsSinceEpoch,
+          'refundedTo': employerId,
+        });
+
+        // Record refund in transactions collection
+        final jobTitle = (jobDoc['title'] as String?) ?? 'Job';
+        await createOrUpdate('transactions/refund_job_$jobId', {
+          'id': 'refund_job_$jobId',
+          'uid': employerId,
+          'jobId': jobId,
+          'type': 'refund',
+          'category': 'refund',
+          'amount': totalEscrow,
+          'title': 'Job Escrow Refund',
+          'desc': '100% Escrow refund for cancelled job "$jobTitle"',
+          'status': 'Completed',
+          'method': 'Tranyx Escrow',
+          'originRail': 'internal_balance',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+    }
+
+    await createOrUpdate('jobs/$jobId', {
+      ...jobDoc,
+      'status': 'Cancelled',
+    });
+
+    // Update pending applications to REJECTED_JOB_CANCELLED
+    final apps = await getApplications(jobId);
+    for (final app in apps) {
+      final applicantUid = app['applicantUid'] as String?;
+      if (applicantUid != null && applicantUid.isNotEmpty) {
+        await createOrUpdate('jobs/$jobId/applications/$applicantUid', {
+          ...app,
+          'status': 'REJECTED_JOB_CANCELLED',
+        });
+      }
+    }
+
+    // Write cancellation log
+    final logId = 'log_${DateTime.now().millisecondsSinceEpoch}';
+    await createOrUpdate('job_cancellation_logs/$logId', {
+      'jobId': jobId,
+      'cancelledBy': currentUserUid,
+      'role': 'employer',
+      'action': 'UNILATERAL_CANCEL',
+      'status': 'CANCELLED',
+      'reason': 'Employer cancelled open job posting',
+      'previousStatus': jobDoc['status'] ?? 'Open',
+      'acceptedApplicantId': null,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  /// Reclaims a gig that has been inactive/stalled for at least 48 hours.
+  /// Refunds 100% of escrow to the employer, transitions status to 'Abandoned',
+  /// and increments the assigned worker's `abandonedJobs` metric.
+  Future<void> reclaimInactiveJob(String jobId, String employerUid, [String? reason]) async {
+    final jobDoc = await getDocument('jobs/$jobId');
+    if (jobDoc == null) throw Exception('Job not found.');
+
+    final employerId = jobDoc['creatorId'] as String? ?? '';
+    if (employerId != employerUid) {
+      throw Exception('UNAUTHORIZED: Only the job creator can reclaim this job.');
+    }
+
+    final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+    if (status == 'completed') {
+      throw Exception('INVALID_STATE: Cannot reclaim a completed job.');
+    }
+    if (status == 'cancelled' || status == 'admin_cancelled') {
+      throw Exception('INVALID_STATE: Job is already cancelled.');
+    }
+    if (status == 'abandoned') {
+      throw Exception('INVALID_STATE: Job is already marked abandoned.');
+    }
+
+    DateTime? parseTs(dynamic val) {
+      if (val == null) return null;
+      if (val is DateTime) return val;
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+      if (val is String) {
+        final dt = DateTime.tryParse(val);
+        if (dt != null) return dt;
+        final n = num.tryParse(val);
+        if (n != null) return DateTime.fromMillisecondsSinceEpoch(n.toInt());
+      }
+      return null;
+    }
+
+    final lastActive = parseTs(jobDoc['updatedAt']) ?? parseTs(jobDoc['createdAt']) ?? DateTime.now();
+    final inactiveHours = DateTime.now().difference(lastActive).inHours;
+    if (inactiveHours < 48) {
+      throw Exception('JOB_NOT_STALE: Inactivity threshold of 48 hours has not been reached ($inactiveHours hours elapsed).');
+    }
+
+    final now = DateTime.now();
+    final nowMillis = now.millisecondsSinceEpoch;
+    final nyxianId = jobDoc['acceptedApplicantId'] as String? ?? jobDoc['nyxianId'] as String?;
+
+    final escrowDoc = await getEscrow(jobId);
+    final isAlreadyRefunded = escrowDoc != null && (escrowDoc['status'] as String? ?? '').toLowerCase() == 'refunded';
+
+    if (!isAlreadyRefunded && employerId.isNotEmpty) {
+      double totalEscrow = (escrowDoc?['amount'] as num?)?.toDouble() ?? 0.0;
+      if (totalEscrow <= 0.0) {
+        final pricing = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
+        final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+        totalEscrow = (pricing - discount).clamp(0.0, 999999.0);
+      }
+
+      if (totalEscrow > 0.0) {
+        final empDoc = await getDocument('users/$employerId');
+        if (empDoc != null) {
+          final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+          await createOrUpdate('users/$employerId', {
+            ...empDoc,
+            'tyxBalance': currentBal + totalEscrow,
+          });
+        }
+
+        await createOrUpdate('escrow/$jobId', {
+          if (escrowDoc != null) ...escrowDoc,
+          'jobId': jobId,
+          'employerId': employerId,
+          'amount': totalEscrow,
+          'refundAmount': totalEscrow,
+          'status': 'refunded',
+          'refundedAt': nowMillis,
+          'refundedTo': employerId,
+        });
+
+        final jobTitle = (jobDoc['title'] as String?) ?? 'Job';
+        await createOrUpdate('transactions/refund_stale_job_$jobId', {
+          'id': 'refund_stale_job_$jobId',
+          'uid': employerId,
+          'jobId': jobId,
+          'type': 'refund',
+          'category': 'refund',
+          'amount': totalEscrow,
+          'title': 'Inactive Gig Escrow Reclaim',
+          'desc': '100% Escrow refund for reclaimed inactive gig "$jobTitle"',
+          'status': 'Completed',
+          'method': 'Tranyx Escrow',
+          'originRail': 'internal_balance',
+          'createdAt': nowMillis,
+        });
+      }
+    }
+
+    // Increment nyxian abandonedJobs
+    if (nyxianId != null && nyxianId.trim().isNotEmpty) {
+      final nyxDoc = await getDocument('users/$nyxianId');
+      if (nyxDoc != null) {
+        final currentAbandoned = (nyxDoc['abandonedJobs'] as num?)?.toInt() ?? 0;
+        await createOrUpdate('users/$nyxianId', {
+          ...nyxDoc,
+          'abandonedJobs': currentAbandoned + 1,
+        });
+      }
+    }
+
+    // Update job doc to Abandoned
+    await createOrUpdate('jobs/$jobId', {
+      ...jobDoc,
+      'status': 'Abandoned',
+      'updatedAt': nowMillis,
+      'abandonedAt': nowMillis,
+      'abandonReason': reason?.trim().isNotEmpty == true
+          ? reason!.trim()
+          : 'Job reclaimed by employer due to 48+ hours of inactivity',
+    });
+
+    // Write cancellation log
+    final logId = 'log_$nowMillis';
+    await createOrUpdate('job_cancellation_logs/$logId', {
+      'jobId': jobId,
+      'cancelledBy': employerUid,
+      'role': 'employer',
+      'action': 'RECLAIM_INACTIVE_JOB',
+      'status': 'ABANDONED',
+      'reason': reason?.trim().isNotEmpty == true
+          ? reason!.trim()
+          : 'Job reclaimed by employer due to 48+ hours of inactivity',
+      'previousStatus': jobDoc['status'] ?? 'In Progress',
+      'acceptedApplicantId': nyxianId,
+      'timestamp': nowMillis,
+    });
+
+    // Notify employer
+    final empPrefix = employerId.length > 5 ? employerId.substring(0, 5) : employerId;
+    await createOrUpdate('notifications/notif_reclaim_emp_${nowMillis}_$empPrefix', {
+      'uid': employerId,
+      'title': 'Gig Reclaimed 🛡️',
+      'message': 'You successfully reclaimed inactive gig "${jobDoc['title']}". 100% of escrow has been refunded to your wallet.',
+      'type': 'job_reclaimed',
+      'jobId': jobId,
+      'isRead': false,
+      'createdAt': nowMillis,
+    });
+
+    // Notify Nyxian if assigned
+    if (nyxianId != null && nyxianId.trim().isNotEmpty) {
+      final nyxPrefix = nyxianId.length > 5 ? nyxianId.substring(0, 5) : nyxianId;
+      await createOrUpdate('notifications/notif_reclaim_nyx_${nowMillis}_$nyxPrefix', {
+        'uid': nyxianId,
+        'title': 'Gig Reclaimed by Employer ⚠️',
+        'message': 'Gig "${jobDoc['title']}" was marked Abandoned due to 48+ hours without progress.',
+        'type': 'job_abandoned',
+        'jobId': jobId,
+        'isRead': false,
+        'createdAt': nowMillis,
+      });
+    }
+  }
+
+  Future<void> adminOverrideCancelJob(String jobId, String adminUid, String reason) async {
+    if (reason.trim().length < 20) {
+      throw Exception('Admin override requires a justification reason of at least 20 characters.');
+    }
+
+    final jobDoc = await getDocument('jobs/$jobId');
+    if (jobDoc == null) throw Exception('Job not found.');
+
+    final employerId = jobDoc['creatorId'] as String?;
+    final acceptedNyxian = jobDoc['acceptedApplicantId'] as String?;
+    final prevStatus = jobDoc['status'] as String? ?? 'Unknown';
+
+    final escrowDoc = await getEscrow(jobId);
+    final isAlreadyRefunded = escrowDoc != null && (escrowDoc['status'] as String? ?? '').toLowerCase() == 'refunded';
+
+    if (!isAlreadyRefunded && employerId != null && employerId.isNotEmpty) {
+      double totalEscrow = (escrowDoc?['amount'] as num?)?.toDouble() ?? 0.0;
+      if (totalEscrow <= 0.0) {
+        final pricing = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
+        final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+        totalEscrow = (pricing - discount).clamp(0.0, 999999.0);
+      }
+
+      if (totalEscrow > 0.0) {
+        final empDoc = await getDocument('users/$employerId');
+        if (empDoc != null) {
+          final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+          await createOrUpdate('users/$employerId', {
+            ...empDoc,
+            'tyxBalance': currentBal + totalEscrow,
+          });
+        }
+
+        // Update escrow document status from held to refunded
+        await createOrUpdate('escrow/$jobId', {
+          if (escrowDoc != null) ...escrowDoc,
+          'jobId': jobId,
+          'employerId': employerId,
+          'amount': totalEscrow,
+          'refundAmount': totalEscrow,
+          'status': 'refunded',
+          'refundedAt': DateTime.now().millisecondsSinceEpoch,
+          'refundedTo': employerId,
+        });
+
+        // Record refund in transactions collection
+        final jobTitle = (jobDoc['title'] as String?) ?? 'Job';
+        await createOrUpdate('transactions/refund_job_$jobId', {
+          'id': 'refund_job_$jobId',
+          'uid': employerId,
+          'jobId': jobId,
+          'type': 'refund',
+          'category': 'refund',
+          'amount': totalEscrow,
+          'title': 'Job Escrow Refund (Admin Override)',
+          'desc': '100% Escrow refund via admin override for cancelled job "$jobTitle"',
+          'status': 'Completed',
+          'method': 'Tranyx Escrow',
+          'originRail': 'internal_balance',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+    }
+
+    await createOrUpdate('jobs/$jobId', {
+      ...jobDoc,
+      'status': 'ADMIN_CANCELLED',
+    });
+
+    final adminLogId = 'log_admin_${DateTime.now().millisecondsSinceEpoch}';
+    await createOrUpdate('job_cancellation_logs/$adminLogId', {
+      'jobId': jobId,
+      'adminUid': adminUid,
+      'cancelledBy': adminUid,
+      'role': 'admin',
+      'action': 'ADMIN_OVERRIDE_CANCEL',
+      'status': 'ADMIN_CANCELLED',
+      'reason': reason.trim(),
+      'previousStatus': prevStatus,
+      'acceptedApplicantId': acceptedNyxian,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    if (employerId != null && employerId.isNotEmpty) {
+      await createNotification(
+        uid: employerId,
+        title: 'Job Admin Cancelled ⚠️',
+        message: 'Admin cancelled "${jobDoc['title']}". Reason: ${reason.trim()}',
+      );
+    }
+
+    if (acceptedNyxian != null && acceptedNyxian.isNotEmpty) {
+      await createNotification(
+        uid: acceptedNyxian,
+        title: 'Gig Cancelled by Admin ⚠️',
+        message: 'Admin has cancelled job "${jobDoc['title']}". Reason: ${reason.trim()}',
+      );
+    }
+  }
+
+  Future<String> submitDispute({
+    required String jobId,
+    required String jobTitle,
+    required String employerId,
+    required String? acceptedNyxianId,
+    required String reason,
+    required double escrowAmount,
+    required String openedByUid,
+  }) async {
+    final disputeId = 'disp_${DateTime.now().millisecondsSinceEpoch}_${jobId.substring(0, jobId.length > 6 ? 6 : jobId.length)}';
+    await setDocument('disputes/$disputeId', {
+      'id': disputeId,
+      'jobId': jobId,
+      'jobTitle': jobTitle,
+      'employerId': employerId,
+      'acceptedNyxianId': acceptedNyxianId,
+      'openedBy': openedByUid,
+      'openedByRole': openedByUid == acceptedNyxianId ? 'nyxian' : 'employer',
+      'status': 'OPEN',
+      'reason': reason.trim(),
+      'escrowAmount': escrowAmount,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      'resolvedAt': null,
+      'resolutionType': null,
+      'resolutionNotes': null,
+    });
+    return disputeId;
   }
 
   // ── Applications ───────────────────────────────────────────
@@ -1001,6 +1909,28 @@ class FirestoreService {
     required double proposalRate,
     required bool isCounterOffer,
   }) async {
+    final jobDoc = await getDocument('jobs/$jobId');
+    if (jobDoc != null) {
+      final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+      if (status == 'cancelled' || status == 'admin_cancelled' || status == 'completed') {
+        throw Exception('Cannot apply to a $status job.');
+      }
+    }
+
+    // Eligibility check: ensure applicant has no active, ongoing accepted jobs
+    final acceptedJobs = await getAcceptedJobs(applicantUid);
+    final hasOngoing = acceptedJobs.any((j) {
+      final s = (j['status'] as String? ?? '').trim().toLowerCase();
+      return s.isNotEmpty &&
+          s != 'completed' &&
+          s != 'cancelled' &&
+          s != 'admin_cancelled' &&
+          s != 'abandoned';
+    });
+    if (hasOngoing) {
+      throw Exception(ongoingJobRestrictionMessage);
+    }
+
     final now = DateTime.now().millisecondsSinceEpoch;
     final appData = {
       'jobId': jobId,
@@ -1015,17 +1945,21 @@ class FirestoreService {
     // Write application sub-document
     await createOrUpdate('jobs/$jobId/applications/$applicantUid', appData);
     await awardPointsIfEligible(applicantUid, 'apply_first_job');
-    // Update job applicantCount and applicantUids (best-effort, no transactions in REST)
-    final jobDoc = await getDocument('jobs/$jobId');
+    // Update job applicantCount, applicantUids, and recentApplicantPhotos
     if (jobDoc != null) {
       final uids = List<String>.from(jobDoc['applicantUids'] as List? ?? []);
+      final photos = List<String>.from(jobDoc['recentApplicantPhotos'] as List? ?? []);
+      if (applicantPhotoUrl != null && applicantPhotoUrl.isNotEmpty && !photos.contains(applicantPhotoUrl)) {
+        photos.insert(0, applicantPhotoUrl);
+        if (photos.length > 5) photos.removeLast();
+      }
       if (!uids.contains(applicantUid)) {
         uids.add(applicantUid);
         final count = (jobDoc['applicantCount'] as int? ?? 0) + 1;
-        await createOrUpdate('jobs/$jobId', {
-          ...jobDoc,
+        await setDocument('jobs/$jobId', {
           'applicantUids': uids,
           'applicantCount': count,
+          'recentApplicantPhotos': photos,
         });
       }
 
@@ -1053,7 +1987,7 @@ class FirestoreService {
       final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       final docs = data['documents'] as List? ?? [];
       return docs.map((d) {
-        final doc = d as Map<String, dynamic>;
+        final doc = d as Map;
         final id = _docId(doc);
         return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
@@ -1070,7 +2004,7 @@ class FirestoreService {
       final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       final docs = data['documents'] as List? ?? [];
       final messages = docs.map((d) {
-        final doc = d as Map<String, dynamic>;
+        final doc = d as Map;
         final id = _docId(doc);
         return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
@@ -1115,7 +2049,7 @@ class FirestoreService {
       final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       final docs = data['documents'] as List? ?? [];
       final messages = docs.map((d) {
-        final doc = d as Map<String, dynamic>;
+        final doc = d as Map;
         final id = _docId(doc);
         return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
@@ -1284,7 +2218,7 @@ class FirestoreService {
       final data = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       final docs = data['documents'] as List? ?? [];
       final result = docs.map((d) {
-        final doc = d as Map<String, dynamic>;
+        final doc = d as Map;
         final id = _docId(doc);
         return {..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
@@ -1297,35 +2231,39 @@ class FirestoreService {
 
   // ── Vehicle Rentals ──────────────────────────────────────────
 
-  /// Create a new vehicle rental posting, deducting 1.5% listing fee
+  /// Create a new vehicle rental posting (0% Free Listing - ₱0.00 upfront fee)
   Future<String> createRental(VehicleRental rental) async {
     final host = await getUser(rental.hostId);
     if (host == null) {
       throw Exception('Host profile not found.');
     }
-    final listingFee = 0.015 * rental.priceDaily;
-    if (host.tyxBalance < listingFee) {
-      throw Exception(
-        'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
+
+    final feeConfig = await getPlatformFeeConfig();
+    final listingFeeRate = feeConfig.listingFeeRate; // 0.0 (Free tier)
+    final listingFee = listingFeeRate * rental.priceDaily;
+
+    if (listingFee > 0.0) {
+      if (host.tyxBalance < listingFee) {
+        throw Exception(
+          'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+        );
+      }
+      final newBalance = host.tyxBalance - listingFee;
+      await updateTyxBalance(rental.hostId, newBalance);
+
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'uid': rental.hostId,
+        'type': 'listing_fee',
+        'amount': listingFee,
+        'listingFeeRate': listingFeeRate,
+        'title': 'Vehicle Listing Fee',
+        'desc': '${PlatformFeeConfig.formatPercent(listingFeeRate)} posting fee for ${rental.brand} ${rental.model} (${rental.year})',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      await setDocument('transactions/$txId', txData);
     }
-
-    // Deduct fee
-    final newBalance = host.tyxBalance - listingFee;
-    await updateTyxBalance(rental.hostId, newBalance);
-
-    // Save transaction record
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': rental.hostId,
-      'type': 'listing_fee',
-      'amount': listingFee,
-      'title': 'Vehicle Listing Fee',
-      'desc': '1.5% posting fee for ${rental.brand} ${rental.model} (${rental.year})',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
 
     // Post rental document
     final url = '$_firestoreBase/rentals';
@@ -1335,18 +2273,17 @@ class FirestoreService {
     final req = await _client.post(
       Uri.parse(url),
       headers: headers,
-      body: jsonEncode(_toFirestoreFields(rental.toMap())),
+      body: jsonEncode(_toFirestoreFields({...rental.toMap(), 'listingFeePaid': listingFee})),
     );
 
     if (req.statusCode >= 400) {
-      final data = jsonDecode(req.body) as Map<String, dynamic>;
+      final data = jsonDecode(req.body) as Map;
       final err = data['error'] as Map? ?? {};
       throw FirebaseException(err['message'] as String? ?? 'Create rental failed', req.statusCode);
     }
 
-    final result = jsonDecode(req.body) as Map<String, dynamic>;
+    final result = jsonDecode(req.body) as Map;
     final docId = _docId(result);
-    await setDocument('rentals/$docId', {'id': docId});
     return docId;
   }
 
@@ -1361,26 +2298,31 @@ class FirestoreService {
     final host = await getUser(hostId);
     if (host == null) throw Exception('Host profile not found.');
 
-    final listingFee = 0.015 * priceDaily;
-    if (host.tyxBalance < listingFee) {
-      throw Exception(
-        'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
+    final feeConfig = await getPlatformFeeConfig();
+    final listingFeeRate = feeConfig.listingFeeRate; // 0.0 (Free tier)
+    final listingFee = listingFeeRate * priceDaily;
+
+    if (listingFee > 0.0) {
+      if (host.tyxBalance < listingFee) {
+        throw Exception(
+          'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+        );
+      }
+      final newBalance = host.tyxBalance - listingFee;
+      await updateTyxBalance(hostId, newBalance);
+
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      await setDocument('transactions/$txId', {
+        'uid': hostId,
+        'type': 'listing_fee',
+        'amount': listingFee,
+        'listingFeeRate': listingFeeRate,
+        'title': 'Vehicle Listing Fee',
+        'desc': '${PlatformFeeConfig.formatPercent(listingFeeRate)} posting fee for $brand $model ($year)',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      });
     }
-
-    final newBalance = host.tyxBalance - listingFee;
-    await updateTyxBalance(hostId, newBalance);
-
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    await setDocument('transactions/$txId', {
-      'uid': hostId,
-      'type': 'listing_fee',
-      'amount': listingFee,
-      'title': 'Vehicle Listing Fee',
-      'desc': '1.5% posting fee for $brand $model ($year)',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    });
 
     final url = '$_firestoreBase/rentals';
     final headers = <String, String>{'Content-Type': 'application/json'};
@@ -1389,45 +2331,81 @@ class FirestoreService {
     final req = await _client.post(
       Uri.parse(url),
       headers: headers,
-      body: jsonEncode(_toFirestoreFields(rentalMap)),
+      body: jsonEncode(_toFirestoreFields({...rentalMap, 'listingFeePaid': listingFee})),
     );
 
     if (req.statusCode >= 400) {
-      final data = jsonDecode(req.body) as Map<String, dynamic>;
+      final data = jsonDecode(req.body) as Map;
       final err = data['error'] as Map? ?? {};
       throw FirebaseException(err['message'] as String? ?? 'Create rental failed', req.statusCode);
     }
 
-    final result = jsonDecode(req.body) as Map<String, dynamic>;
+    final result = jsonDecode(req.body) as Map;
     final docId = _docId(result);
-    await setDocument('rentals/$docId', {'id': docId});
     return docId;
   }
 
-  /// Delete rental posting and refund listing fee
+  /// Sets vehicle accepting bookings status (Stop Receiving Bookings / Resume Bookings)
+  Future<void> setVehicleAcceptingBookings(String rentalId, bool accepting) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+
+    final currentStatus = rentalDoc['status']?.toString() ?? 'Available';
+    final newStatus = accepting
+        ? (currentStatus == 'Not Accepting Bookings' ? 'Available' : currentStatus)
+        : 'Not Accepting Bookings';
+
+    await setDocument('rentals/$rentalId', {
+      'acceptingBookings': accepting,
+      'status': newStatus,
+    });
+  }
+
+  /// Deletes a vehicle rental listing (soft delete / archive), validating pending requests first
   Future<void> deleteRental(String rentalId) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
 
-    final rental = VehicleRental.fromMap(rentalDoc, rentalId);
-
-    // Safety check: Cannot delete booked or ongoing rentals
-    if (rental.status != 'Available') {
-      throw Exception('Cannot delete a vehicle listing that is currently booked or active.');
+    // Reject deletion if unresolved pending requests exist
+    final allRequests = await getAllRequestsForVehicle(rentalId);
+    final hasPending = allRequests.any((r) => r['status']?.toString().toLowerCase() == 'pending');
+    if (hasPending) {
+      throw Exception('You have pending booking requests for this listing. Please accept or reject all pending requests before deleting this listing.');
     }
 
-    // Fetch all pending requests for this vehicle and reject/refund them
-    final pendingRequests = await getPendingRequestsForVehicle(rentalId);
-    for (final req in pendingRequests) {
-      final requestId = req['id'] as String;
-      try {
-        await rejectBookingRequest(requestId);
-      } catch (e) {
-        print('Error rejecting request $requestId during vehicle deletion: $e');
-      }
-    }
+    // Soft delete / archive the listing record rather than physically deleting it,
+    // preserving historical bookings, transactions, and contracts.
+    await setDocument('rentals/$rentalId', {
+      'status': 'Archived',
+      'isDeleted': true,
+      'acceptingBookings': false,
+      'deletedAt': DateTime.now().millisecondsSinceEpoch,
+    });
 
-    await deleteDocument('rentals/$rentalId');
+    // Refund listing fee only if no confirmed/active bookings exist and fee > 0
+    final hasConfirmedBookings = allRequests.any((r) => BookingDateRange.fromMap(r).isConfirmedBooking);
+    final host = await getUser(rentalDoc['hostId'] as String? ?? '');
+    final listingFee = (rentalDoc['listingFeePaid'] as num?)?.toDouble() ?? 0.0;
+    if (!hasConfirmedBookings && host != null && listingFee > 0.0) {
+      final hostId = rentalDoc['hostId'] as String;
+      final year = rentalDoc['year'] ?? '';
+      final brand = rentalDoc['brand'] ?? '';
+      final model = rentalDoc['model'] ?? '';
+      await updateTyxBalance(hostId, host.tyxBalance + listingFee);
+      await setDocument('transactions/refund_veh_$rentalId', {
+        'id': 'refund_veh_$rentalId',
+        'uid': hostId,
+        'type': 'refund',
+        'category': 'refund',
+        'amount': listingFee,
+        'title': 'Vehicle Listing Fee Refund',
+        'desc': '100% refund of listing fee for cancelled vehicle "$year $brand $model"',
+        'method': 'Tranyx Wallet',
+        'originRail': 'internal_balance',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'status': 'Completed',
+      });
+    }
   }
 
   /// Fetch all rentals
@@ -1439,10 +2417,10 @@ class FirestoreService {
     final req = await _client.get(Uri.parse(url), headers: headers);
     if (req.statusCode >= 400) return [];
 
-    final data = jsonDecode(req.body) as Map<String, dynamic>;
+    final data = jsonDecode(req.body) as Map;
     final docs = data['documents'] as List? ?? [];
     return docs.map((d) {
-      final doc = d as Map<String, dynamic>;
+      final doc = d as Map;
       final id = _docId(doc);
       return VehicleRental.fromMap(_fromFirestoreDoc(doc), id);
     }).toList();
@@ -1471,7 +2449,7 @@ class FirestoreService {
     if (rentalDoc == null) throw Exception('Rental listing not found.');
     final rental = VehicleRental.fromMap(rentalDoc, rentalId);
 
-    if (rental.status != 'Available') {
+    if (rental.status != 'Available' || !rental.acceptingBookings || rental.isDeleted) {
       throw Exception('Vehicle is no longer available for booking.');
     }
 
@@ -1508,6 +2486,7 @@ class FirestoreService {
     final escrowDoc = {
       'rentalId': rentalId,
       'renteeId': renteeId,
+      'renterId': renteeId,
       'hostId': rental.hostId,
       'amount': totalCost,
       'status': 'Held',
@@ -1563,12 +2542,30 @@ class FirestoreService {
   }
 
   /// Update rental status
-  Future<void> updateRentalStatus(String rentalId, String status) async {
-    await setDocument('rentals/$rentalId', {'status': status});
+  Future<void> updateRentalStatus(String rentalId, String status, {String? requestId}) async {
+    String actualRentalId = rentalId;
+    String? resolvedReqId = requestId;
 
-    final rentalDoc = await getDocument('rentals/$rentalId');
+    Map<String, dynamic>? rentalDoc = await getDocument('rentals/$actualRentalId');
+    if (rentalDoc == null) {
+      final reqDoc = await getDocument('rental_requests/$actualRentalId');
+      if (reqDoc != null) {
+        resolvedReqId = actualRentalId;
+        if (reqDoc['rentalId'] != null) {
+          actualRentalId = reqDoc['rentalId'].toString();
+          rentalDoc = await getDocument('rentals/$actualRentalId');
+        }
+      }
+    } else {
+      resolvedReqId ??= rentalDoc['currentRequestId'] as String?;
+    }
+
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      await setDocument('rental_requests/$resolvedReqId', {'status': status});
+    }
     if (rentalDoc != null) {
-      final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+      await setDocument('rentals/$actualRentalId', {'status': status});
+      final rental = VehicleRental.fromMap(rentalDoc, actualRentalId);
       // Notify rentee if status changes
       if (rental.renteeId != null) {
         await createNotification(
@@ -1582,6 +2579,8 @@ class FirestoreService {
         title: 'Rental Status Update',
         message: 'Your rental for ${rental.brand} is now: $status.',
       );
+    } else {
+      await setDocument('rentals/$actualRentalId', {'status': status});
     }
   }
 
@@ -1593,17 +2592,42 @@ class FirestoreService {
     });
   }
 
-  /// Complete rental (releases escrow to host, minus 3% platform commission, saves to history, resets listing to Available)
-  Future<void> completeRental(String rentalId) async {
-    final rentalDoc = await getDocument('rentals/$rentalId');
-    if (rentalDoc == null) throw Exception('Rental listing not found.');
-    final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+  /// Complete rental (releases escrow to host, minus 3% platform commission, saves to history, resets listing to Available or promotes next active booking)
+  Future<void> completeRental(String rentalId, {String? requestId}) async {
+    String actualRentalId = rentalId;
+    String? resolvedReqId = requestId;
 
-    final host = await getUser(rental.hostId);
+    Map<String, dynamic>? rentalDoc = await getDocument('rentals/$actualRentalId');
+    Map<String, dynamic>? bookingDoc;
+
+    if (rentalDoc == null) {
+      resolvedReqId = actualRentalId;
+      bookingDoc = await getDocument('rental_requests/$resolvedReqId');
+      if (bookingDoc != null && bookingDoc['rentalId'] != null) {
+        actualRentalId = bookingDoc['rentalId'].toString();
+        rentalDoc = await getDocument('rentals/$actualRentalId');
+      }
+    }
+
+    if (rentalDoc == null) throw Exception('Rental listing not found.');
+    resolvedReqId ??= rentalDoc['currentRequestId'] as String?;
+
+    if (bookingDoc == null && resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      bookingDoc = await getDocument('rental_requests/$resolvedReqId');
+    }
+
+    final rental = VehicleRental.fromMap(rentalDoc, actualRentalId);
+    final hostId = (bookingDoc?['hostId'] ?? rental.hostId) as String;
+    final host = await getUser(hostId);
     if (host == null) throw Exception('Host profile not found.');
 
-    // Verify payment is held in escrow before releasing
-    final escrowDoc = await getDocument('rental_escrows/$rentalId');
+    // Verify payment is held in escrow before releasing - check requestId first, then rentalId
+    Map<String, dynamic>? escrowDoc;
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      escrowDoc = await getDocument('rental_escrows/$resolvedReqId');
+    }
+    escrowDoc ??= await getDocument('rental_escrows/$actualRentalId');
+
     if (escrowDoc == null) {
       throw Exception('Escrow transaction not found. Payout aborted to ensure secure transaction.');
     }
@@ -1611,74 +2635,118 @@ class FirestoreService {
       throw Exception('Escrow is not in Held status. Current status: ${escrowDoc['status']}. Payout aborted.');
     }
 
-    final cost = rental.totalCost ?? 0.0;
+    final cost = ((bookingDoc?['totalCost'] ?? rental.totalCost ?? escrowDoc['amount']) as num).toDouble();
     final commission = cost * 0.03;
     final hostPayout = cost - commission;
 
     // Release payout to host
     final newHostBalance = host.tyxBalance + hostPayout;
-    await updateTyxBalance(rental.hostId, newHostBalance);
+    await updateTyxBalance(hostId, newHostBalance);
 
     // Save transaction for host
     final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
     final txData = {
-      'uid': rental.hostId,
+      'uid': hostId,
       'type': 'payment',
       'amount': hostPayout,
       'baseAmount': cost,
       'commissionFee': commission,
       'commissionLabel': 'Platform Commission (3%)',
       'title': 'Rental Earnings Payout',
-      'desc':
-          'Payout for rental ${rental.brand} ${rental.model} (3% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'desc': 'Rental payout for ${rental.brand} ${rental.model} ($txId)',
+      'status': 'Completed',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
     };
     await setDocument('transactions/$txId', txData);
 
-    // Update escrow status
-    await setDocument('rental_escrows/$rentalId', {
+    // Release escrow record
+    final escrowRelease = {
       'status': 'Released',
       'releasedAt': DateTime.now().millisecondsSinceEpoch,
-    });
+    };
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      await setDocument('rental_escrows/$resolvedReqId', escrowRelease);
+    }
+    await setDocument('rental_escrows/$actualRentalId', escrowRelease);
 
     // Save transaction and rental details to history
     final historyId = 'rh_${DateTime.now().microsecondsSinceEpoch}';
     final historyDoc = {
       ...rentalDoc,
+      if (bookingDoc != null) ...bookingDoc,
+      'id': historyId,
+      'rentalId': actualRentalId,
+      'requestId': resolvedReqId ?? '',
       'status': 'Completed',
       'completedAt': DateTime.now().millisecondsSinceEpoch,
     };
     await setDocument('rental_history/$historyId', historyDoc);
 
-    // Reset the rental listing document status back to Available and clear rentee fields
-    await setDocument('rentals/$rentalId', {
-      'status': 'Available',
-      'renteeId': '',
-      'renteeName': '',
-      'renteePhotoUrl': '',
-      'rentalDurationType': '',
-      'rentalMultiplier': 0,
-      'startDate': 0,
-      'endDate': 0,
-      'totalCost': 0.0,
-      'renteeSignatureName': '',
-      'renteeLicenseNumber': '',
-      'signedAt': 0,
-      'trackingLat': 0.0,
-      'trackingLng': 0.0,
-    });
+    // Mark specific request in rental_requests as Completed
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      try {
+        await setDocument('rental_requests/$resolvedReqId', {'status': 'Completed'});
+      } catch (_) {}
+    }
+
+    // Check if other ongoing/booked requests remain on this listing
+    final allRequests = await getAllRequestsForVehicle(actualRentalId);
+    final remainingActive = allRequests.where((r) {
+      if (r['id'] == resolvedReqId) return false;
+      final st = (r['status'] ?? '').toString().toLowerCase();
+      return st == 'booked' || st == 'ongoing' || st == 'on the way to rentee' || st == 'returning' || st == 'awaiting signature';
+    }).toList();
+
+    if (remainingActive.isEmpty) {
+      // Reset the rental listing document status back to Available and clear rentee fields
+      await setDocument('rentals/$actualRentalId', {
+        'status': 'Available',
+        'renteeId': '',
+        'renteeName': '',
+        'renteePhotoUrl': '',
+        'rentalDurationType': '',
+        'rentalMultiplier': 0,
+        'startDate': 0,
+        'endDate': 0,
+        'totalCost': 0.0,
+        'renteeSignatureName': '',
+        'renteeLicenseNumber': '',
+        'signedAt': 0,
+        'trackingLat': 0.0,
+        'trackingLng': 0.0,
+        'currentRequestId': '',
+      });
+    } else {
+      // Promote the next active booking to currentRequestId
+      final nextReq = remainingActive.first;
+      await setDocument('rentals/$rentalId', {
+        'status': nextReq['status'] ?? 'Booked',
+        'renteeId': nextReq['renteeId'] ?? '',
+        'renteeName': nextReq['renteeName'] ?? '',
+        'renteePhotoUrl': nextReq['renteePhotoUrl'] ?? '',
+        'rentalDurationType': nextReq['durationType'] ?? '',
+        'rentalMultiplier': nextReq['multiplier'] ?? 1,
+        'startDate': nextReq['startDate'] ?? 0,
+        'endDate': nextReq['endDate'] ?? 0,
+        'totalCost': nextReq['totalCost'] ?? 0.0,
+        'renteeSignatureName': nextReq['signatureName'] ?? '',
+        'renteeLicenseNumber': nextReq['licenseNumber'] ?? '',
+        'signedAt': nextReq['signedAt'] ?? 0,
+        'currentRequestId': nextReq['id'],
+      });
+    }
 
     // Notifications
     await createNotification(
-      uid: rental.hostId,
+      uid: hostId,
       title: 'Rental Completed & Paid',
       message:
           'Rental for ${rental.brand} completed. Payout of ${hostPayout.toStringAsFixed(2)} TYXBIT credited to your wallet.',
     );
-    if (rental.renteeId != null && rental.renteeId!.isNotEmpty) {
+    final targetRentee = bookingDoc?['renteeId'] ?? rental.renteeId;
+    if (targetRentee != null && targetRentee.toString().isNotEmpty) {
       await createNotification(
-        uid: rental.renteeId!,
+        uid: targetRentee.toString(),
         title: 'Rental Completed',
         message: 'Your rental for ${rental.brand} has been successfully completed. Thank you!',
       );
@@ -1693,7 +2761,7 @@ class FirestoreService {
     required String? renteePhotoUrl,
     required String durationType,
     required int multiplier,
-    required String licenseNumber,
+    String? licenseNumber,
     required double totalCost,
     required bool hireWithDriver,
     required String rentalType,
@@ -1709,40 +2777,56 @@ class FirestoreService {
     if (rentalDoc == null) throw Exception('Rental listing not found.');
     final rental = VehicleRental.fromMap(rentalDoc, rentalId);
 
-    if (rental.status != 'Available') {
-      throw Exception('Vehicle is no longer available.');
+    if (rental.status == 'Inactive' ||
+        rental.status == 'Unpublished' ||
+        rental.status == 'Archived' ||
+        rental.status == 'Deleted' ||
+        rental.status == 'Not Accepting Bookings' ||
+        !rental.acceptingBookings ||
+        rental.isDeleted) {
+      throw Exception('This vehicle is currently not accepting new bookings.');
+    }
+
+    final approvedReqs = await getApprovedRequestsForVehicle(rentalId);
+    final approvedRanges = approvedReqs.map((m) => BookingDateRange.fromMap(m)).toList();
+    if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
+      throw Exception('Selected dates overlap with an existing confirmed rental.');
     }
 
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
+
+    final hostUser = await getUser(rental.hostId);
+    final hostIsVerified = hostUser != null
+        ? (hostUser.idVerified || hostUser.verificationLevel >= 2)
+        : (rental.hostIsVerified ?? (rental.hostVerificationStatus == 'VERIFIED'));
+    final hostVerificationTier = hostUser != null
+        ? PartyVerificationHelper.formatVerificationTier(level: hostUser.verificationLevel, idVerified: hostUser.idVerified)
+        : (rental.hostVerificationTier ?? (hostIsVerified ? 'Government ID Verified' : 'None'));
+    final hostVerificationStatus = hostIsVerified ? 'VERIFIED' : 'UNVERIFIED';
+
+    final renteeIsVerified = rentee.idVerified || rentee.verificationLevel >= 2;
+    final renteeVerificationTier = PartyVerificationHelper.formatVerificationTier(
+      level: rentee.verificationLevel,
+      idVerified: rentee.idVerified,
+    );
+    final renteeVerificationStatus = renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED';
 
     final discount = discountAmount ?? 0.0;
     final discountedCost = (totalCost - discount).clamp(0.0, 999999.0);
     final bookingFee = discountedCost * 0.03;
     final totalRequired = discountedCost + bookingFee;
 
-    if (rentee.tyxBalance < totalRequired) {
-      throw Exception(
-        'Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
-    }
-
-    // Deduct from renter
-    final newRenterBalance = rentee.tyxBalance - totalRequired;
-    await updateTyxBalance(renteeId, newRenterBalance);
-
-    // Save transaction record for renter
     final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': renteeId,
-      'type': 'payment',
-      'amount': totalRequired,
-      'title': 'Vehicle Booking Request',
-      'desc': 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)${promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''}',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
+    final desc = 'Requested ${rental.brand} ${rental.model} for $multiplier $durationType(s)${promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''}';
+    await deductTyxBalanceSafely(
+      uid: renteeId,
+      amountToDeduct: totalRequired,
+      txId: txId,
+      title: 'Vehicle Booking Request',
+      description: desc,
+      category: 'rental',
+    );
 
     // Save request document
     final requestId = 'req_${DateTime.now().microsecondsSinceEpoch}';
@@ -1760,16 +2844,32 @@ class FirestoreService {
       'signatureName': '', // Signature not signed yet
       'licenseNumber': licenseNumber,
       'hireWithDriver': hireWithDriver,
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': hostVerificationStatus,
+      'hostVerificationTier': hostVerificationTier,
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': renteeVerificationStatus,
+      'renteeVerificationTier': renteeVerificationTier,
       'status': 'Pending',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
       'hostId': rental.hostId,
       'brand': rental.brand,
       'model': rental.model,
       'year': rental.year,
+      'plateNumber': rental.plateNumber,
+      'frontPhotoUrl': rental.frontPhotoUrl,
+      'photoUrl': rental.frontPhotoUrl.isNotEmpty ? rental.frontPhotoUrl : rental.interiorPhotoUrl,
+      'pickupAddress': rental.pickupAddress,
+      'pickupLat': rental.pickupLat,
+      'pickupLng': rental.pickupLng,
       'rentalType': rentalType,
       'deliveryAddress': deliveryAddress ?? '',
       'deliveryLat': deliveryLat,
       'deliveryLng': deliveryLng,
+      'contractType': rental.contractType,
+      'contractTerms': rental.contractTerms,
+      'contractDocumentId': CustomContractHelper.extractDocumentId(rental.contractTerms) ?? '',
+      'contractDocumentName': CustomContractHelper.extractFileName(rental.contractTerms),
       'startDate': startDate,
       'endDate': endDate,
       'promoCode': ?promoCode,
@@ -1782,6 +2882,7 @@ class FirestoreService {
       'requestId': requestId,
       'rentalId': rentalId,
       'renteeId': renteeId,
+      'renterId': renteeId,
       'hostId': rental.hostId,
       'amount': discountedCost,
       'status': 'Held',
@@ -1811,8 +2912,20 @@ class FirestoreService {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
     final rental = VehicleRental.fromMap(rentalDoc, rentalId);
-    if (rental.status != 'Available') {
-      throw Exception('Vehicle is no longer available (already booked).');
+
+    final startDate = getEpochMs(reqDoc['startDate']);
+    final endDate = getEpochMs(reqDoc['endDate']);
+
+    // Verify that this requested date range does not overlap with an already approved booking
+    if (startDate > 0 && endDate > 0) {
+      final existingApproved = await getApprovedRequestsForVehicle(rentalId);
+      final approvedRanges = existingApproved
+          .where((r) => r['id'] != requestId && r['status']?.toString().toLowerCase() != 'pending')
+          .map((m) => BookingDateRange.fromMap(m))
+          .toList();
+      if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
+        throw Exception('Cannot approve booking: selected dates overlap with an already confirmed rental.');
+      }
     }
 
     final renteeId = reqDoc['renteeId'] as String;
@@ -1823,29 +2936,33 @@ class FirestoreService {
     final hireWithDriver = reqDoc['hireWithDriver'] as bool? ?? false;
     final rentalType = reqDoc['rentalType'] as String? ?? 'pickup';
     final deliveryAddress = reqDoc['deliveryAddress'] as String? ?? '';
-    final startDate = (reqDoc['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
-    final endDate =
-        (reqDoc['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
+    final startDateInt = startDate;
+    final endDateInt = endDate;
 
     // 1. Approve this request
-    await setDocument('rental_requests/$requestId', {'status': 'Approved'});
+    await setDocument('rental_requests/$requestId', {
+      'status': 'Approved',
+      'allowChat': allowChat,
+      'approvedAt': DateTime.now().millisecondsSinceEpoch,
+    });
 
-    // 2. Move request's escrow to standard rental escrow (include bookingFee for full-refund tracking)
+    // 2. Dual-write escrow to requestId (canonical) and rentalId (backward compatibility)
     final reqEscrowDoc = await getDocument('rental_escrows/$requestId');
     final reqBookingFee = (reqDoc['bookingFee'] as num? ?? totalCost * 0.03).toDouble();
-    if (reqEscrowDoc != null) {
-      await setDocument('rental_escrows/$rentalId', {
-        'rentalId': rentalId,
-        'renteeId': renteeId,
-        'hostId': rental.hostId,
-        'amount': totalCost,
-        'bookingFee': reqBookingFee,
-        'totalPaid': totalCost + reqBookingFee,
-        'status': 'Held',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-      });
-      await deleteDocument('rental_escrows/$requestId');
-    }
+    final escrowData = {
+      'requestId': requestId,
+      'rentalId': rentalId,
+      'renteeId': renteeId,
+      'renterId': renteeId,
+      'hostId': rental.hostId,
+      'amount': totalCost,
+      'bookingFee': reqBookingFee,
+      'totalPaid': totalCost + reqBookingFee,
+      'status': 'Held',
+      'createdAt': reqEscrowDoc?['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('rental_escrows/$requestId', escrowData);
+    await setDocument('rental_escrows/$rentalId', escrowData);
 
     // 3. Update the rental listing document with renter details - Status set to "Awaiting Signature"
     await setDocument('rentals/$rentalId', {
@@ -1855,8 +2972,8 @@ class FirestoreService {
       'renteePhotoUrl': reqDoc['renteePhotoUrl'] ?? '',
       'rentalDurationType': durationType,
       'rentalMultiplier': multiplier,
-      'startDate': startDate,
-      'endDate': endDate,
+      'startDate': startDateInt,
+      'endDate': endDateInt,
       'totalCost': totalCost,
       'bookingFee': reqBookingFee,
       'renteeSignatureName': '',
@@ -1869,17 +2986,28 @@ class FirestoreService {
       'deliveryAddress': deliveryAddress,
       'currentRequestId': requestId,
       'allowChat': allowChat,
+      'hostIsVerified': reqDoc['hostIsVerified'] ?? (rentalDoc['hostIsVerified'] ?? (rentalDoc['hostVerificationStatus'] == 'VERIFIED')),
+      'hostVerificationStatus': reqDoc['hostVerificationStatus'] ?? (rentalDoc['hostVerificationStatus'] ?? ((rentalDoc['hostIsVerified'] == true) ? 'VERIFIED' : 'UNVERIFIED')),
+      'hostVerificationTier': reqDoc['hostVerificationTier'] ?? (rentalDoc['hostVerificationTier'] ?? ((rentalDoc['hostIsVerified'] == true) ? 'Government ID Verified' : 'None')),
+      'renteeIsVerified': reqDoc['renteeIsVerified'] ?? (reqDoc['renteeVerificationStatus'] == 'VERIFIED'),
+      'renteeVerificationStatus': reqDoc['renteeVerificationStatus'] ?? 'UNVERIFIED',
+      'renteeVerificationTier': reqDoc['renteeVerificationTier'] ?? 'None',
     });
 
-    // 4. Reject all other pending requests for the same vehicle
+    // 4. Selectively reject only other pending requests that overlap with the approved dates
     final allRequests = await getPendingRequestsForVehicle(rentalId);
-    for (final otherReq in allRequests) {
+    final conflictingRequests = BookingAvailabilityHelper.filterConflictingRequests(
+      startDateInt,
+      endDateInt,
+      allRequests,
+      currentRequestId: requestId,
+    );
+    for (final otherReq in conflictingRequests) {
       final otherReqId = otherReq['id'] as String;
-      if (otherReqId == requestId) continue;
       try {
         await rejectBookingRequest(otherReqId);
       } catch (e) {
-        print('Error rejecting other request $otherReqId: $e');
+        print('Error rejecting conflicting request $otherReqId: $e');
       }
     }
 
@@ -1899,20 +3027,80 @@ class FirestoreService {
   }
 
   /// Sign vehicle contract to activate booking
-  Future<void> signVehicleContract(String rentalId, String signatureDataUrl, {String? signatureHash}) async {
+  Future<void> signVehicleContract(String rentalId, String signatureDataUrl, {String? signatureHash, String? requestId}) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
+    final resolvedReqId = requestId ?? rentalDoc['currentRequestId'] as String?;
 
     final now = DateTime.now();
-    await setDocument('rentals/$rentalId', {
-      'status': 'Booked',
-      'renteeSignatureName': signatureDataUrl,
+
+    Map<String, dynamic>? bookingData;
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      bookingData = await getDocument('rental_requests/$resolvedReqId');
+      final contractId = 'contract_${resolvedReqId}_${now.millisecondsSinceEpoch}';
+      await setDocument('rental_requests/$resolvedReqId', {
+        'status': 'Booked',
+        'signatureName': signatureDataUrl,
+        'signedAt': now.millisecondsSinceEpoch,
+        'contractId': contractId,
+        'signatureHash': ?signatureHash,
+      });
+    }
+
+    // Only update listing document's active rentee fields if this is the active/current request
+    final isCurrentTrip = rentalDoc['currentRequestId'] == null ||
+        rentalDoc['currentRequestId'] == resolvedReqId ||
+        rentalDoc['status'] == 'Available' ||
+        rentalDoc['status'] == 'Awaiting Signature';
+
+    if (isCurrentTrip) {
+      await setDocument('rentals/$rentalId', {
+        'status': 'Booked',
+        if (resolvedReqId != null) 'currentRequestId': resolvedReqId,
+        'renteeSignatureName': signatureDataUrl,
+        'signedAt': now.millisecondsSinceEpoch,
+        'signatureHash': ?signatureHash,
+      });
+    }
+
+    // Freeze permanent immutable contract snapshot in /rental_contracts/{contractId}
+    final contractId = 'contract_${resolvedReqId ?? rentalId}_${now.millisecondsSinceEpoch}';
+    final hostIsVerified = rentalDoc['hostIsVerified'] == true || rentalDoc['hostVerificationStatus'] == 'VERIFIED';
+    final renteeIsVerified = (bookingData?['renteeIsVerified'] ?? rentalDoc['renteeIsVerified']) == true ||
+        (bookingData?['renteeVerificationStatus'] ?? rentalDoc['renteeVerificationStatus']) == 'VERIFIED';
+    final renteeId = bookingData?['renteeId'] ?? rentalDoc['renteeId'];
+    final renteeName = bookingData?['renteeName'] ?? rentalDoc['renteeName'] ?? 'Renter';
+
+    final contractDoc = {
+      'contractId': contractId,
+      'rentalId': rentalId,
+      if (resolvedReqId != null) 'requestId': resolvedReqId,
+      'contractType': rentalDoc['contractType'] ?? 'tranyx',
+      'contractTerms': rentalDoc['contractTerms'] ?? 'Standard P2P terms',
+      'hostId': rentalDoc['hostId'],
+      'hostName': rentalDoc['hostName'],
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': rentalDoc['hostVerificationStatus'] ?? (hostIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'hostVerificationTier': rentalDoc['hostVerificationTier'] ?? (hostIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeId': renteeId,
+      'renteeName': renteeName,
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': bookingData?['renteeVerificationStatus'] ?? rentalDoc['renteeVerificationStatus'] ?? (renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'renteeVerificationTier': bookingData?['renteeVerificationTier'] ?? rentalDoc['renteeVerificationTier'] ?? (renteeIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeLicenseNumber': bookingData?['renteeLicenseNumber'] ?? rentalDoc['renteeLicenseNumber'] ?? '',
+      'renteeSignature': signatureDataUrl,
+      'signatureHash': signatureHash ?? '',
       'signedAt': now.millisecondsSinceEpoch,
-      'signatureHash': ?signatureHash,
-    });
+      'totalCost': bookingData?['totalCost'] ?? rentalDoc['totalCost'],
+      'startDate': bookingData?['startDate'] ?? rentalDoc['startDate'],
+      'endDate': bookingData?['endDate'] ?? rentalDoc['endDate'],
+      'status': 'Executed',
+      'isImmutableSnapshot': true,
+      'executedAt': now.millisecondsSinceEpoch,
+    };
+    await setDocument('rental_contracts/$contractId', contractDoc);
 
     final hostId = rentalDoc['hostId'] as String;
-    final renteeName = rentalDoc['renteeName'] as String? ?? 'Renter';
     final brand = rentalDoc['brand'] ?? '';
     final model = rentalDoc['model'] ?? '';
 
@@ -1924,7 +3112,7 @@ class FirestoreService {
     );
   }
 
-  /// Reject a booking request and refund the rentee's wallet
+  /// Reject a booking request and set escrow to RefundPending for automated reconciliation
   Future<void> rejectBookingRequest(String requestId) async {
     final reqDoc = await getDocument('rental_requests/$requestId');
     if (reqDoc == null) return;
@@ -1932,98 +3120,207 @@ class FirestoreService {
 
     final renteeId = reqDoc['renteeId'] as String;
     final totalCost = (reqDoc['totalCost'] as num).toDouble();
-    final bookingFee = (reqDoc['bookingFee'] as num).toDouble();
+    final bookingFee = (reqDoc['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03);
     final refundAmount = totalCost + bookingFee;
+    final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Set request status to Rejected
-    await setDocument('rental_requests/$requestId', {'status': 'Rejected'});
+    // 1. Set request status to Rejected
+    await setDocument('rental_requests/$requestId', {
+      'status': 'Rejected',
+      'rejectedAt': now,
+    });
 
-    // Revert promo usage
+    // 2. Revert promo usage
     final promoCode = reqDoc['promoCode'] as String?;
     if (promoCode != null) {
-      await decrementPromoUsage(promoCode, renteeId);
+      try {
+        await decrementPromoUsage(promoCode, renteeId);
+      } catch (_) {}
     }
 
-    // Refund rentee
-    final rentee = await getUser(renteeId);
-    if (rentee != null) {
-      await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
+    // 3. Set escrow status to RefundPending for automatic claim by renter
+    final existingEscrow = await getDocument('rental_escrows/$requestId');
+    final escrowData = {
+      if (existingEscrow != null) ...existingEscrow,
+      'id': requestId,
+      'requestId': requestId,
+      'rentalId': reqDoc['rentalId'] ?? '',
+      'renteeId': renteeId,
+      'renterId': renteeId,
+      'hostId': reqDoc['hostId'] ?? '',
+      'status': 'RefundPending',
+      'refundAmount': refundAmount,
+      'refundReason': 'Host rejected booking request for ${reqDoc['brand'] ?? ''} ${reqDoc['model'] ?? ''}',
+      'rejectedAt': now,
+    };
+    await setDocument('rental_escrows/$requestId', escrowData);
 
-      // Save transaction record for refund
-      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-      final txData = {
-        'uid': renteeId,
-        'type': 'refund',
-        'amount': refundAmount,
-        'title': 'Booking Request Refund',
-        'desc': 'Refund for rejected request of ${reqDoc['brand']} ${reqDoc['model']}',
-        'method': 'Tranyx Wallet',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-      };
-      await setDocument('transactions/$txId', txData);
-    }
-
-    // Release/delete the held escrow
-    await deleteDocument('rental_escrows/$requestId');
-
-    // Notify renter
+    // 4. Notify renter
     await createNotification(
       uid: renteeId,
       title: 'Booking Request Rejected',
-      message: 'Your request to book ${reqDoc['brand']} ${reqDoc['model']} was rejected. Funds have been refunded.',
+      message: 'Your request to book ${reqDoc['brand']} ${reqDoc['model']} was rejected. Funds of ₱${refundAmount.toStringAsFixed(2)} will be refunded to your wallet.',
     );
   }
 
-  /// Cancel a pending booking request by the rentee and refund their wallet
+  /// Cancel a booking request by the rentee and refund their wallet (supports Pending and Approved/Awaiting Signature)
   Future<void> cancelBookingRequest(String requestId) async {
     final reqDoc = await getDocument('rental_requests/$requestId');
     if (reqDoc == null) return;
-    if (reqDoc['status'] != 'Pending') return;
+    final st = reqDoc['status']?.toString();
+    if (st != 'Pending' && st != 'Approved' && st != 'Awaiting Signature') return;
 
     final renteeId = reqDoc['renteeId'] as String;
     final hostId = reqDoc['hostId'] as String;
     final totalCost = (reqDoc['totalCost'] as num).toDouble();
-    final bookingFee = (reqDoc['bookingFee'] as num).toDouble();
+    final bookingFee = (reqDoc['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03);
     final refundAmount = totalCost + bookingFee;
+    final rentalId = reqDoc['rentalId']?.toString();
+    final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Set request status to Cancelled
-    await setDocument('rental_requests/$requestId', {'status': 'Cancelled'});
+    // 1. Set request status to Cancelled
+    await setDocument('rental_requests/$requestId', {
+      'status': 'Cancelled',
+      'cancelledAt': now,
+    });
 
-    // Revert promo usage
-    final promoCode = reqDoc['promoCode'] as String?;
-    if (promoCode != null) {
-      await decrementPromoUsage(promoCode, renteeId);
+    // 2. If it was Approved / Awaiting Signature, reopen the vehicle listing
+    if (rentalId != null && (st == 'Approved' || st == 'Awaiting Signature')) {
+      final rentalDoc = await getDocument('rentals/$rentalId');
+      if (rentalDoc != null && rentalDoc['currentRequestId']?.toString() == requestId) {
+        await setDocument('rentals/$rentalId', {
+          'status': 'Available',
+          'renteeId': null,
+          'renteeName': null,
+          'renteePhotoUrl': null,
+          'startDate': null,
+          'endDate': null,
+          'totalCost': null,
+          'bookingFee': null,
+          'currentRequestId': null,
+          'renteeSignatureName': null,
+          'signedAt': null,
+        });
+      }
     }
 
-    // Refund rentee
+    // 3. Revert promo usage
+    final promoCode = reqDoc['promoCode'] as String?;
+    if (promoCode != null) {
+      try {
+        await decrementPromoUsage(promoCode, renteeId);
+      } catch (_) {}
+    }
+
+    // 4. Refund rentee immediately (caller is rentee)
     final rentee = await getUser(renteeId);
     if (rentee != null) {
       await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
 
-      // Save transaction record for refund
-      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txId = 'tx_cancel_${DateTime.now().microsecondsSinceEpoch}';
       final txData = {
+        'id': txId,
         'uid': renteeId,
         'type': 'refund',
         'amount': refundAmount,
         'title': 'Booking Request Cancelled',
         'desc': 'Refund for cancelled request of ${reqDoc['brand']} ${reqDoc['model']}',
         'method': 'Tranyx Wallet',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'createdAt': now,
+        'status': 'Completed',
       };
       await setDocument('transactions/$txId', txData);
     }
 
-    // Release/delete the held escrow
-    await deleteDocument('rental_escrows/$requestId');
+    // 5. Mark escrow as Refunded
+    final existingEscrow = await getDocument('rental_escrows/$requestId');
+    final escrowRefund = {
+      if (existingEscrow != null) ...existingEscrow,
+      'status': 'Refunded',
+      'refundAmount': refundAmount,
+      'refundClaimedAt': now,
+    };
+    await setDocument('rental_escrows/$requestId', escrowRefund);
+    if (rentalId != null) {
+      await setDocument('rental_escrows/$rentalId', escrowRefund);
+    }
 
-    // Notify host
+    // 6. Notify host
     await createNotification(
       uid: hostId,
       title: 'Booking Request Cancelled',
       message:
-          '${reqDoc['renteeName'] ?? "Renter"} has cancelled their booking request for your ${reqDoc['brand']} ${reqDoc['model']}.',
+          '${reqDoc['renteeName'] ?? "Renter"} has cancelled their booking request for your ${reqDoc['brand']} ${reqDoc['model']}. Listing is now available.',
     );
+  }
+
+  /// Host revokes an approved vehicle booking request before it is signed, reopening listing and issuing 100% refund to renter
+  Future<void> revokeApproval(String rentalId, {String? requestId}) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    final resolvedReqId = requestId ?? (rentalDoc?['currentRequestId'] as String?);
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    if (resolvedReqId != null) {
+      final reqDoc = await getDocument('rental_requests/$resolvedReqId');
+      if (reqDoc != null) {
+        final renteeId = reqDoc['renteeId'] as String;
+        final totalCost = (reqDoc['totalCost'] as num).toDouble();
+        final bookingFee = (reqDoc['bookingFee'] as num?)?.toDouble() ?? (totalCost * 0.03);
+        final refundAmount = totalCost + bookingFee;
+
+        await setDocument('rental_requests/$resolvedReqId', {
+          'status': 'Cancelled',
+          'cancelledAt': now,
+        });
+
+        final promoCode = reqDoc['promoCode'] as String?;
+        if (promoCode != null) {
+          try {
+            await decrementPromoUsage(promoCode, renteeId);
+          } catch (_) {}
+        }
+
+        // Set escrow status to RefundPending for automated self-claim by renter
+        final existingEscrow = await getDocument('rental_escrows/$resolvedReqId') ??
+            await getDocument('rental_escrows/$rentalId');
+        final escrowMap = {
+          if (existingEscrow != null) ...existingEscrow,
+          'id': resolvedReqId,
+          'requestId': resolvedReqId,
+          'rentalId': rentalId,
+          'renteeId': renteeId,
+          'renterId': renteeId,
+          'hostId': rentalDoc?['hostId'] ?? '',
+          'status': 'RefundPending',
+          'refundAmount': refundAmount,
+          'refundReason': 'Host revoked approval for ${reqDoc['brand'] ?? ''} ${reqDoc['model'] ?? ''}',
+          'revokedAt': now,
+        };
+        await setDocument('rental_escrows/$resolvedReqId', escrowMap);
+        await setDocument('rental_escrows/$rentalId', escrowMap);
+
+        await createNotification(
+          uid: renteeId,
+          title: 'Booking Approval Revoked',
+          message:
+              'The host has revoked approval for vehicle ${reqDoc['brand']} ${reqDoc['model']}. Full refund of ₱${refundAmount.toStringAsFixed(2)} will be refunded to your wallet.',
+        );
+      }
+    }
+
+    await setDocument('rentals/$rentalId', {
+      'status': 'Available',
+      'renteeId': null,
+      'renteeName': null,
+      'renteePhotoUrl': null,
+      'startDate': null,
+      'endDate': null,
+      'totalCost': null,
+      'bookingFee': null,
+      'currentRequestId': null,
+      'renteeSignatureName': null,
+      'signedAt': null,
+    });
   }
 
   /// Fetch all pending requests for a specific vehicle, filtered in-memory
@@ -2055,7 +3352,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final parts = name.split('/');
         final docId = parts.last;
@@ -2112,7 +3409,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -2152,13 +3449,123 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final parts = name.split('/');
         final docId = parts.last;
         final data = _fromFirestoreDoc(doc);
         data['id'] = docId;
         if (data['status'] == 'Pending') {
+          list.add(data);
+        }
+      }
+    }
+    return list;
+  }
+
+  /// Fetch all active/approved/booked requests submitted by a renter
+  Future<List<Map<String, dynamic>>> getRenterActiveBookings(String renteeId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'rental_requests'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'renteeId'},
+            'op': 'EQUAL',
+            'value': {'stringValue': renteeId},
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map;
+        final name = doc['name'] as String;
+        final parts = name.split('/');
+        final docId = parts.last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        final st = (data['status'] ?? '').toString().toLowerCase();
+        if (st == 'approved' ||
+            st == 'awaiting signature' ||
+            st == 'booked' ||
+            st == 'on the way to rentee' ||
+            st == 'ongoing' ||
+            st == 'active' ||
+            st == 'returning') {
+          final isUpcoming = st == 'approved' || st == 'awaiting signature' || st == 'booked';
+          final endMs = getEpochMs(data['endDate']);
+          if (isUpcoming && endMs > 0 && endMs <= DateTime.now().millisecondsSinceEpoch) {
+            continue;
+          }
+          list.add(data);
+        }
+      }
+    }
+    return list;
+  }
+
+  /// Fetch all active/approved/booked property requests submitted by a renter
+  Future<List<Map<String, dynamic>>> getPropertyRenterActiveBookings(String renteeId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'property_requests'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'renteeId'},
+            'op': 'EQUAL',
+            'value': {'stringValue': renteeId},
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map;
+        final name = doc['name'] as String;
+        final parts = name.split('/');
+        final docId = parts.last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        final st = (data['status'] ?? '').toString().toLowerCase();
+        if (st == 'approved' ||
+            st == 'awaiting signature' ||
+            st == 'booked' ||
+            st == 'ongoing' ||
+            st == 'active' ||
+            st == 'occupied' ||
+            st == 'returning') {
+          final isUpcoming = st == 'approved' || st == 'awaiting signature' || st == 'booked';
+          final endMs = getEpochMs(data['endDate']);
+          if (isUpcoming && endMs > 0 && endMs <= DateTime.now().millisecondsSinceEpoch) {
+            continue;
+          }
           list.add(data);
         }
       }
@@ -2198,7 +3605,7 @@ class FirestoreService {
         final List<dynamic> results = jsonDecode(req.body);
         for (final r in results) {
           if (r is Map && r.containsKey('document')) {
-            final doc = r['document'] as Map<String, dynamic>;
+            final doc = r['document'] as Map;
             final name = doc['name'] as String;
             final parts = name.split('/');
             final docId = parts.last;
@@ -2271,14 +3678,31 @@ class FirestoreService {
   }
 
   /// Cancel rental — full refund (totalCost + bookingFee) back to rentee
-  Future<void> cancelRental(String rentalId) async {
-    final rentalDoc = await getDocument('rentals/$rentalId');
+  Future<void> cancelRental(String rentalId, {String? requestId}) async {
+    String actualRentalId = rentalId;
+    String? resolvedReqId = requestId;
+
+    Map<String, dynamic>? rentalDoc = await getDocument('rentals/$actualRentalId');
+    if (rentalDoc == null) {
+      resolvedReqId = actualRentalId;
+      final reqDoc = await getDocument('rental_requests/$resolvedReqId');
+      if (reqDoc != null && reqDoc['rentalId'] != null) {
+        actualRentalId = reqDoc['rentalId'].toString();
+        rentalDoc = await getDocument('rentals/$actualRentalId');
+      }
+    }
+
     if (rentalDoc == null) throw Exception('Rental listing not found.');
-    final rental = VehicleRental.fromMap(rentalDoc, rentalId);
+    resolvedReqId ??= rentalDoc['currentRequestId'] as String?;
+
+    final rental = VehicleRental.fromMap(rentalDoc, actualRentalId);
 
     if (rental.renteeId == null || rental.renteeId!.isEmpty) {
       // Never booked — just reset status
-      await setDocument('rentals/$rentalId', {'status': 'Available'});
+      await setDocument('rentals/$actualRentalId', {'status': 'Available'});
+      if (resolvedReqId != null) {
+        await setDocument('rental_requests/$resolvedReqId', {'status': 'Cancelled'});
+      }
       return;
     }
 
@@ -2290,51 +3714,73 @@ class FirestoreService {
     // Retrieve booking fee from rental doc; fallback to escrow doc; fallback to 3% of base
     double bookingFee = (rentalDoc['bookingFee'] as num?)?.toDouble() ?? 0.0;
     if (bookingFee == 0.0) {
-      final escrowDoc = await getDocument('rental_escrows/$rentalId');
+      Map<String, dynamic>? escrowDoc;
+      if (resolvedReqId != null) {
+        escrowDoc = await getDocument('rental_escrows/$resolvedReqId');
+      }
+      escrowDoc ??= await getDocument('rental_escrows/$actualRentalId');
       bookingFee = (escrowDoc?['bookingFee'] as num?)?.toDouble() ?? baseCost * 0.03;
     }
     final fullRefundAmount = baseCost + bookingFee;
     const cancellationFee = 2.0; // flat platform cancellation processing fee
     final refundToRentee = (fullRefundAmount - cancellationFee).clamp(0.0, double.infinity);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    bool directRefundSuccess = false;
+    try {
+      await updateTyxBalance(rental.renteeId!, rentee.tyxBalance + refundToRentee);
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'id': txId,
+        'uid': rental.renteeId!,
+        'type': 'refund',
+        'amount': refundToRentee,
+        'title': 'Rental Cancellation — Refund',
+        'desc':
+            'Refund for cancelled rental: ${rental.brand} ${rental.model} (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
+        'method': 'Tranyx Wallet',
+        'createdAt': now,
+        'status': 'Completed',
+      };
+      await setDocument('transactions/$txId', txData);
+      directRefundSuccess = true;
+    } catch (_) {
+      directRefundSuccess = false;
+    }
 
-    // Refund (total - 2 TYXBIT fee) to rentee
-    await updateTyxBalance(rental.renteeId!, rentee.tyxBalance + refundToRentee);
-
-    // Save refund transaction
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': rental.renteeId!,
-      'type': 'refund',
-      'amount': refundToRentee,
-      'title': 'Rental Cancellation — Refund',
-      'desc':
-          'Refund for cancelled rental: ${rental.brand} ${rental.model} (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    // Mark escrow as Refunded or RefundPending for automated self-claim
+    final escrowData = {
+      'status': directRefundSuccess ? 'Refunded' : 'RefundPending',
+      'refundAmount': refundToRentee,
+      'refundReason': 'Cancelled rental: ${rental.brand} ${rental.model}',
+      'cancelledAt': now,
     };
-    await setDocument('transactions/$txId', txData);
-
-    // Mark escrow as Refunded
-    await setDocument('rental_escrows/$rentalId', {
-      'status': 'Refunded',
-      'cancelledAt': DateTime.now().millisecondsSinceEpoch,
+    if (resolvedReqId != null) {
+      final existing = await getDocument('rental_escrows/$resolvedReqId');
+      await setDocument('rental_escrows/$resolvedReqId', {
+        if (existing != null) ...existing,
+        ...escrowData,
+      });
+    }
+    final existingRentalEscrow = await getDocument('rental_escrows/$actualRentalId');
+    await setDocument('rental_escrows/$actualRentalId', {
+      if (existingRentalEscrow != null) ...existingRentalEscrow,
+      ...escrowData,
     });
 
-    // Mark current request as Cancelled
-    final currentRequestId = rentalDoc['currentRequestId'] as String?;
-    if (currentRequestId != null) {
-      final reqDoc = await getDocument('rental_requests/$currentRequestId');
+    // Mark request as Cancelled
+    if (resolvedReqId != null) {
+      final reqDoc = await getDocument('rental_requests/$resolvedReqId');
       if (reqDoc != null) {
         final promoCode = reqDoc['promoCode'] as String?;
         if (promoCode != null) {
           await decrementPromoUsage(promoCode, rental.renteeId!);
         }
       }
-      await setDocument('rental_requests/$currentRequestId', {'status': 'Cancelled'});
+      await setDocument('rental_requests/$resolvedReqId', {'status': 'Cancelled'});
     }
 
     // Reset rental listing to Available
-    await setDocument('rentals/$rentalId', {
+    await setDocument('rentals/$actualRentalId', {
       'status': 'Available',
       'renteeId': null,
       'renteeName': null,
@@ -2369,8 +3815,66 @@ class FirestoreService {
     );
   }
 
-  /// Fetch all approved requests for a specific vehicle
+  /// Fetch all approved/pending/active requests for a specific vehicle that occupy calendar availability
   Future<List<Map<String, dynamic>>> getApprovedRequestsForVehicle(String rentalId) async {
+    final all = await getAllRequestsForVehicle(rentalId);
+    final list = all.where((m) => BookingDateRange.fromMap(m).isConfirmedBooking).toList();
+
+    try {
+      final rentalDoc = await getDocument('rentals/$rentalId');
+      if (rentalDoc != null) {
+        final rStatus = rentalDoc['status']?.toString() ?? '';
+        final start = getEpochMs(rentalDoc['startDate']);
+        final end = getEpochMs(rentalDoc['endDate']);
+        if (start > 0 && end > 0 && rStatus != 'Available' && rStatus != 'Completed' && rStatus != 'Cancelled') {
+          final alreadyIncluded = list.any((item) => item['startDate'] == start && item['endDate'] == end);
+          if (!alreadyIncluded) {
+            list.add({
+              'id': 'active_listing_$rentalId',
+              'rentalId': rentalId,
+              'startDate': start,
+              'endDate': end,
+              'status': rStatus,
+            });
+          }
+        }
+      }
+    } catch (_) {}
+
+    return list;
+  }
+
+  /// Fetch all approved/pending/active requests for a specific property that occupy calendar availability
+  Future<List<Map<String, dynamic>>> getApprovedRequestsForProperty(String propertyId) async {
+    final all = await getAllRequestsForProperty(propertyId);
+    final list = all.where((m) => BookingDateRange.fromMap(m).isConfirmedBooking).toList();
+
+    try {
+      final propDoc = await getDocument('properties/$propertyId');
+      if (propDoc != null) {
+        final pStatus = propDoc['status']?.toString() ?? '';
+        final start = getEpochMs(propDoc['startDate']);
+        final end = getEpochMs(propDoc['endDate']);
+        if (start > 0 && end > 0 && pStatus != 'Available' && pStatus != 'Completed' && pStatus != 'Cancelled') {
+          final alreadyIncluded = list.any((item) => item['startDate'] == start && item['endDate'] == end);
+          if (!alreadyIncluded) {
+            list.add({
+              'id': 'active_listing_$propertyId',
+              'propertyId': propertyId,
+              'startDate': start,
+              'endDate': end,
+              'status': pStatus,
+            });
+          }
+        }
+      }
+    } catch (_) {}
+
+    return list;
+  }
+
+  /// Fetch all requests (any status) for a specific vehicle to verify reservation/booking history
+  Future<List<Map<String, dynamic>>> getAllRequestsForVehicle(String rentalId) async {
     final url =
         'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
     final headers = <String, String>{'Content-Type': 'application/json'};
@@ -2382,24 +3886,10 @@ class FirestoreService {
           {'collectionId': 'rental_requests'},
         ],
         'where': {
-          'compositeFilter': {
-            'op': 'AND',
-            'filters': [
-              {
-                'fieldFilter': {
-                  'field': {'fieldPath': 'rentalId'},
-                  'op': 'EQUAL',
-                  'value': {'stringValue': rentalId},
-                },
-              },
-              {
-                'fieldFilter': {
-                  'field': {'fieldPath': 'status'},
-                  'op': 'EQUAL',
-                  'value': {'stringValue': 'Approved'},
-                },
-              },
-            ],
+          'fieldFilter': {
+            'field': {'fieldPath': 'rentalId'},
+            'op': 'EQUAL',
+            'value': {'stringValue': rentalId},
           },
         },
       },
@@ -2412,7 +3902,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -2421,6 +3911,81 @@ class FirestoreService {
       }
     }
     return list;
+  }
+
+  /// Fetch all requests (any status) for a specific property to verify reservation/booking history
+  Future<List<Map<String, dynamic>>> getAllRequestsForProperty(String propertyId) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
+
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'property_requests'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'propertyId'},
+            'op': 'EQUAL',
+            'value': {'stringValue': propertyId},
+          },
+        },
+      },
+    });
+
+    final req = await http.post(Uri.parse(url), headers: headers, body: body);
+    if (req.statusCode >= 400) return [];
+
+    final List<dynamic> results = jsonDecode(req.body);
+    final list = <Map<String, dynamic>>[];
+    for (final r in results) {
+      if (r is Map && r.containsKey('document')) {
+        final doc = r['document'] as Map;
+        final name = doc['name'] as String;
+        final docId = name.split('/').last;
+        final data = _fromFirestoreDoc(doc);
+        data['id'] = docId;
+        list.add(data);
+      }
+    }
+    return list;
+  }
+
+  /// Update vehicle rental posting details
+  /// Strictly allowed ONLY IF there are no records of reservations or bookings for this unit
+  Future<void> updateVehicleRental(
+    String rentalId,
+    VehicleRental updatedRental, {
+    String? gpsTrackerId,
+    List<String>? extraPhotos,
+  }) async {
+    final rentalDoc = await getDocument('rentals/$rentalId');
+    if (rentalDoc == null) throw Exception('Vehicle listing not found.');
+
+    final existing = VehicleRental.fromMap(rentalDoc, rentalId);
+    if (existing.status != 'Available' || (existing.renteeId != null && existing.renteeId!.isNotEmpty)) {
+      throw Exception('Cannot edit a vehicle listing that is currently rented or active.');
+    }
+
+    // Strict rule: Edit only if NO records of reservations or bookings exist
+    final allRequests = await getAllRequestsForVehicle(rentalId);
+    if (allRequests.isNotEmpty) {
+      throw Exception('Cannot edit vehicle listing: Records of reservations or bookings exist for this unit.');
+    }
+
+    final updatedMap = updatedRental.toMap();
+    updatedMap['id'] = rentalId;
+    updatedMap['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+    if (gpsTrackerId != null && gpsTrackerId.trim().isNotEmpty) {
+      updatedMap['gpsTrackerId'] = gpsTrackerId.trim();
+    }
+    if (extraPhotos != null) {
+      updatedMap['extraPhotos'] = extraPhotos.where((url) => url.isNotEmpty).toList();
+    }
+
+    await setDocument('rentals/$rentalId', updatedMap);
   }
 
   /// Fetch all pending extensions for a specific vehicle
@@ -2466,7 +4031,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -2484,29 +4049,16 @@ class FirestoreService {
     required int extendHours,
     required double fee,
   }) async {
-    final rentee = await getUser(renteeId);
-    if (rentee == null) throw Exception('Renter profile not found.');
-    if (rentee.tyxBalance < fee) {
-      throw Exception(
-        'Insufficient balance. Extension requires ${fee.toStringAsFixed(2)} TYXBIT, but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
-    }
-
-    // Debit rentee
-    await updateTyxBalance(renteeId, rentee.tyxBalance - fee);
-
-    // Save transaction
     final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': renteeId,
-      'type': 'payment',
-      'amount': fee,
-      'title': 'Rental Extension Request',
-      'desc': 'Requested extension of $extendHours hour(s) for vehicle rental.',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
+    final txDesc = 'Requested extension of $extendHours hour(s) for vehicle rental.';
+    await deductTyxBalanceSafely(
+      uid: renteeId,
+      amountToDeduct: fee,
+      txId: txId,
+      title: 'Rental Extension Request',
+      description: txDesc,
+      category: 'rental',
+    );
 
     // Create pending extension request doc
     final extensionId = 'ext_${DateTime.now().microsecondsSinceEpoch}';
@@ -2526,6 +4078,7 @@ class FirestoreService {
       'extensionId': extensionId,
       'rentalId': rentalId,
       'renteeId': renteeId,
+      'renterId': renteeId,
       'amount': fee,
       'status': 'Held',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -2539,33 +4092,21 @@ class FirestoreService {
     required String renteeId,
     required int extendHours,
     required double fee,
+    String? requestId,
   }) async {
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Rental listing not found.');
 
-    final rentee = await getUser(renteeId);
-    if (rentee == null) throw Exception('Renter profile not found.');
-    if (rentee.tyxBalance < fee) {
-      throw Exception(
-        'Insufficient balance. Extension requires ${fee.toStringAsFixed(2)} TYXBIT, but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
-    }
-
-    // Debit rentee
-    await updateTyxBalance(renteeId, rentee.tyxBalance - fee);
-
-    // Save transaction
     final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': renteeId,
-      'type': 'payment',
-      'amount': fee,
-      'title': 'Rental Extension (Auto-Approved)',
-      'desc': 'Extended rental by $extendHours hour(s) automatically.',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
+    final txDesc = 'Extended rental by $extendHours hour(s) automatically.';
+    await deductTyxBalanceSafely(
+      uid: renteeId,
+      amountToDeduct: fee,
+      txId: txId,
+      title: 'Rental Extension (Auto-Approved)',
+      description: txDesc,
+      category: 'rental',
+    );
 
     // Add fee directly to rental escrow
     final escrowDoc = await getDocument('rental_escrows/$rentalId');
@@ -2575,6 +4116,18 @@ class FirestoreService {
         ...escrowDoc,
         'amount': currentAmount + fee,
       });
+    }
+
+    final resolvedReqId = requestId ?? rentalDoc['currentRequestId'] as String?;
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty && resolvedReqId != rentalId) {
+      final reqEscrowDoc = await getDocument('rental_escrows/$resolvedReqId');
+      if (reqEscrowDoc != null) {
+        final currentAmount = (reqEscrowDoc['amount'] as num? ?? 0.0).toDouble();
+        await setDocument('rental_escrows/$resolvedReqId', {
+          ...reqEscrowDoc,
+          'amount': currentAmount + fee,
+        });
+      }
     }
 
     // Update rental endDate and totalCost
@@ -2588,6 +4141,19 @@ class FirestoreService {
       'endDate': newEndDate.millisecondsSinceEpoch,
       'totalCost': currentCost + fee,
     });
+
+    // Also update canonical rental_requests record so renterActiveBookings reflects the extended return time
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      final reqDoc = await getDocument('rental_requests/$resolvedReqId');
+      if (reqDoc != null) {
+        final reqCost = (reqDoc['totalCost'] as num? ?? 0.0).toDouble();
+        await setDocument('rental_requests/$resolvedReqId', {
+          ...reqDoc,
+          'endDate': newEndDate.millisecondsSinceEpoch,
+          'totalCost': reqCost + fee,
+        });
+      }
+    }
   }
 
   /// Approve pending extension request (move escrow and update rental)
@@ -2617,6 +4183,17 @@ class FirestoreService {
           'amount': currentAmount + fee,
         });
       }
+      final resolvedReqId = extDoc['requestId'] as String? ?? rentalDoc['currentRequestId'] as String?;
+      if (resolvedReqId != null && resolvedReqId.isNotEmpty && resolvedReqId != rentalId) {
+        final reqEscrowDoc = await getDocument('rental_escrows/$resolvedReqId');
+        if (reqEscrowDoc != null) {
+          final currentAmount = (reqEscrowDoc['amount'] as num? ?? 0.0).toDouble();
+          await setDocument('rental_escrows/$resolvedReqId', {
+            ...reqEscrowDoc,
+            'amount': currentAmount + fee,
+          });
+        }
+      }
       await deleteDocument('rental_extension_escrows/$extensionId');
     }
 
@@ -2631,9 +4208,22 @@ class FirestoreService {
       'endDate': newEndDate.millisecondsSinceEpoch,
       'totalCost': currentCost + fee,
     });
+
+    final resolvedReqId = extDoc['requestId'] as String? ?? rentalDoc['currentRequestId'] as String?;
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      final reqDoc = await getDocument('rental_requests/$resolvedReqId');
+      if (reqDoc != null) {
+        final reqCost = (reqDoc['totalCost'] as num? ?? 0.0).toDouble();
+        await setDocument('rental_requests/$resolvedReqId', {
+          ...reqDoc,
+          'endDate': newEndDate.millisecondsSinceEpoch,
+          'totalCost': reqCost + fee,
+        });
+      }
+    }
   }
 
-  /// Reject pending extension request (refund rentee and delete request escrow)
+  /// Reject pending extension request (set escrow to RefundPending for automated reconciliation)
   Future<void> rejectExtension(String extensionId) async {
     final extDoc = await getDocument('rental_extensions/$extensionId');
     if (extDoc == null) return;
@@ -2641,64 +4231,83 @@ class FirestoreService {
 
     final renteeId = extDoc['renteeId'] as String;
     final fee = (extDoc['fee'] as num).toDouble();
+    final now = DateTime.now().millisecondsSinceEpoch;
 
     // 1. Mark request rejected
-    await setDocument('rental_extensions/$extensionId', {'status': 'Rejected'});
+    await setDocument('rental_extensions/$extensionId', {
+      'status': 'Rejected',
+      'rejectedAt': now,
+    });
 
-    // 2. Refund rentee
-    final rentee = await getUser(renteeId);
-    if (rentee != null) {
-      await updateTyxBalance(renteeId, rentee.tyxBalance + fee);
+    // 2. Mark extension escrow as RefundPending for automatic claim by rentee
+    final existingEscrow = await getDocument('rental_extension_escrows/$extensionId');
+    await setDocument('rental_extension_escrows/$extensionId', {
+      if (existingEscrow != null) ...existingEscrow,
+      'id': extensionId,
+      'extensionId': extensionId,
+      'renteeId': renteeId,
+      'renterId': renteeId,
+      'status': 'RefundPending',
+      'refundAmount': fee,
+      'refundReason': 'Host rejected rental extension request',
+      'rejectedAt': now,
+    });
 
-      // Save refund transaction
-      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-      final txData = {
-        'uid': renteeId,
-        'type': 'refund',
-        'amount': fee,
-        'title': 'Rental Extension Refund',
-        'desc': 'Refund for rejected rental extension request.',
-        'method': 'Tranyx Wallet',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-      };
-      await setDocument('transactions/$txId', txData);
-    }
-
-    // 3. Delete extension escrow
-    await deleteDocument('rental_extension_escrows/$extensionId');
+    // 3. Notify rentee
+    await createNotification(
+      uid: renteeId,
+      title: 'Rental Extension Rejected',
+      message: 'Your extension request was rejected. The extension fee of ₱${fee.toStringAsFixed(2)} will be refunded to your wallet.',
+    );
   }
 
   // ── Property Rentals ──────────────────────────────────────────
 
-  /// Create a new property rental posting, deducting 1.5% listing fee
+  /// Fetch dynamic platform fee configuration from Firestore (or return default)
+  Future<PlatformFeeConfig> getPlatformFeeConfig() async {
+    try {
+      final doc = await getDocument('settings/platform_fees');
+      if (doc != null) {
+        return PlatformFeeConfig.fromMap(doc);
+      }
+    } catch (_) {}
+    return const PlatformFeeConfig();
+  }
+
+  /// Create a new property rental posting (0% Free Listing - ₱0.00 upfront fee)
   Future<String> createPropertyRental(PropertyRental property) async {
     final host = await getUser(property.hostId);
     if (host == null) {
       throw Exception('Host profile not found.');
     }
-    final listingFee = 0.015 * property.priceMonthly;
-    if (host.tyxBalance < listingFee) {
-      throw Exception(
-        'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
+
+    final feeConfig = await getPlatformFeeConfig();
+    final listingFeeRate = feeConfig.listingFeeRate; // 0.0 (Free tier)
+    final monthlyEquiv = property.monthlyRate > 0 ? property.monthlyRate : (property.dailyRate * 30);
+    final listingFee = listingFeeRate * monthlyEquiv;
+
+    if (listingFee > 0.0) {
+      if (host.tyxBalance < listingFee) {
+        throw Exception(
+          'Insufficient balance. Listing fee requires ${listingFee.toStringAsFixed(2)} TYXBIT, but your balance is ${host.tyxBalance.toStringAsFixed(2)} TYXBIT.',
+        );
+      }
+      final newBalance = host.tyxBalance - listingFee;
+      await updateTyxBalance(property.hostId, newBalance);
+
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'uid': property.hostId,
+        'type': 'listing_fee',
+        'amount': listingFee,
+        'listingFeeRate': listingFeeRate,
+        'title': 'Property Listing Fee',
+        'desc': '${PlatformFeeConfig.formatPercent(listingFeeRate)} posting fee for property: ${property.title}',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      await setDocument('transactions/$txId', txData);
     }
-
-    // Deduct fee
-    final newBalance = host.tyxBalance - listingFee;
-    await updateTyxBalance(property.hostId, newBalance);
-
-    // Save transaction record
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': property.hostId,
-      'type': 'listing_fee',
-      'amount': listingFee,
-      'title': 'Property Listing Fee',
-      'desc': '1.5% posting fee for property: ${property.title}',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
 
     // Post property document
     final url = '$_firestoreBase/properties';
@@ -2712,39 +4321,95 @@ class FirestoreService {
     );
 
     if (req.statusCode >= 400) {
-      final data = jsonDecode(req.body) as Map<String, dynamic>;
+      final data = jsonDecode(req.body) as Map;
       final err = data['error'] as Map? ?? {};
       throw FirebaseException(err['message'] as String? ?? 'Create property rental failed', req.statusCode);
     }
 
-    final result = jsonDecode(req.body) as Map<String, dynamic>;
+    final result = jsonDecode(req.body) as Map;
     final docId = _docId(result);
-    await setDocument('properties/$docId', {'id': docId});
     return docId;
   }
 
-  /// Delete property rental posting and reject pending requests
+  /// Sets property accepting bookings status (Stop Receiving Bookings / Resume Bookings)
+  Future<void> setPropertyAcceptingBookings(String propertyId, bool accepting) async {
+    final propDoc = await getDocument('properties/$propertyId');
+    if (propDoc == null) throw Exception('Property listing not found.');
+
+    final currentStatus = propDoc['status']?.toString() ?? 'Available';
+    final newStatus = accepting
+        ? (currentStatus == 'Not Accepting Bookings' ? 'Available' : currentStatus)
+        : 'Not Accepting Bookings';
+
+    await setDocument('properties/$propertyId', {
+      'acceptingBookings': accepting,
+      'status': newStatus,
+    });
+  }
+
+  /// Delete property rental posting (soft delete / archive), validating pending requests first
   Future<void> deletePropertyRental(String propertyId) async {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
 
+    // Reject deletion if unresolved pending requests exist
+    final allRequests = await getAllRequestsForProperty(propertyId);
+    final hasPending = allRequests.any((r) => r['status']?.toString().toLowerCase() == 'pending');
+    if (hasPending) {
+      throw Exception('You have pending booking requests for this listing. Please accept or reject all pending requests before deleting this listing.');
+    }
+
+    // Soft delete / archive the property listing record rather than physically deleting it
+    await setDocument('properties/$propertyId', {
+      'status': 'Archived',
+      'isDeleted': true,
+      'acceptingBookings': false,
+      'deletedAt': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    final hasConfirmedBookings = allRequests.any((r) => BookingDateRange.fromMap(r).isConfirmedBooking);
     final property = PropertyRental.fromMap(propDoc, propertyId);
-    if (property.status != 'Available') {
-      throw Exception('Cannot delete a property listing that is currently booked or active.');
+    final host = await getUser(property.hostId);
+    final isWaived = propDoc['isListingFeeWaived'] as bool? ?? false;
+    final listingFee = isWaived ? 0.0 : (0.015 * property.priceMonthly);
+    if (!hasConfirmedBookings && host != null && listingFee > 0.0) {
+      await updateTyxBalance(property.hostId, host.tyxBalance + listingFee);
+      await setDocument('transactions/refund_prop_$propertyId', {
+        'id': 'refund_prop_$propertyId',
+        'uid': property.hostId,
+        'type': 'refund',
+        'category': 'refund',
+        'amount': listingFee,
+        'title': 'Property Listing Fee Refund',
+        'desc': '100% refund of listing fee for cancelled property "${property.title}"',
+        'method': 'Tranyx Wallet',
+        'originRail': 'internal_balance',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'status': 'Completed',
+      });
+    }
+  }
+
+  /// Update an existing property rental posting (only if no active or pending bookings exist)
+  Future<void> updatePropertyRental(String propertyId, PropertyRental updatedProperty) async {
+    final propDoc = await getDocument('properties/$propertyId');
+    if (propDoc == null) throw Exception('Property listing not found.');
+
+    final existing = PropertyRental.fromMap(propDoc, propertyId);
+    if (existing.status != 'Available' || (existing.renteeId != null && existing.renteeId!.isNotEmpty)) {
+      throw Exception('Cannot edit property listing that is currently booked or active.');
     }
 
-    // Fetch and reject all pending requests for this property
     final pendingRequests = await getPropertyPendingRequestsForProperty(propertyId);
-    for (final req in pendingRequests) {
-      final requestId = req['id'] as String;
-      try {
-        await rejectPropertyBookingRequest(requestId);
-      } catch (e) {
-        print('Error rejecting request $requestId during property deletion: $e');
-      }
+    if (pendingRequests.isNotEmpty) {
+      throw Exception('Cannot edit property terms while pending lease booking requests exist. Please review or reject pending requests first.');
     }
 
-    await deleteDocument('properties/$propertyId');
+    final updatedMap = updatedProperty.toMap();
+    updatedMap['id'] = propertyId;
+    updatedMap['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+
+    await setDocument('properties/$propertyId', updatedMap);
   }
 
   /// Fetch all properties
@@ -2756,10 +4421,10 @@ class FirestoreService {
     final req = await _client.get(Uri.parse(url), headers: headers);
     if (req.statusCode >= 400) return [];
 
-    final data = jsonDecode(req.body) as Map<String, dynamic>;
+    final data = jsonDecode(req.body) as Map;
     final docs = data['documents'] as List? ?? [];
     return docs.map((d) {
-      final doc = d as Map<String, dynamic>;
+      final doc = d as Map;
       final id = _docId(doc);
       return PropertyRental.fromMap(_fromFirestoreDoc(doc), id);
     }).toList();
@@ -2788,45 +4453,108 @@ class FirestoreService {
     String? licenseNumber,
     String? promoCode,
     double? discountAmount,
+    double? baseRentAmount,
+    double? securityDepositAmount,
+    double? customerPlatformFeeRate,
+    double? hostCommissionRate,
   }) async {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
     final property = PropertyRental.fromMap(propDoc, propertyId);
 
-    if (property.status != 'Available') {
-      throw Exception('Property is no longer available.');
+    if (property.status == 'Inactive' ||
+        property.status == 'Unpublished' ||
+        property.status == 'Archived' ||
+        property.status == 'Deleted' ||
+        property.status == 'Not Accepting Bookings' ||
+        !property.acceptingBookings ||
+        property.isDeleted) {
+      throw Exception('This property is currently not accepting new bookings.');
+    }
+
+    final approvedReqs = await getApprovedRequestsForProperty(propertyId);
+    final approvedRanges = approvedReqs.map((m) => BookingDateRange.fromMap(m)).toList();
+    if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
+      throw Exception('Selected dates overlap with an existing confirmed rental.');
     }
 
     final rentee = await getUser(renteeId);
     if (rentee == null) throw Exception('Renter profile not found.');
 
-    final discount = discountAmount ?? 0.0;
-    final discountedCost = (totalCost - discount).clamp(0.0, 999999.0);
-    final bookingFee = discountedCost * 0.03;
-    final totalRequired = discountedCost + bookingFee;
+    final hostUser = await getUser(property.hostId);
+    final hostIsVerified = hostUser != null
+        ? (hostUser.idVerified || hostUser.verificationLevel >= 2)
+        : (property.hostIsVerified ?? (property.hostVerificationStatus == 'VERIFIED'));
+    final hostVerificationTier = hostUser != null
+        ? PartyVerificationHelper.formatVerificationTier(level: hostUser.verificationLevel, idVerified: hostUser.idVerified)
+        : (property.hostVerificationTier ?? (hostIsVerified ? 'Government ID Verified' : 'None'));
+    final hostVerificationStatus = hostIsVerified ? 'VERIFIED' : 'UNVERIFIED';
 
-    if (rentee.tyxBalance < totalRequired) {
-      throw Exception(
-        'Insufficient balance. Required: ${totalRequired.toStringAsFixed(2)} TYXBIT (including 3% booking fee), but available: ${rentee.tyxBalance.toStringAsFixed(2)} TYXBIT.',
-      );
+    final renteeIsVerified = rentee.idVerified || rentee.verificationLevel >= 2;
+    final renteeVerificationTier = PartyVerificationHelper.formatVerificationTier(
+      level: rentee.verificationLevel,
+      idVerified: rentee.idVerified,
+    );
+    final renteeVerificationStatus = renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED';
+
+    // Calculate duration in days
+    final int calculatedDays;
+    if (endDate > startDate) {
+      final diff = ((endDate - startDate) / (1000 * 60 * 60 * 24)).round();
+      calculatedDays = diff > 0 ? diff : 1;
+    } else {
+      switch (durationType) {
+        case 'Daily':
+          calculatedDays = multiplier * 1;
+          break;
+        case 'Weekly':
+          calculatedDays = multiplier * 7;
+          break;
+        default:
+          calculatedDays = multiplier * 30;
+          break;
+      }
     }
 
-    // Deduct from renter
-    final newRenterBalance = rentee.tyxBalance - totalRequired;
-    await updateTyxBalance(renteeId, newRenterBalance);
+    // Dynamic fee rates
+    final feeConfig = await getPlatformFeeConfig();
+    final effCustFeeRate = customerPlatformFeeRate ?? feeConfig.propertyCustomerFeeRate;
+    final effHostCommRate = hostCommissionRate ?? feeConfig.propertyHostCommissionRate;
 
-    // Save transaction record for renter
+    final pricingModel = PropertyPricingModel.fromPropertyMap(propDoc);
+    final financials = pricingModel.calculate(
+      totalDays: calculatedDays,
+      customerPlatformFeeRate: effCustFeeRate,
+      hostCommissionRate: effHostCommRate,
+    );
+
+    final effBaseRent = baseRentAmount ?? financials.baseRent;
+    final effSecDeposit = securityDepositAmount ?? financials.securityDeposit;
+    final originalBookingFee = financials.customerPlatformFee;
+
+    final discount = discountAmount ?? 0.0;
+    final effBookingFee = (originalBookingFee - discount).clamp(0.0, 999999.0);
+    final totalRequired = effBaseRent + effBookingFee + effSecDeposit;
+
     final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': renteeId,
-      'type': 'payment',
-      'amount': totalRequired,
-      'title': 'Property Booking Request',
-      'desc': 'Requested property "${property.title}" for $multiplier $durationType(s)${promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''}',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
+    final txDesc = 'Requested property "${property.title}" for $calculatedDays day(s) (${PlatformFeeConfig.formatPercent(effCustFeeRate)} platform fee included)${promoCode != null ? ' (Promo $promoCode applied: -₱${discount.toStringAsFixed(2)})' : ''}';
+    await deductTyxBalanceSafely(
+      uid: renteeId,
+      amountToDeduct: totalRequired,
+      txId: txId,
+      title: 'Property Booking Request',
+      description: txDesc,
+      category: 'rental',
+      extraTxData: {
+        'baseRentAmount': effBaseRent,
+        'securityDepositAmount': effSecDeposit,
+        'customerPlatformFeeAmount': effBookingFee,
+        'customerPlatformFeeRate': effCustFeeRate,
+        'hostCommissionRate': effHostCommRate,
+        'appliedTier': financials.appliedTier.name.toUpperCase(),
+        'totalDays': calculatedDays,
+      },
+    );
 
     // Save request document
     final requestId = 'req_${DateTime.now().microsecondsSinceEpoch}';
@@ -2838,9 +4566,20 @@ class FirestoreService {
       'renteePhotoUrl': renteePhotoUrl ?? '',
       'durationType': durationType,
       'multiplier': multiplier,
-      'totalCost': discountedCost,
+      'totalDays': calculatedDays,
+      'baseRentAmount': effBaseRent,
+      'securityDepositAmount': effSecDeposit,
+      'depositType': financials.depositType.nameString,
+      'depositValue': financials.depositValue,
+      'bookingFee': effBookingFee,
+      'customerPlatformFeeRate': effCustFeeRate,
+      'customerPlatformFeeAmount': effBookingFee,
+      'hostCommissionRate': effHostCommRate,
+      'totalCost': totalRequired,
       'originalCost': totalCost,
-      'bookingFee': bookingFee,
+      'totalCustomerPaid': totalRequired,
+      'appliedTier': financials.appliedTier.name.toUpperCase(),
+      'unitRate': financials.unitRate,
       'signatureName': '', // unsigned
       'status': 'Pending',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -2848,12 +4587,25 @@ class FirestoreService {
       'title': property.title,
       'propertyType': property.type.name,
       'category': property.category.name,
+      'photoUrl': property.photoUrls.isNotEmpty ? property.photoUrls.first : '',
+      'photoUrls': property.photoUrls,
+      'address': property.address,
+      'latitude': property.latitude,
+      'longitude': property.longitude,
       'contractType': contractType,
       'contractTerms': contractTerms,
+      'contractDocumentId': CustomContractHelper.extractDocumentId(contractTerms) ?? '',
+      'contractDocumentName': CustomContractHelper.extractFileName(contractTerms),
       'startDate': startDate,
       'endDate': endDate,
       'licenseNumber': licenseNumber ?? '',
-      'promoCode': ?promoCode,
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': hostVerificationStatus,
+      'hostVerificationTier': hostVerificationTier,
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': renteeVerificationStatus,
+      'renteeVerificationTier': renteeVerificationTier,
+      if (promoCode != null) 'promoCode': promoCode,
       if (promoCode != null) 'discountAmount': discount,
     };
     await setDocument('property_requests/$requestId', requestDoc);
@@ -2863,8 +4615,14 @@ class FirestoreService {
       'requestId': requestId,
       'propertyId': propertyId,
       'renteeId': renteeId,
+      'renterId': renteeId,
       'hostId': property.hostId,
-      'amount': discountedCost,
+      'amount': totalRequired,
+      'baseRentAmount': effBaseRent,
+      'securityDepositAmount': effSecDeposit,
+      'customerPlatformFeeAmount': effBookingFee,
+      'customerPlatformFeeRate': effCustFeeRate,
+      'hostCommissionRate': effHostCommRate,
       'status': 'Held',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -2892,38 +4650,60 @@ class FirestoreService {
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
     final property = PropertyRental.fromMap(propDoc, propertyId);
-    if (property.status != 'Available') {
-      throw Exception('Property is no longer available (already rented).');
+
+    final startDate = getEpochMs(reqDoc['startDate']);
+    final endDate = getEpochMs(reqDoc['endDate']);
+
+    if (startDate > 0 && endDate > 0) {
+      final existingApproved = await getApprovedRequestsForProperty(propertyId);
+      final approvedRanges = existingApproved
+          .where((r) => r['id'] != requestId && r['status']?.toString().toLowerCase() != 'pending')
+          .map((m) => BookingDateRange.fromMap(m))
+          .toList();
+      if (BookingAvailabilityHelper.hasRangeOverlap(startDate, endDate, approvedRanges)) {
+        throw Exception('Cannot approve booking: selected dates overlap with an already confirmed rental.');
+      }
     }
 
     final renteeId = reqDoc['renteeId'] as String;
     final renteeName = reqDoc['renteeName'] as String;
     final durationType = reqDoc['durationType'] as String;
     final multiplier = (reqDoc['multiplier'] as num).toInt();
-    final totalCost = (reqDoc['totalCost'] as num).toDouble();
-    final startDate = (reqDoc['startDate'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
-    final endDate =
-        (reqDoc['endDate'] as num?)?.toInt() ?? DateTime.now().add(const Duration(days: 30)).millisecondsSinceEpoch;
+    final totalPaid = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ?? (reqDoc['totalCost'] as num).toDouble();
+    final baseRent = (reqDoc['baseRentAmount'] as num?)?.toDouble() ?? totalPaid;
+    final secDeposit = (reqDoc['securityDepositAmount'] as num?)?.toDouble() ?? 0.0;
+    final bookingFee = (reqDoc['customerPlatformFeeAmount'] as num?)?.toDouble() ?? (reqDoc['bookingFee'] as num? ?? 0.0).toDouble();
+    final custFeeRate = (reqDoc['customerPlatformFeeRate'] as num?)?.toDouble() ?? 0.03;
+    final hostCommRate = (reqDoc['hostCommissionRate'] as num?)?.toDouble() ?? 0.07;
 
     // 1. Approve request
-    await setDocument('property_requests/$requestId', {'status': 'Approved'});
+    await setDocument('property_requests/$requestId', {
+      'status': 'Approved',
+      'allowChat': allowChat,
+      'approvedAt': DateTime.now().millisecondsSinceEpoch,
+    });
 
-    // 2. Move escrow
+    // 2. Dual-write escrow to requestId (canonical) and propertyId (backward compatibility)
     final reqEscrowDoc = await getDocument('property_escrows/$requestId');
-    final reqBookingFee = (reqDoc['bookingFee'] as num? ?? totalCost * 0.03).toDouble();
-    if (reqEscrowDoc != null) {
-      await setDocument('property_escrows/$propertyId', {
-        'propertyId': propertyId,
-        'renteeId': renteeId,
-        'hostId': property.hostId,
-        'amount': totalCost,
-        'bookingFee': reqBookingFee,
-        'totalPaid': totalCost + reqBookingFee,
-        'status': 'Held',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-      });
-      await deleteDocument('property_escrows/$requestId');
-    }
+    final escrowData = {
+      'propertyId': propertyId,
+      'requestId': requestId,
+      'renteeId': renteeId,
+      'renterId': renteeId,
+      'hostId': property.hostId,
+      'amount': totalPaid,
+      'baseRentAmount': baseRent,
+      'securityDepositAmount': secDeposit,
+      'customerPlatformFeeAmount': bookingFee,
+      'customerPlatformFeeRate': custFeeRate,
+      'hostCommissionRate': hostCommRate,
+      'bookingFee': bookingFee,
+      'totalPaid': totalPaid,
+      'status': 'Held',
+      'createdAt': reqEscrowDoc?['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
+    };
+    await setDocument('property_escrows/$requestId', escrowData);
+    await setDocument('property_escrows/$propertyId', escrowData);
 
     // 3. Update property listing
     await setDocument('properties/$propertyId', {
@@ -2935,24 +4715,41 @@ class FirestoreService {
       'rentalMultiplier': multiplier,
       'startDate': startDate,
       'endDate': endDate,
-      'totalCost': totalCost,
-      'bookingFee': reqBookingFee,
+      'totalCost': totalPaid,
+      'baseRentAmount': baseRent,
+      'securityDepositAmount': secDeposit,
+      'bookingFee': bookingFee,
+      'customerPlatformFeeRate': custFeeRate,
+      'hostCommissionRate': hostCommRate,
       'renteeSignatureName': '',
       'signedAt': 0,
       'currentRequestId': requestId,
       'allowChat': allowChat,
       'licenseNumber': reqDoc['licenseNumber'] ?? '',
+      'hostIsVerified': reqDoc['hostIsVerified'] ?? (propDoc['hostIsVerified'] ?? (propDoc['hostVerificationStatus'] == 'VERIFIED')),
+      'hostVerificationStatus': reqDoc['hostVerificationStatus'] ?? (propDoc['hostVerificationStatus'] ?? ((propDoc['hostIsVerified'] == true) ? 'VERIFIED' : 'UNVERIFIED')),
+      'hostVerificationTier': reqDoc['hostVerificationTier'] ?? (propDoc['hostVerificationTier'] ?? ((propDoc['hostIsVerified'] == true) ? 'Government ID Verified' : 'None')),
+      'renteeIsVerified': reqDoc['renteeIsVerified'] ?? (reqDoc['renteeVerificationStatus'] == 'VERIFIED'),
+      'renteeVerificationStatus': reqDoc['renteeVerificationStatus'] ?? 'UNVERIFIED',
+      'renteeVerificationTier': reqDoc['renteeVerificationTier'] ?? 'None',
     });
 
-    // 4. Reject other requests
-    final allRequests = await getPropertyPendingRequestsForProperty(propertyId);
-    for (final otherReq in allRequests) {
-      final otherReqId = otherReq['id'] as String;
-      if (otherReqId == requestId) continue;
-      try {
-        await rejectPropertyBookingRequest(otherReqId);
-      } catch (e) {
-        print('Error rejecting other request $otherReqId: $e');
+    // 4. Selectively reject only other pending requests that overlap with the approved dates
+    if (startDate > 0 && endDate > 0) {
+      final allRequests = await getPropertyPendingRequestsForProperty(propertyId);
+      final conflictingRequests = BookingAvailabilityHelper.filterConflictingRequests(
+        startDate,
+        endDate,
+        allRequests,
+        currentRequestId: requestId,
+      );
+      for (final otherReq in conflictingRequests) {
+        final otherReqId = otherReq['id'] as String;
+        try {
+          await rejectPropertyBookingRequest(otherReqId);
+        } catch (e) {
+          print('Error rejecting conflicting property request $otherReqId: $e');
+        }
       }
     }
 
@@ -2970,67 +4767,442 @@ class FirestoreService {
     );
   }
 
-  /// Reject a property booking request and refund rentee
+  /// Reject a property booking request and set escrow to RefundPending for automated reconciliation
   Future<void> rejectPropertyBookingRequest(String requestId) async {
     final reqDoc = await getDocument('property_requests/$requestId');
     if (reqDoc == null) return;
     if (reqDoc['status'] != 'Pending') return;
 
     final renteeId = reqDoc['renteeId'] as String;
-    final totalCost = (reqDoc['totalCost'] as num).toDouble();
-    final bookingFee = (reqDoc['bookingFee'] as num).toDouble();
-    final refundAmount = totalCost + bookingFee;
+    final totalRefund = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ??
+        ((reqDoc['totalCost'] as num).toDouble() + ((reqDoc['bookingFee'] as num?)?.toDouble() ?? 0.0));
+    final now = DateTime.now().millisecondsSinceEpoch;
 
-    await setDocument('property_requests/$requestId', {'status': 'Rejected'});
+    await setDocument('property_requests/$requestId', {
+      'status': 'Rejected',
+      'rejectedAt': now,
+    });
 
     // Revert promo usage
     final promoCode = reqDoc['promoCode'] as String?;
     if (promoCode != null) {
-      await decrementPromoUsage(promoCode, renteeId);
+      try {
+        await decrementPromoUsage(promoCode, renteeId);
+      } catch (_) {}
     }
 
-
-    final rentee = await getUser(renteeId);
-    if (rentee != null) {
-      await updateTyxBalance(renteeId, rentee.tyxBalance + refundAmount);
-
-      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-      final txData = {
-        'uid': renteeId,
-        'type': 'refund',
-        'amount': refundAmount,
-        'title': 'Property Booking Refund',
-        'desc': 'Refund for rejected request of property "${reqDoc['title']}"',
-        'method': 'Tranyx Wallet',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-      };
-      await setDocument('transactions/$txId', txData);
-    }
-
-    await deleteDocument('property_escrows/$requestId');
+    // Set escrow status to RefundPending for automatic claim by renter
+    final existingEscrow = await getDocument('property_escrows/$requestId');
+    final escrowMap = {
+      if (existingEscrow != null) ...existingEscrow,
+      'id': requestId,
+      'requestId': requestId,
+      'propertyId': reqDoc['propertyId'] ?? '',
+      'renteeId': renteeId,
+      'renterId': renteeId,
+      'hostId': reqDoc['hostId'] ?? '',
+      'status': 'RefundPending',
+      'refundAmount': totalRefund,
+      'refundReason': 'Host rejected property booking request for "${reqDoc['title'] ?? 'Listing'}"',
+      'rejectedAt': now,
+    };
+    await setDocument('property_escrows/$requestId', escrowMap);
 
     await createNotification(
       uid: renteeId,
       title: 'Booking Request Rejected',
-      message: 'Your request to rent "${reqDoc['title']}" was rejected. Funds have been refunded.',
+      message: 'Your request to rent "${reqDoc['title']}" was rejected. Refund of ₱${totalRefund.toStringAsFixed(2)} will be refunded to your wallet.',
     );
   }
 
-  /// Sign property contract to activate lease
-  Future<void> signPropertyContract(String propertyId, String signatureDataUrl, {String? signatureHash}) async {
-    final propDoc = await getDocument('properties/$propertyId');
-    if (propDoc == null) throw Exception('Property listing not found.');
+  /// Cancel a property booking request by the rentee and refund their wallet (supports Pending, Approved, Awaiting Signature)
+  Future<void> cancelPropertyBookingRequest(String requestId) async {
+    final reqDoc = await getDocument('property_requests/$requestId');
+    if (reqDoc == null) return;
+    final st = reqDoc['status']?.toString();
+    if (st != 'Pending' && st != 'Approved' && st != 'Awaiting Signature') return;
 
-    final now = DateTime.now();
-    await setDocument('properties/$propertyId', {
-      'status': 'Booked',
-      'renteeSignatureName': signatureDataUrl,
-      'signedAt': now.millisecondsSinceEpoch,
-      'signatureHash': ?signatureHash,
+    final renteeId = reqDoc['renteeId'] as String;
+    final hostId = reqDoc['hostId'] as String;
+    final totalRefund = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ??
+        ((reqDoc['totalCost'] as num).toDouble() + ((reqDoc['bookingFee'] as num?)?.toDouble() ?? 0.0));
+    final propertyId = reqDoc['propertyId']?.toString();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // 1. Set request status to Cancelled
+    await setDocument('property_requests/$requestId', {
+      'status': 'Cancelled',
+      'cancelledAt': now,
     });
 
+    // 2. If it was Approved / Awaiting Signature, reopen the property listing if this was the current request
+    if (propertyId != null && (st == 'Approved' || st == 'Awaiting Signature')) {
+      final propDoc = await getDocument('properties/$propertyId');
+      if (propDoc != null && propDoc['currentRequestId']?.toString() == requestId) {
+        await setDocument('properties/$propertyId', {
+          'status': 'Available',
+          'renteeId': null,
+          'renteeName': null,
+          'renteePhotoUrl': null,
+          'rentalDurationType': null,
+          'rentalMultiplier': null,
+          'startDate': null,
+          'endDate': null,
+          'checkInDate': null,
+          'checkOutDate': null,
+          'totalCost': null,
+          'baseRentAmount': null,
+          'securityDepositAmount': null,
+          'bookingFee': null,
+          'renteeSignatureName': null,
+          'signedAt': null,
+          'currentRequestId': null,
+          'licenseNumber': null,
+        });
+      }
+    }
+
+    // 3. Revert promo usage
+    final promoCode = reqDoc['promoCode'] as String?;
+    if (promoCode != null) {
+      try {
+        await decrementPromoUsage(promoCode, renteeId);
+      } catch (_) {}
+    }
+
+    // 4. Refund rentee immediately (caller is rentee)
+    final rentee = await getUser(renteeId);
+    if (rentee != null) {
+      await updateTyxBalance(renteeId, rentee.tyxBalance + totalRefund);
+
+      final txId = 'tx_cancel_${DateTime.now().millisecondsSinceEpoch}';
+      final txData = {
+        'id': txId,
+        'uid': renteeId,
+        'type': 'refund',
+        'category': 'refund',
+        'amount': totalRefund,
+        'title': 'Property Booking Cancelled',
+        'desc': 'Refund for cancelled request of property "${reqDoc['title']}"',
+        'method': 'Tranyx Wallet',
+        'originRail': 'internal_balance',
+        'createdAt': now,
+        'status': 'Completed',
+      };
+      await setDocument('transactions/$txId', txData);
+    }
+
+    // 5. Mark escrow as Refunded
+    final existingEscrow = await getDocument('property_escrows/$requestId');
+    final escrowRefund = {
+      if (existingEscrow != null) ...existingEscrow,
+      'status': 'Refunded',
+      'refundAmount': totalRefund,
+      'refundClaimedAt': now,
+    };
+    await setDocument('property_escrows/$requestId', escrowRefund);
+    if (propertyId != null) {
+      await setDocument('property_escrows/$propertyId', escrowRefund);
+    }
+
+    await createNotification(
+      uid: hostId,
+      title: 'Property Booking Request Cancelled',
+      message:
+          '${reqDoc['renteeName'] ?? "Renter"} has cancelled their booking request for your property "${reqDoc['title'] ?? 'Listing'}". Listing is now available.',
+    );
+  }
+
+  /// Host revokes an approved property booking request before it is signed, reopening listing and issuing 100% refund to renter
+  Future<void> revokePropertyApproval(String propertyId, {String? requestId}) async {
+    final propDoc = await getDocument('properties/$propertyId');
+    final resolvedReqId = requestId ?? (propDoc?['currentRequestId'] as String?);
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    if (resolvedReqId != null) {
+      final reqDoc = await getDocument('property_requests/$resolvedReqId');
+      if (reqDoc != null) {
+        final renteeId = reqDoc['renteeId'] as String;
+        final totalRefund = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ??
+            ((reqDoc['totalCost'] as num).toDouble() + ((reqDoc['bookingFee'] as num?)?.toDouble() ?? 0.0));
+
+        await setDocument('property_requests/$resolvedReqId', {
+          'status': 'Cancelled',
+          'cancelledAt': now,
+        });
+
+        final promoCode = reqDoc['promoCode'] as String?;
+        if (promoCode != null) {
+          try {
+            await decrementPromoUsage(promoCode, renteeId);
+          } catch (_) {}
+        }
+
+        // Set escrow status to RefundPending for automatic claim by renter
+        final existingEscrow = await getDocument('property_escrows/$resolvedReqId') ??
+            await getDocument('property_escrows/$propertyId');
+        final escrowMap = {
+          if (existingEscrow != null) ...existingEscrow,
+          'id': resolvedReqId,
+          'requestId': resolvedReqId,
+          'propertyId': propertyId,
+          'renteeId': renteeId,
+          'renterId': renteeId,
+          'hostId': propDoc?['hostId'] ?? '',
+          'status': 'RefundPending',
+          'refundAmount': totalRefund,
+          'refundReason': 'Host revoked approval for property "${reqDoc['title'] ?? 'Listing'}"',
+          'revokedAt': now,
+        };
+        await setDocument('property_escrows/$resolvedReqId', escrowMap);
+        await setDocument('property_escrows/$propertyId', escrowMap);
+
+        await createNotification(
+          uid: renteeId,
+          title: 'Property Booking Approval Revoked',
+          message:
+              'The host has revoked approval for property "${reqDoc['title'] ?? 'Listing'}". Full refund of ₱${totalRefund.toStringAsFixed(2)} will be refunded to your wallet.',
+        );
+      }
+    }
+
+    await setDocument('properties/$propertyId', {
+      'status': 'Available',
+      'renteeId': null,
+      'renteeName': null,
+      'renteePhotoUrl': null,
+      'rentalDurationType': null,
+      'rentalMultiplier': null,
+      'startDate': null,
+      'endDate': null,
+      'checkInDate': null,
+      'checkOutDate': null,
+      'totalCost': null,
+      'baseRentAmount': null,
+      'securityDepositAmount': null,
+      'bookingFee': null,
+      'renteeSignatureName': null,
+      'signedAt': null,
+      'currentRequestId': null,
+      'licenseNumber': null,
+    });
+  }
+
+  /// Cancel property lease rental — full refund (totalCost + bookingFee - 2.0 TYXBIT platform fee) back to rentee
+  Future<void> cancelPropertyRental(String propertyId, {String? requestId}) async {
+    String actualPropertyId = propertyId;
+    String? resolvedReqId = requestId;
+
+    Map<String, dynamic>? propDoc = await getDocument('properties/$actualPropertyId');
+    if (propDoc == null) {
+      resolvedReqId = actualPropertyId;
+      final reqDoc = await getDocument('property_requests/$resolvedReqId');
+      if (reqDoc != null && reqDoc['propertyId'] != null) {
+        actualPropertyId = reqDoc['propertyId'].toString();
+        propDoc = await getDocument('properties/$actualPropertyId');
+      }
+    }
+
+    if (propDoc == null) throw Exception('Property listing not found.');
+    resolvedReqId ??= propDoc['currentRequestId'] as String?;
+
+    final property = PropertyRental.fromMap(propDoc, actualPropertyId);
+
+    if (property.renteeId == null || property.renteeId!.isEmpty) {
+      await setDocument('properties/$actualPropertyId', {'status': 'Available'});
+      if (resolvedReqId != null) {
+        await setDocument('property_requests/$resolvedReqId', {'status': 'Cancelled'});
+      }
+      return;
+    }
+
+    final rentee = await getUser(property.renteeId!);
+    if (rentee == null) throw Exception('Rentee profile not found.');
+
+    final baseCost = (propDoc['totalCost'] as num?)?.toDouble() ?? property.totalCost ?? 0.0;
+    double bookingFee = (propDoc['bookingFee'] as num?)?.toDouble() ?? 0.0;
+    if (bookingFee == 0.0) {
+      Map<String, dynamic>? escrowDoc;
+      if (resolvedReqId != null) {
+        escrowDoc = await getDocument('property_escrows/$resolvedReqId');
+      }
+      escrowDoc ??= await getDocument('property_escrows/$actualPropertyId');
+      bookingFee = (escrowDoc?['customerPlatformFeeAmount'] as num?)?.toDouble() ??
+          (escrowDoc?['bookingFee'] as num?)?.toDouble() ??
+          baseCost * 0.03;
+    }
+    final fullRefundAmount = (propDoc['totalCustomerPaid'] as num?)?.toDouble() ?? (baseCost + bookingFee);
+    const cancellationFee = 2.0; // flat platform cancellation processing fee
+    final refundToRentee = (fullRefundAmount - cancellationFee).clamp(0.0, double.infinity);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    bool directRefundSuccess = false;
+    try {
+      await updateTyxBalance(property.renteeId!, rentee.tyxBalance + refundToRentee);
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'id': txId,
+        'uid': property.renteeId!,
+        'type': 'refund',
+        'category': 'refund',
+        'amount': refundToRentee,
+        'title': 'Property Lease Cancellation — Refund',
+        'desc':
+            'Refund for cancelled property lease: "${property.title}" (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee)',
+        'method': 'Tranyx Wallet',
+        'originRail': 'internal_balance',
+        'createdAt': now,
+        'status': 'Completed',
+      };
+      await setDocument('transactions/$txId', txData);
+      directRefundSuccess = true;
+    } catch (_) {
+      directRefundSuccess = false;
+    }
+
+    // Mark escrow as Refunded or RefundPending for automated self-claim
+    final escrowData = {
+      'status': directRefundSuccess ? 'Refunded' : 'RefundPending',
+      'refundAmount': refundToRentee,
+      'refundReason': 'Cancelled lease: "${property.title}"',
+      'cancelledAt': now,
+    };
+    if (resolvedReqId != null) {
+      final existing = await getDocument('property_escrows/$resolvedReqId');
+      await setDocument('property_escrows/$resolvedReqId', {
+        if (existing != null) ...existing,
+        ...escrowData,
+      });
+    }
+    final existingPropEscrow = await getDocument('property_escrows/$actualPropertyId');
+    await setDocument('property_escrows/$actualPropertyId', {
+      if (existingPropEscrow != null) ...existingPropEscrow,
+      ...escrowData,
+    });
+
+    // Mark request as Cancelled
+    if (resolvedReqId != null) {
+      final reqDoc = await getDocument('property_requests/$resolvedReqId');
+      if (reqDoc != null) {
+        final promoCode = reqDoc['promoCode'] as String?;
+        if (promoCode != null) {
+          await decrementPromoUsage(promoCode, property.renteeId!);
+        }
+      }
+      await setDocument('property_requests/$resolvedReqId', {'status': 'Cancelled'});
+    }
+
+    // Reset property listing to Available
+    await setDocument('properties/$actualPropertyId', {
+      'status': 'Available',
+      'renteeId': null,
+      'renteeName': null,
+      'renteePhotoUrl': null,
+      'rentalDurationType': null,
+      'rentalMultiplier': null,
+      'startDate': null,
+      'endDate': null,
+      'totalCost': null,
+      'baseRentAmount': null,
+      'securityDepositAmount': null,
+      'bookingFee': null,
+      'renteeSignatureName': null,
+      'signedAt': null,
+      'currentRequestId': null,
+      'licenseNumber': null,
+    });
+
+    // Notifications
+    await createNotification(
+      uid: property.hostId,
+      title: 'Property Lease Cancelled',
+      message: 'Lease for "${property.title}" was cancelled. The listing is now available again.',
+    );
+    await createNotification(
+      uid: property.renteeId!,
+      title: 'Property Lease Cancelled — Refund Issued',
+      message:
+          'Your lease was cancelled. ${refundToRentee.toStringAsFixed(2)} TYXBIT refunded (total paid: ${fullRefundAmount.toStringAsFixed(2)} − 2.00 TYXBIT cancellation fee).',
+    );
+  }
+
+
+  /// Sign property contract to activate lease
+  Future<void> signPropertyContract(String propertyId, String signatureDataUrl, {String? signatureHash, String? requestId}) async {
+    final propDoc = await getDocument('properties/$propertyId');
+    if (propDoc == null) throw Exception('Property listing not found.');
+    final resolvedReqId = requestId ?? propDoc['currentRequestId'] as String?;
+
+    final now = DateTime.now();
+
+    Map<String, dynamic>? bookingData;
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      bookingData = await getDocument('property_requests/$resolvedReqId');
+      final contractId = 'contract_${resolvedReqId}_${now.millisecondsSinceEpoch}';
+      await setDocument('property_requests/$resolvedReqId', {
+        'status': 'Booked',
+        'signatureName': signatureDataUrl,
+        'signedAt': now.millisecondsSinceEpoch,
+        'contractId': contractId,
+        'signatureHash': ?signatureHash,
+      });
+    }
+
+    // Only update listing document's active rentee fields if this is the active/current request
+    final isCurrentTrip = propDoc['currentRequestId'] == null ||
+        propDoc['currentRequestId'] == resolvedReqId ||
+        propDoc['status'] == 'Available' ||
+        propDoc['status'] == 'Awaiting Signature';
+
+    if (isCurrentTrip) {
+      await setDocument('properties/$propertyId', {
+        'status': 'Booked',
+        if (resolvedReqId != null) 'currentRequestId': resolvedReqId,
+        'renteeSignatureName': signatureDataUrl,
+        'signedAt': now.millisecondsSinceEpoch,
+        'signatureHash': ?signatureHash,
+      });
+    }
+
+    // Freeze permanent immutable contract snapshot in /rental_contracts/{contractId}
+    final contractId = 'contract_${resolvedReqId ?? propertyId}_${now.millisecondsSinceEpoch}';
+    final hostIsVerified = propDoc['hostIsVerified'] == true || propDoc['hostVerificationStatus'] == 'VERIFIED';
+    final renteeIsVerified = (bookingData?['renteeIsVerified'] ?? propDoc['renteeIsVerified']) == true ||
+        (bookingData?['renteeVerificationStatus'] ?? propDoc['renteeVerificationStatus']) == 'VERIFIED';
+    final renteeId = bookingData?['renteeId'] ?? propDoc['renteeId'];
+    final renteeName = bookingData?['renteeName'] ?? propDoc['renteeName'] ?? 'Renter';
+
+    final contractDoc = {
+      'contractId': contractId,
+      'propertyId': propertyId,
+      if (resolvedReqId != null) 'requestId': resolvedReqId,
+      'contractType': propDoc['contractType'] ?? 'tranyx',
+      'contractTerms': propDoc['contractTerms'] ?? 'Standard P2P lease terms',
+      'hostId': propDoc['hostId'],
+      'hostName': propDoc['hostName'],
+      'hostIsVerified': hostIsVerified,
+      'hostVerificationStatus': propDoc['hostVerificationStatus'] ?? (hostIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'hostVerificationTier': propDoc['hostVerificationTier'] ?? (hostIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeId': renteeId,
+      'renteeName': renteeName,
+      'renteeIsVerified': renteeIsVerified,
+      'renteeVerificationStatus': bookingData?['renteeVerificationStatus'] ?? propDoc['renteeVerificationStatus'] ?? (renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED'),
+      'renteeVerificationTier': bookingData?['renteeVerificationTier'] ?? propDoc['renteeVerificationTier'] ?? (renteeIsVerified ? 'Government ID Verified' : 'None'),
+      'renteeLicenseNumber': bookingData?['licenseNumber'] ?? bookingData?['renteeLicenseNumber'] ?? propDoc['licenseNumber'] ?? '',
+      'renteeSignature': signatureDataUrl,
+      'signatureHash': signatureHash ?? '',
+      'signedAt': now.millisecondsSinceEpoch,
+      'totalCost': bookingData?['totalCost'] ?? propDoc['totalCost'],
+      'baseRentAmount': bookingData?['baseRentAmount'] ?? propDoc['baseRentAmount'],
+      'securityDepositAmount': bookingData?['securityDepositAmount'] ?? propDoc['securityDepositAmount'],
+      'startDate': bookingData?['startDate'] ?? propDoc['startDate'],
+      'endDate': bookingData?['endDate'] ?? propDoc['endDate'],
+      'status': 'Executed',
+      'isImmutableSnapshot': true,
+      'executedAt': now.millisecondsSinceEpoch,
+    };
+    await setDocument('rental_contracts/$contractId', contractDoc);
+
     final hostId = propDoc['hostId'] as String;
-    final renteeName = propDoc['renteeName'] as String? ?? 'Renter';
     final title = propDoc['title'] ?? '';
 
     await createNotification(
@@ -3041,12 +5213,30 @@ class FirestoreService {
   }
 
   /// Update property status
-  Future<void> updatePropertyStatus(String propertyId, String status) async {
-    await setDocument('properties/$propertyId', {'status': status});
+  Future<void> updatePropertyStatus(String propertyId, String status, {String? requestId}) async {
+    String actualPropertyId = propertyId;
+    String? resolvedReqId = requestId;
 
-    final propDoc = await getDocument('properties/$propertyId');
+    Map<String, dynamic>? propDoc = await getDocument('properties/$actualPropertyId');
+    if (propDoc == null) {
+      final reqDoc = await getDocument('property_requests/$actualPropertyId');
+      if (reqDoc != null) {
+        resolvedReqId = actualPropertyId;
+        if (reqDoc['propertyId'] != null) {
+          actualPropertyId = reqDoc['propertyId'].toString();
+          propDoc = await getDocument('properties/$actualPropertyId');
+        }
+      }
+    } else {
+      resolvedReqId ??= propDoc['currentRequestId'] as String?;
+    }
+
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      await setDocument('property_requests/$resolvedReqId', {'status': status});
+    }
     if (propDoc != null) {
-      final property = PropertyRental.fromMap(propDoc, propertyId);
+      await setDocument('properties/$actualPropertyId', {'status': status});
+      final property = PropertyRental.fromMap(propDoc, actualPropertyId);
       if (property.renteeId != null) {
         await createNotification(
           uid: property.renteeId!,
@@ -3059,19 +5249,47 @@ class FirestoreService {
         title: 'Lease Status Update',
         message: 'Your property "${property.title}" lease is now: $status.',
       );
+    } else {
+      await setDocument('properties/$actualPropertyId', {'status': status});
     }
   }
 
-  /// Complete property rental (releases escrow to host minus 3% commission, archives to history, sets status to Completed)
-  Future<void> completePropertyRental(String propertyId) async {
-    final propDoc = await getDocument('properties/$propertyId');
-    if (propDoc == null) throw Exception('Property listing not found.');
-    final property = PropertyRental.fromMap(propDoc, propertyId);
+  /// Complete property rental (releases escrow to host minus TRANYX commission, archives to history, sets status to Completed or promotes next active lease)
+  Future<void> completePropertyRental(String propertyId, {String? requestId}) async {
+    String actualPropertyId = propertyId;
+    String? resolvedReqId = requestId;
 
-    final host = await getUser(property.hostId);
+    Map<String, dynamic>? propDoc = await getDocument('properties/$actualPropertyId');
+    Map<String, dynamic>? bookingDoc;
+
+    if (propDoc == null) {
+      resolvedReqId = actualPropertyId;
+      bookingDoc = await getDocument('property_requests/$resolvedReqId');
+      if (bookingDoc != null && bookingDoc['propertyId'] != null) {
+        actualPropertyId = bookingDoc['propertyId'].toString();
+        propDoc = await getDocument('properties/$actualPropertyId');
+      }
+    }
+
+    if (propDoc == null) throw Exception('Property listing not found.');
+    resolvedReqId ??= propDoc['currentRequestId'] as String?;
+
+    if (bookingDoc == null && resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      bookingDoc = await getDocument('property_requests/$resolvedReqId');
+    }
+
+    final property = PropertyRental.fromMap(propDoc, actualPropertyId);
+    final hostId = (bookingDoc?['hostId'] ?? property.hostId) as String;
+    final host = await getUser(hostId);
     if (host == null) throw Exception('Host profile not found.');
 
-    final escrowDoc = await getDocument('property_escrows/$propertyId');
+    // Look up escrow from requestId first, fallback to propertyId
+    Map<String, dynamic>? escrowDoc;
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      escrowDoc = await getDocument('property_escrows/$resolvedReqId');
+    }
+    escrowDoc ??= await getDocument('property_escrows/$actualPropertyId');
+
     if (escrowDoc == null) {
       throw Exception('Escrow transaction not found. Payout aborted to ensure secure transaction.');
     }
@@ -3079,61 +5297,184 @@ class FirestoreService {
       throw Exception('Escrow is not in Held status. Current status: ${escrowDoc['status']}. Payout aborted.');
     }
 
-    final cost = property.totalCost ?? 0.0;
-    final commission = cost * 0.03;
-    final hostPayout = cost - commission;
+    // Determine Base Rent and Host Commission (excluding security deposits)
+    final secDeposit = (escrowDoc['securityDepositAmount'] as num?)?.toDouble() ??
+        (propDoc['securityDepositAmount'] as num?)?.toDouble() ??
+        0.0;
+    final totalPaid = (escrowDoc['amount'] as num?)?.toDouble() ?? (property.totalCost ?? 0.0);
+    final bookingFee = (escrowDoc['customerPlatformFeeAmount'] as num?)?.toDouble() ?? 0.0;
+    final baseRent = (escrowDoc['baseRentAmount'] as num?)?.toDouble() ??
+        (propDoc['baseRentAmount'] as num?)?.toDouble() ??
+        (totalPaid - secDeposit - bookingFee).clamp(0.0, 9999999.0);
 
-    // Release payout
+    final feeConfig = await getPlatformFeeConfig();
+    final hostCommRate = (escrowDoc['hostCommissionRate'] as num?)?.toDouble() ??
+        (propDoc['hostCommissionRate'] as num?)?.toDouble() ??
+        feeConfig.propertyHostCommissionRate;
+
+    final commission = double.parse((baseRent * hostCommRate).toStringAsFixed(2));
+    final hostPayout = double.parse((baseRent - commission).toStringAsFixed(2));
+
+    // Release payout to host
     final newHostBalance = host.tyxBalance + hostPayout;
-    await updateTyxBalance(property.hostId, newHostBalance);
+    await updateTyxBalance(hostId, newHostBalance);
 
-    // Save transaction record
+    // Save transaction for host
     final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
     final txData = {
-      'uid': property.hostId,
+      'uid': hostId,
       'type': 'payment',
       'amount': hostPayout,
-      'baseAmount': cost,
+      'baseRentAmount': baseRent,
+      'securityDepositAmount': 0.0,
       'commissionFee': commission,
-      'commissionLabel': 'Platform Commission (3%)',
+      'commissionRate': hostCommRate,
+      'commissionLabel': 'TRANYX Host Commission (${PlatformFeeConfig.formatPercent(hostCommRate)})',
       'title': 'Property Rental Payout',
       'desc':
-          'Earnings payout for "${property.title}" (3% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+          'Earnings payout for "${property.title}" (${PlatformFeeConfig.formatPercent(hostCommRate)} TRANYX commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
       'method': 'Tranyx Wallet',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
     await setDocument('transactions/$txId', txData);
 
-    // Update escrow
-    await setDocument('property_escrows/$propertyId', {
+    // Update escrow on both requestId and propertyId
+    final escrowRelease = {
       'status': 'Released',
+      'hostCommissionDeducted': commission,
+      'hostPayout': hostPayout,
+      'securityDepositRefunded': secDeposit,
+      'securityDepositStatus': secDeposit > 0.0 ? 'RefundPending' : 'None',
+      'securityDepositAmount': secDeposit,
       'releasedAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      final ex = await getDocument('property_escrows/$resolvedReqId');
+      await setDocument('property_escrows/$resolvedReqId', {
+        if (ex != null) ...ex,
+        ...escrowRelease,
+      });
+    }
+    final exProp = await getDocument('property_escrows/$actualPropertyId');
+    await setDocument('property_escrows/$actualPropertyId', {
+      if (exProp != null) ...exProp,
+      ...escrowRelease,
     });
+
+    // Attempt direct security deposit refund if caller has permissions, otherwise reconcilePendingEscrows handles it automatically
+    final targetRentee = bookingDoc?['renteeId'] ?? property.renteeId;
+    if (targetRentee != null && targetRentee.toString().isNotEmpty && secDeposit > 0.0) {
+      try {
+        final rentee = await getUser(targetRentee.toString());
+        if (rentee != null) {
+          await updateTyxBalance(targetRentee.toString(), rentee.tyxBalance + secDeposit);
+          final depTxId = 'dep_ref_${DateTime.now().microsecondsSinceEpoch}';
+          await setDocument('transactions/$depTxId', {
+            'id': depTxId,
+            'uid': targetRentee.toString(),
+            'type': 'refund',
+            'category': 'refund',
+            'amount': secDeposit,
+            'title': 'Security Deposit Refund',
+            'desc': '100% refund of security deposit for completed lease "${property.title}"',
+            'method': 'Tranyx Wallet',
+            'originRail': 'internal_balance',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
+            'status': 'Completed',
+          });
+          if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+            await setDocument('property_escrows/$resolvedReqId', {'securityDepositStatus': 'Refunded'});
+          }
+          await setDocument('property_escrows/$actualPropertyId', {'securityDepositStatus': 'Refunded'});
+        }
+      } catch (_) {
+        // Expected if Host is completing: Security deposit remains in 'RefundPending' state
+        // and is claimed automatically by rentee via reconcilePendingEscrows()!
+      }
+    }
 
     // Save to history
     final historyId = 'ph_${DateTime.now().microsecondsSinceEpoch}';
     final historyDoc = {
       ...propDoc,
+      if (bookingDoc != null) ...bookingDoc,
+      'id': historyId,
+      'propertyId': actualPropertyId,
+      'requestId': resolvedReqId ?? '',
       'status': 'Completed',
       'completedAt': DateTime.now().millisecondsSinceEpoch,
+      'hostCommissionAmount': commission,
+      'hostNetPayout': hostPayout,
+      'securityDepositRefunded': secDeposit,
     };
     await setDocument('property_history/$historyId', historyDoc);
 
-    // Update active property listing to Completed (does NOT reset to Available, preserving non-retention)
-    await setDocument('properties/$propertyId', {
-      'status': 'Completed',
-    });
+    // Mark specific request in property_requests as Completed
+    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+      try {
+        await setDocument('property_requests/$resolvedReqId', {'status': 'Completed'});
+      } catch (_) {}
+    }
+
+    // Check if other ongoing/booked requests remain on this property
+    final allRequests = await getAllRequestsForProperty(actualPropertyId);
+    final remainingActive = allRequests.where((r) {
+      if (r['id'] == resolvedReqId) return false;
+      final st = (r['status'] ?? '').toString().toLowerCase();
+      return st == 'booked' || st == 'ongoing' || st == 'active' || st == 'awaiting signature';
+    }).toList();
+
+    if (remainingActive.isEmpty) {
+      // Reset active property listing to Available and clear active rentee fields
+      await setDocument('properties/$actualPropertyId', {
+        'status': 'Available',
+        'renteeId': '',
+        'renteeName': '',
+        'renteePhotoUrl': '',
+        'rentalDurationType': '',
+        'rentalMultiplier': 0,
+        'startDate': 0,
+        'endDate': 0,
+        'totalCost': 0.0,
+        'baseRentAmount': 0.0,
+        'securityDepositAmount': 0.0,
+        'bookingFee': 0.0,
+        'renteeSignatureName': '',
+        'signedAt': 0,
+        'currentRequestId': '',
+        'licenseNumber': '',
+      });
+    } else {
+      // Promote next active lease request to current pointer
+      final nextReq = remainingActive.first;
+      await setDocument('properties/$actualPropertyId', {
+        'status': nextReq['status'] ?? 'Booked',
+        'renteeId': nextReq['renteeId'] ?? '',
+        'renteeName': nextReq['renteeName'] ?? '',
+        'renteePhotoUrl': nextReq['renteePhotoUrl'] ?? '',
+        'rentalDurationType': nextReq['durationType'] ?? '',
+        'rentalMultiplier': nextReq['multiplier'] ?? 1,
+        'startDate': nextReq['startDate'] ?? 0,
+        'endDate': nextReq['endDate'] ?? 0,
+        'totalCost': nextReq['totalCost'] ?? 0.0,
+        'baseRentAmount': nextReq['baseRentAmount'] ?? 0.0,
+        'securityDepositAmount': nextReq['securityDepositAmount'] ?? 0.0,
+        'renteeSignatureName': nextReq['signatureName'] ?? '',
+        'signedAt': nextReq['signedAt'] ?? 0,
+        'currentRequestId': nextReq['id'],
+      });
+    }
 
     // Notifications
     await createNotification(
-      uid: property.hostId,
+      uid: hostId,
       title: 'Lease Completed & Paid',
       message:
           'Lease for "${property.title}" has been completed. Payout of ${hostPayout.toStringAsFixed(2)} TYXBIT credited to your wallet.',
     );
-    if (property.renteeId != null && property.renteeId!.isNotEmpty) {
+    if (targetRentee != null && targetRentee.toString().isNotEmpty) {
       await createNotification(
-        uid: property.renteeId!,
+        uid: targetRentee.toString(),
         title: 'Lease Term Completed',
         message: 'Your lease for "${property.title}" has successfully ended. Thank you!',
       );
@@ -3169,7 +5510,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -3182,58 +5523,9 @@ class FirestoreService {
     return list;
   }
 
-  /// Fetch approved request for a property
+  /// Fetch approved/pending/active requests for a property that occupy calendar availability
   Future<List<Map<String, dynamic>>> getPropertyApprovedRequests(String propertyId) async {
-    final url =
-        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final body = jsonEncode({
-      'structuredQuery': {
-        'from': [
-          {'collectionId': 'property_requests'},
-        ],
-        'where': {
-          'compositeFilter': {
-            'op': 'AND',
-            'filters': [
-              {
-                'fieldFilter': {
-                  'field': {'fieldPath': 'propertyId'},
-                  'op': 'EQUAL',
-                  'value': {'stringValue': propertyId},
-                },
-              },
-              {
-                'fieldFilter': {
-                  'field': {'fieldPath': 'status'},
-                  'op': 'EQUAL',
-                  'value': {'stringValue': 'Approved'},
-                },
-              },
-            ],
-          },
-        },
-      },
-    });
-
-    final req = await http.post(Uri.parse(url), headers: headers, body: body);
-    if (req.statusCode >= 400) return [];
-
-    final List<dynamic> results = jsonDecode(req.body);
-    final list = <Map<String, dynamic>>[];
-    for (final r in results) {
-      if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
-        final name = doc['name'] as String;
-        final docId = name.split('/').last;
-        final data = _fromFirestoreDoc(doc);
-        data['id'] = docId;
-        list.add(data);
-      }
-    }
-    return list;
+    return getApprovedRequestsForProperty(propertyId);
   }
 
   /// Fetch pending property requests for a host
@@ -3279,7 +5571,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -3333,7 +5625,7 @@ class FirestoreService {
     final list = <Map<String, dynamic>>[];
     for (final r in results) {
       if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map<String, dynamic>;
+        final doc = r['document'] as Map;
         final name = doc['name'] as String;
         final docId = name.split('/').last;
         final data = _fromFirestoreDoc(doc);
@@ -3381,7 +5673,7 @@ class FirestoreService {
       final list = <Promo>[];
       for (final r in results) {
         if (r is Map && r.containsKey('document')) {
-          final doc = r['document'] as Map<String, dynamic>;
+          final doc = r['document'] as Map;
           final name = doc['name'] as String;
           final docId = name.split('/').last;
           final data = _fromFirestoreDoc(doc);
@@ -3431,7 +5723,7 @@ class FirestoreService {
       final now = DateTime.now();
       for (final r in results) {
         if (r is Map && r.containsKey('document')) {
-          final doc = r['document'] as Map<String, dynamic>;
+          final doc = r['document'] as Map;
           final name = doc['name'] as String;
           final docId = name.split('/').last;
           final data = _fromFirestoreDoc(doc);
@@ -3460,7 +5752,6 @@ class FirestoreService {
     final usedCount = (promoDoc['usedCount'] as num? ?? 0).toInt() + 1;
 
     await setDocument('promos/$cleanCode', {
-      ...promoDoc,
       'usedBy': usedBy,
       'usedCount': usedCount,
     });
@@ -3476,9 +5767,58 @@ class FirestoreService {
     final usedCount = ((promoDoc['usedCount'] as num? ?? 0).toInt() - 1).clamp(0, 999999);
 
     await setDocument('promos/$cleanCode', {
-      ...promoDoc,
       'usedBy': usedBy,
       'usedCount': usedCount,
+    });
+  }
+
+  Future<void> seedAutoZeroFeePromoIfMissing() async {
+    try {
+      final doc = await getDocument('promos/ZEROFEES1000');
+      if (doc == null) {
+        final now = DateTime.now();
+        final zeroFeePromo = Promo(
+          code: 'ZEROFEES1000',
+          name: 'Auto Zero Platform Fees - First 1,000 Users',
+          description: 'Automatic 100% platform fee and transaction fee waiver for the first 1,000 users.',
+          discountType: 'percentage',
+          discountValue: 100.0,
+          applicableFee: 'all_fees',
+          applicableTo: 'both',
+          eligibleModules: ['jobs', 'services', 'rentals', 'vehicle_rentals', 'property_rentals', 'all'],
+          maxUsers: 1000,
+          maxUsesPerUser: 1,
+          usedCount: 0,
+          isSingleUsePerUser: true,
+          isAutoApply: true,
+          isActive: true,
+          createdAt: now,
+          startDate: now,
+          endDate: now.add(const Duration(days: 365)),
+          createdBy: 'system_admin',
+        );
+        await setDocument('promos/ZEROFEES1000', zeroFeePromo.toMap());
+        print('INFO: Seeded default ZEROFEES1000 promotion into Firestore.');
+      }
+    } catch (e) {
+      print('WARN: seedAutoZeroFeePromoIfMissing encountered error: $e');
+    }
+  }
+
+  Future<void> savePromo(Promo promo, {String? adminUid}) async {
+    final cleanCode = promo.code.trim().toUpperCase();
+    final previousDoc = await getDocument('promos/$cleanCode');
+    await setDocument('promos/$cleanCode', promo.toMap());
+
+    // Audit trail
+    final auditId = 'audit_${cleanCode}_${DateTime.now().millisecondsSinceEpoch}';
+    await setDocument('promo_audit_logs/$auditId', {
+      'promoCode': cleanCode,
+      'action': previousDoc == null ? 'create' : 'update',
+      'performedBy': adminUid ?? 'admin',
+      'previousState': previousDoc,
+      'newState': promo.toMap(),
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
   }
 
@@ -3633,8 +5973,8 @@ class FirestoreService {
       final List<dynamic> results = jsonDecode(req.body);
       final list = <Map<String, dynamic>>[];
       for (final res in results) {
-        if (res is Map<String, dynamic> && res.containsKey('document')) {
-          final doc = res['document'] as Map<String, dynamic>;
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
           final id = (doc['name'] as String).split('/').last;
           final parsed = _fromFirestoreDoc(doc);
           list.add({...parsed, 'id': id});
@@ -3706,116 +6046,1288 @@ class FirestoreService {
     }
     return newlyAwarded;
   }
-}
 
-// ── Local Nyx AI Service (Replacing Cloud Gemini AI) ──────────────────────────
-class LocalNyxAIService {
-  final Future<String?> Function()? onTokenRefresh;
-
-  LocalNyxAIService(FirebaseConfig config, {String? idToken, this.onTokenRefresh});
-
-  Future<String> generateJobDescription(String title) async {
-    if (title.isEmpty) return '';
-    return 'We are looking for a reliable worker to perform $title. The candidate should possess relevant experience and bring standard tools necessary for completing the job efficiently.';
-  }
-
-  Future<String> generateJobTitle(String categoryLabel, String categoryDesc, String description) async {
-    if (description.isNotEmpty && description.length < 30) return description;
-    return 'Experienced $categoryLabel Professional';
-  }
-
-  Future<String> evaluateJobAuthenticity(Map<String, dynamic> jobData) async {
-    return 'Job details reviewed. The description and rate align with standard platform guidelines. Authenticity Score: 9/10.';
-  }
-
-  Future<bool> validateJobTitle(String title, String categoryLabel) async {
-    return true;
-  }
-
-  Future<String> generateCoverNote(String jobTitle) async {
-    if (jobTitle.isEmpty) return 'I would like to express my interest in applying for this gig.';
-    return 'Hi! I am enthusiastic about applying for "$jobTitle". I have proven experience, complete tools, and can start immediately upon hire.';
-  }
-
-  Future<String> askSupportQuestion(List<Map<String, String>> conversationHistory) async {
-    if (conversationHistory.isEmpty) return 'Please ask a valid question.';
-
-    final lastUserMsg = conversationHistory.isNotEmpty
-        ? conversationHistory.last['content'] ?? ''
-        : '';
-
-    return NyxDomainKnowledgeBase.queryKnowledge(lastUserMsg);
-  }
-}
-
-typedef GeminiService = LocalNyxAIService;
-
-
-// ── ImgBB service ─────────────────────────────────────────────────────────────
-class ImgBBService {
-  final FirebaseConfig _config;
-  String? _idToken;
-  final Future<String?> Function()? onTokenRefresh;
-  String? _imgbbKeyCache;
-
-  ImgBBService(this._config, {String? idToken, this.onTokenRefresh}) : _idToken = idToken;
-
-  Future<String?> _refreshToken() async {
-    if (onTokenRefresh != null) {
-      final newToken = await onTokenRefresh!();
-      if (newToken != null) {
-        _idToken = newToken;
-        return newToken;
+  // ─── Manual P2P Deposit Rail (GCash / Maya) & Agent Operations ───────
+  Future<P2pAgent> getActiveP2pAgent({String? agentId}) async {
+    try {
+      if (agentId != null && agentId.isNotEmpty) {
+        final doc = await getDocument('p2p_agents/$agentId');
+        if (doc != null) return P2pAgent.fromMap(doc, docId: agentId);
       }
+      final agents = await getCollection('p2p_agents');
+      for (final m in agents) {
+        if (m['isActive'] != false) {
+          return P2pAgent.fromMap(m, docId: m['id'] ?? m['agentId']);
+        }
+      }
+    } catch (e) {
+      print('getActiveP2pAgent error: $e');
+    }
+    return P2pAgent.defaultAgent();
+  }
+
+  Future<void> saveP2pAgent(P2pAgent agent) async {
+    await createOrUpdate('p2p_agents/${agent.agentId}', agent.toMap());
+  }
+
+  Future<List<P2pAgent>> fetchAllP2pAgents() async {
+    try {
+      final list = await getCollection('p2p_agents');
+      if (list.isEmpty) {
+        return [P2pAgent.defaultAgent()];
+      }
+      return list.map((m) => P2pAgent.fromMap(m, docId: m['id'] ?? m['agentId'])).toList();
+    } catch (e) {
+      print('fetchAllP2pAgents error: $e');
+      return [P2pAgent.defaultAgent()];
+    }
+  }
+
+  Future<List<DepositRequest>> fetchDepositRequests({String? status, String? agentId}) async {
+    try {
+      final list = await getCollection('deposit_requests');
+      var parsed = list.map((m) => DepositRequest.fromMap(m, docId: m['id'])).toList();
+      if (status != null && status.isNotEmpty) {
+        parsed = parsed.where((r) => r.status.toUpperCase() == status.toUpperCase()).toList();
+      }
+      if (agentId != null && agentId.isNotEmpty) {
+        parsed = parsed.where((r) => r.agentId == null || r.agentId == agentId).toList();
+      }
+      parsed.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return parsed;
+    } catch (e) {
+      print('fetchDepositRequests error: $e');
+      return [];
+    }
+  }
+
+  Future<List<DepositRequest>> fetchUserDepositRequests(String uid) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'deposit_requests'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'uid'},
+            'op': 'EQUAL',
+            'value': {'stringValue': uid},
+          },
+        },
+      },
+    });
+
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode >= 400) return [];
+
+      final List<dynamic> results = jsonDecode(req.body);
+      final list = <DepositRequest>[];
+      for (final res in results) {
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
+          final id = _docId(doc);
+          final data = _fromFirestoreDoc(doc);
+          list.add(DepositRequest.fromMap(data, docId: id));
+        }
+      }
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return list;
+    } catch (e) {
+      print('fetchUserDepositRequests error: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchUserWithdrawalRequests(String uid) async {
+    final url =
+        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'withdrawalRequests'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'uid'},
+            'op': 'EQUAL',
+            'value': {'stringValue': uid},
+          },
+        },
+      },
+    });
+
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode >= 400) return [];
+
+      final List<dynamic> results = jsonDecode(req.body);
+      final list = <Map<String, dynamic>>[];
+      for (final res in results) {
+        if (res is Map && res.containsKey('document')) {
+          final doc = res['document'] as Map;
+          final id = _docId(doc);
+          final data = _fromFirestoreDoc(doc);
+          list.add({...data, 'id': id});
+        }
+      }
+      list.sort((a, b) => ((b['createdAt'] as num?)?.toInt() ?? 0).compareTo((a['createdAt'] as num?)?.toInt() ?? 0));
+      return list;
+    } catch (e) {
+      print('fetchUserWithdrawalRequests error: $e');
+      return [];
+    }
+  }
+
+  Future<DepositRequest?> getDepositRequest(String id) async {
+    try {
+      final doc = await getDocument('deposit_requests/$id');
+      if (doc != null) {
+        return DepositRequest.fromMap(doc, docId: id);
+      }
+    } catch (e) {
+      print('getDepositRequest error: $e');
     }
     return null;
   }
 
-  Future<String> _getApiKey() async {
-    if (_imgbbKeyCache != null) return _imgbbKeyCache!;
+  Future<List<WithdrawalRequest>> fetchP2pWithdrawalRequests({String? status, String? agentId}) async {
+    try {
+      final list = await getCollection('withdrawal_requests');
+      var parsed = list.map((m) => WithdrawalRequest.fromMap(m, docId: m['id'])).toList();
+      if (status != null && status.isNotEmpty) {
+        parsed = parsed.where((r) => r.status.toUpperCase() == status.toUpperCase()).toList();
+      }
+      if (agentId != null && agentId.isNotEmpty) {
+        parsed = parsed.where((r) => r.agentId == null || r.agentId == agentId).toList();
+      }
+      parsed.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return parsed;
+    } catch (e) {
+      print('fetchP2pWithdrawalRequests error: $e');
+      return [];
+    }
+  }
+
+  Future<List<WithdrawalRequest>> fetchUserP2pWithdrawalRequests(String uid) async {
+    final list = <WithdrawalRequest>[];
+    final seen = <String>{};
+
     try {
       final url =
-          'https://firestore.googleapis.com/v1/projects/${_config.projectId}/databases/(default)/documents/config/app_config';
-      final res = await _get(url, idToken: _idToken, onTokenRefresh: _refreshToken);
-      final fields = res['fields'] as Map<String, dynamic>?;
-      final keyVal = fields?['imgbb']?['stringValue'] as String?;
-      if (keyVal != null && keyVal.isNotEmpty) {
-        _imgbbKeyCache = keyVal;
-        return keyVal;
+          'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+      final body = jsonEncode({
+        'structuredQuery': {
+          'from': [
+            {'collectionId': 'withdrawal_requests'},
+          ],
+          'where': {
+            'fieldFilter': {
+              'field': {'fieldPath': 'uid'},
+              'op': 'EQUAL',
+              'value': {'stringValue': uid},
+            },
+          },
+        },
+      });
+
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode < 400) {
+        final List<dynamic> results = jsonDecode(req.body);
+        for (final res in results) {
+          if (res is Map && res.containsKey('document')) {
+            final doc = res['document'] as Map;
+            final id = _docId(doc);
+            final data = _fromFirestoreDoc(doc);
+            if (seen.add(id)) {
+              list.add(WithdrawalRequest.fromMap(data, docId: id));
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('fetchUserP2pWithdrawalRequests error: $e');
+    }
+
+    try {
+      final url =
+          'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
+      final body = jsonEncode({
+        'structuredQuery': {
+          'from': [
+            {'collectionId': 'withdrawalRequests'},
+          ],
+          'where': {
+            'fieldFilter': {
+              'field': {'fieldPath': 'uid'},
+              'op': 'EQUAL',
+              'value': {'stringValue': uid},
+            },
+          },
+        },
+      });
+
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+
+      if (req.statusCode < 400) {
+        final List<dynamic> results = jsonDecode(req.body);
+        for (final res in results) {
+          if (res is Map && res.containsKey('document')) {
+            final doc = res['document'] as Map;
+            final id = _docId(doc);
+            final data = _fromFirestoreDoc(doc);
+            if (seen.add(id)) {
+              list.add(WithdrawalRequest.fromMap(data, docId: id));
+            }
+          }
+        }
       }
     } catch (_) {}
+
+    try {
+      final walletTxs = await getCollection('wallets/$uid/transactions');
+      for (final tx in walletTxs) {
+        final type = (tx['type'] ?? '').toString().toUpperCase();
+        if (type == 'WITHDRAWAL' || type.contains('WITHDRAW')) {
+          final id = (tx['id'] ?? '').toString();
+          if (id.isNotEmpty && seen.add(id)) {
+            list.add(WithdrawalRequest.fromMap(tx, docId: id));
+          }
+        }
+      }
+    } catch (_) {}
+
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return list;
+  }
+
+  Future<WithdrawalRequest?> getP2pWithdrawalRequest(String id) async {
+    try {
+      final doc = await getDocument('withdrawal_requests/$id') ??
+          await getDocument('withdrawalRequests/$id');
+      if (doc != null) {
+        return WithdrawalRequest.fromMap(doc, docId: id);
+      }
+    } catch (e) {
+      print('getP2pWithdrawalRequest error: $e');
+    }
+    return null;
+  }
+
+  /// Step 1 (User): Request P2P Top-up (informs agents to send QR code)
+  Future<String> requestP2pTopup({
+    required String uid,
+    required String userName,
+    required String userEmail,
+    required double amount,
+    required String paymentMethod,
+  }) async {
+    final cleanMethod = paymentMethod.trim();
+
+    // Concurrency guard: Only 1 active deposit request at a time
+    final activeDeposits = await fetchUserDepositRequests(uid);
+    for (final d in activeDeposits) {
+      final st = d.status.toUpperCase();
+      if (st == 'WAITING_FOR_AGENT' || st == 'AWAITING_PAYMENT' || st == 'PENDING_VERIFICATION') {
+        throw Exception('You already have an active P2P Top-up request in progress. Please complete or cancel it before submitting a new one.');
+      }
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final id = 'dep_${now}_${Random().nextInt(999999)}';
+
+    final depositReq = DepositRequest(
+      id: id,
+      uid: uid,
+      userName: userName,
+      userEmail: userEmail,
+      amount: amount,
+      paymentMethod: cleanMethod,
+      status: 'WAITING_FOR_AGENT',
+      createdAt: now,
+    );
+
+    final reqMap = depositReq.toMap();
+    await createOrUpdate('deposit_requests/$id', reqMap);
+    await createOrUpdate('depositRequests/$id', reqMap);
+
+    // Record in ledger
+    final txId = 'p2p_dep_$id';
+    await createOrUpdate('transactions/$txId', {
+      'id': txId,
+      'uid': uid,
+      'depositRequestId': id,
+      'title': '$cleanMethod P2P Top-Up Request',
+      'desc': 'Awaiting Payment Agent QR Code',
+      'amount': amount,
+      'originRail': 'manual_p2p',
+      'method': cleanMethod,
+      'type': 'deposit',
+      'status': 'WAITING_FOR_AGENT',
+      'createdAt': now,
+    });
+
+    // Notify agents of incoming topup order
+    await createOrUpdate('notifications/notif_agent_dep_$id', {
+      'title': 'New P2P Top-Up Request (₱${amount.toStringAsFixed(2)})',
+      'message': '$userName requested a $cleanMethod top-up of ₱${amount.toStringAsFixed(2)}. Tap to send your QR code.',
+      'type': 'p2p_topup_request',
+      'depositRequestId': id,
+      'uid': uid,
+      'createdAt': now,
+      'read': false,
+    });
+
+    return id;
+  }
+
+  /// Step 2 (Agent): Agent accepts order and sends their payment QR code & number
+  Future<void> agentAcceptAndSendQr({
+    required String depositRequestId,
+    required String agentId,
+    required String agentName,
+    required String agentAccountName,
+    required String agentAccountNumber,
+    required String agentQrUrl,
+  }) async {
+    final reqDoc = await getDocument('deposit_requests/$depositRequestId');
+    if (reqDoc == null) throw Exception('Deposit request not found.');
+    final currentStatus = (reqDoc['status'] as String? ?? '').toUpperCase();
+    final currentAgentId = reqDoc['agentId'] as String?;
+    if (currentStatus != 'WAITING_FOR_AGENT' || (currentAgentId != null && currentAgentId.isNotEmpty && currentAgentId != agentId)) {
+      final claimant = reqDoc['agentName'] ?? 'another agent';
+      throw Exception('This deposit order has already been claimed by $claimant.');
+    }
+
+    final uid = reqDoc['uid'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final paymentMethod = (reqDoc['paymentMethod'] ?? 'GCash').toString();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final cleanAgentName = _cleanDisplayName(agentName, fallback: 'TRANYX Agent');
+    final cleanAccountName = _cleanDisplayName(agentAccountName, fallback: cleanAgentName);
+
+    // Update request
+    await createOrUpdate('deposit_requests/$depositRequestId', {
+      ...reqDoc,
+      'status': 'AWAITING_PAYMENT',
+      'agentId': agentId,
+      'agentName': cleanAgentName,
+      'agentAccountName': cleanAccountName,
+      'agentAccountNumber': agentAccountNumber,
+      'agentQrUrl': agentQrUrl,
+      'qrSentAt': now,
+    });
+
+    // Update transaction
+    final txDoc = await getDocument('transactions/p2p_dep_$depositRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_dep_$depositRequestId', {
+        ...txDoc,
+        'status': 'AWAITING_PAYMENT',
+        'desc': 'Agent $cleanAgentName sent QR Code. Awaiting payment.',
+        'agentId': agentId,
+        'agentName': cleanAgentName,
+      });
+    }
+
+    // Notify user that QR is ready
+    await createOrUpdate('notifications/notif_user_qr_${depositRequestId}_$now', {
+      'uid': uid,
+      'title': 'Payment QR Code Ready!',
+      'message': 'Agent $cleanAgentName has sent their $paymentMethod QR code for your ₱${amount.toStringAsFixed(2)} top-up.',
+      'type': 'p2p_qr_received',
+      'depositRequestId': depositRequestId,
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  /// Step 3 (User): User submits payment reference and proof receipt
+  Future<void> submitDepositProof({
+    required String depositRequestId,
+    required String referenceNumber,
+    required String proofImageUrl,
+  }) async {
+    final cleanRef = referenceNumber.trim();
+    if (cleanRef.isEmpty) throw Exception('Reference number is required.');
+    if (proofImageUrl.isEmpty) throw Exception('Payment screenshot / proof is required.');
+
+    final reqDoc = await getDocument('deposit_requests/$depositRequestId');
+    if (reqDoc == null) throw Exception('Deposit request not found.');
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await createOrUpdate('deposit_requests/$depositRequestId', {
+      ...reqDoc,
+      'status': 'PENDING_VERIFICATION',
+      'referenceNumber': cleanRef,
+      'proofImageUrl': proofImageUrl,
+      'proofSubmittedAt': now,
+    });
+
+    final txDoc = await getDocument('transactions/p2p_dep_$depositRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_dep_$depositRequestId', {
+        ...txDoc,
+        'status': 'PENDING_VERIFICATION',
+        'referenceNumber': cleanRef,
+        'proofImageUrl': proofImageUrl,
+        'desc': 'Payment proof submitted. Awaiting agent verification.',
+      });
+    }
+  }
+
+  Future<String> submitManualDepositRequest({
+    required String uid,
+    required String userName,
+    required String userEmail,
+    required double amount,
+    required String paymentMethod,
+    required String referenceNumber,
+    required String proofImageUrl,
+    String? agentId,
+    String? agentName,
+    String? agentQrUrl,
+  }) async {
+    final cleanRef = referenceNumber.trim();
+    final cleanMethod = paymentMethod.trim();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final id = 'dep_${now}_${Random().nextInt(999999)}';
+
+    final depositReq = DepositRequest(
+      id: id,
+      uid: uid,
+      userName: userName,
+      userEmail: userEmail,
+      amount: amount,
+      paymentMethod: cleanMethod,
+      referenceNumber: cleanRef,
+      proofImageUrl: proofImageUrl,
+      status: 'PENDING_VERIFICATION',
+      agentId: agentId,
+      agentName: agentName,
+      agentQrUrl: agentQrUrl,
+      createdAt: now,
+      proofSubmittedAt: now,
+    );
+
+    await createOrUpdate('deposit_requests/$id', depositReq.toMap());
+
+    final txId = 'p2p_dep_$id';
+    await createOrUpdate('transactions/$txId', {
+      'id': txId,
+      'uid': uid,
+      'depositRequestId': id,
+      'title': '$cleanMethod P2P Top-Up',
+      'desc': 'Manual $cleanMethod Transfer (Ref: $cleanRef)',
+      'amount': amount,
+      'originRail': 'manual_p2p',
+      'method': cleanMethod,
+      'type': 'deposit',
+      'status': 'PENDING_VERIFICATION',
+      'referenceNumber': cleanRef,
+      'proofImageUrl': proofImageUrl,
+      'agentId': agentId,
+      'agentName': agentName,
+      'createdAt': now,
+    });
+
+    return id;
+  }
+
+  Future<void> cancelDepositRequest(String depositRequestId, {String? reason}) async {
+    final reqDoc = await getDocument('deposit_requests/$depositRequestId');
+    if (reqDoc == null) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await createOrUpdate('deposit_requests/$depositRequestId', {
+      ...reqDoc,
+      'status': 'CANCELLED',
+      'rejectionReason': ?reason,
+      'verifiedAt': now,
+    });
+
+    final txDoc = await getDocument('transactions/p2p_dep_$depositRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_dep_$depositRequestId', {
+        ...txDoc,
+        'status': 'CANCELLED',
+        'verifiedAt': now,
+      });
+    }
+  }
+
+  Future<void> approveDepositRequest({
+    required String depositRequestId,
+    required String adminUid,
+  }) async {
+    final reqDoc = await getDocument('deposit_requests/$depositRequestId');
+    if (reqDoc == null) throw Exception('Deposit request not found.');
+    final currentStatus = (reqDoc['status'] as String? ?? '').toUpperCase();
+    if (currentStatus != 'PENDING_VERIFICATION') {
+      throw Exception('Deposit request is not pending verification (Current: $currentStatus).');
+    }
+
+    final paymentMethod = (reqDoc['paymentMethod'] ?? 'GCash').toString();
+    final referenceNumber = (reqDoc['referenceNumber'] ?? '').toString().trim();
+    final uid = reqDoc['uid'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Reference lock check against double claim
+    final refDoc = await getDocument('deposit_references/${paymentMethod.toLowerCase()}_$referenceNumber');
+    if (refDoc != null) {
+      throw Exception('Reference number has already been claimed/approved');
+    }
+
+    // 1. Mark request as APPROVED
+    await createOrUpdate('deposit_requests/$depositRequestId', {
+      ...reqDoc,
+      'status': 'APPROVED',
+      'adminUid': adminUid,
+      'verifiedAt': now,
+    });
+
+    // 2. Lock reference
+    await createOrUpdate('deposit_references/${paymentMethod.toLowerCase()}_$referenceNumber', {
+      'referenceNumber': referenceNumber,
+      'paymentMethod': paymentMethod,
+      'depositRequestId': depositRequestId,
+      'uid': uid,
+      'amount': amount,
+      'approvedBy': adminUid,
+      'approvedAt': now,
+    });
+
+    // 3. Increment user wallet balance
+    final userDoc = await getDocument('users/$uid');
+    final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+    final newBalance = currentBalance + amount;
+    await createOrUpdate('users/$uid', {
+      if (userDoc != null) ...userDoc,
+      'tyxBalance': newBalance,
+    });
+
+    // 4. Update transaction status
+    final cleanAgent = _cleanDisplayName(adminUid, fallback: 'Agent Desk');
+    final descText = referenceNumber.isNotEmpty
+        ? 'Reference #$referenceNumber approved by $cleanAgent'
+        : 'P2P Transfer approved by $cleanAgent';
+    final proofUrl = (reqDoc['proofImageUrl'] ?? reqDoc['proofUrl'] ?? reqDoc['receiptUrl'] ?? '') as String;
+
+    final txDoc = await getDocument('transactions/p2p_dep_$depositRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_dep_$depositRequestId', {
+        ...txDoc,
+        'status': 'COMPLETED',
+        'desc': descText,
+        'verifiedAt': now,
+        'adminUid': adminUid,
+        'agentName': cleanAgent,
+        if (proofUrl.isNotEmpty) 'proofImageUrl': proofUrl,
+      });
+    }
+
+    // 5. Send notification to user
+    await createOrUpdate('notifications/notif_dep_${depositRequestId}_$now', {
+      'uid': uid,
+      'title': 'Deposit Approved & Credited!',
+      'message': 'Your $paymentMethod deposit of ₱${amount.toStringAsFixed(2)} (Ref: $referenceNumber) has been verified by $cleanAgent and credited to your wallet.',
+      'type': 'deposit_approved',
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  Future<void> rejectDepositRequest({
+    required String depositRequestId,
+    required String adminUid,
+    required String reason,
+  }) async {
+    final cleanReason = reason.trim();
+    if (cleanReason.isEmpty) throw Exception('Rejection reason is required.');
+
+    final reqDoc = await getDocument('deposit_requests/$depositRequestId');
+    if (reqDoc == null) throw Exception('Deposit request not found.');
+    final uid = reqDoc['uid'] as String;
+    final paymentMethod = reqDoc['paymentMethod'] ?? 'GCash';
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // 1. Mark request as REJECTED
+    await createOrUpdate('deposit_requests/$depositRequestId', {
+      ...reqDoc,
+      'status': 'REJECTED',
+      'adminUid': adminUid,
+      'rejectionReason': cleanReason,
+      'verifiedAt': now,
+    });
+
+    // 2. Update transaction
+    final txDoc = await getDocument('transactions/p2p_dep_$depositRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_dep_$depositRequestId', {
+        ...txDoc,
+        'status': 'REJECTED',
+        'rejectionReason': cleanReason,
+        'verifiedAt': now,
+        'adminUid': adminUid,
+      });
+    }
+
+    // 3. Send notification
+    await createOrUpdate('notifications/notif_dep_${depositRequestId}_$now', {
+      'uid': uid,
+      'title': 'Deposit Request Rejected',
+      'message': 'Your $paymentMethod deposit was not approved. Reason: $cleanReason',
+      'type': 'deposit_rejected',
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // P2P WITHDRAWAL SYSTEM (GCash / Maya)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /// Step 1 (User): Request P2P Cashout via GCash or Maya
+  /// Locks requested amount into withdrawal escrow immediately.
+  Future<String> requestP2pWithdrawal({
+    required String uid,
+    required String userName,
+    required String userEmail,
+    required double amount,
+    required String paymentMethod,
+    required String userAccountName,
+    required String userAccountNumber,
+    String userQrUrl = '',
+  }) async {
+    final cleanMethod = paymentMethod.trim();
+    final cleanAccountName = userAccountName.trim();
+    final cleanAccountNumber = userAccountNumber.trim();
+
+    if (cleanAccountName.isEmpty) throw Exception('Recipient Account Name is required.');
+    if (cleanAccountNumber.isEmpty) throw Exception('Recipient Account / Mobile Number is required.');
+    if (amount < 100) throw Exception('Minimum withdrawal amount is ₱ 100.00.');
+
+    // Concurrency guard: Only 1 active withdrawal request at a time
+    final activeWithdrawals = await fetchUserP2pWithdrawalRequests(uid);
+    for (final w in activeWithdrawals) {
+      final st = w.status.toUpperCase();
+      if (st == 'WAITING_FOR_AGENT' || st == 'AWAITING_AGENT_PAYMENT' || st == 'PENDING_CONFIRMATION') {
+        throw Exception('You already have an active P2P Cashout request in progress. Please wait for it to complete or cancel it before submitting a new one.');
+      }
+    }
+
+    // 1. Verify and deduct balance (escrow lock)
+    final userDoc = await getDocument('users/$uid');
+    final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+    if (amount > currentBalance) {
+      throw Exception('Requested withdrawal amount exceeds your available balance.');
+    }
+
+    final newBalance = currentBalance - amount;
+    await createOrUpdate('users/$uid', {
+      if (userDoc != null) ...userDoc,
+      'tyxBalance': newBalance,
+    });
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final id = 'with_${now}_${Random().nextInt(999999)}';
+    final refNumber = id.length >= 8 ? id.substring(0, 8).toUpperCase() : id;
+
+    final withdrawalReq = WithdrawalRequest(
+      id: id,
+      uid: uid,
+      userName: userName,
+      userEmail: userEmail,
+      amount: amount,
+      paymentMethod: cleanMethod,
+      userAccountName: cleanAccountName,
+      userAccountNumber: cleanAccountNumber,
+      userQrUrl: userQrUrl,
+      status: 'PENDING_REVIEW',
+      createdAt: now,
+    );
+
+    // 1. Dual-write to both withdrawal_requests and withdrawalRequests for seamless admin portal & client sync
+    final reqMap = {
+      ...withdrawalReq.toMap(),
+      'userId': uid,
+      'payoutMethod': cleanMethod,
+      'accountName': cleanAccountName,
+      'accountNumber': cleanAccountNumber,
+      'referenceNumber': refNumber,
+      'status': 'PENDING_REVIEW',
+      'p2pStatus': 'WAITING_FOR_AGENT',
+      'updatedAt': now,
+    };
+    await createOrUpdate('withdrawal_requests/$id', reqMap);
+    await createOrUpdate('withdrawalRequests/$id', reqMap);
+
+    // 2. User Sub-collection Ledger Reference: /wallets/{userId}/transactions/{txId}
+    final ledgerTxData = {
+      'id': id,
+      'userId': uid,
+      'uid': uid,
+      'type': 'WITHDRAWAL',
+      'direction': 'DEBIT',
+      'amount': amount,
+      'payoutMethod': cleanMethod,
+      'paymentMethod': cleanMethod,
+      'accountName': cleanAccountName,
+      'accountNumber': cleanAccountNumber,
+      'userAccountName': cleanAccountName,
+      'userAccountNumber': cleanAccountNumber,
+      'referenceNumber': refNumber,
+      'status': 'PENDING_REVIEW',
+      'title': 'Withdrawal ($cleanMethod)',
+      'description': 'Withdrawal via $cleanMethod ($cleanAccountNumber)',
+      'desc': 'Withdrawal via $cleanMethod ($cleanAccountNumber)',
+      'originRail': 'manual_p2p',
+      if (userQrUrl.isNotEmpty) 'userQrUrl': userQrUrl,
+      'createdAt': now,
+      'updatedAt': now,
+    };
+    await createOrUpdate('wallets/$uid/transactions/$id', ledgerTxData);
+
+    // 3. Top-Level Global Ledger Reference: /transactions/{txId}
+    final txId = 'p2p_with_$id';
+    await createOrUpdate('transactions/$txId', {
+      ...ledgerTxData,
+      'id': txId,
+      'withdrawalRequestId': id,
+      'amount': -amount,
+    });
+
+    // Notify agents of incoming cashout order
+    await createOrUpdate('notifications/notif_agent_with_$id', {
+      'title': 'New P2P Cashout Request (₱${amount.toStringAsFixed(2)})',
+      'message': '$userName requested a $cleanMethod cashout of ₱${amount.toStringAsFixed(2)}. Tap to claim and fulfill payout.',
+      'type': 'p2p_cashout_request',
+      'withdrawalRequestId': id,
+      'uid': uid,
+      'userId': uid,
+      'createdAt': now,
+      'read': false,
+    });
+
+    return id;
+  }
+
+  /// Step 2 (Agent): Agent accepts/claims cashout order and begins payout processing
+  Future<void> agentClaimP2pWithdrawal({
+    required String withdrawalRequestId,
+    required String agentId,
+    required String agentName,
+    required String agentPhone,
+  }) async {
+    final reqDoc = await getDocument('withdrawal_requests/$withdrawalRequestId') ??
+        await getDocument('withdrawalRequests/$withdrawalRequestId');
+    if (reqDoc == null) throw Exception('Withdrawal request not found.');
+    final currentStatus = (reqDoc['status'] as String? ?? '').toUpperCase();
+    final currentAgentId = reqDoc['agentId'] as String?;
+    if ((currentStatus != 'WAITING_FOR_AGENT' && currentStatus != 'PENDING_REVIEW' && currentStatus != 'PENDING') || (currentAgentId != null && currentAgentId.isNotEmpty && currentAgentId != agentId)) {
+      final claimant = reqDoc['agentName'] ?? 'another agent';
+      throw Exception('This withdrawal order has already been claimed by $claimant.');
+    }
+
+    final uid = reqDoc['uid'] as String? ?? reqDoc['userId'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final paymentMethod = (reqDoc['paymentMethod'] ?? reqDoc['payoutMethod'] ?? 'GCash').toString();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cleanAgentName = _cleanDisplayName(agentName, fallback: 'TRANYX Agent');
+
+    final updatedDoc = {
+      ...reqDoc,
+      'status': 'AWAITING_AGENT_PAYMENT',
+      'p2pStatus': 'AWAITING_AGENT_PAYMENT',
+      'agentId': agentId,
+      'agentName': cleanAgentName,
+      'agentPhone': agentPhone,
+      'claimedAt': now,
+      'updatedAt': now,
+    };
+
+    // Update request across both collections
+    await createOrUpdate('withdrawal_requests/$withdrawalRequestId', updatedDoc);
+    await createOrUpdate('withdrawalRequests/$withdrawalRequestId', updatedDoc);
+
+    // Update user wallet sub-collection
+    await createOrUpdate('wallets/$uid/transactions/$withdrawalRequestId', {
+      'status': 'AWAITING_AGENT_PAYMENT',
+      'desc': 'Agent $cleanAgentName has claimed your order and is transferring ₱${amount.toStringAsFixed(2)} to your $paymentMethod.',
+      'description': 'Agent $cleanAgentName has claimed your order and is transferring ₱${amount.toStringAsFixed(2)} to your $paymentMethod.',
+      'agentId': agentId,
+      'agentName': cleanAgentName,
+      'updatedAt': now,
+    });
+
+    // Update transaction
+    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_with_$withdrawalRequestId', {
+        ...txDoc,
+        'status': 'AWAITING_AGENT_PAYMENT',
+        'desc': 'Agent $cleanAgentName has claimed your order and is transferring ₱${amount.toStringAsFixed(2)} to your $paymentMethod.',
+        'description': 'Agent $cleanAgentName has claimed your order and is transferring ₱${amount.toStringAsFixed(2)} to your $paymentMethod.',
+        'agentId': agentId,
+        'agentName': cleanAgentName,
+        'updatedAt': now,
+      });
+    }
+
+    // Notify user that agent is processing payment
+    await createOrUpdate('notifications/notif_user_with_claimed_${withdrawalRequestId}_$now', {
+      'uid': uid,
+      'userId': uid,
+      'title': 'Agent Claimed Cashout Request',
+      'message': 'Agent $cleanAgentName is now sending ₱${amount.toStringAsFixed(2)} to your $paymentMethod account.',
+      'type': 'p2p_cashout_claimed',
+      'withdrawalRequestId': withdrawalRequestId,
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  /// Step 3 (Agent): Agent submits payout proof screenshot and reference number
+  Future<void> submitWithdrawalProof({
+    required String withdrawalRequestId,
+    required String referenceNumber,
+    required String proofImageUrl,
+  }) async {
+    final cleanRef = referenceNumber.trim();
+    if (cleanRef.isEmpty) throw Exception('Reference number is required.');
+    if (proofImageUrl.isEmpty) throw Exception('Payment receipt screenshot is required.');
+
+    final reqDoc = await getDocument('withdrawal_requests/$withdrawalRequestId') ??
+        await getDocument('withdrawalRequests/$withdrawalRequestId');
+    if (reqDoc == null) throw Exception('Withdrawal request not found.');
+    final uid = reqDoc['uid'] as String? ?? reqDoc['userId'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final paymentMethod = (reqDoc['paymentMethod'] ?? reqDoc['payoutMethod'] ?? 'GCash').toString();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final updatedDoc = {
+      ...reqDoc,
+      'status': 'PENDING_CONFIRMATION',
+      'p2pStatus': 'PENDING_CONFIRMATION',
+      'referenceNumber': cleanRef,
+      'proofImageUrl': proofImageUrl,
+      'proofSubmittedAt': now,
+      'updatedAt': now,
+    };
+
+    await createOrUpdate('withdrawal_requests/$withdrawalRequestId', updatedDoc);
+    await createOrUpdate('withdrawalRequests/$withdrawalRequestId', updatedDoc);
+
+    await createOrUpdate('wallets/$uid/transactions/$withdrawalRequestId', {
+      'status': 'PENDING_CONFIRMATION',
+      'referenceNumber': cleanRef,
+      'proofImageUrl': proofImageUrl,
+      'desc': 'Agent transferred ₱${amount.toStringAsFixed(2)} via $paymentMethod (Ref: $cleanRef). Awaiting confirmation.',
+      'description': 'Agent transferred ₱${amount.toStringAsFixed(2)} via $paymentMethod (Ref: $cleanRef). Awaiting confirmation.',
+      'updatedAt': now,
+    });
+
+    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_with_$withdrawalRequestId', {
+        ...txDoc,
+        'status': 'PENDING_CONFIRMATION',
+        'referenceNumber': cleanRef,
+        'proofImageUrl': proofImageUrl,
+        'desc': 'Agent transferred ₱${amount.toStringAsFixed(2)} via $paymentMethod (Ref: $cleanRef). Awaiting confirmation.',
+        'description': 'Agent transferred ₱${amount.toStringAsFixed(2)} via $paymentMethod (Ref: $cleanRef). Awaiting confirmation.',
+        'updatedAt': now,
+      });
+    }
+
+    // Notify user to confirm receipt of funds
+    await createOrUpdate('notifications/notif_user_with_proof_${withdrawalRequestId}_$now', {
+      'uid': uid,
+      'userId': uid,
+      'title': 'Payout Sent — Please Confirm Receipt',
+      'message': 'Agent has sent ₱${amount.toStringAsFixed(2)} to your $paymentMethod (Ref: $cleanRef). Please check your account and confirm.',
+      'type': 'p2p_cashout_proof_submitted',
+      'withdrawalRequestId': withdrawalRequestId,
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  /// Step 4 (User or Admin): Confirm funds received, finalize withdrawal
+  Future<void> confirmP2pWithdrawalCompleted({
+    required String withdrawalRequestId,
+    required String confirmedByUid,
+  }) async {
+    final reqDoc = await getDocument('withdrawal_requests/$withdrawalRequestId') ??
+        await getDocument('withdrawalRequests/$withdrawalRequestId');
+    if (reqDoc == null) throw Exception('Withdrawal request not found.');
+    final currentStatus = (reqDoc['status'] as String? ?? '').toUpperCase();
+    if (currentStatus != 'PENDING_CONFIRMATION' && currentStatus != 'AWAITING_AGENT_PAYMENT' && currentStatus != 'PENDING_REVIEW') {
+      throw Exception('Withdrawal request is not pending confirmation (Current: $currentStatus).');
+    }
+
+    final uid = reqDoc['uid'] as String? ?? reqDoc['userId'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final paymentMethod = (reqDoc['paymentMethod'] ?? reqDoc['payoutMethod'] ?? 'GCash').toString();
+    final referenceNumber = (reqDoc['referenceNumber'] ?? '').toString().trim();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final updatedDoc = {
+      ...reqDoc,
+      'status': 'APPROVED',
+      'p2pStatus': 'COMPLETED',
+      'adminUid': confirmedByUid,
+      'verifiedAt': now,
+      'updatedAt': now,
+    };
+
+    // 1. Mark request as APPROVED / COMPLETED across both collections
+    await createOrUpdate('withdrawal_requests/$withdrawalRequestId', updatedDoc);
+    await createOrUpdate('withdrawalRequests/$withdrawalRequestId', updatedDoc);
+
+    // 2. Update user wallet sub-collection
+    await createOrUpdate('wallets/$uid/transactions/$withdrawalRequestId', {
+      'status': 'COMPLETED',
+      'desc': referenceNumber.isNotEmpty
+          ? 'Cashout completed via $paymentMethod (Ref: #$referenceNumber)'
+          : 'Cashout completed via $paymentMethod',
+      'description': referenceNumber.isNotEmpty
+          ? 'Cashout completed via $paymentMethod (Ref: #$referenceNumber)'
+          : 'Cashout completed via $paymentMethod',
+      'verifiedAt': now,
+      'adminUid': confirmedByUid,
+      'updatedAt': now,
+    });
+
+    // 3. Update transaction status in global transactions
+    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_with_$withdrawalRequestId', {
+        ...txDoc,
+        'status': 'COMPLETED',
+        'desc': referenceNumber.isNotEmpty
+            ? 'Cashout completed via $paymentMethod (Ref: #$referenceNumber)'
+            : 'Cashout completed via $paymentMethod',
+        'description': referenceNumber.isNotEmpty
+            ? 'Cashout completed via $paymentMethod (Ref: #$referenceNumber)'
+            : 'Cashout completed via $paymentMethod',
+        'verifiedAt': now,
+        'adminUid': confirmedByUid,
+        'updatedAt': now,
+      });
+    }
+
+    // 4. Send notification to user
+    await createOrUpdate('notifications/notif_with_success_${withdrawalRequestId}_$now', {
+      'uid': uid,
+      'userId': uid,
+      'title': 'Withdrawal Completed!',
+      'message': 'Your $paymentMethod cashout of ₱${amount.toStringAsFixed(2)} has been completed successfully.',
+      'type': 'withdrawal_completed',
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  /// Cancel P2P Withdrawal (Refunds locked funds back to user's wallet)
+  Future<void> cancelP2pWithdrawalRequest(String withdrawalRequestId, {String? reason}) async {
+    final reqDoc = await getDocument('withdrawal_requests/$withdrawalRequestId') ??
+        await getDocument('withdrawalRequests/$withdrawalRequestId');
+    if (reqDoc == null) return;
+    final currentStatus = (reqDoc['status'] as String? ?? '').toUpperCase();
+    if (currentStatus == 'APPROVED' || currentStatus == 'COMPLETED' || currentStatus == 'CANCELLED') return;
+
+    final uid = reqDoc['uid'] as String? ?? reqDoc['userId'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // 1. Refund locked amount back to user's available balance
+    final userDoc = await getDocument('users/$uid');
+    final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+    final restoredBalance = currentBalance + amount;
+    await createOrUpdate('users/$uid', {
+      if (userDoc != null) ...userDoc,
+      'tyxBalance': restoredBalance,
+    });
+
+    final updatedDoc = {
+      ...reqDoc,
+      'status': 'CANCELLED',
+      'p2pStatus': 'CANCELLED',
+      if (reason != null && reason.isNotEmpty) 'rejectionReason': reason,
+      'verifiedAt': now,
+      'updatedAt': now,
+    };
+
+    // 2. Mark request as CANCELLED across both collections
+    await createOrUpdate('withdrawal_requests/$withdrawalRequestId', updatedDoc);
+    await createOrUpdate('withdrawalRequests/$withdrawalRequestId', updatedDoc);
+
+    // 3. Update user wallet sub-collection
+    await createOrUpdate('wallets/$uid/transactions/$withdrawalRequestId', {
+      'status': 'CANCELLED',
+      'desc': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
+      'description': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
+      'verifiedAt': now,
+      'updatedAt': now,
+    });
+
+    // 4. Update transaction
+    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_with_$withdrawalRequestId', {
+        ...txDoc,
+        'status': 'CANCELLED',
+        'desc': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
+        'description': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
+        'verifiedAt': now,
+        'updatedAt': now,
+      });
+    }
+  }
+
+  /// Reject P2P Withdrawal (Admin / Agent reject with reason, refunds user balance)
+  Future<void> rejectP2pWithdrawalOrder({
+    required String withdrawalRequestId,
+    required String adminUid,
+    required String reason,
+  }) async {
+    final cleanReason = reason.trim();
+    if (cleanReason.isEmpty) throw Exception('Rejection reason is required.');
+
+    final reqDoc = await getDocument('withdrawal_requests/$withdrawalRequestId') ??
+        await getDocument('withdrawalRequests/$withdrawalRequestId');
+    if (reqDoc == null) throw Exception('Withdrawal request not found.');
+    final uid = reqDoc['uid'] as String? ?? reqDoc['userId'] as String;
+    final amount = (reqDoc['amount'] as num).toDouble();
+    final paymentMethod = reqDoc['paymentMethod'] ?? reqDoc['payoutMethod'] ?? 'GCash';
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // 1. Refund locked balance
+    final userDoc = await getDocument('users/$uid');
+    final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+    final restoredBalance = currentBalance + amount;
+    await createOrUpdate('users/$uid', {
+      if (userDoc != null) ...userDoc,
+      'tyxBalance': restoredBalance,
+    });
+
+    final updatedDoc = {
+      ...reqDoc,
+      'status': 'REJECTED',
+      'p2pStatus': 'REJECTED',
+      'adminUid': adminUid,
+      'rejectionReason': cleanReason,
+      'verifiedAt': now,
+      'updatedAt': now,
+    };
+
+    // 2. Mark request as REJECTED across both collections
+    await createOrUpdate('withdrawal_requests/$withdrawalRequestId', updatedDoc);
+    await createOrUpdate('withdrawalRequests/$withdrawalRequestId', updatedDoc);
+
+    // 3. Update user wallet sub-collection
+    await createOrUpdate('wallets/$uid/transactions/$withdrawalRequestId', {
+      'status': 'REJECTED',
+      'rejectionReason': cleanReason,
+      'desc': 'Cashout rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} refunded.',
+      'description': 'Cashout rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} refunded.',
+      'verifiedAt': now,
+      'adminUid': adminUid,
+      'updatedAt': now,
+    });
+
+    // 4. Update transaction
+    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId');
+    if (txDoc != null) {
+      await createOrUpdate('transactions/p2p_with_$withdrawalRequestId', {
+        ...txDoc,
+        'status': 'REJECTED',
+        'rejectionReason': cleanReason,
+        'desc': 'Cashout rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} refunded.',
+        'description': 'Cashout rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} refunded.',
+        'verifiedAt': now,
+        'adminUid': adminUid,
+        'updatedAt': now,
+      });
+    }
+
+    // 4. Send notification
+    await createOrUpdate('notifications/notif_with_${withdrawalRequestId}_$now', {
+      'uid': uid,
+      'title': 'Withdrawal Request Rejected',
+      'message': 'Your $paymentMethod cashout was rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} has been returned to your wallet.',
+      'type': 'withdrawal_rejected',
+      'createdAt': now,
+      'read': false,
+    });
+  }
+
+  static String _cleanDisplayName(String? raw, {String fallback = 'TRANYX Agent'}) {
+    if (raw == null || raw.trim().isEmpty) return fallback;
+    var text = raw.trim();
+    if (text.contains('@')) {
+      text = text.split('@').first;
+    }
+    // Strip trailing digits (e.g. juana2 -> juana, agent1 -> agent)
+    text = text.replaceAll(RegExp(r'\d+$'), '');
+    final parts = text.split(RegExp(r'[._\-]')).where((s) => s.isNotEmpty).toList();
+    if (parts.isEmpty) return fallback;
+
+    final formatted = parts
+        .map((s) => s[0].toUpperCase() + (s.length > 1 ? s.substring(1).toLowerCase() : ''))
+        .toList();
+
+    if (formatted.any((p) => p.toLowerCase() == 'agent')) {
+      formatted.removeWhere((p) => p.toLowerCase() == 'agent');
+      if (formatted.isEmpty) return 'TRANYX Agent';
+      return 'Agent ${formatted.join(' ')}';
+    }
+    return 'Agent ${formatted.join(' ')}';
+  }
+}
+
+// ── Gemini AI Service ─────────────────────────────────────────────────────────
+class GeminiService {
+  final TranyxAIService _aiService;
+  final Future<String?> Function()? onTokenRefresh;
+
+  GeminiService(FirebaseConfig config, {String? idToken, this.onTokenRefresh, TranyxAIService? aiService})
+      : _aiService = aiService ?? TranyxAIService();
+
+  Future<String> generateJobDescription(String title, {String? categoryLabel}) async {
+    if (title.isEmpty) return '';
+    return _aiService.generateJobDescription(title, categoryLabel: categoryLabel);
+  }
+
+  Future<String> generateJobTitle(String categoryLabel, String categoryDesc, String description) async {
+    final matchedCategory = JobCategory.values.firstWhere(
+      (c) => c.label.toLowerCase() == categoryLabel.toLowerCase(),
+      orElse: () => JobCategory.others,
+    );
+    return _aiService.generateJobTitle(matchedCategory, description);
+  }
+
+  Future<String> evaluateJobAuthenticity(Map<String, dynamic> jobData) async {
+    return _aiService.evaluateJobAuthenticity(jobData);
+  }
+
+  Future<bool> validateJobTitle(String title, String categoryLabel) async {
+    final matchedCategory = JobCategory.values.firstWhere(
+      (c) => c.label.toLowerCase() == categoryLabel.toLowerCase(),
+      orElse: () => JobCategory.others,
+    );
+    return _aiService.validateJobTitle(title, matchedCategory);
+  }
+
+  Future<String> generateCoverNote(String jobTitle, {String? workerExperience}) async {
+    if (jobTitle.isEmpty) return '';
+    return _aiService.generateCoverNote(jobTitle, workerExperience: workerExperience);
+  }
+
+  Future<String> askSupportQuestion(
+    List<Map<String, String>> conversationHistory, {
+    TranyxAIUserContext? appContext,
+  }) async {
+    if (conversationHistory.isEmpty) return 'Please ask a valid question.';
+    return _aiService.getChatResponse(conversationHistory, appContext: appContext);
+  }
+}
+
+typedef LocalNyxAIService = GeminiService;
+
+
+// ── ImgBB service ─────────────────────────────────────────────────────────────
+class ImgBBService {
+  final FirebaseConfig? config;
+  final String? idToken;
+  final Future<String?> Function()? onTokenRefresh;
+
+  ImgBBService(this.config, {this.idToken, this.onTokenRefresh});
+
+  Future<String> _getApiKey() async {
     return Env.imgbbApiKey;
   }
 
   Future<String?> uploadImageBytes(List<int> bytes, String filename, {int? expiration}) async {
     try {
       final apiKey = await _getApiKey();
-      if (apiKey.isEmpty) return null;
+      if (apiKey.isEmpty) {
+        print('[ImgBB] API key is missing');
+        return null;
+      }
 
-      var uri = Uri.parse('https://api.imgbb.com/1/upload');
-      uri = uri.replace(
+      final uri = Uri.parse('https://api.imgbb.com/1/upload');
+
+      // 1. Try URL-encoded base64 POST (fast & direct in browser)
+      try {
+        final b64 = base64Encode(bytes);
+        final res = await http.post(
+          uri,
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: {
+            'key': apiKey,
+            'image': b64,
+            'name': filename.replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), ''),
+            if (expiration != null) 'expiration': expiration.toString(),
+          },
+        );
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final url = data['data']['url'] as String? ?? data['data']['display_url'] as String?;
+          if (url != null && url.isNotEmpty) return url;
+        } else {
+          print('[ImgBB] Base64 upload failed with status ${res.statusCode}: ${res.body}');
+        }
+      } catch (e) {
+        print('[ImgBB] Base64 upload error: $e');
+      }
+
+      // 2. Fallback to multipart request
+      var multipartUri = uri.replace(
         queryParameters: {
           'key': apiKey,
           if (expiration != null) 'expiration': expiration.toString(),
         },
       );
-
-      var request = http.MultipartRequest('POST', uri);
-
-      // Attach the file
+      var request = http.MultipartRequest('POST', multipartUri);
       request.files.add(http.MultipartFile.fromBytes('image', bytes, filename: filename));
 
-      // Send the request
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return data['data']['url'] as String?;
+        return data['data']['url'] as String? ?? data['data']['display_url'] as String?;
       } else {
+        print('[ImgBB] Multipart upload failed with status ${response.statusCode}: ${response.body}');
         return null;
       }
     } catch (e) {
+      print('[ImgBB] uploadImageBytes error: $e');
       return null;
     }
   }

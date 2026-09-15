@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' show Random;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,7 +8,9 @@ import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:tranyx_mobile/features/transit/presentation/widgets/signature_pad_dialog.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/payment_pane.dart';
 import 'package:shared/shared.dart';
+import 'package:tranyx_mobile/features/transit/presentation/screens/rental_navigation_screen.dart';
 
 class ActiveTripTrackerSheet extends ConsumerStatefulWidget {
   final Map<String, dynamic> item;
@@ -34,6 +35,8 @@ class _ActiveTripTrackerSheetState
   double _speed = 0.0;
   bool _isProcessing = false;
   int _extendHours = 1;
+  int _maxAllowedHours = 24;
+  String? _conflictNotice;
 
   @override
   void initState() {
@@ -42,8 +45,66 @@ class _ActiveTripTrackerSheetState
     _trackingLng = (widget.item['trackingLng'] as num?)?.toDouble() ?? 120.9842;
     if (widget.item['status'] == 'Active' ||
         widget.item['status'] == 'Ongoing') {
-      _startGpsSimulation();
+      _checkExtensionAvailability();
     }
+  }
+
+  Future<void> _checkExtensionAvailability() async {
+    final rentalId = (widget.item['rentalId'] ?? widget.item['id'])?.toString();
+    if (rentalId == null) return;
+    try {
+      final currentEndMs = (widget.item['endDate'] as num?)?.toInt() ?? 0;
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      if (currentEndMs <= nowMs) {
+        if (mounted) {
+          setState(() {
+            _maxAllowedHours = 0;
+            _conflictNotice = 'Trip is past scheduled return time. Overdue rentals cannot be extended self-service to protect upcoming reservations.';
+          });
+        }
+        return;
+      }
+      final approvedRequests = await ref.read(transitRepositoryProvider).getApprovedRequestsForVehicle(rentalId);
+
+      int? nextBookingStartMs;
+      for (final req in approvedRequests) {
+        final reqId = req['id'] as String?;
+        if (reqId != null && reqId == widget.item['currentRequestId']) continue;
+
+        final reqStart = (req['startDate'] as num?)?.toInt() ?? 0;
+        if (reqStart > currentEndMs) {
+          if (nextBookingStartMs == null || reqStart < nextBookingStartMs) {
+            nextBookingStartMs = reqStart;
+          }
+        }
+      }
+
+      if (nextBookingStartMs != null) {
+        const bufferMs = 3600 * 1000;
+        final maxExtendMs = nextBookingStartMs - bufferMs;
+        final availableMs = maxExtendMs - currentEndMs;
+        final maxHours = (availableMs / (3600 * 1000)).floor();
+
+        if (mounted) {
+          setState(() {
+            if (maxHours <= 0) {
+              _maxAllowedHours = 0;
+              _conflictNotice = 'Cannot be extended: upcoming booking scheduled.';
+            } else {
+              _maxAllowedHours = maxHours;
+              _conflictNotice = 'Capped at $maxHours hr(s) due to upcoming reservation.';
+              if (_extendHours > _maxAllowedHours) {
+                _extendHours = _maxAllowedHours;
+              }
+            }
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() => _maxAllowedHours = 24);
+        }
+      }
+    } catch (_) {}
   }
 
   @override
@@ -52,26 +113,9 @@ class _ActiveTripTrackerSheetState
     super.dispose();
   }
 
-  void _startGpsSimulation() {
-    _gpsTimer = Timer.periodic(const Duration(seconds: 8), (timer) {
-      if (widget.isProperty) return;
-      final rand = Random();
-      setState(() {
-        // Move coordinates slightly (approx 10-100m)
-        _trackingLat += (rand.nextDouble() - 0.5) * 0.001;
-        _trackingLng += (rand.nextDouble() - 0.5) * 0.001;
-        _speed = 30.0 + rand.nextDouble() * 40.0; // 30-70 km/h
-      });
 
-      // Update Firestore in background
-      final id = widget.item['id'] as String;
-      ref
-          .read(transitRepositoryProvider)
-          .updateRentalTracking(id, _trackingLat, _trackingLng);
-    });
-  }
 
-  void _openSignaturePad(String id, String terms) {
+  void _openSignaturePad(String id, String terms, {String? requestId}) {
     showDialog(
       context: context,
       builder: (context) => SignaturePadDialog(
@@ -82,13 +126,17 @@ class _ActiveTripTrackerSheetState
           try {
             final repo = ref.read(transitRepositoryProvider);
             if (widget.isProperty) {
-              await repo.signPropertyContract(id, name, signatureHash: hash);
+              await repo.signPropertyContract(id, name, signatureHash: hash, requestId: requestId);
             } else {
-              await repo.signVehicleContract(id, name, signatureHash: hash);
+              await repo.signVehicleContract(id, name, signatureHash: hash, requestId: requestId);
             }
 
             ref.invalidate(realtimeRentalsProvider);
             ref.invalidate(realtimePropertiesProvider);
+            ref.invalidate(renterActiveBookingsProvider);
+            ref.invalidate(propertyRenterActiveBookingsProvider);
+            ref.invalidate(hostPendingRequestsProvider);
+            ref.invalidate(propertyHostPendingRequestsProvider);
 
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -447,15 +495,26 @@ class _ActiveTripTrackerSheetState
     }
 
     final id = widget.item['id'] as String;
+    final rentalId = (widget.item['rentalId'] ?? widget.item['propertyId'] ?? id).toString();
+    final requestId = (widget.item['currentRequestId'] ?? widget.item['requestId'] ?? (widget.item.containsKey('rentalId') || widget.item.containsKey('propertyId') ? id : null))?.toString();
     final brand = widget.item['brand'] as String? ?? '';
     final model = widget.item['model'] as String? ?? '';
     final title = widget.item['title'] as String? ?? '$brand $model';
-    final status = widget.item['status'] as String? ?? 'Awaiting Signature';
+    final rawStatus = widget.item['status'] as String? ?? 'Awaiting Signature';
+    final status = rawStatus;
     final hostId = widget.item['hostId'] as String? ?? '';
     final isHost = hostId == userProfile.uid;
 
-    final signature = widget.item['renteeSignatureName'] as String? ?? '';
+    final signature = (widget.item['renteeSignatureName'] ?? widget.item['signatureName'] ?? '') as String;
     final signatureHash = widget.item['signatureHash'] as String? ?? '';
+    final isSigned = (widget.item['signedAt'] != null && (widget.item['signedAt'] as num) > 0) ||
+        signature.isNotEmpty ||
+        signatureHash.isNotEmpty;
+
+    final isAwaitingSignature = !isHost && !isSigned &&
+        (rawStatus.toLowerCase() == 'awaiting signature' || rawStatus.toLowerCase() == 'approved');
+
+    final displayStatus = isAwaitingSignature ? 'Awaiting Signature' : rawStatus;
     final terms =
         widget.item['contractTerms'] as String? ??
         'Rental terms & conditions...';
@@ -465,19 +524,19 @@ class _ActiveTripTrackerSheetState
     final s1Active = true;
 
     final s2Completed =
-        signature.isNotEmpty ||
-        status == 'Booked' ||
-        status == 'Active' ||
-        status == 'Ongoing' ||
-        status == 'Completed';
-    final s2Active = status == 'Awaiting Signature';
+        isSigned ||
+        rawStatus == 'Booked' ||
+        rawStatus == 'Active' ||
+        rawStatus == 'Ongoing' ||
+        rawStatus == 'Completed';
+    final s2Active = isAwaitingSignature;
 
     final s3Completed =
-        status == 'Active' || status == 'Ongoing' || status == 'Completed';
-    final s3Active = status == 'Booked';
+        rawStatus == 'Active' || rawStatus == 'Ongoing' || rawStatus == 'Completed';
+    final s3Active = !isAwaitingSignature && rawStatus == 'Booked';
 
-    final s4Completed = status == 'Completed';
-    final s4Active = status == 'Active' || status == 'Ongoing';
+    final s4Completed = rawStatus == 'Completed';
+    final s4Active = rawStatus == 'Active' || rawStatus == 'Ongoing';
 
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
@@ -560,10 +619,10 @@ class _ActiveTripTrackerSheetState
                           ),
                         ),
                         _pill(
-                          status,
-                          status == 'Active' || status == 'Ongoing'
+                          displayStatus,
+                          displayStatus == 'Active' || displayStatus == 'Ongoing'
                               ? Colors.green
-                              : Colors.orange,
+                              : (isAwaitingSignature ? Colors.amber.shade800 : Colors.orange),
                         ),
                       ],
                     ),
@@ -580,16 +639,18 @@ class _ActiveTripTrackerSheetState
                     _buildStep(
                       2,
                       'Lease Agreement Signed',
-                      signature.isNotEmpty
-                          ? 'Signed: $signature'
-                          : 'Awaiting renter electronic signature.',
+                      isSigned
+                          ? 'Signed: ${signature.isNotEmpty ? signature : "Digitally Verified"}'
+                          : (isAwaitingSignature
+                              ? 'Action Required: Review and sign lease agreement.'
+                              : 'Awaiting renter electronic signature.'),
                       s2Completed,
                       s2Active,
                     ),
                     _buildStep(
                       3,
                       'Handover Executed',
-                      status == 'Active' || status == 'Ongoing'
+                      rawStatus == 'Active' || rawStatus == 'Ongoing'
                           ? 'Asset handed over to renter.'
                           : 'Awaiting keys handover.',
                       s3Completed,
@@ -598,7 +659,7 @@ class _ActiveTripTrackerSheetState
                     _buildStep(
                       4,
                       'Trip Ongoing & Tracked',
-                      status == 'Completed'
+                      rawStatus == 'Completed'
                           ? 'Trip has ended.'
                           : 'Active lease period.',
                       s4Completed,
@@ -606,14 +667,83 @@ class _ActiveTripTrackerSheetState
                     ),
 
                     // Renter Signature Action
-                    if (!isHost && status == 'Awaiting Signature') ...[
+                    if (isAwaitingSignature) ...[
                       const SizedBox(height: 16),
                       _isProcessing
                           ? const Center(child: CircularProgressIndicator())
-                          : UIHelpers.buildPrimaryButton(
-                              'Sign Contract Agreement',
-                              () => _openSignaturePad(id, terms),
-                              isDarkMode,
+                          : Column(
+                              children: [
+                                UIHelpers.buildPrimaryButton(
+                                  'Sign Contract Agreement',
+                                  () => _openSignaturePad(rentalId, terms, requestId: requestId),
+                                  isDarkMode,
+                                ),
+                                const SizedBox(height: 8),
+                                OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final confirm = await showDialog<bool>(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        title: const Text('Cancel Approved Request?'),
+                                        content: const Text(
+                                          'Are you sure you want to cancel this approved booking request before signing? Your escrow deposit will be 100% refunded immediately.',
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx, false),
+                                            child: const Text('Keep Booking'),
+                                          ),
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx, true),
+                                            style: TextButton.styleFrom(foregroundColor: Colors.red),
+                                            child: const Text('Cancel Request'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (confirm == true) {
+                                      setState(() => _isProcessing = true);
+                                      try {
+                                        final repo = ref.read(transitRepositoryProvider);
+                                        final targetId = (requestId != null && requestId.isNotEmpty) ? requestId : rentalId;
+                                        if (widget.isProperty) {
+                                          await repo.cancelPropertyBookingRequest(targetId);
+                                        } else {
+                                          await repo.cancelBookingRequest(targetId);
+                                        }
+                                        ref.invalidate(realtimeRentalsProvider);
+                                        ref.invalidate(realtimePropertiesProvider);
+                                        ref.invalidate(renterActiveBookingsProvider);
+                                        ref.invalidate(propertyRenterActiveBookingsProvider);
+                                        if (mounted) {
+                                          Navigator.pop(context);
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Request cancelled and escrow refunded.'),
+                                              backgroundColor: Colors.green,
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text('Error: $e')),
+                                          );
+                                        }
+                                      } finally {
+                                        setState(() => _isProcessing = false);
+                                      }
+                                    }
+                                  },
+                                  icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                                  label: const Text('Cancel Booking Request', style: TextStyle(color: Colors.red)),
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(48),
+                                    side: const BorderSide(color: Colors.red),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  ),
+                                ),
+                              ],
                             ),
                     ],
 
@@ -654,12 +784,33 @@ class _ActiveTripTrackerSheetState
                       ),
                     ],
 
-                    // GPS Simulator Block
+                    // GPS Navigation & Tracker Block
                     if (!widget.isProperty &&
-                        (status == 'Active' || status == 'Ongoing')) ...[
+                        (status == 'Active' ||
+                            status == 'Ongoing' ||
+                            status == 'On the way to Rentee' ||
+                            status == 'Returning')) ...[
                       const SizedBox(height: 24),
+                      UIHelpers.buildPrimaryButton(
+                        status == 'On the way to Rentee'
+                            ? 'Open Live Delivery Navigation'
+                            : (status == 'Returning'
+                                ? 'Open Live Return Navigation'
+                                : 'Open Live Navigation & Map'),
+                        () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => RentalNavigationScreen(
+                                rentalData: widget.item,
+                              ),
+                            ),
+                          );
+                        },
+                        isDarkMode,
+                      ),
+                      const SizedBox(height: 14),
                       const Text(
-                        'LIVE GPS TRACKER (SIMULATED)',
+                        'LIVE GPS TRACKER',
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
@@ -784,8 +935,16 @@ class _ActiveTripTrackerSheetState
                                 ),
                               );
                             } else {
-                              final extensionRatePerHour = (widget.item['extensionRatePerHour'] as num?)?.toDouble() ?? 200.0;
+                              final extensionRatePerHour = (widget.item['extensionRatePerHour'] as num?)?.toDouble() ??
+                                  (widget.item['latePenaltyRatePerHour'] as num?)?.toDouble() ??
+                                  (widget.item['extensionPenaltyPerHour'] as num?)?.toDouble() ??
+                                  ((widget.item['priceDaily'] as num?) != null
+                                      ? (widget.item['priceDaily'] as num).toDouble() / 24 * 1.5
+                                      : 200.0);
                               final fee = _extendHours * extensionRatePerHour;
+                              final userBalance = userProfile.tyxBalance;
+                              final hasInsufficientBalance = userBalance < fee;
+
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 24),
                                 padding: const EdgeInsets.all(16),
@@ -807,107 +966,210 @@ class _ActiveTripTrackerSheetState
                                         color: Colors.grey,
                                       ),
                                     ),
+                                    if (_conflictNotice != null) ...[
+                                      const SizedBox(height: 8),
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: (_maxAllowedHours <= 0 ? Colors.orange : Colors.blue).withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              _maxAllowedHours <= 0 ? Icons.warning_amber_rounded : Icons.info_outline,
+                                              size: 16,
+                                              color: _maxAllowedHours <= 0 ? Colors.orange : Colors.blue,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                _conflictNotice!,
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: _maxAllowedHours <= 0 ? Colors.orange : Colors.blue,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                     const SizedBox(height: 8),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              '₱ ${extensionRatePerHour.toStringAsFixed(0)}/hour',
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 15,
-                                              ),
-                                            ),
-                                            const Text(
-                                              'Extension Rate',
-                                              style: TextStyle(fontSize: 10, color: Colors.grey),
-                                            ),
-                                          ],
+                                    if (_maxAllowedHours <= 0) ...[
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                        child: Text(
+                                          _conflictNotice ??
+                                              'Extension is currently unavailable because the vehicle has a scheduled booking shortly after your trip ends.',
+                                          style: const TextStyle(fontSize: 12, color: Colors.grey),
                                         ),
-                                        Row(
-                                          children: [
-                                            IconButton(
-                                              icon: const Icon(Icons.remove_circle_outline),
-                                              onPressed: _extendHours > 1
-                                                  ? () => setState(() => _extendHours--)
-                                                  : null,
-                                            ),
-                                            Text(
-                                              '$_extendHours hr${_extendHours > 1 ? "s" : ""}',
-                                              style: const TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            IconButton(
-                                              icon: const Icon(Icons.add_circle_outline),
-                                              onPressed: () => setState(() => _extendHours++),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                    const Divider(height: 20),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        const Text(
-                                          'Extension escrow fee:',
-                                          style: TextStyle(fontSize: 12),
-                                        ),
-                                        Text(
-                                          '₱ ${fee.toStringAsFixed(0)} TYXBIT',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: AppColors.indigo,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton(
+                                          onPressed: null,
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.grey.withValues(alpha: 0.2),
+                                            disabledBackgroundColor: Colors.grey.withValues(alpha: 0.15),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                            padding: const EdgeInsets.symmetric(vertical: 14),
+                                          ),
+                                          child: const Text(
+                                            'Extension Unavailable (Turnaround / Reserved)',
+                                            style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
                                           ),
                                         ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _isProcessing
-                                        ? const Center(child: CircularProgressIndicator())
-                                        : SizedBox(
-                                            width: double.infinity,
-                                            child: UIHelpers.buildPrimaryButton(
-                                              'Submit Extension Request',
-                                              () async {
-                                                setState(() => _isProcessing = true);
-                                                try {
-                                                  await ref.read(transitRepositoryProvider).createExtensionRequest(
-                                                    rentalId: id,
-                                                    renteeId: userProfile.uid,
-                                                    extendHours: _extendHours,
-                                                    fee: fee,
-                                                  );
-                                                  ref.invalidate(realtimeRentalsProvider);
-                                                  if (mounted) {
-                                                    ScaffoldMessenger.of(context).showSnackBar(
-                                                      const SnackBar(
-                                                        content: Text('Extension request submitted!'),
-                                                        backgroundColor: Colors.green,
-                                                      ),
-                                                    );
-                                                  }
-                                                } catch (e) {
-                                                  if (mounted) {
-                                                    ScaffoldMessenger.of(context).showSnackBar(
-                                                      SnackBar(
-                                                        content: Text('Failed: $e'),
-                                                        backgroundColor: Colors.red,
-                                                      ),
-                                                    );
-                                                  }
-                                                } finally {
-                                                  setState(() => _isProcessing = false);
-                                                }
-                                              },
-                                              isDarkMode,
+                                      ),
+                                    ] else ...[
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                '₱ ${extensionRatePerHour.toStringAsFixed(0)}/hour',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 15,
+                                                ),
+                                              ),
+                                              Text(
+                                                'Rate (Max: $_maxAllowedHours hr${_maxAllowedHours > 1 ? "s" : ""})',
+                                                style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                              ),
+                                            ],
+                                          ),
+                                          Row(
+                                            children: [
+                                              IconButton(
+                                                icon: const Icon(Icons.remove_circle_outline),
+                                                onPressed: _extendHours > 1
+                                                    ? () => setState(() => _extendHours--)
+                                                    : null,
+                                              ),
+                                              Text(
+                                                '$_extendHours hr${_extendHours > 1 ? "s" : ""}',
+                                                style: const TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              IconButton(
+                                                icon: const Icon(Icons.add_circle_outline),
+                                                onPressed: _extendHours < _maxAllowedHours
+                                                    ? () => setState(() => _extendHours++)
+                                                    : null,
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                      const Divider(height: 20),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          const Text(
+                                            'Extension fee (pre-paid into escrow):',
+                                            style: TextStyle(fontSize: 12),
+                                          ),
+                                          Text(
+                                            '₱ ${fee.toStringAsFixed(0)} TYXBIT',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: AppColors.indigo,
                                             ),
                                           ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          const Text(
+                                            'Available Balance:',
+                                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                                          ),
+                                          Text(
+                                            '₱ ${userBalance.toStringAsFixed(0)} TYXBIT',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: hasInsufficientBalance ? Colors.red : Colors.green,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      _isProcessing
+                                          ? const Center(child: CircularProgressIndicator())
+                                          : SizedBox(
+                                              width: double.infinity,
+                                              child: UIHelpers.buildPrimaryButton(
+                                                hasInsufficientBalance
+                                                    ? 'Top Up ₱ ${(fee - userBalance).toStringAsFixed(0)} & Extend'
+                                                    : 'Pay ₱ ${fee.toStringAsFixed(0)} & Request Extension',
+                                                hasInsufficientBalance
+                                                    ? () {
+                                                        showModalBottomSheet(
+                                                          context: context,
+                                                          isScrollControlled: true,
+                                                          backgroundColor: Colors.transparent,
+                                                          builder: (ctx) => Container(
+                                                            height: MediaQuery.of(ctx).size.height * 0.85,
+                                                            decoration: BoxDecoration(
+                                                              color: Theme.of(ctx).scaffoldBackgroundColor,
+                                                              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                                                            ),
+                                                            child: PaymentPane(
+                                                              onBack: () => Navigator.of(ctx).pop(),
+                                                            ),
+                                                          ),
+                                                        );
+                                                      }
+                                                    : () async {
+                                                        setState(() => _isProcessing = true);
+                                                        try {
+                                                          final reqId = (widget.item['currentRequestId'] ??
+                                                                  widget.item['requestId'] ??
+                                                                  (widget.item.containsKey('rentalId') ? widget.item['id'] : null))
+                                                              ?.toString();
+                                                          await ref.read(transitRepositoryProvider).createExtensionRequest(
+                                                            rentalId: id,
+                                                            renteeId: userProfile.uid,
+                                                            extendHours: _extendHours,
+                                                            fee: fee,
+                                                            requestId: reqId,
+                                                          );
+                                                          ref.invalidate(realtimeRentalsProvider);
+                                                          if (mounted) {
+                                                            ScaffoldMessenger.of(context).showSnackBar(
+                                                              const SnackBar(
+                                                                content: Text('Extension payment locked in escrow & submitted!'),
+                                                                backgroundColor: Colors.green,
+                                                              ),
+                                                            );
+                                                          }
+                                                        } catch (e) {
+                                                          if (mounted) {
+                                                            ScaffoldMessenger.of(context).showSnackBar(
+                                                              SnackBar(
+                                                                content: Text('Failed to extend rental: $e'),
+                                                                backgroundColor: Colors.red,
+                                                              ),
+                                                            );
+                                                          }
+                                                        } finally {
+                                                          setState(() => _isProcessing = false);
+                                                        }
+                                                      },
+                                                isDarkMode,
+                                              ),
+                                            ),
+                                    ],
                                   ],
                                 ),
                               );
@@ -1002,6 +1264,8 @@ class _ActiveTripTrackerSheetState
                                                         try {
                                                           await ref.read(transitRepositoryProvider).approveExtension(extId);
                                                           ref.invalidate(realtimeRentalsProvider);
+                                                          ref.invalidate(renterActiveBookingsProvider);
+                                                          ref.invalidate(hostPendingRequestsProvider);
                                                           if (mounted) {
                                                             ScaffoldMessenger.of(context).showSnackBar(
                                                               const SnackBar(
@@ -1065,17 +1329,23 @@ class _ActiveTripTrackerSheetState
                                     );
                                     if (widget.isProperty) {
                                       await repo.updatePropertyStatus(
-                                        id,
+                                        rentalId,
                                         'Active',
+                                        requestId: requestId,
                                       );
                                     } else {
                                       await repo.updateRentalStatus(
-                                        id,
+                                        rentalId,
                                         'Active',
+                                        requestId: requestId,
                                       );
                                     }
                                     ref.invalidate(realtimeRentalsProvider);
                                     ref.invalidate(realtimePropertiesProvider);
+                                    ref.invalidate(renterActiveBookingsProvider);
+                                    ref.invalidate(propertyRenterActiveBookingsProvider);
+                                    ref.invalidate(hostPendingRequestsProvider);
+                                    ref.invalidate(propertyHostPendingRequestsProvider);
                                     if (mounted) {
                                       ScaffoldMessenger.of(
                                         context,
@@ -1101,7 +1371,7 @@ class _ActiveTripTrackerSheetState
                                 },
                                 isDarkMode,
                               ),
-                      ] else if (status == 'Active' || status == 'Ongoing') ...[
+                      ] else if (status == 'Active' || status == 'Ongoing' || status == 'Returning') ...[
                         _isProcessing
                             ? const Center(child: CircularProgressIndicator())
                             : UIHelpers.buildPrimaryButton(
@@ -1113,12 +1383,22 @@ class _ActiveTripTrackerSheetState
                                       transitRepositoryProvider,
                                     );
                                     if (widget.isProperty) {
-                                      await repo.completePropertyRental(id);
+                                      await repo.completePropertyRental(
+                                        rentalId,
+                                        requestId: requestId,
+                                      );
                                     } else {
-                                      await repo.completeRental(id);
+                                      await repo.completeRental(
+                                        rentalId,
+                                        requestId: requestId,
+                                      );
                                     }
                                     ref.invalidate(realtimeRentalsProvider);
                                     ref.invalidate(realtimePropertiesProvider);
+                                    ref.invalidate(renterActiveBookingsProvider);
+                                    ref.invalidate(propertyRenterActiveBookingsProvider);
+                                    ref.invalidate(hostPendingRequestsProvider);
+                                    ref.invalidate(propertyHostPendingRequestsProvider);
                                     if (mounted) {
                                       Navigator.pop(context);
                                       ScaffoldMessenger.of(
@@ -1146,6 +1426,113 @@ class _ActiveTripTrackerSheetState
                                 },
                                 isDarkMode,
                               ),
+                      ],
+                    ] else ...[
+                      // Renter Actions
+                      if (!widget.isProperty && (status == 'Active' || status == 'Ongoing')) ...[
+                        _isProcessing
+                            ? const Center(child: CircularProgressIndicator())
+                            : UIHelpers.buildPrimaryButton(
+                                'Start Vehicle Return Trip',
+                                () async {
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Start Return Trip?'),
+                                      content: const Text(
+                                        'Are you ready to begin returning this vehicle to the host at the designated return address? The host will be notified to prepare for vehicle inspection.',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx, false),
+                                          child: const Text('Not Yet'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx, true),
+                                          child: const Text('Start Return'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirm == true) {
+                                    setState(() => _isProcessing = true);
+                                    try {
+                                      final repo = ref.read(transitRepositoryProvider);
+                                      await repo.updateRentalStatus(
+                                        rentalId,
+                                        'Returning',
+                                        requestId: requestId,
+                                      );
+                                      ref.invalidate(realtimeRentalsProvider);
+                                      ref.invalidate(renterActiveBookingsProvider);
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Vehicle is now in Returning status. Proceed to handover location!',
+                                            ),
+                                            backgroundColor: Colors.blue,
+                                          ),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Error: $e')),
+                                        );
+                                      }
+                                    } finally {
+                                      setState(() => _isProcessing = false);
+                                    }
+                                  }
+                                },
+                                isDarkMode,
+                              ),
+                      ] else if (!widget.isProperty && status == 'Returning') ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 14,
+                            horizontal: 16,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.blue.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.directions_car, color: Colors.blue),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Return in progress. Deliver vehicle to host and await host completion inspection.',
+                                  style: TextStyle(
+                                    color: Colors.blue,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        UIHelpers.buildPrimaryButton(
+                          'Open Turn-by-Turn Return Navigation',
+                          () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => RentalNavigationScreen(
+                                  rentalData: widget.item,
+                                ),
+                              ),
+                            );
+                          },
+                          isDarkMode,
+                        ),
                       ],
                     ],
                     const SizedBox(height: 48),

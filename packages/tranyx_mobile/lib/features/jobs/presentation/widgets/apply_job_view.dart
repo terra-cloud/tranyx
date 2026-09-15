@@ -8,7 +8,7 @@ import 'package:tranyx_mobile/core/utils/num_extension.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
-import 'package:tranyx_mobile/features/jobs/models/job_application.dart';
+import 'package:shared/shared.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_sub_header.dart';
 
 class ApplyJobView extends ConsumerStatefulWidget {
@@ -280,12 +280,98 @@ class _ApplyJobViewState extends ConsumerState<ApplyJobView> {
               ),
             ),
           ),
+          Builder(
+            builder: (context) {
+              final hasOngoingNyxianJob = ref.watch(hasOngoingNyxianJobProvider);
+              if (!hasOngoingNyxianJob) return const SizedBox.shrink();
+              return Container(
+                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: AppColors.amber.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: AppColors.amber.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: AppColors.amber,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'You have an ongoing job to complete.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: isDarkMode ? Colors.white : Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Please complete your current task before applying for another job to avoid conflicts in your responsibilities.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDarkMode
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 32),
           _isSubmitting
               ? const Center(child: CircularProgressIndicator())
+              : ref.watch(hasOngoingNyxianJobProvider)
+              ? UIHelpers.buildPrimaryButton(
+                  "Ongoing Task Incomplete",
+                  null,
+                  isDarkMode,
+                  isOutlined: true,
+                )
               : UIHelpers.buildPrimaryButton("Submit Application", () async {
+                  final hasOngoing = ref.read(hasOngoingNyxianJobProvider);
+                  if (hasOngoing) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(ongoingJobRestrictionMessage),
+                          backgroundColor: AppColors.amber,
+                        ),
+                      );
+                    }
+                    return;
+                  }
+
                   final userProfile = ref.read(userProfileProvider).value;
                   if (userProfile == null) return;
+
+                  if (selectedJob.creatorId == userProfile.uid) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("You cannot apply to your own job posting."),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                    }
+                    return;
+                  }
 
                   setState(() => _isSubmitting = true);
 

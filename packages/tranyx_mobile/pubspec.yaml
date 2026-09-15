@@ -19,7 +19,7 @@ resolution: workspace
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.11.5
+  sdk: ^3.13.0
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -30,25 +30,25 @@ environment:
 dependencies:
   app_links: ^7.1.2
   bs58: ^1.0.2
-  cloud_firestore: any
+  # cloud_firestore: any
   cloud_firestore_platform_interface: ^8.0.2
-  cloud_functions: any
+  # cloud_functions: any
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cryptography: ^2.9.0
   cupertino_icons: ^1.0.8
-  firebase_analytics: any
-  firebase_auth: any
-  firebase_core: ^4.11.0
-  firebase_messaging: any
+  # firebase_analytics: any
+  # firebase_auth: any
+  # firebase_core: ^4.11.0
+  # firebase_messaging: any
   flutter:
     sdk: flutter
   flutter_image_compress: ^2.4.0
   flutter_riverpod: ^3.3.1
   flutter_secure_storage: ^10.0.0
   go_router: ^17.2.2
-  local_auth: ^2.3.0
+  local_auth: ^3.0.2
   google_fonts: ^8.1.0
   google_sign_in: ^7.2.0
   http: ^1.6.0
@@ -58,14 +58,22 @@ dependencies:
   lucide_icons_flutter: ^3.1.13
   path: ^1.9.1
   path_provider: ^2.1.5
-  permission_handler: ^12.0.1
+  permission_handler: ^13.0.1
   pinenacl: ^0.6.0
   riverpod_annotation: ^4.0.2
   shared: any
+  headless_nav_core: any
+  headless_nav_flutter: any
   solana_mobile_client: ^0.1.2
   url_launcher: ^6.3.2
   reown_appkit: ^1.5.0
   llama_cpp_dart: ^0.2.2
+  qr_flutter: ^4.1.0
+  firebase_analytics: ^12.4.6
+  firebase_auth: ^6.5.7
+  firebase_core: ^4.13.0
+  firebase_messaging: ^16.5.0
+  cloud_firestore: ^6.8.0
 dev_dependencies:
   build_runner: ^2.15.0
   flutter_flavorizr: ^2.4.2
@@ -202,29 +210,33 @@ flavorizr:
         bundleId: "com.terraph.tranyx"
 
 flutter_launcher_icons:
-  image_path: "assets/images/logo.png"
+  image_path: "assets/images/launcher_icon.png"
   android: true
   ios: true
   min_sdk_android: 21
   adaptive_icon_background: "#7C3AED"
-  adaptive_icon_foreground: "assets/images/logo.png"
+  adaptive_icon_foreground: "assets/images/launcher_icon.png"
   flavors:
     dev:
-      image_path: "assets/images/logo.png"
+      image_path: "assets/images/launcher_icon.png"
       android: true
       ios: true
       adaptive_icon_background: "#7C3AED"
-      adaptive_icon_foreground: "assets/images/logo.png"
+      adaptive_icon_foreground: "assets/images/launcher_icon.png"
     uat:
-      image_path: "assets/images/logo.png"
+      image_path: "assets/images/launcher_icon.png"
       android: true
       ios: true
       adaptive_icon_background: "#7C3AED"
-      adaptive_icon_foreground: "assets/images/logo.png"
+      adaptive_icon_foreground: "assets/images/launcher_icon.png"
     production:
-      image_path: "assets/images/logo.png"
+      image_path: "assets/images/launcher_icon.png"
       android: true
       ios: true
       adaptive_icon_background: "#7C3AED"
-      adaptive_icon_foreground: "assets/images/logo.png"
+      adaptive_icon_foreground: "assets/images/launcher_icon.png"
+
+dependency_overrides:
+  permission_handler_android: 13.0.1
+
 

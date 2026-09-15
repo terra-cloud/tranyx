@@ -353,8 +353,12 @@ class FakeQuery extends Fake implements Query<Map<String, dynamic>> {
       final val = data[field];
       if (isEqualTo != null && val != isEqualTo) return false;
       if (isNotEqualTo != null && val == isNotEqualTo) return false;
-      if (arrayContains != null) {
-        if (val is! List || !val.contains(arrayContains)) return false;
+      if (whereIn != null) {
+        if (!whereIn.contains(val)) return false;
+      }
+      if (isNull != null) {
+        if (isNull && val != null) return false;
+        if (!isNull && val == null) return false;
       }
       return true;
     });
@@ -502,9 +506,9 @@ class FakeWriteBatch extends Fake implements WriteBatch {
   FakeWriteBatch(this.firestore);
 
   @override
-  void update(DocumentReference documentReference, Map<Object?, Object?> data) {
+  void update<T>(DocumentReference<T> documentReference, T data) {
     final ref = documentReference as FakeDocumentReference;
-    final mapData = Map<String, dynamic>.from(data);
+    final mapData = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
     operations.add(() {
       final existing = firestore.db[ref.path] ?? {};
       firestore.db[ref.path] = _resolveFieldValues(existing, mapData);

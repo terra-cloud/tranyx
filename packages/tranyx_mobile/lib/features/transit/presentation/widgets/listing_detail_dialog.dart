@@ -7,6 +7,8 @@ import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/core/utils/geo_helper.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
+import 'package:tranyx_mobile/features/transit/presentation/widgets/listing_wizard_sheet.dart';
+import 'package:tranyx_mobile/features/transit/presentation/widgets/manage_listing_sheet.dart';
 
 class ListingDetailDialog extends ConsumerStatefulWidget {
   final Map<String, dynamic> item;
@@ -224,7 +226,9 @@ class _ListingDetailDialogState extends ConsumerState<ListingDetailDialog> {
                           Row(
                             children: [
                               _pill(
-                                status,
+                                status == 'Rented'
+                                    ? 'Active • Dates Available'
+                                    : status,
                                 status == 'Available'
                                     ? Colors.green
                                     : Colors.orange,
@@ -787,8 +791,84 @@ class _ListingDetailDialogState extends ConsumerState<ListingDetailDialog> {
                 ),
               ),
 
-              // Bottom Book Button Panel
-              if (!isHost && status == 'Available')
+              // Bottom Action Panel
+              if (isHost)
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardColor,
+                    border: Border(
+                      top: BorderSide(
+                        color: isDarkMode
+                            ? AppColors.darkBorder
+                            : AppColors.lightBorder,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      if (status == 'Available' &&
+                          (widget.item['renteeId'] == null ||
+                              (widget.item['renteeId'] as String).isEmpty)) ...[
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (context) => ListingWizardSheet(
+                                  isProperty: widget.isProperty,
+                                  initialItem: widget.item,
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.edit_outlined, size: 18),
+                            label: const Text('Edit Listing'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.indigo,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                      ],
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (context) => ManageListingSheet(
+                                item: widget.item,
+                                isProperty: widget.isProperty,
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.tune, size: 18),
+                          label: const Text('Manage'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else if (status.toLowerCase() != 'inactive' &&
+                  status.toLowerCase() != 'unpublished' &&
+                  status.toLowerCase() != 'archived' &&
+                  status.toLowerCase() != 'deleted')
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(

@@ -6,3 +6,6 @@ workspace:
   - packages/shared
   - packages/tranyx_mobile
   - packages/tranyx_web
+  - packages/headless_nav_core
+  - packages/headless_nav_jaspr
+  - packages/headless_nav_flutter

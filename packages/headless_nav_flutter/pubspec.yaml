@@ -1,0 +1,24 @@
+name: headless_nav_flutter
+description: Flutter navigation widgets, hardware GPS & TTS adapters, follower live tracking, and Riverpod bindings for headless_nav.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.11.5
+  flutter: ">=3.19.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  headless_nav_core: any
+  flutter_riverpod: any
+  geolocator: ^11.0.0
+  flutter_tts: ^4.0.2
+  maplibre_gl: ^0.16.0
+  wakelock_plus: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
