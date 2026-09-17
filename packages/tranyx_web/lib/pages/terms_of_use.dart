@@ -61,7 +61,7 @@ class TermsOfUse extends StatelessComponent {
             Component.text('All financial settlements on the platform are handled via:'),
           ]),
           ul(classes: 'list-disc pl-6 space-y-2 text-zinc-400', [
-            li([Component.text('Fiat Gateways (Xendit): Used for credit cards, e-wallets, or bank transfers to top up your TYX (Tyxbit) fiat-denominated ledger balance.')]),
+            li([Component.text('Internal Tyxbit Balances: Used for platform ledger balances, escrows, and service settlements.')]),
             li([Component.text('On-chain Transactions (Solana/USDT): Used for Web3 wallet payments and blockchain escrows.')]),
             li([Component.text('Fees: Users are responsible for all gas, network, and processing fees associated with blockchain transactions, escrows, and deposit/withdrawal channels.')]),
           ]),

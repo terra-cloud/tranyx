@@ -1,0 +1,13 @@
+steps:
+  - echo: Launch Tranyx and navigate to role selection screen
+  - launch: com.terraph.tranyx
+  - await:
+      visible:
+        text: Welcome back
+  - tap:
+      text: Create an account
+  - await:
+      visible:
+        text: Join Tranyx
+  - await:
+      idle: true

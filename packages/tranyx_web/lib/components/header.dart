@@ -17,9 +17,9 @@ class Header extends StatelessComponent {
           classes: 'flex items-center gap-2 group',
           children: [
             img(
-              src: '/images/logo.svg',
+              src: '/images/logo.png',
               classes:
-                  'w-10 h-10 object-contain shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform',
+                  'w-9 h-9 object-contain group-hover:scale-105 transition-transform drop-shadow-sm',
               attributes: {'alt': 'Tranyx Logo'},
             ),
             span(classes: 'text-2xl font-black text-white tracking-tighter', [

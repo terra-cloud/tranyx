@@ -1,0 +1,10 @@
+// ============================================================================
+// TRANYX CLOUD FIRESTORE SECURITY RULES (MODULAR SOURCE)
+// DO NOT DIRECTLY EDIT firestore.rules!
+// Edit the modular source files in firestore_rules/ and run:
+//   dart run tool/build_rules.dart
+// ============================================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {

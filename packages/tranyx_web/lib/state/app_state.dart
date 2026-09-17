@@ -1,7 +1,9 @@
+import 'package:shared/shared.dart';
+
 // App State — mirrors React useState hooks from the reference React app.
 // All enums and the AppState class are plain Dart, imported by the @client component.
 
-enum AppTab { home, jobs, transit, profile }
+enum AppTab { home, jobs, transit, messages, profile }
 
 // Uses AccountType from package:core
 
@@ -35,6 +37,9 @@ class SelectedJob {
   final String urgency;
   final String status;
   final int applicants;
+  final dynamic createdAt;
+  final String? acceptedApplicantId;
+
   const SelectedJob({
     this.id,
     required this.title,
@@ -43,7 +48,14 @@ class SelectedJob {
     required this.urgency,
     this.status = 'Active',
     this.applicants = 0,
+    this.createdAt,
+    this.acceptedApplicantId,
   });
+
+  String get formattedPostingDate => formatPostingDate(createdAt);
+  String get postedDateLabel => formatPostingDate(createdAt, withPrefix: true);
+  String get formattedPostingDateTime => formatPostingDateTime(createdAt);
+  bool get isPostedToday => isPostedTodayDate(createdAt);
 }
 
 class SelectedCategory {

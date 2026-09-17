@@ -15,6 +15,7 @@ import 'package:tranyx_mobile/features/navigation/providers/navigation_provider.
 import 'package:tranyx_mobile/features/jobs/presentation/categories_bottom_sheet.dart';
 import 'package:shared/shared.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:tranyx_mobile/features/profile/presentation/widgets/withdraw_pane.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 
 final homeTabProvider = StateProvider<String>((ref) => 'dashboard');
@@ -128,37 +129,33 @@ class HomeView extends ConsumerWidget {
       );
     }
 
-    Widget searchBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          currentViewMode == AccountType.employer
-              ? "What do you need done?"
-              : "Find your next gig.",
-          style: TextStyle(
-            fontSize: isTablet ? 35 : 25,
-            // height: 1,
-            fontWeight: FontWeight.w700,
-            color: isDarkMode ? AppColors.darkText : AppColors.lightText,
-          ),
-        ),
-        // const SizedBox(height: 24),
-        UIHelpers.buildTextField(
-          LucideIcons.search,
-          currentViewMode == AccountType.employer
-              ? "Search plumbers, car rentals..."
-              : "Search odd jobs in your area...",
-          isDarkMode,
-          onSubmitted: (val) {
-            if (val.isNotEmpty) {
-              ref.read(searchQueryProvider.notifier).state = val;
-              ref.read(activeTabProvider.notifier).state = 'jobs';
-              ref.read(jobsViewProvider.notifier).state = 'list';
-            }
-          },
-        ),
-      ],
-    );
+    Widget? searchBlock = currentViewMode == AccountType.nyxian
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Find your next gig.",
+                style: TextStyle(
+                  fontSize: isTablet ? 35 : 25,
+                  fontWeight: FontWeight.w700,
+                  color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                ),
+              ),
+              UIHelpers.buildTextField(
+                LucideIcons.search,
+                "Search odd jobs in your area...",
+                isDarkMode,
+                onSubmitted: (val) {
+                  if (val.isNotEmpty) {
+                    ref.read(searchQueryProvider.notifier).state = val;
+                    ref.read(activeTabProvider.notifier).state = 'jobs';
+                    ref.read(jobsViewProvider.notifier).state = 'list';
+                  }
+                },
+              ),
+            ],
+          )
+        : null;
 
     final user = ref.watch(userProvider);
     final myJobs = ref.watch(myJobsProvider).value ?? [];
@@ -444,17 +441,21 @@ class HomeView extends ConsumerWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(flex: 2, child: searchBlock),
-                  const SizedBox(width: 32),
+                  if (searchBlock != null) ...[
+                    Expanded(flex: 2, child: searchBlock),
+                    const SizedBox(width: 32),
+                  ],
                   Expanded(flex: 1, child: ongoingWidget),
                 ],
               )
             else ...[
               ongoingWidget,
-              const SizedBox(height: 32),
-              searchBlock,
+              if (searchBlock != null) ...[
+                const SizedBox(height: 32),
+                searchBlock,
+              ],
             ],
-          ] else ...[
+          ] else if (searchBlock != null) ...[
             searchBlock,
           ],
 
@@ -1066,8 +1067,7 @@ class HomeView extends ConsumerWidget {
                   isDarkMode: isDarkMode,
                   onTap: () {
                     Navigator.pop(ctx);
-                    ref.read(activeTabProvider.notifier).state = 'profile';
-                    ref.read(profileViewProvider.notifier).state = 'withdraw';
+                    WithdrawPane.show(context);
                   },
                 ),
                 const SizedBox(height: 10),

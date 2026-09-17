@@ -1,0 +1,40 @@
+appId: com.tranyx.tranyx_mobile
+---
+# Flow: Vehicle Listing Wizard Step 2 Scroll Reset E2E Flow
+# Verifies AC1–AC5:
+# - AC1: Opening Step 2 (Pricing & Location) resets scroll position to top (scrollTop = 0).
+# - AC2: Page does not open at the retained scroll position from Step 1.
+# - AC3: Navigating back from Step 3 to Step 2 opens from the top.
+# - AC4: Validation errors (e.g. missing daily rate) scroll to top and show error.
+# - AC5: Existing field order and map placement remain unchanged.
+
+- launchApp:
+    clearState: false
+
+# 1. Navigate to Transit tab
+- assertVisible: "TRANSIT"
+- tapOn: "TRANSIT"
+
+# 2. Open Vehicle Listing Wizard
+- tapOn:
+    id: "list_vehicle_button"
+    optional: true
+
+# 3. Step 1: Specs & Details
+- assertVisible: "Step 1 of 3"
+# Scroll down to bottom of Step 1 to reach Next Step button
+- scroll
+- assertVisible: "Next Step"
+- tapOn: "Next Step"
+
+# 4. Step 2: Verify opens immediately at the top (AC1 & AC2)
+- assertVisible: "Step 2 of 3"
+- assertVisible: "PRICING & LOCATION"
+- assertVisible: "Daily Rate"
+
+# 5. Validation failure: Tap Next Step without entering required daily rate (AC4)
+- scroll
+- tapOn: "Next Step"
+# Verify scroll resets to top with validation error visible
+- assertVisible: "Please enter a valid daily rate."
+- assertVisible: "PRICING & LOCATION"

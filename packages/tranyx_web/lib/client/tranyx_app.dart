@@ -21,6 +21,7 @@ import '../client/views/auth_view.dart';
 import '../client/views/home_view.dart';
 import '../client/views/jobs_view.dart';
 import '../client/views/transit_view.dart';
+import '../client/views/messages_view.dart';
 import '../client/views/profile_view.dart';
 import '../client/widgets/sidebar.dart';
 import '../client/widgets/bottom_nav.dart';
@@ -34,17 +35,24 @@ import '../client/widgets/delete_confirm_modal.dart';
 import '../client/components/list_vehicle_modal.dart';
 import '../client/components/book_vehicle_modal.dart';
 import '../client/components/extend_rental_modal.dart';
+import '../client/components/rental_details_modal.dart';
 import '../client/components/rental_tracker_map.dart';
 import '../client/components/manage_vehicle_modal.dart';
 import '../client/components/vehicle_qa_modal.dart';
+import '../client/components/edit_vehicle_modal.dart';
 import '../client/components/list_property_modal.dart';
 import '../client/components/book_property_modal.dart';
 import '../client/components/manage_property_modal.dart';
 import '../client/components/property_qa_modal.dart';
+import '../client/components/edit_property_modal.dart';
+import '../client/components/edit_job_modal.dart';
 import '../client/components/sign_contract_modal.dart';
 import '../client/components/kyc_id_modal.dart';
 import '../client/components/kyc_bg_modal.dart';
 import '../client/widgets/session_expired_modal.dart';
+import '../client/widgets/withdraw_modal.dart';
+import '../client/components/interactive_walkthrough_modal.dart';
+import '../client/components/pdf_viewer_modal.dart';
 
 @client
 class TranyxApp extends StatefulComponent {
@@ -55,16 +63,38 @@ class TranyxApp extends StatefulComponent {
 
 class TranyxAppState extends State<TranyxApp> {
   // ── Theme / Auth ────────────────────────────────────────────
-  bool isDark = true;
+  bool _isDark = true;
+  bool get isDark => _isDark;
+  set isDark(bool value) {
+    if (_isDark != value) {
+      _isDark = value;
+      updateAllMapsTheme(isDark: value);
+    }
+  }
   bool showWebSplash = true;
   bool showMobileAppPrompt = false;
   bool isAuthenticated = false;
   bool isAuthLoading = false;
   String? authError;
   String? fullScreenPhotoUrl;
+  bool showWalkthroughModal = false;
 
   void showFullScreenPhoto(String url) {
     setState(() => fullScreenPhotoUrl = url);
+  }
+
+  void openWalkthroughModal() => setState(() => showWalkthroughModal = true);
+  void closeWalkthroughModal() => setState(() => showWalkthroughModal = false);
+
+  void checkAndTriggerWalkthrough() {
+    final uid = userProfile?.uid ?? SessionStorage.uid;
+    if (uid == null) return;
+    try {
+      final seen = web.window.localStorage.getItem('has_seen_onboarding_$uid');
+      if (seen != 'true') {
+        setState(() => showWalkthroughModal = true);
+      }
+    } catch (_) {}
   }
 
   AccountType accountType = AccountType.employer;
@@ -94,6 +124,7 @@ class TranyxAppState extends State<TranyxApp> {
   String editIndustry = '';
   String editTaxId = '';
   bool isSavingProfile = false;
+  bool isUploadingProfilePhoto = false;
   String? profileSaveError;
 
   // ── Navigation ──────────────────────────────────────────────
@@ -123,20 +154,48 @@ class TranyxAppState extends State<TranyxApp> {
   bool showRentalTrackerMap = false;
   bool showManageVehicleModal = false;
   bool showVehicleQaModal = false;
+  bool showEditVehicleModal = false;
   Map<String, dynamic>? selectedRentalData;
+
+  // ── Rental Details View Modal ────────────────────────────────
+  bool showRentalDetailsModal = false;
+  Map<String, dynamic>? selectedRentalDetailsData;
+  bool selectedRentalDetailsIsProperty = false;
 
   // ── Property state ──────────────────────────────────────────
   RentalCategory activeRentalCategory = RentalCategory.vehicles;
   bool showListPropertyModal = false;
   bool showBookPropertyModal = false;
   bool showManagePropertyModal = false;
+  bool showEditPropertyModal = false;
   bool showPropertyQaModal = false;
   bool showSignContractModal = false;
+  bool showPdfViewerModal = false;
+  String? pdfViewerSource;
+  String? pdfViewerFileName;
+
+  void openPdfViewer(String source, String fileName) {
+    setState(() {
+      pdfViewerSource = source;
+      pdfViewerFileName = fileName;
+      showPdfViewerModal = true;
+    });
+  }
+
+  void closePdfViewer() {
+    setState(() {
+      showPdfViewerModal = false;
+      pdfViewerSource = null;
+      pdfViewerFileName = null;
+    });
+  }
   Map<String, dynamic>? selectedPropertyData;
   UserProfile? renterProfilePreview;
   List<PropertyRental> realtimeProperties = [];
   List<Map<String, dynamic>> propertyRenterPendingRequests = [];
+  List<Map<String, dynamic>> propertyRenterActiveBookings = [];
   String? signingContractId;
+  String? signingContractRequestId;
   String? signingContractTitle;
   String? signingContractTerms;
   bool signingContractIsProperty = false;
@@ -147,6 +206,8 @@ class TranyxAppState extends State<TranyxApp> {
   bool showSessionExpiredModal = false;
 
   // ── Jobs state ──────────────────────────────────────────────
+  bool showEditJobModal = false;
+  bool showJobOrderDetails = false;
   List<Map<String, dynamic>> myJobs = [];
   List<Map<String, dynamic>> sessionPostedJobs = [];
   List<Map<String, dynamic>> realtimeEmployerJobs = [];
@@ -154,12 +215,14 @@ class TranyxAppState extends State<TranyxApp> {
   List<Map<String, dynamic>> availableJobs = [];
   List<Map<String, dynamic>> realtimeRentals = [];
   List<Map<String, dynamic>> renterPendingRequests = [];
+  List<Map<String, dynamic>> renterActiveBookings = [];
   List<Map<String, dynamic>> appliedJobs = [];
   List<Map<String, dynamic>> hostPendingRequests = [];
   List<Map<String, dynamic>> propertyHostPendingRequests = [];
   bool isLoadingJobs = false;
   String? jobsError;
-  String activeJobFilter = 'Recommended';
+  String activeJobFilter = 'All';
+  String jobSortOrder = 'Newest'; // 'Newest' or 'Oldest'
   String activeJobPane = 'active'; // 'active'/'history' for employer, 'browse'/'my_gigs' for nyxian
   Map<String, dynamic>? ongoingJob; // first 'In Progress' job
   String homeSearchQuery = '';
@@ -182,6 +245,8 @@ class TranyxAppState extends State<TranyxApp> {
   JobCategory? selectedJobCategory;
   JobCategoryGroup? selectedJobCategoryGroup;
   bool isGeneratingDesc = false;
+  bool showAIDraftModal = false;
+  String aiDraftPreview = '';
   JobDateType jobDateType = JobDateType.flexible;
   String jobDate = '';
   TimePref timePref = TimePref.morning;
@@ -202,13 +267,25 @@ class TranyxAppState extends State<TranyxApp> {
   List<String> jobImageUrls = [];
   bool isUploadingImages = false;
   bool isPostingJob = false;
-  String? postJobError;
+  String? _postJobError;
+  String? get postJobError => _postJobError;
+  set postJobError(String? val) {
+    _postJobError = val;
+    if (val != null) {
+      final lower = val.toLowerCase();
+      if (lower.contains('not logged in') ||
+          lower.contains('id-token-expired') ||
+          lower.contains('auth/id-token-expired') ||
+          lower.contains('401')) {
+        triggerSessionExpired();
+      }
+    }
+  }
   String? jobPromoCode;
   double jobDiscountAmount = 0.0;
   String profilePromoCodeInput = '';
   String? profilePromoFeedback;
   bool isValidatingProfilePromo = false;
-
 
   // ── Nyxian sub-status (for tracked in-progress jobs) ─────────
   bool isUpdatingSubStatus = false;
@@ -245,14 +322,38 @@ class TranyxAppState extends State<TranyxApp> {
 
   String? get idToken => SessionStorage.idToken;
 
-  // ── Tyx payment & deposit state ───────────────────────────────
   bool showWalletActionMenu = false;
   bool showDepositModal = false;
+  bool showWithdrawModal = false;
   double depositAmount = 0.0;
   bool isDepositing = false;
-  String selectedPaymentMethod = const String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod'
-      ? 'solana'
-      : 'xendit';
+  String selectedDepositRail = 'manual_p2p'; // 'manual_p2p' | 'solana'
+  String selectedP2pMethod = 'GCash'; // 'GCash' | 'Maya'
+  String p2pReferenceNumber = '';
+  List<int>? p2pProofBytes;
+  String? p2pProofFileName;
+  bool isSubmittingP2p = false;
+  P2pAgent activeP2pAgent = P2pAgent.defaultAgent();
+  List<DepositRequest> pendingDepositRequests = [];
+  bool showP2pAdminPanel = false;
+  String? activeP2pDepositId;
+  DepositRequest? activeP2pDepositRequest;
+  Timer? p2pPollTimer;
+
+  // P2P Withdrawal State
+  String selectedWithdrawRail = 'manual_p2p'; // 'manual_p2p' | 'solana'
+  String selectedP2pWithdrawMethod = 'GCash'; // 'GCash' | 'Maya'
+  String p2pWithdrawAccountName = '';
+  String p2pWithdrawAccountNumber = '';
+  String p2pWithdrawQrUrl = '';
+  List<int>? p2pWithdrawQrBytes;
+  String? p2pWithdrawQrFileName;
+  bool isSubmittingP2pWithdraw = false;
+  String? activeP2pWithdrawalId;
+  WithdrawalRequest? activeP2pWithdrawalRequest;
+  Timer? p2pWithdrawPollTimer;
+  List<WithdrawalRequest> pendingWithdrawalRequests = [];
+  String selectedPaymentMethod = 'solana';
   String selectedSolanaCurrency = 'SOL'; // 'SOL' or 'USDT'
   double solToPhpRate = 8500.0;
   double usdToPhpRate = 57.0; // fallback USD-PHP rate for USDT
@@ -310,6 +411,11 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Chat ─────────────────────────────────────────────────────
   bool showChat = false;
   String currentChatId = '';
+  String currentChatTitle = '';
+  String currentChatStatus = '';
+  bool currentChatIsArchived = false;
+  String currentChatClosedDate = '';
+  String currentChatCounterpartyName = '';
   List<Map<String, dynamic>> chatMessages = [];
   String chatInputText = '';
   bool chatPiiBlocked = false;
@@ -361,6 +467,52 @@ class TranyxAppState extends State<TranyxApp> {
     return activeCount == 0;
   }
 
+  bool get isCurrentJobTrackingActive {
+    if (activeTab != AppTab.jobs || jobsView != JobsView.details) return false;
+    final job = selectedJobData;
+    if (job == null) return false;
+
+    final catName = (job['category'] as String? ?? '').toLowerCase();
+    final cat = JobCategory.values.firstWhere(
+      (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
+      orElse: () => JobCategory.others,
+    );
+    final hasTracker = job['hasTracker'] == true || job['hasTracker'] == 'true' || cat.hasTracker;
+    if (!hasTracker) return false;
+
+    if (job['pickupLat'] == null || job['destinationLat'] == null) return false;
+
+    final acceptedId = job['acceptedApplicantId'] as String?;
+    final bool isHired = acceptedId != null && acceptedId.trim().isNotEmpty;
+    if (!isHired) return false;
+
+    final status = (job['status'] as String? ?? '').toLowerCase();
+    const ongoingStatuses = {
+      'in progress',
+      'in_progress',
+      'ongoing',
+      'heading_to_pickup',
+      'arrived_pickup',
+      'paid_cashier',
+      'in_transit',
+      'arrived_dropoff',
+    };
+    if (!ongoingStatuses.contains(status)) return false;
+
+    final currentUid = userProfile?.uid ?? SessionStorage.uid;
+    if (currentUid == null || currentUid.isEmpty) return false;
+
+    final creatorId = job['creatorId'] as String? ?? job['userId'] as String?;
+    final isNyxian = creatorId != currentUid;
+    if (isNyxian) {
+      if (currentUid != acceptedId) return false;
+    } else {
+      if (currentUid != creatorId) return false;
+    }
+
+    return true;
+  }
+
   Map<String, dynamic>? get firstActiveJob {
     final uid = SessionStorage.uid;
     if (uid == null) return null;
@@ -389,9 +541,11 @@ class TranyxAppState extends State<TranyxApp> {
     final lowerMsg = message.toLowerCase();
     if (lowerTitle.contains('401') ||
         lowerTitle.contains('not logged in') ||
+        lowerTitle.contains('auth/id-token-expired') ||
         lowerMsg.contains('401') ||
         lowerMsg.contains('not logged in') ||
-        lowerMsg.contains('id-token-expired')) {
+        lowerMsg.contains('id-token-expired') ||
+        lowerMsg.contains('auth/id-token-expired')) {
       triggerSessionExpired();
       return;
     }
@@ -408,6 +562,10 @@ class TranyxAppState extends State<TranyxApp> {
     });
   }
 
+  void alertDialog(String title, String message) {
+    showAppToast(title, message);
+  }
+
   void exitJobDetails() {
     setState(() {
       jobsView = JobsView.list;
@@ -416,7 +574,21 @@ class TranyxAppState extends State<TranyxApp> {
       selectedJobCreatorProfile = null;
       acceptedApplicantProfile = null;
       showDeleteConfirm = false;
+      showEditJobModal = false;
+      showJobOrderDetails = false;
       _stopSelectedJobRealtime();
+    });
+  }
+
+  void openEditJobModal() {
+    setState(() {
+      showEditJobModal = true;
+    });
+  }
+
+  void closeEditJobModal() {
+    setState(() {
+      showEditJobModal = false;
     });
   }
 
@@ -424,10 +596,10 @@ class TranyxAppState extends State<TranyxApp> {
     stopListeningToJobDetailsJs();
     listenToJobDetailsJs(jobId, (String jsonString) {
       try {
-        final Map<String, dynamic> data = jsonDecode(jsonString);
+        final data = jsonDecode(jsonString) as Map;
         final String type = data['type'] as String;
         if (type == 'job') {
-          final Map<String, dynamic> fresh = data['data'] as Map<String, dynamic>;
+          final Map<String, dynamic> fresh = Map<String, dynamic>.from(data['data'] as Map);
           setState(() {
             if (selectedJobData != null && selectedJobData!['id'] == fresh['id']) {
               selectedJobData = {...selectedJobData!, ...fresh};
@@ -467,6 +639,7 @@ class TranyxAppState extends State<TranyxApp> {
                 urgency: urgency,
                 status: status,
                 applicants: applicants,
+                acceptedApplicantId: fresh['acceptedApplicantId'] as String? ?? selectedJob?.acceptedApplicantId,
               );
             }
 
@@ -476,7 +649,7 @@ class TranyxAppState extends State<TranyxApp> {
           });
         } else if (type == 'applications') {
           final List<dynamic> rawApps = data['data'] as List? ?? [];
-          final apps = rawApps.map((e) => e as Map<String, dynamic>).toList();
+          final apps = rawApps.map((e) => Map<String, dynamic>.from(e as Map)).toList();
           setState(() {
             jobApplicants = apps;
           });
@@ -530,19 +703,11 @@ class TranyxAppState extends State<TranyxApp> {
     pendingQrJobId = SessionStorage.pendingQrJobId;
     pendingQrCode = SessionStorage.pendingQrCode;
 
-    // Load any pending Xendit invoice details from SessionStorage
-    pendingXenditInvoiceId = SessionStorage.pendingXenditInvoiceId;
-    if (pendingXenditInvoiceId != null) {
-      depositAmount = SessionStorage.pendingXenditInvoiceAmount;
-      pendingPropertyBookingData = SessionStorage.pendingPropertyBookingData;
-      pendingVehicleBookingData = SessionStorage.pendingVehicleBookingData;
-      pendingJobId = SessionStorage.pendingJobId;
-      pendingApplicantData = SessionStorage.pendingApplicantData;
-    }
-
     fetchSolToPhpRate();
     _loadOfflineLocationBuffer();
     _initUserLocation();
+    _startListeningRentals();
+    _startListeningProperties();
     final startTime = DateTime.now();
     void scheduleDismissal() {
       final elapsed = DateTime.now().difference(startTime);
@@ -619,9 +784,7 @@ class TranyxAppState extends State<TranyxApp> {
       } else {
         setState(() {
           locationErrorCode = res.errorCode;
-          locationStatusMessage = res.errorCode == 1
-              ? 'Permission Denied'
-              : (res.error ?? 'GPS Inactive');
+          locationStatusMessage = res.errorCode == 1 ? 'Permission Denied' : (res.error ?? 'GPS Inactive');
         });
       }
     } catch (_) {}
@@ -654,9 +817,7 @@ class TranyxAppState extends State<TranyxApp> {
         setState(() {
           isDetectingLocation = false;
           locationErrorCode = res.errorCode;
-          locationStatusMessage = res.errorCode == 1
-              ? 'Permission Denied'
-              : (res.error ?? 'Unable to detect GPS.');
+          locationStatusMessage = res.errorCode == 1 ? 'Permission Denied' : (res.error ?? 'Unable to detect GPS.');
         });
         if (res.errorCode == 1) {
           showAppToast(
@@ -666,7 +827,8 @@ class TranyxAppState extends State<TranyxApp> {
         } else {
           showAppToast(
             'Location Access',
-            res.error ?? 'Could not retrieve GPS coordinates. Please ensure location access is allowed in your browser settings.',
+            res.error ??
+                'Could not retrieve GPS coordinates. Please ensure location access is allowed in your browser settings.',
           );
         }
       }
@@ -681,45 +843,158 @@ class TranyxAppState extends State<TranyxApp> {
 
   /// Restore a previous session from localStorage
   Future<void> _restoreSession() async {
-    final storedType = SessionStorage.accountType;
-    AccountType type = AccountType.employer;
-    if (storedType != null) {
-      type = AccountType.values.firstWhere(
-        (e) => e.name == storedType,
-        orElse: () => AccountType.employer,
-      );
-    }
-
-    setState(() {
-      isAuthenticated = true;
-      accountType = type;
-      hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-      userName = SessionStorage.displayName ?? '';
-      userEmail = SessionStorage.email ?? '';
-    });
-
-    // Load full profile from Firestore
-    await loadUserProfile();
-    if (userProfile == null) {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    final refreshToken = SessionStorage.refreshToken;
+    if (uid == null || (token == null && refreshToken == null)) {
+      SessionStorage.clear();
       setState(() {
-        activeTab = AppTab.profile;
-        profileView = ProfileView.personal;
+        isAuthenticated = false;
+        userProfile = null;
+        authView = AuthView.login;
       });
+      return;
     }
-    // Load jobs for current tab
-    await loadJobs();
-    await loadTransactions();
-    await loadRenterPendingRequests();
-    await loadHostPendingRequests();
-    _startListeningNotifications();
-    _startListeningJobs();
-    _startListeningRentals();
-    _startListeningProperties();
-    await handleQrVerificationParams();
 
-    // Auto-execute pending QR verification if one exists and we are logged in
-    if (pendingQrJobId != null && pendingQrCode != null) {
-      await executePendingQrVerification();
+    try {
+      if (refreshToken != null) {
+        try {
+          final refreshed = await _auth.refreshIdToken(refreshToken);
+          SessionStorage.updateIdToken(refreshed);
+        } catch (_) {}
+      }
+
+      final tokenNow = SessionStorage.idToken;
+      final svc = FirestoreService(tokenNow, _handleTokenRefresh);
+      UserProfile? profile;
+      for (int attempt = 0; attempt < 3; attempt++) {
+        profile = await svc.getUser(uid);
+        if (profile != null) break;
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
+
+      if (profile == null) {
+        final storedName = SessionStorage.displayName ?? 'User';
+        final storedEmail = SessionStorage.email ?? '';
+        final storedTypeStr = SessionStorage.accountType;
+        final storedType = storedTypeStr != null
+            ? AccountType.values.firstWhere(
+                (e) => e.name == storedTypeStr,
+                orElse: () => AccountType.employer,
+              )
+            : AccountType.employer;
+        final storedPhoto = SessionStorage.photoUrl;
+
+        final fallbackProfile = UserProfile(
+          uid: uid,
+          name: storedName,
+          email: storedEmail,
+          accountType: storedType,
+          photoUrl: storedPhoto,
+          tyxBalance: 0.0,
+        );
+        // Persist profile to Firestore non-destructively so future reads succeed
+        svc.createOrUpdate('users/$uid', fallbackProfile.toMap()).catchError((_) {});
+        profile = fallbackProfile;
+      }
+
+      final prof = profile;
+      final type = prof.accountType;
+      final resolvedName = (prof.name.isNotEmpty && prof.name != 'User')
+          ? prof.name
+          : (SessionStorage.displayName ?? (userName.isNotEmpty && userName != 'User' ? userName : prof.name));
+      final resolvedPhoto = prof.photoUrl ?? userPhotoUrl ?? SessionStorage.photoUrl;
+
+      SessionStorage.saveProfile(
+        name: resolvedName,
+        email: prof.email,
+        accountType: type.name,
+        photoUrl: resolvedPhoto,
+      );
+
+      final savedTabName = SessionStorage.activeTab;
+      AppTab restoredTab = AppTab.home;
+      if (savedTabName != null) {
+        restoredTab = AppTab.values.firstWhere(
+          (t) => t.name == savedTabName,
+          orElse: () => AppTab.home,
+        );
+      }
+
+      setState(() {
+        isAuthenticated = true;
+        userProfile = prof;
+        userName = resolvedName;
+        userEmail = prof.email;
+        userPhotoUrl = resolvedPhoto;
+        accountType = type;
+        hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+        activeTab = restoredTab;
+      });
+
+      initializeProfileEditing();
+      // Load jobs for current tab
+      await loadJobs();
+      await loadTransactions();
+      await loadRenterPendingRequests();
+      await loadHostPendingRequests();
+      await checkActivePendingP2pOrders();
+      _startP2pHeartbeat();
+      _startListeningNotifications();
+      _startListeningJobs();
+      _startAllRentalAndPropertyListeners(uid);
+      await handleQrVerificationParams();
+      checkAndTriggerWalkthrough();
+
+      // Auto-execute pending QR verification if one exists and we are logged in
+      if (pendingQrJobId != null && pendingQrCode != null) {
+        await executePendingQrVerification();
+      }
+    } catch (e) {
+      print('Notice restoring session: $e');
+      final storedName = SessionStorage.displayName ?? 'User';
+      final storedEmail = SessionStorage.email ?? '';
+      final storedTypeStr = SessionStorage.accountType;
+      final storedType = storedTypeStr != null
+          ? AccountType.values.firstWhere(
+              (e) => e.name == storedTypeStr,
+              orElse: () => AccountType.employer,
+            )
+          : AccountType.employer;
+      final storedPhoto = SessionStorage.photoUrl;
+
+      final fallbackProfile = UserProfile(
+        uid: uid,
+        name: storedName,
+        email: storedEmail,
+        accountType: storedType,
+        photoUrl: storedPhoto,
+        tyxBalance: 0.0,
+      );
+
+      final savedTabName = SessionStorage.activeTab;
+      AppTab restoredTab = AppTab.home;
+      if (savedTabName != null) {
+        restoredTab = AppTab.values.firstWhere(
+          (t) => t.name == savedTabName,
+          orElse: () => AppTab.home,
+        );
+      }
+
+      setState(() {
+        isAuthenticated = true;
+        userProfile = fallbackProfile;
+        accountType = storedType;
+        hybridToggle = storedType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+        userName = storedName;
+        userEmail = storedEmail;
+        userPhotoUrl = storedPhoto;
+        activeTab = restoredTab;
+      });
+
+      loadJobs().catchError((_) {});
+      loadTransactions().catchError((_) {});
+      _startListeningJobs();
     }
   }
 
@@ -762,23 +1037,53 @@ class TranyxAppState extends State<TranyxApp> {
             isAuthLoading = false;
           });
         } else {
-          if (profile.googleEmail == null || profile.googleEmail!.isEmpty) {
+          var userProf = profile;
+          final updates = <String, dynamic>{};
+          if (userProf.googleEmail == null || userProf.googleEmail!.isEmpty) {
+            updates['googleEmail'] = authResult.email;
+            userProf = userProf.copyWith(googleEmail: authResult.email);
+          }
+          if ((userProf.photoUrl == null || userProf.photoUrl!.isEmpty) && authResult.photoUrl != null && authResult.photoUrl!.isNotEmpty) {
+            updates['photoUrl'] = authResult.photoUrl;
+            userProf = userProf.copyWith(photoUrl: authResult.photoUrl);
+          }
+          if ((userProf.name.isEmpty || userProf.name == 'User') && authResult.displayName != null && authResult.displayName!.isNotEmpty) {
+            updates['name'] = authResult.displayName;
+            userProf = userProf.copyWith(name: authResult.displayName);
+          }
+          if (updates.isNotEmpty) {
             await FirestoreService(
               authResult.idToken,
               _handleTokenRefresh,
-            ).setDocument('users/${authResult.uid}', {'googleEmail': authResult.email});
-            profile = profile.copyWith(googleEmail: authResult.email);
+            ).setDocument('users/${authResult.uid}', updates);
           }
-          final type = profile.accountType;
+          final type = userProf.accountType;
           SessionStorage.saveProfile(
-            name: profile.name,
-            email: profile.email,
+            name: userProf.name,
+            email: userProf.email,
             accountType: type.name,
           );
-          await _restoreSession();
           setState(() {
+            isAuthenticated = true;
+            userProfile = userProf;
+            userName = userProf.name;
+            userEmail = userProf.email;
+            userPhotoUrl = userProf.photoUrl ?? authResult.photoUrl;
+            accountType = type;
+            hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
             isAuthLoading = false;
+            authView = AuthView.login;
           });
+
+          initializeProfileEditing();
+          await loadJobs();
+          await loadTransactions();
+          await loadRenterPendingRequests();
+          await loadHostPendingRequests();
+          _startListeningNotifications();
+          _startListeningJobs();
+          _startAllRentalAndPropertyListeners(userProf.uid);
+          await handleQrVerificationParams();
         }
       } else {
         handleQrVerificationParams();
@@ -845,7 +1150,7 @@ class TranyxAppState extends State<TranyxApp> {
     listenToNotificationsJs(uid, (String jsonString) {
       try {
         final List<dynamic> rawList = jsonDecode(jsonString);
-        final parsed = rawList.map((e) => e as Map<String, dynamic>).toList();
+        final parsed = rawList.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         parsed.sort((notifA, notifB) => (notifB['createdAt'] as num? ?? 0).compareTo(notifA['createdAt'] as num? ?? 0));
 
         setState(() {
@@ -934,12 +1239,27 @@ class TranyxAppState extends State<TranyxApp> {
 
     listenToJobsJs(uid, (String jsonString) {
       try {
-        final Map<String, dynamic> data = jsonDecode(jsonString);
+        final data = jsonDecode(jsonString) as Map;
         final String type = data['type'] as String;
         final List<dynamic> rawJobs = data['jobs'] as List? ?? [];
-        final parsed = rawJobs.map((e) => e as Map<String, dynamic>).toList();
+        final parsed = rawJobs.map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
         setState(() {
+          if (type == 'open_jobs') {
+            if (currentViewMode == AccountType.nyxian) {
+              availableJobs = parsed.where((j) {
+                final ct = (j['creatorType'] as String? ?? '').toLowerCase();
+                return ct == 'employer' || ct.isEmpty;
+              }).toList();
+            } else {
+              availableJobs = parsed.where((j) {
+                final ct = (j['creatorType'] as String? ?? '').toLowerCase();
+                return ct == 'nyxian';
+              }).toList();
+            }
+            return;
+          }
+
           if (type == 'employer') {
             realtimeEmployerJobs = parsed;
           } else {
@@ -994,8 +1314,15 @@ class TranyxAppState extends State<TranyxApp> {
             (j) {
               if (j == null) return false;
               final s = (j['status'] as String?)?.toLowerCase();
-              final isParty = (currentUid != null && (j['creatorId'] == currentUid || j['acceptedApplicantId'] == currentUid));
-              return isParty && s != null && s != 'open' && s != 'completed' && s != 'cancelled' && s != 'held' && s != 'pending';
+              final isParty =
+                  (currentUid != null && (j['creatorId'] == currentUid || j['acceptedApplicantId'] == currentUid));
+              return isParty &&
+                  s != null &&
+                  s != 'open' &&
+                  s != 'completed' &&
+                  s != 'cancelled' &&
+                  s != 'held' &&
+                  s != 'pending';
             },
             orElse: () => null,
           );
@@ -1021,7 +1348,7 @@ class TranyxAppState extends State<TranyxApp> {
     listenToRentalsJs((String jsonString) {
       try {
         final List<dynamic> raw = jsonDecode(jsonString);
-        final parsed = raw.map((e) => e as Map<String, dynamic>).toList();
+        final parsed = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         setState(() {
           realtimeRentals = parsed;
         });
@@ -1031,13 +1358,149 @@ class TranyxAppState extends State<TranyxApp> {
     });
   }
 
+  void _startListeningRenterRequests(String uid) {
+    listenToRenterRequestsJs(uid, (String jsonString) {
+      try {
+        final List<dynamic> raw = jsonDecode(jsonString);
+        final parsed = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final pending = <Map<String, dynamic>>[];
+        final active = <Map<String, dynamic>>[];
+
+        for (final r in parsed) {
+          final st = (r['status'] ?? '').toString().toLowerCase();
+          if (st == 'pending') {
+            pending.add(r);
+          } else if (st == 'approved' ||
+              st == 'awaiting signature' ||
+              st == 'booked' ||
+              st == 'on the way to rentee' ||
+              st == 'ongoing' ||
+              st == 'active' ||
+              st == 'returning') {
+            final isUpcoming = st == 'approved' || st == 'awaiting signature' || st == 'booked';
+            final endMs = getEpochMs(r['endDate']);
+            if (isUpcoming && endMs > 0 && endMs <= nowMs) {
+              // Past booking whose scheduled end time elapsed - exclude from active/upcoming
+              continue;
+            }
+            active.add(r);
+          }
+        }
+
+        setState(() {
+          renterPendingRequests = pending;
+          renterActiveBookings = active;
+        });
+      } catch (e) {
+        print('Error parsing realtime renter requests: $e');
+      }
+    });
+  }
+
+  void _startListeningPropertyRenterRequests(String uid) {
+    listenToPropertyRenterRequestsJs(uid, (String jsonString) {
+      try {
+        final List<dynamic> raw = jsonDecode(jsonString);
+        final parsed = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final pending = <Map<String, dynamic>>[];
+        final active = <Map<String, dynamic>>[];
+
+        for (final r in parsed) {
+          final st = (r['status'] ?? '').toString().toLowerCase();
+          if (st == 'pending') {
+            pending.add(r);
+          } else if (st == 'approved' ||
+              st == 'awaiting signature' ||
+              st == 'booked' ||
+              st == 'ongoing' ||
+              st == 'active' ||
+              st == 'returning' ||
+              st == 'occupied') {
+            final isUpcoming = st == 'approved' || st == 'awaiting signature' || st == 'booked';
+            final endMs = getEpochMs(r['endDate']);
+            if (isUpcoming && endMs > 0 && endMs <= nowMs) {
+              // Past lease whose scheduled end time elapsed - exclude from active/upcoming
+              continue;
+            }
+            active.add(r);
+          }
+        }
+
+        setState(() {
+          propertyRenterPendingRequests = pending;
+          propertyRenterActiveBookings = active;
+        });
+      } catch (e) {
+        print('Error parsing realtime property renter requests: $e');
+      }
+    });
+  }
+
+  void _startListeningHostRequests(String uid) {
+    listenToHostRequestsJs(uid, (String jsonString) {
+      try {
+        final List<dynamic> raw = jsonDecode(jsonString);
+        final parsed = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final pending = parsed.where((r) {
+          final st = (r['status'] ?? '').toString().toLowerCase();
+          return st == 'pending';
+        }).toList();
+
+        setState(() {
+          hostPendingRequests = pending;
+        });
+      } catch (e) {
+        print('Error parsing realtime host requests: $e');
+      }
+    });
+  }
+
+  void _startListeningPropertyHostRequests(String uid) {
+    listenToPropertyHostRequestsJs(uid, (String jsonString) {
+      try {
+        final List<dynamic> raw = jsonDecode(jsonString);
+        final parsed = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final pending = parsed.where((r) {
+          final st = (r['status'] ?? '').toString().toLowerCase();
+          return st == 'pending';
+        }).toList();
+
+        setState(() {
+          propertyHostPendingRequests = pending;
+        });
+      } catch (e) {
+        print('Error parsing realtime property host requests: $e');
+      }
+    });
+  }
+
+  void _startAllRentalAndPropertyListeners(String uid) {
+    _startListeningRentals();
+    _startListeningProperties();
+    _startListeningRenterRequests(uid);
+    _startListeningPropertyRenterRequests(uid);
+    _startListeningHostRequests(uid);
+    _startListeningPropertyHostRequests(uid);
+  }
+
+  void _stopAllRentalAndPropertyListeners() {
+    stopListeningToRentalsJs();
+    stopListeningToPropertiesJs();
+    stopListeningToRenterRequestsJs();
+    stopListeningToPropertyRenterRequestsJs();
+    stopListeningToHostRequestsJs();
+    stopListeningToPropertyHostRequestsJs();
+  }
+
   void _startListeningProperties() {
     listenToPropertiesJs((String jsonString) {
       try {
         final List<dynamic> raw = jsonDecode(jsonString);
         final parsed = raw.map((e) {
-          final map = e as Map<String, dynamic>;
-          final id = map['id'] ?? '';
+          final map = e as Map;
+          final id = map['id']?.toString() ?? '';
           return PropertyRental.fromMap(map, id);
         }).toList();
         setState(() {
@@ -1067,13 +1530,21 @@ class TranyxAppState extends State<TranyxApp> {
     final uid = SessionStorage.uid;
     if (uid == null) return;
     try {
+      final claimed = await _firestore.reconcilePendingEscrows(uid);
+      if (claimed > 0) {
+        await loadUserProfile();
+      }
       final results = await Future.wait([
         _firestore.getRenterPendingRequests(uid),
         _firestore.getPropertyPendingRequestsForRenter(uid),
+        _firestore.getRenterActiveBookings(uid),
+        _firestore.getPropertyRenterActiveBookings(uid),
       ]);
       setState(() {
         renterPendingRequests = results[0];
         propertyRenterPendingRequests = results[1];
+        renterActiveBookings = results[2];
+        propertyRenterActiveBookings = results[3];
       });
     } catch (e) {
       print('Error loading renter pending requests: $e');
@@ -1101,28 +1572,64 @@ class TranyxAppState extends State<TranyxApp> {
     final uid = SessionStorage.uid;
     if (uid == null) return;
     try {
-      // Silently run onboarding verification at startup
-      final token = SessionStorage.idToken;
-      if (token != null) {
-        final svc = FirestoreService(token, handleTokenRefresh);
-        await svc.checkAndAwardOnboardingQuests(uid);
-        await checkAndExpireSubscription(uid, svc);
+      final refreshToken = SessionStorage.refreshToken;
+      if (refreshToken != null) {
+        try {
+          final refreshed = await _auth.refreshIdToken(refreshToken);
+          SessionStorage.updateIdToken(refreshed);
+        } catch (_) {}
       }
 
-      final profile = await _firestore.getUser(uid);
+      // Silently run onboarding verification at startup
+      final token = SessionStorage.idToken;
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      if (token != null) {
+        await svc.checkAndAwardOnboardingQuests(uid);
+        await checkAndExpireSubscription(uid, svc);
+        try {
+          final claimed = await svc.reconcilePendingEscrows(uid);
+          if (claimed > 0) {
+            showAppToast(
+              'Escrow Reconciled',
+              '$claimed pending refund(s) credited to your wallet.',
+            );
+          }
+        } catch (_) {}
+      }
+
+      UserProfile? profile;
+      for (int attempt = 0; attempt < 3; attempt++) {
+        profile = await svc.getUser(uid);
+        if (profile != null) break;
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
+
       if (profile != null) {
+        final prof = profile;
+        final resolvedName = (prof.name.isNotEmpty && prof.name != 'User')
+            ? prof.name
+            : (SessionStorage.displayName ?? (userName.isNotEmpty && userName != 'User' ? userName : prof.name));
+        final resolvedPhoto = prof.photoUrl ?? userPhotoUrl ?? SessionStorage.photoUrl;
+
+        SessionStorage.saveProfile(
+          name: resolvedName,
+          email: prof.email,
+          accountType: prof.accountType.name,
+          photoUrl: resolvedPhoto,
+        );
         setState(() {
-          userProfile = profile;
-          userName = profile.name;
-          userEmail = profile.email;
-          userPhotoUrl = profile.photoUrl;
-          accountType = profile.accountType;
+          userProfile = prof;
+          userName = resolvedName;
+          userEmail = prof.email;
+          userPhotoUrl = resolvedPhoto;
+          accountType = prof.accountType;
           hybridToggle = accountType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
         });
+        initializeProfileEditing();
+        await loadKycSubmission();
+        await loadHoldbacks();
+        await checkActivePendingP2pOrders();
       }
-      initializeProfileEditing();
-      await loadKycSubmission();
-      await loadHoldbacks();
     } catch (_) {}
   }
 
@@ -1184,26 +1691,50 @@ class TranyxAppState extends State<TranyxApp> {
         await signInWithEmailAndPasswordJs(configMap, email, password);
       } catch (_) {}
 
-      // Load user profile from Firestore to get account type
-      final profile = await FirestoreService(result.idToken, _handleTokenRefresh).getUser(result.uid);
+      // Load user profile from Firestore to get account type (with retry to avoid race condition)
+      UserProfile? currentProfile;
+      final fsSvc = FirestoreService(result.idToken, _handleTokenRefresh);
+      for (int attempt = 0; attempt < 3; attempt++) {
+        currentProfile = await fsSvc.getUser(result.uid);
+        if (currentProfile != null) break;
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
 
-      final type = profile?.accountType ?? AccountType.employer;
+      final profile = currentProfile ??
+          UserProfile(
+            uid: result.uid,
+            name: result.displayName?.isNotEmpty == true ? result.displayName! : email.split('@').first,
+            email: email,
+            accountType: AccountType.employer,
+            createdAt: DateTime.now(),
+          );
+
+      final type = profile.accountType;
       SessionStorage.saveProfile(
-        name: profile?.name ?? result.displayName ?? email.split('@').first,
-        email: email,
+        name: profile.name.isNotEmpty && profile.name != 'User' ? profile.name : (result.displayName ?? email.split('@').first),
+        email: profile.email.isNotEmpty ? profile.email : email,
         accountType: type.name,
+        photoUrl: profile.photoUrl,
       );
 
       setState(() {
         isAuthenticated = true;
         accountType = type;
         hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-        userName = profile?.name ?? result.displayName ?? email.split('@').first;
-        userEmail = email;
+        userName = profile.name.isNotEmpty && profile.name != 'User'
+            ? profile.name
+            : (result.displayName ?? email.split('@').first);
+        userEmail = profile.email.isNotEmpty ? profile.email : email;
         userProfile = profile;
+        userPhotoUrl = profile.photoUrl;
         isAuthLoading = false;
         authView = AuthView.login;
       });
+
+      initializeProfileEditing();
+      checkAndTriggerWalkthrough();
+      await loadKycSubmission();
+      await loadHoldbacks();
 
       // If this sign-in was triggered after Phantom wallet recognition, link it
       if (pendingWalletPublicKey != null) {
@@ -1225,10 +1756,9 @@ class TranyxAppState extends State<TranyxApp> {
       await loadHostPendingRequests();
       _startListeningNotifications();
       _startListeningJobs();
-      _startListeningRentals();
-      _startListeningProperties();
+      _startAllRentalAndPropertyListeners(profile.uid);
       // Auto-connect Phantom wallet if already trusted by the browser
-      unawaited(autoConnectPhantomIfLinked(profile?.walletPublicKey));
+      unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
 
       if (pendingQrJobId != null && pendingQrCode != null) {
         await executePendingQrVerification();
@@ -1308,6 +1838,9 @@ class TranyxAppState extends State<TranyxApp> {
         activeTab = AppTab.home;
       });
 
+      // Launch walkthrough for new registered user
+      openWalkthroughModal();
+
       // Link Phantom wallet if present from sign-in flow
       if (pendingWalletPublicKey != null) {
         final walletKey = pendingWalletPublicKey!;
@@ -1326,8 +1859,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
-      _startListeningRentals();
-      _startListeningProperties();
+      _startAllRentalAndPropertyListeners(profile.uid);
 
       if (pendingQrJobId != null && pendingQrCode != null) {
         await executePendingQrVerification();
@@ -1412,12 +1944,24 @@ class TranyxAppState extends State<TranyxApp> {
         return;
       }
 
+      final updates = <String, dynamic>{};
       if (profile.googleEmail == null || profile.googleEmail!.isEmpty) {
+        updates['googleEmail'] = authResult.email;
+        profile = profile.copyWith(googleEmail: authResult.email);
+      }
+      if ((profile.photoUrl == null || profile.photoUrl!.isEmpty) && authResult.photoUrl != null && authResult.photoUrl!.isNotEmpty) {
+        updates['photoUrl'] = authResult.photoUrl;
+        profile = profile.copyWith(photoUrl: authResult.photoUrl);
+      }
+      if ((profile.name.isEmpty || profile.name == 'User') && authResult.displayName != null && authResult.displayName!.isNotEmpty) {
+        updates['name'] = authResult.displayName;
+        profile = profile.copyWith(name: authResult.displayName);
+      }
+      if (updates.isNotEmpty) {
         await FirestoreService(
           authResult.idToken,
           _handleTokenRefresh,
-        ).setDocument('users/${authResult.uid}', {'googleEmail': authResult.email});
-        profile = profile.copyWith(googleEmail: authResult.email);
+        ).setDocument('users/${authResult.uid}', updates);
       }
 
       final type = profile.accountType;
@@ -1431,12 +1975,15 @@ class TranyxAppState extends State<TranyxApp> {
         isAuthenticated = true;
         accountType = type;
         hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-        userName = profile?.name ?? 'Tranyx User';
-        userEmail = profile?.email ?? 'unknown@tranyx.app';
+        userName = profile!.name;
+        userEmail = profile.email;
         userProfile = profile;
+        userPhotoUrl = profile.photoUrl ?? authResult.photoUrl;
         isAuthLoading = false;
         authView = AuthView.login;
       });
+
+      initializeProfileEditing();
 
       if (pendingWalletPublicKey != null) {
         final walletKey = pendingWalletPublicKey!;
@@ -1455,8 +2002,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
-      _startListeningRentals();
-      _startListeningProperties();
+      _startAllRentalAndPropertyListeners(profile.uid);
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
 
       if (pendingQrJobId != null && pendingQrCode != null) {
@@ -1511,6 +2057,9 @@ class TranyxAppState extends State<TranyxApp> {
         activeTab = AppTab.home;
       });
 
+      initializeProfileEditing();
+      openWalkthroughModal();
+
       if (pendingWalletPublicKey != null) {
         final walletKey = pendingWalletPublicKey!;
         pendingWalletPublicKey = null;
@@ -1528,8 +2077,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadTransactions();
       _startListeningNotifications();
       _startListeningJobs();
-      _startListeningRentals();
-      _startListeningProperties();
+      _startAllRentalAndPropertyListeners(profile.uid);
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
 
       if (pendingQrJobId != null && pendingQrCode != null) {
@@ -1552,8 +2100,7 @@ class TranyxAppState extends State<TranyxApp> {
   void handleLogout() {
     SessionStorage.clear();
     stopListeningToJobsJs();
-    stopListeningToRentalsJs();
-    stopListeningToPropertiesJs();
+    _stopAllRentalAndPropertyListeners();
     unawaited(signOutJs());
     setState(() {
       isAuthenticated = false;
@@ -1641,8 +2188,15 @@ class TranyxAppState extends State<TranyxApp> {
         (j) {
           if (j == null) return false;
           final s = (j['status'] as String?)?.toLowerCase();
-          final isParty = (currentUid != null && (j['creatorId'] == currentUid || j['acceptedApplicantId'] == currentUid));
-          return isParty && s != null && s != 'open' && s != 'completed' && s != 'cancelled' && s != 'held' && s != 'pending';
+          final isParty =
+              (currentUid != null && (j['creatorId'] == currentUid || j['acceptedApplicantId'] == currentUid));
+          return isParty &&
+              s != null &&
+              s != 'open' &&
+              s != 'completed' &&
+              s != 'cancelled' &&
+              s != 'held' &&
+              s != 'pending';
         },
         orElse: () => null,
       );
@@ -1661,6 +2215,21 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  /// Returns true if the current user is an accepted worker on any job that is still ongoing/incomplete.
+  bool get hasOngoingNyxianJob {
+    final uid = userProfile?.uid ?? SessionStorage.uid;
+    if (uid == null || uid.isEmpty) return false;
+    return myJobs.any((j) {
+      if (j['acceptedApplicantId'] != uid) return false;
+      final s = (j['status'] as String? ?? '').trim().toLowerCase();
+      return s.isNotEmpty &&
+          s != 'completed' &&
+          s != 'cancelled' &&
+          s != 'admin_cancelled' &&
+          s != 'abandoned';
+    });
+  }
+
   void handleHomeSearch(String query) {
     if (query.trim().isEmpty) return;
     setState(() {
@@ -1672,23 +2241,25 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   bool checkProfanity(String text) {
-    if (text.isEmpty) return false;
-    final cleanText = text.toLowerCase();
-    final bannedWords = const [
+    if (text.trim().isEmpty) return false;
+    final bannedPhrases = const [
       'putang ina',
+      'tang ina',
       'tangina',
       'gago',
       'tarantado',
       'kupal',
       'puki',
-      'kiki',
       'puta',
       'pota',
       'bobo',
       'pakyu',
       'ulol',
       'salsal',
+      'kantot',
       'fuck',
+      'fucking',
+      'fucker',
       'shit',
       'asshole',
       'bitch',
@@ -1698,8 +2269,12 @@ class TranyxAppState extends State<TranyxApp> {
       'dick',
       'cock',
     ];
-    for (final word in bannedWords) {
-      if (cleanText.contains(word)) {
+    for (final phrase in bannedPhrases) {
+      final pattern = RegExp(
+        r'(^|[^\w])' + RegExp.escape(phrase) + r'([^\w]|$)',
+        caseSensitive: false,
+      );
+      if (pattern.hasMatch(text)) {
         return true;
       }
     }
@@ -1709,7 +2284,10 @@ class TranyxAppState extends State<TranyxApp> {
   Future<void> handlePostJob() async {
     final uid = SessionStorage.uid;
     final token = SessionStorage.idToken;
-    if (uid == null || token == null) return;
+    if (uid == null || token == null) {
+      triggerSessionExpired();
+      return;
+    }
 
     if (checkProfanity(newJobTitle) || checkProfanity(newJobDesc)) {
       setState(() {
@@ -1728,6 +2306,8 @@ class TranyxAppState extends State<TranyxApp> {
 
     final price = double.tryParse(priceRate) ?? 0.0;
 
+    if (isPostingJob) return;
+
     setState(() {
       isPostingJob = true;
       postJobError = null;
@@ -1737,35 +2317,112 @@ class TranyxAppState extends State<TranyxApp> {
       final svc = FirestoreService(token, _handleTokenRefresh);
 
       // 1. Check user balance first
-      final userDoc = await svc.getDocument('users/$uid');
-      if (userDoc == null) throw 'User profile not found';
+      var userDoc = await svc.getDocument('users/$uid');
+      if (userDoc == null) {
+        if (userProfile != null) {
+          try {
+            await svc.createOrUpdate('users/$uid', userProfile!.toMap());
+            userDoc = await svc.getDocument('users/$uid') ?? userProfile!.toMap();
+          } catch (_) {}
+        } else if (userName.isNotEmpty || userEmail.isNotEmpty) {
+          final newProfile = UserProfile(
+            uid: uid,
+            email: userEmail,
+            name: userName.isNotEmpty ? userName : 'User',
+            photoUrl: userPhotoUrl,
+            accountType: accountType,
+            tyxBalance: walletBalance,
+          );
+          try {
+            await svc.createOrUpdate('users/$uid', newProfile.toMap());
+            userProfile = newProfile;
+            userDoc = newProfile.toMap();
+          } catch (_) {}
+        }
+      }
+
+      if (userDoc == null) {
+        final fallbackProfile = UserProfile(
+          uid: uid,
+          email: userEmail.isNotEmpty ? userEmail : (SessionStorage.email ?? ''),
+          name: userName.isNotEmpty ? userName : (SessionStorage.displayName ?? 'User'),
+          photoUrl: userPhotoUrl ?? SessionStorage.photoUrl,
+          accountType: accountType,
+          tyxBalance: walletBalance,
+        );
+        userProfile = fallbackProfile;
+        userDoc = fallbackProfile.toMap();
+        try {
+          await svc.createOrUpdate('users/$uid', userDoc);
+        } catch (_) {}
+      }
+
+      final feeConfig = await svc.getPlatformFeeConfig();
+      final txFeeRate = feeConfig.transactionFeeRate;
+      final convFeeRate = feeConfig.convenienceFeeRate;
+      final serviceFeeRate = feeConfig.serviceFeeRate;
+      final markupRate = feeConfig.markupRate;
+      final commissionRate = feeConfig.commissionRate;
 
       final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+      final reservedBal = (userDoc['reservedBalance'] as num?)?.toDouble() ?? 0.0;
+      final availableBal = (currentBal - reservedBal).clamp(0.0, double.infinity);
       final discountedPrice = (price - jobDiscountAmount).clamp(0.0, 999999.0);
-      if (currentBal < discountedPrice) {
+
+      final employerFees = WalletSecurityHelper.calculateJobEmployerFees(
+        price: price,
+        discount: jobDiscountAmount,
+        txFeeRate: txFeeRate,
+        convFeeRate: convFeeRate,
+      );
+      final totalRequired = WalletSecurityHelper.calculateJobTotalEmployerCost(
+        price: price,
+        discount: jobDiscountAmount,
+        txFeeRate: txFeeRate,
+        convFeeRate: convFeeRate,
+      );
+
+      if (availableBal < totalRequired) {
         setState(() {
-          depositAmount = discountedPrice - currentBal;
+          depositAmount = (totalRequired - availableBal).clamp(0.0, double.infinity);
           showDepositModal = true;
           isPostingJob = false;
+          postJobError =
+              'Insufficient available balance. Required: ₱${totalRequired.toStringAsFixed(2)} (Gig: ₱${discountedPrice.toStringAsFixed(2)} + Fees: ₱${employerFees.toStringAsFixed(2)}), Available: ₱${availableBal.toStringAsFixed(2)}';
         });
         return;
       }
 
-      // 2. Sufficient balance: Deduct and Move to Escrow
-      await svc.createOrUpdate('users/$uid', {
-        ...userDoc,
-        'tyxBalance': currentBal - discountedPrice,
-      });
+      final now = DateTime.now();
+      final txId = 'job_escrow_${now.millisecondsSinceEpoch}';
+
+      // 2. Sufficient balance: Safely Deduct Full Employer Cost and Move to Escrow
+      final newBal = await svc.deductTyxBalanceSafely(
+        uid: uid,
+        amountToDeduct: totalRequired,
+        txId: txId,
+        title: 'Gig Escrow & Platform Fees',
+        description:
+            'Funded escrow for gig: "$newJobTitle" (₱${discountedPrice.toStringAsFixed(2)} gig payout + ₱${employerFees.toStringAsFixed(2)} fees)',
+        category: 'escrow_funding',
+        extraTxData: {
+          'jobPrice': price,
+          'discountedPrice': discountedPrice,
+          'employerFees': employerFees,
+          'totalRequired': totalRequired,
+          'transactionFeeRate': txFeeRate,
+          'convenienceFeeRate': convFeeRate,
+        },
+      );
 
       // Update local state balance
-      walletBalance = currentBal - discountedPrice;
+      walletBalance = newBal;
       if (userProfile != null) {
         userProfile = userProfile!.copyWith(
           tyxBalance: walletBalance,
         );
       }
 
-      final now = DateTime.now();
       final jobData = {
         'creatorId': uid,
         'creatorName': userName,
@@ -1798,6 +2455,13 @@ class TranyxAppState extends State<TranyxApp> {
         'applicantUids': <String>[],
         'hasTracker': hasTracker && locType == LocType.onsite,
         'hasInspectionHoldback': hasInspectionHoldback,
+        'transactionFeeRate': txFeeRate,
+        'convenienceFeeRate': convFeeRate,
+        'serviceFeeRate': serviceFeeRate,
+        'markupRate': markupRate,
+        'commissionRate': commissionRate,
+        'employerFees': employerFees,
+        'totalEscrowed': totalRequired,
         if (jobPromoCode != null) 'promoCode': jobPromoCode,
         if (jobPromoCode != null) 'discountAmount': jobDiscountAmount,
       };
@@ -1806,30 +2470,49 @@ class TranyxAppState extends State<TranyxApp> {
       final jobId = await svc.createJob(jobData);
 
       // Automatically add new job category/skills to employer's preferred skills list
-      final newSkill = selectedJobCategory?.name ?? JobCategory.others.name;
-      final currentSkills = List<String>.from(userProfile?.skills ?? []);
-      if (!currentSkills.contains(newSkill)) {
-        currentSkills.add(newSkill);
-        if (userProfile != null) {
-          final updatedProfile = userProfile!.copyWith(skills: currentSkills);
-          await svc.createOrUpdate('users/$uid', updatedProfile.toMap());
-          userProfile = updatedProfile;
+      try {
+        final newSkill = selectedJobCategory?.name ?? JobCategory.others.name;
+        final currentSkills = List<String>.from(userProfile?.skills ?? []);
+        if (!currentSkills.contains(newSkill)) {
+          currentSkills.add(newSkill);
+          if (userProfile != null) {
+            final updatedProfile = userProfile!.copyWith(skills: currentSkills);
+            await svc.setDocument('users/$uid', {'skills': currentSkills});
+            userProfile = updatedProfile;
+          }
         }
+      } catch (skillErr) {
+        print('Notice updating employer skills list: $skillErr');
       }
 
-      // Create escrow record with holdback metadata if chosen
-      await svc.createOrUpdate('escrow/$jobId', {
-        'amount': discountedPrice,
-        'employerId': uid,
-        'status': 'held',
-        'createdAt': now.millisecondsSinceEpoch,
-        'hasInspectionHoldback': hasInspectionHoldback,
-        if (hasInspectionHoldback) 'holdbackAmount': price * 0.10,
-      });
+      // Create escrow record with holdback metadata and pre-funded employer fees
+      try {
+        await svc.createOrUpdate('escrow/$jobId', {
+          'amount': discountedPrice,
+          'employerFees': employerFees,
+          'totalEscrowed': totalRequired,
+          'transactionFee': discountedPrice * txFeeRate,
+          'convenienceFee': discountedPrice * convFeeRate,
+          'transactionFeeRate': txFeeRate,
+          'convenienceFeeRate': convFeeRate,
+          'employerId': uid,
+          'creatorId': uid,
+          'status': 'held',
+          'createdAt': now.millisecondsSinceEpoch,
+          'hasInspectionHoldback': hasInspectionHoldback,
+          if (hasInspectionHoldback) 'holdbackAmount': price * 0.10,
+        });
+      } catch (escrowErr) {
+        print('Notice creating escrow record: $escrowErr');
+      }
 
       // Increment promo usage
       if (jobPromoCode != null) {
-        await svc.incrementPromoUsage(jobPromoCode!, uid);
+        try {
+          await svc.incrementPromoUsage(jobPromoCode!, uid);
+        } catch (promoErr) {
+          print('Notice incrementing promo usage: $promoErr');
+        }
       }
 
       // Add to sessionPostedJobs to display instantly on posting page
@@ -1865,8 +2548,16 @@ class TranyxAppState extends State<TranyxApp> {
 
       await loadJobs();
     } catch (e) {
+      final errStr = e.toString();
+      final lowerErr = errStr.toLowerCase();
+      if (lowerErr.contains('401') ||
+          lowerErr.contains('not logged in') ||
+          lowerErr.contains('id-token-expired') ||
+          lowerErr.contains('auth/id-token-expired')) {
+        triggerSessionExpired();
+      }
       setState(() {
-        postJobError = e.toString();
+        postJobError = errStr;
         isPostingJob = false;
         showDepositModal = false;
       });
@@ -1903,6 +2594,571 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  Future<void> submitManualP2pDeposit() async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) {
+      setState(() => postJobError = 'Please log in to submit a deposit request.');
+      return;
+    }
+
+    if (depositAmount < 100) {
+      setState(() => postJobError = 'Minimum deposit amount is ₱100.00');
+      return;
+    }
+
+    final cleanRef = p2pReferenceNumber.trim();
+    if (cleanRef.isEmpty) {
+      setState(() => postJobError = 'Please provide the payment reference number.');
+      return;
+    }
+
+    if (p2pProofBytes == null || p2pProofBytes!.isEmpty) {
+      setState(() => postJobError = 'Please upload your payment screenshot / receipt.');
+      return;
+    }
+
+    setState(() {
+      isSubmittingP2p = true;
+      postJobError = null;
+    });
+
+    try {
+      final imgService = ImgBBService(currentFirebaseConfig, idToken: token);
+      final uploadedUrl = await imgService.uploadImageBytes(
+        p2pProofBytes!,
+        p2pProofFileName ?? 'p2p_receipt.jpg',
+      );
+
+      if (uploadedUrl == null || uploadedUrl.isEmpty) {
+        throw 'Failed to upload receipt screenshot. Please try again.';
+      }
+
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      await svc.submitManualDepositRequest(
+        uid: uid,
+        userName: userProfile?.name ?? 'TRANYX User',
+        userEmail: userProfile?.email ?? '',
+        amount: depositAmount,
+        paymentMethod: selectedP2pMethod,
+        referenceNumber: cleanRef,
+        proofImageUrl: uploadedUrl,
+        agentId: activeP2pAgent.agentId,
+        agentName: activeP2pAgent.name,
+        agentQrUrl: selectedP2pMethod == 'GCash' ? activeP2pAgent.gcashQrUrl : activeP2pAgent.mayaQrUrl,
+      );
+
+      await loadTransactions();
+      await loadP2pAdminData();
+
+      setState(() {
+        isSubmittingP2p = false;
+        showDepositModal = false;
+        depositAmount = 0.0;
+        p2pReferenceNumber = '';
+        p2pProofBytes = null;
+        p2pProofFileName = null;
+      });
+    } catch (e) {
+      setState(() {
+        isSubmittingP2p = false;
+        postJobError = 'Submission failed: $e';
+      });
+    }
+  }
+
+  Future<void> loadP2pAdminData() async {
+    final token = SessionStorage.idToken;
+    final svc = FirestoreService(token, _handleTokenRefresh);
+    try {
+      final agent = await svc.getActiveP2pAgent();
+      final isAgentOrAdmin = userProfile?.isAdmin == true ||
+          userProfile?.role == 'admin' ||
+          userProfile?.role == 'staff' ||
+          userProfile?.role == 'agent' ||
+          userProfile?.role == 'p2p_agent';
+      if (isAgentOrAdmin) {
+        final reqs = await svc.fetchDepositRequests();
+        final withReqs = await svc.fetchP2pWithdrawalRequests();
+        setState(() {
+          activeP2pAgent = agent;
+          pendingDepositRequests = reqs;
+          pendingWithdrawalRequests = withReqs;
+        });
+      } else {
+        setState(() {
+          activeP2pAgent = agent;
+          pendingDepositRequests = [];
+          pendingWithdrawalRequests = [];
+        });
+      }
+    } catch (e) {
+      print('loadP2pAdminData error: $e');
+    }
+  }
+
+  Future<void> handleApproveDepositRequest(String depositRequestId) async {
+    final token = SessionStorage.idToken;
+    final adminUid = SessionStorage.uid ?? 'admin';
+    final svc = FirestoreService(token, _handleTokenRefresh);
+    await svc.approveDepositRequest(depositRequestId: depositRequestId, adminUid: adminUid);
+    await loadP2pAdminData();
+    await loadTransactions();
+    await loadUserProfile();
+  }
+
+  Future<void> handleRejectDepositRequest(String depositRequestId, String reason) async {
+    final token = SessionStorage.idToken;
+    final adminUid = SessionStorage.uid ?? 'admin';
+    final svc = FirestoreService(token, _handleTokenRefresh);
+    await svc.rejectDepositRequest(depositRequestId: depositRequestId, adminUid: adminUid, reason: reason);
+    await loadP2pAdminData();
+    await loadTransactions();
+  }
+
+  Future<void> requestP2pTopupOrder() async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) {
+      setState(() => postJobError = 'Please log in to submit a deposit request.');
+      return;
+    }
+
+    if (depositAmount < 100) {
+      setState(() => postJobError = 'Minimum deposit amount is ₱100.00');
+      return;
+    }
+
+    final activeDep = activeP2pDepositRequest;
+    if (activeDep != null &&
+        activeDep.status != 'APPROVED' &&
+        activeDep.status != 'CANCELLED' &&
+        activeDep.status != 'REJECTED') {
+      setState(() => postJobError = 'You already have an active P2P Top-up in progress. Please complete or cancel it first.');
+      return;
+    }
+
+    setState(() {
+      isSubmittingP2p = true;
+      postJobError = null;
+    });
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final reqId = await svc.requestP2pTopup(
+        uid: uid,
+        userName: userProfile?.name ?? 'TRANYX User',
+        userEmail: userProfile?.email ?? '',
+        amount: depositAmount,
+        paymentMethod: selectedP2pMethod,
+      );
+
+      final req = await svc.getDepositRequest(reqId);
+      setState(() {
+        activeP2pDepositId = reqId;
+        activeP2pDepositRequest = req;
+        isSubmittingP2p = false;
+      });
+
+      _startP2pOrderPolling(reqId);
+      await loadTransactions();
+      showAppToast('Request Sent', 'Payment agents have been notified to send their QR code.');
+    } catch (e) {
+      setState(() {
+        isSubmittingP2p = false;
+        postJobError = 'Request failed: $e';
+      });
+    }
+  }
+
+  void _startP2pOrderPolling(String depositRequestId) {
+    p2pPollTimer?.cancel();
+    p2pPollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+      final token = SessionStorage.idToken;
+      if (token == null || activeP2pDepositId != depositRequestId) {
+        p2pPollTimer?.cancel();
+        return;
+      }
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final req = await svc.getDepositRequest(depositRequestId);
+      if (req != null) {
+        setState(() {
+          activeP2pDepositRequest = req;
+        });
+        if (req.status == 'APPROVED' || req.status == 'REJECTED' || req.status == 'CANCELLED') {
+          p2pPollTimer?.cancel();
+          if (req.status == 'APPROVED') {
+            loadTransactions();
+            loadUserProfile();
+            showAppToast('Top-up Approved!', '₱${req.amount.toStringAsFixed(2)} has been credited to your balance.');
+          }
+        }
+      }
+    });
+  }
+
+  Future<void> submitPaymentProofForP2pOrder() async {
+    final token = SessionStorage.idToken;
+    if (activeP2pDepositId == null || token == null) return;
+
+    final cleanRef = p2pReferenceNumber.trim();
+    if (cleanRef.isEmpty) {
+      setState(() => postJobError = 'Please provide the payment reference number.');
+      return;
+    }
+
+    if (p2pProofBytes == null || p2pProofBytes!.isEmpty) {
+      setState(() => postJobError = 'Please upload your payment screenshot / receipt.');
+      return;
+    }
+
+    setState(() {
+      isSubmittingP2p = true;
+      postJobError = null;
+    });
+
+    try {
+      final imgService = ImgBBService(currentFirebaseConfig, idToken: token);
+      final uploadedUrl = await imgService.uploadImageBytes(
+        p2pProofBytes!,
+        p2pProofFileName ?? 'p2p_receipt.jpg',
+      );
+
+      if (uploadedUrl == null || uploadedUrl.isEmpty) {
+        throw 'Failed to upload receipt screenshot. Please try again.';
+      }
+
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      await svc.submitDepositProof(
+        depositRequestId: activeP2pDepositId!,
+        referenceNumber: cleanRef,
+        proofImageUrl: uploadedUrl,
+      );
+
+      final req = await svc.getDepositRequest(activeP2pDepositId!);
+      setState(() {
+        isSubmittingP2p = false;
+        activeP2pDepositRequest = req;
+        p2pReferenceNumber = '';
+        p2pProofBytes = null;
+        p2pProofFileName = null;
+      });
+      showAppToast('Proof Submitted', 'Agent has been notified and will verify your receipt.');
+    } catch (e) {
+      setState(() {
+        isSubmittingP2p = false;
+        postJobError = 'Submission failed: $e';
+      });
+    }
+  }
+
+  Future<void> handleAgentSendQr({
+    required String depositRequestId,
+    required String agentAccountName,
+    required String agentAccountNumber,
+    required String agentQrUrl,
+  }) async {
+    final token = SessionStorage.idToken;
+    final agentUid = SessionStorage.uid ?? 'official_agent';
+    final svc = FirestoreService(token, _handleTokenRefresh);
+
+    await svc.agentAcceptAndSendQr(
+      depositRequestId: depositRequestId,
+      agentId: agentUid,
+      agentName: activeP2pAgent.name,
+      agentAccountName: agentAccountName,
+      agentAccountNumber: agentAccountNumber,
+      agentQrUrl: agentQrUrl,
+    );
+
+    await loadP2pAdminData();
+    showAppToast('QR Code Sent', 'QR code and account details dispatched to user.');
+  }
+
+  Future<void> handleCancelP2pOrder(String depositRequestId) async {
+    final token = SessionStorage.idToken;
+    final svc = FirestoreService(token, _handleTokenRefresh);
+    await svc.cancelDepositRequest(depositRequestId);
+    p2pPollTimer?.cancel();
+    setState(() {
+      activeP2pDepositId = null;
+      activeP2pDepositRequest = null;
+      showDepositModal = false;
+    });
+    showAppToast('Order Cancelled', 'Deposit request has been cancelled.');
+  }
+
+  Future<void> requestP2pWithdrawalOrder({
+    required double amount,
+    required String paymentMethod,
+    required String userAccountName,
+    required String userAccountNumber,
+    String userQrUrl = '',
+  }) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) {
+      setState(() => postJobError = 'Please log in to submit a withdrawal request.');
+      return;
+    }
+
+    if (amount < 100) {
+      setState(() => postJobError = 'Minimum withdrawal amount is ₱100.00');
+      return;
+    }
+
+    final tyxBal = userProfile?.tyxBalance ?? 0.0;
+    if (amount > tyxBal) {
+      setState(() => postJobError = 'Requested amount exceeds your available balance.');
+      return;
+    }
+
+    final activeWith = activeP2pWithdrawalRequest;
+    if (activeWith != null &&
+        activeWith.status != 'APPROVED' &&
+        activeWith.status != 'CANCELLED' &&
+        activeWith.status != 'REJECTED') {
+      setState(() => postJobError = 'You already have an active P2P Cashout in progress. Please wait for it to complete or cancel it first.');
+      return;
+    }
+
+    setState(() {
+      isSubmittingP2pWithdraw = true;
+      postJobError = null;
+    });
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final reqId = await svc.requestP2pWithdrawal(
+        uid: uid,
+        userName: userProfile?.name ?? 'TRANYX User',
+        userEmail: userProfile?.email ?? '',
+        amount: amount,
+        paymentMethod: paymentMethod,
+        userAccountName: userAccountName,
+        userAccountNumber: userAccountNumber,
+        userQrUrl: userQrUrl,
+      );
+
+      final req = await svc.getP2pWithdrawalRequest(reqId);
+      setState(() {
+        activeP2pWithdrawalId = reqId;
+        activeP2pWithdrawalRequest = req;
+        isSubmittingP2pWithdraw = false;
+      });
+
+      _startP2pWithdrawalPolling(reqId);
+      await loadTransactions();
+      await loadUserProfile();
+      showAppToast('Cashout Requested', 'P2P Agents have been notified to fulfill your $paymentMethod payout.');
+    } catch (e) {
+      setState(() {
+        isSubmittingP2pWithdraw = false;
+        postJobError = 'Withdrawal request failed: $e';
+      });
+    }
+  }
+
+  void _startP2pWithdrawalPolling(String withdrawalRequestId) {
+    p2pWithdrawPollTimer?.cancel();
+    p2pWithdrawPollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+      final token = SessionStorage.idToken;
+      if (token == null || activeP2pWithdrawalId != withdrawalRequestId) {
+        p2pWithdrawPollTimer?.cancel();
+        return;
+      }
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final req = await svc.getP2pWithdrawalRequest(withdrawalRequestId);
+      if (req != null) {
+        setState(() {
+          activeP2pWithdrawalRequest = req;
+        });
+        if (req.status == 'APPROVED' || req.status == 'REJECTED' || req.status == 'CANCELLED') {
+          p2pWithdrawPollTimer?.cancel();
+          if (req.status == 'APPROVED') {
+            loadTransactions();
+            loadUserProfile();
+            showAppToast('Cashout Completed!', '₱${req.amount.toStringAsFixed(2)} has been successfully paid out.');
+          } else if (req.status == 'CANCELLED' || req.status == 'REJECTED') {
+            loadTransactions();
+            loadUserProfile();
+            showAppToast('Cashout Refunded', '₱${req.amount.toStringAsFixed(2)} has been returned to your balance.');
+          }
+        }
+      }
+    });
+  }
+
+  Timer? _p2pBackgroundHeartbeat;
+
+  void _startP2pHeartbeat() {
+    _p2pBackgroundHeartbeat?.cancel();
+    _p2pBackgroundHeartbeat = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (isAuthenticated) {
+        checkActivePendingP2pOrders();
+      }
+    });
+  }
+
+  Future<void> checkActivePendingP2pOrders() async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final deposits = await svc.fetchUserDepositRequests(uid);
+      DepositRequest? pendingDep;
+      for (final d in deposits) {
+        final st = d.status.toUpperCase();
+        if (st == 'WAITING_FOR_AGENT' || st == 'AWAITING_PAYMENT' || st == 'PENDING_VERIFICATION') {
+          pendingDep = d;
+          break;
+        }
+      }
+
+      if (pendingDep != null) {
+        if (activeP2pDepositId != pendingDep.id || activeP2pDepositRequest?.status != pendingDep.status) {
+          activeP2pDepositId = pendingDep.id;
+          activeP2pDepositRequest = pendingDep;
+          _startP2pOrderPolling(pendingDep.id);
+        }
+      } else if (activeP2pDepositRequest != null &&
+          (activeP2pDepositRequest!.status == 'APPROVED' ||
+              activeP2pDepositRequest!.status == 'CANCELLED' ||
+              activeP2pDepositRequest!.status == 'REJECTED')) {
+        if (!showDepositModal) {
+          activeP2pDepositId = null;
+          activeP2pDepositRequest = null;
+          p2pPollTimer?.cancel();
+        }
+      }
+
+      final withdrawals = await svc.fetchUserP2pWithdrawalRequests(uid);
+      WithdrawalRequest? pendingWith;
+      for (final w in withdrawals) {
+        final isSolana = w.paymentMethod.toLowerCase().contains('solana');
+        if (isSolana) continue; // Solana is direct on-chain crypto, not a manual P2P agent request!
+
+        final st = w.status.toUpperCase();
+        if (st == 'WAITING_FOR_AGENT' || st == 'PENDING_REVIEW' || st == 'PENDING' || st == 'AWAITING_AGENT_PAYMENT' || st == 'PENDING_CONFIRMATION') {
+          pendingWith = w;
+          break;
+        }
+      }
+
+      if (pendingWith != null) {
+        if (activeP2pWithdrawalId != pendingWith.id || activeP2pWithdrawalRequest?.status != pendingWith.status) {
+          activeP2pWithdrawalId = pendingWith.id;
+          activeP2pWithdrawalRequest = pendingWith;
+          _startP2pWithdrawalPolling(pendingWith.id);
+        }
+      } else if (activeP2pWithdrawalRequest != null &&
+          (activeP2pWithdrawalRequest!.status == 'APPROVED' ||
+              activeP2pWithdrawalRequest!.status == 'CANCELLED' ||
+              activeP2pWithdrawalRequest!.status == 'REJECTED')) {
+        if (!showWithdrawModal) {
+          activeP2pWithdrawalId = null;
+          activeP2pWithdrawalRequest = null;
+          p2pWithdrawPollTimer?.cancel();
+        }
+      }
+
+      if (mounted) setState(() {});
+    } catch (e) {
+      print('checkActivePendingP2pOrders error: $e');
+    }
+  }
+
+  Future<void> handleAgentClaimWithdrawalOrder(String withdrawalRequestId) async {
+    final token = SessionStorage.idToken;
+    final agentUid = SessionStorage.uid ?? 'official_agent';
+    final svc = FirestoreService(token, _handleTokenRefresh);
+
+    await svc.agentClaimP2pWithdrawal(
+      withdrawalRequestId: withdrawalRequestId,
+      agentId: agentUid,
+      agentName: activeP2pAgent.name,
+      agentPhone: activeP2pAgent.phone,
+    );
+
+    await loadP2pAdminData();
+    showAppToast('Order Claimed', 'You have claimed this cashout order. Please transfer payment to user.');
+  }
+
+  Future<void> handleAgentSubmitWithdrawalProof({
+    required String withdrawalRequestId,
+    required String referenceNumber,
+    required String proofImageUrl,
+  }) async {
+    final token = SessionStorage.idToken;
+    final svc = FirestoreService(token, _handleTokenRefresh);
+
+    await svc.submitWithdrawalProof(
+      withdrawalRequestId: withdrawalRequestId,
+      referenceNumber: referenceNumber,
+      proofImageUrl: proofImageUrl,
+    );
+
+    await loadP2pAdminData();
+    showAppToast('Payout Proof Dispatched', 'Proof and reference sent. Awaiting user confirmation.');
+  }
+
+  Future<void> handleConfirmP2pWithdrawalReceived(String withdrawalRequestId) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid ?? 'user';
+    final svc = FirestoreService(token, _handleTokenRefresh);
+
+    await svc.confirmP2pWithdrawalCompleted(
+      withdrawalRequestId: withdrawalRequestId,
+      confirmedByUid: uid,
+    );
+
+    p2pWithdrawPollTimer?.cancel();
+    setState(() {
+      activeP2pWithdrawalId = null;
+      activeP2pWithdrawalRequest = null;
+      showWithdrawModal = false;
+    });
+
+    await loadTransactions();
+    await loadUserProfile();
+    showAppToast('Withdrawal Confirmed', 'Thank you for confirming receipt of your funds.');
+  }
+
+  Future<void> handleCancelP2pWithdrawal(String withdrawalRequestId) async {
+    final token = SessionStorage.idToken;
+    final svc = FirestoreService(token, _handleTokenRefresh);
+    await svc.cancelP2pWithdrawalRequest(withdrawalRequestId);
+    p2pWithdrawPollTimer?.cancel();
+    setState(() {
+      activeP2pWithdrawalId = null;
+      activeP2pWithdrawalRequest = null;
+      showWithdrawModal = false;
+    });
+    await loadTransactions();
+    await loadUserProfile();
+    showAppToast('Cashout Cancelled', 'Your withdrawal was cancelled and funds refunded to your balance.');
+  }
+
+  Future<void> handleRejectWithdrawalRequest(String withdrawalRequestId, String reason) async {
+    final token = SessionStorage.idToken;
+    final adminUid = SessionStorage.uid ?? 'admin';
+    final svc = FirestoreService(token, _handleTokenRefresh);
+    await svc.rejectP2pWithdrawalOrder(withdrawalRequestId: withdrawalRequestId, adminUid: adminUid, reason: reason);
+    await loadP2pAdminData();
+    await loadTransactions();
+    await loadUserProfile();
+    showAppToast('Withdrawal Rejected', 'Request rejected and funds refunded to user.');
+  }
+
+  Future<void> handleSaveP2pAgentSettings(P2pAgent agent) async {
+    final token = SessionStorage.idToken;
+    final svc = FirestoreService(token, _handleTokenRefresh);
+    await svc.saveP2pAgent(agent);
+    setState(() => activeP2pAgent = agent);
+    await loadP2pAdminData();
+  }
+
   Future<void> processSolanaPayment(double amountInSol) async {
     final uid = SessionStorage.uid;
     final token = SessionStorage.idToken;
@@ -1923,21 +3179,36 @@ class TranyxAppState extends State<TranyxApp> {
         throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
-      var fromPubKey = userProfile?.walletPublicKey;
-      if (fromPubKey == null || fromPubKey.trim().isEmpty) {
-        fromPubKey = await connectSolanaWallet(activeWalletType);
-        if (fromPubKey == null) {
-          throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
-        }
-        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
-          uid,
-          fromPubKey,
-          refreshToken: SessionStorage.refreshToken,
-        );
+      final connectedPubKey = await connectSolanaWallet(activeWalletType);
+      if (connectedPubKey == null || connectedPubKey.trim().isEmpty) {
+        throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection in your wallet popup.';
       }
 
+      // Check cross-account conflict: is this wallet already linked to another Tranyx account?
+      final linkData = await FirestoreService().getWalletLink(connectedPubKey);
+      if (linkData != null) {
+        final existingUid = linkData['uid'] as String?;
+        if (existingUid != null && existingUid != uid) {
+          throw 'This Solana wallet ($connectedPubKey) is already linked to another Tranyx account.';
+        }
+      }
+
+      final profileWallet = userProfile?.walletPublicKey;
+      if (profileWallet == null || profileWallet.trim().isEmpty || profileWallet != connectedPubKey) {
+        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
+          uid,
+          connectedPubKey,
+          refreshToken: SessionStorage.refreshToken,
+        );
+        await loadUserProfile();
+      }
+
+      final fromPubKey = connectedPubKey;
+
       // 2. Platform target Solana address
-      const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
+      final adminSolanaAddress = Env.solanaPublicKey.isNotEmpty
+          ? Env.solanaPublicKey
+          : '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
 
       // 3. Initiate the transfer transaction
       final signature = await sendSolanaPayment(fromPubKey, adminSolanaAddress, amountInSol);
@@ -2014,6 +3285,10 @@ class TranyxAppState extends State<TranyxApp> {
           durationType: data['durationType'] as String,
           multiplier: data['multiplier'] as int,
           totalCost: (data['totalCost'] as num).toDouble(),
+          baseRentAmount: (data['baseRentAmount'] as num?)?.toDouble(),
+          securityDepositAmount: (data['securityDepositAmount'] as num?)?.toDouble(),
+          customerPlatformFeeRate: (data['customerPlatformFeeRate'] as num?)?.toDouble(),
+          hostCommissionRate: (data['hostCommissionRate'] as num?)?.toDouble(),
           contractType: data['contractType'] as String,
           contractTerms: data['contractTerms'] as String,
           startDate: data['startDate'] as int,
@@ -2074,21 +3349,34 @@ class TranyxAppState extends State<TranyxApp> {
         throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
-      var fromPubKey = userProfile?.walletPublicKey;
-      if (fromPubKey == null || fromPubKey.trim().isEmpty) {
-        fromPubKey = await connectSolanaWallet(activeWalletType);
-        if (fromPubKey == null) {
-          throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
-        }
-        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
-          uid,
-          fromPubKey,
-          refreshToken: SessionStorage.refreshToken,
-        );
+      final connectedPubKey = await connectSolanaWallet(activeWalletType);
+      if (connectedPubKey == null || connectedPubKey.trim().isEmpty) {
+        throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection in your wallet popup.';
       }
 
+      // Check cross-account conflict
+      final linkData = await FirestoreService().getWalletLink(connectedPubKey);
+      if (linkData != null) {
+        final existingUid = linkData['uid'] as String?;
+        if (existingUid != null && existingUid != uid) {
+          throw 'This Solana wallet ($connectedPubKey) is already linked to another Tranyx account.';
+        }
+      }
+
+      final profileWallet = userProfile?.walletPublicKey;
+      if (profileWallet == null || profileWallet.trim().isEmpty || profileWallet != connectedPubKey) {
+        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
+          uid,
+          connectedPubKey,
+          refreshToken: SessionStorage.refreshToken,
+        );
+        await loadUserProfile();
+      }
+
+      final fromPubKey = connectedPubKey;
+
       // 2. Platform target Solana address
-      const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
+      final adminSolanaAddress = Env.solanaPublicKey;
 
       // 3. Initiate the transfer transaction
       final signature = await sendSolanaPayment(fromPubKey, adminSolanaAddress, amountInSol);
@@ -2111,10 +3399,19 @@ class TranyxAppState extends State<TranyxApp> {
           'isPremium': true,
           'premiumUntil': premiumUntil.millisecondsSinceEpoch,
           'accountType': 'hybrid',
+          'subscriptionPlan': subType,
+          'subscriptionStartedAt': now.millisecondsSinceEpoch,
+          'subscriptionPaymentMethod': 'Solana (SOL)',
+          'subscriptionPaymentAmount': phpPrice,
+          'subscriptionTxId': signature,
+          'subscriptionStatus': 'active',
+          'pendingSubscription': null,
         };
 
         await svc.createOrUpdate('users/$uid', updatedProfile);
 
+        accountType = AccountType.hybrid;
+        SessionStorage.saveProfile(accountType: 'hybrid');
         if (userProfile != null) {
           userProfile = UserProfile.fromMap(uid, updatedProfile);
         }
@@ -2132,6 +3429,7 @@ class TranyxAppState extends State<TranyxApp> {
           'solanaAmount': amountInSol,
           'createdAt': DateTime.now().millisecondsSinceEpoch,
           'type': 'subscription',
+          'kind': 'subscription',
         });
 
         await loadTransactions();
@@ -2144,6 +3442,217 @@ class TranyxAppState extends State<TranyxApp> {
         isDepositing = false;
       });
       unawaited(handleRefreshBalance());
+    }
+  }
+
+  Future<void> processTyxbitSubscriptionPayment(String subType) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) {
+      setState(() => postJobError = 'Please log in to make a payment.');
+      return;
+    }
+
+    final double price = subType == 'yearly' ? 2999.0 : 299.0;
+    final currentTyx = userProfile?.availableBalance ?? 0.0;
+    if (currentTyx < price) {
+      throw 'Insufficient available Tyxbit balance. Required: ₱${price.toStringAsFixed(0)}, Available: ₱${currentTyx.toStringAsFixed(2)}';
+    }
+
+    setState(() {
+      isDepositing = true;
+      postJobError = null;
+    });
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final now = DateTime.now();
+      final txId = 'sub_tyx_${now.millisecondsSinceEpoch}';
+
+      final newBalance = await svc.deductTyxBalanceSafely(
+        uid: uid,
+        amountToDeduct: price,
+        txId: txId,
+        title: 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
+        description: 'Subscribed via Tyxbit Balance (₱${price.toStringAsFixed(0)})',
+        category: 'subscription',
+        extraTxData: {
+          'subscriptionPlan': subType,
+          'method': 'Tyxbit',
+          'kind': 'subscription',
+        },
+      );
+
+      final userDoc = await svc.getDocument('users/$uid') ?? {};
+      final premiumUntil = subType == 'yearly'
+          ? now.add(const Duration(days: 365))
+          : now.add(const Duration(days: 30));
+
+      final updatedProfile = {
+        ...userDoc,
+        'tyxBalance': newBalance,
+        'isPremium': true,
+        'premiumUntil': premiumUntil.millisecondsSinceEpoch,
+        'accountType': 'hybrid',
+        'subscriptionPlan': subType,
+        'subscriptionStartedAt': now.millisecondsSinceEpoch,
+        'subscriptionPaymentMethod': 'Tyxbit Balance',
+        'subscriptionPaymentAmount': price,
+        'subscriptionTxId': txId,
+        'subscriptionStatus': 'active',
+        'pendingSubscription': null,
+      };
+
+      await svc.createOrUpdate('users/$uid', updatedProfile);
+
+      accountType = AccountType.hybrid;
+      SessionStorage.saveProfile(accountType: 'hybrid');
+      walletBalance = newBalance;
+      if (userProfile != null) {
+        userProfile = UserProfile.fromMap(uid, updatedProfile);
+      }
+
+      await loadTransactions();
+    } catch (e) {
+      setState(() => postJobError = e.toString());
+      rethrow;
+    } finally {
+      setState(() {
+        isDepositing = false;
+      });
+      unawaited(handleRefreshBalance());
+    }
+  }
+
+  Future<void> processCashSubscriptionPayment(String subType, {String? referenceNumber}) async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) {
+      setState(() => postJobError = 'Please log in to make a payment.');
+      return;
+    }
+
+    final double price = subType == 'yearly' ? 2999.0 : 299.0;
+    final refId = (referenceNumber != null && referenceNumber.trim().isNotEmpty)
+        ? referenceNumber.trim()
+        : 'P2P-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+
+    setState(() {
+      isDepositing = true;
+      postJobError = null;
+    });
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final userDoc = await svc.getDocument('users/$uid') ?? <String, dynamic>{};
+      final now = DateTime.now();
+      final txId = 'sub_p2p_${now.millisecondsSinceEpoch}';
+
+      final pendingData = {
+        'plan': subType,
+        'amount': price,
+        'method': 'Cash (P2P)',
+        'referenceNumber': refId,
+        'status': 'PENDING_VERIFICATION',
+        'createdAt': now.millisecondsSinceEpoch,
+        'txId': txId,
+      };
+
+      final updatedProfile = {
+        ...userDoc,
+        'pendingSubscription': pendingData,
+      };
+
+      await svc.createOrUpdate('users/$uid', updatedProfile);
+
+      // Record transaction
+      await svc.createOrUpdate('transactions/$txId', {
+        'uid': uid,
+        'title': 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
+        'desc': 'Cash (P2P) Reference: $refId - Awaiting Agent Verification',
+        'amount': price,
+        'status': 'Pending',
+        'method': 'Cash',
+        'referenceNumber': refId,
+        'txId': txId,
+        'createdAt': now.millisecondsSinceEpoch,
+        'type': 'subscription',
+        'kind': 'subscription',
+      });
+
+      if (userProfile != null) {
+        userProfile = UserProfile.fromMap(uid, updatedProfile);
+      }
+
+      await loadTransactions();
+    } catch (e) {
+      setState(() => postJobError = e.toString());
+      rethrow;
+    } finally {
+      setState(() {
+        isDepositing = false;
+      });
+    }
+  }
+
+  Future<void> approveCashSubscription(String targetUid) async {
+    final token = SessionStorage.idToken;
+    if (token == null) return;
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final userDoc = await svc.getDocument('users/$targetUid');
+      if (userDoc == null) return;
+
+      final pending = userDoc['pendingSubscription'] as Map?;
+      final plan = pending?['plan'] as String? ?? 'monthly';
+      final amount = (pending?['amount'] as num?)?.toDouble() ?? (plan == 'yearly' ? 2999.0 : 299.0);
+      final refId = pending?['referenceNumber'] as String? ?? 'P2P-VERIFIED';
+      final txId = pending?['txId'] as String?;
+
+      final now = DateTime.now();
+      final premiumUntil = plan == 'yearly'
+          ? now.add(const Duration(days: 365))
+          : now.add(const Duration(days: 30));
+
+      final updatedProfile = {
+        ...userDoc,
+        'isPremium': true,
+        'premiumUntil': premiumUntil.millisecondsSinceEpoch,
+        'accountType': 'hybrid',
+        'subscriptionPlan': plan,
+        'subscriptionStartedAt': now.millisecondsSinceEpoch,
+        'subscriptionPaymentMethod': 'Cash (P2P)',
+        'subscriptionPaymentAmount': amount,
+        'subscriptionTxId': refId,
+        'subscriptionStatus': 'active',
+        'pendingSubscription': null,
+      };
+
+      await svc.createOrUpdate('users/$targetUid', updatedProfile);
+
+      if (txId != null) {
+        final txDoc = await svc.getDocument('transactions/$txId');
+        if (txDoc != null) {
+          await svc.createOrUpdate('transactions/$txId', {
+            ...txDoc,
+            'status': 'Successful',
+            'verifiedAt': now.millisecondsSinceEpoch,
+          });
+        }
+      }
+
+      if (targetUid == SessionStorage.uid) {
+        accountType = AccountType.hybrid;
+        SessionStorage.saveProfile(accountType: 'hybrid');
+        if (userProfile != null) {
+          userProfile = UserProfile.fromMap(targetUid, updatedProfile);
+        }
+        await loadTransactions();
+      }
+    } catch (e) {
+      print('Error approving cash subscription: $e');
+      rethrow;
     }
   }
 
@@ -2166,20 +3675,35 @@ class TranyxAppState extends State<TranyxApp> {
         throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
-      var fromPubKey = userProfile?.walletPublicKey;
-      if (fromPubKey == null || fromPubKey.trim().isEmpty) {
-        fromPubKey = await connectSolanaWallet(activeWalletType);
-        if (fromPubKey == null) {
-          throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection.';
-        }
-        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
-          uid,
-          fromPubKey,
-          refreshToken: SessionStorage.refreshToken,
-        );
+      final connectedPubKey = await connectSolanaWallet(activeWalletType);
+      if (connectedPubKey == null || connectedPubKey.trim().isEmpty) {
+        throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection in your wallet popup.';
       }
 
-      const adminSolanaAddress = '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
+      // Check cross-account conflict
+      final linkData = await FirestoreService().getWalletLink(connectedPubKey);
+      if (linkData != null) {
+        final existingUid = linkData['uid'] as String?;
+        if (existingUid != null && existingUid != uid) {
+          throw 'This Solana wallet ($connectedPubKey) is already linked to another Tranyx account.';
+        }
+      }
+
+      final profileWallet = userProfile?.walletPublicKey;
+      if (profileWallet == null || profileWallet.trim().isEmpty || profileWallet != connectedPubKey) {
+        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
+          uid,
+          connectedPubKey,
+          refreshToken: SessionStorage.refreshToken,
+        );
+        await loadUserProfile();
+      }
+
+      final fromPubKey = connectedPubKey;
+
+      final adminSolanaAddress = Env.solanaPublicKey.isNotEmpty
+          ? Env.solanaPublicKey
+          : '4zMMC4mCK23ccaJ2rbzn36gkJr2cT6w9P5BmgFniS59D';
 
       // Auto-detect if user holds a USDT token, and use that mint if present
       String? customMint;
@@ -2262,6 +3786,10 @@ class TranyxAppState extends State<TranyxApp> {
           durationType: data['durationType'] as String,
           multiplier: data['multiplier'] as int,
           totalCost: (data['totalCost'] as num).toDouble(),
+          baseRentAmount: (data['baseRentAmount'] as num?)?.toDouble(),
+          securityDepositAmount: (data['securityDepositAmount'] as num?)?.toDouble(),
+          customerPlatformFeeRate: (data['customerPlatformFeeRate'] as num?)?.toDouble(),
+          hostCommissionRate: (data['hostCommissionRate'] as num?)?.toDouble(),
           contractType: data['contractType'] as String,
           contractTerms: data['contractTerms'] as String,
           startDate: data['startDate'] as int,
@@ -2302,243 +3830,8 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
-  String? pendingXenditInvoiceId;
   String? pendingJobId;
   Map<String, dynamic>? pendingApplicantData;
-  bool isVerifyingPayment = false;
-
-  Future<void> createXenditInvoice() async {
-    final uid = SessionStorage.uid;
-    if (uid == null) return;
-
-    if (depositAmount <= 0) {
-      setState(() {
-        postJobError = 'Please enter a valid amount.';
-      });
-      return;
-    }
-
-    setState(() {
-      isDepositing = true;
-      postJobError = null;
-    });
-
-    try {
-      final apiKey = Env.get('XENDIT_SECRET_KEY');
-      final basicAuth = base64Encode(utf8.encode('$apiKey:'));
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-
-      final response = await http.post(
-        Uri.parse('https://api.xendit.co/v2/invoices'),
-        headers: {
-          'Authorization': 'Basic $basicAuth',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'external_id': 'topup_${uid}_$timestamp',
-          'amount': depositAmount.round(), // Xendit requires integer amounts (PHP)
-          'payer_email': userName.isNotEmpty
-              ? '$userName@example.com'.replaceAll(' ', '').toLowerCase()
-              : 'user@example.com',
-          'description': 'Tyxbit Top-up for $userName',
-        }),
-      );
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final data = jsonDecode(response.body);
-        final invoiceUrl = data['invoice_url'] as String?;
-        final invoiceId = data['id'] as String?;
-
-        if (invoiceUrl != null && invoiceId != null) {
-          SessionStorage.pendingXenditInvoiceId = invoiceId;
-          SessionStorage.pendingXenditInvoiceAmount = depositAmount;
-          SessionStorage.pendingPropertyBookingData = pendingPropertyBookingData;
-          SessionStorage.pendingVehicleBookingData = pendingVehicleBookingData;
-          SessionStorage.pendingJobId = pendingJobId;
-          SessionStorage.pendingApplicantData = pendingApplicantData;
-
-          openUrl(invoiceUrl);
-          setState(() {
-            isDepositing = false;
-            pendingXenditInvoiceId = invoiceId;
-          });
-        } else {
-          setState(() {
-            isDepositing = false;
-            postJobError = 'Failed to get invoice URL.';
-          });
-        }
-      } else {
-        setState(() {
-          isDepositing = false;
-          postJobError = 'Xendit Invoice Creation Failed: ${response.statusCode}';
-        });
-      }
-    } catch (e) {
-      setState(() {
-        isDepositing = false;
-        postJobError = 'Top-up failed: $e';
-      });
-    }
-  }
-
-  Future<void> verifyXenditPayment() async {
-    final uid = SessionStorage.uid;
-    final token = SessionStorage.idToken;
-    final invoiceId = pendingXenditInvoiceId;
-    if (uid == null || token == null || invoiceId == null) return;
-
-    setState(() => isVerifyingPayment = true);
-
-    try {
-      final apiKey = Env.get('XENDIT_SECRET_KEY');
-      final basicAuth = base64Encode(utf8.encode('$apiKey:'));
-
-      final checkRes = await http.get(
-        Uri.parse('https://api.xendit.co/v2/invoices/$invoiceId'),
-        headers: {'Authorization': 'Basic $basicAuth'},
-      );
-
-      if (checkRes.statusCode == 200) {
-        final checkData = jsonDecode(checkRes.body);
-        final status = checkData['status'];
-        if (status == 'PAID' || status == 'SETTLED') {
-          print("PAID XENDIT!");
-          // Update Firebase
-          final svc = FirestoreService(token, _handleTokenRefresh);
-          final userDoc = await svc.getDocument('users/$uid');
-          if (userDoc != null) {
-            final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            final newBal = currentBal + depositAmount;
-            await svc.createOrUpdate('users/$uid', {
-              ...userDoc,
-              'tyxBalance': newBal,
-            });
-            walletBalance = newBal;
-            if (userProfile != null) {
-              userProfile = UserProfile.fromMap(uid, {
-                ...userDoc,
-                'tyxBalance': newBal,
-              });
-            }
-
-            // Record transaction history
-            await svc.createOrUpdate('transactions/deposit_$invoiceId', {
-              'uid': uid,
-              'title': 'Wallet Top-Up',
-              'desc': 'Fiat deposit via Xendit',
-              'amount': depositAmount,
-              'status': 'Successful',
-              'method': 'Xendit',
-              'createdAt': DateTime.now().millisecondsSinceEpoch,
-              'type': 'deposit',
-            });
-
-            // Reload history if needed
-            await loadTransactions();
-
-            // Award deposit onboarding quest if eligible
-            unawaited(svc.awardPointsIfEligible(uid, 'deposit_any_amount'));
-          }
-
-          SessionStorage.pendingXenditInvoiceId = null;
-          SessionStorage.pendingXenditInvoiceAmount = 0.0;
-          SessionStorage.pendingPropertyBookingData = null;
-          SessionStorage.pendingVehicleBookingData = null;
-          SessionStorage.pendingJobId = null;
-          SessionStorage.pendingApplicantData = null;
-
-          setState(() {
-            isVerifyingPayment = false;
-            pendingXenditInvoiceId = null;
-            showDepositModal = false;
-          });
-
-          // Finalize job posting or bookings
-          if (newJobTitle.isNotEmpty) {
-            await handlePostJob();
-          } else if (pendingJobId != null && pendingApplicantData != null) {
-            final jId = pendingJobId!;
-            final aData = pendingApplicantData!;
-            pendingJobId = null;
-            pendingApplicantData = null;
-            await acceptApplicant(jId, aData);
-          } else if (pendingPropertyBookingData != null) {
-            final data = pendingPropertyBookingData!;
-            pendingPropertyBookingData = null;
-            await firestore.createPropertyBookingRequest(
-              propertyId: data['propertyId'] as String,
-              renteeId: uid,
-              renteeName: userProfile!.name,
-              renteePhotoUrl: userProfile!.photoUrl,
-              durationType: data['durationType'] as String,
-              multiplier: data['multiplier'] as int,
-              totalCost: (data['totalCost'] as num).toDouble(),
-              contractType: data['contractType'] as String,
-              contractTerms: data['contractTerms'] as String,
-              startDate: data['startDate'] as int,
-              endDate: data['endDate'] as int,
-              licenseNumber: data['licenseNumber'] as String? ?? '',
-              promoCode: data['promoCode'] as String?,
-              discountAmount: data['discountAmount'] == null ? null : (data['discountAmount'] as num).toDouble(),
-            );
-          } else if (pendingVehicleBookingData != null) {
-            final data = pendingVehicleBookingData!;
-            pendingVehicleBookingData = null;
-            await firestore.createBookingRequest(
-              rentalId: data['rentalId'] as String,
-              renteeId: uid,
-              renteeName: userProfile!.name,
-              renteePhotoUrl: userProfile!.photoUrl,
-              durationType: data['durationType'] as String,
-              multiplier: data['multiplier'] as int,
-              licenseNumber: data['licenseNumber'] as String,
-              totalCost: (data['totalCost'] as num).toDouble(),
-              hireWithDriver: data['hireWithDriver'] as bool,
-              rentalType: data['rentalType'] as String,
-              deliveryAddress: data['deliveryAddress'] as String?,
-              deliveryLat: data['deliveryLat'] == null ? null : (data['deliveryLat'] as num).toDouble(),
-              deliveryLng: data['deliveryLng'] == null ? null : (data['deliveryLng'] as num).toDouble(),
-              startDate: data['startDate'] as int,
-              endDate: data['endDate'] as int,
-              promoCode: data['promoCode'] as String?,
-              discountAmount: data['discountAmount'] == null ? null : (data['discountAmount'] as num).toDouble(),
-            );
-            loadRenterPendingRequests();
-          }
-        } else if (status == 'EXPIRED') {
-          SessionStorage.pendingXenditInvoiceId = null;
-          SessionStorage.pendingXenditInvoiceAmount = 0.0;
-          SessionStorage.pendingPropertyBookingData = null;
-          SessionStorage.pendingVehicleBookingData = null;
-          SessionStorage.pendingJobId = null;
-          SessionStorage.pendingApplicantData = null;
-
-          setState(() {
-            isVerifyingPayment = false;
-            pendingXenditInvoiceId = null;
-            postJobError = 'Invoice has expired. Please try again.';
-          });
-        } else {
-          setState(() {
-            isVerifyingPayment = false;
-            postJobError = 'Payment not completed yet. Status: $status';
-          });
-        }
-      } else {
-        setState(() {
-          isVerifyingPayment = false;
-          postJobError = 'Failed to verify payment status.';
-        });
-      }
-    } catch (e, s) {
-      print("ERROR $e $s");
-      setState(() {
-        isVerifyingPayment = false;
-        postJobError = 'Verification error: $e';
-      });
-    }
-  }
 
   Future<void> handleWithdrawTyx() async {
     final uid = SessionStorage.uid;
@@ -2685,18 +3978,22 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() {
       selectedJobData = jobMap;
       selectedJob = SelectedJob(
+        id: jobMap['id'] as String?,
         title: title,
         rate: rate,
         distance: '—',
         urgency: urgency,
         status: status,
         applicants: applicants,
+        createdAt: jobMap['createdAt'],
+        acceptedApplicantId: jobMap['acceptedApplicantId'] as String?,
       );
       selectedJobImageCarouselIndex = 0;
       activeTab = AppTab.jobs;
       jobsView = JobsView.details;
       jobQuestions = [];
       this.hasTracker = hasTracker;
+      showJobOrderDetails = false;
     });
 
     // Load questions
@@ -2849,12 +4146,38 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   // ── Chat Actions ──────────────────────────────────────────────
-  void openChat(String chatId) {
+  void openChat(
+    String chatId, {
+    String? title,
+    String? status,
+    bool? isArchived,
+    String? closedDate,
+    String? counterpartyName,
+  }) {
     final uid = SessionStorage.uid;
     if (uid == null || chatId.isEmpty) return;
 
-    // Check if chatting is allowed for vehicle rentals
-    if (chatId.startsWith('rental_')) {
+    // Detect if chat belongs to a closed transaction automatically if not passed
+    bool archived = isArchived ?? false;
+    String chatTitle = title ?? '';
+    String chatStatus = status ?? '';
+    String closeDateStr = closedDate ?? '';
+
+    if (!archived) {
+      // Check jobs list
+      final job = myJobs.firstWhere((j) => j['id'] == chatId, orElse: () => <String, dynamic>{});
+      if (job.isNotEmpty) {
+        if (chatTitle.isEmpty) chatTitle = job['title'] as String? ?? '';
+        final st = (job['status'] as String? ?? '').toLowerCase();
+        if (chatStatus.isEmpty) chatStatus = job['status'] as String? ?? '';
+        if (st == 'completed' || st == 'complete' || st == 'cancelled' || st == 'expired' || st == 'closed' || st == 'done') {
+          archived = true;
+        }
+      }
+    }
+
+    // Check if chatting is allowed for vehicle rentals (only if active)
+    if (!archived && chatId.startsWith('rental_')) {
       final parts = chatId.split('_');
       if (parts.length >= 2) {
         final rentalId = parts[1];
@@ -2873,8 +4196,8 @@ class TranyxAppState extends State<TranyxApp> {
       }
     }
 
-    // Check if chatting is allowed for properties
-    if (chatId.startsWith('property_')) {
+    // Check if chatting is allowed for properties (only if active)
+    if (!archived && chatId.startsWith('property_')) {
       final parts = chatId.split('_');
       if (parts.length >= 2) {
         final propertyId = parts[1];
@@ -2917,6 +4240,11 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() {
       showChat = true;
       currentChatId = chatId;
+      currentChatTitle = chatTitle;
+      currentChatStatus = chatStatus;
+      currentChatIsArchived = archived;
+      currentChatClosedDate = closeDateStr;
+      currentChatCounterpartyName = counterpartyName ?? '';
       chatMessages = [];
       chatInputText = '';
       chatPiiBlocked = false;
@@ -2954,15 +4282,26 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() {
       showChat = false;
       currentChatId = '';
+      currentChatTitle = '';
+      currentChatStatus = '';
+      currentChatIsArchived = false;
+      currentChatClosedDate = '';
+      currentChatCounterpartyName = '';
       chatMessages = [];
       chatInputText = '';
       chatPiiBlocked = false;
+      chatDisintermediationBlocked = false;
     });
   }
 
   void sendChatMessage() {
     final uid = SessionStorage.uid;
     if (uid == null || currentChatId.isEmpty || chatInputText.trim().isEmpty) return;
+
+    if (currentChatIsArchived) {
+      print('Message blocked: This conversation is archived.');
+      return;
+    }
 
     if (isChatLocked || MessageViolationTracker.isMessagingLocked(uid)) {
       setState(() => isChatLocked = true);
@@ -3109,6 +4448,7 @@ class TranyxAppState extends State<TranyxApp> {
           if (userDoc != null) {
             copy['isBonded'] = userDoc['isBonded'] as bool? ?? false;
             copy['certificationUrls'] = userDoc['certificationUrls'];
+            copy['abandonedJobs'] = (userDoc['abandonedJobs'] as num?)?.toInt() ?? 0;
           }
         }
         enrichedApps.add(copy);
@@ -3143,68 +4483,108 @@ class TranyxAppState extends State<TranyxApp> {
           final rate = (appData['proposalRate'] as num).toDouble();
           final originalPrice = (jobDoc['pricingValue'] as num).toDouble();
 
-          if (rate > originalPrice) {
-            final diff = rate - originalPrice;
+          final txFeeRate = (jobDoc['transactionFeeRate'] as num?)?.toDouble() ?? 0.07;
+          final convFeeRate = (jobDoc['convenienceFeeRate'] as num?)?.toDouble() ?? 0.03;
+          final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+
+          final oldCost = WalletSecurityHelper.calculateJobTotalEmployerCost(
+            price: originalPrice,
+            discount: discount,
+            txFeeRate: txFeeRate,
+            convFeeRate: convFeeRate,
+          );
+          final newCost = WalletSecurityHelper.calculateJobTotalEmployerCost(
+            price: rate,
+            discount: discount,
+            txFeeRate: txFeeRate,
+            convFeeRate: convFeeRate,
+          );
+          final diff = newCost - oldCost;
+
+          if (diff > 0) {
             final uid = SessionStorage.uid;
             final userDoc = await svc.getDocument('users/$uid');
             final currentBal = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+            final reservedBal = (userDoc?['reservedBalance'] as num?)?.toDouble() ?? 0.0;
+            final availBal = (currentBal - reservedBal).clamp(0.0, double.infinity);
 
-            if (currentBal < diff) {
+            if (availBal < diff) {
               setState(() {
-                depositAmount = diff - currentBal;
+                depositAmount = (diff - availBal).clamp(0.0, double.infinity);
                 showDepositModal = true;
                 isUpdatingJobStatus = false;
-
+                postJobError =
+                    'Insufficient balance for counter offer. Required: ₱${diff.toStringAsFixed(2)}, Available: ₱${availBal.toStringAsFixed(2)}';
                 pendingJobId = jobId;
                 pendingApplicantData = appData;
               });
               return;
             } else {
-              // Deduct difference from user balance
-              await svc.createOrUpdate('users/$uid', {
-                ...userDoc!,
-                'tyxBalance': currentBal - diff,
-              });
+              final newBal = await svc.deductTyxBalanceSafely(
+                uid: uid!,
+                amountToDeduct: diff,
+                txId: 'counter_offer_${jobId}_${DateTime.now().millisecondsSinceEpoch}',
+                title: 'Gig Counter Offer Adjustment',
+                description: 'Additional funds for accepted counter offer on job $jobId',
+                category: 'escrow_funding',
+              );
 
-              walletBalance = currentBal - diff;
+              walletBalance = newBal;
               if (userProfile != null) {
                 userProfile = userProfile!.copyWith(tyxBalance: walletBalance);
               }
 
-              // Update escrow amount
+              // Update escrow amount and fees
+              final newDiscountedPrice = (rate - discount).clamp(0.0, 999999.0);
+              final newEmployerFees = WalletSecurityHelper.calculateJobEmployerFees(
+                price: rate,
+                discount: discount,
+                txFeeRate: txFeeRate,
+                convFeeRate: convFeeRate,
+              );
               final escrowDoc = await svc.getDocument('escrow/$jobId');
               if (escrowDoc != null) {
                 await svc.createOrUpdate('escrow/$jobId', {
                   ...escrowDoc,
-                  'amount': rate,
+                  'amount': newDiscountedPrice,
+                  'employerFees': newEmployerFees,
+                  'totalEscrowed': newCost,
                 });
               }
             }
-          } else if (rate < originalPrice && rate > 0) {
-            // Refund the difference if the counter offer is lower than the original price
-            final diff = originalPrice - rate;
+          } else if (diff < 0 && rate > 0) {
+            final refundDiff = (oldCost - newCost).clamp(0.0, double.infinity);
             final uid = SessionStorage.uid;
             final userDoc = await svc.getDocument('users/$uid');
             final currentBal = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
 
-            if (userDoc != null) {
+            if (userDoc != null && refundDiff > 0) {
+              final newBal = currentBal + refundDiff;
               await svc.createOrUpdate('users/$uid', {
                 ...userDoc,
-                'tyxBalance': currentBal + diff,
+                'tyxBalance': newBal,
               });
 
-              walletBalance = currentBal + diff;
+              walletBalance = newBal;
               if (userProfile != null) {
                 userProfile = userProfile!.copyWith(tyxBalance: walletBalance);
               }
             }
 
-            // Update escrow amount
+            final newDiscountedPrice = (rate - discount).clamp(0.0, 999999.0);
+            final newEmployerFees = WalletSecurityHelper.calculateJobEmployerFees(
+              price: rate,
+              discount: discount,
+              txFeeRate: txFeeRate,
+              convFeeRate: convFeeRate,
+            );
             final escrowDoc = await svc.getDocument('escrow/$jobId');
             if (escrowDoc != null) {
               await svc.createOrUpdate('escrow/$jobId', {
                 ...escrowDoc,
-                'amount': rate,
+                'amount': newDiscountedPrice,
+                'employerFees': newEmployerFees,
+                'totalEscrowed': newCost,
               });
             }
           }
@@ -3342,6 +4722,11 @@ class TranyxAppState extends State<TranyxApp> {
                 'title': 'Gig Payout Released',
                 'desc': 'Payout for completing job ${job['id']} (3% commission deducted)',
                 'amount': immediatePayout,
+                'baseAmount': price,
+                'commissionFee': platformFee,
+                'commissionRate': 0.03,
+                'holdbackAmount': holdbackAmount,
+                'holdbackRate': 0.10,
                 'status': 'Successful',
                 'method': 'Tranyx Wallet',
                 'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -3364,31 +4749,65 @@ class TranyxAppState extends State<TranyxApp> {
           });
         }
 
-        // Deduct fees from Employer Wallet (7% Transaction Fee + 3% Convenience Fee = 10%)
+        // Deduct fees from Employer Wallet using snapshotted rates
         final employerId = jobDoc['creatorId'] as String?;
+        final txFeeRate = (jobDoc['transactionFeeRate'] as num?)?.toDouble() ?? 0.07;
+        final convFeeRate = (jobDoc['convenienceFeeRate'] as num?)?.toDouble() ?? 0.03;
+        final serviceFeeRate = (jobDoc['serviceFeeRate'] as num?)?.toDouble() ?? 0.01;
+        final markupRate = (jobDoc['markupRate'] as num?)?.toDouble() ?? 0.03;
+        final txFee = price * txFeeRate;
+        final convFee = price * convFeeRate;
+        final totalFees = txFee + convFee;
+
+        final escrowEmployerFees = (escrowDoc?['employerFees'] as num?)?.toDouble();
+        final isFeePreFunded = escrowEmployerFees != null && escrowEmployerFees > 0;
+
         if (employerId != null) {
           final txEmpDoc = await svc.getDocument('transactions/fees_emp_${job['id']}');
           if (txEmpDoc == null) {
-            final empDoc = await svc.getDocument('users/$employerId');
-            if (empDoc != null) {
-              final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-              final txFee = price * 0.07;
-              final convFee = price * 0.03;
-              final totalFees = txFee + convFee;
-              await svc.createOrUpdate('users/$employerId', {
-                ...empDoc,
-                'tyxBalance': currentBal - totalFees,
-              });
-
-              // Log fee deduction transaction for Employer
+            if (!isFeePreFunded) {
+              // Legacy job fallback: only deduct if employer has sufficient balance, never plunge negative!
+              final empDoc = await svc.getDocument('users/$employerId');
+              if (empDoc != null) {
+                final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+                final reservedBal = (empDoc['reservedBalance'] as num?)?.toDouble() ?? 0.0;
+                final avail = (currentBal - reservedBal).clamp(0.0, double.infinity);
+                if (avail >= totalFees) {
+                  await svc.deductTyxBalanceSafely(
+                    uid: employerId,
+                    amountToDeduct: totalFees,
+                    txId: 'fees_emp_${job['id']}',
+                    title: 'Job Completion Fees (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
+                    description:
+                        '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) for job ${job['id']}',
+                    category: 'fee_deduction',
+                  );
+                } else {
+                  await svc.reportNegativeBalanceIncident(
+                    uid: employerId,
+                    attemptedBalance: currentBal - totalFees,
+                    reason: 'Legacy job completion fee shortfall for job ${job['id']}',
+                    relatedTxId: 'fees_emp_${job['id']}',
+                  );
+                }
+              }
+            } else {
+              // Pre-funded via Escrow: Record fee settlement without deducting from employer wallet again
               await svc.createOrUpdate('transactions/fees_emp_${job['id']}', {
                 'uid': employerId,
-                'title': 'Job Completion Fees (10%)',
+                'title': 'Job Platform Fees Settled (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
                 'desc':
-                    '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job ${job['id']}',
+                    '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) settled from escrow for job ${job['id']}',
                 'amount': totalFees,
+                'baseAmount': price,
+                'transactionFee': txFee,
+                'convenienceFee': convFee,
+                'transactionFeeRate': txFeeRate,
+                'convenienceFeeRate': convFeeRate,
+                'serviceFeeRate': serviceFeeRate,
+                'markupRate': markupRate,
                 'status': 'Successful',
-                'method': 'Tranyx Wallet',
+                'method': 'Tranyx Escrow',
                 'createdAt': DateTime.now().millisecondsSinceEpoch,
                 'type': 'fee_deduction',
               });
@@ -3396,19 +4815,19 @@ class TranyxAppState extends State<TranyxApp> {
           }
         }
 
-        // Record all platform fees and company income (total 13% of base price)
-        final txFee = price * 0.07;
-        final convFee = price * 0.03;
+        // Record all platform fees and company income with snapshotted rates
         final totalCompanyIncome = platformFee + txFee + convFee;
         await svc.createOrUpdate('platform_fees/${job['id']}', {
           'jobId': job['id'],
           'amount': totalCompanyIncome,
-          'commissionFee': platformFee, // 3% from Nyxian
-          'transactionFee': txFee, // 7% from Employer
-          'convenienceFee': convFee, // 3% from Employer
-          'employerFees': txFee + convFee, // 10% total from Employer
-          'nyxianFee': platformFee, // 3% total from Nyxian
-          'totalFees': totalCompanyIncome, // 13% total Company Funds
+          'commissionFee': platformFee,
+          'transactionFee': txFee,
+          'convenienceFee': convFee,
+          'transactionFeeRate': txFeeRate,
+          'convenienceFeeRate': convFeeRate,
+          'employerFees': txFee + convFee,
+          'nyxianFee': platformFee,
+          'totalFees': totalCompanyIncome,
           'timestamp': DateTime.now().millisecondsSinceEpoch,
         });
 
@@ -3454,12 +4873,14 @@ class TranyxAppState extends State<TranyxApp> {
               totalEarned: userProfile!.totalEarned + immediatePayout,
             );
           } else if (jobDoc['creatorId'] == uid && userProfile != null) {
-            final txFee = price * 0.07;
-            final convFee = price * 0.03;
-            final totalFees = txFee + convFee;
-            userProfile = userProfile!.copyWith(
-              tyxBalance: userProfile!.tyxBalance - totalFees,
-            );
+            if (!isFeePreFunded) {
+              final txFee = price * 0.07;
+              final convFee = price * 0.03;
+              final totalFees = txFee + convFee;
+              userProfile = userProfile!.copyWith(
+                tyxBalance: (userProfile!.tyxBalance - totalFees).clamp(0.0, double.infinity),
+              );
+            }
           }
           if (targetId != null) {
             showRatingPopup = true;
@@ -3620,6 +5041,10 @@ class TranyxAppState extends State<TranyxApp> {
       final immediatePayout = nyxianPayout - holdbackAmount;
 
       // 1. Release escrow
+      final escrowDoc = await svc.getDocument('escrow/$jobId');
+      final escrowEmployerFees = (escrowDoc?['employerFees'] as num?)?.toDouble();
+      final isFeePreFunded = escrowEmployerFees != null && escrowEmployerFees > 0;
+
       await svc.deleteDocument('escrow/$jobId');
 
       // 1.1 Create escrow holdback record if enabled
@@ -3666,11 +5091,20 @@ class TranyxAppState extends State<TranyxApp> {
             }
 
             // Log payout transaction for Nyxian
+            final commissionRate = (jobDoc['commissionRate'] as num?)?.toDouble() ?? 0.03;
+            final holdbackRate = (jobDoc['holdbackRate'] as num?)?.toDouble() ?? 0.10;
             await svc.createOrUpdate('transactions/payout_nyx_$jobId', {
               'uid': nyxianId,
               'title': 'Gig Payout Released',
-              'desc': 'Payout for completing job $jobId (3% commission deducted${redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : ''})',
+              'desc':
+                  'Payout for completing job $jobId (${PlatformFeeConfig.formatPercent(commissionRate)} commission deducted${redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : ''})',
               'amount': immediatePayout,
+              'baseAmount': price,
+              'commissionFee': actualPlatformFee,
+              'commissionRate': commissionRate,
+              'holdbackAmount': holdbackAmount,
+              'holdbackRate': holdbackRate,
+              'promoCode': ?redeemedPromoCode,
               'status': 'Successful',
               'method': 'Tranyx Wallet',
               'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -3680,32 +5114,64 @@ class TranyxAppState extends State<TranyxApp> {
         }
       }
 
-      // 2.1 Deduct fees from Employer Wallet (7% Transaction Fee + 3% Convenience Fee = 10%)
+      // 2.1 Deduct fees from Employer Wallet using snapshotted rates
+      final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+      final discountedPrice = (price - discount).clamp(0.0, 999999.0);
+      final txFeeRate = (jobDoc['transactionFeeRate'] as num?)?.toDouble() ?? 0.07;
+      final convFeeRate = (jobDoc['convenienceFeeRate'] as num?)?.toDouble() ?? 0.03;
+      final serviceFeeRate = (jobDoc['serviceFeeRate'] as num?)?.toDouble() ?? 0.01;
+      final markupRate = (jobDoc['markupRate'] as num?)?.toDouble() ?? 0.03;
+      final txFee = discountedPrice * txFeeRate;
+      final convFee = discountedPrice * convFeeRate;
+      final totalFees = txFee + convFee;
+
       if (employerId != null) {
         final txEmpDoc = await svc.getDocument('transactions/fees_emp_$jobId');
         if (txEmpDoc == null) {
-          final empDoc = await svc.getDocument('users/$employerId');
-          if (empDoc != null) {
-            final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
-            final discountedPrice = (price - discount).clamp(0.0, 999999.0);
-            final txFee = discountedPrice * 0.07;
-            final convFee = discountedPrice * 0.03;
-            final totalFees = txFee + convFee;
-            await svc.createOrUpdate('users/$employerId', {
-              ...empDoc,
-              'tyxBalance': currentBal - totalFees,
-            });
-
-            // Log fee deduction transaction for Employer
+          if (!isFeePreFunded) {
+            // Legacy job fallback: only deduct if employer has sufficient balance, never plunge negative!
+            final empDoc = await svc.getDocument('users/$employerId');
+            if (empDoc != null) {
+              final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+              final reservedBal = (empDoc['reservedBalance'] as num?)?.toDouble() ?? 0.0;
+              final avail = (currentBal - reservedBal).clamp(0.0, double.infinity);
+              if (avail >= totalFees) {
+                await svc.deductTyxBalanceSafely(
+                  uid: employerId,
+                  amountToDeduct: totalFees,
+                  txId: 'fees_emp_$jobId',
+                  title: 'Job Completion Fees (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
+                  description:
+                      '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
+                  category: 'fee_deduction',
+                );
+              } else {
+                await svc.reportNegativeBalanceIncident(
+                  uid: employerId,
+                  attemptedBalance: currentBal - totalFees,
+                  reason: 'Legacy job completion fee shortfall for job $jobId',
+                  relatedTxId: 'fees_emp_$jobId',
+                );
+              }
+            }
+          } else {
+            // Pre-funded via Escrow: Record fee settlement without deducting from employer wallet again
             await svc.createOrUpdate('transactions/fees_emp_$jobId', {
               'uid': employerId,
-              'title': 'Job Completion Fees (10%)',
+              'title': 'Job Platform Fees Settled (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
               'desc':
-                  '7% Transaction Fee (${txFee.toStringAsFixed(2)}) & 3% Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
+                  '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) settled from escrow for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
               'amount': totalFees,
+              'baseAmount': discountedPrice,
+              'transactionFee': txFee,
+              'convenienceFee': convFee,
+              'transactionFeeRate': txFeeRate,
+              'convenienceFeeRate': convFeeRate,
+              'serviceFeeRate': serviceFeeRate,
+              'markupRate': markupRate,
+              'discountAmount': discount,
               'status': 'Successful',
-              'method': 'Tranyx Wallet',
+              'method': 'Tranyx Escrow',
               'createdAt': DateTime.now().millisecondsSinceEpoch,
               'type': 'fee_deduction',
             });
@@ -3713,21 +5179,19 @@ class TranyxAppState extends State<TranyxApp> {
         }
       }
 
-      // 3. Record all platform fees and company income (total 13% of base price)
-      final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
-      final discountedPrice = (price - discount).clamp(0.0, 999999.0);
-      final txFee = discountedPrice * 0.07;
-      final convFee = discountedPrice * 0.03;
+      // 3. Record all platform fees and company income with snapshotted rates
       final totalCompanyIncome = actualPlatformFee + txFee + convFee;
       await svc.createOrUpdate('platform_fees/$jobId', {
         'jobId': jobId,
         'amount': totalCompanyIncome,
-        'commissionFee': actualPlatformFee, // 3% from Nyxian
-        'transactionFee': txFee, // 7% from Employer
-        'convenienceFee': convFee, // 3% from Employer
-        'employerFees': txFee + convFee, // 10% total from Employer
-        'nyxianFee': actualPlatformFee, // 3% total from Nyxian
-        'totalFees': totalCompanyIncome, // 13% total Company Funds
+        'commissionFee': actualPlatformFee,
+        'transactionFee': txFee,
+        'convenienceFee': convFee,
+        'transactionFeeRate': txFeeRate,
+        'convenienceFeeRate': convFeeRate,
+        'employerFees': txFee + convFee,
+        'nyxianFee': actualPlatformFee,
+        'totalFees': totalCompanyIncome,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
 
@@ -3896,92 +5360,30 @@ class TranyxAppState extends State<TranyxApp> {
     final job = selectedJobData;
     if (token == null || job == null) return;
 
+    final acceptedId = job['acceptedApplicantId'] as String?;
+    final status = (job['status'] as String? ?? '').toLowerCase();
+    final isCommitted = (acceptedId != null && acceptedId.trim().isNotEmpty) ||
+        status == 'in progress' ||
+        status == 'in_progress' ||
+        status == 'accepted' ||
+        status == 'mutual_cancel_pending';
+
+    if (isCommitted) {
+      alertDialog(
+        'Cancellation Locked',
+        'This job has an active Nyxian hire. Unilateral cancellation is disabled to protect committed time and preparation. If you have an issue or dispute, please contact Admin / Support.',
+      );
+      return;
+    }
+
     setState(() => isUpdatingJobStatus = true);
     try {
       final svc = FirestoreService(token, _handleTokenRefresh);
-      final jobDoc = await svc.getDocument('jobs/${job['id']}');
+      await svc.cancelJob(job['id'] as String, SessionStorage.uid ?? '');
 
-      if (jobDoc != null) {
-        final employerId = jobDoc['creatorId'] as String?;
-        final nyxianId = jobDoc['acceptedApplicantId'] as String?;
-
-        final catName = (jobDoc['category'] as String? ?? '').toLowerCase();
-        final cat = JobCategory.values.firstWhere(
-          (e) => e.name.toLowerCase() == catName || e.label.toLowerCase() == catName,
-          orElse: () => JobCategory.others,
-        );
-        final hasTracker = jobDoc['hasTracker'] == true || jobDoc['hasTracker'] == 'true' || cat.hasTracker;
-
-        final status = (jobDoc['status'] as String? ?? '').toLowerCase();
-        final reachedFirstPoint =
-            hasTracker &&
-            (status == 'arrived_pickup' ||
-                status == 'paid_cashier' ||
-                status == 'in_transit' ||
-                status == 'arrived_dropoff' ||
-                status == 'done' ||
-                status == 'completed');
-
-        // 1. Check for escrow
-        final escrowDoc = await svc.getEscrow(job['id'] as String);
-        if (escrowDoc != null && employerId != null) {
-          final totalEscrow = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
-          final double compensation = reachedFirstPoint ? (totalEscrow >= 20.0 ? 20.0 : totalEscrow) : 0.0;
-          final refundAmount = totalEscrow - compensation;
-
-          // 2. Refund to Employer
-          if (refundAmount > 0.0) {
-            final empDoc = await svc.getDocument('users/$employerId');
-            if (empDoc != null) {
-              final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-              final newBal = currentBal + refundAmount;
-
-              await svc.createOrUpdate('users/$employerId', {
-                ...empDoc,
-                'tyxBalance': newBal,
-              });
-
-              // Update local balance if current user is the employer
-              if (employerId == SessionStorage.uid) {
-                walletBalance = newBal;
-                if (userProfile != null) {
-                  userProfile = userProfile!.copyWith(tyxBalance: newBal);
-                }
-              }
-            }
-          }
-
-          // 3. Compensation to Nyxian
-          if (compensation > 0.0 && nyxianId != null) {
-            final nyxDoc = await svc.getDocument('users/$nyxianId');
-            if (nyxDoc != null) {
-              final nyxBal = (nyxDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-              final newNyxBal = nyxBal + compensation;
-
-              await svc.createOrUpdate('users/$nyxianId', {
-                ...nyxDoc,
-                'tyxBalance': newNyxBal,
-              });
-
-              // Update local balance if current user is the Nyxian
-              if (nyxianId == SessionStorage.uid) {
-                walletBalance = newNyxBal;
-                if (userProfile != null) {
-                  userProfile = userProfile!.copyWith(tyxBalance: newNyxBal);
-                }
-              }
-            }
-          }
-
-          // 4. Delete escrow
-          await svc.deleteDocument('escrow/${job['id']}');
-        }
-
-        // 5. Update Job Status
-        await svc.updateJobStatus(job['id'] as String, 'Cancelled');
-      }
-
-      setState(() => isUpdatingJobStatus = false);
+      // Refresh balance and profile immediately
+      await loadUserProfile();
+      walletBalance = userProfile?.tyxBalance ?? walletBalance;
       await loadJobs();
       if (selectedJobData != null) {
         selectJobAndLoadDetails({
@@ -3989,8 +5391,106 @@ class TranyxAppState extends State<TranyxApp> {
           'status': 'Cancelled',
         });
       }
+      setState(() => isUpdatingJobStatus = false);
+      alertDialog('Job Cancelled', 'The job has been cancelled and 100% of escrow has been refunded to your wallet.');
     } catch (e) {
       setState(() => isUpdatingJobStatus = false);
+      alertDialog('Error', 'Failed to cancel job: $e');
+    }
+  }
+
+  Future<void> handleAdminOverrideCancelJob(String jobId, String reason) async {
+    final token = SessionStorage.idToken;
+    final adminUid = SessionStorage.uid;
+    if (token == null || adminUid == null) return;
+
+    if (reason.trim().length < 20) {
+      alertDialog('Validation Error', 'Admin override requires a justification reason of at least 20 characters.');
+      return;
+    }
+
+    setState(() => isUpdatingJobStatus = true);
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      await svc.adminOverrideCancelJob(jobId, adminUid, reason);
+
+      await loadUserProfile();
+      walletBalance = userProfile?.tyxBalance ?? walletBalance;
+      await loadJobs();
+      if (selectedJobData != null && selectedJobData!['id'] == jobId) {
+        selectJobAndLoadDetails({
+          ...selectedJobData!,
+          'status': 'ADMIN_CANCELLED',
+        });
+      }
+      setState(() => isUpdatingJobStatus = false);
+      alertDialog('Admin Override Complete', 'The job has been administrative-cancelled with full audit logging and escrow refund.');
+    } catch (e) {
+      setState(() => isUpdatingJobStatus = false);
+      alertDialog('Error', 'Failed to override cancel job: $e');
+    }
+  }
+
+  Future<void> handleReclaimInactiveJob(Map<String, dynamic> job) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) return;
+
+    setState(() => isUpdatingJobStatus = true);
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final jobId = (job['id'] ?? job['jobId'] ?? '').toString();
+      await svc.reclaimInactiveJob(jobId, uid);
+
+      await loadUserProfile();
+      walletBalance = userProfile?.tyxBalance ?? walletBalance;
+      await loadJobs();
+      if (selectedJobData != null && selectedJobData!['id'] == jobId) {
+        selectJobAndLoadDetails({
+          ...selectedJobData!,
+          'status': 'Abandoned',
+        });
+      }
+      setState(() => isUpdatingJobStatus = false);
+      alertDialog('Gig Reclaimed', 'The inactive gig has been marked Abandoned and 100% of your escrow deposit has been refunded to your wallet.');
+    } catch (e) {
+      setState(() => isUpdatingJobStatus = false);
+      alertDialog('Error', 'Failed to reclaim gig: $e');
+    }
+  }
+
+  Future<void> handleRequestJobDispute(Map<String, dynamic> job) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) {
+      alertDialog('Authentication Required', 'Please sign in to submit a dispute ticket.');
+      return;
+    }
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final jobId = job['id'] as String? ?? '';
+      final jobTitle = job['title'] as String? ?? 'Gig';
+      final employerId = job['creatorId'] as String? ?? uid;
+      final acceptedNyxian = job['acceptedApplicantId'] as String?;
+      final escrow = (job['pricingValue'] as num?)?.toDouble() ?? 0.0;
+
+      await svc.submitDispute(
+        jobId: jobId,
+        jobTitle: jobTitle,
+        employerId: employerId,
+        acceptedNyxianId: acceptedNyxian,
+        reason: 'Dispute review requested by user regarding active gig commitments.',
+        escrowAmount: escrow,
+        openedByUid: uid,
+      );
+
+      alertDialog(
+        'Dispute Ticket Submitted',
+        'Your dispute ticket for "$jobTitle" (Job ID: $jobId) has been dispatched to the Tranyx Admin Portal for arbitration and review.',
+      );
+    } catch (e) {
+      alertDialog('Dispute Error', 'Failed to submit dispute ticket: $e');
     }
   }
 
@@ -4114,7 +5614,9 @@ class TranyxAppState extends State<TranyxApp> {
 
   void handleDisableProfilePromo(String code) async {
     final cleanCode = code.trim().toUpperCase();
-    final confirm = web.window.confirm('Are you sure you want to disable the promo code "$cleanCode"? Once disabled, you will lose the discount and can never re-enable or redeem it again.');
+    final confirm = web.window.confirm(
+      'Are you sure you want to disable the promo code "$cleanCode"? Once disabled, you will lose the discount and can never re-enable or redeem it again.',
+    );
     if (!confirm) return;
 
     setState(() {
@@ -4164,19 +5666,36 @@ class TranyxAppState extends State<TranyxApp> {
         throw 'You are not authorized to delete this posting';
       }
 
-      // Check status: only Open jobs can be deleted/cancelled
+      // Check status: Open or Cancelled jobs can be deleted
       final status = (jobDoc['status'] as String? ?? '').toLowerCase();
-      if (status != 'open') {
-        throw 'Only open job postings can be deleted';
+      if (status != 'open' && status != 'cancelled') {
+        throw 'Only open or cancelled job postings can be deleted';
       }
 
-      // 1. Check for escrow
+      // 1. Check for escrow and calculate refundable amount
       final escrowDoc = await svc.getEscrow(jobId);
       double refundAmount = 0.0;
-      if (escrowDoc != null) {
-        refundAmount = (escrowDoc['amount'] as num?)?.toDouble() ?? 0.0;
+      if (escrowDoc != null && (escrowDoc['status'] as String? ?? '').toLowerCase() != 'refunded') {
+        refundAmount = (escrowDoc['totalEscrowed'] as num?)?.toDouble() ??
+            (escrowDoc['amount'] as num?)?.toDouble() ??
+            0.0;
+      }
+      if (refundAmount <= 0.0 && status == 'open') {
+        final pricing = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
+        final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+        final txFeeRate = (jobDoc['transactionFeeRate'] as num?)?.toDouble() ?? 0.07;
+        final convFeeRate = (jobDoc['convenienceFeeRate'] as num?)?.toDouble() ?? 0.03;
+        refundAmount = (jobDoc['totalEscrowed'] as num?)?.toDouble() ??
+            WalletSecurityHelper.calculateJobTotalEmployerCost(
+              price: pricing,
+              discount: discount,
+              txFeeRate: txFeeRate,
+              convFeeRate: convFeeRate,
+            );
+      }
 
-        // 2. Refund to Employer
+      // 2. Refund to Employer if open and unrefunded
+      if (refundAmount > 0.0) {
         final empDoc = await svc.getDocument('users/$uid');
         if (empDoc != null) {
           final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
@@ -4185,6 +5704,23 @@ class TranyxAppState extends State<TranyxApp> {
           await svc.createOrUpdate('users/$uid', {
             ...empDoc,
             'tyxBalance': newBal,
+          });
+
+          // Record refund in transactions collection
+          final jobTitle = (jobDoc['title'] as String?) ?? 'Job';
+          await svc.createOrUpdate('transactions/refund_job_$jobId', {
+            'id': 'refund_job_$jobId',
+            'uid': uid,
+            'jobId': jobId,
+            'type': 'refund',
+            'category': 'refund',
+            'amount': refundAmount,
+            'title': 'Job Escrow Refund',
+            'desc': '100% Escrow refund for deleted job "$jobTitle"',
+            'status': 'Completed',
+            'method': 'Tranyx Escrow',
+            'originRail': 'internal_balance',
+            'createdAt': DateTime.now().millisecondsSinceEpoch,
           });
 
           // Update local balance
@@ -4199,9 +5735,13 @@ class TranyxAppState extends State<TranyxApp> {
         if (promoCode != null) {
           await svc.decrementPromoUsage(promoCode, uid);
         }
+      }
 
-        // 3. Delete escrow document
-        await svc.deleteDocument('escrow/$jobId');
+      // 3. Delete escrow document if exists
+      if (escrowDoc != null) {
+        try {
+          await svc.deleteDocument('escrow/$jobId');
+        } catch (_) {}
       }
 
       // 4. Delete the job document
@@ -4447,7 +5987,26 @@ class TranyxAppState extends State<TranyxApp> {
     final uid = SessionStorage.uid;
     final token = SessionStorage.idToken;
     final jobId = selectedJobData?['id'] as String? ?? '';
-    if (uid == null || token == null || jobId.isEmpty) return;
+    if (uid == null || token == null) {
+      showAppToast('Authentication Required', 'Please sign in to apply for this job.');
+      return;
+    }
+    if (jobId.isEmpty) {
+      showAppToast('Error', 'Invalid job selected.');
+      return;
+    }
+
+    final creatorId = selectedJobData?['creatorId'] as String?;
+    if (creatorId == uid) {
+      showAppToast('Invalid Action', 'You cannot apply to your own job posting.');
+      return;
+    }
+
+    if (hasOngoingNyxianJob) {
+      showAppToast('Application Restricted', ongoingJobRestrictionMessage);
+      setState(() => applyError = ongoingJobRestrictionMessage);
+      return;
+    }
 
     setState(() {
       isSubmittingApplication = true;
@@ -4464,9 +6023,8 @@ class TranyxAppState extends State<TranyxApp> {
         isCounterOffer: isCounterOffer,
       );
 
-      final creatorId = selectedJobData?['creatorId'] as String?;
-      if (creatorId != null && creatorId.isNotEmpty) {
-        final jobTitle = selectedJobData?['title'] as String? ?? 'Job';
+      final jobTitle = selectedJobData?['title'] as String? ?? 'Job';
+      if (creatorId != null && creatorId.isNotEmpty && creatorId != uid) {
         final appName = userName.isEmpty ? 'Anonymous' : userName;
         await FirestoreService(token, _handleTokenRefresh).createNotification(
           uid: creatorId,
@@ -4487,6 +6045,7 @@ class TranyxAppState extends State<TranyxApp> {
         applyError = e.toString();
         isSubmittingApplication = false;
       });
+      showAppToast('Application Error', e.toString());
     }
   }
 
@@ -4500,9 +6059,12 @@ class TranyxAppState extends State<TranyxApp> {
 
   void initializeProfileEditing() {
     final profile = userProfile;
+    final authEmail = userEmail.isNotEmpty ? userEmail : (SessionStorage.email ?? '');
+    final authName = (userName.isNotEmpty && userName != 'User') ? userName : (SessionStorage.displayName ?? '');
+
     if (profile == null) {
-      editName = SessionStorage.displayName ?? userName;
-      editEmail = SessionStorage.email ?? userEmail;
+      editName = authName;
+      editEmail = authEmail;
       editPhone = '';
       editTaxId = '';
       editHeadline = '';
@@ -4513,12 +6075,12 @@ class TranyxAppState extends State<TranyxApp> {
       profileSaveError = null;
       return;
     }
-    editName = profile.name;
-    editEmail = profile.email;
+    editName = (profile.name.isNotEmpty && profile.name != 'User') ? profile.name : authName;
+    editEmail = profile.email.isNotEmpty ? profile.email : authEmail;
     editPhone = getDisplayPhone(profile.phoneNumber);
     editTaxId = profile.taxId ?? '';
     editHeadline = profile.headline ?? '';
-    editHourlyRate = profile.hourlyRate?.toString() ?? '';
+    editHourlyRate = profile.hourlyRate != null && profile.hourlyRate! > 0 ? profile.hourlyRate!.toString() : '';
     editSkills = List<String>.from(profile.skills ?? []);
     editBusinessName = profile.businessName ?? '';
     editIndustry = profile.industry ?? '';
@@ -4900,14 +6462,76 @@ class TranyxAppState extends State<TranyxApp> {
         name: updated.name,
         email: updated.email,
         accountType: updated.accountType.name,
+        photoUrl: updated.photoUrl ?? userPhotoUrl ?? SessionStorage.photoUrl,
       );
       setState(() {
         userProfile = updated;
         userName = updated.name;
         userEmail = updated.email;
+        if (updated.photoUrl != null && updated.photoUrl!.isNotEmpty) {
+          userPhotoUrl = updated.photoUrl;
+        }
         accountType = updated.accountType;
       });
     } catch (_) {}
+  }
+
+  Future<void> handleProfilePhotoUpload(dynamic eventTarget) async {
+    final uid = SessionStorage.uid;
+    if (uid == null) return;
+    final token = SessionStorage.idToken;
+    if (token == null) return;
+
+    setState(() => isUploadingProfilePhoto = true);
+
+    try {
+      final files = await readFilesFromEvent(eventTarget);
+      if (files.isNotEmpty) {
+        final file = files.first;
+        final url = await ImgBBService(
+          currentFirebaseConfig,
+          idToken: token,
+          onTokenRefresh: _handleTokenRefresh,
+        ).uploadImageBytes(file.bytes, file.name);
+
+        if (url != null && url.isNotEmpty) {
+          final existing = userProfile;
+          final UserProfile updated;
+          if (existing == null) {
+            updated = UserProfile(
+              uid: uid,
+              name: userName.isNotEmpty && userName != 'User' ? userName : (SessionStorage.displayName ?? 'User'),
+              email: userEmail.isNotEmpty ? userEmail : (SessionStorage.email ?? ''),
+              photoUrl: url,
+              accountType: accountType,
+              createdAt: DateTime.now(),
+            );
+          } else {
+            updated = existing.copyWith(photoUrl: url);
+          }
+
+          await FirestoreService(token, _handleTokenRefresh).setDocument('users/$uid', {'photoUrl': url});
+          await handleSaveProfile(updated);
+          SessionStorage.saveProfile(
+            name: updated.name,
+            email: updated.email,
+            accountType: updated.accountType.name,
+            photoUrl: url,
+          );
+          setState(() {
+            userPhotoUrl = url;
+          });
+          showAppToast('Profile Photo Updated', 'Your new profile photo was uploaded and saved successfully.');
+        } else {
+          showAppToast('Upload Error', 'Failed to upload photo to image service. Please check your image and try again.');
+        }
+      }
+    } catch (e) {
+      print('handleProfilePhotoUpload error: $e');
+      showAppToast('Upload Error', 'An unexpected error occurred during photo upload.');
+    } finally {
+      setState(() => isUploadingProfilePhoto = false);
+    }
   }
 
   Future<void> handleSavePersonalInfo() async {
@@ -5009,12 +6633,14 @@ class TranyxAppState extends State<TranyxApp> {
 
   // ── Gemini ──────────────────────────────────────────────────
 
-  Future<String> generateJobDesc(String title) async {
+  Future<String> generateJobDesc(String title, {String? categoryLabel}) async {
+    if (_gemini == null) _initGemini();
     if (_gemini == null) return 'AI service not available.';
-    return _gemini!.generateJobDescription(title);
+    return _gemini!.generateJobDescription(title, categoryLabel: categoryLabel);
   }
 
   Future<String> generateCoverNote(String title) async {
+    if (_gemini == null) _initGemini();
     if (_gemini == null) return 'AI service not available.';
     return _gemini!.generateCoverNote(title);
   }
@@ -5023,6 +6649,8 @@ class TranyxAppState extends State<TranyxApp> {
 
   void switchTab(AppTab tab) {
     if (activeTab == tab) return;
+
+    SessionStorage.activeTab = tab.name;
 
     setState(() {
       activeTab = tab;
@@ -5435,6 +7063,8 @@ class TranyxAppState extends State<TranyxApp> {
       availableJobs = [];
       appliedJobs = [];
       renterPendingRequests = [];
+      renterActiveBookings = [];
+      propertyRenterActiveBookings = [];
       hostPendingRequests = [];
       notifications = [];
       chatMessages = [];
@@ -5450,8 +7080,7 @@ class TranyxAppState extends State<TranyxApp> {
 
     _stopSelectedJobRealtime();
     stopListeningToJobsJs();
-    stopListeningToRentalsJs();
-    stopListeningToPropertiesJs();
+    _stopAllRentalAndPropertyListeners();
 
     SessionStorage.clear();
     showAppToast('Wallet Disconnected', 'Logged out because active wallet was disconnected.');
@@ -5472,6 +7101,8 @@ class TranyxAppState extends State<TranyxApp> {
       availableJobs = [];
       appliedJobs = [];
       renterPendingRequests = [];
+      renterActiveBookings = [];
+      propertyRenterActiveBookings = [];
       hostPendingRequests = [];
       notifications = [];
       chatMessages = [];
@@ -5487,8 +7118,7 @@ class TranyxAppState extends State<TranyxApp> {
 
     _stopSelectedJobRealtime();
     stopListeningToJobsJs();
-    stopListeningToRentalsJs();
-    stopListeningToPropertiesJs();
+    _stopAllRentalAndPropertyListeners();
 
     // 2. Fetch the wallet link in Firestore
     try {
@@ -5536,8 +7166,7 @@ class TranyxAppState extends State<TranyxApp> {
           await loadTransactions();
           _startListeningNotifications();
           _startListeningJobs();
-          _startListeningRentals();
-          _startListeningProperties();
+          _startAllRentalAndPropertyListeners(existingUid);
 
           final balance = await getSolanaBalance(newPublicKey) ?? 0.0;
           final collectibles = await getSolanaTokenCollectibles(newPublicKey) ?? [];
@@ -5595,6 +7224,8 @@ class TranyxAppState extends State<TranyxApp> {
       availableJobs = [];
       appliedJobs = [];
       renterPendingRequests = [];
+      renterActiveBookings = [];
+      propertyRenterActiveBookings = [];
       hostPendingRequests = [];
       notifications = [];
       chatMessages = [];
@@ -5610,8 +7241,7 @@ class TranyxAppState extends State<TranyxApp> {
 
     _stopSelectedJobRealtime();
     stopListeningToJobsJs();
-    stopListeningToRentalsJs();
-    stopListeningToPropertiesJs();
+    _stopAllRentalAndPropertyListeners();
 
     SessionStorage.clear();
     showAppToast('Wallet Disconnected', 'Logged out because active wallet was disconnected.');
@@ -6237,7 +7867,7 @@ class TranyxAppState extends State<TranyxApp> {
           div(classes: 'splash-shockwave splash-shockwave-2', []),
           div(classes: 'splash-logo-container', [
             div(classes: 'splash-logo-glow', []),
-            img(src: '/images/logo.svg', classes: 'splash-logo-img', attributes: {'alt': 'Tranyx Logo'}),
+            img(src: '/images/logo.png', classes: 'splash-logo-img rounded-2xl', attributes: {'alt': 'Tranyx Logo'}),
           ]),
           h1(classes: 'splash-title', [Component.text('TRANYX')]),
           p(classes: 'splash-subtitle', [Component.text('One Platform. Endless Opportunities.')]),
@@ -6275,87 +7905,47 @@ class TranyxAppState extends State<TranyxApp> {
 
     return div(classes: 'flex h-screen w-full overflow-hidden $darkBg font-sans', [
       // Desktop sidebar
-      SidebarComponent(state: this),
+      if (!isCurrentJobTrackingActive) SidebarComponent(state: this),
 
       // Main area
       div(classes: 'flex-1 flex flex-col h-full relative overflow-hidden', [
-        TopHeaderComponent(state: this),
+        if (!isCurrentJobTrackingActive) TopHeaderComponent(state: this),
 
-        // Pending Payment Verification Banner
-        if (pendingXenditInvoiceId != null)
+        if (isCurrentJobTrackingActive)
           div(
-            classes:
-                'w-full py-3 px-6 ${isDark ? "bg-amber-500/10 border-zinc-800 text-amber-200" : "bg-amber-50 border-zinc-200 text-amber-800"} border-b text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 z-45 shrink-0 animate-fade-in',
+            classes: 'flex-1 w-full h-full relative overflow-hidden',
             [
-              span(classes: 'font-medium flex items-center gap-2', [
-                lIcon('alert-triangle', cls: 'w-4 h-4 text-amber-450 shrink-0'),
-                Component.text(
-                  'Pending Tyxbit top-up of ₱${depositAmount.toStringAsFixed(2)} via Xendit. Please verify to credit and complete your request.',
-                ),
-              ]),
-              div(classes: 'flex items-center gap-2', [
-                button(
-                  classes:
-                      'px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer flex items-center gap-1.5',
-                  events: {
-                    'click': (_) => setState(() {
-                      showDepositModal = true;
-                      selectedPaymentMethod = 'xendit';
-                    }),
-                  },
-                  [lIcon('check-circle', cls: 'w-3.5 h-3.5'), Component.text('I Already Paid')],
-                ),
-                button(
-                  classes:
-                      'px-2 py-1.5 text-xs text-zinc-400 hover:text-zinc-300 cursor-pointer bg-transparent border-0 font-medium transition-colors',
-                  events: {
-                    'click': (_) {
-                      if (confirmDialog(
-                        'Dismiss this pending check? If you have paid, dismissing may delay your balance update.',
-                      )) {
-                        setState(() {
-                          pendingXenditInvoiceId = null;
-                          SessionStorage.pendingXenditInvoiceId = null;
-                          SessionStorage.pendingXenditInvoiceAmount = 0.0;
-                          SessionStorage.pendingPropertyBookingData = null;
-                          SessionStorage.pendingVehicleBookingData = null;
-                          SessionStorage.pendingJobId = null;
-                          SessionStorage.pendingApplicantData = null;
-                        });
-                      }
-                    },
-                  },
-                  [Component.text('Dismiss')],
-                ),
-              ]),
+              JobsViewComponent(state: this),
             ],
-          ),
-
-        // Scrollable content
-        div(classes: 'flex-1 overflow-y-auto no-scrollbar pb-24 md:pb-8', [
-          div(classes: 'mx-auto w-full max-w-6xl p-6 md:p-10', [
-            if (activeTab == AppTab.home) HomeViewComponent(state: this),
-            if (activeTab == AppTab.jobs) JobsViewComponent(state: this),
-            if (activeTab == AppTab.transit) TransitViewComponent(state: this),
-            if (activeTab == AppTab.profile) ProfileViewComponent(state: this),
+          )
+        else
+          // Scrollable content
+          div(classes: 'flex-1 overflow-y-auto no-scrollbar pb-24 md:pb-8', [
+            div(classes: 'mx-auto w-full max-w-6xl p-6 md:p-10', [
+              if (activeTab == AppTab.home) HomeViewComponent(state: this),
+              if (activeTab == AppTab.jobs) JobsViewComponent(state: this),
+              if (activeTab == AppTab.transit) TransitViewComponent(state: this),
+              if (activeTab == AppTab.messages) MessagesViewComponent(state: this),
+              if (activeTab == AppTab.profile) ProfileViewComponent(state: this),
+            ]),
           ]),
-        ]),
 
         // Mobile bottom nav
-        BottomNavComponent(state: this),
+        if (!isCurrentJobTrackingActive) BottomNavComponent(state: this),
 
         // Powered by Terra logo badge in bottom right corner
-        div(
-          classes:
-              'hidden md:flex items-center gap-1.5 absolute bottom-4 right-6 px-3 py-1.5 rounded-full border ${isDark ? "border-zinc-800 bg-zinc-900/60" : "border-zinc-200 bg-white/60"} backdrop-blur-md text-[10px] text-zinc-500 font-semibold z-40 transition-all hover:text-zinc-400',
-          [
-            Component.text('Powered by'),
-            img(
-              src: '/images/terra-logo.png',
-              classes: 'h-3.5 object-contain opacity-60 hover:opacity-85 transition-opacity',
-            ),
-          ],
-        ),
+        if (!isCurrentJobTrackingActive)
+          div(
+            classes:
+                'hidden md:flex items-center gap-1.5 absolute bottom-4 right-6 px-3 py-1.5 rounded-full border ${isDark ? "border-zinc-800 bg-zinc-900/60" : "border-zinc-200 bg-white/60"} backdrop-blur-md text-[10px] text-zinc-500 font-semibold z-40 transition-all hover:text-zinc-400',
+            [
+              Component.text('Powered by'),
+              img(
+                src: '/images/terra-logo.png',
+                classes: 'h-3.5 object-contain opacity-60 hover:opacity-85 transition-opacity',
+              ),
+            ],
+          ),
       ]),
 
       // Toast Notification
@@ -6396,15 +7986,32 @@ class TranyxAppState extends State<TranyxApp> {
       // Book Vehicle modal overlay
       if (showBookVehicleModal) BookVehicleModalComponent(appState: this, key: const ValueKey('book-vehicle-modal')),
 
-      // Extend Rental modal overlay
-      if (showExtendRentalModal) ExtendRentalModalComponent(appState: this, key: const ValueKey('extend-rental-modal')),
-
       // Rental Tracker Map overlay
       if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this, key: const ValueKey('rental-tracker-map')),
+
+      // Rental Details modal overlay (for reviewing confirmed bookings and leases)
+      if (showRentalDetailsModal && selectedRentalDetailsData != null)
+        RentalDetailsModalComponent(
+          appState: this,
+          rentalData: selectedRentalDetailsData!,
+          isProperty: selectedRentalDetailsIsProperty,
+          key: const ValueKey('rental-details-modal'),
+          onClose: () => setState(() {
+            showRentalDetailsModal = false;
+            selectedRentalDetailsData = null;
+          }),
+        ),
+
+      // Extend Rental modal overlay
+      if (showExtendRentalModal) ExtendRentalModalComponent(appState: this, key: const ValueKey('extend-rental-modal')),
 
       // Manage Vehicle modal overlay
       if (showManageVehicleModal)
         ManageVehicleModalComponent(appState: this, key: const ValueKey('manage-vehicle-modal')),
+
+      // Edit Vehicle modal overlay
+      if (showEditVehicleModal)
+        EditVehicleModalComponent(appState: this, key: const ValueKey('edit-vehicle-modal')),
 
       // Public Vehicle Q&A modal overlay
       if (showVehicleQaModal && selectedRentalData != null)
@@ -6424,6 +8031,14 @@ class TranyxAppState extends State<TranyxApp> {
       if (showManagePropertyModal)
         ManagePropertyModalComponent(appState: this, key: const ValueKey('manage-property-modal')),
 
+      // Edit Property modal overlay
+      if (showEditPropertyModal)
+        EditPropertyModalComponent(appState: this, key: const ValueKey('edit-property-modal')),
+
+      // Edit Job modal overlay
+      if (showEditJobModal)
+        EditJobModalComponent(appState: this, key: const ValueKey('edit-job-modal')),
+
       // Public Property Q&A modal overlay
       if (showPropertyQaModal) PropertyQaModalComponent(appState: this, key: const ValueKey('property-qa-modal')),
 
@@ -6434,21 +8049,42 @@ class TranyxAppState extends State<TranyxApp> {
           title: signingContractTitle ?? '',
           contractTerms: signingContractTerms ?? '',
           rentalId: signingContractId!,
+          requestId: signingContractRequestId,
           isProperty: signingContractIsProperty,
-          key: const ValueKey('sign-contract-modal'),
+          key: ValueKey('sign-contract-modal-${signingContractId}-${signingContractRequestId ?? ""}'),
           onSigned: () {
+            final isProp = signingContractIsProperty;
             setState(() {
               showSignContractModal = false;
               signingContractId = null;
+              signingContractRequestId = null;
               signingContractTitle = null;
               signingContractTerms = null;
+              signingContractIsProperty = false;
             });
-            if (signingContractIsProperty) {
+            loadRenterPendingRequests();
+            if (isProp) {
               _startListeningProperties();
+              if (userProfile?.uid != null) {
+                _startListeningPropertyRenterRequests(userProfile!.uid);
+              }
             } else {
-              _restoreSession();
+              _startListeningRentals();
+              if (userProfile?.uid != null) {
+                _startListeningRenterRequests(userProfile!.uid);
+              }
             }
           },
+        ),
+
+      // PDF Viewer Modal overlay
+      if (showPdfViewerModal && pdfViewerSource != null)
+        PdfViewerModalComponent(
+          appState: this,
+          pdfSource: pdfViewerSource!,
+          fileName: pdfViewerFileName ?? 'Contract Document.pdf',
+          key: ValueKey('pdf-viewer-${pdfViewerSource.hashCode}'),
+          onClose: closePdfViewer,
         ),
 
       // Session Expired modal overlay
@@ -6462,6 +8098,9 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Payment modal overlay
       if (showDepositModal) PaymentModalComponent(state: this),
+
+      // Withdraw modal overlay
+      if (showWithdrawModal) WithdrawModalComponent(state: this),
 
       // SMS Verification modal overlay
       if (showSmsModal) SmsVerificationModalComponent(state: this),
@@ -6478,6 +8117,9 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Delete confirmation modal overlay
       if (showDeleteConfirm) DeleteConfirmModalComponent(state: this),
+
+      // Walkthrough Tour overlay
+      if (showWalkthroughModal) InteractiveWalkthroughModal(state: this),
 
       // Chat overlay
       if (showChat) ChatWidget(state: this),
@@ -6978,8 +8620,7 @@ class MobileAppPromptModalComponent extends StatelessComponent {
     if (env == 'dev') appId = 'com.terraph.tranyx.dev';
 
     return div(
-      classes:
-          'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in',
+      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in',
       [
         div(
           classes:
@@ -7034,4 +8675,3 @@ class MobileAppPromptModalComponent extends StatelessComponent {
     );
   }
 }
-

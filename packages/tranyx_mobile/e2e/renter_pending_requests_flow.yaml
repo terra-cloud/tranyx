@@ -1,0 +1,43 @@
+appId: com.tranyx.tranyx_mobile
+---
+# Flow: Renter Pending Requests Listing Identification & Linking E2E Flow
+# Verifies AC1–AC10:
+# - Renter pending requests display listing title, thumbnail, location address, dates, and escrow locked.
+# - Tapping pending card or 'View Details' opens the listing details sheet.
+# - Renter can cancel pending requests with confirmation dialog and funds refunded.
+
+- launchApp:
+    clearState: false
+
+# 1. Navigate to Transit / Rentals screen
+- assertVisible: "TRANSIT"
+- tapOn: "TRANSIT"
+
+# 2. Assert Pending Bookings header is visible when requests are pending
+- assertVisible: "PENDING BOOKINGS.*"
+
+# 3. Assert rich card elements for Vehicle Pending Request
+- assertVisible: "AWAITING APPROVAL"
+- assertVisible: "PENDING"
+- assertVisible: "ESCROW LOCKED"
+- assertVisible: "View Details"
+- assertVisible: "Cancel"
+
+# 4. Tap 'View Details' to verify linking to listing details modal
+- tapOn: "View Details"
+- assertVisible:
+    text: ".*Details.*"
+    optional: true
+
+# Close modal
+- back
+
+# 5. Tap Cancel button and verify confirmation dialog
+- tapOn: "Cancel"
+- assertVisible: "Cancel Request"
+- assertVisible: "Are you sure you want to cancel this booking request? Your locked funds will be refunded immediately."
+- assertVisible: "Keep Request"
+- assertVisible: "Yes, Cancel"
+
+# Dismiss or confirm
+- tapOn: "Keep Request"

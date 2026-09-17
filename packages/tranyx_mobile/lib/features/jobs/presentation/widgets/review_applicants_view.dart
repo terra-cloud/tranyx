@@ -73,6 +73,7 @@ class _ReviewApplicantsViewState extends ConsumerState<ReviewApplicantsView> {
                 children: applications.map((applicant) {
                   final isCounter = applicant.isCounterOffer;
                   final isHiringThisOne = _hiringApplicantId == applicant.applicantUid;
+                  final applicantProfile = ref.watch(userProfileByUidProvider(applicant.applicantUid)).value;
 
                   return Container(
                     margin: const EdgeInsets.only(bottom: 16),
@@ -145,6 +146,32 @@ class _ReviewApplicantsViewState extends ConsumerState<ReviewApplicantsView> {
                                             ),
                                           ],
                                         ),
+                                        if ((applicantProfile?.abandonedJobs ?? 0) > 0) ...[
+                                          const SizedBox(height: 4),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.red.withValues(alpha: 0.15),
+                                              borderRadius: BorderRadius.circular(4),
+                                              border: Border.all(color: AppColors.red.withValues(alpha: 0.3)),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Icon(Icons.warning_amber_rounded, size: 12, color: AppColors.red),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  '${applicantProfile!.abandonedJobs} Abandoned Gig${applicantProfile.abandonedJobs > 1 ? 's' : ''}',
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: AppColors.red,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   ),

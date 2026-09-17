@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:shared/shared.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
@@ -14,6 +16,7 @@ import 'package:tranyx_mobile/features/transit/presentation/widgets/booking_wiza
 import 'package:tranyx_mobile/features/transit/presentation/widgets/active_trip_tracker_sheet.dart';
 import 'package:tranyx_mobile/features/transit/presentation/widgets/listing_wizard_sheet.dart';
 import 'package:tranyx_mobile/features/transit/presentation/widgets/manage_listing_sheet.dart';
+import 'package:tranyx_mobile/features/transit/presentation/widgets/rental_details_sheet.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/history_pane.dart';
 
 class TransitView extends ConsumerStatefulWidget {
@@ -27,9 +30,21 @@ class TransitView extends ConsumerStatefulWidget {
 
 class _TransitViewState extends ConsumerState<TransitView> {
   final _searchController = TextEditingController();
+  Timer? _countdownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
 
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -125,12 +140,436 @@ class _TransitViewState extends ConsumerState<TransitView> {
     );
   }
 
+  void _openRentalDetailsSheet(Map<String, dynamic> item, bool isProperty) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) =>
+          RentalDetailsSheet(item: item, isProperty: isProperty),
+    );
+  }
+
   void _openListingWizardSheet(bool isProperty) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => ListingWizardSheet(isProperty: isProperty),
+    );
+  }
+
+  Widget _buildPendingRequestCard(
+    Map<String, dynamic> req,
+    bool isProperty,
+    bool isDarkMode,
+  ) {
+    final reqId = req['id']?.toString() ?? '';
+
+    String title;
+    String? photoUrl;
+    String address;
+    Map<String, dynamic> itemMap;
+
+    if (isProperty) {
+      final propId = (req['propertyId'] ?? req['listingId'])?.toString();
+      final properties = ref.watch(realtimePropertiesProvider).value ?? [];
+      PropertyRental? property;
+      if (propId != null && propId.isNotEmpty) {
+        for (final p in properties) {
+          if (p.id == propId) {
+            property = p;
+            break;
+          }
+        }
+      }
+      title = property?.title ?? req['title'] ?? req['propertyTitle'] ?? 'Property Rental';
+      if (property != null && property.photoUrls.isNotEmpty) {
+        photoUrl = property.photoUrls.first;
+      } else if (req['photoUrl'] != null && req['photoUrl'].toString().isNotEmpty) {
+        photoUrl = req['photoUrl'].toString();
+      } else if (req['photoUrls'] is List && (req['photoUrls'] as List).isNotEmpty) {
+        photoUrl = (req['photoUrls'] as List).first.toString();
+      }
+      address = property?.address ?? req['address'] ?? req['city'] ?? 'Location on file';
+      itemMap = property?.toMap() ?? {
+        'id': propId,
+        'title': title,
+        'address': address,
+        'photoUrls': photoUrl != null ? [photoUrl] : <String>[],
+        'priceDaily': req['priceDaily'] ?? req['totalCost'],
+        'status': 'Pending Approval',
+      };
+    } else {
+      final rentalId = (req['rentalId'] ?? req['listingId'])?.toString();
+      final rentals = ref.watch(realtimeRentalsProvider).value ?? [];
+      VehicleRental? vehicle;
+      if (rentalId != null && rentalId.isNotEmpty) {
+        for (final v in rentals) {
+          if (v.id == rentalId) {
+            vehicle = v;
+            break;
+          }
+        }
+      }
+      final brand = vehicle?.brand ?? req['brand'] ?? '';
+      final model = vehicle?.model ?? req['model'] ?? req['title'] ?? '';
+      title = '$brand $model'.trim();
+      if (title.isEmpty) title = 'Vehicle Rental';
+
+      photoUrl = vehicle?.frontPhotoUrl ?? req['frontPhotoUrl'] ?? req['photoUrl'];
+      address = vehicle?.pickupAddress ?? req['pickupAddress'] ?? 'Pickup location on file';
+      itemMap = vehicle?.toMap() ?? {
+        'id': rentalId,
+        'brand': brand,
+        'model': model.isNotEmpty ? model : title,
+        'frontPhotoUrl': photoUrl,
+        'pickupAddress': address,
+        'priceDaily': req['dailyRate'] ?? req['priceDaily'] ?? req['totalCost'],
+        'status': 'Pending Approval',
+      };
+    }
+
+    DateTime? parseDate(dynamic val) {
+      if (val == null) return null;
+      if (val is DateTime) return val;
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+      try {
+        final ms = (val as dynamic).millisecondsSinceEpoch;
+        if (ms is int) return DateTime.fromMillisecondsSinceEpoch(ms);
+      } catch (_) {}
+      try {
+        final ms = (val as dynamic).toMillis();
+        if (ms is int) return DateTime.fromMillisecondsSinceEpoch(ms);
+      } catch (_) {}
+      if (val is String) return DateTime.tryParse(val);
+      return null;
+    }
+
+    final startDate = parseDate(req['startDate']);
+    final endDate = parseDate(req['endDate']);
+    final hasDates = startDate != null && endDate != null;
+    final dateRangeStr = hasDates
+        ? '${DateFormat('MMM dd, yyyy').format(startDate)} – ${DateFormat('MMM dd, yyyy').format(endDate)}'
+        : (req['multiplier'] != null && req['durationType'] != null)
+            ? '${req['multiplier']} ${req['durationType']}(s)'
+            : '';
+
+    final totalCost = req['totalCost'] ?? req['amount'] ?? 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isDarkMode ? AppColors.darkCard : Colors.white,
+        border: Border.all(
+          color: isDarkMode ? AppColors.darkBorder : Colors.grey.shade200,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          if (!isDarkMode)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _openDetailDialog(itemMap, isProperty),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Thumbnail / Icon
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: photoUrl != null && photoUrl.isNotEmpty
+                          ? Image.network(
+                              photoUrl,
+                              width: 68,
+                              height: 68,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => Container(
+                                width: 68,
+                                height: 68,
+                                color: Colors.purple.withValues(alpha: 0.1),
+                                child: Icon(
+                                  isProperty
+                                      ? Icons.apartment_rounded
+                                      : Icons.directions_car_filled_rounded,
+                                  color: Colors.purple,
+                                  size: 30,
+                                ),
+                              ),
+                            )
+                          : Container(
+                              width: 68,
+                              height: 68,
+                              color: Colors.purple.withValues(alpha: 0.1),
+                              child: Icon(
+                                isProperty
+                                    ? Icons.apartment_rounded
+                                    : Icons.directions_car_filled_rounded,
+                                color: Colors.purple,
+                                size: 30,
+                              ),
+                            ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Details
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.purple.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  'AWAITING APPROVAL',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.purple,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  'PENDING',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.amber,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            title,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                              color: isDarkMode ? Colors.white : Colors.black87,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 3),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.location_on_outlined,
+                                size: 13,
+                                color: Colors.grey.shade500,
+                              ),
+                              const SizedBox(width: 3),
+                              Expanded(
+                                child: Text(
+                                  address,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (dateRangeStr.isNotEmpty) ...[
+                            const SizedBox(height: 3),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.calendar_today_outlined,
+                                  size: 12,
+                                  color: Colors.grey.shade500,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  dateRangeStr,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDarkMode
+                                        ? Colors.grey.shade400
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: isDarkMode
+                      ? AppColors.darkBorder.withValues(alpha: 0.5)
+                      : Colors.grey.shade100,
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'ESCROW LOCKED',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey.shade500,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        Text(
+                          '₱$totalCost',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.purple,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          onPressed: () => _openDetailDialog(itemMap, isProperty),
+                          child: const Text(
+                            'View Details',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            foregroundColor: Colors.red,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          onPressed: () async {
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Cancel Request'),
+                                content: const Text(
+                                  'Are you sure you want to cancel this booking request? Your locked funds will be refunded immediately.',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(false),
+                                    child: const Text('Keep Request'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(true),
+                                    child: const Text(
+                                      'Yes, Cancel',
+                                      style: TextStyle(color: Colors.red),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirmed == true) {
+                              try {
+                                if (isProperty) {
+                                  await ref
+                                      .read(transitRepositoryProvider)
+                                      .cancelPropertyBookingRequest(reqId);
+                                } else {
+                                  await ref
+                                      .read(transitRepositoryProvider)
+                                      .cancelBookingRequest(reqId);
+                                }
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Booking request cancelled and escrow refunded.',
+                                      ),
+                                      backgroundColor: Colors.green,
+                                    ),
+                                  );
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Failed to cancel request: $e'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              }
+                            }
+                          },
+                          child: const Text(
+                            'Cancel',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -247,114 +686,263 @@ class _TransitViewState extends ConsumerState<TransitView> {
             // 1. ACTIVE RENTALS / LEASES
             if (isVehicles) ...[
               ref
-                  .watch(realtimeRentalsProvider)
+                  .watch(renterActiveBookingsProvider)
                   .when(
-                    data: (rentals) {
-                      final active = rentals
-                          .where(
-                            (r) =>
-                                r.renteeId == userProfile.uid &&
-                                r.status != 'Available' &&
-                                r.status != 'Completed' &&
-                                r.status != 'Complete',
-                          )
-                          .toList();
+                    data: (bookings) {
+                      if (bookings.isEmpty) return const SizedBox.shrink();
 
-                      if (active.isEmpty) return const SizedBox.shrink();
+                      final ongoing = bookings.where((b) {
+                        final st = (b['status'] ?? '').toString().toLowerCase();
+                        return st == 'ongoing' || st == 'active' || st == 'on the way to rentee' || st == 'returning';
+                      }).toList();
+
+                      final upcoming = bookings.where((b) {
+                        final st = (b['status'] ?? '').toString().toLowerCase();
+                        final isUpcomingStatus = st == 'booked' || st == 'awaiting signature' || st == 'approved';
+                        if (!isUpcomingStatus) return false;
+                        final endMs = getEpochMs(b['endDate'] ?? b['returnDate']);
+                        final nowMs = DateTime.now().millisecondsSinceEpoch;
+                        return endMs == 0 || endMs > nowMs;
+                      }).toList();
+
+                      Widget buildRentalCard(Map<String, dynamic> act, bool isOngoingTrip) {
+                        final brand = (act['brand'] ?? '').toString().trim();
+                        final model = (act['model'] ?? '').toString().trim();
+                        final title = '$brand $model'.trim().isNotEmpty ? '$brand $model'.trim() : 'Vehicle Rental';
+                        final rawPlate = act['plateNumber']?.toString().trim();
+                        final hasPlate = rawPlate != null && rawPlate.isNotEmpty && rawPlate.toLowerCase() != 'null';
+                        final plateStr = hasPlate ? ' • $rawPlate' : '';
+
+                        final rawStatus = (act['status'] ?? 'BOOKED').toString();
+                        final isSigned = (act['signedAt'] != null && (act['signedAt'] as num) > 0) ||
+                            (act['renteeSignatureName'] != null && act['renteeSignatureName'].toString().isNotEmpty && act['renteeSignatureName'].toString() != 'null') ||
+                            (act['signatureName'] != null && act['signatureName'].toString().isNotEmpty && act['signatureName'].toString() != 'null') ||
+                            (act['signatureHash'] != null && act['signatureHash'].toString().isNotEmpty);
+
+                        final isAwaitingSignature = !isSigned && (
+                          rawStatus.toLowerCase() == 'awaiting signature' ||
+                          rawStatus.toLowerCase() == 'approved'
+                        );
+                        final displayStatus = isAwaitingSignature ? 'Awaiting Signature' : rawStatus;
+                        final pickupAddress = act['deliveryAddress'] ?? act['pickupAddress'] ?? 'Pickup point';
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: isOngoingTrip
+                                ? Colors.green.withValues(alpha: 0.08)
+                                : (isAwaitingSignature
+                                    ? Colors.amber.withValues(alpha: 0.08)
+                                    : AppColors.indigo.withValues(alpha: 0.08)),
+                            border: Border.all(
+                              color: isOngoingTrip
+                                  ? Colors.green.withValues(alpha: 0.3)
+                                  : (isAwaitingSignature
+                                      ? Colors.amber.withValues(alpha: 0.4)
+                                      : AppColors.indigo.withValues(alpha: 0.3)),
+                            ),
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(24),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(24),
+                              onTap: () => _openRentalDetailsSheet(act, false),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(
+                                          child: Row(
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  '$title$plateStr',
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 16,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Icon(
+                                                Icons.chevron_right_rounded,
+                                                size: 20,
+                                                color: isOngoingTrip
+                                                    ? Colors.green
+                                                    : (isAwaitingSignature
+                                                        ? Colors.amber
+                                                        : AppColors.indigo),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isOngoingTrip
+                                          ? Colors.green.withValues(alpha: 0.15)
+                                          : (isAwaitingSignature
+                                              ? Colors.amber.withValues(alpha: 0.15)
+                                              : Colors.orange.withValues(alpha: 0.15)),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      isAwaitingSignature ? 'ACTION REQUIRED • SIGN' : displayStatus.toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: isOngoingTrip
+                                            ? Colors.green
+                                            : (isAwaitingSignature ? Colors.amber.shade800 : Colors.orange),
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                isOngoingTrip
+                                    ? 'Current trip handover address: $pickupAddress'
+                                    : (isAwaitingSignature
+                                        ? 'Host approved your rental! Please review & sign the agreement to activate.'
+                                        : 'Scheduled handover address: $pickupAddress'),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isAwaitingSignature ? Colors.amber.shade700 : Colors.grey,
+                                  fontWeight: isAwaitingSignature ? FontWeight.w500 : FontWeight.normal,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  if (isAwaitingSignature) ...[
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () async {
+                                          final confirmed = await showDialog<bool>(
+                                            context: context,
+                                            builder: (ctx) => AlertDialog(
+                                              title: const Text('Cancel Approved Request?'),
+                                              content: const Text(
+                                                'Are you sure you want to cancel this approved rental request before signing? Your escrow deposit will be 100% refunded immediately.',
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(ctx, false),
+                                                  child: const Text('Keep Rental'),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(ctx, true),
+                                                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                                                  child: const Text('Cancel Request'),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                          if (confirmed == true) {
+                                            try {
+                                              await ref
+                                                  .read(transitRepositoryProvider)
+                                                  .cancelBookingRequest(act['id']?.toString() ?? '');
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('Rental request cancelled and escrow refunded.'),
+                                                    backgroundColor: Colors.green,
+                                                  ),
+                                                );
+                                              }
+                                            } catch (e) {
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('Failed to cancel request: $e'),
+                                                    backgroundColor: Colors.red,
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                          }
+                                        },
+                                        icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                                        label: const Text('Cancel', style: TextStyle(color: Colors.red)),
+                                        style: OutlinedButton.styleFrom(
+                                          side: const BorderSide(color: Colors.red),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () => _openActiveTripSheet(act, false),
+                                      icon: Icon(
+                                        isOngoingTrip
+                                            ? Icons.location_on
+                                            : (isAwaitingSignature ? Icons.draw : Icons.route),
+                                        size: 16,
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: isOngoingTrip
+                                            ? Colors.green.shade700
+                                            : (isAwaitingSignature ? Colors.green.shade700 : AppColors.indigo),
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      label: Text(
+                                        isOngoingTrip
+                                            ? 'Open Tracker & Telemetry'
+                                            : (isAwaitingSignature ? 'Review & Sign Agreement' : 'View Trip Itinerary'),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }
 
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'ACTIVE VEHICLE RENTALS',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey,
+                          if (ongoing.isNotEmpty) ...[
+                            const Text(
+                              'ACTIVE VEHICLE RENTALS (IN PROGRESS)',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                                letterSpacing: 0.5,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          ...active.map((act) {
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: AppColors.indigo.withValues(alpha: 0.1),
-                                border: Border.all(
-                                  color: AppColors.indigo.withValues(
-                                    alpha: 0.3,
-                                  ),
-                                ),
-                                borderRadius: BorderRadius.circular(24),
+                            const SizedBox(height: 12),
+                            ...ongoing.map((act) => buildRentalCard(act, true)),
+                          ],
+                          if (upcoming.isNotEmpty) ...[
+                            const Text(
+                              'UPCOMING RENTAL SCHEDULES',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey,
+                                letterSpacing: 0.5,
                               ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        '${act.brand} ${act.model}',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green.withValues(
-                                            alpha: 0.15,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          act.status.toUpperCase(),
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            color: Colors.green,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Handover address: ${act.pickupAddress}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: ElevatedButton(
-                                          onPressed: () => _openActiveTripSheet(
-                                            act.toMap(),
-                                            false,
-                                          ),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: AppColors.indigo,
-                                            foregroundColor: Colors.white,
-                                          ),
-                                          child: const Text('Open Tracker Map'),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
+                            ),
+                            const SizedBox(height: 12),
+                            ...upcoming.map((act) => buildRentalCard(act, false)),
+                          ],
                         ],
                       );
                     },
@@ -364,113 +952,257 @@ class _TransitViewState extends ConsumerState<TransitView> {
                   ),
             ] else ...[
               ref
-                  .watch(realtimePropertiesProvider)
+                  .watch(propertyRenterActiveBookingsProvider)
                   .when(
-                    data: (props) {
-                      final active = props
-                          .where(
-                            (p) =>
-                                p.renteeId == userProfile.uid &&
-                                p.status != 'Available' &&
-                                p.status != 'Completed',
-                          )
-                          .toList();
+                    data: (leases) {
+                      if (leases.isEmpty) return const SizedBox.shrink();
 
-                      if (active.isEmpty) return const SizedBox.shrink();
+                      final ongoingLeases = leases.where((l) {
+                        final st = (l['status'] ?? '').toString().toLowerCase();
+                        return st == 'ongoing' || st == 'active' || st == 'occupied';
+                      }).toList();
+
+                      final upcomingLeases = leases.where((l) {
+                        final st = (l['status'] ?? '').toString().toLowerCase();
+                        final isUpcomingStatus = st == 'booked' || st == 'awaiting signature' || st == 'approved';
+                        if (!isUpcomingStatus) return false;
+                        final endMs = getEpochMs(l['endDate'] ?? l['checkOutDate']);
+                        final nowMs = DateTime.now().millisecondsSinceEpoch;
+                        return endMs == 0 || endMs > nowMs;
+                      }).toList();
+
+                      Widget buildLeaseCard(Map<String, dynamic> act, bool isOngoing) {
+                        final title = (act['title'] ?? 'Property Lease').toString();
+                        final rawStatus = (act['status'] ?? 'BOOKED').toString();
+                        final isSigned = (act['signedAt'] != null && (act['signedAt'] as num) > 0) ||
+                            (act['renteeSignatureName'] != null && act['renteeSignatureName'].toString().isNotEmpty && act['renteeSignatureName'].toString() != 'null') ||
+                            (act['signatureName'] != null && act['signatureName'].toString().isNotEmpty && act['signatureName'].toString() != 'null') ||
+                            (act['signatureHash'] != null && act['signatureHash'].toString().isNotEmpty);
+
+                        final isAwaitingSignature = !isSigned && (
+                          rawStatus.toLowerCase() == 'awaiting signature' ||
+                          rawStatus.toLowerCase() == 'approved'
+                        );
+                        final displayStatus = isAwaitingSignature ? 'Awaiting Signature' : rawStatus;
+                        final address = (act['address'] ?? '').toString();
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: isOngoing
+                                ? Colors.teal.withValues(alpha: 0.08)
+                                : (isAwaitingSignature
+                                    ? Colors.amber.withValues(alpha: 0.08)
+                                    : AppColors.indigo.withValues(alpha: 0.08)),
+                            border: Border.all(
+                              color: isOngoing
+                                  ? Colors.teal.withValues(alpha: 0.3)
+                                  : (isAwaitingSignature
+                                      ? Colors.amber.withValues(alpha: 0.4)
+                                      : AppColors.indigo.withValues(alpha: 0.3)),
+                            ),
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(24),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(24),
+                              onTap: () => _openRentalDetailsSheet(act, true),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(
+                                          child: Row(
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  title,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 16,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Icon(
+                                                Icons.chevron_right_rounded,
+                                                size: 20,
+                                                color: isOngoing
+                                                    ? Colors.teal
+                                                    : (isAwaitingSignature
+                                                        ? Colors.amber
+                                                        : AppColors.indigo),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isOngoing
+                                          ? Colors.green.withValues(alpha: 0.15)
+                                          : (isAwaitingSignature
+                                              ? Colors.amber.withValues(alpha: 0.15)
+                                              : Colors.orange.withValues(alpha: 0.15)),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      isAwaitingSignature ? 'ACTION REQUIRED • SIGN' : displayStatus.toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: isOngoing
+                                            ? Colors.green
+                                            : (isAwaitingSignature ? Colors.amber.shade800 : Colors.orange),
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                isOngoing
+                                    ? 'Address: $address'
+                                    : (isAwaitingSignature
+                                        ? 'Host approved your lease! Please review & sign the agreement to activate.'
+                                        : 'Address: $address'),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isAwaitingSignature ? Colors.amber.shade700 : Colors.grey,
+                                  fontWeight: isAwaitingSignature ? FontWeight.w500 : FontWeight.normal,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  if (isAwaitingSignature) ...[
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () async {
+                                          final confirmed = await showDialog<bool>(
+                                            context: context,
+                                            builder: (ctx) => AlertDialog(
+                                              title: const Text('Cancel Approved Lease?'),
+                                              content: const Text(
+                                                'Are you sure you want to cancel this approved lease request before signing? Your escrow deposit will be 100% refunded immediately.',
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(ctx, false),
+                                                  child: const Text('Keep Lease'),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(ctx, true),
+                                                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                                                  child: const Text('Cancel Lease'),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                          if (confirmed == true) {
+                                            try {
+                                              await ref
+                                                  .read(transitRepositoryProvider)
+                                                  .cancelPropertyBookingRequest(act['id']?.toString() ?? '');
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('Lease request cancelled and escrow refunded.'),
+                                                    backgroundColor: Colors.green,
+                                                  ),
+                                                );
+                                              }
+                                            } catch (e) {
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('Failed to cancel request: $e'),
+                                                    backgroundColor: Colors.red,
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                          }
+                                        },
+                                        icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                                        label: const Text('Cancel', style: TextStyle(color: Colors.red)),
+                                        style: OutlinedButton.styleFrom(
+                                          side: const BorderSide(color: Colors.red),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () => _openActiveTripSheet(act, true),
+                                      icon: Icon(
+                                        isOngoing
+                                            ? Icons.apartment
+                                            : (isAwaitingSignature ? Icons.draw : Icons.receipt_long),
+                                        size: 16,
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: isOngoing
+                                            ? Colors.teal.shade700
+                                            : (isAwaitingSignature ? Colors.green.shade700 : AppColors.indigo),
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      label: Text(
+                                        isOngoing
+                                            ? 'View Lease Details'
+                                            : (isAwaitingSignature ? 'Review & Sign Agreement' : 'View Reservation Itinerary'),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }
 
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'ACTIVE REAL ESTATE LEASES',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey,
+                          if (ongoingLeases.isNotEmpty) ...[
+                            const Text(
+                              'ACTIVE REAL ESTATE LEASES (CURRENT RESIDENCE)',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.teal,
+                                letterSpacing: 0.5,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          ...active.map((act) {
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.teal.withValues(alpha: 0.1),
-                                border: Border.all(
-                                  color: Colors.teal.withValues(alpha: 0.3),
-                                ),
-                                borderRadius: BorderRadius.circular(24),
+                            const SizedBox(height: 12),
+                            ...ongoingLeases.map((act) => buildLeaseCard(act, true)),
+                          ],
+                          if (upcomingLeases.isNotEmpty) ...[
+                            const Text(
+                              'UPCOMING PROPERTY LEASES & SCHEDULES',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey,
+                                letterSpacing: 0.5,
                               ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        act.title,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green.withValues(
-                                            alpha: 0.15,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          act.status.toUpperCase(),
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            color: Colors.green,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Address: ${act.address}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: ElevatedButton(
-                                          onPressed: () => _openActiveTripSheet(
-                                            act.toMap(),
-                                            true,
-                                          ),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.teal,
-                                            foregroundColor: Colors.white,
-                                          ),
-                                          child: const Text(
-                                            'Open Lease Portal',
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
+                            ),
+                            const SizedBox(height: 12),
+                            ...upcomingLeases.map((act) => buildLeaseCard(act, false)),
+                          ],
                         ],
                       );
                     },
@@ -503,30 +1235,13 @@ class _TransitViewState extends ConsumerState<TransitView> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          ...pending.map((req) {
-                            final reqId = req['id'] as String;
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: ListTile(
-                                title: Text('${req["brand"]} ${req["model"]}'),
-                                subtitle: Text(
-                                  'Duration: ${req["multiplier"]} ${req["durationType"]}(s)',
-                                ),
-                                trailing: OutlinedButton(
-                                  onPressed: () => ref
-                                      .read(transitRepositoryProvider)
-                                      .cancelBookingRequest(reqId),
-                                  child: const Text(
-                                    'Cancel',
-                                    style: TextStyle(color: Colors.red),
-                                  ),
-                                ),
-                              ),
-                            );
-                          }),
+                          ...pending.map(
+                            (req) => _buildPendingRequestCard(
+                              req,
+                              false,
+                              isDarkMode,
+                            ),
+                          ),
                           const SizedBox(height: 16),
                         ],
                       );
@@ -556,32 +1271,13 @@ class _TransitViewState extends ConsumerState<TransitView> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          ...pending.map((req) {
-                            final reqId = req['id'] as String;
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: ListTile(
-                                title: Text(req['title'] ?? 'Property Rental'),
-                                subtitle: Text(
-                                  'Rent: ₱ ${req["totalCost"]?.toString() ?? "0"}',
-                                ),
-                                trailing: OutlinedButton(
-                                  onPressed: () => ref
-                                      .read(transitRepositoryProvider)
-                                      .rejectPropertyBookingRequest(
-                                        reqId,
-                                      ), // Cancels same collection
-                                  child: const Text(
-                                    'Cancel',
-                                    style: TextStyle(color: Colors.red),
-                                  ),
-                                ),
-                              ),
-                            );
-                          }),
+                          ...pending.map(
+                            (req) => _buildPendingRequestCard(
+                              req,
+                              true,
+                              isDarkMode,
+                            ),
+                          ),
                           const SizedBox(height: 16),
                         ],
                       );
@@ -841,8 +1537,9 @@ class _TransitViewState extends ConsumerState<TransitView> {
                       final rad = ref.watch(transitGeofenceRadiusProvider);
 
                       final filtered = rentals.where((r) {
-                        if (r.status != 'Available') return false;
-                        if (r.hostId == userProfile.uid) return false;
+                        final status = r.status.toLowerCase();
+                        if (status == 'inactive' || status == 'unpublished' || status == 'archived' || status == 'deleted' || status == 'not accepting bookings') return false;
+                        if (r.isDeleted || !r.acceptingBookings) return false;
 
                         if (sq.isNotEmpty) {
                           final title = '${r.brand} ${r.model} ${r.type.name}'
@@ -899,100 +1596,275 @@ class _TransitViewState extends ConsumerState<TransitView> {
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final item = filtered[index];
+                          final isMyListing = item.hostId == userProfile.uid;
                           final dist = calculateDistance(
                             userLat,
                             userLng,
                             item.pickupLat,
                             item.pickupLng,
                           );
-                          return GestureDetector(
-                            onTap: () => _openDetailDialog(item.toMap(), false),
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(
+                              color: isDarkMode
+                                  ? AppColors.darkCard
+                                  : AppColors.lightCard,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
                                 color: isDarkMode
-                                    ? AppColors.darkCard
-                                    : AppColors.lightCard,
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(
-                                  color: isDarkMode
-                                      ? AppColors.darkBorder
-                                      : AppColors.lightBorder,
-                                ),
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder,
                               ),
-                              child: Row(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: Container(
-                                      width: 80,
-                                      height: 80,
-                                      color: isDarkMode
-                                          ? AppColors.darkBorder
-                                          : AppColors.lightBg,
-                                      child: (item.frontPhotoUrl.isNotEmpty)
-                                          ? Image.network(
-                                              item.frontPhotoUrl,
-                                              fit: BoxFit.cover,
-                                            )
-                                          : const Icon(
-                                              Icons.directions_car,
-                                              size: 32,
-                                              color: Colors.grey,
-                                            ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '${item.brand} ${item.model}',
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                            color: isDarkMode
-                                                ? AppColors.darkText
-                                                : AppColors.lightText,
-                                          ),
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(24),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(24),
+                                mouseCursor: SystemMouseCursors.click,
+                                onTap: () => isMyListing
+                                    ? _openManageListingSheet(item.toMap(), false)
+                                    : _openDetailDialog(item.toMap(), false),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Row(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: Container(
+                                          width: 80,
+                                          height: 80,
+                                          color: isDarkMode
+                                              ? AppColors.darkBorder
+                                              : AppColors.lightBg,
+                                          child: (item.frontPhotoUrl.isNotEmpty)
+                                              ? Image.network(
+                                                  item.frontPhotoUrl,
+                                                  fit: BoxFit.cover,
+                                                )
+                                              : const Icon(
+                                                  Icons.directions_car,
+                                                  size: 32,
+                                                  color: Colors.grey,
+                                                ),
                                         ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '${item.transmission} • ${item.fuelType}',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             Text(
-                                              '₱ ${item.priceDaily.toStringAsFixed(0)}/day',
-                                              style: const TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.w900,
-                                                color: AppColors.indigo,
+                                              '${item.brand} ${item.model}',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                                color: isDarkMode
+                                                    ? AppColors.darkText
+                                                    : AppColors.lightText,
                                               ),
                                             ),
-                                            Text(
-                                              '${dist.toStringAsFixed(1)} km away',
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey,
-                                              ),
+                                            const SizedBox(height: 2),
+                                            Wrap(
+                                              crossAxisAlignment: WrapCrossAlignment.center,
+                                              spacing: 6,
+                                              children: [
+                                                Text(
+                                                  '${item.transmission} • ${item.fuelType}',
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
+                                                if (isMyListing)
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2,
+                                                    ),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.purple.withValues(alpha: 0.15),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                      border: Border.all(
+                                                        color: Colors.purple.withValues(alpha: 0.3),
+                                                      ),
+                                                    ),
+                                                    child: const Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(
+                                                          Icons.person,
+                                                          size: 10,
+                                                          color: Colors.purple,
+                                                        ),
+                                                        SizedBox(width: 2),
+                                                        Text(
+                                                          'Your Listing',
+                                                          style: TextStyle(
+                                                            fontSize: 10,
+                                                            fontWeight: FontWeight.bold,
+                                                            color: Colors.purple,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                Builder(
+                                                  builder: (context) {
+                                                    final statusStr = item.status;
+                                                    final isRented = statusStr == 'Rented' || statusStr == 'Ongoing' || statusStr == 'Active';
+                                                    final endMs = item.endDate?.millisecondsSinceEpoch;
+                                                    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+                                                    if (isRented && endMs != null) {
+                                                      if (endMs > nowMs) {
+                                                        final diffMins = ((endMs - nowMs) / (60 * 1000)).round();
+                                                        if (diffMins <= 60) {
+                                                          return Container(
+                                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                            decoration: BoxDecoration(
+                                                              color: Colors.green.withValues(alpha: 0.15),
+                                                              borderRadius: BorderRadius.circular(6),
+                                                            ),
+                                                            child: Text(
+                                                              'Returns in ${diffMins > 0 ? diffMins : 1}m',
+                                                              style: const TextStyle(
+                                                                fontSize: 10,
+                                                                fontWeight: FontWeight.bold,
+                                                                color: Colors.green,
+                                                              ),
+                                                            ),
+                                                          );
+                                                        } else if (diffMins <= 1440) {
+                                                          final hours = (diffMins / 60).floor();
+                                                          final remMins = diffMins % 60;
+                                                          return Container(
+                                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                            decoration: BoxDecoration(
+                                                              color: Colors.orange.withValues(alpha: 0.15),
+                                                              borderRadius: BorderRadius.circular(6),
+                                                            ),
+                                                            child: Text(
+                                                              'Returns in ${hours}h ${remMins}m',
+                                                              style: const TextStyle(
+                                                                fontSize: 10,
+                                                                fontWeight: FontWeight.bold,
+                                                                color: Colors.orange,
+                                                              ),
+                                                            ),
+                                                          );
+                                                        } else {
+                                                          final returnDate = DateTime.fromMillisecondsSinceEpoch(endMs);
+                                                          return Container(
+                                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                            decoration: BoxDecoration(
+                                                              color: Colors.purple.withValues(alpha: 0.15),
+                                                              borderRadius: BorderRadius.circular(6),
+                                                            ),
+                                                            child: Text(
+                                                              'Available ${returnDate.month}/${returnDate.day}',
+                                                              style: const TextStyle(
+                                                                fontSize: 10,
+                                                                fontWeight: FontWeight.bold,
+                                                                color: Colors.purple,
+                                                              ),
+                                                            ),
+                                                          );
+                                                        }
+                                                      } else {
+                                                        return Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                          decoration: BoxDecoration(
+                                                            color: Colors.amber.withValues(alpha: 0.15),
+                                                            borderRadius: BorderRadius.circular(6),
+                                                          ),
+                                                          child: const Text(
+                                                            'Turnaround Pending',
+                                                            style: TextStyle(
+                                                              fontSize: 10,
+                                                              fontWeight: FontWeight.bold,
+                                                              color: Colors.amber,
+                                                            ),
+                                                          ),
+                                                        );
+                                                      }
+                                                    }
+                                                    return const SizedBox.shrink();
+                                                  },
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      '₱ ${item.priceDaily.toStringAsFixed(0)}/day',
+                                                      style: const TextStyle(
+                                                        fontSize: 14,
+                                                        fontWeight: FontWeight.w900,
+                                                        color: AppColors.indigo,
+                                                      ),
+                                                    ),
+                                                    Text(
+                                                      '${dist.toStringAsFixed(1)} km away',
+                                                      style: const TextStyle(
+                                                        fontSize: 11,
+                                                        color: Colors.grey,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                ElevatedButton(
+                                                  onPressed: () => isMyListing
+                                                      ? _openManageListingSheet(
+                                                          item.toMap(),
+                                                          false,
+                                                        )
+                                                      : _openBookingSheet(
+                                                          item.toMap(),
+                                                          false,
+                                                        ),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor:
+                                                        AppColors.indigo,
+                                                    foregroundColor: Colors.white,
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(12),
+                                                    ),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 14,
+                                                          vertical: 8,
+                                                        ),
+                                                    minimumSize: Size.zero,
+                                                    tapTargetSize:
+                                                        MaterialTapTargetSize
+                                                            .shrinkWrap,
+                                                  ),
+                                                  child: Text(
+                                                    isMyListing ? 'Manage' : 'Book Now',
+                                                    style: const TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ],
                                         ),
-                                      ],
-                                    ),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                           );
@@ -1024,8 +1896,9 @@ class _TransitViewState extends ConsumerState<TransitView> {
                       );
 
                       final filtered = props.where((p) {
-                        if (p.status != 'Available') return false;
-                        if (p.hostId == userProfile.uid) return false;
+                        final status = p.status.toLowerCase();
+                        if (status == 'inactive' || status == 'unpublished' || status == 'archived' || status == 'deleted' || status == 'not accepting bookings') return false;
+                        if (p.isDeleted || !p.acceptingBookings) return false;
 
                         if (sq.isNotEmpty) {
                           final title =
@@ -1118,6 +1991,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final item = filtered[index];
+                          final isMyProperty = item.hostId == userProfile.uid;
                           final dist = calculateDistance(
                             userLat,
                             userLng,
@@ -1125,98 +1999,188 @@ class _TransitViewState extends ConsumerState<TransitView> {
                             item.longitude,
                           );
                           final photoUrl = item.photoUrls.firstOrNull;
-                          return GestureDetector(
-                            onTap: () => _openDetailDialog(item.toMap(), true),
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(
+                              color: isDarkMode
+                                  ? AppColors.darkCard
+                                  : AppColors.lightCard,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
                                 color: isDarkMode
-                                    ? AppColors.darkCard
-                                    : AppColors.lightCard,
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(
-                                  color: isDarkMode
-                                      ? AppColors.darkBorder
-                                      : AppColors.lightBorder,
-                                ),
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder,
                               ),
-                              child: Row(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: Container(
-                                      width: 80,
-                                      height: 80,
-                                      color: isDarkMode
-                                          ? AppColors.darkBorder
-                                          : AppColors.lightBg,
-                                      child:
-                                          (photoUrl != null &&
-                                              photoUrl.isNotEmpty)
-                                          ? Image.network(
-                                              photoUrl,
-                                              fit: BoxFit.cover,
-                                            )
-                                          : const Icon(
-                                              Icons.home,
-                                              size: 32,
-                                              color: Colors.grey,
-                                            ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          item.title,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.bold,
-                                            color: isDarkMode
-                                                ? AppColors.darkText
-                                                : AppColors.lightText,
-                                          ),
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(24),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(24),
+                                mouseCursor: SystemMouseCursors.click,
+                                onTap: () => isMyProperty
+                                    ? _openManageListingSheet(item.toMap(), true)
+                                    : _openDetailDialog(item.toMap(), true),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Row(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: Container(
+                                          width: 80,
+                                          height: 80,
+                                          color: isDarkMode
+                                              ? AppColors.darkBorder
+                                              : AppColors.lightBg,
+                                          child:
+                                              (photoUrl != null &&
+                                                  photoUrl.isNotEmpty)
+                                              ? Image.network(
+                                                  photoUrl,
+                                                  fit: BoxFit.cover,
+                                                )
+                                              : const Icon(
+                                                  Icons.home,
+                                                  size: 32,
+                                                  color: Colors.grey,
+                                                ),
                                         ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '${item.category.label} • ${item.type.label}',
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             Text(
-                                              '₱ ${item.priceMonthly.toStringAsFixed(0)}/mo',
-                                              style: const TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.w900,
-                                                color: Colors.teal,
+                                              item.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.bold,
+                                                color: isDarkMode
+                                                    ? AppColors.darkText
+                                                    : AppColors.lightText,
                                               ),
                                             ),
-                                            Text(
-                                              '${dist.toStringAsFixed(1)} km away',
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey,
-                                              ),
+                                            const SizedBox(height: 2),
+                                            Wrap(
+                                              crossAxisAlignment: WrapCrossAlignment.center,
+                                              spacing: 6,
+                                              children: [
+                                                Text(
+                                                  '${item.category.label} • ${item.type.label}',
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
+                                                if (isMyProperty)
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2,
+                                                    ),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.purple.withValues(alpha: 0.15),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                      border: Border.all(
+                                                        color: Colors.purple.withValues(alpha: 0.3),
+                                                      ),
+                                                    ),
+                                                    child: const Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(
+                                                          Icons.person,
+                                                          size: 10,
+                                                          color: Colors.purple,
+                                                        ),
+                                                        SizedBox(width: 2),
+                                                        Text(
+                                                          'Your Property',
+                                                          style: TextStyle(
+                                                            fontSize: 10,
+                                                            fontWeight: FontWeight.bold,
+                                                            color: Colors.purple,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      '₱ ${item.priceMonthly.toStringAsFixed(0)}/mo',
+                                                      style: const TextStyle(
+                                                        fontSize: 14,
+                                                        fontWeight: FontWeight.w900,
+                                                        color: Colors.teal,
+                                                      ),
+                                                    ),
+                                                    Text(
+                                                      '${dist.toStringAsFixed(1)} km away',
+                                                      style: const TextStyle(
+                                                        fontSize: 11,
+                                                        color: Colors.grey,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                ElevatedButton(
+                                                  onPressed: () => isMyProperty
+                                                      ? _openManageListingSheet(
+                                                          item.toMap(),
+                                                          true,
+                                                        )
+                                                      : _openBookingSheet(
+                                                          item.toMap(),
+                                                          true,
+                                                        ),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor: Colors.teal,
+                                                    foregroundColor: Colors.white,
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(12),
+                                                    ),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 14,
+                                                          vertical: 8,
+                                                        ),
+                                                    minimumSize: Size.zero,
+                                                    tapTargetSize:
+                                                        MaterialTapTargetSize
+                                                            .shrinkWrap,
+                                                  ),
+                                                  child: Text(
+                                                    isMyProperty ? 'Manage' : 'Rent Now',
+                                                    style: const TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ],
                                         ),
-                                      ],
-                                    ),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                           );
@@ -1236,7 +2200,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                   .when(
                     data: (rentals) {
                       final myGarage = rentals
-                          .where((r) => r.hostId == userProfile.uid)
+                          .where((r) => r.hostId == userProfile.uid && r.status.toLowerCase() != 'archived' && r.status.toLowerCase() != 'deleted' && !r.isDeleted)
                           .toList();
 
                       return Column(
@@ -1296,6 +2260,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                               itemCount: myGarage.length,
                               itemBuilder: (context, index) {
                                 final item = myGarage[index];
+                                final isNotAccepting = item.status == 'Not Accepting Bookings' || !item.acceptingBookings;
                                 return GestureDetector(
                                   onTap: () => _openManageListingSheet(
                                     item.toMap(),
@@ -1382,20 +2347,33 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                                           vertical: 2,
                                                         ),
                                                     decoration: BoxDecoration(
-                                                      color: Colors.purple
-                                                          .withValues(
-                                                            alpha: 0.15,
-                                                          ),
+                                                      color: isNotAccepting
+                                                          ? Colors.amber
+                                                              .withValues(
+                                                                alpha: 0.15,
+                                                              )
+                                                          : Colors.purple
+                                                              .withValues(
+                                                                alpha: 0.15,
+                                                              ),
                                                       borderRadius:
                                                           BorderRadius.circular(
                                                             6,
                                                           ),
                                                     ),
                                                     child: Text(
-                                                      item.status.toUpperCase(),
-                                                      style: const TextStyle(
+                                                      isNotAccepting
+                                                          ? 'NOT ACCEPTING BOOKINGS'
+                                                          : (item.status == 'Rented'
+                                                              ? 'ACTIVE • DATES AVAILABLE'
+                                                              : item.status.toUpperCase()),
+                                                      style: TextStyle(
                                                         fontSize: 9,
-                                                        color: Colors.purple,
+                                                        color: isNotAccepting
+                                                            ? Colors.amber[800]
+                                                            : (item.status == 'Rented'
+                                                                ? Colors.orange
+                                                                : Colors.purple),
                                                         fontWeight:
                                                             FontWeight.bold,
                                                       ),
@@ -1425,7 +2403,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                   .when(
                     data: (props) {
                       final myProperties = props
-                          .where((p) => p.hostId == userProfile.uid)
+                          .where((p) => p.hostId == userProfile.uid && p.status.toLowerCase() != 'archived' && p.status.toLowerCase() != 'deleted' && !p.isDeleted)
                           .toList();
 
                       return Column(
@@ -1485,6 +2463,7 @@ class _TransitViewState extends ConsumerState<TransitView> {
                               itemCount: myProperties.length,
                               itemBuilder: (context, index) {
                                 final item = myProperties[index];
+                                final isNotAccepting = item.status == 'Not Accepting Bookings' || !item.acceptingBookings;
                                 final photoUrl = item.photoUrls.firstOrNull;
                                 return GestureDetector(
                                   onTap: () => _openManageListingSheet(
@@ -1575,20 +2554,33 @@ class _TransitViewState extends ConsumerState<TransitView> {
                                                           vertical: 2,
                                                         ),
                                                     decoration: BoxDecoration(
-                                                      color: Colors.purple
-                                                          .withValues(
-                                                            alpha: 0.15,
-                                                          ),
+                                                      color: isNotAccepting
+                                                          ? Colors.amber
+                                                              .withValues(
+                                                                alpha: 0.15,
+                                                              )
+                                                          : Colors.purple
+                                                              .withValues(
+                                                                alpha: 0.15,
+                                                              ),
                                                       borderRadius:
                                                           BorderRadius.circular(
                                                             6,
                                                           ),
                                                     ),
                                                     child: Text(
-                                                      item.status.toUpperCase(),
-                                                      style: const TextStyle(
+                                                      isNotAccepting
+                                                          ? 'NOT ACCEPTING BOOKINGS'
+                                                          : (item.status == 'Rented'
+                                                              ? 'ACTIVE • DATES AVAILABLE'
+                                                              : item.status.toUpperCase()),
+                                                      style: TextStyle(
                                                         fontSize: 9,
-                                                        color: Colors.purple,
+                                                        color: isNotAccepting
+                                                            ? Colors.amber[800]
+                                                            : (item.status == 'Rented'
+                                                                ? Colors.orange
+                                                                : Colors.purple),
                                                         fontWeight:
                                                             FontWeight.bold,
                                                       ),

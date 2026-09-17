@@ -2,18 +2,24 @@ import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
 import '../../components/ui_helpers.dart';
+import '../../services/web_interop.dart';
+import '../tranyx_app.dart';
 
 class ContractViewerComponent extends StatelessComponent {
   final VehicleRental? vehicleRental;
   final PropertyRental? propertyRental;
   final String? customTerms;
   final String? contractType;
+  final TranyxAppState? appState;
+  final void Function(String source, String fileName)? onOpenPdfViewer;
 
   const ContractViewerComponent({
     this.vehicleRental,
     this.propertyRental,
     this.customTerms,
     this.contractType,
+    this.appState,
+    this.onOpenPdfViewer,
     super.key,
   });
 
@@ -24,6 +30,9 @@ class ContractViewerComponent extends StatelessComponent {
     // Determine mode
     final isCustom =
         (contractType == 'Custom Contract') ||
+        CustomContractHelper.isCustomPdf(customTerms) ||
+        CustomContractHelper.isCustomPdf(vehicleRental?.contractTerms) ||
+        CustomContractHelper.isCustomPdf(propertyRental?.contractTerms) ||
         (customTerms != null &&
             customTerms!.isNotEmpty &&
             customTerms != 'Standard P2P terms' &&
@@ -54,29 +63,98 @@ class ContractViewerComponent extends StatelessComponent {
 
   // ── CUSTOM CONTRACTS PREVIEW ──────────────────────────────────────────────
   List<Component> _buildCustomContract(bool isDark) {
-    final terms = customTerms ?? 'No custom contract terms provided.';
+    final terms = (customTerms != null && customTerms!.isNotEmpty)
+        ? customTerms!
+        : (vehicleRental?.contractTerms.isNotEmpty == true
+            ? vehicleRental!.contractTerms
+            : (propertyRental?.contractTerms.isNotEmpty == true
+                ? propertyRental!.contractTerms
+                : 'No custom contract terms provided.'));
+    final isPdf = CustomContractHelper.isCustomPdf(terms);
+    final fileName = CustomContractHelper.extractFileName(terms);
+    final source = CustomContractHelper.extractPdfSource(terms);
+
     return [
       div(classes: 'flex flex-col items-center text-center mb-6', [
         div(classes: 'p-3 rounded-full bg-amber-500/10 text-amber-400 mb-3', [
           lIcon('file-text', cls: 'w-8 h-8'),
         ]),
         h2(classes: 'text-lg font-black tracking-tight ${isDark ? "text-white" : "text-zinc-900"}', [
-          Component.text('CUSTOM LEASE & RENTAL AGREEMENT'),
+          Component.text(isPdf ? 'HOST CUSTOM CONTRACT DOCUMENT' : 'CUSTOM LEASE & RENTAL AGREEMENT'),
         ]),
         p(classes: 'text-xs text-zinc-500 mt-1', [
           Component.text('Underwritten and defined by the listing host'),
         ]),
       ]),
 
-      div(classes: 'border-t border-b ${isDark ? "border-zinc-800" : "border-zinc-200"} py-4 my-4', [
-        p(classes: 'text-xs text-zinc-400 font-bold mb-2 uppercase tracking-wide', [
+      div(classes: 'border-t border-b ${isDark ? "border-zinc-800" : "border-zinc-200"} py-4 my-4 space-y-4', [
+        if (isPdf) ...[
+          // Clean Document Card matching Recommended UX
+          div(
+            classes:
+                'p-5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 '
+                '${isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-zinc-50 border-zinc-200"}',
+            [
+              div(classes: 'flex items-center gap-3.5 min-w-0', [
+                div(classes: 'p-3 rounded-2xl bg-red-500/10 text-red-400 shrink-0 border border-red-500/20', [
+                  lIcon('file-text', cls: 'w-6 h-6'),
+                ]),
+                div(classes: 'min-w-0', [
+                  p(classes: 'text-[11px] font-bold uppercase tracking-wider text-purple-400', [
+                    Component.text('Custom Contract Document'),
+                  ]),
+                  p(classes: 'text-sm font-bold truncate ${isDark ? "text-white" : "text-zinc-900"} mt-0.5', [
+                    Component.text(fileName),
+                  ]),
+                  p(classes: 'text-xs text-zinc-500 mt-0.5', [
+                    Component.text('Official PDF agreement underwritten by listing host'),
+                  ]),
+                ]),
+              ]),
+              div(classes: 'flex items-center gap-2.5 w-full sm:w-auto shrink-0', [
+                button(
+                  classes:
+                      'flex-1 sm:flex-none px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors flex items-center justify-center gap-1.5 cursor-pointer border-0 shadow-lg shadow-purple-500/20',
+                  events: {
+                    'click': (_) {
+                      if (appState != null) {
+                        appState!.openPdfViewer(source, fileName);
+                      } else if (onOpenPdfViewer != null) {
+                        onOpenPdfViewer!(source, fileName);
+                      } else {
+                        downloadPdfFileJs(source, fileName);
+                      }
+                    }
+                  },
+                  [
+                    lIcon('eye', cls: 'w-4 h-4'),
+                    Component.text('View Contract'),
+                  ],
+                ),
+                button(
+                  classes:
+                      'px-3 py-2 rounded-xl text-xs font-bold border transition-colors flex items-center justify-center gap-1.5 cursor-pointer '
+                      '${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-100 text-zinc-700"}',
+                  events: {'click': (_) => downloadPdfFileJs(source, fileName)},
+                  [
+                    lIcon('download', cls: 'w-4 h-4'),
+                    span(classes: 'hidden md:inline', [Component.text('Download PDF')]),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ] else ...[
+        p(classes: 'text-xs text-zinc-400 font-bold uppercase tracking-wide', [
           Component.text('Contract Terms & Conditions'),
         ]),
         div(
           classes: 'whitespace-pre-wrap text-sm leading-relaxed ${isDark ? "text-zinc-300" : "text-zinc-700"}',
-          [Component.text(terms)],
+          [Component.text(CustomContractHelper.sanitizeForDisplay(terms))],
         ),
-      ]),
+      ],
+    ]),
 
       _buildSafetyNotice(isDark),
     ];
@@ -102,16 +180,36 @@ class ContractViewerComponent extends StatelessComponent {
       _buildSectionHeader('1. PARTIES TO THE AGREEMENT', isDark),
       div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-6', [
         _buildPartyCard(
-          role: 'OWNER / HOST',
+          role: 'OWNER / HOST (LESSOR)',
           name: r.hostName,
-          license: 'Verified Account',
+          license: 'Host Identification Record',
+          isVerified: PartyVerificationHelper.isPartyVerified(
+            isVerified: r.hostIsVerified,
+            status: r.hostVerificationStatus,
+          ),
+          verificationTier: PartyVerificationHelper.formatVerificationTier(
+            isVerified: r.hostIsVerified,
+            status: r.hostVerificationStatus,
+            explicitTier: r.hostVerificationTier,
+          ),
           photoUrl: r.hostPhotoUrl,
           isDark: isDark,
         ),
         _buildPartyCard(
           role: 'RENTER / LESSEE',
           name: r.renteeName ?? '[Renter Full Name]',
-          license: r.renteeLicenseNumber != null ? 'License: ${r.renteeLicenseNumber}' : '[License Pending Signature]',
+          license: r.renteeLicenseNumber != null && r.renteeLicenseNumber!.isNotEmpty
+              ? 'Driver\'s License: ${r.renteeLicenseNumber}'
+              : '[Identity Reference]',
+          isVerified: PartyVerificationHelper.isPartyVerified(
+            isVerified: r.renteeIsVerified,
+            status: r.renteeVerificationStatus,
+          ),
+          verificationTier: PartyVerificationHelper.formatVerificationTier(
+            isVerified: r.renteeIsVerified,
+            status: r.renteeVerificationStatus,
+            explicitTier: r.renteeVerificationTier,
+          ),
           photoUrl: r.renteePhotoUrl,
           isDark: isDark,
         ),
@@ -211,14 +309,34 @@ class ContractViewerComponent extends StatelessComponent {
         _buildPartyCard(
           role: 'LESSOR / PROPERTY OWNER',
           name: r.hostName,
-          license: 'Verified Landlord',
+          license: 'Landlord Identification Record',
+          isVerified: PartyVerificationHelper.isPartyVerified(
+            isVerified: r.hostIsVerified,
+            status: r.hostVerificationStatus,
+          ),
+          verificationTier: PartyVerificationHelper.formatVerificationTier(
+            isVerified: r.hostIsVerified,
+            status: r.hostVerificationStatus,
+            explicitTier: r.hostVerificationTier,
+          ),
           photoUrl: r.hostPhotoUrl,
           isDark: isDark,
         ),
         _buildPartyCard(
           role: 'LESSEE / TENANT',
           name: r.renteeName ?? '[Tenant Full Name]',
-          license: r.renteeLicenseNumber != null ? 'Government ID: ${r.renteeLicenseNumber}' : '[ID Pending Signature]',
+          license: r.renteeLicenseNumber != null && r.renteeLicenseNumber!.isNotEmpty
+              ? 'Government ID: ${r.renteeLicenseNumber}'
+              : '[ID Reference]',
+          isVerified: PartyVerificationHelper.isPartyVerified(
+            isVerified: r.renteeIsVerified,
+            status: r.renteeVerificationStatus,
+          ),
+          verificationTier: PartyVerificationHelper.formatVerificationTier(
+            isVerified: r.renteeIsVerified,
+            status: r.renteeVerificationStatus,
+            explicitTier: r.renteeVerificationTier,
+          ),
           photoUrl: r.renteePhotoUrl,
           isDark: isDark,
         ),
@@ -330,14 +448,23 @@ class ContractViewerComponent extends StatelessComponent {
     required String role,
     required String name,
     required String license,
+    bool isVerified = false,
+    String? verificationTier,
     required String? photoUrl,
     required bool isDark,
   }) {
     final showPhoto = photoUrl != null && photoUrl.isNotEmpty && photoUrl != 'null';
+    final statusText = isVerified
+        ? 'Identity Status: Verified (${verificationTier ?? "Government ID Verified"})'
+        : 'Identity Status: Unverified Account';
+    final badgeClass = isVerified
+        ? (isDark ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400" : "bg-emerald-50 border-emerald-200 text-emerald-700")
+        : (isDark ? "bg-amber-500/10 border-amber-500/25 text-amber-400" : "bg-amber-50 border-amber-200 text-amber-700");
+
     return div(
       classes:
-          'p-4 rounded-xl border flex items-center gap-3 '
-          '${isDark ? "bg-zinc-900/40 border-zinc-805" : "bg-zinc-50 border-zinc-200"}',
+          'p-4 rounded-xl border flex items-start gap-3 '
+          '${isDark ? "bg-zinc-900/40 border-zinc-800" : "bg-zinc-50 border-zinc-200"}',
       [
         div(
           classes:
@@ -350,10 +477,22 @@ class ContractViewerComponent extends StatelessComponent {
               lIcon('user', cls: 'w-5 h-5 text-zinc-500'),
           ],
         ),
-        div([
-          p(classes: 'text-[10px] font-bold text-zinc-550 uppercase tracking-wide', [Component.text(role)]),
-          p(classes: 'text-sm font-bold ${isDark ? "text-white" : "text-zinc-900"}', [Component.text(name)]),
-          p(classes: 'text-xs text-zinc-500 mt-0.5', [Component.text(license)]),
+        div(classes: 'flex-1 min-w-0', [
+          p(classes: 'text-[10px] font-bold text-zinc-500 uppercase tracking-wide', [Component.text(role)]),
+          div(classes: 'flex items-center gap-1.5', [
+            p(classes: 'text-sm font-bold truncate ${isDark ? "text-white" : "text-zinc-900"}', [Component.text(name)]),
+            if (isVerified)
+              lIcon('check-circle', cls: 'w-3.5 h-3.5 text-emerald-400 shrink-0'),
+          ]),
+          if (license.isNotEmpty)
+            p(classes: 'text-xs text-zinc-400 mt-0.5 truncate', [Component.text(license)]),
+          div(classes: 'mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border $badgeClass', [
+            if (isVerified)
+              lIcon('shield-check', cls: 'w-3 h-3')
+            else
+              lIcon('alert-circle', cls: 'w-3 h-3'),
+            Component.text(statusText),
+          ]),
         ]),
       ],
     );

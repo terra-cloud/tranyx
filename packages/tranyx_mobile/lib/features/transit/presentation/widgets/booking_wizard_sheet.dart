@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
@@ -30,18 +31,145 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
   int _multiplier = 1;
   bool _hireWithDriver = false;
   String _rentalType = 'pickup'; // 'pickup' or 'delivery'
+  late DateTime _startDate;
+  List<Map<String, dynamic>> _approvedRequests = [];
+  bool _isLoadingApprovedRequests = false;
+
+  bool _isDateBooked(DateTime date) {
+    final startOfDayMs = DateTime(date.year, date.month, date.day, 0, 0, 0).millisecondsSinceEpoch;
+    final endOfDayMs = DateTime(date.year, date.month, date.day, 23, 59, 59).millisecondsSinceEpoch;
+    for (final req in _approvedRequests) {
+      final start = req['startDate'] as int?;
+      final end = req['endDate'] as int?;
+      if (start != null && end != null) {
+        if (endOfDayMs >= start && startOfDayMs <= end) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  DateTime _calculateNextAvailableStartDate() {
+    final now = DateTime.now();
+    DateTime candidate = DateTime(now.year, now.month, now.day, now.hour + 1, 0);
+    if (candidate.hour == 0) {
+      candidate = DateTime(now.year, now.month, now.day + 1, 9, 0);
+    }
+    while (true) {
+      if (!_isDateBooked(candidate)) {
+        return candidate;
+      }
+      candidate = DateTime(candidate.year, candidate.month, candidate.day + 1, candidate.hour, candidate.minute);
+    }
+  }
+
+  List<DateTime> get _conflictingDates {
+    final conflicts = <DateTime>[];
+    final end = _calculatedEndDate;
+    DateTime curr = DateTime(_startDate.year, _startDate.month, _startDate.day);
+    final endDay = DateTime(end.year, end.month, end.day);
+    while (!curr.isAfter(endDay)) {
+      if (_isDateBooked(curr)) {
+        conflicts.add(curr);
+      }
+      curr = curr.add(const Duration(days: 1));
+    }
+    return conflicts;
+  }
+
+  bool get _hasBookingOverlap {
+    final startMs = _startDate.millisecondsSinceEpoch;
+    final endMs = _calculatedEndDate.millisecondsSinceEpoch;
+    for (final req in _approvedRequests) {
+      final reqStart = req['startDate'] as int?;
+      final reqEnd = req['endDate'] as int?;
+      if (reqStart != null && reqEnd != null) {
+        if (startMs < reqEnd && endMs > reqStart) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void _loadApprovedRequests() async {
+    setState(() => _isLoadingApprovedRequests = true);
+    try {
+      final repo = ref.read(transitRepositoryProvider);
+      final id = widget.item['id'] as String;
+      final reqs = widget.isProperty
+          ? await repo.getApprovedRequestsForProperty(id)
+          : await repo.getApprovedRequestsForVehicle(id);
+      if (mounted) {
+        setState(() {
+          _approvedRequests = reqs;
+          if (_isDateBooked(_startDate) || _hasBookingOverlap) {
+            _startDate = _calculateNextAvailableStartDate();
+          }
+        });
+      }
+    } catch (e) {
+      print('Error loading approved requests: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingApprovedRequests = false);
+    }
+  }
 
   bool _isProcessing = false;
   Promo? _appliedPromo;
   String? _promoFeedback;
   bool _isValidatingPromo = false;
 
+  DateTime get _calculatedEndDate {
+    final int daysToAdd = _selectedDurationType == '12h'
+        ? 0
+        : (_selectedDurationType == 'weekly'
+            ? 7 * _multiplier
+            : (_selectedDurationType == 'monthly'
+                ? 30 * _multiplier
+                : (_selectedDurationType == 'yearly'
+                    ? 365 * _multiplier
+                    : 1 * _multiplier)));
+    return _selectedDurationType == '12h'
+        ? _startDate.add(Duration(hours: 12 * _multiplier))
+        : _startDate.add(Duration(days: daysToAdd));
+  }
+
   @override
   void initState() {
     super.initState();
-    _selectedDurationType = widget.isProperty ? 'monthly' : 'daily';
+    if (widget.isProperty) {
+      if ((widget.item['priceMonthly'] as num? ?? 0) > 0) {
+        _selectedDurationType = 'monthly';
+      } else if ((widget.item['priceWeekly'] as num? ?? 0) > 0) {
+        _selectedDurationType = 'weekly';
+      } else if ((widget.item['priceDaily'] as num? ?? 0) > 0) {
+        _selectedDurationType = 'daily';
+      } else {
+        _selectedDurationType = 'monthly';
+      }
+    } else {
+      if ((widget.item['priceDaily'] as num? ?? 0) > 0) {
+        _selectedDurationType = 'daily';
+      } else if ((widget.item['priceWeekly'] as num? ?? 0) > 0) {
+        _selectedDurationType = 'weekly';
+      } else if ((widget.item['priceMonthly'] as num? ?? 0) > 0) {
+        _selectedDurationType = 'monthly';
+      } else if ((widget.item['price12h'] as num? ?? 0) > 0) {
+        _selectedDurationType = '12h';
+      } else {
+        _selectedDurationType = 'daily';
+      }
+    }
+    final now = DateTime.now();
+    _startDate = DateTime(now.year, now.month, now.day, now.hour + 1, 0);
+    if (_startDate.hour == 0) {
+      _startDate = DateTime(now.year, now.month, now.day + 1, 9, 0);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadAutoApplyPromo();
+      _loadApprovedRequests();
     });
   }
 
@@ -86,31 +214,31 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
       final double driverCost = _hireWithDriver
           ? ((widget.item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0)
           : 0.0;
-      final subtotal = widget.isProperty 
+      final baseTotal = widget.isProperty 
           ? (baseRate * _multiplier)
           : ((_multiplier * baseRate) + (_multiplier * driverCost));
+      final platformFee = baseTotal * 0.03;
 
       Promo? bestPromo;
       double bestDiscount = -1.0;
 
       for (final p in autoPromos) {
-        double currentDiscount = 0.0;
-        if (p.discountType == 'percentage') {
-          currentDiscount = subtotal * (p.discountValue / 100.0);
-        } else {
-          currentDiscount = p.discountValue;
-        }
-        if (currentDiscount > bestDiscount) {
-          bestDiscount = currentDiscount;
+        final res = p.calculateDiscount(
+          basePrice: baseTotal,
+          platformFee: platformFee,
+        );
+        if (res.discountAmount > bestDiscount) {
+          bestDiscount = res.discountAmount;
           bestPromo = p;
         }
       }
 
-      if (bestPromo != null && mounted) {
+      final promo = bestPromo;
+      if (promo != null && mounted) {
         setState(() {
-          _appliedPromo = bestPromo;
-          _promoController.text = bestPromo!.code;
-          _promoFeedback = 'Auto-applied promo: ${bestPromo.code}';
+          _appliedPromo = promo;
+          _promoController.text = promo.code;
+          _promoFeedback = 'Auto-applied promo: ${promo.name ?? promo.code}';
         });
       }
     } catch (e) {
@@ -161,6 +289,13 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
         });
         return;
       }
+      if (promo.startDate != null && promo.startDate!.isAfter(now)) {
+        setState(() {
+          _promoFeedback = 'This promo code is not active yet.';
+          _appliedPromo = null;
+        });
+        return;
+      }
       if (promo.expirationDate != null && promo.expirationDate!.isBefore(now)) {
         setState(() {
           _promoFeedback = 'This promo code has expired.';
@@ -187,6 +322,21 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
           !promo.eligibleUserUids!.contains(user.uid)) {
         setState(() {
           _promoFeedback = 'You are not eligible for this promo code.';
+          _appliedPromo = null;
+        });
+        return;
+      }
+      final baseRate = _getRate(_selectedDurationType);
+      final double driverCost = _hireWithDriver
+          ? ((widget.item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0)
+          : 0.0;
+      final baseTotal = widget.isProperty 
+          ? (baseRate * _multiplier)
+          : ((_multiplier * baseRate) + (_multiplier * driverCost));
+      final platformFee = baseTotal * 0.03;
+      if (promo.minTransactionAmount != null && (baseTotal + platformFee) < promo.minTransactionAmount!) {
+        setState(() {
+          _promoFeedback = 'Minimum transaction amount of ₱ ${promo.minTransactionAmount!.toStringAsFixed(0)} required.';
           _appliedPromo = null;
         });
         return;
@@ -274,28 +424,66 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
     final model = widget.item['model'] as String? ?? '';
     final title = widget.item['title'] as String? ?? '$brand $model';
 
-    final baseRate = _getRate(_selectedDurationType);
-    final double driverCost = _hireWithDriver
-        ? ((widget.item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0)
-        : 0.0;
+    final totalDays = _selectedDurationType == '12h'
+        ? 0
+        : (_selectedDurationType == 'weekly'
+            ? 7 * _multiplier
+            : (_selectedDurationType == 'monthly'
+                ? 30 * _multiplier
+                : (_selectedDurationType == 'yearly'
+                    ? 365 * _multiplier
+                    : 1 * _multiplier)));
 
-    // Total calculation:
-    final baseTotal = (_multiplier * baseRate) + (_multiplier * driverCost);
+    final optRate = widget.isProperty
+        ? SmartRateEngine.calculateOptimizedRate(
+            totalDays: totalDays,
+            priceDaily: (widget.item['priceDaily'] as num?)?.toDouble() ?? 0.0,
+            priceWeekly: (widget.item['priceWeekly'] as num?)?.toDouble() ?? 0.0,
+            priceMonthly: (widget.item['priceMonthly'] as num?)?.toDouble() ?? 0.0,
+          )
+        : SmartRateEngine.calculateOptimizedRate(
+            totalDays: totalDays,
+            hours: _selectedDurationType == '12h' ? 12 * _multiplier : 0,
+            price12h: (widget.item['price12h'] as num?)?.toDouble() ?? 0.0,
+            priceDaily: (widget.item['priceDaily'] as num?)?.toDouble() ?? 0.0,
+            priceWeekly: (widget.item['priceWeekly'] as num?)?.toDouble() ?? 0.0,
+            priceMonthly: (widget.item['priceMonthly'] as num?)?.toDouble() ?? 0.0,
+          );
+
+    final double driverDailyRate = (widget.item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0;
+    final double driverEffectiveDays = _selectedDurationType == '12h' ? 0.5 * _multiplier : totalDays.toDouble();
+    final double driverCost = _hireWithDriver ? (driverDailyRate * driverEffectiveDays) : 0.0;
+
+    final propertyFinancials = widget.isProperty
+        ? PropertyPricingModel.fromPropertyMap(widget.item).calculate(totalDays: totalDays)
+        : null;
+
+    final baseTotal = widget.isProperty
+        ? (propertyFinancials!.baseRent + propertyFinancials.securityDeposit)
+        : (optRate.totalBasePrice + driverCost);
+    final originalPlatformFee = widget.isProperty
+        ? propertyFinancials!.customerPlatformFee
+        : (baseTotal * 0.03);
     
-    double discountAmount = 0.0;
-    if (_appliedPromo != null) {
-      final subtotalForDiscount = widget.isProperty 
-          ? (baseRate * _multiplier)
-          : baseTotal;
-      if (_appliedPromo!.discountType == 'percentage') {
-        discountAmount = subtotalForDiscount * (_appliedPromo!.discountValue / 100.0);
-      } else {
-        discountAmount = _appliedPromo!.discountValue;
-      }
-    }
-    final discountedBaseTotal = (baseTotal - discountAmount).clamp(0.0, 999999.0);
-    final bookingFee = discountedBaseTotal * 0.03;
-    final totalRequired = discountedBaseTotal + bookingFee;
+    final promoResult = _appliedPromo != null
+        ? _appliedPromo!.calculateDiscount(
+            basePrice: baseTotal,
+            platformFee: originalPlatformFee,
+          )
+        : PromoCalculationResult(
+            basePrice: baseTotal,
+            originalPlatformFee: originalPlatformFee,
+            discountAmount: 0.0,
+            finalPlatformFee: originalPlatformFee,
+            finalCustomerAmount: baseTotal + originalPlatformFee,
+            providerSettlement: baseTotal,
+            tranyxRevenue: originalPlatformFee,
+            tranyxPromoCost: 0.0,
+          );
+
+    final discountAmount = promoResult.discountAmount;
+    final bookingFee = promoResult.finalPlatformFee;
+    final totalRequired = promoResult.finalCustomerAmount;
     final balance = userProfile.tyxBalance;
     final hasEnoughBalance = balance >= totalRequired;
 
@@ -425,18 +613,21 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                   value: '12h',
                                   child: Text('12 Hours'),
                                 ),
-                              const DropdownMenuItem(
-                                value: 'daily',
-                                child: Text('Daily'),
-                              ),
-                              const DropdownMenuItem(
-                                value: 'weekly',
-                                child: Text('Weekly'),
-                              ),
-                              const DropdownMenuItem(
-                                value: 'monthly',
-                                child: Text('Monthly'),
-                              ),
+                              if ((widget.item['priceDaily'] as num? ?? 0) > 0)
+                                const DropdownMenuItem(
+                                  value: 'daily',
+                                  child: Text('Daily'),
+                                ),
+                              if ((widget.item['priceWeekly'] as num? ?? 0) > 0)
+                                const DropdownMenuItem(
+                                  value: 'weekly',
+                                  child: Text('Weekly'),
+                                ),
+                              if ((widget.item['priceMonthly'] as num? ?? 0) > 0)
+                                const DropdownMenuItem(
+                                  value: 'monthly',
+                                  child: Text('Monthly'),
+                                ),
                             ],
                     ),
                     const SizedBox(height: 16),
@@ -477,6 +668,291 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                     ),
                     const SizedBox(height: 16),
 
+                    // Reservation Schedule / Future Start Date & Time Picker
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: isDarkMode
+                            ? AppColors.darkCard
+                            : Colors.purple.shade50.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isDarkMode
+                              ? AppColors.darkBorder
+                              : Colors.purple.shade100,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.calendar_month,
+                                size: 16,
+                                color: AppColors.indigo,
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'RESERVATION SCHEDULE & START DATE',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.indigo,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                              if (_isLoadingApprovedRequests) ...[
+                                const SizedBox(width: 8),
+                                const SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.indigo,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () async {
+                                    final now = DateTime.now();
+                                    final firstDay = DateTime(
+                                      now.year,
+                                      now.month,
+                                      now.day,
+                                    );
+                                    final initialDay = _startDate.isBefore(firstDay)
+                                        ? firstDay
+                                        : _startDate;
+                                    final picked = await showDatePicker(
+                                      context: context,
+                                      initialDate: initialDay,
+                                      firstDate: firstDay,
+                                      lastDate: now.add(
+                                        const Duration(days: 365),
+                                      ),
+                                      selectableDayPredicate: (DateTime day) => !_isDateBooked(day),
+                                      helpText:
+                                          'Select Reservation Start Date',
+                                    );
+                                    if (picked != null) {
+                                      setState(() {
+                                        _startDate = DateTime(
+                                          picked.year,
+                                          picked.month,
+                                          picked.day,
+                                          _startDate.hour,
+                                          _startDate.minute,
+                                        );
+                                      });
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: isDarkMode
+                                            ? Colors.grey.shade700
+                                            : Colors.grey.shade300,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.event,
+                                          size: 16,
+                                          color: Colors.grey,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            DateFormat(
+                                              'MMM dd, yyyy',
+                                            ).format(_startDate),
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () async {
+                                    final picked = await showTimePicker(
+                                      context: context,
+                                      initialTime: TimeOfDay.fromDateTime(
+                                        _startDate,
+                                      ),
+                                      helpText: 'Select Start Time',
+                                    );
+                                    if (picked != null) {
+                                      setState(() {
+                                        _startDate = DateTime(
+                                          _startDate.year,
+                                          _startDate.month,
+                                          _startDate.day,
+                                          picked.hour,
+                                          picked.minute,
+                                        );
+                                      });
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: isDarkMode
+                                            ? Colors.grey.shade700
+                                            : Colors.grey.shade300,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.access_time,
+                                          size: 16,
+                                          color: Colors.grey,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            DateFormat(
+                                              'hh:mm a',
+                                            ).format(_startDate),
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: isDarkMode
+                                  ? Colors.black26
+                                  : Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Column(
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Starts:',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    Text(
+                                      DateFormat(
+                                        'MMM dd, yyyy • hh:mm a',
+                                      ).format(_startDate),
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Returns / Ends:',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    Text(
+                                      DateFormat(
+                                        'MMM dd, yyyy • hh:mm a',
+                                      ).format(_calculatedEndDate),
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.indigo,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_hasBookingOverlap) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: Colors.red.withValues(alpha: 0.4),
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(
+                                    Icons.error_outline,
+                                    color: Colors.red,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Selected duration overlaps with an existing reservation on ${_conflictingDates.map((d) => DateFormat('MMM d').format(d)).join(', ')}. Please choose different dates.',
+                                      style: const TextStyle(
+                                        color: Colors.red,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
                     // Vehicle specific choices
                     if (!widget.isProperty) ...[
                       // Driver Option
@@ -496,6 +972,9 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                           onChanged: (val) {
                             setState(() {
                               _hireWithDriver = val;
+                              if (val) {
+                                _licenseController.clear();
+                              }
                             });
                           },
                         ),
@@ -592,16 +1071,18 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                       ],
                     ],
 
-                    // Driver License Number (Required for booking request validation)
-                    UIHelpers.buildTextField(
-                      Icons.badge,
-                      widget.isProperty
-                          ? "Enter Government ID Number..."
-                          : "Enter Driver's License Number...",
-                      isDarkMode,
-                      controller: _licenseController,
-                    ),
-                    const SizedBox(height: 16),
+                    // Driver License Number (Required for self-drive vehicle booking or property booking)
+                    if (widget.isProperty || !_hireWithDriver) ...[
+                      UIHelpers.buildTextField(
+                        Icons.badge,
+                        widget.isProperty
+                            ? "Enter Government ID Number *"
+                            : "Enter Driver's License Number * (Required for Self-Drive)",
+                        isDarkMode,
+                        controller: _licenseController,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
 
                     // Promo Code Section
                     Row(
@@ -678,14 +1159,82 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                '$_multiplier x Base Rate ($_selectedDurationType)',
+                              const Text(
+                                'Optimized Base Rate',
+                                style: TextStyle(fontWeight: FontWeight.bold),
                               ),
                               Text(
-                                '₱ ${(_multiplier * baseRate).toStringAsFixed(2)}',
+                                '₱ ${optRate.totalBasePrice.toStringAsFixed(2)}',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
                               ),
                             ],
                           ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  optRate.breakdownDescription,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDarkMode ? Colors.purple.shade300 : Colors.purple.shade700,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (optRate.isCapped) ...[
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '✨ ${optRate.capReason ?? "Optimized Flat Rate Applied"}',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.green,
+                                      ),
+                                    ),
+                                  ),
+                                  if (optRate.savings > 0)
+                                    Text(
+                                      'Saved ₱ ${optRate.savings.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.green,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          if (!widget.isProperty) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Rental Type'),
+                                Text(
+                                  _hireWithDriver
+                                      ? 'With Driver (Chauffeur-Driven)'
+                                      : 'Self-Drive',
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                          ],
                           if (_hireWithDriver) ...[
                             const SizedBox(height: 8),
                             Row(
@@ -698,13 +1247,23 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                               ],
                             ),
                           ],
-                          if (_appliedPromo != null) ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('TRANYX Platform Fee (3%)'),
+                              Text(
+                                '₱ ${originalPlatformFee.toStringAsFixed(2)}',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                          if (_appliedPromo != null && discountAmount > 0) ...[
                             const SizedBox(height: 8),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  'Promo Discount (${_appliedPromo!.code})',
+                                  'Platform Fee Promo (${_appliedPromo!.code})',
                                   style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
                                 ),
                                 Text(
@@ -713,18 +1272,21 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                 ),
                               ],
                             ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Net Platform Fee Charged',
+                                  style: TextStyle(color: AppColors.indigo, fontSize: 12),
+                                ),
+                                Text(
+                                  '₱ ${bookingFee.toStringAsFixed(2)}',
+                                  style: const TextStyle(color: AppColors.indigo, fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                              ],
+                            ),
                           ],
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Platform Escrow Fee (3%)'),
-                              Text(
-                                '+ ₱ ${bookingFee.toStringAsFixed(2)}',
-                                style: const TextStyle(color: Colors.green),
-                              ),
-                            ],
-                          ),
                           const Divider(height: 24),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -739,6 +1301,24 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                   fontWeight: FontWeight.w900,
                                   fontSize: 16,
                                   color: AppColors.indigo,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Host Settlement (100% Guaranteed)',
+                                style: TextStyle(fontSize: 11, color: Colors.grey),
+                              ),
+                              Text(
+                                '₱ ${baseTotal.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green,
                                 ),
                               ),
                             ],
@@ -774,23 +1354,42 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                     _isProcessing
                         ? const Center(child: CircularProgressIndicator())
                         : UIHelpers.buildPrimaryButton(
-                            hasEnoughBalance
-                                ? 'Request Booking'
-                                : 'Insufficient Balance',
-                            hasEnoughBalance
+                            !hasEnoughBalance
+                                ? 'Insufficient Balance'
+                                : (_hasBookingOverlap
+                                    ? 'Dates Unavailable'
+                                    : 'Request Booking'),
+                            (hasEnoughBalance && !_hasBookingOverlap)
                                 ? () async {
+                                    final bool requiresLicense =
+                                        widget.isProperty || !_hireWithDriver;
                                     final license = _licenseController.text
                                         .trim();
-                                    if (license.isEmpty) {
+                                    if (requiresLicense && license.isEmpty) {
                                       ScaffoldMessenger.of(
                                         context,
                                       ).showSnackBar(
                                         SnackBar(
                                           content: Text(
                                             widget.isProperty
-                                                ? 'Please enter your ID Number'
-                                                : 'Please enter your Driver\'s License',
+                                                ? 'Please enter your Government ID Number'
+                                                : "Driver's license number is required for self-drive bookings.",
                                           ),
+                                          backgroundColor: Colors.red,
+                                        ),
+                                      );
+                                      return;
+                                    }
+
+                                    if (_hasBookingOverlap) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Selected duration overlaps with an existing reservation on ${_conflictingDates.map((d) => DateFormat('MMM d').format(d)).join(', ')}. Please choose different dates.',
+                                          ),
+                                          backgroundColor: Colors.red,
                                         ),
                                       );
                                       return;
@@ -803,26 +1402,9 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                       );
 
                                       final start =
-                                          DateTime.now().millisecondsSinceEpoch;
-                                      final int daysToAdd =
-                                          _selectedDurationType == '12h'
-                                          ? 0
-                                          : (_selectedDurationType == 'weekly'
-                                                ? 7 * _multiplier
-                                                : (_selectedDurationType ==
-                                                          'monthly'
-                                                      ? 30 * _multiplier
-                                                      : (_selectedDurationType ==
-                                                                'yearly'
-                                                            ? 365 * _multiplier
-                                                            : 1 * _multiplier)));
-                                      final end = _selectedDurationType == '12h'
-                                          ? DateTime.now()
-                                                .add(const Duration(hours: 12))
-                                                .millisecondsSinceEpoch
-                                          : DateTime.now()
-                                                .add(Duration(days: daysToAdd))
-                                                .millisecondsSinceEpoch;
+                                          _startDate.millisecondsSinceEpoch;
+                                      final end = _calculatedEndDate
+                                          .millisecondsSinceEpoch;
 
                                        if (widget.isProperty) {
                                          await repo.createPropertyBookingRequest(
@@ -834,6 +1416,10 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                            durationType: _selectedDurationType,
                                            multiplier: _multiplier,
                                            totalCost: baseTotal,
+                                           baseRentAmount: propertyFinancials?.baseRent,
+                                           securityDepositAmount: propertyFinancials?.securityDeposit,
+                                           customerPlatformFeeRate: propertyFinancials?.customerPlatformFeeRate,
+                                           hostCommissionRate: propertyFinancials?.hostCommissionRate,
                                            contractType:
                                                widget.item['contractType'] ??
                                                'tranyx',
@@ -855,7 +1441,7 @@ class _BookingWizardSheetState extends ConsumerState<BookingWizardSheet> {
                                                userProfile.photoUrl ?? '',
                                            durationType: _selectedDurationType,
                                            multiplier: _multiplier,
-                                           licenseNumber: license,
+                                           licenseNumber: _hireWithDriver ? null : (license.isNotEmpty ? license : null),
                                            totalCost: baseTotal,
                                            hireWithDriver: _hireWithDriver,
                                            rentalType: _rentalType,

@@ -21,6 +21,7 @@ class BottomNavComponent extends StatelessComponent {
           _navItem(AppTab.home, 'home', 'Home', s, isDark),
           _navItem(AppTab.jobs, 'briefcase', 'Jobs', s, isDark),
           _navItem(AppTab.transit, 'key', 'Rentals', s, isDark),
+          _navItem(AppTab.messages, 'message-circle', 'Messages', s, isDark),
           _navItem(AppTab.profile, 'user', 'Profile', s, isDark),
         ]),
       ],
@@ -39,6 +40,8 @@ class BottomNavComponent extends StatelessComponent {
       unreadCount = s.unreadJobChatsCount;
     } else if (tab == AppTab.transit) {
       unreadCount = s.unreadRentalChatsCount;
+    } else if (tab == AppTab.messages) {
+      unreadCount = s.unreadJobChatsCount + s.unreadRentalChatsCount;
     }
 
     return button(
