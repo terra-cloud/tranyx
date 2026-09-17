@@ -6298,8 +6298,9 @@ class TranyxAppState extends State<TranyxApp> {
         isSendingSms = false;
       });
     } catch (e) {
+      final errStr = e.toString();
       const isDevEnv = String.fromEnvironment('ENV', defaultValue: 'dev') == 'dev';
-      if (isDevEnv) {
+      if (isDevEnv && !errStr.contains('auth/invalid-phone-number')) {
         // Gracefully switch to simulated playground mode with a beautiful OTP code!
         final randomOtp = (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString();
         setState(() {
@@ -6308,8 +6309,18 @@ class TranyxAppState extends State<TranyxApp> {
           isSendingSms = false;
         });
       } else {
+        String friendlyError = errStr;
+        if (errStr.contains('auth/captcha-check-failed')) {
+          friendlyError = 'reCAPTCHA verification failed. Please refresh and try again.';
+        } else if (errStr.contains('auth/invalid-phone-number')) {
+          friendlyError = 'Please check the mobile number format.';
+        } else if (errStr.contains('auth/quota-exceeded')) {
+          friendlyError = 'SMS quota reached. Please try again later or contact support.';
+        } else if (errStr.contains('SMS region') || errStr.contains('not permitted to this region')) {
+          friendlyError = 'SMS delivery is restricted by region policy in Firebase Console.';
+        }
         setState(() {
-          smsVerificationError = 'Failed to send SMS code: $e';
+          smsVerificationError = 'Failed to send SMS code: $friendlyError';
           isSendingSms = false;
         });
       }
@@ -6407,8 +6418,17 @@ class TranyxAppState extends State<TranyxApp> {
         });
       }
     } catch (e) {
+      final errStr = e.toString();
+      String friendlyError = errStr;
+      if (errStr.contains('auth/invalid-verification-code') || errStr.contains('INVALID_CODE')) {
+        friendlyError = 'Invalid verification code. Please check your SMS and try again.';
+      } else if (errStr.contains('auth/code-expired')) {
+        friendlyError = 'Verification code has expired. Please request a new one.';
+      } else if (errStr.contains('credential-already-in-use')) {
+        friendlyError = 'This phone number is already registered to another account.';
+      }
       setState(() {
-        smsVerificationError = e.toString();
+        smsVerificationError = friendlyError;
       });
     } finally {
       setState(() {

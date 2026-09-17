@@ -1373,7 +1373,7 @@ class _ProfileMainState extends State<_ProfileMain> {
                                   final files = await readFilesFromEvent(e);
                                   if (files.isNotEmpty) {
                                     setState(() {
-                                      p2pSubscriptionProofBytes = files.first.bytes;
+                                      p2pSubscriptionProofBytes = Uint8List.fromList(files.first.bytes);
                                       p2pSubscriptionProofFileName = files.first.name;
                                       errorMessage = null;
                                     });
