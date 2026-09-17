@@ -90,6 +90,10 @@ Future<void> signInWithEmailAndPasswordJs(Map<String, String> config, String ema
 
 Future<void> signOutJs() async {}
 
+Future<String?> sendPhoneVerificationSmsJs(Map<String, String> config, String phoneNumber) async => null;
+Future<bool> verifyPhoneSmsCodeJs(String verificationId, String code) async => false;
+
+
 void initFirebaseJs(Map<String, dynamic> config) {}
 
 void listenToNotificationsJs(String uid, void Function(String) callback) {}
