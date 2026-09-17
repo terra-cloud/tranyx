@@ -3524,7 +3524,12 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
-  Future<void> processCashSubscriptionPayment(String subType, {String? referenceNumber}) async {
+  Future<void> processCashSubscriptionPayment(
+    String subType, {
+    required String referenceNumber,
+    String? receiptUrl,
+    String? paymentMethod,
+  }) async {
     final uid = SessionStorage.uid;
     final token = SessionStorage.idToken;
     if (uid == null || token == null) {
@@ -3533,9 +3538,8 @@ class TranyxAppState extends State<TranyxApp> {
     }
 
     final double price = subType == 'yearly' ? 2999.0 : 299.0;
-    final refId = (referenceNumber != null && referenceNumber.trim().isNotEmpty)
-        ? referenceNumber.trim()
-        : 'P2P-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+    final cleanRef = referenceNumber.trim();
+    final method = paymentMethod ?? 'Cash (P2P)';
 
     setState(() {
       isDepositing = true;
@@ -3544,44 +3548,69 @@ class TranyxAppState extends State<TranyxApp> {
 
     try {
       final svc = FirestoreService(token, _handleTokenRefresh);
-      final userDoc = await svc.getDocument('users/$uid') ?? <String, dynamic>{};
       final now = DateTime.now();
       final txId = 'sub_p2p_${now.millisecondsSinceEpoch}';
 
       final pendingData = {
         'plan': subType,
         'amount': price,
-        'method': 'Cash (P2P)',
-        'referenceNumber': refId,
+        'method': method,
+        'referenceNumber': cleanRef,
         'status': 'PENDING_VERIFICATION',
         'createdAt': now.millisecondsSinceEpoch,
         'txId': txId,
+        if (receiptUrl != null && receiptUrl.isNotEmpty) 'receiptUrl': receiptUrl,
+        if (receiptUrl != null && receiptUrl.isNotEmpty) 'proofImageUrl': receiptUrl,
       };
 
-      final updatedProfile = {
-        ...userDoc,
+      // Use setDocument to leverage updateMask and safely update user's pendingSubscription
+      await svc.setDocument('users/$uid', {
         'pendingSubscription': pendingData,
-      };
-
-      await svc.createOrUpdate('users/$uid', updatedProfile);
+        'updatedAt': now.millisecondsSinceEpoch,
+      });
 
       // Record transaction
       await svc.createOrUpdate('transactions/$txId', {
         'uid': uid,
+        'userName': userProfile?.name ?? 'Subscriber',
+        'userEmail': userProfile?.email ?? '',
         'title': 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
-        'desc': 'Cash (P2P) Reference: $refId - Awaiting Agent Verification',
+        'desc': '$method Reference: $cleanRef - Awaiting Agent Verification',
         'amount': price,
         'status': 'Pending',
-        'method': 'Cash',
-        'referenceNumber': refId,
+        'method': method,
+        'referenceNumber': cleanRef,
         'txId': txId,
         'createdAt': now.millisecondsSinceEpoch,
         'type': 'subscription',
         'kind': 'subscription',
+        if (receiptUrl != null && receiptUrl.isNotEmpty) 'receiptUrl': receiptUrl,
+        if (receiptUrl != null && receiptUrl.isNotEmpty) 'proofImageUrl': receiptUrl,
       });
 
+      // Also record in subscriptions collection for triple redundancy with Admin Portal
+      try {
+        await svc.createOrUpdate('subscriptions/$txId', {
+          'uid': uid,
+          'userId': uid,
+          'userName': userProfile?.name ?? 'Subscriber',
+          'userEmail': userProfile?.email ?? '',
+          'plan': subType,
+          'amount': price,
+          'status': 'PENDING_VERIFICATION',
+          'method': method,
+          'referenceNumber': cleanRef,
+          'createdAt': now.millisecondsSinceEpoch,
+          'txId': txId,
+          if (receiptUrl != null && receiptUrl.isNotEmpty) 'receiptUrl': receiptUrl,
+          if (receiptUrl != null && receiptUrl.isNotEmpty) 'proofImageUrl': receiptUrl,
+        });
+      } catch (subErr) {
+        print('[Subscription] Dedicated collection sync notice: $subErr');
+      }
+
       if (userProfile != null) {
-        userProfile = UserProfile.fromMap(uid, updatedProfile);
+        userProfile = userProfile!.copyWith(pendingSubscription: pendingData);
       }
 
       await loadTransactions();
