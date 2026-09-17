@@ -1,0 +1,119 @@
+    // ------------------------------------------------------------------------
+    // WORKSPACE: JOBS, APPLICATIONS, ESCROWS & REPUTATION
+    // ------------------------------------------------------------------------
+
+    // Jobs Collection (Anti-Exploitation: Employer CANNOT alter terms once hired)
+    match /jobs/{jobId} {
+      allow read: if true; // Publicly browse jobs
+      allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid;
+      
+      allow update: if 
+        // 1. Creator (Employer): Can update listing details ONLY when job status is Open or Reviewing
+        (isActiveUser() && resource.data.creatorId == request.auth.uid && 
+          (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
+          (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'id', 'title', 'description', 'category', 'categoryGroup', 'employmentType', 
+            'dateRequirement', 'jobDate', 'timePreference', 'pricingType', 'pricingValue', 
+            'locationType', 'address', 'landmark', 'status', 'applicantCount', 
+            'recentApplicantPhotos', 'applicantUids', 'pickupAddress', 'pickupLat', 
+            'pickupLng', 'destinationAddress', 'destinationLat', 'destinationLng', 
+            'hasTracker', 'hasInspectionHoldback', 'imageUrls', 'acceptedApplicantId', 
+            'acceptedApplicantName', 'completionCode', 'receiptUrl', 'employerRated', 
+            'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl', 
+            'creatorName', 'creatorType', 'createdAt', 'updatedAt'
+          ])
+        ) ||
+        // 1b. Creator (Employer): When job is completed/active, can ONLY submit employer rating
+        (isActiveUser() && resource.data.creatorId == request.auth.uid && 
+          resource.data.status != 'Open' && resource.data.status != 'open' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['employerRated'])
+        ) ||
+        // 2. Assigned Nyxian (Freelancer): Can update work progress, status & completion fields
+        (isActiveUser() && 'acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid && 
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'completionCode', 'receiptUrl', 'nyxianRated'
+          ])
+        ) ||
+        // 3. Any Active Applicant: Can apply to or withdraw from an Open/Reviewing job
+        (isActiveUser() && 
+          (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
+          (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'applicantCount', 'applicantUids', 'recentApplicantPhotos'
+          ])
+        ) ||
+        // 4. Admin / Staff
+        isAdminOrStaff();
+
+      allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid && (
+        resource.data.status == 'Open' || 
+        resource.data.status == 'open' || 
+        resource.data.status == 'Cancelled' || 
+        resource.data.status == 'cancelled'
+      )) || isAdminOrStaff();
+
+      // Subcollection: Applications
+      match /applications/{applicantId} {
+        allow read: if isAuthenticated();
+        allow write: if (isActiveUser() && (request.auth.uid == applicantId || resource.data.applicantId == request.auth.uid)) || isAdminOrStaff();
+      }
+
+      // Subcollection: Messages (Job chat room)
+      match /messages/{messageId} {
+        allow read: if isAuthenticated();
+        allow write: if isActiveUser() || isAdminOrStaff();
+      }
+
+      // Subcollection: Questions (Public Q&A)
+      match /questions/{questionId} {
+        allow read: if true;
+        allow write: if isActiveUser();
+      }
+    }
+
+    // Job Escrow Collection
+    match /escrow/{jobId} {
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        resource.data.creatorId == request.auth.uid || 
+        resource.data.employerId == request.auth.uid || 
+        resource.data.workerId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow create: if isActiveUser() && (
+        request.resource.data.employerId == request.auth.uid || 
+        request.resource.data.creatorId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow update: if isActiveUser() && (
+        resource.data.employerId == request.auth.uid || 
+        resource.data.creatorId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow delete: if (isActiveUser() && (
+        resource.data.employerId == request.auth.uid || 
+        resource.data.creatorId == request.auth.uid
+      )) || isAdminOrStaff();
+    }
+
+    // Escrow Holdbacks Collection
+    match /escrow_holdbacks/{holdbackId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || isAdminOrStaff());
+      allow create, update: if isActiveUser() && (request.resource.data.uid == request.auth.uid || request.resource.data.employerId == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
+    }
+
+    // Job Cancellation Audit Logs Collection
+    match /job_cancellation_logs/{logId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        resource.data.cancelledBy == request.auth.uid ||
+        isAdminOrStaff()
+      );
+      allow create: if isActiveUser() && (
+        request.resource.data.cancelledBy == request.auth.uid ||
+        isAdminOrStaff()
+      );
+      allow update, delete: if isAdminOrStaff();
+    }

@@ -1,0 +1,154 @@
+    // ------------------------------------------------------------------------
+    // WORKSPACE: VEHICLE RENTALS & ESCROWS
+    // ------------------------------------------------------------------------
+
+    // Helper to check if current user is the renter, rentee, or host of an escrow
+    function isRentalEscrowParty(data) {
+      return ('renterId' in data && data.renterId == request.auth.uid) || 
+             ('renteeId' in data && data.renteeId == request.auth.uid) || 
+             ('hostId' in data && data.hostId == request.auth.uid);
+    }
+
+    // Vehicle Rentals Collection (Anti-Exploitation: Host CANNOT alter pricing once booked)
+    match /rentals/{rentalId} {
+      allow read: if true;
+      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid;
+      
+      allow update: if 
+        // 1. Host (Vehicle Owner): Can update vehicle/price details & accept bookings when status is Available
+        (isActiveUser() && resource.data.hostId == request.auth.uid && 
+          (resource.data.status == 'Available' || resource.data.status == 'available') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'brand', 'model', 'year', 'type', 'plateNumber', 'vehicleValue', 
+            'ltoCrNumber', 'ltoOrNumber', 'insuranceProvider', 'insurancePolicyNumber', 
+            'franchisePermit', 'interiorPhotoUrl', 'frontPhotoUrl', 'backPhotoUrl', 
+            'contractType', 'contractTerms', 'price12h', 'priceDaily', 'priceWeekly', 
+            'priceMonthly', 'extensionRatePerHour', 'latePenaltyRatePerHour', 'status', 
+            'fuelType', 'transmission', 'offersDriver', 'driverDailyPrice', 'driverNote', 
+            'driverLicenseNumber', 'renteeId', 'renteeName', 'renteePhotoUrl', 
+            'renteePhone', 'renteeRating', 'startEpoch', 'endEpoch', 'expectedReturnEpoch', 
+            'deliveryType', 'deliveryAddress', 'deliveryFee', 'currentLocationLat', 
+            'currentLocationLng', 'fuelLevel', 'odoMeter', 'pickupPhotos', 
+            'dropoffPhotos', 'hostRated', 'renteeRated',
+            // Booking acceptance & contract metadata
+            'rentalDurationType', 'rentalMultiplier', 'startDate', 'endDate', 
+            'totalCost', 'bookingFee', 'renteeSignatureName', 'renteeLicenseNumber', 
+            'signedAt', 'trackingLat', 'trackingLng', 'hireWithDriver', 'rentalType', 
+            'currentRequestId', 'allowChat', 'verificationSelfieUrl', 
+            'verificationGovtIdUrl', 'verificationStatus', 'hostIsVerified', 
+            'hostVerificationStatus', 'hostVerificationTier', 'renteeIsVerified', 
+            'renteeVerificationStatus', 'renteeVerificationTier',
+            // Listing deletion, archival, pause/resume & GPS tracking
+            'isDeleted', 'acceptingBookings', 'deletedAt', 'gpsTrackerId'
+          ])
+        ) ||
+        // 1b. Host: When awaiting signature, can revoke approval (back to Available) or activate lease
+        (isActiveUser() && resource.data.hostId == request.auth.uid && 
+          (resource.data.status == 'Awaiting Signature' || resource.data.status == 'awaiting signature') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'renteeId', 'renteeName', 'renteePhotoUrl', 'startDate', 
+            'endDate', 'totalCost', 'bookingFee', 'currentRequestId', 
+            'renteeSignatureName', 'signedAt', 'allowChat'
+          ])
+        ) ||
+        // 1c. Host: When vehicle is active/booked, can submit rating, accept extensions, update tracking, or complete/reset rental
+        (isActiveUser() && resource.data.hostId == request.auth.uid && 
+          resource.data.status != 'Available' && resource.data.status != 'available' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'hostRated', 'endDate', 'totalCost', 'status', 'trackingLat', 'trackingLng',
+            'renteeId', 'renteeName', 'renteePhotoUrl', 'rentalDurationType', 'rentalMultiplier',
+            'startDate', 'bookingFee', 'renteeSignatureName', 'renteeLicenseNumber', 'signedAt',
+            'currentRequestId', 'allowChat'
+          ])
+        ) ||
+        // 2a. Assigned Rentee: Can sign contract when status is Awaiting Signature
+        (isActiveUser() && 
+          ((resource.data.status == 'Awaiting Signature' || resource.data.status == 'awaiting signature') &&
+           (('renteeId' in resource.data && resource.data.renteeId == request.auth.uid) ||
+            ('renterId' in resource.data && resource.data.renterId == request.auth.uid) ||
+            ('currentRequestId' in resource.data))) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'renteeSignatureName', 'signedAt', 'signatureHash', 
+            'currentRequestId', 'renteeLicenseNumber'
+          ])
+        ) ||
+        // 2b. Assigned Rentee: When active, can update trip status, return info, location, extensions & rating
+        (isActiveUser() && 
+          (('renteeId' in resource.data && resource.data.renteeId == request.auth.uid) ||
+           ('renterId' in resource.data && resource.data.renterId == request.auth.uid)) && 
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'currentLocationLat', 'currentLocationLng', 'fuelLevel', 
+            'odoMeter', 'dropoffPhotos', 'renteeRated', 'endDate', 'totalCost'
+          ])
+        ) ||
+        // 3. Admin / Staff
+        isAdminOrStaff();
+
+      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
+
+      match /questions/{questionId} {
+        allow read: if true;
+        allow write: if isActiveUser();
+      }
+    }
+
+    // Rental Requests Collection
+    match /rental_requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow write: if isActiveUser() || isAdminOrStaff();
+    }
+
+    // Rental Extensions Collection
+    match /rental_extensions/{extId} {
+      allow read: if isAuthenticated();
+      allow write: if isActiveUser() || isAdminOrStaff();
+    }
+
+    // Rental History Collection
+    match /rental_history/{historyId} {
+      allow read: if isAuthenticated();
+      allow write: if isActiveUser() || isAdminOrStaff();
+    }
+
+    // Rental Escrows Collection (Dual-field support for renteeId & renterId)
+    match /rental_escrows/{rentalId} {
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        isRentalEscrowParty(resource.data) || 
+        isAdminOrStaff()
+      );
+      allow create, update: if isActiveUser() && (
+        isRentalEscrowParty(request.resource.data) || 
+        isAdminOrStaff()
+      );
+      allow delete: if (isActiveUser() && isRentalEscrowParty(resource.data)) || isAdminOrStaff();
+    }
+
+    // Rental Extension Escrows Collection
+    match /rental_extension_escrows/{extensionId} {
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        isRentalEscrowParty(resource.data) || 
+        isAdminOrStaff()
+      );
+      allow create, update: if isActiveUser() && (
+        isRentalEscrowParty(request.resource.data) || 
+        isAdminOrStaff()
+      );
+      allow delete: if (isActiveUser() && isRentalEscrowParty(resource.data)) || isAdminOrStaff();
+    }
+
+    // Rental Contracts Collection (Permanent immutable contract snapshots)
+    match /rental_contracts/{contractId} {
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        isRentalEscrowParty(resource.data) || 
+        isAdminOrStaff()
+      );
+      allow create: if isActiveUser() && (
+        isRentalEscrowParty(request.resource.data) || 
+        isAdminOrStaff()
+      );
+      allow update, delete: if isAdminOrStaff();
+    }
+

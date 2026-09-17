@@ -84,8 +84,9 @@ class _RatingModalComponentState extends State<RatingModalComponent> {
             div(classes: 'flex flex-col gap-2.5', [
               button(
                 classes: (s.ratingScore == 0 || s.isSubmittingRating)
-                    ? 'w-full py-4 rounded-2xl font-bold text-white bg-indigo-500/50 cursor-not-allowed text-center'
+                    ? 'w-full py-4 rounded-2xl font-bold text-white bg-indigo-500/50 cursor-not-allowed text-center opacity-60'
                     : 'w-full py-4 rounded-2xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+                attributes: (s.ratingScore == 0 || s.isSubmittingRating) ? {'disabled': 'true'} : {},
                 events: (s.ratingScore == 0 || s.isSubmittingRating)
                     ? {}
                     : {'click': (_) => s.handleConfirmRating(s.ratingScore, _comment)},

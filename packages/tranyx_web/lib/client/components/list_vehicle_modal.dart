@@ -10,6 +10,7 @@ import '../../components/map_picker.dart';
 import '../../services/web_interop.dart';
 import '../../services/firebase_service.dart';
 import 'contract_viewer.dart';
+import 'pdf_viewer_modal.dart';
 
 class ListVehicleModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -21,6 +22,74 @@ class ListVehicleModalComponent extends StatefulComponent {
 
 class _ListVehicleModalState extends State<ListVehicleModalComponent> {
   int _step = 1;
+  int? _lastScrolledStep;
+  bool _isEnteringStep2 = false;
+
+  void _scrollToTop() {
+    void doScroll() {
+      try {
+        (web.document.activeElement as web.HTMLElement?)?.blur();
+      } catch (_) {}
+
+      final container = web.document.getElementById('list-vehicle-modal-container');
+      if (container != null) {
+        container.scrollTop = 0;
+        container.scrollLeft = 0;
+      }
+
+      final topAnchor = web.document.getElementById('list-vehicle-modal-top');
+      if (topAnchor != null) {
+        try {
+          topAnchor.scrollIntoView();
+        } catch (_) {}
+      }
+
+      if (_step == 2) {
+        final pricingTop = web.document.getElementById('step-2-pricing-top');
+        if (pricingTop != null) {
+          try {
+            pricingTop.scrollIntoView();
+          } catch (_) {}
+        }
+      }
+    }
+
+    doScroll();
+    Future.microtask(doScroll);
+    Future.delayed(Duration.zero, doScroll);
+    Future.delayed(const Duration(milliseconds: 20), doScroll);
+    Future.delayed(const Duration(milliseconds: 50), doScroll);
+    Future.delayed(const Duration(milliseconds: 100), doScroll);
+    Future.delayed(const Duration(milliseconds: 200), doScroll);
+    Future.delayed(const Duration(milliseconds: 350), doScroll);
+    Future.delayed(const Duration(milliseconds: 500), doScroll);
+    Future.delayed(const Duration(milliseconds: 750), doScroll);
+    Future.delayed(const Duration(milliseconds: 1000), doScroll);
+    Future.delayed(const Duration(milliseconds: 1500), doScroll);
+  }
+
+  void _onEnterStep(int targetStep) {
+    if (targetStep == 2) {
+      _isEnteringStep2 = true;
+      _scrollToTop();
+      for (int ms in [150, 300, 500, 750, 1000, 1300]) {
+        Future.delayed(Duration(milliseconds: ms), () {
+          if (_isEnteringStep2 && _step == 2) {
+            final container = web.document.getElementById('list-vehicle-modal-container');
+            if (container != null && container.scrollTop > 10) {
+              container.scrollTop = 0;
+            }
+          }
+        });
+      }
+      Future.delayed(const Duration(milliseconds: 1600), () {
+        _isEnteringStep2 = false;
+      });
+    } else {
+      _isEnteringStep2 = false;
+      _scrollToTop();
+    }
+  }
 
   @override
   void initState() {
@@ -28,6 +97,8 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
     component.appState.pickupAddress = '';
     component.appState.pickupLat = null;
     component.appState.pickupLng = null;
+    _lastScrolledStep = null;
+    _scrollToTop();
   }
 
   // Form Fields
@@ -59,6 +130,8 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
 
   String _contractType = 'Tranyx Standard';
   String _customTerms = '';
+  String? _uploadedFileName;
+  int? _uploadedFileSize;
   bool _showPreview = false;
 
   // Images
@@ -69,11 +142,12 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
   String? _error;
   String _gpsTrackerId = ''; // GPS Hardware Registry ID
 
-  // Derived calculations
-  double get _listingFee {
-    final daily = double.tryParse(_priceDaily) ?? 0;
-    return daily * 0.015; // 1.5% of daily rate
-  }
+  // LTO Registration & Comprehensive Insurance Compliance
+  String _ltoCrNumber = '';
+  String _ltoOrNumber = '';
+  String _insuranceProvider = 'N/A';
+  String _insurancePolicyNumber = '';
+  String _vehicleValue = '';
 
   void _submit() async {
     final mapAddress = component.appState.pickupAddress;
@@ -165,12 +239,11 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
         pickupLng: _pickupLng ?? 120.9842,
         status: 'Available',
         createdAt: DateTime.now(),
-        // mock the required fields that we don't have inputs for yet:
-        vehicleValue: 0,
-        ltoCrNumber: 'PENDING',
-        ltoOrNumber: 'PENDING',
-        insuranceProvider: 'N/A',
-        insurancePolicyNumber: 'N/A',
+        vehicleValue: double.tryParse(_vehicleValue) ?? 0,
+        ltoCrNumber: _ltoCrNumber.trim().isNotEmpty ? _ltoCrNumber.trim() : 'PENDING',
+        ltoOrNumber: _ltoOrNumber.trim().isNotEmpty ? _ltoOrNumber.trim() : 'PENDING',
+        insuranceProvider: _insuranceProvider.trim().isNotEmpty ? _insuranceProvider.trim() : 'N/A',
+        insurancePolicyNumber: _insurancePolicyNumber.trim().isNotEmpty ? _insurancePolicyNumber.trim() : 'N/A',
         contractType: _contractType,
         contractTerms: _contractType == 'Custom Contract' ? _customTerms : 'Standard P2P terms',
         offersDriver: _offersDriver,
@@ -211,25 +284,30 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
     if (_step == 1) {
       if (_brand.trim().isEmpty || _model.trim().isEmpty || _year.trim().isEmpty || _plateNumber.trim().isEmpty) {
         setState(() => _error = 'Please fill out all vehicle specifications.');
+        _scrollToTop();
         return;
       }
       if (int.tryParse(_year) == null) {
         setState(() => _error = 'Year must be a valid number.');
+        _scrollToTop();
         return;
       }
       if (!_isValidPhilippinePlate(_plateNumber)) {
         setState(
           () => _error = 'Please enter a valid Philippine Plate Number (e.g. ABC-1234, MC-12345) or MV File Number.',
         );
+        _scrollToTop();
         return;
       }
     } else if (_step == 2) {
       if (_priceDaily.trim().isEmpty) {
         setState(() => _error = 'Please provide a daily rate.');
+        _scrollToTop();
         return;
       }
       if (double.tryParse(_priceDaily) == null || double.parse(_priceDaily) <= 0) {
         setState(() => _error = 'Daily rate must be a valid number greater than 0.');
+        _scrollToTop();
         return;
       }
       if (_offersDriver) {
@@ -237,20 +315,24 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
             double.tryParse(_driverDailyPrice) == null ||
             double.parse(_driverDailyPrice) < 0) {
           setState(() => _error = 'Please enter a valid driver daily rate.');
+          _scrollToTop();
           return;
         }
         final cleanedLicense = _driverLicenseNumber.replaceAll(RegExp(r'[\s-]'), '');
         if (cleanedLicense.length != 11) {
           setState(() => _error = 'Please enter a valid Driver\'s License Number (11 characters).');
+          _scrollToTop();
           return;
         }
         if (_driverNote.trim().isEmpty) {
           setState(() => _error = 'Please provide a driver note.');
+          _scrollToTop();
           return;
         }
       }
       if (component.appState.pickupAddress.isEmpty) {
         setState(() => _error = 'Please select and confirm a vehicle location on the map picker.');
+        _scrollToTop();
         return;
       }
       _pickupAddress = component.appState.pickupAddress;
@@ -258,18 +340,42 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
       _pickupLng = component.appState.pickupLng;
     }
 
-    setState(() => _step++);
+    final nextStep = _step + 1;
+    setState(() => _step = nextStep);
+    _onEnterStep(nextStep);
   }
 
   @override
   Component build(BuildContext context) {
-    if (!component.appState.showListVehicleModal) return div([]);
+    if (!component.appState.showListVehicleModal) {
+      _lastScrolledStep = null;
+      _isEnteringStep2 = false;
+      return div([]);
+    }
     final isDark = component.appState.isDark;
+
+    if (_lastScrolledStep != _step) {
+      _lastScrolledStep = _step;
+      _onEnterStep(_step);
+    }
 
     return div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in', [
       div(
+        id: 'list-vehicle-modal-container',
         classes:
             'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
+        events: {
+          'wheel': (e) => _isEnteringStep2 = false,
+          'touchmove': (e) => _isEnteringStep2 = false,
+          'scroll': (e) {
+            if (_isEnteringStep2 && _step == 2) {
+              final container = web.document.getElementById('list-vehicle-modal-container');
+              if (container != null && container.scrollTop > 30) {
+                container.scrollTop = 0;
+              }
+            }
+          },
+        },
         [
           // Header
           div(
@@ -294,6 +400,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
 
           // Body
           div(classes: 'p-6 flex-1 space-y-6', [
+            div(id: 'list-vehicle-modal-top', classes: 'h-0 w-full p-0 m-0 overflow-hidden', []),
             if (_error != null)
               div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium', [
                 Component.text(_error!),
@@ -457,8 +564,101 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                   ),
                 ],
               ),
+
+              // LTO Registration & Comprehensive Insurance Compliance
+              div(
+                classes:
+                    'mt-4 p-5 rounded-2xl border ${isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-purple-50/50 border-purple-100"} space-y-4',
+                [
+                  div(classes: 'flex items-center gap-2 mb-1', [
+                    lIcon('shield-check', cls: 'w-4 h-4 text-purple-400'),
+                    h4(classes: 'text-sm font-bold ${isDark ? "text-purple-300" : "text-purple-800"}', [
+                      Component.text('LTO Registration & Insurance Compliance'),
+                    ]),
+                  ]),
+                  p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"} -mt-2 mb-3', [
+                    Component.text(
+                      'Official registration and insurance details are automatically embedded into your legally binding P2P rental agreement.',
+                    ),
+                  ]),
+                  div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4', [
+                    _inputField(
+                      'LTO Certificate of Registration (CR)',
+                      _ltoCrNumber,
+                      (v) => setState(() => _ltoCrNumber = v.toUpperCase()),
+                      isDark,
+                      placeholder: 'e.g. CR-12345678 or MV File No.',
+                    ),
+                    _inputField(
+                      'LTO Official Receipt (OR)',
+                      _ltoOrNumber,
+                      (v) => setState(() => _ltoOrNumber = v.toUpperCase()),
+                      isDark,
+                      placeholder: 'e.g. OR-87654321',
+                    ),
+                    _inputField(
+                      'Insured Vehicle Value (₱)',
+                      _vehicleValue,
+                      (v) => setState(() => _vehicleValue = v),
+                      isDark,
+                      placeholder: 'e.g. 1500000',
+                      type: InputType.number,
+                    ),
+                    div([
+                      label(
+                        classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}',
+                        [Component.text('Comprehensive Insurance Provider')],
+                      ),
+                      select(
+                        classes:
+                            'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors text-sm',
+                        events: {'change': (e) => setState(() => _insuranceProvider = getInputValue(e.target))},
+                        [
+                          option(value: 'N/A', selected: _insuranceProvider == 'N/A', [
+                            Component.text('N/A (Compulsory Third Party / CTPL Only)'),
+                          ]),
+                          option(value: 'Standard Insurance', selected: _insuranceProvider == 'Standard Insurance', [
+                            Component.text('Standard Insurance'),
+                          ]),
+                          option(value: 'Malayan Insurance', selected: _insuranceProvider == 'Malayan Insurance', [
+                            Component.text('Malayan Insurance'),
+                          ]),
+                          option(value: 'FPG Insurance', selected: _insuranceProvider == 'FPG Insurance', [
+                            Component.text('FPG Insurance'),
+                          ]),
+                          option(value: 'Pioneer Insurance', selected: _insuranceProvider == 'Pioneer Insurance', [
+                            Component.text('Pioneer Insurance'),
+                          ]),
+                          option(value: 'Mercantile Insurance', selected: _insuranceProvider == 'Mercantile Insurance', [
+                            Component.text('Mercantile Insurance'),
+                          ]),
+                          option(value: 'Alpha Insurance', selected: _insuranceProvider == 'Alpha Insurance', [
+                            Component.text('Alpha Insurance'),
+                          ]),
+                          option(value: 'Charter Ping An', selected: _insuranceProvider == 'Charter Ping An', [
+                            Component.text('Charter Ping An'),
+                          ]),
+                          option(value: 'Other Provider', selected: _insuranceProvider == 'Other Provider', [
+                            Component.text('Other Provider'),
+                          ]),
+                        ],
+                      ),
+                    ]),
+                    div(classes: 'col-span-1 md:col-span-2', [
+                      _inputField(
+                        'Insurance Policy Reference No.',
+                        _insurancePolicyNumber,
+                        (v) => setState(() => _insurancePolicyNumber = v.toUpperCase()),
+                        isDark,
+                        placeholder: 'e.g. POL-2026-98765 or Policy ID',
+                      ),
+                    ]),
+                  ]),
+                ],
+              ),
             ] else if (_step == 2) ...[
               // Step 2: Pricing & Location
+              div(id: 'step-2-pricing-top', classes: 'h-0 w-full p-0 m-0 overflow-hidden', []),
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Location')]),
               div(classes: 'grid grid-cols-2 gap-4', [
                 _inputField(
@@ -504,15 +704,17 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                   type: InputType.number,
                 ),
               ]),
-              div(classes: 'mt-6 p-4 rounded-xl bg-purple-500/10 border border-purple-500/20 mb-6', [
-                div(classes: 'flex justify-between text-sm mb-2', [
-                  span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
-                    Component.text('Platform Listing Fee (1.5% of Daily)'),
+              div(classes: 'p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 mb-6', [
+                div(classes: 'flex justify-between text-sm mb-1', [
+                  span(classes: isDark ? 'text-zinc-300' : 'text-zinc-700', [
+                    Component.text('Vehicle Listing Fee (Free Tier)'),
                   ]),
-                  span(classes: 'font-bold text-purple-400', [Component.text('${_listingFee.toStringAsFixed(2)} TYX')]),
+                  span(classes: 'font-bold text-emerald-400', [Component.text('₱0.00 (100% Free)')]),
                 ]),
-                p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                  Component.text('To maintain quality, a small anti-spam fee is required to list your vehicle.'),
+                p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                  Component.text(
+                    'Posting your vehicle is completely free. TRANYX only retains a 3% platform commission upon completed rental term.',
+                  ),
                 ]),
               ]),
               // Driver services option
@@ -680,11 +882,11 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                           year: int.tryParse(_year) ?? 2022,
                           plateNumber: _plateNumber,
                           type: _selectedType,
-                          vehicleValue: 0,
-                          ltoCrNumber: 'PENDING',
-                          ltoOrNumber: 'PENDING',
-                          insuranceProvider: 'N/A',
-                          insurancePolicyNumber: 'N/A',
+                          vehicleValue: double.tryParse(_vehicleValue) ?? 0,
+                          ltoCrNumber: _ltoCrNumber.trim().isNotEmpty ? _ltoCrNumber.trim() : 'PENDING',
+                          ltoOrNumber: _ltoOrNumber.trim().isNotEmpty ? _ltoOrNumber.trim() : 'PENDING',
+                          insuranceProvider: _insuranceProvider.trim().isNotEmpty ? _insuranceProvider.trim() : 'N/A',
+                          insurancePolicyNumber: _insurancePolicyNumber.trim().isNotEmpty ? _insurancePolicyNumber.trim() : 'N/A',
                           contractType: 'Tranyx Standard',
                           contractTerms: '',
                           price12h: double.tryParse(_price12h) ?? 0,
@@ -708,73 +910,224 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                   ],
                 ),
               ] else ...[
-                div(classes: 'mt-4', [
-                  label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
-                    Component.text('Custom Contract Terms'),
-                  ]),
-                  textarea(
-                    classes:
-                        'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors h-32 resize-none',
-                    attributes: {'placeholder': 'Enter your custom terms and conditions for this rental...'},
-                    events: {'input': (e) => setState(() => _customTerms = getInputValue(e.target))},
-                    [Component.text(_customTerms)],
-                  ),
-                  div(classes: 'mt-3 flex items-center gap-3', [
-                    span(classes: 'text-xs text-zinc-500 font-medium', [
-                      Component.text('Or upload a contract terms file:'),
+                div(classes: 'mt-4 space-y-3', [
+                  div(classes: 'flex items-center justify-between', [
+                    label(classes: 'block text-sm font-semibold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                      Component.text('Custom Contract & Lease Terms'),
                     ]),
-                    label(
+                    span(classes: 'text-xs text-zinc-500', [
+                      Component.text('PDF Document or Plain Text'),
+                    ]),
+                  ]),
+
+                  // If a PDF is attached, display the clean, interactive Document Card
+                  if (CustomContractHelper.isCustomPdf(_customTerms)) ...[
+                    div(
                       classes:
-                          'px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white cursor-pointer transition-colors',
-                      attributes: {'for': 'custom-contract-upload'},
+                          'p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 '
+                          '${isDark ? "bg-zinc-900 border-zinc-800" : "bg-zinc-50 border-zinc-200"}',
                       [
-                        Component.text('Upload Terms'),
-                        input(
-                          type: InputType.file,
-                          classes: 'hidden',
-                          attributes: {
-                            'id': 'custom-contract-upload',
-                            'accept': '.txt,.md,.pdf,.png,.jpg,.jpeg',
-                            'style': 'display: none;',
-                          },
-                          events: {
-                            'change': (e) {
-                              final targetObj = e.target as JSObject?;
-                              if (targetObj != null && targetObj.hasProperty('files'.toJS).toDart) {
-                                final filesObj = targetObj.getProperty<JSObject>('files'.toJS);
-                                if (filesObj.hasProperty('length'.toJS).toDart) {
-                                  final len = (filesObj.getProperty('length'.toJS) as JSNumber).toDartInt;
-                                  if (len > 0) {
-                                    final file = filesObj.callMethod<JSObject?>('item'.toJS, 0.toJS);
-                                    if (file != null) {
-                                      final reader = web.FileReader();
-                                      final name = (file.getProperty('name'.toJS) as JSString).toDart;
-                                      final lowerName = name.toLowerCase();
-                                      if (lowerName.endsWith('.txt') || lowerName.endsWith('.md')) {
-                                        reader.readAsText(file as web.Blob);
-                                        reader.onLoadEnd.listen((_) {
-                                          setState(() {
-                                            _customTerms = reader.result.toString();
-                                          });
-                                        });
-                                      } else {
-                                        reader.readAsDataURL(file as web.Blob);
-                                        reader.onLoadEnd.listen((_) {
-                                          setState(() {
-                                            _customTerms = '[Uploaded File: $name]\n${reader.result.toString()}';
-                                          });
-                                        });
-                                      }
-                                    }
-                                  }
-                                }
-                              }
+                        div(classes: 'flex items-center gap-3 min-w-0', [
+                          div(classes: 'p-2.5 rounded-xl bg-red-500/10 text-red-400 shrink-0 border border-red-500/20', [
+                            lIcon('file-text', cls: 'w-6 h-6'),
+                          ]),
+                          div(classes: 'min-w-0', [
+                            p(classes: 'text-[11px] font-bold uppercase text-purple-400', [
+                              Component.text('Attached PDF Contract'),
+                            ]),
+                            p(classes: 'text-sm font-bold truncate ${isDark ? "text-white" : "text-zinc-900"}', [
+                              Component.text(_uploadedFileName ?? CustomContractHelper.extractFileName(_customTerms)),
+                            ]),
+                            p(classes: 'text-[11px] text-zinc-500', [
+                              Component.text(
+                                _uploadedFileSize != null
+                                    ? CustomContractHelper.formatFileSize(_uploadedFileSize!)
+                                    : 'PDF Document Ready',
+                              ),
+                            ]),
+                          ]),
+                        ]),
+                        div(classes: 'flex items-center gap-2 w-full sm:w-auto shrink-0', [
+                          button(
+                            classes:
+                                'px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer border-0',
+                            events: {
+                              'click': (_) => component.appState.openPdfViewer(
+                                    CustomContractHelper.extractPdfSource(_customTerms),
+                                    _uploadedFileName ?? CustomContractHelper.extractFileName(_customTerms),
+                                  ),
                             },
-                          },
+                            [lIcon('eye', cls: 'w-3.5 h-3.5'), Component.text('View')],
+                          ),
+                          label(
+                            classes:
+                                'px-3 py-1.5 rounded-xl text-xs font-bold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-100 text-zinc-700"} cursor-pointer transition-colors',
+                            attributes: {'for': 'custom-contract-upload'},
+                            [Component.text('Replace PDF')],
+                          ),
+                          button(
+                            classes:
+                                'p-2 rounded-xl hover:bg-red-500/10 text-zinc-400 hover:text-red-400 transition-colors border-0 cursor-pointer',
+                            events: {
+                              'click': (_) {
+                                setState(() {
+                                  _customTerms = '';
+                                  _uploadedFileName = null;
+                                  _uploadedFileSize = null;
+                                });
+                              },
+                            },
+                            [lIcon('trash-2', cls: 'w-4 h-4')],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                    // Upload PDF Box
+                    div(
+                      classes:
+                          'p-5 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center text-center gap-2 '
+                          '${isDark ? "border-zinc-700 bg-zinc-900/40" : "border-zinc-300 bg-zinc-50"}',
+                      [
+                        div(classes: 'p-3 rounded-2xl bg-purple-500/10 text-purple-400', [
+                          lIcon('file-text', cls: 'w-7 h-7'),
+                        ]),
+                        p(classes: 'text-sm font-bold ${isDark ? "text-white" : "text-zinc-900"}', [
+                          Component.text('Upload Custom Contract (PDF)'),
+                        ]),
+                        p(classes: 'text-xs text-zinc-400 max-w-sm', [
+                          Component.text('Upload your official rental agreement document. Accepted format: .pdf (Max 5MB).'),
+                        ]),
+                        label(
+                          classes:
+                              'mt-2 px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white cursor-pointer transition-colors flex items-center gap-2 shadow-lg shadow-purple-500/20',
+                          attributes: {'for': 'custom-contract-upload'},
+                          [
+                            lIcon('upload', cls: 'w-4 h-4'),
+                            Component.text('Choose PDF Document'),
+                          ],
                         ),
                       ],
                     ),
-                  ]),
+
+                    div(classes: 'text-center py-1', [
+                      span(classes: 'text-xs text-zinc-500', [Component.text('— OR enter plain text terms below —')]),
+                    ]),
+
+                    textarea(
+                      classes:
+                          'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors h-28 resize-none text-sm',
+                      attributes: {'placeholder': 'Enter your custom terms and conditions for this rental...'},
+                      events: {'input': (e) => setState(() => _customTerms = getInputValue(e.target))},
+                      [Component.text(_customTerms)],
+                    ),
+                  ],
+
+                  // Hidden file input with strict validation
+                  input(
+                    type: InputType.file,
+                    classes: 'hidden',
+                    attributes: {
+                      'id': 'custom-contract-upload',
+                      'accept': '.pdf,application/pdf',
+                      'style': 'display: none;',
+                    },
+                    events: {
+                      'change': (e) {
+                        final targetObj = e.target as JSObject?;
+                        if (targetObj != null && targetObj.hasProperty('files'.toJS).toDart) {
+                          final filesObj = targetObj.getProperty<JSObject>('files'.toJS);
+                          if (filesObj.hasProperty('length'.toJS).toDart) {
+                            final len = (filesObj.getProperty('length'.toJS) as JSNumber).toDartInt;
+                            if (len > 0) {
+                              final file = filesObj.callMethod<JSObject?>('item'.toJS, 0.toJS);
+                              if (file != null) {
+                                final name = (file.getProperty('name'.toJS) as JSString).toDart;
+                                final lowerName = name.toLowerCase();
+
+                                String mimeType = '';
+                                if (file.hasProperty('type'.toJS).toDart) {
+                                  mimeType = (file.getProperty('type'.toJS) as JSString?)?.toDart.toLowerCase() ?? '';
+                                }
+
+                                // Strict PDF-only check
+                                final bool isPdfMime = mimeType.isEmpty || mimeType == 'application/pdf' || mimeType == 'application/x-pdf';
+                                final bool isPdfExt = lowerName.endsWith('.pdf');
+
+                                if (!isPdfExt || !isPdfMime) {
+                                  if (targetObj.hasProperty('value'.toJS).toDart) {
+                                    targetObj.setProperty('value'.toJS, ''.toJS);
+                                  }
+                                  setState(() => _error = 'Invalid file type. Only authentic PDF documents (.pdf) are allowed.');
+                                  return;
+                                }
+
+                                final size = (file.getProperty('size'.toJS) as JSNumber).toDartInt;
+                                if (size > CustomContractHelper.maxFileSizeBytes) {
+                                  if (targetObj.hasProperty('value'.toJS).toDart) {
+                                    targetObj.setProperty('value'.toJS, ''.toJS);
+                                  }
+                                  setState(() => _error = 'File size exceeds the 5MB limit (${CustomContractHelper.formatFileSize(size)}). Please choose a smaller PDF.');
+                                  return;
+                                }
+
+                                final reader = web.FileReader();
+                                reader.readAsDataURL(file as web.Blob);
+                                reader.onLoadEnd.listen((_) {
+                                  final jsResult = reader.result;
+                                  String dataUrl = '';
+                                  if (jsResult != null) {
+                                    try {
+                                      dataUrl = (jsResult as JSString).toDart;
+                                    } catch (_) {
+                                      dataUrl = jsResult.toString();
+                                    }
+                                  }
+
+                                  // Magic byte check for PDF (%PDF base64 begins with JVBERi)
+                                  if (!dataUrl.startsWith('data:application/pdf') && !dataUrl.contains('JVBERi')) {
+                                    if (targetObj.hasProperty('value'.toJS).toDart) {
+                                      targetObj.setProperty('value'.toJS, ''.toJS);
+                                    }
+                                    setState(() => _error = 'File content is not a valid PDF document. Only authentic PDF files (.pdf) are permitted.');
+                                    return;
+                                  }
+
+                                  final docId = 'doc_contract_${DateTime.now().millisecondsSinceEpoch}';
+
+                                  // Cache in memory for instant previewing
+                                  PdfViewerModalComponent.cachePdfSource(docId, dataUrl);
+
+                                  // Asynchronously store document in contract_documents
+                                  component.appState.firestore.setDocument('contract_documents/$docId', {
+                                    'id': docId,
+                                    'hostId': component.appState.userProfile?.uid ?? '',
+                                    'listingType': 'vehicle',
+                                    'fileName': name,
+                                    'fileSize': size,
+                                    'mimeType': 'application/pdf',
+                                    'uploadedAt': DateTime.now().millisecondsSinceEpoch,
+                                    'dataUrl': dataUrl,
+                                  }).catchError((_) {});
+
+                                  setState(() {
+                                    _error = null;
+                                    _uploadedFileName = name;
+                                    _uploadedFileSize = size;
+                                    _customTerms = CustomContractHelper.formatCleanTerms(
+                                      fileName: name,
+                                      documentId: docId,
+                                    );
+                                  });
+                                });
+                              }
+                            }
+                          }
+                        }
+                      },
+                    },
+                  ),
                 ]),
               ],
 
@@ -784,9 +1137,6 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                   final weeklyRate = double.tryParse(_priceWeekly) ?? 0.0;
                   final monthlyRate = double.tryParse(_priceMonthly) ?? 0.0;
                   final rate12h = double.tryParse(_price12h) ?? 0.0;
-
-                  // Listing Fee (1.5% of Daily Rate)
-                  final listingFee = dailyRate * 0.015;
 
                   // Standard Platform commission fee: 3% deducted from payout
                   final commissionDaily = dailyRate * 0.03;
@@ -810,49 +1160,48 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                     [
                       p(classes: 'text-xs font-bold text-indigo-400 uppercase tracking-wider', [Component.text('Listing Payment & Earnings Breakdown')]),
                       div(classes: 'space-y-2.5', [
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                          span([Component.text('Vehicle Listing Upfront Fee:')]),
+                          span(classes: 'font-semibold text-emerald-400', [
+                            Component.text('₱ 0.00 (100% Free)')
+                          ]),
+                        ]),
                         // Rates & Earnings
                         if (rate12h > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                             span([Component.text('12-Hour Rental: ₱${rate12h.toStringAsFixed(2)}')]),
                             span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                              Component.text('Payout: ₱${payout12h.toStringAsFixed(2)} (Net of 3% platform commission)')
+                              Component.text('Net Payout: ₱${payout12h.toStringAsFixed(2)}')
                             ]),
                           ]),
                         if (dailyRate > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                             span([Component.text('Daily Rental: ₱${dailyRate.toStringAsFixed(2)}')]),
                             span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                              Component.text('Payout: ₱${payoutDaily.toStringAsFixed(2)} (Net of 3% platform commission)')
+                              Component.text('Net Payout: ₱${payoutDaily.toStringAsFixed(2)}')
                             ]),
                           ]),
                         if (weeklyRate > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                             span([Component.text('Weekly Rental: ₱${weeklyRate.toStringAsFixed(2)}')]),
                             span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                              Component.text('Payout: ₱${payoutWeekly.toStringAsFixed(2)} (Net of 3% platform commission)')
+                              Component.text('Net Payout: ₱${payoutWeekly.toStringAsFixed(2)}')
                             ]),
                           ]),
                         if (monthlyRate > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                             span([Component.text('Monthly Rental: ₱${monthlyRate.toStringAsFixed(2)}')]),
                             span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                              Component.text('Payout: ₱${payoutMonthly.toStringAsFixed(2)} (Net of 3% platform commission)')
+                              Component.text('Net Payout: ₱${payoutMonthly.toStringAsFixed(2)}')
                             ]),
                           ]),
-                        // Separator
-                        div(classes: 'border-t ${isDark ? "border-zinc-800" : "border-zinc-200"} my-2', []),
-                        // Listing anti-spam fee
-                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
-                          span([Component.text('Anti-Spam Listing Fee (1.5% of Daily):')]),
-                          span(classes: 'font-semibold text-purple-400', [
-                            Component.text('${listingFee.toStringAsFixed(2)} TYX')
+                        // Commission summary
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400 pt-1 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+                          span([Component.text('TRANYX Host Success Commission (3%):')]),
+                          span(classes: 'font-semibold text-amber-500', [
+                            Component.text('Deducted only from Base Rent upon completion')
                           ]),
                         ]),
-                      ]),
-                      p(classes: 'text-[10px] text-zinc-500 leading-normal', [
-                        Component.text(
-                          'Notice: A listing fee of ${listingFee.toStringAsFixed(2)} TYX will be charged to your wallet now. A platform service fee of 3% is only deducted from your earnings upon successful rental completion.',
-                        ),
                       ]),
                     ],
                   );
@@ -873,7 +1222,13 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
                 button(
                   classes:
                       'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
-                  events: {'click': (e) => setState(() => _step--)},
+                  events: {
+                    'click': (e) {
+                      final prevStep = _step - 1;
+                      setState(() => _step = prevStep);
+                      _onEnterStep(prevStep);
+                    },
+                  },
                   [Component.text('Back')],
                 )
               else

@@ -1,3 +1,5 @@
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -8,6 +10,7 @@ import '../../components/map_picker.dart';
 import '../../services/web_interop.dart';
 import '../../services/firebase_service.dart';
 import 'contract_viewer.dart';
+import 'pdf_viewer_modal.dart';
 
 class ListPropertyModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -36,11 +39,11 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
   final List<String> _amenities = [];
 
   // Pricing
-  String _priceMonthly = '';
-  String _priceWeekly = '';
   String _priceDaily = '';
-  int _depositMonths = 1; // standard: 1 month deposit
-  String _securityDepositAmount = '0';
+  String _priceWeekly = '';
+  String _priceMonthly = '';
+  DepositType _depositType = DepositType.fixed;
+  String _depositValue = '1000';
   String _advanceAmount = '0';
 
   // Location
@@ -50,6 +53,8 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
 
   String _contractType = 'Tranyx Standard';
   String _customTerms = '';
+  String? _uploadedFileName;
+  int? _uploadedFileSize;
   bool _showPreview = false;
 
   // Images
@@ -60,11 +65,6 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
 
   bool _isSubmitting = false;
   String? _error;
-
-  double get _listingFee {
-    final monthly = double.tryParse(_priceMonthly) ?? 0;
-    return monthly * 0.015; // 1.5% of monthly rent listing fee
-  }
 
   final List<String> _amenitiesList = ['WiFi', 'Aircon', 'Parking', 'Furnished', 'Gym', 'Swimming Pool'];
 
@@ -97,9 +97,12 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
       return;
     }
 
-    final monthly = double.tryParse(_priceMonthly) ?? 0;
-    if (monthly <= 0) {
-      setState(() => _error = 'Please provide a valid monthly rate.');
+    final daily = double.tryParse(_priceDaily) ?? 0.0;
+    final weekly = double.tryParse(_priceWeekly) ?? 0.0;
+    final monthly = double.tryParse(_priceMonthly) ?? 0.0;
+
+    if (daily <= 0 && weekly <= 0 && monthly <= 0) {
+      setState(() => _error = 'Please provide at least one rental rate (Daily, Weekly, or Monthly).');
       return;
     }
 
@@ -135,9 +138,14 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
       final user = component.appState.userProfile;
       if (user == null) throw Exception('User profile not loaded.');
 
-      final depositAmt = double.tryParse(_securityDepositAmount) ?? 0.0;
+      final dVal = double.tryParse(_depositValue) ?? 0.0;
       final advanceAmt = double.tryParse(_advanceAmount) ?? 0.0;
-      _depositMonths = monthly > 0 ? (depositAmt / monthly).round() : 0;
+
+      final allowedDurations = <String>[];
+      if (daily > 0) allowedDurations.add('DAILY');
+      if (weekly > 0) allowedDurations.add('WEEKLY');
+      if (monthly > 0) allowedDurations.add('MONTHLY');
+      if (allowedDurations.isEmpty) allowedDurations.addAll(['DAILY', 'WEEKLY', 'MONTHLY']);
 
       final property = PropertyRental(
         id: '',
@@ -149,11 +157,15 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
         type: _selectedType,
         category: _selectedCategory,
         priceMonthly: monthly,
-        priceWeekly: double.tryParse(_priceWeekly) ?? 0.0,
-        priceDaily: double.tryParse(_priceDaily) ?? 0.0,
-        depositMonths: _depositMonths,
-        securityDepositAmount: depositAmt,
+        priceWeekly: weekly,
+        priceDaily: daily,
+        depositMonths: monthly > 0 && _depositType == DepositType.fixed ? (dVal / monthly).round() : 0,
+        securityDepositAmount: _depositType == DepositType.fixed ? dVal : null,
         advanceAmount: advanceAmt,
+        depositType: _depositType,
+        depositValue: dVal,
+        isListingFeeWaived: true,
+        allowedDurations: allowedDurations,
         address: _address,
         latitude: _latitude ?? 14.5995,
         longitude: _longitude ?? 120.9842,
@@ -169,7 +181,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
       // Create property listing
       await component.appState.firestore.createPropertyRental(property);
 
-      // Reload profile & transactions to display balance deduction and transaction log promptly
+      // Reload profile & transactions promptly
       await component.appState.loadUserProfile();
       await component.appState.loadTransactions();
 
@@ -198,12 +210,12 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
         return;
       }
     } else if (_step == 2) {
-      if (_priceMonthly.trim().isEmpty) {
-        setState(() => _error = 'Please provide a monthly rate.');
-        return;
-      }
-      if (double.tryParse(_priceMonthly) == null || double.parse(_priceMonthly) <= 0) {
-        setState(() => _error = 'Monthly rate must be a valid number greater than 0.');
+      final daily = double.tryParse(_priceDaily) ?? 0.0;
+      final weekly = double.tryParse(_priceWeekly) ?? 0.0;
+      final monthly = double.tryParse(_priceMonthly) ?? 0.0;
+
+      if (daily <= 0 && weekly <= 0 && monthly <= 0) {
+        setState(() => _error = 'Please provide at least one rental rate (Daily, Weekly, or Monthly).');
         return;
       }
       if (component.appState.pickupAddress.isEmpty) {
@@ -377,142 +389,99 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
               ]),
             ] else if (_step == 2) ...[
               // Step 2: Pricing & Location
-              h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Proximity')]),
-              div(classes: 'grid grid-cols-2 gap-4', [
+              h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Deposit Terms')]),
+              div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-6', [
                 _inputField(
-                  'Monthly Rent (Required)',
-                  _priceMonthly,
-                  (v) => setState(() => _priceMonthly = v),
-                  isDark,
-                  placeholder: '25000',
-                  type: InputType.number,
-                ),
-                div([]),
-                // Security Deposit
-                div([
-                  _inputField(
-                    'Security Deposit (₱)',
-                    _securityDepositAmount,
-                    (v) => setState(() => _securityDepositAmount = v),
-                    isDark,
-                    placeholder: 'e.g. 50000',
-                    type: InputType.number,
-                  ),
-                  Builder(
-                    builder: (context) {
-                      final monthly = double.tryParse(_priceMonthly) ?? 0.0;
-                      if (monthly <= 0) return div([]);
-                      return div(classes: 'flex flex-wrap gap-1.5 mb-4', [
-                        span(classes: 'text-[10px] text-zinc-500 font-semibold my-auto mr-1', [
-                          Component.text('Quick:'),
-                        ]),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_securityDepositAmount == "0" ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _securityDepositAmount = '0')},
-                          [Component.text('None')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_securityDepositAmount == monthly.toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _securityDepositAmount = monthly.toInt().toString())},
-                          [Component.text('1 mo')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_securityDepositAmount == (monthly * 2).toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {
-                            'click': (_) => setState(() => _securityDepositAmount = (monthly * 2).toInt().toString()),
-                          },
-                          [Component.text('2 mo')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_securityDepositAmount == (monthly * 3).toInt().toString() ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {
-                            'click': (_) => setState(() => _securityDepositAmount = (monthly * 3).toInt().toString()),
-                          },
-                          [Component.text('3 mo')],
-                        ),
-                      ]);
-                    },
-                  ),
-                ]),
-                // Advance Payment
-                div([
-                  _inputField(
-                    'Advance Payment (₱)',
-                    _advanceAmount,
-                    (v) => setState(() => _advanceAmount = v),
-                    isDark,
-                    placeholder: 'e.g. 25000',
-                    type: InputType.number,
-                  ),
-                  Builder(
-                    builder: (context) {
-                      final monthly = double.tryParse(_priceMonthly) ?? 0.0;
-                      if (monthly <= 0) return div([]);
-                      return div(classes: 'flex flex-wrap gap-1.5 mb-4', [
-                        span(classes: 'text-[10px] text-zinc-500 font-semibold my-auto mr-1', [
-                          Component.text('Quick:'),
-                        ]),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_advanceAmount == "0" ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _advanceAmount = '0')},
-                          [Component.text('None')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_advanceAmount == monthly.toInt().toString() ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _advanceAmount = monthly.toInt().toString())},
-                          [Component.text('1 mo')],
-                        ),
-                        button(
-                          classes:
-                              'px-2 py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer '
-                              '${_advanceAmount == (monthly * 2).toInt().toString() ? "bg-indigo-500 text-white border-indigo-500" : (isDark ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100 text-zinc-700")}',
-                          events: {'click': (_) => setState(() => _advanceAmount = (monthly * 2).toInt().toString())},
-                          [Component.text('2 mo')],
-                        ),
-                      ]);
-                    },
-                  ),
-                ]),
-                _inputField(
-                  'Weekly Rate (Optional)',
-                  _priceWeekly,
-                  (v) => setState(() => _priceWeekly = v),
-                  isDark,
-                  placeholder: 'e.g. 7000',
-                  type: InputType.number,
-                ),
-                _inputField(
-                  'Daily Rate (Optional)',
+                  'Daily Rate (₱/day)',
                   _priceDaily,
                   (v) => setState(() => _priceDaily = v),
                   isDark,
                   placeholder: 'e.g. 1500',
                   type: InputType.number,
                 ),
+                _inputField(
+                  'Weekly Rate (₱/week)',
+                  _priceWeekly,
+                  (v) => setState(() => _priceWeekly = v),
+                  isDark,
+                  placeholder: 'e.g. 8000',
+                  type: InputType.number,
+                ),
+                _inputField(
+                  'Monthly Rent (₱/month)',
+                  _priceMonthly,
+                  (v) => setState(() => _priceMonthly = v),
+                  isDark,
+                  placeholder: 'e.g. 30000',
+                  type: InputType.number,
+                ),
               ]),
 
-              div(classes: 'mt-6 p-4 rounded-xl bg-purple-500/10 border border-purple-500/20 mb-6', [
-                div(classes: 'flex justify-between text-sm mb-2', [
-                  span(classes: isDark ? 'text-zinc-400' : 'text-zinc-600', [
-                    Component.text('Platform Listing Fee (1.5% of Monthly)'),
-                  ]),
-                  span(classes: 'font-bold text-purple-400', [Component.text('${_listingFee.toStringAsFixed(2)} TYX')]),
+              // Security Deposit Policy Selector
+              div(classes: 'p-4 rounded-xl border mb-6 ${isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-zinc-50 border-zinc-200"}', [
+                label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-200" : "text-zinc-800"}', [
+                  Component.text('Security Deposit Policy'),
                 ]),
-                p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
+                p(classes: 'text-xs mb-3 ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                  Component.text('Held securely in escrow as non-revenue trust funds and refunded upon inspection.'),
+                ]),
+                div(classes: 'flex flex-wrap gap-2 mb-3', [
+                  button(
+                    classes:
+                        'px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer '
+                        '${_depositType == DepositType.fixed ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-100")}',
+                    events: {'click': (_) => setState(() => _depositType = DepositType.fixed)},
+                    [Component.text('Fixed Amount (₱)')],
+                  ),
+                  button(
+                    classes:
+                        'px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer '
+                        '${_depositType == DepositType.percentage ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-100")}',
+                    events: {'click': (_) => setState(() => _depositType = DepositType.percentage)},
+                    [Component.text('Percentage of Rent (%)')],
+                  ),
+                  button(
+                    classes:
+                        'px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer '
+                        '${_depositType == DepositType.none ? "bg-purple-500 text-white border-purple-500" : (isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-100")}',
+                    events: {'click': (_) => setState(() {
+                      _depositType = DepositType.none;
+                      _depositValue = '0';
+                    })},
+                    [Component.text('No Deposit (₱0)')],
+                  ),
+                ]),
+                if (_depositType != DepositType.none)
+                  div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4 mt-2', [
+                    _inputField(
+                      _depositType == DepositType.fixed ? 'Deposit Amount (₱)' : 'Deposit Rate (%)',
+                      _depositValue,
+                      (v) => setState(() => _depositValue = v),
+                      isDark,
+                      placeholder: _depositType == DepositType.fixed ? '1000' : '20',
+                      type: InputType.number,
+                    ),
+                    _inputField(
+                      'Advance Rent (₱, Optional)',
+                      _advanceAmount,
+                      (v) => setState(() => _advanceAmount = v),
+                      isDark,
+                      placeholder: '0',
+                      type: InputType.number,
+                    ),
+                  ]),
+              ]),
+
+              div(classes: 'p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 mb-6', [
+                div(classes: 'flex justify-between text-sm mb-1', [
+                  span(classes: isDark ? 'text-zinc-300' : 'text-zinc-700', [
+                    Component.text('Property Listing Fee (Free Tier)'),
+                  ]),
+                  span(classes: 'font-bold text-emerald-400', [Component.text('₱0.00 (100% Free)')]),
+                ]),
+                p(classes: 'text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
                   Component.text(
-                    'To prevent listing spam, a small fee is deducted from your wallet to post your property.',
+                    'Posting your property is completely free. TRANYX only retains a 7% success commission upon completed rental term.',
                   ),
                 ]),
               ]),
@@ -633,6 +602,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                     ]),
                     if (_showPreview)
                       ContractViewerComponent(
+                        appState: component.appState,
                         propertyRental: PropertyRental(
                           id: '',
                           hostId: '',
@@ -644,9 +614,12 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                           priceMonthly: double.tryParse(_priceMonthly) ?? 0,
                           priceWeekly: double.tryParse(_priceWeekly) ?? 0,
                           priceDaily: double.tryParse(_priceDaily) ?? 0,
-                          depositMonths: _depositMonths,
-                          securityDepositAmount: double.tryParse(_securityDepositAmount) ?? 0.0,
+                          depositMonths: 0,
+                          securityDepositAmount: _depositType == DepositType.fixed ? double.tryParse(_depositValue) : null,
+                          depositType: _depositType,
+                          depositValue: double.tryParse(_depositValue) ?? 0.0,
                           advanceAmount: double.tryParse(_advanceAmount) ?? 0.0,
+                          isListingFeeWaived: true,
                           address: _address.isNotEmpty ? _address : component.appState.pickupAddress,
                           latitude: _latitude ?? component.appState.pickupLat ?? 0.0,
                           longitude: _longitude ?? component.appState.pickupLng ?? 0.0,
@@ -661,19 +634,226 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                   ],
                 ),
               ] else ...[
-                div(classes: 'mt-4', [
-                  label(classes: 'block text-sm font-semibold mb-2 ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
-                    Component.text('Custom Lease Terms'),
+                div(classes: 'mt-4 space-y-3', [
+                  div(classes: 'flex items-center justify-between', [
+                    label(classes: 'block text-sm font-semibold ${isDark ? "text-zinc-300" : "text-zinc-700"}', [
+                      Component.text('Custom Lease Terms & Rules'),
+                    ]),
+                    span(classes: 'text-xs text-zinc-500', [
+                      Component.text('PDF Document or Plain Text'),
+                    ]),
                   ]),
-                  textarea(
-                    classes:
-                        'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors h-32 resize-none',
+
+                  // If a PDF is attached, display the clean, interactive Document Card
+                  if (CustomContractHelper.isCustomPdf(_customTerms)) ...[
+                    div(
+                      classes:
+                          'p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 '
+                          '${isDark ? "bg-zinc-900 border-zinc-800" : "bg-zinc-50 border-zinc-200"}',
+                      [
+                        div(classes: 'flex items-center gap-3 min-w-0', [
+                          div(classes: 'p-2.5 rounded-xl bg-red-500/10 text-red-400 shrink-0 border border-red-500/20', [
+                            lIcon('file-text', cls: 'w-6 h-6'),
+                          ]),
+                          div(classes: 'min-w-0', [
+                            p(classes: 'text-[11px] font-bold uppercase text-purple-400', [
+                              Component.text('Attached PDF Contract'),
+                            ]),
+                            p(classes: 'text-sm font-bold truncate ${isDark ? "text-white" : "text-zinc-900"}', [
+                              Component.text(_uploadedFileName ?? CustomContractHelper.extractFileName(_customTerms)),
+                            ]),
+                            p(classes: 'text-[11px] text-zinc-500', [
+                              Component.text(
+                                _uploadedFileSize != null
+                                    ? CustomContractHelper.formatFileSize(_uploadedFileSize!)
+                                    : 'PDF Document Ready',
+                              ),
+                            ]),
+                          ]),
+                        ]),
+                        div(classes: 'flex items-center gap-2 w-full sm:w-auto shrink-0', [
+                          button(
+                            classes:
+                                'px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer border-0',
+                            events: {
+                              'click': (_) => component.appState.openPdfViewer(
+                                    CustomContractHelper.extractPdfSource(_customTerms),
+                                    _uploadedFileName ?? CustomContractHelper.extractFileName(_customTerms),
+                                  ),
+                            },
+                            [lIcon('eye', cls: 'w-3.5 h-3.5'), Component.text('View')],
+                          ),
+                          label(
+                            classes:
+                                'px-3 py-1.5 rounded-xl text-xs font-bold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-100 text-zinc-700"} cursor-pointer transition-colors',
+                            attributes: {'for': 'property-custom-contract-upload'},
+                            [Component.text('Replace PDF')],
+                          ),
+                          button(
+                            classes:
+                                'p-2 rounded-xl hover:bg-red-500/10 text-zinc-400 hover:text-red-400 transition-colors border-0 cursor-pointer',
+                            events: {
+                              'click': (_) {
+                                setState(() {
+                                  _customTerms = '';
+                                  _uploadedFileName = null;
+                                  _uploadedFileSize = null;
+                                });
+                              },
+                            },
+                            [lIcon('trash-2', cls: 'w-4 h-4')],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                    // Upload PDF Box
+                    div(
+                      classes:
+                          'p-5 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center text-center gap-2 '
+                          '${isDark ? "border-zinc-700 bg-zinc-900/40" : "border-zinc-300 bg-zinc-50"}',
+                      [
+                        div(classes: 'p-3 rounded-2xl bg-purple-500/10 text-purple-400', [
+                          lIcon('file-text', cls: 'w-7 h-7'),
+                        ]),
+                        p(classes: 'text-sm font-bold ${isDark ? "text-white" : "text-zinc-900"}', [
+                          Component.text('Upload Custom Lease Agreement (PDF)'),
+                        ]),
+                        p(classes: 'text-xs text-zinc-400 max-w-sm', [
+                          Component.text('Upload your official lease agreement or house rules. Accepted format: .pdf (Max 5MB).'),
+                        ]),
+                        label(
+                          classes:
+                              'mt-2 px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white cursor-pointer transition-colors flex items-center gap-2 shadow-lg shadow-purple-500/20',
+                          attributes: {'for': 'property-custom-contract-upload'},
+                          [
+                            lIcon('upload', cls: 'w-4 h-4'),
+                            Component.text('Choose PDF Document'),
+                          ],
+                        ),
+                      ],
+                    ),
+
+                    div(classes: 'text-center py-1', [
+                      span(classes: 'text-xs text-zinc-500', [Component.text('— OR enter plain text terms below —')]),
+                    ]),
+
+                    textarea(
+                      classes:
+                          'w-full p-3 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none focus:border-purple-500 transition-colors h-32 resize-none text-sm',
+                      attributes: {
+                        'placeholder':
+                            'Enter your custom property lease terms, house rules, water/electricity billing agreements...',
+                      },
+                      events: {'input': (e) => setState(() => _customTerms = getInputValue(e.target))},
+                      [Component.text(_customTerms)],
+                    ),
+                  ],
+
+                  // Hidden file input with strict validation
+                  input(
+                    type: InputType.file,
+                    classes: 'hidden',
                     attributes: {
-                      'placeholder':
-                          'Enter your custom property lease terms, house rules, water/electricity billing agreements...',
+                      'id': 'property-custom-contract-upload',
+                      'accept': '.pdf,application/pdf',
+                      'style': 'display: none;',
                     },
-                    events: {'input': (e) => setState(() => _customTerms = getInputValue(e.target))},
-                    [Component.text(_customTerms)],
+                    events: {
+                      'change': (e) {
+                        final targetObj = e.target as JSObject?;
+                        if (targetObj != null && targetObj.hasProperty('files'.toJS).toDart) {
+                          final filesObj = targetObj.getProperty<JSObject>('files'.toJS);
+                          if (filesObj.hasProperty('length'.toJS).toDart) {
+                            final len = (filesObj.getProperty('length'.toJS) as JSNumber).toDartInt;
+                            if (len > 0) {
+                              final file = filesObj.callMethod<JSObject?>('item'.toJS, 0.toJS);
+                              if (file != null) {
+                                final name = (file.getProperty('name'.toJS) as JSString).toDart;
+                                final lowerName = name.toLowerCase();
+
+                                String mimeType = '';
+                                if (file.hasProperty('type'.toJS).toDart) {
+                                  mimeType = (file.getProperty('type'.toJS) as JSString?)?.toDart.toLowerCase() ?? '';
+                                }
+
+                                // Strict PDF-only check
+                                final bool isPdfMime = mimeType.isEmpty || mimeType == 'application/pdf' || mimeType == 'application/x-pdf';
+                                final bool isPdfExt = lowerName.endsWith('.pdf');
+
+                                if (!isPdfExt || !isPdfMime) {
+                                  if (targetObj.hasProperty('value'.toJS).toDart) {
+                                    targetObj.setProperty('value'.toJS, ''.toJS);
+                                  }
+                                  setState(() => _error = 'Invalid file type. Only authentic PDF documents (.pdf) are allowed.');
+                                  return;
+                                }
+
+                                final size = (file.getProperty('size'.toJS) as JSNumber).toDartInt;
+                                if (size > CustomContractHelper.maxFileSizeBytes) {
+                                  if (targetObj.hasProperty('value'.toJS).toDart) {
+                                    targetObj.setProperty('value'.toJS, ''.toJS);
+                                  }
+                                  setState(() => _error = 'File size exceeds the 5MB limit (${CustomContractHelper.formatFileSize(size)}). Please choose a smaller PDF.');
+                                  return;
+                                }
+
+                                final reader = web.FileReader();
+                                reader.readAsDataURL(file as web.Blob);
+                                reader.onLoadEnd.listen((_) {
+                                  final jsResult = reader.result;
+                                  String dataUrl = '';
+                                  if (jsResult != null) {
+                                    try {
+                                      dataUrl = (jsResult as JSString).toDart;
+                                    } catch (_) {
+                                      dataUrl = jsResult.toString();
+                                    }
+                                  }
+
+                                  // Magic byte check for PDF (%PDF base64 begins with JVBERi)
+                                  if (!dataUrl.startsWith('data:application/pdf') && !dataUrl.contains('JVBERi')) {
+                                    if (targetObj.hasProperty('value'.toJS).toDart) {
+                                      targetObj.setProperty('value'.toJS, ''.toJS);
+                                    }
+                                    setState(() => _error = 'File content is not a valid PDF document. Only authentic PDF files (.pdf) are permitted.');
+                                    return;
+                                  }
+
+                                  final docId = 'doc_contract_${DateTime.now().millisecondsSinceEpoch}';
+
+                                  // Cache in memory for instant previewing
+                                  PdfViewerModalComponent.cachePdfSource(docId, dataUrl);
+
+                                  // Asynchronously store document in contract_documents
+                                  component.appState.firestore.setDocument('contract_documents/$docId', {
+                                    'id': docId,
+                                    'hostId': component.appState.userProfile?.uid ?? '',
+                                    'listingType': 'property',
+                                    'fileName': name,
+                                    'fileSize': size,
+                                    'mimeType': 'application/pdf',
+                                    'uploadedAt': DateTime.now().millisecondsSinceEpoch,
+                                    'dataUrl': dataUrl,
+                                  }).catchError((_) {});
+
+                                  setState(() {
+                                    _error = null;
+                                    _uploadedFileName = name;
+                                    _uploadedFileSize = size;
+                                    _customTerms = CustomContractHelper.formatCleanTerms(
+                                      fileName: name,
+                                      documentId: docId,
+                                    );
+                                  });
+                                });
+                              }
+                            }
+                          }
+                        }
+                      },
+                    },
                   ),
                 ]),
               ],
@@ -683,99 +863,73 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                   final monthlyRate = double.tryParse(_priceMonthly) ?? 0.0;
                   final weeklyRate = double.tryParse(_priceWeekly) ?? 0.0;
                   final dailyRate = double.tryParse(_priceDaily) ?? 0.0;
-                  final depositAmt = double.tryParse(_securityDepositAmount) ?? 0.0;
-                  final advanceAmt = double.tryParse(_advanceAmount) ?? 0.0;
+                  final dVal = double.tryParse(_depositValue) ?? 0.0;
 
-                  // Listing Fee (1.5% of Monthly)
-                  final listingFee = monthlyRate * 0.015;
-
-                  // Commission (3% deducted from rent)
-                  final commissionMonthly = monthlyRate * 0.03;
+                  // Commission (7% deducted from rent on completion)
+                  final commissionMonthly = monthlyRate * 0.07;
                   final payoutMonthly = monthlyRate - commissionMonthly;
 
-                  final commissionWeekly = weeklyRate * 0.03;
+                  final commissionWeekly = weeklyRate * 0.07;
                   final payoutWeekly = weeklyRate - commissionWeekly;
 
-                  final commissionDaily = dailyRate * 0.03;
+                  final commissionDaily = dailyRate * 0.07;
                   final payoutDaily = dailyRate - commissionDaily;
 
-                  if (monthlyRate <= 0) return div([]);
+                  if (monthlyRate <= 0 && weeklyRate <= 0 && dailyRate <= 0) return div([]);
 
                   return div(
                     classes: 'mt-6 p-5 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900/50" : "border-zinc-200 bg-zinc-50"} space-y-3.5',
                     [
                       p(classes: 'text-xs font-bold text-indigo-400 uppercase tracking-wider', [Component.text('Listing Payment & Earnings Breakdown')]),
                       div(classes: 'space-y-2.5', [
-                        // Rates
                         div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
-                          span([Component.text('Monthly Rent (Base):')]),
-                          span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                            Component.text('₱ ${monthlyRate.toStringAsFixed(2)}')
+                          span([Component.text('Property Listing Upfront Fee:')]),
+                          span(classes: 'font-semibold text-emerald-400', [
+                            Component.text('₱ 0.00 (100% Free)')
                           ]),
                         ]),
+                        if (monthlyRate > 0)
+                          div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
+                            span([Component.text('Monthly Rent (Base): ₱${monthlyRate.toStringAsFixed(2)}')]),
+                            span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
+                              Component.text('Net Payout: ₱${payoutMonthly.toStringAsFixed(2)}')
+                            ]),
+                          ]),
                         if (weeklyRate > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                             span([Component.text('Weekly Rent: ₱${weeklyRate.toStringAsFixed(2)}')]),
                             span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                              Component.text('Payout: ₱${payoutWeekly.toStringAsFixed(2)} (Net)')
+                              Component.text('Net Payout: ₱${payoutWeekly.toStringAsFixed(2)}')
                             ]),
                           ]),
                         if (dailyRate > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
                             span([Component.text('Daily Rent: ₱${dailyRate.toStringAsFixed(2)}')]),
                             span(classes: 'font-semibold ${isDark ? "text-zinc-200" : "text-zinc-700"}', [
-                              Component.text('Payout: ₱${payoutDaily.toStringAsFixed(2)} (Net)')
+                              Component.text('Net Payout: ₱${payoutDaily.toStringAsFixed(2)}')
                             ]),
                           ]),
-                        if (depositAmt > 0)
+                        if (_depositType != DepositType.none && dVal > 0)
                           div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
-                            span([Component.text('Security Deposit (Refundable):')]),
-                            span(classes: 'font-semibold text-green-500', [
-                              Component.text('₱ ${depositAmt.toStringAsFixed(2)}')
-                            ]),
-                          ]),
-                        if (advanceAmt > 0)
-                          div(classes: 'flex justify-between items-center text-xs text-zinc-400 border-b ${isDark ? "border-zinc-800 pb-2" : "border-zinc-200 pb-2"}', [
-                            span([Component.text('Advance Rent Payment:')]),
-                            span(classes: 'font-semibold text-green-500', [
-                              Component.text('₱ ${advanceAmt.toStringAsFixed(2)}')
+                            span([Component.text('Security Deposit (${_depositType == DepositType.fixed ? "Fixed Amount" : "${dVal.toStringAsFixed(0)}% Rate"}):')]),
+                            span(classes: 'font-semibold text-purple-400', [
+                              Component.text(_depositType == DepositType.fixed ? '₱ ${dVal.toStringAsFixed(2)}' : '${dVal.toStringAsFixed(0)}% of Rent')
                             ]),
                           ]),
 
-                        // Commission & Earnings summary
-                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
-                          span([Component.text('Host Commission (3%):')]),
+                        // Commission summary
+                        div(classes: 'flex justify-between items-center text-xs text-zinc-400 pt-1 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+                          span([Component.text('TRANYX Host Success Commission (7%):')]),
                           span(classes: 'font-semibold text-amber-500', [
-                            Component.text('- ₱ ${commissionMonthly.toStringAsFixed(2)}')
+                            Component.text('Deducted only from Base Rent upon completion')
                           ]),
                         ]),
-                        div(classes: 'flex justify-between items-center pt-1.5', [
-                          span(classes: 'text-xs font-semibold text-indigo-400', [Component.text('Est. Monthly Net Payout:')]),
-                          span(classes: 'text-base font-bold text-green-500', [
-                            Component.text('₱ ${payoutMonthly.toStringAsFixed(2)}')
-                          ]),
-                        ]),
-
-                        // Separator
-                        div(classes: 'border-t ${isDark ? "border-zinc-800" : "border-zinc-200"} my-2', []),
-
-                        // Listing anti-spam fee
-                        div(classes: 'flex justify-between items-center text-xs text-zinc-400', [
-                          span([Component.text('Anti-Spam Listing Fee (1.5% of Monthly):')]),
-                          span(classes: 'font-semibold text-purple-400', [
-                            Component.text('${listingFee.toStringAsFixed(2)} TYX')
-                          ]),
-                        ]),
-                      ]),
-                      p(classes: 'text-[10px] text-zinc-500 leading-normal', [
-                        Component.text(
-                          'Notice: A listing fee of ${listingFee.toStringAsFixed(2)} TYX will be charged to your wallet now to host the property. Standard platform commission of 3% is only charged on rent payouts.',
-                        ),
                       ]),
                     ],
                   );
                 },
               ),
+
             ],
           ]),
 

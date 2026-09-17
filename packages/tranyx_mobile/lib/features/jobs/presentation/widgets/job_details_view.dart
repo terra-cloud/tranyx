@@ -15,6 +15,7 @@ import 'package:tranyx_mobile/features/jobs/providers/job_repository.dart';
 import 'package:tranyx_mobile/features/jobs/providers/jobs_provider.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_cards.dart';
 import 'package:tranyx_mobile/features/jobs/presentation/widgets/job_sub_header.dart';
+import 'package:tranyx_mobile/features/jobs/presentation/widgets/edit_job_sheet.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:tranyx_mobile/core/providers/image_upload_provider.dart';
@@ -86,7 +87,7 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
     required String targetName,
     required AccountType currentViewMode,
   }) {
-    int rating = 5;
+    int? rating;
     final commentController = TextEditingController();
     bool isSubmitting = false;
 
@@ -130,7 +131,7 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                         icon: Icon(
                           Icons.star,
                           size: 36,
-                          color: rating >= starScore
+                          color: (rating != null && rating! >= starScore)
                               ? AppColors.indigo
                               : Colors.grey[400],
                         ),
@@ -179,13 +180,15 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.indigo,
+                    backgroundColor: (rating == null || isSubmitting)
+                        ? Colors.grey
+                        : AppColors.indigo,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  onPressed: isSubmitting
+                  onPressed: (rating == null || isSubmitting)
                       ? null
                       : () async {
                           setDialogState(() {
@@ -202,7 +205,7 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                                   targetId: targetId,
                                   reviewerUid: userProfile?.uid ?? '',
                                   reviewerName: userProfile?.name ?? 'User',
-                                  score: rating,
+                                  score: rating!,
                                   comment: commentController.text.trim(),
                                   currentViewMode: currentViewMode,
                                 );
@@ -498,24 +501,297 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
     }
   }
 
+  void _showSupportDisputeDialog(BuildContext context, Job job) {
+    final isDarkMode = ref.read(themeModeProvider);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDarkMode ? AppColors.darkCard : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.shield_outlined, color: AppColors.indigo),
+            const SizedBox(width: 8),
+            Text(
+              'Dispute & Admin Review',
+              style: TextStyle(
+                color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This gig has an active accepted hire. To safeguard the freelancer’s committed time, travel, and resources, unilateral cancellation is disabled.',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDarkMode
+                    ? AppColors.darkTextMuted
+                    : AppColors.lightTextMuted,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'If you are experiencing an unresolvable issue (such as worker abandonment, emergency, or dispute), please submit a ticket for Support & Admin review. An Admin can execute an Admin Override Cancellation with audit logging.',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDarkMode
+                    ? AppColors.darkTextMuted
+                    : AppColors.lightTextMuted,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isDarkMode ? AppColors.darkBg : AppColors.lightBg,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Job ID: ${job.id}',
+                style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.indigo),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                final currentUserId = ref.read(userProvider)?.uid ?? job.employerId;
+                await ref.read(jobRepositoryProvider).submitDispute(
+                  jobId: job.id,
+                  jobTitle: job.title,
+                  employerId: job.employerId,
+                  acceptedNyxianId: job.acceptedNyxianId,
+                  reason: 'Dispute review requested by user regarding active gig commitments.',
+                  escrowAmount: job.budget,
+                  openedByUid: currentUserId,
+                );
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Dispute ticket submitted to Admin Portal. Our team will review your case.',
+                      ),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to submit dispute: $e'),
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text(
+              'Request Dispute Review',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProtectedHireBanner(Job job, bool isDarkMode) {
+    final bool isStale = job.isInactive(thresholdHours: 48);
+
+    if (isStale) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.only(top: 12),
+        decoration: BoxDecoration(
+          color: AppColors.red.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.red.withValues(alpha: 0.35)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: AppColors.red,
+                  size: 22,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Gig Inactive (Over 48h Without Progress)',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: AppColors.red,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This gig has had zero progress or updates for over 48 hours. As the employer, you can reclaim this gig now. 100% of your escrow deposit will be immediately refunded to your wallet balance, and the job will be marked Abandoned.',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDarkMode
+                    ? AppColors.darkTextMuted
+                    : AppColors.lightTextMuted,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isLoading ? null : () => _handleReclaimInactiveJob(job),
+                icon: const Icon(Icons.restore, size: 18, color: Colors.white),
+                label: const Text(
+                  'Reclaim Inactive Gig (100% Escrow Refund)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: Colors.white,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.red,
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(top: 12),
+      decoration: BoxDecoration(
+        color: AppColors.indigo.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.indigo.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.lock_clock_outlined,
+                color: AppColors.indigo,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Cancellation Locked (Active Hire)',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: AppColors.indigo,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'A Nyxian has been hired for this gig. Unilateral cancellation is disabled to protect committed time and preparation. For unresolvable issues, please request an Admin/Support Dispute.',
+            style: TextStyle(
+              fontSize: 12,
+              color: isDarkMode
+                  ? AppColors.darkTextMuted
+                  : AppColors.lightTextMuted,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 10),
+          InkWell(
+            onTap: () => _showSupportDisputeDialog(context, job),
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.indigo.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.support_agent_outlined,
+                    size: 16,
+                    color: AppColors.indigo,
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    'Contact Admin / Support Dispute',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.indigo,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openEditJobSheet(Job job) {
+    if (job.isHired || !job.isPreHire) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Editing Locked: A Nyxian has already been hired for this gig.'),
+          backgroundColor: AppColors.red,
+        ),
+      );
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => EditJobSheet(job: job),
+    );
+  }
+
   Future<void> _handleCancelJob(Job job) async {
+    if (job.isCancellationLocked || job.isHired) {
+      _showSupportDisputeDialog(context, job);
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
         final isDark = ref.read(themeModeProvider);
 
-        final bool reachedFirstPoint =
-            job.hasTracker &&
-            (job.status == 'arrived_pickup' ||
-                job.status == 'paid_cashier' ||
-                job.status == 'in_transit' ||
-                job.status == 'arrived_dropoff' ||
-                job.status == 'done' ||
-                job.status == 'completed');
-
-        final String message = reachedFirstPoint
-            ? 'The Nyxian has reached/passed the first point. If you cancel, the Nyxian will be compensated 20 tyxbits from the escrow, and the remaining escrow will be refunded to you. Are you sure you want to cancel?'
-            : 'Are you sure you want to cancel this job? You will receive a 100% refund of the escrow.';
+        const String message =
+            'Are you sure you want to cancel this job posting? You will receive a 100% refund of your escrow deposit, and any pending applications will be closed.';
 
         return AlertDialog(
           backgroundColor: isDark ? AppColors.darkCard : Colors.white,
@@ -575,6 +851,90 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
     }
   }
 
+  Future<void> _handleReclaimInactiveJob(Job job) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+        return AlertDialog(
+          backgroundColor: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: AppColors.red),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Reclaim Inactive Gig?',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'This gig has been inactive for 48+ hours without progress. Reclaiming it will immediately refund 100% of your escrow deposit to your wallet balance and mark this gig as Abandoned.\n\nAre you sure you want to proceed?',
+            style: TextStyle(
+              fontSize: 13,
+              color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.red,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Reclaim Gig', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() => _isLoading = true);
+      try {
+        final userProfile = ref.read(userProfileProvider).value;
+        await ref.read(jobRepositoryProvider).reclaimInactiveJob(
+          jobId: job.id,
+          employerUid: userProfile?.uid ?? '',
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Gig reclaimed successfully. 100% escrow refunded to your wallet.'),
+              backgroundColor: AppColors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error reclaiming gig: $e'),
+              backgroundColor: AppColors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDarkMode = ref.watch(themeModeProvider);
@@ -601,6 +961,8 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
         }
 
         final isCreator = user?.uid == activeJob.creatorId;
+        final isAssignedWorker = activeJob.acceptedApplicantId == user?.uid;
+        final isAuthorizedExecution = isCreator || isAssignedWorker;
         final hasApplied = activeJob.applicantUids.contains(currentUser?.uid);
         final activeReplyId = ref.watch(activeReplyIdProvider);
         final replyText = ref.watch(replyTextProvider);
@@ -700,16 +1062,34 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                                 ),
                               ),
                               const Spacer(),
-                              Text(
-                                DateFormat(
-                                  'MMM d, y',
-                                ).format(activeJob.createdAt),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: isDarkMode
-                                      ? AppColors.darkTextMuted
-                                      : AppColors.lightTextMuted,
-                                ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.access_time_rounded,
+                                    size: 13,
+                                    color: activeJob.isPostedToday
+                                        ? AppColors.green
+                                        : (isDarkMode
+                                            ? AppColors.darkTextMuted
+                                            : AppColors.lightTextMuted),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    activeJob.postedDateLabel,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: activeJob.isPostedToday
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
+                                      color: activeJob.isPostedToday
+                                          ? AppColors.green
+                                          : (isDarkMode
+                                              ? AppColors.darkTextMuted
+                                              : AppColors.lightTextMuted),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -720,6 +1100,18 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                             spacing: 8,
                             runSpacing: 8,
                             children: [
+                              _metaChip(
+                                Icons.calendar_today_outlined,
+                                activeJob.postedDateLabel,
+                                isDarkMode,
+                              ),
+                              if (activeJob.isEdited)
+                                _metaChip(
+                                  Icons.edit_note,
+                                  activeJob.formattedEditedDate ?? 'Edited',
+                                  isDarkMode,
+                                  color: AppColors.amber,
+                                ),
                               _metaChip(
                                 Icons.location_on,
                                 _formatLocation(activeJob),
@@ -777,16 +1169,39 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                             : AppColors.lightTextMuted,
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.schedule_outlined,
+                          size: 13,
+                          color: isDarkMode
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          activeJob.formattedPostingDateTime,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDarkMode
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted,
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 24),
 
                     // ── Delivery Tracker Timeline ─────────────────────────────────────
-                    if (activeJob.hasTracker) ...[
+                    if (activeJob.hasTracker && isAuthorizedExecution && activeJob.status.toLowerCase() != 'open') ...[
                       _buildDeliveryTrackerTimeline(activeJob, isDarkMode),
                       const SizedBox(height: 24),
                     ],
 
                     // Proof of Payment / Receipt display
-                    if (activeJob.receiptUrl != null &&
+                    if (isAuthorizedExecution &&
+                        activeJob.receiptUrl != null &&
                         activeJob.receiptUrl!.isNotEmpty) ...[
                       Text(
                         "Receipt / Proof of Payment",
@@ -1485,7 +1900,11 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
     final isAssignedWorker = job.acceptedApplicantId == user?.uid;
     final isEmployer = job.creatorId == user?.uid;
 
-    if (status.toLowerCase() == 'cancelled') {
+    if (status.toLowerCase() == 'cancelled' ||
+        status.toUpperCase() == 'ADMIN_CANCELLED' ||
+        status.toLowerCase() == 'abandoned') {
+      final isAdminCancelled = status.toUpperCase() == 'ADMIN_CANCELLED';
+      final isAbandoned = status.toLowerCase() == 'abandoned';
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(16),
@@ -1494,14 +1913,18 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppColors.red.withValues(alpha: 0.3)),
         ),
-        child: const Row(
+        child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.cancel, color: AppColors.red),
-            SizedBox(width: 8),
+            const Icon(Icons.cancel, color: AppColors.red),
+            const SizedBox(width: 8),
             Text(
-              'This gig has been cancelled.',
-              style: TextStyle(
+              isAbandoned
+                  ? 'This gig was abandoned and reclaimed by the employer.'
+                  : isAdminCancelled
+                  ? 'This gig was cancelled by an Administrator (Admin Override).'
+                  : 'This gig has been cancelled.',
+              style: const TextStyle(
                 color: AppColors.red,
                 fontWeight: FontWeight.bold,
               ),
@@ -1512,22 +1935,35 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
     }
 
     if (currentViewMode == AccountType.employer && isEmployer) {
-      if (status.toLowerCase() == 'open') {
+      if (status.toLowerCase() == 'open' ||
+          status.toLowerCase() == 'reviewing') {
+        final bool isPreHire = job.isPreHire;
         return Row(
           children: [
             Expanded(
               child: UIHelpers.buildPrimaryButton(
-                "Edit Listing",
-                () {},
+                "Cancel",
+                () => _handleCancelJob(job),
                 isDarkMode,
                 isOutlined: true,
               ),
             ),
-            const SizedBox(width: 16),
+            if (isPreHire) ...[
+              const SizedBox(width: 8),
+              Expanded(
+                child: UIHelpers.buildPrimaryButton(
+                  "Edit",
+                  () => _openEditJobSheet(job),
+                  isDarkMode,
+                  isOutlined: true,
+                ),
+              ),
+            ],
+            const SizedBox(width: 8),
             Expanded(
-              flex: 2,
+              flex: isPreHire ? 2 : 2,
               child: UIHelpers.buildPrimaryButton(
-                "Review Applicants (${job.applicantCount})",
+                "Review (${job.applicantCount})",
                 () => ref.read(jobsViewProvider.notifier).state = 'review',
                 isDarkMode,
               ),
@@ -1566,13 +2002,7 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                 ],
               ),
             ),
-            const SizedBox(height: 12),
-            UIHelpers.buildPrimaryButton(
-              "Cancel Job",
-              () => _handleCancelJob(job),
-              isDarkMode,
-              isOutlined: true,
-            ),
+            _buildProtectedHireBanner(job, isDarkMode),
           ],
         );
       } else if (status == 'heading_to_pickup' ||
@@ -1617,13 +2047,7 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                 ],
               ),
             ),
-            const SizedBox(height: 12),
-            UIHelpers.buildPrimaryButton(
-              "Cancel Job",
-              () => _handleCancelJob(job),
-              isDarkMode,
-              isOutlined: true,
-            ),
+            _buildProtectedHireBanner(job, isDarkMode),
           ],
         );
       } else if (status.toLowerCase() == 'done') {
@@ -1796,95 +2220,63 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                   ),
                 ),
               ),
-              Row(
-                children: [
-                  Expanded(
-                    child: UIHelpers.buildPrimaryButton(
-                      "Cancel Job",
-                      () => _handleCancelJob(job),
-                      isDarkMode,
-                      isOutlined: true,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    flex: 2,
-                    child: UIHelpers.buildPrimaryButton(
-                      _isLoading ? "Updating..." : "Start Delivery",
-                      _isLoading
-                          ? null
-                          : () async {
-                              setState(() => _isLoading = true);
-                              try {
-                                await ref
-                                    .read(jobRepositoryProvider)
-                                    .updateJobStatus(
-                                      job.id,
-                                      'heading_to_pickup',
-                                    );
-                              } catch (e) {
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        'Error updating status: $e',
-                                      ),
-                                    ),
-                                  );
-                                }
-                              } finally {
-                                if (mounted) {
-                                  setState(() => _isLoading = false);
-                                }
-                              }
-                            },
-                      isDarkMode,
-                    ),
-                  ),
-                ],
+              UIHelpers.buildPrimaryButton(
+                _isLoading ? "Updating..." : "Start Delivery",
+                _isLoading
+                    ? null
+                    : () async {
+                        setState(() => _isLoading = true);
+                        try {
+                          await ref
+                              .read(jobRepositoryProvider)
+                              .updateJobStatus(
+                                job.id,
+                                'heading_to_pickup',
+                              );
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Error updating status: $e',
+                                ),
+                              ),
+                            );
+                          }
+                        } finally {
+                          if (mounted) {
+                            setState(() => _isLoading = false);
+                          }
+                        }
+                      },
+                isDarkMode,
               ),
             ],
           );
         } else {
-          return Row(
-            children: [
-              Expanded(
-                child: UIHelpers.buildPrimaryButton(
-                  "Cancel Job",
-                  () => _handleCancelJob(job),
-                  isDarkMode,
-                  isOutlined: true,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                flex: 2,
-                child: UIHelpers.buildPrimaryButton(
-                  _isLoading ? "Updating..." : "Mark as Done",
-                  _isLoading
-                      ? null
-                      : () async {
-                          setState(() => _isLoading = true);
-                          try {
-                            await ref
-                                .read(jobRepositoryProvider)
-                                .updateJobStatus(job.id, 'done');
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Error: $e')),
-                              );
-                            }
-                          } finally {
-                            if (mounted) {
-                              setState(() => _isLoading = false);
-                            }
-                          }
-                        },
-                  isDarkMode,
-                ),
-              ),
-            ],
+          return UIHelpers.buildPrimaryButton(
+            _isLoading ? "Updating..." : "Mark as Done",
+            _isLoading
+                ? null
+                : () async {
+                    setState(() => _isLoading = true);
+                    try {
+                      await ref
+                          .read(jobRepositoryProvider)
+                          .updateJobStatus(job.id, 'done');
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Error: $e')),
+                        );
+                      }
+                    } finally {
+                      if (mounted) {
+                        setState(() => _isLoading = false);
+                      }
+                    }
+                  },
+            isDarkMode,
           );
         }
       } else if (status == 'heading_to_pickup') {
@@ -1909,47 +2301,31 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                 ),
               ),
             ),
-            Row(
-              children: [
-                Expanded(
-                  child: UIHelpers.buildPrimaryButton(
-                    "Cancel Job",
-                    () => _handleCancelJob(job),
-                    isDarkMode,
-                    isOutlined: true,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  flex: 2,
-                  child: UIHelpers.buildPrimaryButton(
-                    _isLoading ? "Updating..." : "Arrived at First Point",
-                    _isLoading
-                        ? null
-                        : () async {
-                            setState(() => _isLoading = true);
-                            try {
-                              await ref
-                                  .read(jobRepositoryProvider)
-                                  .updateJobStatus(job.id, 'arrived_pickup');
-                            } catch (e) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Error updating status: $e'),
-                                  ),
-                                );
-                              }
-                            } finally {
-                              if (mounted) {
-                                setState(() => _isLoading = false);
-                              }
-                            }
-                          },
-                    isDarkMode,
-                  ),
-                ),
-              ],
+            UIHelpers.buildPrimaryButton(
+              _isLoading ? "Updating..." : "Arrived at First Point",
+              _isLoading
+                  ? null
+                  : () async {
+                      setState(() => _isLoading = true);
+                      try {
+                        await ref
+                            .read(jobRepositoryProvider)
+                            .updateJobStatus(job.id, 'arrived_pickup');
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Error updating status: $e'),
+                            ),
+                          );
+                        }
+                      } finally {
+                        if (mounted) {
+                          setState(() => _isLoading = false);
+                        }
+                      }
+                    },
+              isDarkMode,
             ),
           ],
         );
@@ -2037,140 +2413,92 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                 ),
               ),
             ),
-            Row(
-              children: [
-                Expanded(
-                  child: UIHelpers.buildPrimaryButton(
-                    "Cancel Job",
-                    () => _handleCancelJob(job),
-                    isDarkMode,
-                    isOutlined: true,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  flex: 2,
-                  child: UIHelpers.buildPrimaryButton(
-                    _isLoading ? "Updating..." : "Mark as Picked Up / Paid",
-                    (!isPhotoAvailable || _isLoading)
-                        ? null
-                        : () async {
-                            setState(() => _isLoading = true);
-                            try {
-                              await ref
-                                  .read(jobRepositoryProvider)
-                                  .updateJobStatus(
-                                    job.id,
-                                    'paid_cashier',
-                                    additionalFields: {'receiptUrl': photoUrl},
-                                  );
-                            } catch (e) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Error updating status: $e'),
-                                  ),
-                                );
-                              }
-                            } finally {
-                              if (mounted) {
-                                setState(() => _isLoading = false);
-                              }
-                            }
-                          },
-                    isDarkMode,
-                  ),
-                ),
-              ],
+            UIHelpers.buildPrimaryButton(
+              _isLoading ? "Updating..." : "Mark as Picked Up / Paid",
+              (!isPhotoAvailable || _isLoading)
+                  ? null
+                  : () async {
+                      setState(() => _isLoading = true);
+                      try {
+                        await ref
+                            .read(jobRepositoryProvider)
+                            .updateJobStatus(
+                              job.id,
+                              'paid_cashier',
+                              additionalFields: {'receiptUrl': photoUrl},
+                            );
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Error updating status: $e'),
+                            ),
+                          );
+                        }
+                      } finally {
+                        if (mounted) {
+                          setState(() => _isLoading = false);
+                        }
+                      }
+                    },
+              isDarkMode,
             ),
           ],
         );
       } else if (status == 'paid_cashier') {
         final destName = job.destinationAddress ?? 'Destination';
-        return Row(
-          children: [
-            Expanded(
-              child: UIHelpers.buildPrimaryButton(
-                "Cancel Job",
-                () => _handleCancelJob(job),
-                isDarkMode,
-                isOutlined: true,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              flex: 2,
-              child: UIHelpers.buildPrimaryButton(
-                _isLoading ? "Updating..." : "Going to $destName",
-                _isLoading
-                    ? null
-                    : () async {
-                        setState(() => _isLoading = true);
-                        try {
-                          await ref
-                              .read(jobRepositoryProvider)
-                              .updateJobStatus(job.id, 'in_transit');
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Error updating status: $e'),
-                              ),
-                            );
-                          }
-                        } finally {
-                          if (mounted) {
-                            setState(() => _isLoading = false);
-                          }
-                        }
-                      },
-                isDarkMode,
-              ),
-            ),
-          ],
+        return UIHelpers.buildPrimaryButton(
+          _isLoading ? "Updating..." : "Going to $destName",
+          _isLoading
+              ? null
+              : () async {
+                  setState(() => _isLoading = true);
+                  try {
+                    await ref
+                        .read(jobRepositoryProvider)
+                        .updateJobStatus(job.id, 'in_transit');
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Error updating status: $e'),
+                        ),
+                      );
+                    }
+                  } finally {
+                    if (mounted) {
+                      setState(() => _isLoading = false);
+                    }
+                  }
+                },
+          isDarkMode,
         );
       } else if (status == 'in_transit') {
-        return Row(
-          children: [
-            Expanded(
-              child: UIHelpers.buildPrimaryButton(
-                "Cancel Job",
-                () => _handleCancelJob(job),
-                isDarkMode,
-                isOutlined: true,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              flex: 2,
-              child: UIHelpers.buildPrimaryButton(
-                _isLoading ? "Updating..." : "Arrived at Destination",
-                _isLoading
-                    ? null
-                    : () async {
-                        setState(() => _isLoading = true);
-                        try {
-                          await ref
-                              .read(jobRepositoryProvider)
-                              .updateJobStatus(job.id, 'arrived_dropoff');
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Error updating status: $e'),
-                              ),
-                            );
-                          }
-                        } finally {
-                          if (mounted) {
-                            setState(() => _isLoading = false);
-                          }
-                        }
-                      },
-                isDarkMode,
-              ),
-            ),
-          ],
+        return UIHelpers.buildPrimaryButton(
+          _isLoading ? "Updating..." : "Arrived at Destination",
+          _isLoading
+              ? null
+              : () async {
+                  setState(() => _isLoading = true);
+                  try {
+                    await ref
+                        .read(jobRepositoryProvider)
+                        .updateJobStatus(job.id, 'arrived_dropoff');
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Error updating status: $e'),
+                        ),
+                      );
+                    }
+                  } finally {
+                    if (mounted) {
+                      setState(() => _isLoading = false);
+                    }
+                  }
+                },
+          isDarkMode,
         );
       } else if (status == 'arrived_dropoff') {
         if (job.completionCode != null && job.completionCode!.isNotEmpty) {
@@ -2218,13 +2546,6 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
-              UIHelpers.buildPrimaryButton(
-                "Cancel Job",
-                () => _handleCancelJob(job),
-                isDarkMode,
-                isOutlined: true,
-              ),
             ],
           );
         }
@@ -2271,13 +2592,6 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                       }
                     },
               isDarkMode,
-            ),
-            const SizedBox(height: 12),
-            UIHelpers.buildPrimaryButton(
-              "Cancel Job",
-              () => _handleCancelJob(job),
-              isDarkMode,
-              isOutlined: true,
             ),
           ],
         );
@@ -2327,38 +2641,140 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
       }
     }
 
-    return Row(
+    if (job.status.toLowerCase() != 'open') {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isDarkMode ? AppColors.darkBorder : AppColors.lightBorder,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              hasApplied ? Icons.assignment_turned_in_outlined : Icons.lock_outline,
+              color: AppColors.indigo,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                hasApplied
+                    ? 'This gig is currently in progress with an accepted applicant.'
+                    : 'This job listing is in progress and no longer accepting applications.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final hasOngoingNyxianJob = ref.watch(hasOngoingNyxianJobProvider);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (currentViewMode == AccountType.nyxian &&
-            job.creatorType == AccountType.employer)
-          Expanded(
-            child: hasApplied
-                ? UIHelpers.buildPrimaryButton(
-                    "Already applied",
-                    null,
-                    isDarkMode,
-                    isOutlined: true,
-                  )
-                : UIHelpers.buildPrimaryButton("Proceed to application", () {
-                    ref.read(isCounterOfferProvider.notifier).state = false;
-                    ref.read(jobsViewProvider.notifier).state = 'apply';
-                  }, isDarkMode),
+            job.creatorType == AccountType.employer &&
+            hasOngoingNyxianJob &&
+            !hasApplied) ...[
+          Container(
+            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: AppColors.amber.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: AppColors.amber.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: AppColors.amber,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'You have an ongoing job to complete.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isDarkMode ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Please complete your current task before applying for another job to avoid conflicts in your responsibilities.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDarkMode
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        if (currentViewMode == AccountType.employer &&
-            job.creatorType == AccountType.nyxian)
-          Expanded(
-            child: hasApplied
-                ? UIHelpers.buildPrimaryButton(
-                    "Already Contacted",
-                    null,
-                    isDarkMode,
-                    isOutlined: true,
-                  )
-                : UIHelpers.buildPrimaryButton("Contact Nyxian", () {
-                    ref.read(isCounterOfferProvider.notifier).state = false;
-                    ref.read(jobsViewProvider.notifier).state = 'apply';
-                  }, isDarkMode),
-          ),
+        ],
+        Row(
+          children: [
+            if (currentViewMode == AccountType.nyxian &&
+                job.creatorType == AccountType.employer)
+              Expanded(
+                child: hasApplied
+                    ? UIHelpers.buildPrimaryButton(
+                        "Already applied",
+                        null,
+                        isDarkMode,
+                        isOutlined: true,
+                      )
+                    : hasOngoingNyxianJob
+                    ? UIHelpers.buildPrimaryButton(
+                        "Ongoing Task Incomplete",
+                        null,
+                        isDarkMode,
+                        isOutlined: true,
+                      )
+                    : UIHelpers.buildPrimaryButton("Proceed to application", () {
+                        ref.read(isCounterOfferProvider.notifier).state = false;
+                        ref.read(jobsViewProvider.notifier).state = 'apply';
+                      }, isDarkMode),
+              ),
+            if (currentViewMode == AccountType.employer &&
+                job.creatorType == AccountType.nyxian)
+              Expanded(
+                child: hasApplied
+                    ? UIHelpers.buildPrimaryButton(
+                        "Already Contacted",
+                        null,
+                        isDarkMode,
+                        isOutlined: true,
+                      )
+                    : UIHelpers.buildPrimaryButton("Contact Nyxian", () {
+                        ref.read(isCounterOfferProvider.notifier).state = false;
+                        ref.read(jobsViewProvider.notifier).state = 'apply';
+                      }, isDarkMode),
+              ),
+          ],
+        ),
       ],
     );
   }

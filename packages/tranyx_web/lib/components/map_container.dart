@@ -22,6 +22,7 @@ class MapContainer extends StatelessComponent {
       id: id,
       classes: classes,
       styles: styles,
+      attributes: const {'tabindex': '-1'},
       [],
     );
   }

@@ -54,7 +54,8 @@ class _ReviewsPaneState extends ConsumerState<ReviewsPane> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final rating = userProfile.rating ?? 5.0;
+    final rating = userProfile.rating;
+    final ratingDisplay = rating != null ? rating.toStringAsFixed(1) : 'Unrated';
     final uid = userProfile.uid;
     final reviewsAsync = ref.watch(userReviewsProvider(uid));
 
@@ -149,10 +150,10 @@ class _ReviewsPaneState extends ConsumerState<ReviewsPane> {
                                 ),
                                 child: Center(
                                   child: Text(
-                                    rating.toStringAsFixed(1),
-                                    style: const TextStyle(
+                                    ratingDisplay,
+                                    style: TextStyle(
                                       color: AppColors.amber,
-                                      fontSize: 24,
+                                      fontSize: rating != null ? 24 : 12,
                                       fontWeight: FontWeight.w900,
                                     ),
                                   ),
@@ -179,7 +180,7 @@ class _ReviewsPaneState extends ConsumerState<ReviewsPane> {
                                               Icon(
                                                 Icons.star,
                                                 size: 16,
-                                                color: i <= rating.round()
+                                                color: rating != null && i <= rating.round()
                                                     ? AppColors.amber
                                                     : (isDarkMode
                                                           ? Colors.grey[800]
@@ -190,7 +191,9 @@ class _ReviewsPaneState extends ConsumerState<ReviewsPane> {
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
-                                            'Based on $count ${count == 1 ? "review" : "reviews"}',
+                                            count > 0
+                                                ? 'Based on $count ${count == 1 ? "review" : "reviews"}'
+                                                : 'No reviews yet',
                                             style: TextStyle(
                                               fontSize: 11,
                                               color: isDarkMode

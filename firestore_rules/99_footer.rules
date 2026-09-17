@@ -1,0 +1,14 @@
+    // ------------------------------------------------------------------------
+    // COLLECTION GROUP QUERIES & ROOT CLOSING
+    // ------------------------------------------------------------------------
+
+    match /{path=**}/applications/{applicantId} {
+      allow read, write: if isActiveUser() || isAdminOrStaff();
+    }
+
+    match /{path=**}/questions/{questionId} {
+      allow read: if true;
+      allow write: if isActiveUser();
+    }
+  }
+}

@@ -36,7 +36,7 @@ class SessionExpiredModalComponent extends StatelessComponent {
                 Component.text('Session Expired'),
               ]),
               p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-500"} px-4 leading-relaxed', [
-                Component.text('your session has expired, please relogin'),
+                Component.text('Your session has expired or profile was not found. Please relogin to continue.'),
               ]),
             ]),
 

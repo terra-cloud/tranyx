@@ -1,0 +1,171 @@
+    // ------------------------------------------------------------------------
+    // WORKSPACE: USERS, WALLETS, TRANSACTIONS & FINANCES
+    // ------------------------------------------------------------------------
+
+    // Users Collection (Strict segregation of User vs Admin fields)
+    match /users/{userId} {
+      allow read: if true; // Publicly readable profiles (ratings/reviews)
+      
+      // Regular users can create their profile without privileged fields.
+      // Verified staff emails or admins can bootstrap administrative roles.
+      allow create: if (
+        (isOwner(userId) && !request.resource.data.keys().hasAny(['role', 'banned', 'suspendedUntil'])) ||
+        (isOwner(userId) && isStaffEmail()) ||
+        isAdminOrStaff()
+      ) &&
+      (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
+
+      allow update: if (
+        // 1. Regular User: Can update own profile fields (cannot alter admin role, ban, or suspension status)
+        (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role', 'banned', 'suspendedUntil'
+        ]))
+        || 
+        // 2. Staff Bootstrap: User with official staff email domain can bootstrap staff role
+        (isOwner(userId) && isStaffEmail())
+        ||
+        // 3. Admin / Staff: Can update admin, moderation & verification fields
+        isAdminOrStaff()
+        ||
+        // 4. Subscription verification & activation updates
+        (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isPremium', 'premiumUntil', 'accountType', 'subscriptionPlan', 
+          'subscriptionStartedAt', 'subscriptionPaymentMethod', 'subscriptionPaymentAmount', 
+          'subscriptionTxId', 'subscriptionStatus', 'pendingSubscription', 
+          'lastSubscriptionRejection', 'updatedAt'
+        ]))
+      ) &&
+      (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
+
+      allow delete: if isAdminOrStaff();
+      
+      // User Reviews subcollection
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow write: if isActiveUser() && request.resource.data.authorId == request.auth.uid;
+      }
+
+      // User Ledger subcollection
+      match /ledger/{ledgerId} {
+        allow read, write: if isOwner(userId) || isAdminOrStaff();
+      }
+
+      // User Transactions subcollection
+      match /transactions/{txId} {
+        allow read, write: if isOwner(userId) || isAdminOrStaff();
+      }
+
+      // User Points subcollection
+      match /points/{docId} {
+        allow read, write: if isOwner(userId) || isAdminOrStaff();
+      }
+    }
+
+    // Wallets Collection (Unified wallet storage & user ledger sub-collections)
+    match /wallets/{walletId} {
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        resource.data.uid == request.auth.uid || 
+        resource.data.userId == request.auth.uid || 
+        isAdminOrStaff()
+      );
+      allow write: if (isOwner(walletId) || isAdminOrStaff()) &&
+        (!('balance' in request.resource.data) || (request.resource.data.balance is number && request.resource.data.balance >= 0));
+
+      match /transactions/{txId} {
+        allow read, write: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
+        allow delete: if isAdminOrStaff();
+      }
+
+      match /ledger/{entryDoc} {
+        allow read, write: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
+        allow delete: if isAdminOrStaff();
+      }
+    }
+
+    // Wallet Links Collection
+    match /walletLinks/{walletPublicKey} {
+      allow read: if true;
+      allow write: if isActiveUser() && request.resource.data.uid == request.auth.uid;
+    }
+
+    // Global Transactions Collection
+    match /transactions/{txId} {
+      allow read: if true;
+      allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$'));
+      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid) || (isAuthenticated() && (resource.data.type == 'subscription' || resource.data.kind == 'subscription'));
+      allow delete: if isAdminOrStaff();
+    }
+
+    // Subscriptions Collection (P2P Hybrid PRO Subscriptions)
+    match /subscriptions/{subId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isAdminOrStaff() || isAuthenticated();
+      allow delete: if isAdminOrStaff();
+    }
+
+    // Deposit Requests Collections (Dual-collection sync: deposit_requests & depositRequests)
+    match /deposit_requests/{reqId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
+    }
+
+    match /depositRequests/{requestId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
+    }
+
+    match /deposits/{depositId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Withdrawal Requests Collections (Dual-collection sync: withdrawal_requests & withdrawalRequests)
+    match /withdrawal_requests/{reqId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
+    }
+
+    match /withdrawalRequests/{requestId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow delete: if isAdminOrStaff();
+    }
+
+    match /withdrawals/{requestId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /cashout_requests/{requestId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Deposit References & Claimed References Collections
+    match /deposit_references/{refKey} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /claimed_references/{refKey} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /claimed_p2p_references/{refKey} {
+      allow read, write: if true;
+    }
+
+    match /claimedReferences/{refKey} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Points History Collection
+    match /points_history/{historyId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
+      allow write: if (isActiveUser() && request.resource.data.uid == request.auth.uid) || isAdminOrStaff();
+    }

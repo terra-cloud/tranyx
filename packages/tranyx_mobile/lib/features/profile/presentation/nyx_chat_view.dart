@@ -34,6 +34,7 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
   bool _isThinking = false;
   double? _supportTokens;
   SupportChatMode _chatMode = SupportChatMode.menu;
+  int _expandedFaqIndex = -1;
 
   @override
   void initState() {
@@ -243,7 +244,15 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
 
     try {
       final aiService = ref.read(aiServiceProvider);
-      final response = await aiService.getChatResponse(history);
+      final userCtx = TranyxAIUserContext(
+        userId: uid,
+        userRole: profile.accountType.name,
+        walletAddress: profile.walletPublicKey,
+        connectedWallet: profile.walletPublicKey != null ? 'Solana Wallet' : null,
+        tyxbitBalance: profile.tyxBalance,
+        isWalletVerified: profile.walletPublicKey != null,
+      );
+      final response = await aiService.getChatResponse(history, appContext: userCtx);
 
       if (response.startsWith('OUT_OF_SCOPE:')) {
         final cleanMsg = response.replaceFirst('OUT_OF_SCOPE:', '').trim();
@@ -586,11 +595,128 @@ class _NyxChatViewState extends ConsumerState<NyxChatView> {
                   });
                 },
               ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Icon(
+                    Icons.help_outline_rounded,
+                    size: 18,
+                    color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    "FREQUENTLY ASKED QUESTIONS",
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.0,
+                      color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ..._buildFaqList(context, isDarkMode),
+              const SizedBox(height: 20),
             ],
           ),
         ),
       ],
     );
+  }
+
+  List<Widget> _buildFaqList(BuildContext context, bool isDarkMode) {
+    final profile = ref.watch(userProfileProvider).value;
+    final accountType = profile?.accountType ?? AccountType.employer;
+    final faqs = TranyxFaqData.getFaqsForAccountType(accountType);
+
+    return faqs.asMap().entries.map((entry) {
+      final idx = entry.key;
+      final faq = entry.value;
+      final isExpanded = _expandedFaqIndex == idx;
+
+      return Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.darkCard : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isExpanded
+                ? AppColors.indigo.withValues(alpha: 0.5)
+                : (isDarkMode ? AppColors.darkBorder : AppColors.lightBorder),
+          ),
+        ),
+        child: Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            key: Key('faq_$idx'),
+            initiallyExpanded: isExpanded,
+            onExpansionChanged: (expanded) {
+              setState(() {
+                _expandedFaqIndex = expanded ? idx : -1;
+              });
+            },
+            tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            childrenPadding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+            leading: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.indigo.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                _getFaqIcon(faq.icon),
+                size: 20,
+                color: AppColors.indigo,
+              ),
+            ),
+            title: Text(
+              faq.title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: isDarkMode ? AppColors.darkText : AppColors.lightText,
+              ),
+            ),
+            children: [
+              Text(
+                faq.answer,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.5,
+                  color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  IconData _getFaqIcon(String iconName) {
+    switch (iconName) {
+      case 'briefcase':
+        return Icons.work_outline_rounded;
+      case 'credit-card':
+        return Icons.credit_card_rounded;
+      case 'car':
+        return Icons.directions_car_rounded;
+      case 'shield-check':
+        return Icons.verified_user_rounded;
+      case 'wallet':
+        return Icons.account_balance_wallet_rounded;
+      case 'alert-circle':
+        return Icons.error_outline_rounded;
+      case 'star':
+        return Icons.star_outline_rounded;
+      case 'zap':
+        return Icons.bolt_rounded;
+      case 'refresh-cw':
+        return Icons.swap_horiz_rounded;
+      default:
+        return Icons.help_outline_rounded;
+    }
   }
 
   Widget _buildMenuCard({

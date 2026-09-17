@@ -1,0 +1,13 @@
+executionPrerequisite: >-
+  App showing Join Tranyx role cards.
+
+steps:
+  - echo: Select Hybrid PRO tier and view credentials form
+  - tap:
+      text: Hybrid Account
+  - await:
+      visible:
+        text: Full name
+  - wait: 3500
+  - await:
+      idle: true

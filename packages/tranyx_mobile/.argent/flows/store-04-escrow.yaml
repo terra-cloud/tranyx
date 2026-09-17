@@ -1,0 +1,18 @@
+steps:
+  - echo: Launch Tranyx and navigate to Employer account creation setup
+  - launch: com.terraph.tranyx
+  - await:
+      visible:
+        text: Welcome back
+  - tap:
+      text: Create an account
+  - await:
+      visible:
+        text: I Want to Hire
+  - tap:
+      text: I Want to Hire
+  - await:
+      visible:
+        text: Full name
+  - await:
+      idle: true
