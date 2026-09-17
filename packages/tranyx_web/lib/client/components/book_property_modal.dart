@@ -5,7 +5,6 @@ import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
-import '../../state/app_state.dart';
 import '../../services/web_interop.dart';
 import '../../services/firebase_service.dart';
 import 'contract_viewer.dart';

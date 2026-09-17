@@ -153,10 +153,19 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
 
     final rentalId = (r['rentalId'] ?? r['id'] ?? selectedData['rentalId'] ?? selectedData['id'] ?? '').toString();
 
-    final isUserInActiveBookings = component.appState.renterActiveBookings.any((booking) {
-      final bId = (booking['rentalId'] ?? booking['id'] ?? '').toString();
-      return bId.isNotEmpty && (bId == lookupId || bId == rentalId);
-    });
+    // Check if there is an active booking matching this rental in renterActiveBookings
+    Map<String, dynamic>? activeBooking;
+    for (final b in component.appState.renterActiveBookings) {
+      final bId = (b['id'] ?? '').toString();
+      final bRentalId = (b['rentalId'] ?? '').toString();
+      if ((lookupId != null && (bId == lookupId || bRentalId == lookupId)) ||
+          (rentalId.isNotEmpty && (bId == rentalId || bRentalId == rentalId))) {
+        activeBooking = b;
+        break;
+      }
+    }
+
+    final isUserInActiveBookings = activeBooking != null;
 
     final isHost = currentUid.isNotEmpty && currentUid == hostId;
     var isRentee = (currentUid.isNotEmpty && currentUid == renteeId) || isUserInActiveBookings;
@@ -164,15 +173,36 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
       renteeId = currentUid;
     }
 
-    // Strict privacy guard: Only Host or designated Rentee can track
-    if (!isHost && !isRentee) {
+    // Resolve current status across realtime sources
+    final rawStatus = (r['status'] as String? ?? '').trim();
+    final activeStatus = (activeBooking?['status'] as String? ?? '').trim();
+    final selectedStatus = (selectedData['status'] as String? ?? '').trim();
+
+    // Determine if rental has been completed
+    final isCompleted = rawStatus == 'Completed' ||
+        rawStatus == 'Complete' ||
+        activeStatus == 'Completed' ||
+        activeStatus == 'Complete' ||
+        selectedStatus == 'Completed' ||
+        selectedStatus == 'Complete' ||
+        (isRentee && !isHost && (rawStatus == 'Available' || rawStatus == 'available') && activeBooking == null);
+
+    // Strict privacy guard: Only Host or designated Rentee can track (unless completed, which allows showing completion summary)
+    if (!isHost && !isRentee && !isCompleted) {
       Future.microtask(_closeModal);
       return div([]);
     }
 
-    final status = (selectedData['status'] == 'Returning' || selectedData['status'] == 'Arrived at Return Location')
-        ? (selectedData['status'] as String)
-        : (r['status'] as String? ?? selectedData['status'] as String? ?? 'Unknown');
+    final String status;
+    if (isCompleted) {
+      status = 'Completed';
+    } else if (rawStatus.isNotEmpty && rawStatus != 'Available' && rawStatus != 'available') {
+      status = rawStatus;
+    } else if (activeStatus.isNotEmpty) {
+      status = activeStatus;
+    } else {
+      status = selectedStatus.isNotEmpty ? selectedStatus : 'Unknown';
+    }
     final model = r['model'] ?? selectedData['model'] ?? 'Unknown';
     final brand = r['brand'] ?? selectedData['brand'] ?? 'Unknown';
     final rentalType = (r['rentalType'] ?? selectedData['rentalType'] as String?) ?? 'pickup';
@@ -558,13 +588,23 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
                 [Component.text('Confirm Vehicle Returned')],
               ),
 
-            // Completed badge
-            if (status == 'Complete' || status == 'Completed')
+            // Completed badge & close action
+            if (status == 'Complete' || status == 'Completed') ...[
               div(
                 classes:
-                    'flex-1 p-3 rounded-xl text-center bg-green-500/10 border border-green-500/20 text-green-500 font-bold text-sm',
-                [Component.text('Rental Completed')],
+                    'flex-1 p-3 rounded-xl text-center bg-green-500/10 border border-green-500/20 text-green-500 font-bold text-sm flex items-center justify-center gap-2',
+                [
+                  lIcon('check-circle', cls: 'w-5 h-5 text-green-500'),
+                  Component.text('Rental Completed & Settled'),
+                ],
               ),
+              button(
+                classes:
+                    'py-3 px-6 rounded-xl font-bold text-white bg-zinc-800 hover:bg-zinc-700 transition-colors text-sm cursor-pointer border border-zinc-700',
+                events: {'click': (_) => _closeModal()},
+                [Component.text('Done')],
+              ),
+            ],
 
             // Cancel Button
             if (showCancelButton)

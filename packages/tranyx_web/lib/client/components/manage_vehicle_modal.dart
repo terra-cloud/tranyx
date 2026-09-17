@@ -230,6 +230,20 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     try {
       if (newStatus == 'Completed') {
         await component.appState.firestore.completeRental(r['id']);
+        r['status'] = 'Available';
+        r['renteeId'] = '';
+        r['renteeName'] = '';
+        r['renteePhotoUrl'] = '';
+        r['currentRequestId'] = '';
+        for (final item in component.appState.realtimeRentals) {
+          if (item['id'] == r['id']) {
+            item['status'] = 'Available';
+            item['renteeId'] = '';
+            item['renteeName'] = '';
+            item['renteePhotoUrl'] = '';
+            item['currentRequestId'] = '';
+          }
+        }
       } else {
         await component.appState.firestore.updateRentalStatus(r['id'], newStatus);
       }
@@ -258,6 +272,21 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     try {
       if (newStatus == 'Completed') {
         await component.appState.firestore.completeRental(r['id'], requestId: requestId);
+        r['status'] = 'Available';
+        r['renteeId'] = '';
+        r['renteeName'] = '';
+        r['renteePhotoUrl'] = '';
+        r['currentRequestId'] = '';
+        for (final item in component.appState.realtimeRentals) {
+          if (item['id'] == r['id']) {
+            item['status'] = 'Available';
+            item['renteeId'] = '';
+            item['renteeName'] = '';
+            item['renteePhotoUrl'] = '';
+            item['currentRequestId'] = '';
+          }
+        }
+        component.appState.setState(() {});
       } else {
         await component.appState.firestore.updateRentalStatus(r['id'], newStatus, requestId: requestId);
       }

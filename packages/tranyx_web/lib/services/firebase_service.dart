@@ -2685,8 +2685,13 @@ class FirestoreService {
     // Mark specific request in rental_requests as Completed
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       try {
-        await setDocument('rental_requests/$resolvedReqId', {'status': 'Completed'});
-      } catch (_) {}
+        await setDocument('rental_requests/$resolvedReqId', {
+          'status': 'Completed',
+          'completedAt': DateTime.now().millisecondsSinceEpoch,
+        });
+      } catch (e) {
+        print('Error marking rental_request as Completed: $e');
+      }
     }
 
     // Check if other ongoing/booked requests remain on this listing
@@ -2719,7 +2724,7 @@ class FirestoreService {
     } else {
       // Promote the next active booking to currentRequestId
       final nextReq = remainingActive.first;
-      await setDocument('rentals/$rentalId', {
+      await setDocument('rentals/$actualRentalId', {
         'status': nextReq['status'] ?? 'Booked',
         'renteeId': nextReq['renteeId'] ?? '',
         'renteeName': nextReq['renteeName'] ?? '',
