@@ -51,11 +51,14 @@
             'renteeSignatureName', 'signedAt', 'allowChat'
           ])
         ) ||
-        // 1c. Host: When vehicle is active/booked, can submit rating, accept extensions, or update tracking
+        // 1c. Host: When vehicle is active/booked, can submit rating, accept extensions, update tracking, or complete/reset rental
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           resource.data.status != 'Available' && resource.data.status != 'available' &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'hostRated', 'endDate', 'totalCost', 'status', 'trackingLat', 'trackingLng'
+            'hostRated', 'endDate', 'totalCost', 'status', 'trackingLat', 'trackingLng',
+            'renteeId', 'renteeName', 'renteePhotoUrl', 'rentalDurationType', 'rentalMultiplier',
+            'startDate', 'bookingFee', 'renteeSignatureName', 'renteeLicenseNumber', 'signedAt',
+            'currentRequestId', 'allowChat'
           ])
         ) ||
         // 2a. Assigned Rentee: Can sign contract when status is Awaiting Signature
