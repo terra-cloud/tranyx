@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
 
 import 'package:shared/shared.dart';
+import 'web_interop.dart';
 
 // ── Environment Configuration ────────────────────────────────────────────────
 class FirebaseConfig {
@@ -28,6 +29,15 @@ class FirebaseConfig {
     required this.appId,
     this.measurementId,
   });
+
+  Map<String, String> toMap() => {
+    'apiKey': apiKey,
+    'authDomain': authDomain,
+    'projectId': projectId,
+    'storageBucket': storageBucket,
+    'messagingSenderId': messagingSenderId,
+    'appId': appId,
+  };
 
   factory FirebaseConfig.fromShared(SharedFirebaseOptions options, {String? authDomainOverride}) {
     return FirebaseConfig(
@@ -419,8 +429,21 @@ class FirebaseAuthService {
     );
   }
 
-  /// Sends a SMS verification OTP code to the given phone number
+  /// Sends a SMS verification OTP code to the given phone number using client anti-abuse verification
   Future<String> sendSmsVerificationCode(String phoneNumber) async {
+    try {
+      final verificationId = await sendPhoneVerificationSmsJs(
+        currentFirebaseConfig.toMap(),
+        phoneNumber,
+      );
+      if (verificationId != null && verificationId.isNotEmpty) {
+        return verificationId;
+      }
+    } catch (e) {
+      throw FirebaseException(e.toString().replaceAll('Exception: ', '').replaceAll('Error: ', ''));
+    }
+
+    // Fallback to direct REST if JS interop is unavailable
     final res = await _post(
       '$_authBase:sendVerificationCode?key=${currentFirebaseConfig.apiKey}',
       {
@@ -432,6 +455,16 @@ class FirebaseAuthService {
 
   /// Verifies the SMS OTP code sent to the phone number
   Future<Map<String, dynamic>> verifySmsCode(String sessionInfo, String code) async {
+    try {
+      final ok = await verifyPhoneSmsCodeJs(sessionInfo, code);
+      if (ok) {
+        return {'success': true};
+      }
+    } catch (e) {
+      throw FirebaseException(e.toString().replaceAll('Exception: ', '').replaceAll('Error: ', ''));
+    }
+
+    // Fallback to direct REST
     return await _post(
       '$_authBase:signInWithPhoneNumber?key=${currentFirebaseConfig.apiKey}',
       {

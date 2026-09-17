@@ -151,6 +151,39 @@ Future<void> signOutJs() async {
   } catch (_) {}
 }
 
+Future<String?> sendPhoneVerificationSmsJs(Map<String, String> config, String phoneNumber) async {
+  try {
+    final jsConfig = JSObject();
+    for (final e in config.entries) {
+      jsConfig.setProperty(e.key.toJS, e.value.toJS);
+    }
+    final res = await web.window.callMethod<JSPromise>(
+      'sendPhoneVerificationSmsJs'.toJS,
+      jsConfig,
+      phoneNumber.toJS,
+    ).toDart;
+    if (res == null) return null;
+    return (res as JSString).toDart;
+  } catch (e) {
+    rethrow;
+  }
+}
+
+Future<bool> verifyPhoneSmsCodeJs(String verificationId, String code) async {
+  try {
+    final res = await web.window.callMethod<JSPromise>(
+      'verifyPhoneSmsCodeJs'.toJS,
+      verificationId.toJS,
+      code.toJS,
+    ).toDart;
+    if (res == null) return true;
+    return (res as JSBoolean).toDart;
+  } catch (e) {
+    rethrow;
+  }
+}
+
+
 void initFirebaseJs(Map<String, dynamic> config) {
   try {
     final jsConfig = JSObject();

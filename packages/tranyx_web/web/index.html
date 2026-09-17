@@ -1315,6 +1315,81 @@
       }
     };
 
+    window.sendPhoneVerificationSmsJs = async function (config, phoneNumber) {
+      if (!firebase.apps.length && config) {
+        firebase.initializeApp(config);
+      }
+
+      let recaptchaContainer = document.getElementById('recaptcha-container');
+      if (!recaptchaContainer) {
+        recaptchaContainer = document.createElement('div');
+        recaptchaContainer.id = 'recaptcha-container';
+        document.body.appendChild(recaptchaContainer);
+      }
+
+      if (!window.tranyxRecaptchaVerifier) {
+        window.tranyxRecaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
+          size: 'invisible',
+          callback: () => {
+            console.log("reCAPTCHA completed for phone verification");
+          },
+          'expired-callback': () => {
+            console.warn("reCAPTCHA expired, resetting verifier");
+            if (window.tranyxRecaptchaVerifier) {
+              try {
+                window.tranyxRecaptchaVerifier.clear();
+              } catch (_) {}
+              window.tranyxRecaptchaVerifier = null;
+            }
+          }
+        });
+      }
+
+      try {
+        const phoneProvider = new firebase.auth.PhoneAuthProvider();
+        const verificationId = await phoneProvider.verifyPhoneNumber(
+          phoneNumber,
+          window.tranyxRecaptchaVerifier
+        );
+        return verificationId;
+      } catch (error) {
+        console.error("sendPhoneVerificationSmsJs error:", error);
+        if (window.tranyxRecaptchaVerifier) {
+          try {
+            window.tranyxRecaptchaVerifier.clear();
+          } catch (_) {}
+          window.tranyxRecaptchaVerifier = null;
+        }
+        const msg = (error && error.message) ? error.message : String(error);
+        throw new Error(msg);
+      }
+    };
+
+    window.verifyPhoneSmsCodeJs = async function (verificationId, code) {
+      try {
+        const cred = firebase.auth.PhoneAuthProvider.credential(verificationId, code);
+        const currentUser = firebase.auth().currentUser;
+        if (currentUser) {
+          try {
+            await currentUser.updatePhoneNumber(cred);
+            return true;
+          } catch (updateErr) {
+            console.warn("currentUser.updatePhoneNumber note:", updateErr);
+            const msg = (updateErr && updateErr.message) ? updateErr.message : String(updateErr);
+            throw new Error(msg);
+          }
+        } else {
+          await firebase.auth().signInWithCredential(cred);
+          return true;
+        }
+      } catch (error) {
+        console.error("verifyPhoneSmsCodeJs error:", error);
+        const msg = (error && error.message) ? error.message : String(error);
+        throw new Error(msg);
+      }
+    };
+
+
     window.listenToNotifications = function (uid, callback) {
       if (!firebase.apps.length) return () => { };
       const db = firebase.firestore();
@@ -2228,6 +2303,9 @@
 </head>
 
 <body>
+  <!-- Container for Firebase Phone Auth Invisible reCAPTCHA -->
+  <div id="recaptcha-container"></div>
+
   <!-- Web Splash Screen -->
   <div id="tranyx-web-splash">
     <div class="splash-orb splash-orb-1"></div>

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
@@ -238,6 +239,10 @@ class _ProfileMainState extends State<_ProfileMain> {
   bool showConfirmModal = false;
   String cashRefInput = '';
   bool copiedTxId = false;
+  String p2pRail = 'gcash'; // 'gcash' | 'maya'
+  Uint8List? p2pSubscriptionProofBytes;
+  String? p2pSubscriptionProofFileName;
+  bool copiedAgentNumber = false;
 
   String _formatDate(DateTime dt) {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -258,6 +263,7 @@ class _ProfileMainState extends State<_ProfileMain> {
     Future.microtask(() {
       component.state.fetchSolToPhpRate();
       component.state.loadUserProfile();
+      component.state.loadP2pAdminData();
     });
   }
 
@@ -617,6 +623,8 @@ class _ProfileMainState extends State<_ProfileMain> {
         ? _formatDate(DateTime.fromMillisecondsSinceEpoch(createdAtMs))
         : 'Recently';
 
+    final receiptUrl = (pending?['receiptUrl'] ?? pending?['proofImageUrl'] as String?);
+
     return div(
       classes: 'mt-10 pt-8 border-t ${isDark ? "border-zinc-800" : "border-zinc-150"} space-y-6',
       [
@@ -694,6 +702,20 @@ class _ProfileMainState extends State<_ProfileMain> {
                     [lIcon(copiedTxId ? 'check' : 'copy', cls: 'w-4 h-4 text-indigo-400')],
                   ),
                 ]),
+                if (receiptUrl != null && receiptUrl.isNotEmpty) ...[
+                  div(classes: 'flex items-center gap-1.5 mt-2 text-xs', [
+                    span(classes: 'text-zinc-500', [Component.text('Proof:')]),
+                    a(
+                      href: receiptUrl,
+                      attributes: {'target': '_blank', 'rel': 'noopener noreferrer'},
+                      classes: 'text-indigo-400 hover:text-indigo-300 font-bold underline flex items-center gap-1 cursor-pointer',
+                      [
+                        lIcon('image', cls: 'w-3 h-3'),
+                        Component.text('View Uploaded Receipt ↗'),
+                      ],
+                    ),
+                  ]),
+                ],
               ]),
               div(classes: 'text-xs text-zinc-400 max-w-sm', [
                 Component.text('Present this Reference Code to your assigned P2P Agent when depositing cash. Once confirmed, your account instantly upgrades.'),
@@ -1134,7 +1156,7 @@ class _ProfileMainState extends State<_ProfileMain> {
       [
         div(
           classes:
-              'w-full max-w-lg p-6 sm:p-8 rounded-[2rem] border $cardCls shadow-2xl space-y-6 relative animate-scale-up',
+              'w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 sm:p-8 rounded-[2rem] border $cardCls shadow-2xl space-y-6 relative animate-scale-up',
           [
             // Header
             div(classes: 'flex items-center justify-between pb-4 border-b ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
@@ -1151,7 +1173,16 @@ class _ProfileMainState extends State<_ProfileMain> {
               ]),
               button(
                 classes: 'text-zinc-400 hover:text-white p-1 rounded-lg bg-transparent border-0 cursor-pointer',
-                events: {'click': (_) => setState(() { showConfirmModal = false; errorMessage = null; })},
+                events: {
+                  'click': (_) => setState(() {
+                    showConfirmModal = false;
+                    errorMessage = null;
+                    cashRefInput = '';
+                    p2pSubscriptionProofBytes = null;
+                    p2pSubscriptionProofFileName = null;
+                    copiedAgentNumber = false;
+                  }),
+                },
                 [lIcon('x', cls: 'w-5 h-5')],
               ),
             ]),
@@ -1164,7 +1195,7 @@ class _ProfileMainState extends State<_ProfileMain> {
               ]),
               div(classes: 'flex justify-between items-center text-xs', [
                 span(classes: 'text-zinc-500', [Component.text('Payment Rail')]),
-                span(classes: 'font-bold text-indigo-400', [Component.text(methodLabel)]),
+                span(classes: 'font-bold text-indigo-400', [Component.text(selectedPaymentMethod == 'cash' ? (p2pRail == 'gcash' ? 'GCash (P2P)' : 'Maya (P2P)') : methodLabel)]),
               ]),
               div(classes: 'flex justify-between items-center text-xs', [
                 span(classes: 'text-zinc-500', [Component.text('Total Price')]),
@@ -1212,30 +1243,180 @@ class _ProfileMainState extends State<_ProfileMain> {
               ]),
             ] else ...[
               // Cash (P2P)
-              div(classes: 'p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-800/20" : "border-zinc-200 bg-white"} space-y-3', [
-                p(classes: 'text-xs text-zinc-400', [
-                  Component.text('Enter your P2P Agent transaction / deposit reference number, or submit now to generate a pending reference for your agent:'),
-                ]),
-                input(
-                  type: InputType.text,
-                  classes:
-                      'w-full px-4 py-2.5 rounded-xl border text-xs font-mono '
-                      '${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-zinc-50 border-zinc-300 text-zinc-900"} focus:outline-none focus:border-indigo-500',
-                  attributes: {
-                    'placeholder': 'Optional: Enter Agent Reference (e.g. GCASH-123456)',
-                    'value': cashRefInput,
-                  },
-                  events: {
-                    'input': (e) {
-                      final target = e.target as web.HTMLInputElement;
-                      cashRefInput = target.value;
-                    },
-                  },
-                ),
-                p(classes: 'text-[10px] text-amber-400 font-medium', [
-                  Component.text('Note: Cash payments require manual verification by an authorized agent before activation.'),
-                ]),
-              ]),
+              Builder(
+                builder: (context) {
+                  final agent = s.activeP2pAgent;
+                  final isGcash = p2pRail == 'gcash';
+                  final agentQr = (isGcash ? agent.gcashQrUrl : agent.mayaQrUrl).trim();
+                  final agentAccountName = isGcash ? agent.gcashAccountName : agent.mayaAccountName;
+                  final agentAccountNumber = isGcash ? agent.gcashNumber : agent.mayaNumber;
+                  final railName = isGcash ? 'GCash' : 'Maya';
+
+                  return div(classes: 'p-4 sm:p-5 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-800/20" : "border-zinc-200 bg-white"} space-y-4', [
+                    // Rail selector tabs (GCash vs Maya)
+                    div(classes: 'flex rounded-xl p-1 bg-zinc-800/40 border ${isDark ? "border-zinc-700/60" : "border-zinc-200 bg-zinc-100"}', [
+                      button(
+                        classes:
+                            'flex-1 py-2 text-xs font-bold rounded-lg transition-all border-0 cursor-pointer flex items-center justify-center gap-1.5 '
+                            '${isGcash ? (isDark ? "bg-indigo-600 text-white shadow-md shadow-indigo-900/30" : "bg-white text-indigo-600 shadow-sm") : (isDark ? "text-zinc-400 hover:text-zinc-200 bg-transparent" : "text-zinc-600 hover:text-zinc-900 bg-transparent")}',
+                        events: {'click': (_) => setState(() => p2pRail = 'gcash')},
+                        [
+                          if (isGcash) lIcon('check-circle', cls: 'w-3.5 h-3.5') else lIcon('smartphone', cls: 'w-3.5 h-3.5'),
+                          Component.text('GCash (P2P)'),
+                        ],
+                      ),
+                      button(
+                        classes:
+                            'flex-1 py-2 text-xs font-bold rounded-lg transition-all border-0 cursor-pointer flex items-center justify-center gap-1.5 '
+                            '${!isGcash ? (isDark ? "bg-indigo-600 text-white shadow-md shadow-indigo-900/30" : "bg-white text-indigo-600 shadow-sm") : (isDark ? "text-zinc-400 hover:text-zinc-200 bg-transparent" : "text-zinc-600 hover:text-zinc-900 bg-transparent")}',
+                        events: {'click': (_) => setState(() => p2pRail = 'maya')},
+                        [
+                          if (!isGcash) lIcon('check-circle', cls: 'w-3.5 h-3.5') else lIcon('smartphone', cls: 'w-3.5 h-3.5'),
+                          Component.text('Maya (P2P)'),
+                        ],
+                      ),
+                    ]),
+
+                    // Agent QR & Account Details Card
+                    div(classes: 'p-4 rounded-xl ${isDark ? "bg-zinc-900/80 border-zinc-700/50" : "bg-zinc-50 border-zinc-200"} border text-center space-y-3', [
+                      if (agentQr.isNotEmpty)
+                        div(classes: 'inline-block p-3 rounded-2xl bg-white shadow-md border border-zinc-200/50', [
+                          img(
+                            src: agentQr,
+                            classes: 'w-36 h-36 mx-auto rounded-xl object-contain',
+                            alt: '$railName QR Code',
+                          ),
+                        ]),
+                      p(classes: 'text-xs text-zinc-400', [
+                        Component.text('Scan with your $railName app to pay '),
+                        span(classes: 'font-black text-emerald-400', [Component.text('₱${price.toStringAsFixed(0)}')]),
+                      ]),
+
+                      div(classes: 'flex justify-between items-center text-xs px-1 pt-1', [
+                        span(classes: 'text-zinc-500', [Component.text('Agent Account')]),
+                        span(classes: 'font-bold $textCls', [Component.text(agentAccountName)]),
+                      ]),
+
+                      if (agentAccountNumber.isNotEmpty)
+                        div(
+                          classes:
+                              'flex justify-between items-center p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs',
+                          [
+                            div(classes: 'flex items-center gap-2 text-left', [
+                              lIcon('smartphone', cls: 'w-4 h-4 text-indigo-400'),
+                              span(classes: 'font-mono font-bold text-indigo-400', [
+                                Component.text(agentAccountNumber),
+                              ]),
+                            ]),
+                            button(
+                              classes:
+                                  'px-2.5 py-1 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-[11px] font-bold cursor-pointer transition border-0',
+                              events: {
+                                'click': (_) {
+                                  web.window.navigator.clipboard.writeText(agentAccountNumber);
+                                  setState(() => copiedAgentNumber = true);
+                                  Timer(const Duration(seconds: 2), () {
+                                    if (mounted) setState(() => copiedAgentNumber = false);
+                                  });
+                                }
+                              },
+                              [Component.text(copiedAgentNumber ? '✓ Copied' : 'Copy')],
+                            ),
+                          ],
+                        ),
+                    ]),
+
+                    // Payment Reference Input
+                    div(classes: 'space-y-1.5 text-left', [
+                      label(classes: 'text-xs font-bold text-zinc-400', [
+                        Component.text('Payment Reference Number (from $railName) *'),
+                      ]),
+                      input(
+                        type: InputType.text,
+                        classes:
+                            'w-full px-4 py-2.5 rounded-xl border text-xs font-mono '
+                            '${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-300 text-zinc-900"} focus:outline-none focus:border-indigo-500',
+                        attributes: {
+                          'placeholder': 'e.g. 10029384812',
+                          'value': cashRefInput,
+                        },
+                        events: {
+                          'input': (e) {
+                            final target = e.target as web.HTMLInputElement;
+                            cashRefInput = target.value;
+                          },
+                        },
+                      ),
+                    ]),
+
+                    // Upload Transfer Screenshot / Receipt
+                    div(classes: 'space-y-1.5 text-left', [
+                      label(classes: 'text-xs font-bold text-zinc-400', [
+                        Component.text('Upload Transfer Screenshot / Receipt *'),
+                      ]),
+                      if (p2pSubscriptionProofBytes == null)
+                        label(
+                          classes:
+                              'w-full py-4 px-4 rounded-xl border-2 border-dashed border-indigo-500/30 flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-indigo-500/5 transition-colors',
+                          [
+                            lIcon('upload-cloud', cls: 'w-6 h-6 text-indigo-400'),
+                            span(classes: 'text-xs font-bold text-indigo-400', [
+                              Component.text('Click to upload payment receipt'),
+                            ]),
+                            span(classes: 'text-[10px] text-zinc-500', [Component.text('PNG, JPG, or JPEG up to 10MB')]),
+                            input(
+                              type: InputType.file,
+                              classes: 'hidden',
+                              attributes: {'accept': 'image/*'},
+                              events: {
+                                'change': (e) async {
+                                  final files = await readFilesFromEvent(e);
+                                  if (files.isNotEmpty) {
+                                    setState(() {
+                                      p2pSubscriptionProofBytes = Uint8List.fromList(files.first.bytes);
+                                      p2pSubscriptionProofFileName = files.first.name;
+                                      errorMessage = null;
+                                    });
+                                  }
+                                }
+                              },
+                            ),
+                          ],
+                        )
+                      else
+                        div(
+                          classes:
+                              'w-full p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between',
+                          [
+                            div(classes: 'flex items-center gap-2 overflow-hidden', [
+                              lIcon('check-circle', cls: 'w-4 h-4 text-emerald-400 shrink-0'),
+                              span(classes: 'text-xs font-bold text-emerald-400 truncate max-w-[200px]', [
+                                Component.text(p2pSubscriptionProofFileName ?? 'Receipt Selected'),
+                              ]),
+                            ]),
+                            button(
+                              classes:
+                                  'text-xs text-red-400 hover:text-red-300 font-bold bg-transparent border-0 cursor-pointer p-1',
+                              events: {
+                                'click': (_) {
+                                  setState(() {
+                                    p2pSubscriptionProofBytes = null;
+                                    p2pSubscriptionProofFileName = null;
+                                  });
+                                }
+                              },
+                              [Component.text('✕ Remove')],
+                            ),
+                          ],
+                        ),
+                    ]),
+
+                    p(classes: 'text-[10px] text-amber-400 font-medium', [
+                      Component.text('Note: Your designated agent will verify the proof receipt in the admin portal before activating your Hybrid PRO access.'),
+                    ]),
+                  ]);
+                },
+              ),
             ],
 
             if (errorMessage != null)
@@ -1247,7 +1428,16 @@ class _ProfileMainState extends State<_ProfileMain> {
                 classes:
                     'flex-1 py-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer '
                     '${isDark ? "border-zinc-800 bg-zinc-800 hover:bg-zinc-700 text-zinc-300" : "border-zinc-200 bg-zinc-100 hover:bg-zinc-200 text-zinc-700"}',
-                events: {'click': (_) => setState(() { showConfirmModal = false; errorMessage = null; })},
+                events: {
+                  'click': (_) => setState(() {
+                    showConfirmModal = false;
+                    errorMessage = null;
+                    cashRefInput = '';
+                    p2pSubscriptionProofBytes = null;
+                    p2pSubscriptionProofFileName = null;
+                    copiedAgentNumber = false;
+                  }),
+                },
                 [Component.text('Cancel')],
               ),
               button(
@@ -1267,16 +1457,50 @@ class _ProfileMainState extends State<_ProfileMain> {
                       } else if (selectedPaymentMethod == 'sol') {
                         await s.processSubscriptionPayment(activeSolPrice, selectedPlan);
                       } else {
-                        final ref = cashRefInput.trim().isNotEmpty
-                            ? cashRefInput.trim()
-                            : 'P2P-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
-                        await s.processCashSubscriptionPayment(selectedPlan, referenceNumber: ref);
+                        final cleanRef = cashRefInput.trim();
+                        if (cleanRef.isEmpty) {
+                          setState(() {
+                            errorMessage = 'Please provide the payment reference number.';
+                            isProcessing = false;
+                          });
+                          return;
+                        }
+                        if (p2pSubscriptionProofBytes == null || p2pSubscriptionProofBytes!.isEmpty) {
+                          setState(() {
+                            errorMessage = 'Please upload your payment screenshot / receipt.';
+                            isProcessing = false;
+                          });
+                          return;
+                        }
+
+                        // Upload proof receipt via ImgBBService
+                        final imgService = ImgBBService(currentFirebaseConfig, idToken: s.idToken);
+                        final uploadedUrl = await imgService.uploadImageBytes(
+                          p2pSubscriptionProofBytes!,
+                          p2pSubscriptionProofFileName ?? 'p2p_subscription_receipt.jpg',
+                        );
+
+                        if (uploadedUrl == null || uploadedUrl.isEmpty) {
+                          throw 'Failed to upload receipt screenshot. Please try again.';
+                        }
+
+                        final method = p2pRail == 'gcash' ? 'GCash (P2P)' : 'Maya (P2P)';
+                        await s.processCashSubscriptionPayment(
+                          selectedPlan,
+                          referenceNumber: cleanRef,
+                          receiptUrl: uploadedUrl,
+                          paymentMethod: method,
+                        );
                       }
                       setState(() {
                         showConfirmModal = false;
                         isProcessing = false;
+                        cashRefInput = '';
+                        p2pSubscriptionProofBytes = null;
+                        p2pSubscriptionProofFileName = null;
+                        copiedAgentNumber = false;
                         successMessage = selectedPaymentMethod == 'cash'
-                            ? 'Cash subscription registered! Awaiting agent verification.'
+                            ? 'Cash (P2P) subscription submitted! Awaiting agent verification.'
                             : 'Pro subscription successfully activated!';
                       });
                     } catch (e) {
