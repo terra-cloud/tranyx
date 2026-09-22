@@ -1,6 +1,7 @@
 {
   "name": "Tranyx",
   "short_name": "Tranyx",
+  "description": "Tranyx - Work. Earn. Rent. Discover",
   "icons": [
     {
       "src": "/android-chrome-192x192.png",
