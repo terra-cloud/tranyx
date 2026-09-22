@@ -7,12 +7,16 @@ const Map<String, String> projectTargets = {
 };
 
 void main(List<String> args) async {
-  final targetEnv = args.isNotEmpty ? args.first.toLowerCase() : 'dev';
-  final projectId = projectTargets[targetEnv];
+  final targetArg = args.isNotEmpty ? args.first.toLowerCase() : 'dev';
 
-  if (projectId == null) {
-    stderr.writeln('Invalid target environment: "$targetEnv".');
-    stderr.writeln('Available targets:');
+  final List<String> targetsToDeploy;
+  if (targetArg == 'all') {
+    targetsToDeploy = ['dev', 'uat', 'prod'];
+  } else if (projectTargets.containsKey(targetArg)) {
+    targetsToDeploy = [targetArg];
+  } else {
+    stderr.writeln('Invalid target environment: "$targetArg".');
+    stderr.writeln('Available targets: dev, uat, prod, all');
     projectTargets.forEach((k, v) => stderr.writeln('  $k -> $v'));
     exit(1);
   }
@@ -25,18 +29,21 @@ void main(List<String> args) async {
     exit(buildProcess.exitCode);
   }
 
-  print('\n=== STEP 2: Deploying to Firebase project "$projectId" ($targetEnv) ===');
-  final deployProcess = await Process.start(
-    'firebase',
-    ['deploy', '--only', 'firestore:rules', '--project', projectId],
-    mode: ProcessStartMode.inheritStdio,
-  );
+  for (final env in targetsToDeploy) {
+    final projectId = projectTargets[env]!;
+    print('\n=== STEP 2: Deploying to Firebase project "$projectId" ($env) ===');
+    final deployProcess = await Process.start(
+      'firebase',
+      ['deploy', '--only', 'firestore:rules', '--project', projectId],
+      mode: ProcessStartMode.inheritStdio,
+    );
 
-  final exitCode = await deployProcess.exitCode;
-  if (exitCode == 0) {
-    print('\n[DEPLOY SUCCESS] Rules successfully compiled and released to "$projectId".');
-  } else {
-    stderr.writeln('\n[DEPLOY FAILED] Firebase deployment exited with code $exitCode.');
-    exit(exitCode);
+    final exitCode = await deployProcess.exitCode;
+    if (exitCode == 0) {
+      print('\n[DEPLOY SUCCESS] Rules successfully released to "$projectId" ($env).');
+    } else {
+      stderr.writeln('\n[DEPLOY FAILED] Firebase deployment to "$projectId" exited with code $exitCode.');
+      exit(exitCode);
+    }
   }
 }

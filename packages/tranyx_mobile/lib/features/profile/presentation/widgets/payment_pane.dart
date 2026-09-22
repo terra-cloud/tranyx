@@ -2129,11 +2129,20 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       // Fetch treasury public key from Env / config
       String? treasuryPublicKey = Env.solanaPublicKey.isNotEmpty ? Env.solanaPublicKey : null;
       if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
-        final configDoc = await firestore
-            .collection('system_config')
-            .doc('treasury')
-            .get();
-        treasuryPublicKey = configDoc.data()?['publicKey'] as String?;
+        try {
+          final configDoc = await firestore
+              .collection('system_config')
+              .doc('treasury')
+              .get();
+          treasuryPublicKey = configDoc.data()?['publicKey'] as String?;
+        } catch (_) {}
+        if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
+          try {
+            final appConfig = await firestore.collection('config').doc('app_config').get();
+            treasuryPublicKey = appConfig.data()?['solanaTreasuryPublicKey'] as String? ??
+                appConfig.data()?['treasuryPublicKey'] as String?;
+          } catch (_) {}
+        }
       }
 
       if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
@@ -2354,11 +2363,20 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       // Fetch treasury public key from Env / config
       String? treasuryPublicKey = Env.solanaPublicKey.isNotEmpty ? Env.solanaPublicKey : null;
       if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
-        final configDoc = await firestore
-            .collection('system_config')
-            .doc('treasury')
-            .get();
-        treasuryPublicKey = configDoc.data()?['publicKey'] as String?;
+        try {
+          final configDoc = await firestore
+              .collection('system_config')
+              .doc('treasury')
+              .get();
+          treasuryPublicKey = configDoc.data()?['publicKey'] as String?;
+        } catch (_) {}
+        if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
+          try {
+            final appConfig = await firestore.collection('config').doc('app_config').get();
+            treasuryPublicKey = appConfig.data()?['solanaTreasuryPublicKey'] as String? ??
+                appConfig.data()?['treasuryPublicKey'] as String?;
+          } catch (_) {}
+        }
       }
 
       if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {

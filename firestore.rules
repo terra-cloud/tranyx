@@ -828,6 +828,13 @@ service cloud.firestore {
       allow write: if (isActiveUser() && (request.auth.uid == submissionId)) || isAdminOrStaff();
     }
 
+    // Agent & Staff Realtime Presence Collection
+    match /presence/{agentId} {
+      allow read: if true;
+      allow write: if isAuthenticated() && (isOwner(agentId) || isAdminOrStaff());
+    }
+
+
 // >>> SOURCE: firestore_rules/99_footer.rules
     // ------------------------------------------------------------------------
     // COLLECTION GROUP QUERIES & ROOT CLOSING
