@@ -111,3 +111,10 @@
       allow read: if isAuthenticated() && (request.auth.uid == submissionId || resource.data.uid == request.auth.uid || isAdminOrStaff());
       allow write: if (isActiveUser() && (request.auth.uid == submissionId)) || isAdminOrStaff();
     }
+
+    // Agent & Staff Realtime Presence Collection
+    match /presence/{agentId} {
+      allow read: if true;
+      allow write: if isAuthenticated() && (isOwner(agentId) || isAdminOrStaff());
+    }
+
