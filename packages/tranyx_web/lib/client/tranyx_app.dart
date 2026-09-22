@@ -1220,7 +1220,7 @@ class TranyxAppState extends State<TranyxApp> {
       if (unreadCount > 0) {
         web.document.title = '($unreadCount) Tranyx Web';
       } else {
-        web.document.title = 'Tranyx — Decentralized Freelance Gig Marketplace';
+        web.document.title = 'Tranyx - Work. Earn. Rent. Discover';
       }
     } catch (_) {}
   }

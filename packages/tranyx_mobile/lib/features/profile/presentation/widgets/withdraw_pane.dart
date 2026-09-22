@@ -275,8 +275,10 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> with SingleTickerPr
       try {
         String? treasuryPrivKey = Env.solanaPrivateKey.isNotEmpty ? Env.solanaPrivateKey : null;
         if (treasuryPrivKey == null || treasuryPrivKey.isEmpty) {
-          final configDoc = await firestore.collection('system_config').doc('treasury').get();
-          treasuryPrivKey = configDoc.data()?['privateKeyBase58'] as String?;
+          try {
+            final configDoc = await firestore.collection('system_config').doc('treasury').get();
+            treasuryPrivKey = configDoc.data()?['privateKeyBase58'] as String?;
+          } catch (_) {}
         }
 
         if (treasuryPrivKey != null && treasuryPrivKey.isNotEmpty) {

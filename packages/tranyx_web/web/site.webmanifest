@@ -1,6 +1,7 @@
 {
   "name": "Tranyx",
   "short_name": "Tranyx",
+  "description": "Find freelance gigs, rent vehicles and properties, and earn securely on the all-in-one P2P platform. Powered by Web3 escrow and verified Nyxians in the Philippines.",
   "icons": [
     {
       "src": "/android-chrome-192x192.png",
