@@ -4512,6 +4512,17 @@ class TranyxAppState extends State<TranyxApp> {
           final rate = (appData['proposalRate'] as num).toDouble();
           final originalPrice = (jobDoc['pricingValue'] as num).toDouble();
 
+          final validation = JobCounterOfferValidator.validate(
+            originalOffer: originalPrice,
+            counterOfferInput: rate,
+            isCounterOffer: true,
+          );
+          if (!validation.isValid) {
+            showAppToast('Invalid Counter Offer', validation.errorMessage ?? 'Cannot accept invalid counter offer.');
+            setState(() => isUpdatingJobStatus = false);
+            return;
+          }
+
           final txFeeRate = (jobDoc['transactionFeeRate'] as num?)?.toDouble() ?? 0.07;
           final convFeeRate = (jobDoc['convenienceFeeRate'] as num?)?.toDouble() ?? 0.03;
           final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
@@ -6037,6 +6048,24 @@ class TranyxAppState extends State<TranyxApp> {
       return;
     }
 
+    final double originalPrice = (selectedJobData?['pricingValue'] as num?)?.toDouble() ?? 0.0;
+    double proposalRateToSubmit = originalPrice;
+
+    if (isCounterOffer) {
+      final validation = JobCounterOfferValidator.validate(
+        originalOffer: originalPrice,
+        counterOfferInput: applyPriceRate,
+        isCounterOffer: true,
+      );
+      if (!validation.isValid) {
+        final err = validation.errorMessage ?? 'Invalid counter offer.';
+        showAppToast('Validation Error', err);
+        setState(() => applyError = err);
+        return;
+      }
+      proposalRateToSubmit = validation.sanitizedRate!;
+    }
+
     setState(() {
       isSubmittingApplication = true;
       applyError = null;
@@ -6048,7 +6077,7 @@ class TranyxAppState extends State<TranyxApp> {
         applicantName: userName.isEmpty ? 'Anonymous' : userName,
         applicantPhotoUrl: userPhotoUrl,
         coverNote: coverNote,
-        proposalRate: isCounterOffer ? (double.tryParse(applyPriceRate) ?? 0.0) : 0.0,
+        proposalRate: proposalRateToSubmit,
         isCounterOffer: isCounterOffer,
       );
 

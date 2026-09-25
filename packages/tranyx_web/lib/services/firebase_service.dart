@@ -1950,6 +1950,19 @@ class FirestoreService {
       }
     }
 
+    // Backend / Service Counter-Offer Validation (80% - 150% and strictly > 0)
+    if (isCounterOffer) {
+      final originalPrice = (jobDoc?['pricingValue'] as num?)?.toDouble() ?? 0.0;
+      final validation = JobCounterOfferValidator.validate(
+        originalOffer: originalPrice,
+        counterOfferInput: proposalRate,
+        isCounterOffer: true,
+      );
+      if (!validation.isValid) {
+        throw Exception(validation.errorMessage ?? 'Invalid counter offer.');
+      }
+    }
+
     // Eligibility check: ensure applicant has no active, ongoing accepted jobs
     final acceptedJobs = await getAcceptedJobs(applicantUid);
     final hasOngoing = acceptedJobs.any((j) {

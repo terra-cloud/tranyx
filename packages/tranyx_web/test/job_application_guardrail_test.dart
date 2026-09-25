@@ -191,4 +191,104 @@ void main() {
       expect(hasOngoing, isTrue);
     });
   });
+
+  group('Job Application Counter-Offer Restrictions (80% - 150%) (Web & Shared)', () {
+    const double originalOffer = 1000.0;
+
+    test('valid counter offers between 80% and 150% pass validation', () {
+      final minRes = JobCounterOfferValidator.validate(
+        originalOffer: originalOffer,
+        counterOfferInput: '800',
+        isCounterOffer: true,
+      );
+      expect(minRes.isValid, isTrue);
+      expect(minRes.sanitizedRate, equals(800.0));
+
+      final midRes = JobCounterOfferValidator.validate(
+        originalOffer: originalOffer,
+        counterOfferInput: 1200.0,
+        isCounterOffer: true,
+      );
+      expect(midRes.isValid, isTrue);
+      expect(midRes.sanitizedRate, equals(1200.0));
+
+      final maxRes = JobCounterOfferValidator.validate(
+        originalOffer: originalOffer,
+        counterOfferInput: '₱1,500',
+        isCounterOffer: true,
+      );
+      expect(maxRes.isValid, isTrue);
+      expect(maxRes.sanitizedRate, equals(1500.0));
+    });
+
+    test('counter offers below 80% are rejected with exact error message', () {
+      final res = JobCounterOfferValidator.validate(
+        originalOffer: originalOffer,
+        counterOfferInput: 799.0,
+        isCounterOffer: true,
+      );
+      expect(res.isValid, isFalse);
+      expect(
+        res.errorMessage,
+        equals("Your counter offer must be between ₱800 and ₱1,500 based on the employer's original offer of ₱1,000."),
+      );
+    });
+
+    test('counter offers above 150% are rejected with exact error message', () {
+      final res = JobCounterOfferValidator.validate(
+        originalOffer: originalOffer,
+        counterOfferInput: 1501.0,
+        isCounterOffer: true,
+      );
+      expect(res.isValid, isFalse);
+      expect(
+        res.errorMessage,
+        equals("Your counter offer must be between ₱800 and ₱1,500 based on the employer's original offer of ₱1,000."),
+      );
+    });
+
+    test('counter offers with ₱0 or negative are rejected', () {
+      final resZero = JobCounterOfferValidator.validate(
+        originalOffer: originalOffer,
+        counterOfferInput: '0',
+        isCounterOffer: true,
+      );
+      expect(resZero.isValid, isFalse);
+      expect(resZero.errorMessage, equals('Counter offer cannot be ₱0 or negative.'));
+
+      final resNeg = JobCounterOfferValidator.validate(
+        originalOffer: originalOffer,
+        counterOfferInput: -100.0,
+        isCounterOffer: true,
+      );
+      expect(resNeg.isValid, isFalse);
+      expect(resNeg.errorMessage, equals('Counter offer cannot be ₱0 or negative.'));
+    });
+
+    test('blank, whitespace, or invalid string inputs are rejected', () {
+      final resBlank = JobCounterOfferValidator.validate(
+        originalOffer: originalOffer,
+        counterOfferInput: '   ',
+        isCounterOffer: true,
+      );
+      expect(resBlank.isValid, isFalse);
+      expect(resBlank.errorMessage, equals('Please enter a valid counter offer amount.'));
+
+      final resText = JobCounterOfferValidator.validate(
+        originalOffer: originalOffer,
+        counterOfferInput: 'invalid_price',
+        isCounterOffer: true,
+      );
+      expect(resText.isValid, isFalse);
+      expect(resText.errorMessage, equals('Please enter a valid counter offer amount.'));
+    });
+
+    test('permitted range display text formats correctly', () {
+      final display = JobCounterOfferValidator.getPermittedRangeDisplay(originalOffer);
+      expect(
+        display,
+        equals("Allowed counter offer: ₱800 – ₱1,500 (80% – 150% of original offer ₱1,000)"),
+      );
+    });
+  });
 }

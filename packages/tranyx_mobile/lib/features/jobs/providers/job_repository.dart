@@ -196,6 +196,19 @@ class JobRepository {
         throw Exception('Cannot apply to a $status job.');
       }
 
+      // Backend / Repository Counter-Offer Validation (80% - 150% and strictly > 0)
+      if (application.isCounterOffer) {
+        final double originalJobPrice = (data['pricingValue'] as num?)?.toDouble() ?? 0.0;
+        final validation = JobCounterOfferValidator.validate(
+          originalOffer: originalJobPrice,
+          counterOfferInput: application.proposalRate,
+          isCounterOffer: true,
+        );
+        if (!validation.isValid) {
+          throw Exception(validation.errorMessage ?? 'Invalid counter offer.');
+        }
+      }
+
       final List<String> applicantUids = List<String>.from(
         data['applicantUids'] ?? [],
       );
@@ -363,6 +376,15 @@ class JobRepository {
       double finalPrice = originalPrice;
 
       if (application.isCounterOffer) {
+        final validation = JobCounterOfferValidator.validate(
+          originalOffer: originalPrice,
+          counterOfferInput: rate,
+          isCounterOffer: true,
+        );
+        if (!validation.isValid) {
+          throw Exception('Cannot accept counter offer: ${validation.errorMessage}');
+        }
+
         if (rate > originalPrice) {
           final diff = rate - originalPrice;
           if (newEmployerBalance < diff) {
@@ -375,6 +397,10 @@ class JobRepository {
           newEmployerBalance += diff;
           finalPrice = rate;
         }
+      }
+
+      if (finalPrice <= 0) {
+        throw Exception('Transaction price must be greater than ₱0.');
       }
 
       // Update employer's balance

@@ -6,6 +6,7 @@ import 'date_utils.dart';
 export 'enums.dart';
 export 'property_pricing_model.dart';
 export 'date_utils.dart';
+export 'job_counter_offer_validator.dart';
 
 enum AccountType {
   nyxian,

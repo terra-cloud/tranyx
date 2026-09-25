@@ -486,7 +486,30 @@ service cloud.firestore {
       // Subcollection: Applications
       match /applications/{applicantId} {
         allow read: if isAuthenticated();
-        allow write: if (isActiveUser() && (request.auth.uid == applicantId || resource.data.applicantId == request.auth.uid)) || isAdminOrStaff();
+        allow create, update: if (
+          (isActiveUser() && (
+            request.auth.uid == applicantId ||
+            (resource != null && (resource.data.applicantId == request.auth.uid || resource.data.applicantUid == request.auth.uid)) ||
+            get(/databases/$(database)/documents/jobs/$(jobId)).data.creatorId == request.auth.uid
+          )) ||
+          isAdminOrStaff()
+        ) && (
+          // Standard rate bids
+          request.resource.data.isCounterOffer != true ||
+          // Counter offers: strictly positive (> 0) and restricted to 80% - 150% of the job's pricingValue
+          (
+            request.resource.data.proposalRate is number &&
+            request.resource.data.proposalRate > 0 &&
+            get(/databases/$(database)/documents/jobs/$(jobId)).data.pricingValue is number &&
+            get(/databases/$(database)/documents/jobs/$(jobId)).data.pricingValue > 0 &&
+            request.resource.data.proposalRate >= (get(/databases/$(database)/documents/jobs/$(jobId)).data.pricingValue * 0.8) - 0.01 &&
+            request.resource.data.proposalRate <= (get(/databases/$(database)/documents/jobs/$(jobId)).data.pricingValue * 1.5) + 0.01
+          )
+        );
+        allow delete: if (isActiveUser() && (
+          request.auth.uid == applicantId ||
+          (resource != null && (resource.data.applicantId == request.auth.uid || resource.data.applicantUid == request.auth.uid))
+        )) || isAdminOrStaff();
       }
 
       // Subcollection: Messages (Job chat room)
@@ -834,14 +857,13 @@ service cloud.firestore {
       allow write: if isAuthenticated() && (isOwner(agentId) || isAdminOrStaff());
     }
 
-
 // >>> SOURCE: firestore_rules/99_footer.rules
     // ------------------------------------------------------------------------
     // COLLECTION GROUP QUERIES & ROOT CLOSING
     // ------------------------------------------------------------------------
 
     match /{path=**}/applications/{applicantId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isActiveUser() || isAdminOrStaff();
     }
 
     match /{path=**}/questions/{questionId} {

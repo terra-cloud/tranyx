@@ -3,7 +3,7 @@
     // ------------------------------------------------------------------------
 
     match /{path=**}/applications/{applicantId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isActiveUser() || isAdminOrStaff();
     }
 
     match /{path=**}/questions/{questionId} {

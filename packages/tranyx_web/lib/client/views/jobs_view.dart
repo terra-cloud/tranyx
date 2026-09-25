@@ -3293,17 +3293,46 @@ class _ApplyJob extends StatelessComponent {
         options: const [('Standard Rate', 'standard'), ('Counter-offer', 'counter')],
         selected: s.isCounterOffer ? 'counter' : 'standard',
         isDark: isDark,
-        onChange: (v) => s.setState(() => s.isCounterOffer = v == 'counter'),
+        onChange: (v) => s.setState(() {
+          s.isCounterOffer = v == 'counter';
+          s.applyError = null;
+        }),
       ),
-      if (s.isCounterOffer)
+      if (s.isCounterOffer) ...[
+        div(classes: 'p-3.5 rounded-xl border flex items-center gap-2.5 ${isDark ? "bg-indigo-950/30 border-indigo-800/40 text-indigo-400" : "bg-indigo-50 border-indigo-200 text-indigo-700"} text-xs font-semibold', [
+          lIcon('info', cls: 'w-4 h-4 shrink-0'),
+          span([
+            Component.text(
+              JobCounterOfferValidator.getPermittedRangeDisplay(
+                (s.selectedJobData?['pricingValue'] as num?)?.toDouble() ?? 0.0,
+              ),
+            ),
+          ]),
+        ]),
         inputField(
           label: 'Your Rate (₱)',
           placeholder: '0.00',
           iconName: 'wallet',
           isDark: isDark,
           value: s.applyPriceRate,
-          onChange: (v) => s.setState(() => s.applyPriceRate = v),
+          onChange: (v) {
+            s.setState(() {
+              s.applyPriceRate = v;
+              if (v.trim().isNotEmpty) {
+                final origPrice = (s.selectedJobData?['pricingValue'] as num?)?.toDouble() ?? 0.0;
+                final res = JobCounterOfferValidator.validate(
+                  originalOffer: origPrice,
+                  counterOfferInput: v,
+                  isCounterOffer: true,
+                );
+                s.applyError = res.isValid ? null : res.errorMessage;
+              } else {
+                s.applyError = null;
+              }
+            });
+          },
         ),
+      ],
       div(classes: 'p-4 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"}', [
         div(classes: 'flex justify-between items-center mb-2', [
           span(classes: 'text-xs font-medium ${isDark ? "text-zinc-500" : "text-zinc-400"}', [

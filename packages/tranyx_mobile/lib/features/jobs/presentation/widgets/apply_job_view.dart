@@ -22,6 +22,22 @@ class _ApplyJobViewState extends ConsumerState<ApplyJobView> {
   final TextEditingController _coverController = TextEditingController();
   final TextEditingController _counterOfferController = TextEditingController();
   bool _isSubmitting = false;
+  String? _counterOfferError;
+
+  void _validateCounterOffer(double originalPrice, String value) {
+    if (value.trim().isEmpty) {
+      setState(() => _counterOfferError = null);
+      return;
+    }
+    final res = JobCounterOfferValidator.validate(
+      originalOffer: originalPrice,
+      counterOfferInput: value,
+      isCounterOffer: true,
+    );
+    setState(() {
+      _counterOfferError = res.isValid ? null : res.errorMessage;
+    });
+  }
 
   @override
   void initState() {
@@ -127,7 +143,10 @@ class _ApplyJobViewState extends ConsumerState<ApplyJobView> {
             "Standard Rate",
             selectedJob.pricingValue.toAmount(length: 0),
             !isCounterOffer,
-            () => ref.read(isCounterOfferProvider.notifier).state = false,
+            () {
+              ref.read(isCounterOfferProvider.notifier).state = false;
+              setState(() => _counterOfferError = null);
+            },
             isDarkMode,
           ),
           const SizedBox(height: 12),
@@ -135,20 +154,60 @@ class _ApplyJobViewState extends ConsumerState<ApplyJobView> {
             "Make a Counter Offer",
             "",
             isCounterOffer,
-            () => ref.read(isCounterOfferProvider.notifier).state = true,
+            () {
+              ref.read(isCounterOfferProvider.notifier).state = true;
+              if (_counterOfferController.text.trim().isNotEmpty) {
+                _validateCounterOffer(selectedJob.pricingValue, _counterOfferController.text);
+              }
+            },
             isDarkMode,
           ),
           if (isCounterOffer) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: isDarkMode
+                    ? AppColors.darkPrimary.withOpacity(0.12)
+                    : AppColors.lightPrimary.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isDarkMode
+                      ? AppColors.darkPrimary.withOpacity(0.25)
+                      : AppColors.lightPrimary.withOpacity(0.25),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: isDarkMode ? AppColors.darkPrimary : AppColors.lightPrimary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      JobCounterOfferValidator.getPermittedRangeDisplay(selectedJob.pricingValue),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isDarkMode ? AppColors.darkPrimary : AppColors.lightPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               decoration: BoxDecoration(
                 color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: isDarkMode
-                      ? AppColors.darkBorder
-                      : AppColors.lightBorder,
+                  color: _counterOfferError != null
+                      ? Colors.redAccent
+                      : (isDarkMode ? AppColors.darkBorder : AppColors.lightBorder),
                 ),
               ),
               child: TextField(
@@ -160,12 +219,13 @@ class _ApplyJobViewState extends ConsumerState<ApplyJobView> {
                   color: isDarkMode ? AppColors.darkText : AppColors.lightText,
                   fontSize: 16,
                 ),
+                onChanged: (val) => _validateCounterOffer(selectedJob.pricingValue, val),
                 decoration: InputDecoration(
                   icon: Icon(
-                    Icons.attach_money,
-                    color: isDarkMode
-                        ? AppColors.darkTextMuted
-                        : AppColors.lightTextMuted,
+                    Icons.payments_outlined,
+                    color: _counterOfferError != null
+                        ? Colors.redAccent
+                        : (isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted),
                   ),
                   hintText: "0.00",
                   hintStyle: TextStyle(
@@ -177,6 +237,28 @@ class _ApplyJobViewState extends ConsumerState<ApplyJobView> {
                 ),
               ),
             ),
+            if (_counterOfferError != null) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, size: 14, color: Colors.redAccent),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _counterOfferError!,
+                        style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
           const SizedBox(height: 32),
           Row(
@@ -371,15 +453,33 @@ class _ApplyJobViewState extends ConsumerState<ApplyJobView> {
                       );
                     }
                     return;
+                  double rate = selectedJob.pricingValue;
+                  if (isCounterOffer) {
+                    final validation = JobCounterOfferValidator.validate(
+                      originalOffer: selectedJob.pricingValue,
+                      counterOfferInput: _counterOfferController.text,
+                      isCounterOffer: true,
+                    );
+                    if (!validation.isValid) {
+                      setState(() {
+                        _counterOfferError = validation.errorMessage;
+                        _isSubmitting = false;
+                      });
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(validation.errorMessage ?? 'Invalid counter offer.'),
+                            backgroundColor: Colors.redAccent,
+                            duration: const Duration(seconds: 4),
+                          ),
+                        );
+                      }
+                      return;
+                    }
+                    rate = validation.sanitizedRate!;
                   }
 
                   setState(() => _isSubmitting = true);
-
-                  double rate = selectedJob.pricingValue;
-                  if (isCounterOffer) {
-                    rate =
-                        double.tryParse(_counterOfferController.text) ?? rate;
-                  }
 
                   final application = JobApplication(
                     id: '', // Will be stored under userUid

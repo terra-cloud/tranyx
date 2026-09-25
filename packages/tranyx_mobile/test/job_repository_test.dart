@@ -96,6 +96,149 @@ void main() {
       expect(firestore.collectionQueries, contains('jobs'));
     });
 
+    group('Job Application Counter-Offer Restrictions (80% - 150%)', () {
+      setUp(() {
+        firestore.db['jobs/job_counter_test'] = {
+          'id': 'job_counter_test',
+          'creatorId': 'employer999',
+          'title': 'Electrical Wiring',
+          'pricingValue': 1000.0,
+          'status': 'Open',
+          'applicantCount': 0,
+          'applicantUids': <String>[],
+          'recentApplicantPhotos': <String>[],
+        };
+      });
+
+      test('allows counter offer within 80% to 150% range', () async {
+        final app = JobApplication(
+          id: 'app_valid',
+          jobId: 'job_counter_test',
+          applicantUid: 'nyxian_valid',
+          applicantName: 'Good Electrician',
+          coverNote: 'I can do this well.',
+          proposalRate: 1200.0,
+          isCounterOffer: true,
+          createdAt: DateTime.now(),
+        );
+
+        await repo.applyToJob(app);
+
+        final appDoc = await firestore
+            .collection('jobs')
+            .doc('job_counter_test')
+            .collection('applications')
+            .doc('nyxian_valid')
+            .get();
+        expect(appDoc.exists, isTrue);
+        expect(appDoc.data()!['proposalRate'], equals(1200.0));
+        expect(appDoc.data()!['isCounterOffer'], isTrue);
+
+        // Verify original employer offer remains unchanged
+        final jobDoc = await firestore.collection('jobs').doc('job_counter_test').get();
+        expect(jobDoc.data()!['pricingValue'], equals(1000.0));
+      });
+
+      test('rejects counter offer below 80% of original offer', () async {
+        final app = JobApplication(
+          id: 'app_low',
+          jobId: 'job_counter_test',
+          applicantUid: 'nyxian_low',
+          applicantName: 'Cheap Electrician',
+          coverNote: 'Very low bid.',
+          proposalRate: 799.0,
+          isCounterOffer: true,
+          createdAt: DateTime.now(),
+        );
+
+        expect(
+          () => repo.applyToJob(app),
+          throwsA(predicate((e) =>
+              e.toString().contains("Your counter offer must be between ₱800 and ₱1,500 based on the employer's original offer of ₱1,000."))),
+        );
+      });
+
+      test('rejects counter offer above 150% of original offer', () async {
+        final app = JobApplication(
+          id: 'app_high',
+          jobId: 'job_counter_test',
+          applicantUid: 'nyxian_high',
+          applicantName: 'Expensive Electrician',
+          coverNote: 'High bid.',
+          proposalRate: 1501.0,
+          isCounterOffer: true,
+          createdAt: DateTime.now(),
+        );
+
+        expect(
+          () => repo.applyToJob(app),
+          throwsA(predicate((e) =>
+              e.toString().contains("Your counter offer must be between ₱800 and ₱1,500 based on the employer's original offer of ₱1,000."))),
+        );
+      });
+
+      test('rejects ₱0 or negative counter offer amounts', () async {
+        final appZero = JobApplication(
+          id: 'app_zero',
+          jobId: 'job_counter_test',
+          applicantUid: 'nyxian_zero',
+          applicantName: 'Zero Bidder',
+          coverNote: 'Free labor.',
+          proposalRate: 0.0,
+          isCounterOffer: true,
+          createdAt: DateTime.now(),
+        );
+
+        expect(
+          () => repo.applyToJob(appZero),
+          throwsA(predicate((e) => e.toString().contains('Counter offer cannot be ₱0 or negative.'))),
+        );
+
+        final appNegative = JobApplication(
+          id: 'app_neg',
+          jobId: 'job_counter_test',
+          applicantUid: 'nyxian_neg',
+          applicantName: 'Negative Bidder',
+          coverNote: 'Negative bid.',
+          proposalRate: -50.0,
+          isCounterOffer: true,
+          createdAt: DateTime.now(),
+        );
+
+        expect(
+          () => repo.applyToJob(appNegative),
+          throwsA(predicate((e) => e.toString().contains('Counter offer cannot be ₱0 or negative.'))),
+        );
+      });
+
+      test('rejects acceptApplication if counter offer is invalid or zero', () async {
+        firestore.db['users/employer999'] = {
+          'uid': 'employer999',
+          'tyxBalance': 5000.0,
+        };
+
+        final invalidApp = JobApplication(
+          id: 'app_corrupt',
+          jobId: 'job_counter_test',
+          applicantUid: 'nyxian_corrupt',
+          applicantName: 'Corrupted App',
+          coverNote: 'Corrupted rate.',
+          proposalRate: 0.0,
+          isCounterOffer: true,
+          createdAt: DateTime.now(),
+        );
+
+        expect(
+          () => repo.acceptApplicant(
+            jobId: 'job_counter_test',
+            application: invalidApp,
+            employerUid: 'employer999',
+          ),
+          throwsA(predicate((e) => e.toString().contains('Cannot accept counter offer'))),
+        );
+      });
+    });
+
     test('Verify job questions and answers subcollections', () async {
       firestore.db['jobs/job123'] = {
         'id': 'job123',
