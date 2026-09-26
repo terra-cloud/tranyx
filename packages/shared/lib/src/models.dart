@@ -466,6 +466,15 @@ class Job {
   final List<String> imageUrls;
   final DateTime? updatedAt;
 
+  // Acknowledgment SLA Fields
+  final String? acknowledgmentStatus; // 'pending', 'acknowledged', 'expired'
+  final DateTime? acknowledgmentDeadline;
+  final int? acknowledgmentSlaMinutes;
+  final String? acknowledgmentCategory;
+  final DateTime? acknowledgedAt;
+  final DateTime? hiredAt;
+  final bool acknowledgmentReminderSent;
+
   const Job({
     required this.id,
     required this.creatorId,
@@ -506,6 +515,13 @@ class Job {
     this.discountAmount,
     this.imageUrls = const [],
     this.updatedAt,
+    this.acknowledgmentStatus,
+    this.acknowledgmentDeadline,
+    this.acknowledgmentSlaMinutes,
+    this.acknowledgmentCategory,
+    this.acknowledgedAt,
+    this.hiredAt,
+    this.acknowledgmentReminderSent = false,
   });
 
   /// Formats the original posting date in a user-friendly format (e.g. "Today", "Yesterday", "2 days ago", "Aug 25, 2026").
@@ -573,6 +589,13 @@ class Job {
       'discountAmount': discountAmount,
       'imageUrls': imageUrls,
       if (updatedAt != null) 'updatedAt': updatedAt?.millisecondsSinceEpoch,
+      if (acknowledgmentStatus != null) 'acknowledgmentStatus': acknowledgmentStatus,
+      if (acknowledgmentDeadline != null) 'acknowledgmentDeadline': acknowledgmentDeadline?.millisecondsSinceEpoch,
+      if (acknowledgmentSlaMinutes != null) 'acknowledgmentSlaMinutes': acknowledgmentSlaMinutes,
+      if (acknowledgmentCategory != null) 'acknowledgmentCategory': acknowledgmentCategory,
+      if (acknowledgedAt != null) 'acknowledgedAt': acknowledgedAt?.millisecondsSinceEpoch,
+      if (hiredAt != null) 'hiredAt': hiredAt?.millisecondsSinceEpoch,
+      'acknowledgmentReminderSent': acknowledgmentReminderSent,
     };
   }
 
@@ -628,6 +651,13 @@ class Job {
       discountAmount: (map['discountAmount'] as num?)?.toDouble(),
       imageUrls: List<String>.from(map['imageUrls'] ?? []),
       updatedAt: parseDateTime(map['updatedAt']),
+      acknowledgmentStatus: map['acknowledgmentStatus'] as String?,
+      acknowledgmentDeadline: parseDateTime(map['acknowledgmentDeadline']),
+      acknowledgmentSlaMinutes: (map['acknowledgmentSlaMinutes'] as num?)?.toInt(),
+      acknowledgmentCategory: map['acknowledgmentCategory'] as String?,
+      acknowledgedAt: parseDateTime(map['acknowledgedAt']),
+      hiredAt: parseDateTime(map['hiredAt']),
+      acknowledgmentReminderSent: map['acknowledgmentReminderSent'] as bool? ?? false,
     );
   }
 
@@ -671,6 +701,13 @@ class Job {
     double? discountAmount,
     List<String>? imageUrls,
     DateTime? updatedAt,
+    String? acknowledgmentStatus,
+    DateTime? acknowledgmentDeadline,
+    int? acknowledgmentSlaMinutes,
+    String? acknowledgmentCategory,
+    DateTime? acknowledgedAt,
+    DateTime? hiredAt,
+    bool? acknowledgmentReminderSent,
   }) {
     return Job(
       id: id ?? this.id,
@@ -713,12 +750,21 @@ class Job {
       discountAmount: discountAmount ?? this.discountAmount,
       imageUrls: imageUrls ?? this.imageUrls,
       updatedAt: updatedAt ?? this.updatedAt,
+      acknowledgmentStatus: acknowledgmentStatus ?? this.acknowledgmentStatus,
+      acknowledgmentDeadline: acknowledgmentDeadline ?? this.acknowledgmentDeadline,
+      acknowledgmentSlaMinutes: acknowledgmentSlaMinutes ?? this.acknowledgmentSlaMinutes,
+      acknowledgmentCategory: acknowledgmentCategory ?? this.acknowledgmentCategory,
+      acknowledgedAt: acknowledgedAt ?? this.acknowledgedAt,
+      hiredAt: hiredAt ?? this.hiredAt,
+      acknowledgmentReminderSent: acknowledgmentReminderSent ?? this.acknowledgmentReminderSent,
     );
   }
   String get employerId => creatorId;
   String? get acceptedNyxianId => acceptedApplicantId;
   double get budget => pricingValue;
   bool get isHired => acceptedApplicantId != null && acceptedApplicantId!.trim().isNotEmpty;
+  bool get isAwaitingAcknowledgment => status.trim().toLowerCase() == 'awaiting acknowledgment';
+  bool get isAcknowledgmentExpired => status.trim().toLowerCase() == 'acknowledgment expired';
   bool get isEdited => updatedAt != null;
   String? get formattedEditedDate => updatedAt != null ? formatEditedDate(updatedAt) : null;
   bool get isPreHire =>
