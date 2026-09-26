@@ -424,12 +424,68 @@ class JobRepository {
         if (hasInspectionHoldback) 'holdbackAmount': holdbackAmount,
       });
 
-      // Update job status and accepted applicant details
+      // Categorize and determine acknowledgment SLA
+      final category = JobSlaHelper.classifyJob(
+        categoryName: jobData['category'] as String?,
+        categoryGroup: jobData['categoryGroup'] as String?,
+        title: jobData['title'] as String?,
+        locationType: jobData['locationType'] as String?,
+      );
+      final slaMinutes = category.defaultSlaMinutes;
+      final deadline = JobSlaHelper.calculateDeadline(
+        category: category,
+        hiredAt: DateTime.fromMillisecondsSinceEpoch(now),
+        slaMinutes: slaMinutes,
+        jobDate: jobData['jobDate'] as String?,
+      ).millisecondsSinceEpoch;
+
+      // Update job status and accepted applicant details with SLA acknowledgment metadata
       transaction.update(jobRef, {
-        'status': 'In Progress',
+        'status': 'Awaiting Acknowledgment',
         'acceptedApplicantId': application.applicantUid,
         'pricingValue': finalPrice,
+        'acknowledgmentStatus': 'pending',
+        'acknowledgmentCategory': category.id,
+        'acknowledgmentSlaMinutes': slaMinutes,
+        'acknowledgmentDeadline': deadline,
+        'hiredAt': now,
+        'acknowledgmentReminderSent': false,
       });
+    });
+  }
+
+  Future<void> acknowledgeJob(String jobId, String nyxianUid) async {
+    final jobRef = _firestore.collection('jobs').doc(jobId);
+    final snap = await jobRef.get();
+    if (!snap.exists) throw Exception('Job not found.');
+    final data = snap.data()!;
+    if (data['acceptedApplicantId'] != nyxianUid) {
+      throw Exception('UNAUTHORIZED: Only the hired Nyxian can acknowledge this job.');
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await jobRef.update({
+      'status': 'In Progress',
+      'acknowledgmentStatus': 'acknowledged',
+      'acknowledgedAt': now,
+    });
+  }
+
+  Future<void> resetJobForNewApplicants(String jobId, String employerUid) async {
+    final jobRef = _firestore.collection('jobs').doc(jobId);
+    final snap = await jobRef.get();
+    if (!snap.exists) throw Exception('Job not found.');
+    final data = snap.data()!;
+    if (data['creatorId'] != employerUid) {
+      throw Exception('UNAUTHORIZED: Only the job creator can reset this job.');
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await jobRef.update({
+      'status': 'Open',
+      'acceptedApplicantId': null,
+      'acknowledgmentStatus': 'reset',
+      'acknowledgmentDeadline': null,
+      'acknowledgmentReminderSent': false,
+      'updatedAt': now,
     });
   }
 
@@ -822,14 +878,18 @@ class JobRepository {
 
       final String? acceptedNyxian = jobData['acceptedApplicantId'] as String? ?? jobData['nyxianId'] as String?;
       final bool hasAcceptedNyxian = acceptedNyxian != null && acceptedNyxian.trim().isNotEmpty;
-      final bool isCommitted = hasAcceptedNyxian ||
+      final String? ackStatus = jobData['acknowledgmentStatus'] as String?;
+      final bool isAcknowledged = ackStatus == 'acknowledged';
+
+      // Job is committed ONLY once Nyxian has acknowledged and job transitioned to In Progress.
+      // If awaiting acknowledgment or expired, employer retains unilateral cancellation rights.
+      final bool isCommitted = (hasAcceptedNyxian && isAcknowledged) ||
           currentStatus == 'in progress' ||
           currentStatus == 'in_progress' ||
-          currentStatus == 'accepted' ||
           jobData['status'] == 'MUTUAL_CANCEL_PENDING';
 
       if (isCommitted) {
-        throw Exception('JOB_ALREADY_COMMITTED: Employer cannot unilaterally cancel a job once a Nyxian has been accepted.');
+        throw Exception('JOB_ALREADY_COMMITTED: Employer cannot unilaterally cancel a job once a Nyxian has acknowledged.');
       }
 
       final String employerId = jobData['creatorId'] as String? ?? '';
