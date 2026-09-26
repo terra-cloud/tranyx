@@ -1162,6 +1162,8 @@ class FirestoreService {
     required String uid,
     required String title,
     required String message,
+    String? type,
+    String? chatId,
   }) async {
     final docId = 'notif_${DateTime.now().millisecondsSinceEpoch}_${uid.substring(0, min(5, uid.length))}';
     await createOrUpdate('notifications/$docId', {
@@ -1170,6 +1172,8 @@ class FirestoreService {
       'message': message,
       'isRead': false,
       'createdAt': DateTime.now().millisecondsSinceEpoch,
+      if (type != null) 'type': type,
+      if (chatId != null) 'chatId': chatId,
     });
   }
 
@@ -1542,14 +1546,18 @@ class FirestoreService {
 
     final acceptedId = jobDoc['acceptedApplicantId'] as String?;
     final hasAcceptedNyxian = acceptedId != null && acceptedId.trim().isNotEmpty;
-    final isCommitted = hasAcceptedNyxian ||
+    final ackStatus = (jobDoc['acknowledgmentStatus'] as String? ?? '').toLowerCase();
+    final isAckConfirmed = ackStatus == 'acknowledged';
+
+    // Hiring is only fully committed once the Nyxian acknowledges
+    final isCommitted = (hasAcceptedNyxian && isAckConfirmed) ||
         status == 'in progress' ||
         status == 'in_progress' ||
         status == 'accepted' ||
         jobDoc['status'] == 'MUTUAL_CANCEL_PENDING';
 
     if (isCommitted) {
-      throw Exception('JOB_ALREADY_COMMITTED: Employer cannot unilaterally cancel a job once a Nyxian has been accepted.');
+      throw Exception('JOB_ALREADY_COMMITTED: Employer cannot unilaterally cancel a job once a Nyxian has acknowledged and started work.');
     }
 
     final employerId = jobDoc['creatorId'] as String?;
@@ -2255,6 +2263,272 @@ class FirestoreService {
         ...empDoc,
         'rating': newRating,
       });
+    }
+  }
+
+  // ── Job Acknowledgment & SLA Operations ───────────────────────
+
+  /// Fetch dynamic Job SLA configuration from Firestore (or fallback to defaults)
+  Future<JobSlaConfig> getJobSlaConfig() async {
+    try {
+      final doc = await getDocument('platform_config/job_sla');
+      if (doc != null) {
+        return JobSlaConfig.fromMap(doc);
+      }
+    } catch (_) {}
+    return const JobSlaConfig();
+  }
+
+  /// Save dynamic Job SLA configuration to Firestore (Admin only)
+  Future<void> saveJobSlaConfig(JobSlaConfig config) async {
+    await createOrUpdate('platform_config/job_sla', config.toMap());
+  }
+
+  /// Nyxian acknowledges and starts the job directly from chat.
+  /// Updates status to 'In Progress', records acknowledgment timestamp,
+  /// posts confirmation message to chat, and notifies employer.
+  Future<void> acknowledgeJob({
+    required String jobId,
+    required String nyxianUid,
+    String? nyxianName,
+  }) async {
+    final jobDoc = await getDocument('jobs/$jobId');
+    if (jobDoc == null) throw Exception('Job not found.');
+
+    final acceptedId = jobDoc['acceptedApplicantId'] as String? ?? '';
+    if (acceptedId != nyxianUid) {
+      throw Exception('UNAUTHORIZED: Only the assigned Nyxian can acknowledge this gig.');
+    }
+
+    final currentStatus = (jobDoc['status'] as String? ?? '').toLowerCase();
+    if (currentStatus == 'in progress' || currentStatus == 'completed') {
+      return; // Already acknowledged or completed
+    }
+
+    final deadlineMs = (jobDoc['acknowledgmentDeadline'] as num?)?.toInt();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (deadlineMs != null && nowMs > deadlineMs) {
+      throw Exception('SLA_EXPIRED: The acknowledgment period for this gig has expired.');
+    }
+
+    final now = DateTime.now();
+    await createOrUpdate('jobs/$jobId', {
+      ...jobDoc,
+      'status': 'In Progress',
+      'acknowledgmentStatus': 'acknowledged',
+      'acknowledgedAt': now.millisecondsSinceEpoch,
+      'updatedAt': now.millisecondsSinceEpoch,
+    });
+
+    // Post system confirmation message in chat
+    final msgId = 'msg_ack_${now.millisecondsSinceEpoch}';
+    await createOrUpdate('chats/$jobId/messages/$msgId', {
+      'senderId': 'system',
+      'senderName': 'Tranyx System',
+      'type': 'acknowledgment_confirmed',
+      'text': '✅ Nyxian has acknowledged the job and is proceeding with the task.',
+      'createdAt': now.millisecondsSinceEpoch,
+    });
+    // Touch chat metadata
+    await createOrUpdate('chats/$jobId', {
+      'updatedAt': now.millisecondsSinceEpoch,
+    });
+
+    // Notify Employer
+    final employerId = jobDoc['creatorId'] as String? ?? '';
+    final jobTitle = jobDoc['title'] as String? ?? 'Job';
+    if (employerId.isNotEmpty) {
+      await createNotification(
+        uid: employerId,
+        title: 'Job Acknowledged',
+        message: '${nyxianName ?? "Nyxian"} has acknowledged "$jobTitle" and is proceeding with the task.',
+        type: 'chat',
+        chatId: jobId,
+      );
+    }
+  }
+
+  /// Marks a job\'s acknowledgment period as expired due to non-response.
+  /// If Category A (Immediate / Delivery / Errand), automatically resets job so employer is not left waiting.
+  Future<void> expireJobAcknowledgment({
+    required String jobId,
+  }) async {
+    final jobDoc = await getDocument('jobs/$jobId');
+    if (jobDoc == null) return;
+
+    final currentStatus = (jobDoc['status'] as String? ?? '').toLowerCase();
+    if (currentStatus != 'awaiting acknowledgment' && currentStatus != 'open' && currentStatus != 'reviewing') {
+      return;
+    }
+
+    final now = DateTime.now();
+    final nowMs = now.millisecondsSinceEpoch;
+    final jobTitle = jobDoc['title'] as String? ?? 'Job';
+    final employerId = jobDoc['creatorId'] as String? ?? '';
+    final nyxianId = jobDoc['acceptedApplicantId'] as String? ?? '';
+    final category = jobDoc['acknowledgmentCategory'] as String? ?? '';
+
+    await createOrUpdate('jobs/$jobId', {
+      ...jobDoc,
+      'status': 'Acknowledgment Expired',
+      'acknowledgmentStatus': 'expired',
+      'updatedAt': nowMs,
+    });
+
+    // Post system message in chat
+    final msgId = 'msg_exp_$nowMs';
+    await createOrUpdate('chats/$jobId/messages/$msgId', {
+      'senderId': 'system',
+      'senderName': 'Tranyx System',
+      'type': 'acknowledgment_expired',
+      'text': '⚠️ Nyxian has not acknowledged the job within the SLA period. You may cancel this hiring and look for another Nyxian.',
+      'createdAt': nowMs,
+    });
+    await createOrUpdate('chats/$jobId', {
+      'updatedAt': nowMs,
+    });
+
+    // Notify Employer
+    if (employerId.isNotEmpty) {
+      await createNotification(
+        uid: employerId,
+        title: 'Acknowledgment Period Expired',
+        message: 'Nyxian did not acknowledge "$jobTitle" within the SLA window. You can cancel this hiring and find another Nyxian.',
+        type: 'chat',
+        chatId: jobId,
+      );
+    }
+
+    // Notify Nyxian
+    if (nyxianId.isNotEmpty) {
+      await createNotification(
+        uid: nyxianId,
+        title: 'Acknowledgment Window Expired',
+        message: 'The acknowledgment period for "$jobTitle" has expired.',
+        type: 'chat',
+        chatId: jobId,
+      );
+    }
+
+    // Immediate / Delivery / Errand jobs auto-cancel or reset upon 15-minute expiration
+    if (category == JobSlaCategory.immediateDelivery.id) {
+      await resetJobForNewApplicants(
+        jobId: jobId,
+        reason: 'Immediate / Delivery SLA expired (15m non-response). Gig automatically reopened for new Nyxians.',
+      );
+    }
+  }
+
+  /// Sends a reminder to the Nyxian before the acknowledgment deadline expires.
+  Future<void> sendJobAcknowledgmentReminder({
+    required String jobId,
+  }) async {
+    final jobDoc = await getDocument('jobs/$jobId');
+    if (jobDoc == null) return;
+
+    final bool reminderAlreadySent = jobDoc['acknowledgmentReminderSent'] as bool? ?? false;
+    if (reminderAlreadySent) return;
+
+    final currentStatus = (jobDoc['status'] as String? ?? '').toLowerCase();
+    if (currentStatus != 'awaiting acknowledgment') return;
+
+    final now = DateTime.now();
+    final nowMs = now.millisecondsSinceEpoch;
+    final jobTitle = jobDoc['title'] as String? ?? 'Job';
+    final nyxianId = jobDoc['acceptedApplicantId'] as String? ?? '';
+
+    await createOrUpdate('jobs/$jobId', {
+      ...jobDoc,
+      'acknowledgmentReminderSent': true,
+      'updatedAt': nowMs,
+    });
+
+    // Chat reminder message
+    final msgId = 'msg_rem_$nowMs';
+    await createOrUpdate('chats/$jobId/messages/$msgId', {
+      'senderId': 'system',
+      'senderName': 'Tranyx System',
+      'type': 'acknowledgment_reminder',
+      'text': '⏰ Reminder: Acknowledgment required soon. Please acknowledge and start the job before the deadline.',
+      'createdAt': nowMs,
+    });
+    await createOrUpdate('chats/$jobId', {
+      'updatedAt': nowMs,
+    });
+
+    if (nyxianId.isNotEmpty) {
+      await createNotification(
+        uid: nyxianId,
+        title: 'Acknowledgment Reminder',
+        message: 'Reminder: Please acknowledge and start "$jobTitle" before your deadline.',
+        type: 'chat',
+        chatId: jobId,
+      );
+    }
+  }
+
+  /// Reopens a gig for other applicants when acknowledgment is cancelled or expired,
+  /// preserving the funded escrow so the employer can immediately hire another applicant.
+  Future<void> resetJobForNewApplicants({
+    required String jobId,
+    String? reason,
+  }) async {
+    final jobDoc = await getDocument('jobs/$jobId');
+    if (jobDoc == null) throw Exception('Job not found.');
+
+    final now = DateTime.now();
+    final nowMs = now.millisecondsSinceEpoch;
+    final employerId = jobDoc['creatorId'] as String? ?? '';
+    final jobTitle = jobDoc['title'] as String? ?? 'Job';
+    final oldNyxianId = jobDoc['acceptedApplicantId'] as String?;
+
+    await createOrUpdate('jobs/$jobId', {
+      ...jobDoc,
+      'status': 'Open',
+      'acceptedApplicantId': null,
+      'acceptedApplicantName': null,
+      'acknowledgmentStatus': null,
+      'acknowledgmentDeadline': null,
+      'acknowledgmentSlaMinutes': null,
+      'acknowledgmentCategory': null,
+      'acknowledgedAt': null,
+      'hiredAt': null,
+      'acknowledgmentReminderSent': false,
+      'updatedAt': nowMs,
+    });
+
+    // Mark previous applicant as not accepted
+    if (oldNyxianId != null && oldNyxianId.isNotEmpty) {
+      final appDoc = await getDocument('jobs/$jobId/applications/$oldNyxianId');
+      if (appDoc != null) {
+        await createOrUpdate('jobs/$jobId/applications/$oldNyxianId', {
+          ...appDoc,
+          'status': 'EXPIRED_NON_RESPONSE',
+        });
+      }
+    }
+
+    // Post system message in chat
+    final msgId = 'msg_reset_$nowMs';
+    await createOrUpdate('chats/$jobId/messages/$msgId', {
+      'senderId': 'system',
+      'senderName': 'Tranyx System',
+      'type': 'job_reopened',
+      'text': reason ?? 'Gig has been reopened for other applicants. Escrow remains secured.',
+      'createdAt': nowMs,
+    });
+    await createOrUpdate('chats/$jobId', {
+      'updatedAt': nowMs,
+    });
+
+    if (employerId.isNotEmpty) {
+      await createNotification(
+        uid: employerId,
+        title: 'Gig Reopened for Applicants',
+        message: 'Your gig "$jobTitle" is open again. You can now select another Nyxian.',
+        type: 'chat',
+        chatId: jobId,
+      );
     }
   }
 

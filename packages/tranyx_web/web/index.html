@@ -1883,7 +1883,8 @@
       const senderName = msgObj.senderName;
       const text = msgObj.text;
       const photoUrl = msgObj.photoUrl;
-      if (!photoUrl) {
+      const type = msgObj.type || 'text';
+      if (!photoUrl && (!type || type === 'text')) {
         const policyResult = checkMessagePolicy(text);
         if (policyResult !== 'ok') return policyResult;
       }
@@ -1893,8 +1894,12 @@
         senderName: senderName,
         text: photoUrl ? '' : text,
         photoUrl: photoUrl || null,
+        type: type,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       };
+      if (msgObj.category) msg.category = msgObj.category;
+      if (msgObj.deadline) msg.deadline = msgObj.deadline;
+      if (msgObj.slaMinutes) msg.slaMinutes = msgObj.slaMinutes;
       db.collection('chats').doc(chatId).collection('messages').add(msg);
       // Touch chat metadata
       db.collection('chats').doc(chatId).set({ updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });

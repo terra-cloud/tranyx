@@ -919,13 +919,27 @@ void unlistenChatJs(String chatId) {
   } catch (_) {}
 }
 
-String sendChatMessageJs(String chatId, String senderId, String senderName, String text, {String? photoUrl}) {
+String sendChatMessageJs(
+  String chatId,
+  String senderId,
+  String senderName,
+  String text, {
+  String? photoUrl,
+  String? type,
+  int? deadline,
+  int? slaMinutes,
+  String? category,
+}) {
   try {
     final msgObj = JSObject();
     msgObj.setProperty('senderId'.toJS, senderId.toJS);
     msgObj.setProperty('senderName'.toJS, senderName.toJS);
     msgObj.setProperty('text'.toJS, text.toJS);
     msgObj.setProperty('photoUrl'.toJS, (photoUrl ?? '').toJS);
+    if (type != null) msgObj.setProperty('type'.toJS, type.toJS);
+    if (deadline != null) msgObj.setProperty('deadline'.toJS, deadline.toJS);
+    if (slaMinutes != null) msgObj.setProperty('slaMinutes'.toJS, slaMinutes.toJS);
+    if (category != null) msgObj.setProperty('category'.toJS, category.toJS);
 
     final result = web.window.callMethod<JSString>(
       'sendChatMessage'.toJS,

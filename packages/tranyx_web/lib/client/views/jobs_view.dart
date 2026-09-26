@@ -745,6 +745,10 @@ class JobsViewComponent extends StatelessComponent {
     final badgeText = status == 'Open' ? dateReq.toUpperCase() : status.toUpperCase();
     final badgeCls = status == 'In Progress'
         ? 'bg-green-500/20 text-green-400 animate-pulse'
+        : status == 'Awaiting Acknowledgment'
+        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse'
+        : status == 'Acknowledgment Expired'
+        ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
         : status == 'Completed'
         ? 'bg-zinc-700/50 text-zinc-400'
         : (isUrgent ? 'bg-red-500/20 text-red-400' : 'bg-zinc-700 text-zinc-300');
@@ -757,8 +761,19 @@ class JobsViewComponent extends StatelessComponent {
       final myUid = s.userProfile?.uid ?? '';
 
       if (acceptedId == myUid) {
-        appliedStatusText = jobStatus == 'completed' ? 'ACCEPTED (COMPLETED)' : 'ACCEPTED';
-        appliedStatusCls = 'bg-green-500/20 text-green-400';
+        if (jobStatus == 'completed') {
+          appliedStatusText = 'ACCEPTED (COMPLETED)';
+          appliedStatusCls = 'bg-green-500/20 text-green-400';
+        } else if (jobStatus == 'awaiting acknowledgment') {
+          appliedStatusText = 'HIRED (ACTION REQUIRED)';
+          appliedStatusCls = 'bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse';
+        } else if (jobStatus == 'acknowledgment expired') {
+          appliedStatusText = 'EXPIRED';
+          appliedStatusCls = 'bg-rose-500/20 text-rose-400 border border-rose-500/30';
+        } else {
+          appliedStatusText = 'ACCEPTED (IN PROGRESS)';
+          appliedStatusCls = 'bg-green-500/20 text-green-400';
+        }
       } else if (acceptedId != null) {
         appliedStatusText = 'NOT CHOSEN';
         appliedStatusCls = 'bg-red-500/20 text-red-400';

@@ -4304,6 +4304,10 @@ class TranyxAppState extends State<TranyxApp> {
         });
       } catch (_) {}
     });
+
+    if (!chatId.startsWith('rental_') && !chatId.startsWith('property_')) {
+      unawaited(checkJobSlaStatus(chatId));
+    }
   }
 
   void closeChat() {
@@ -4501,10 +4505,24 @@ class TranyxAppState extends State<TranyxApp> {
       final svc = FirestoreService(token, _handleTokenRefresh);
       final jobDoc = await svc.getDocument('jobs/$jobId');
       if (jobDoc != null) {
+        final hiredAt = DateTime.now();
+        final slaConfig = await svc.getJobSlaConfig();
+        final category = JobSlaHelper.classifyJob(jobDoc);
+        final slaMinutes = slaConfig.getSlaMinutes(category);
+        final deadline = JobSlaHelper.calculateDeadline(job: jobDoc, hiredAt: hiredAt, config: slaConfig);
+
         final updates = <String, dynamic>{
           ...jobDoc,
-          'status': 'In Progress',
+          'status': 'Awaiting Acknowledgment',
           'acceptedApplicantId': applicantUid,
+          'acceptedApplicantName': appData['applicantName'] as String? ?? 'Nyxian',
+          'hiredAt': hiredAt.millisecondsSinceEpoch,
+          'acknowledgmentDeadline': deadline.millisecondsSinceEpoch,
+          'acknowledgmentSlaMinutes': slaMinutes,
+          'acknowledgmentCategory': category.id,
+          'acknowledgmentStatus': 'pending',
+          'acknowledgmentReminderSent': false,
+          'updatedAt': hiredAt.millisecondsSinceEpoch,
         };
 
         // Use counter offer if provided
@@ -4639,11 +4657,30 @@ class TranyxAppState extends State<TranyxApp> {
         await svc.awardPointsIfEligible(SessionStorage.uid ?? '', 'hire_applicant');
         await svc.awardPointsIfEligible(applicantUid, 'be_hired');
 
+        // Post acknowledgment request system message to the job chat
+        final durationLabel = JobSlaHelper.formatSlaDurationLabel(slaMinutes);
+        final msgId = 'msg_ack_req_${hiredAt.millisecondsSinceEpoch}';
+        await svc.createOrUpdate('chats/$jobId/messages/$msgId', {
+          'senderId': 'system',
+          'senderName': 'Tranyx System',
+          'type': 'acknowledgment_request',
+          'text': '🎉 You have been hired for this task.\nPlease acknowledge that you have received the job and are ready to proceed.\n\nPlease respond within $durationLabel.',
+          'category': category.id,
+          'deadline': deadline.millisecondsSinceEpoch,
+          'slaMinutes': slaMinutes,
+          'createdAt': hiredAt.millisecondsSinceEpoch,
+        });
+        await svc.createOrUpdate('chats/$jobId', {
+          'updatedAt': hiredAt.millisecondsSinceEpoch,
+        });
+
         final jobTitle = jobDoc['title'] as String? ?? 'Job';
         await svc.createNotification(
           uid: applicantUid,
-          title: 'Application Accepted',
-          message: 'You have been selected for the job "$jobTitle".',
+          title: 'Hired! Action Required: Acknowledge Job',
+          message: 'You have been hired for "$jobTitle". Please acknowledge within $durationLabel to start the gig.',
+          type: 'chat',
+          chatId: jobId,
         );
       }
       setState(() => isUpdatingJobStatus = false);
@@ -4651,13 +4688,124 @@ class TranyxAppState extends State<TranyxApp> {
       if (selectedJobData != null) {
         selectJobAndLoadDetails({
           ...selectedJobData!,
-          'status': 'In Progress',
+          'status': 'Awaiting Acknowledgment',
           'acceptedApplicantId': applicantUid,
         });
       }
     } catch (e) {
       setState(() => isUpdatingJobStatus = false);
     }
+  }
+
+  /// Nyxian acknowledges and starts the job from chat.
+  Future<void> acknowledgeJob(String jobId) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) return;
+
+    setState(() => isUpdatingJobStatus = true);
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      await svc.acknowledgeJob(
+        jobId: jobId,
+        nyxianUid: uid,
+        nyxianName: userProfile?.name,
+      );
+      showAppToast(
+        'Gig Acknowledged & Started',
+        'You have acknowledged the task. Escrow is active and timer has stopped.',
+      );
+      await loadJobs();
+      if (selectedJobData != null && selectedJobData!['id'] == jobId) {
+        selectJobAndLoadDetails({
+          ...selectedJobData!,
+          'status': 'In Progress',
+          'acknowledgmentStatus': 'acknowledged',
+        });
+      }
+    } catch (e) {
+      showAppToast('Acknowledgment Failed', e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      setState(() => isUpdatingJobStatus = false);
+    }
+  }
+
+  /// Cancels an unacknowledged/expired hiring and resets the job to Open for other applicants,
+  /// preserving escrow funds so the employer does not need to re-fund.
+  Future<void> cancelAndFindAnotherNyxian(String jobId) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) return;
+
+    setState(() => isUpdatingJobStatus = true);
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      await svc.resetJobForNewApplicants(
+        jobId: jobId,
+        reason: 'Hiring cancelled by Employer due to expiration/non-response. Job reopened for other applicants.',
+      );
+      showAppToast(
+        'Gig Reopened',
+        'Unresponsive applicant removed. You can now choose another Nyxian.',
+      );
+      await loadJobs();
+      if (selectedJobData != null && selectedJobData!['id'] == jobId) {
+        selectJobAndLoadDetails({
+          ...selectedJobData!,
+          'status': 'Open',
+          'acceptedApplicantId': null,
+          'acknowledgmentStatus': null,
+        });
+      }
+    } catch (e) {
+      showAppToast('Action Failed', e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      setState(() => isUpdatingJobStatus = false);
+    }
+  }
+
+  /// Checks SLA timer status (reminders & expiration) for a job in the background.
+  Future<void> checkJobSlaStatus(String jobId) async {
+    final token = SessionStorage.idToken;
+    if (token == null) return;
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final jobDoc = await svc.getDocument('jobs/$jobId');
+      if (jobDoc == null) return;
+
+      final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+      if (status != 'awaiting acknowledgment') return;
+
+      final deadlineMs = (jobDoc['acknowledgmentDeadline'] as num?)?.toInt();
+      final hiredAtMs = (jobDoc['hiredAt'] as num?)?.toInt() ?? (jobDoc['createdAt'] as num?)?.toInt();
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+      if (deadlineMs != null) {
+        if (nowMs >= deadlineMs) {
+          // Expiration passed
+          await svc.expireJobAcknowledgment(jobId: jobId);
+          await loadJobs();
+          return;
+        }
+
+        // Check if reminder threshold is reached
+        final bool reminderSent = jobDoc['acknowledgmentReminderSent'] as bool? ?? false;
+        if (!reminderSent && hiredAtMs != null) {
+          final slaConfig = await svc.getJobSlaConfig();
+          final category = JobSlaHelper.classifyJob(jobDoc);
+          final reminderTime = JobSlaHelper.calculateReminderTime(
+            job: jobDoc,
+            hiredAt: DateTime.fromMillisecondsSinceEpoch(hiredAtMs),
+            deadline: DateTime.fromMillisecondsSinceEpoch(deadlineMs),
+            config: slaConfig,
+          );
+          if (nowMs >= reminderTime.millisecondsSinceEpoch) {
+            await svc.sendJobAcknowledgmentReminder(jobId: jobId);
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> generateCompletionCode() async {

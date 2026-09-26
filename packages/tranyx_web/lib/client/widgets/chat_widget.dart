@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:web/web.dart' as web;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
@@ -15,6 +16,22 @@ class ChatWidget extends StatefulComponent {
 
 class _ChatWidgetState extends State<ChatWidget> {
   final String _inputId = 'chat-msg-input';
+  Timer? _tickerTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Live countdown ticker every 1 second
+    _tickerTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tickerTimer?.cancel();
+    super.dispose();
+  }
 
   String _formatTime(dynamic raw) {
     try {
@@ -344,6 +361,12 @@ class _ChatWidgetState extends State<ChatWidget> {
 
   Component _buildMessage(Map<String, dynamic> msg, String uid, bool isDark) {
     final senderId = msg['senderId'] as String? ?? '';
+    final type = msg['type'] as String? ?? 'text';
+
+    if (senderId == 'system' || (type.isNotEmpty && type != 'text')) {
+      return _buildSystemMessage(msg, uid, isDark);
+    }
+
     final isMine = senderId == uid;
     final senderName = msg['senderName'] as String? ?? 'User';
     final text = msg['text'] as String? ?? '';
@@ -406,6 +429,216 @@ class _ChatWidgetState extends State<ChatWidget> {
             ],
           ),
       ],
+    );
+  }
+
+  Component _buildSystemMessage(Map<String, dynamic> msg, String uid, bool isDark) {
+    final type = msg['type'] as String? ?? '';
+    final s = component.state;
+    final chatId = s.currentChatId;
+
+    // Retrieve active job data if available
+    final job = s.selectedJobData?['id'] == chatId
+        ? s.selectedJobData
+        : s.myJobs.firstWhere((j) => j['id'] == chatId, orElse: () => <String, dynamic>{});
+    final acceptedNyxianId = job?['acceptedApplicantId'] as String? ?? '';
+    final creatorId = job?['creatorId'] as String? ?? '';
+    final isNyxian = uid == acceptedNyxianId;
+    final isEmployer = uid == creatorId;
+
+    if (type == 'acknowledgment_request') {
+      final deadlineMs = (msg['deadline'] as num?)?.toInt() ?? (job?['acknowledgmentDeadline'] as num?)?.toInt();
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final isExpired = deadlineMs != null && nowMs >= deadlineMs;
+      final remainingMs = (deadlineMs != null) ? (deadlineMs - nowMs).clamp(0, 999999999) : 0;
+      final remainingStr = JobSlaHelper.formatRemainingTime(Duration(milliseconds: remainingMs));
+      final jobStatus = (job?['status'] as String? ?? '').toLowerCase();
+      final isAcknowledged = jobStatus == 'in progress' ||
+          jobStatus == 'completed' ||
+          (job?['acknowledgmentStatus'] == 'acknowledged');
+
+      final categoryId = msg['category'] as String? ?? job?['acknowledgmentCategory'] as String? ?? '';
+      final category = JobSlaCategory.fromId(categoryId);
+
+      return div(
+        classes:
+            'w-full my-2 p-4 rounded-2xl border ${isDark ? "bg-zinc-900/90 border-indigo-500/30" : "bg-indigo-50/70 border-indigo-200"} flex flex-col gap-3 shadow-md animate-fade-up',
+        [
+          div(classes: 'flex items-start gap-3', [
+            div(classes: 'p-2.5 rounded-xl bg-indigo-500/20 text-indigo-400 flex-shrink-0 mt-0.5', [
+              lIcon('clock', cls: 'w-5 h-5'),
+            ]),
+            div(classes: 'flex-1 min-w-0', [
+              div(classes: 'flex items-center gap-2 flex-wrap', [
+                p(classes: 'text-sm font-bold ${isDark ? "text-white" : "text-zinc-900"}', [
+                  Component.text(isNyxian
+                      ? '🎉 You have been hired for this task'
+                      : '🎉 Nyxian hired — Awaiting Acknowledgment'),
+                ]),
+                span(
+                  classes:
+                      'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/30',
+                  [Component.text(category.label)],
+                ),
+              ]),
+              p(classes: 'text-xs mt-1 leading-relaxed ${isDark ? "text-zinc-300" : "text-zinc-600"}', [
+                Component.text(isNyxian
+                    ? 'Please acknowledge that you have received the job and are ready to proceed.'
+                    : 'Waiting for the Nyxian to confirm receipt of the job and proceed.'),
+              ]),
+            ]),
+          ]),
+
+          // Status & Live Countdown Row
+          if (isAcknowledged)
+            div(
+              classes: 'px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center gap-2',
+              [
+                lIcon('check-circle-2', cls: 'w-4 h-4 text-emerald-400'),
+                span(classes: 'text-xs font-semibold text-emerald-400', [
+                  Component.text('✅ Nyxian has acknowledged the job and is proceeding with the task.'),
+                ]),
+              ],
+            )
+          else
+            div(
+              classes:
+                  'px-3.5 py-2.5 rounded-xl ${isExpired ? "bg-rose-500/15 border border-rose-500/30" : "bg-amber-500/15 border border-amber-500/30"} flex items-center justify-between gap-2',
+              [
+                div(classes: 'flex items-center gap-2', [
+                  lIcon(isExpired ? 'alert-triangle' : 'timer',
+                      cls: 'w-4 h-4 ${isExpired ? "text-rose-400" : "text-amber-400"}'),
+                  span(classes: 'text-xs font-bold ${isExpired ? "text-rose-400" : "text-amber-400"}', [
+                    Component.text(isExpired
+                        ? '⚠️ Acknowledgment period expired'
+                        : '⏱️ Acknowledgment required within $remainingStr'),
+                  ]),
+                ]),
+                if (!isExpired)
+                  span(classes: 'w-2 h-2 rounded-full bg-amber-400 animate-ping', []),
+              ],
+            ),
+
+          // Actions
+          if (!isAcknowledged && isNyxian && !isExpired)
+            button(
+              classes:
+                  'w-full py-3 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 cursor-pointer',
+              events: {'click': (_) => s.acknowledgeJob(chatId)},
+              [
+                if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
+                lIcon('check', cls: 'w-4 h-4'),
+                Component.text('ACKNOWLEDGE & START JOB'),
+              ],
+            ),
+
+          if (!isAcknowledged && isEmployer && isExpired)
+            button(
+              classes:
+                  'w-full py-2.5 rounded-xl font-bold text-white bg-rose-600 hover:bg-rose-500 transition-colors flex items-center justify-center gap-2 shadow-md cursor-pointer',
+              events: {'click': (_) => s.cancelAndFindAnotherNyxian(chatId)},
+              [
+                if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
+                lIcon('user-x', cls: 'w-4 h-4'),
+                Component.text('CANCEL & FIND ANOTHER NYXIAN'),
+              ],
+            ),
+        ],
+      );
+    }
+
+    if (type == 'acknowledgment_reminder') {
+      return div(
+        classes:
+            'w-full my-2 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3 animate-fade-up',
+        [
+          lIcon('bell', cls: 'w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5'),
+          div([
+            p(classes: 'text-xs font-bold text-amber-400', [
+              Component.text('Acknowledgment Reminder'),
+            ]),
+            p(classes: 'text-xs text-amber-300/90 mt-0.5 leading-relaxed', [
+              Component.text(msg['text'] as String? ??
+                  'Acknowledgment required soon. Please acknowledge and start the job before the deadline.'),
+            ]),
+          ]),
+        ],
+      );
+    }
+
+    if (type == 'acknowledgment_confirmed') {
+      return div(
+        classes:
+            'w-full my-2 px-4 py-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-start gap-3 animate-fade-up',
+        [
+          lIcon('check-circle-2', cls: 'w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5'),
+          div([
+            p(classes: 'text-xs font-bold text-emerald-400', [
+              Component.text('Job Acknowledged & Started'),
+            ]),
+            p(classes: 'text-xs text-emerald-300/90 mt-0.5 leading-relaxed', [
+              Component.text(msg['text'] as String? ??
+                  'Nyxian has acknowledged the job and is proceeding with the task.'),
+            ]),
+          ]),
+        ],
+      );
+    }
+
+    if (type == 'acknowledgment_expired') {
+      return div(
+        classes:
+            'w-full my-2 p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex flex-col gap-3 animate-fade-up',
+        [
+          div(classes: 'flex items-start gap-3', [
+            lIcon('alert-triangle', cls: 'w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5'),
+            div([
+              p(classes: 'text-xs font-bold text-rose-400', [
+                Component.text('Acknowledgment Expired'),
+              ]),
+              p(classes: 'text-xs text-rose-300/90 mt-0.5 leading-relaxed', [
+                Component.text(msg['text'] as String? ??
+                    'Nyxian did not acknowledge the job within the SLA period.'),
+              ]),
+            ]),
+          ]),
+          if (isEmployer)
+            button(
+              classes:
+                  'w-full py-2.5 rounded-xl font-bold text-white bg-rose-600 hover:bg-rose-500 transition-colors flex items-center justify-center gap-2 text-xs shadow-md cursor-pointer',
+              events: {'click': (_) => s.cancelAndFindAnotherNyxian(chatId)},
+              [
+                if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
+                lIcon('user-x', cls: 'w-4 h-4'),
+                Component.text('CANCEL & FIND ANOTHER NYXIAN'),
+              ],
+            ),
+        ],
+      );
+    }
+
+    if (type == 'job_reopened') {
+      return div(
+        classes:
+            'w-full my-2 px-4 py-3 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-start gap-3 animate-fade-up',
+        [
+          lIcon('refresh-cw', cls: 'w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5'),
+          div([
+            p(classes: 'text-xs font-bold text-indigo-400', [
+              Component.text('Gig Reopened'),
+            ]),
+            p(classes: 'text-xs text-indigo-300/90 mt-0.5 leading-relaxed', [
+              Component.text(msg['text'] as String? ?? 'Gig reopened for other applicants.'),
+            ]),
+          ]),
+        ],
+      );
+    }
+
+    // Fallback for regular system text
+    return div(
+      classes: 'w-full my-2 p-3 text-center text-xs rounded-xl bg-zinc-500/10 text-zinc-400',
+      [Component.text(msg['text'] as String? ?? '')],
     );
   }
 }

@@ -36,6 +36,16 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
   final Map<String, List<int>> _withdrawalProofBytes = {};
   final Map<String, String> _withdrawalProofNames = {};
 
+  // Platform SLA Configuration State
+  JobSlaConfig _slaConfig = const JobSlaConfig();
+  bool _isLoadingSla = false;
+  bool _isSavingSla = false;
+  String _immediateDeliverySlaInput = '15';
+  String _onDemandSlaInput = '60';
+  String _scheduledLocalSlaInput = '240';
+  String _remoteWorkSlaInput = '240';
+  String _longTermSlaInput = '720';
+
   // Agent form state
   late String _agentName;
   late String _agentPhone;
@@ -53,6 +63,7 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
     super.initState();
     _initAgentForm();
     _loadRequests();
+    _loadSlaConfig();
 
     // Start Real-time Queue Polling & Audio Dispatch Listener
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
@@ -214,6 +225,62 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
       component.state.alertDialog('Save Failed', e.toString());
     } finally {
       setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadSlaConfig() async {
+    setState(() => _isLoadingSla = true);
+    try {
+      final token = SessionStorage.idToken;
+      final svc = FirestoreService(token);
+      final config = await svc.getJobSlaConfig();
+      setState(() {
+        _slaConfig = config;
+        _immediateDeliverySlaInput = config.immediateDeliveryMinutes.toString();
+        _onDemandSlaInput = config.onDemandMinutes.toString();
+        _scheduledLocalSlaInput = config.scheduledLocalMinutes.toString();
+        _remoteWorkSlaInput = config.remoteWorkMinutes.toString();
+        _longTermSlaInput = config.longTermMinutes.toString();
+      });
+    } catch (e) {
+      print('Failed to load SLA config: $e');
+    } finally {
+      setState(() => _isLoadingSla = false);
+    }
+  }
+
+  Future<void> _handleSaveSlaConfig() async {
+    final imm = int.tryParse(_immediateDeliverySlaInput.trim()) ?? _slaConfig.immediateDeliveryMinutes;
+    final onDem = int.tryParse(_onDemandSlaInput.trim()) ?? _slaConfig.onDemandMinutes;
+    final sched = int.tryParse(_scheduledLocalSlaInput.trim()) ?? _slaConfig.scheduledLocalMinutes;
+    final rem = int.tryParse(_remoteWorkSlaInput.trim()) ?? _slaConfig.remoteWorkMinutes;
+    final lt = int.tryParse(_longTermSlaInput.trim()) ?? _slaConfig.longTermMinutes;
+
+    if (imm <= 0 || onDem <= 0 || sched <= 0 || rem <= 0 || lt <= 0) {
+      component.state.alertDialog('Invalid Duration', 'All SLA durations must be positive numbers of minutes.');
+      return;
+    }
+
+    setState(() => _isSavingSla = true);
+    try {
+      final updated = JobSlaConfig(
+        immediateDeliveryMinutes: imm,
+        onDemandMinutes: onDem,
+        scheduledLocalMinutes: sched,
+        remoteWorkMinutes: rem,
+        longTermMinutes: lt,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+        updatedBy: SessionStorage.uid ?? 'admin',
+      );
+      final token = SessionStorage.idToken;
+      final svc = FirestoreService(token);
+      await svc.saveJobSlaConfig(updated);
+      setState(() => _slaConfig = updated);
+      component.state.showAppToast('SLA Settings Saved', 'Job acknowledgment SLAs updated across platform.');
+    } catch (e) {
+      component.state.alertDialog('Save Failed', e.toString());
+    } finally {
+      setState(() => _isSavingSla = false);
     }
   }
 
@@ -609,6 +676,151 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
                 [
                   if (_isLoading) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
                   Component.text('Save P2P Agent Settings'),
+                ],
+              ),
+            ]),
+          ],
+        ),
+
+        // ── Job Acknowledgment & SLA Platform Config Card ─────────────────────
+        div(
+          classes:
+              'p-6 sm:p-8 rounded-3xl bg-zinc-900 border border-zinc-800 space-y-6 text-white max-w-3xl mt-6',
+          [
+            div(classes: 'border-b border-zinc-800 pb-4 flex items-center justify-between', [
+              div([
+                h3(classes: 'text-lg font-bold flex items-center gap-2', [
+                  lIcon('clock', cls: 'w-5 h-5 text-amber-400'),
+                  Component.text('Job Acknowledgment SLA Timers'),
+                ]),
+                p(classes: 'text-xs text-zinc-400', [
+                  Component.text('Global SLA time limits (in minutes) for Nyxians to acknowledge newly hired gigs before reminders or expiration triggers.'),
+                ]),
+              ]),
+              if (_isLoadingSla)
+                lIcon('loader', cls: 'w-4 h-4 animate-spin text-zinc-400'),
+            ]),
+
+            div(classes: 'space-y-4', [
+              // Category A
+              div(classes: 'p-4 rounded-2xl bg-zinc-800/40 border border-amber-500/20 space-y-2', [
+                div(classes: 'flex items-center justify-between', [
+                  div(classes: 'flex items-center gap-2', [
+                    span(classes: 'px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30', [Component.text('Category A')]),
+                    span(classes: 'text-xs font-bold text-white', [Component.text('Immediate / Delivery / Errand')]),
+                  ]),
+                  span(classes: 'text-[11px] text-zinc-400 font-mono', [Component.text('Reminder: 5m before deadline')]),
+                ]),
+                p(classes: 'text-[11px] text-zinc-400', [Component.text('Food/item delivery, courier tasks, fast market errands.')]),
+                div(classes: 'flex items-center gap-3 pt-1', [
+                  label(classes: 'text-xs font-semibold text-zinc-300 shrink-0', [Component.text('SLA Window:')]),
+                  input(
+                    type: InputType.number,
+                    classes: 'w-28 px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500 font-mono',
+                    attributes: {'value': _immediateDeliverySlaInput, 'min': '1'},
+                    events: {'input': (e) => _immediateDeliverySlaInput = getInputValue(e.target)},
+                  ),
+                  span(classes: 'text-xs text-zinc-400', [Component.text('minutes (default: 15)')]),
+                ]),
+              ]),
+
+              // Category B
+              div(classes: 'p-4 rounded-2xl bg-zinc-800/40 border border-blue-500/20 space-y-2', [
+                div(classes: 'flex items-center justify-between', [
+                  div(classes: 'flex items-center gap-2', [
+                    span(classes: 'px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30', [Component.text('Category B')]),
+                    span(classes: 'text-xs font-bold text-white', [Component.text('On-Demand Local Service')]),
+                  ]),
+                  span(classes: 'text-[11px] text-zinc-400 font-mono', [Component.text('Reminder: 30m before deadline')]),
+                ]),
+                p(classes: 'text-[11px] text-zinc-400', [Component.text('Cleaning, repair services, moving, assistance, personal services.')]),
+                div(classes: 'flex items-center gap-3 pt-1', [
+                  label(classes: 'text-xs font-semibold text-zinc-300 shrink-0', [Component.text('SLA Window:')]),
+                  input(
+                    type: InputType.number,
+                    classes: 'w-28 px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500 font-mono',
+                    attributes: {'value': _onDemandSlaInput, 'min': '1'},
+                    events: {'input': (e) => _onDemandSlaInput = getInputValue(e.target)},
+                  ),
+                  span(classes: 'text-xs text-zinc-400', [Component.text('minutes (default: 60 / 1 hour)')]),
+                ]),
+              ]),
+
+              // Category C
+              div(classes: 'p-4 rounded-2xl bg-zinc-800/40 border border-indigo-500/20 space-y-2', [
+                div(classes: 'flex items-center justify-between', [
+                  div(classes: 'flex items-center gap-2', [
+                    span(classes: 'px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30', [Component.text('Category C')]),
+                    span(classes: 'text-xs font-bold text-white', [Component.text('Scheduled Local Job')]),
+                  ]),
+                  span(classes: 'text-[11px] text-zinc-400 font-mono', [Component.text('Reminder: 2h before deadline (or 50%)')]),
+                ]),
+                p(classes: 'text-[11px] text-zinc-400', [Component.text('Event photography, weekend repair. Automatically capped at configured Job Start Time.')]),
+                div(classes: 'flex items-center gap-3 pt-1', [
+                  label(classes: 'text-xs font-semibold text-zinc-300 shrink-0', [Component.text('SLA Window:')]),
+                  input(
+                    type: InputType.number,
+                    classes: 'w-28 px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 font-mono',
+                    attributes: {'value': _scheduledLocalSlaInput, 'min': '1'},
+                    events: {'input': (e) => _scheduledLocalSlaInput = getInputValue(e.target)},
+                  ),
+                  span(classes: 'text-xs text-zinc-400', [Component.text('minutes (default: 240 / 4 hours)')]),
+                ]),
+              ]),
+
+              // Category D
+              div(classes: 'p-4 rounded-2xl bg-zinc-800/40 border border-purple-500/20 space-y-2', [
+                div(classes: 'flex items-center justify-between', [
+                  div(classes: 'flex items-center gap-2', [
+                    span(classes: 'px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30', [Component.text('Category D')]),
+                    span(classes: 'text-xs font-bold text-white', [Component.text('Remote / Online Work')]),
+                  ]),
+                  span(classes: 'text-[11px] text-zinc-400 font-mono', [Component.text('Reminder: 2h before deadline')]),
+                ]),
+                p(classes: 'text-[11px] text-zinc-400', [Component.text('Design, coding, virtual assistance, copywriting, translation.')]),
+                div(classes: 'flex items-center gap-3 pt-1', [
+                  label(classes: 'text-xs font-semibold text-zinc-300 shrink-0', [Component.text('SLA Window:')]),
+                  input(
+                    type: InputType.number,
+                    classes: 'w-28 px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 font-mono',
+                    attributes: {'value': _remoteWorkSlaInput, 'min': '1'},
+                    events: {'input': (e) => _remoteWorkSlaInput = getInputValue(e.target)},
+                  ),
+                  span(classes: 'text-xs text-zinc-400', [Component.text('minutes (default: 240 / 4 hours)')]),
+                ]),
+              ]),
+
+              // Category E
+              div(classes: 'p-4 rounded-2xl bg-zinc-800/40 border border-emerald-500/20 space-y-2', [
+                div(classes: 'flex items-center justify-between', [
+                  div(classes: 'flex items-center gap-2', [
+                    span(classes: 'px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30', [Component.text('Category E')]),
+                    span(classes: 'text-xs font-bold text-white', [Component.text('Long-Term / Project-Based')]),
+                  ]),
+                  span(classes: 'text-[11px] text-zinc-400 font-mono', [Component.text('Reminder: 6h before deadline')]),
+                ]),
+                p(classes: 'text-[11px] text-zinc-400', [Component.text('Multi-day contracts, recurring tasks, milestones.')]),
+                div(classes: 'flex items-center gap-3 pt-1', [
+                  label(classes: 'text-xs font-semibold text-zinc-300 shrink-0', [Component.text('SLA Window:')]),
+                  input(
+                    type: InputType.number,
+                    classes: 'w-28 px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono',
+                    attributes: {'value': _longTermSlaInput, 'min': '1'},
+                    events: {'input': (e) => _longTermSlaInput = getInputValue(e.target)},
+                  ),
+                  span(classes: 'text-xs text-zinc-400', [Component.text('minutes (default: 720 / 12 hours)')]),
+                ]),
+              ]),
+            ]),
+
+            div(classes: 'flex justify-end pt-2', [
+              button(
+                classes:
+                    'px-6 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition shadow-lg shadow-amber-600/30 cursor-pointer border-0 flex items-center gap-2 active:scale-95',
+                events: {'click': (_) => _handleSaveSlaConfig()},
+                [
+                  if (_isSavingSla) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                  Component.text('Save Platform SLA Config'),
                 ],
               ),
             ]),
