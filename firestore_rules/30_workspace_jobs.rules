@@ -21,10 +21,22 @@
             'hasTracker', 'hasInspectionHoldback', 'imageUrls', 'acceptedApplicantId', 
             'acceptedApplicantName', 'completionCode', 'receiptUrl', 'employerRated', 
             'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl', 
-            'creatorName', 'creatorType', 'createdAt', 'updatedAt'
+            'creatorName', 'creatorType', 'createdAt', 'updatedAt',
+            'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
+            'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
           ])
         ) ||
-        // 1b. Creator (Employer): When job is completed/active, can ONLY submit employer rating
+        // 1b. Creator (Employer): Resetting, re-opening or cancelling an unacknowledged or expired job
+        (isActiveUser() && resource.data.creatorId == request.auth.uid &&
+          (resource.data.status == 'Awaiting Acknowledgment' || resource.data.status == 'awaiting acknowledgment' ||
+           resource.data.status == 'Acknowledgment Expired' || resource.data.status == 'acknowledgment expired') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'acceptedApplicantId', 'acceptedApplicantName', 'updatedAt',
+            'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
+            'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
+          ])
+        ) ||
+        // 1c. Creator (Employer): When job is completed/active, can ONLY submit employer rating
         (isActiveUser() && resource.data.creatorId == request.auth.uid && 
           resource.data.status != 'Open' && resource.data.status != 'open' &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['employerRated'])
@@ -32,7 +44,15 @@
         // 2. Assigned Nyxian (Freelancer): Can update work progress, status & completion fields
         (isActiveUser() && 'acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid && 
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'completionCode', 'receiptUrl', 'nyxianRated'
+            'status', 'completionCode', 'receiptUrl', 'nyxianRated',
+            'acknowledgedAt', 'acknowledgmentStatus', 'updatedAt'
+          ])
+        ) ||
+        // 2b. SLA Expiration or Reminder update by active participants
+        (isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
+          (resource.data.status == 'Awaiting Acknowledgment' || resource.data.status == 'awaiting acknowledgment') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'acknowledgmentStatus', 'acknowledgmentReminderSent', 'updatedAt'
           ])
         ) ||
         // 3. Any Active Applicant: Can apply to or withdraw from an Open/Reviewing job
