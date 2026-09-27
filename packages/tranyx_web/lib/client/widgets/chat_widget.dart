@@ -635,6 +635,99 @@ class _ChatWidgetState extends State<ChatWidget> {
       );
     }
 
+    if (type == 'job_abandoned') {
+      return div(
+        classes:
+            'w-full my-2 px-4 py-3 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-start gap-3 animate-fade-up',
+        [
+          lIcon('alert-octagon', cls: 'w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5'),
+          div([
+            p(classes: 'text-xs font-bold text-rose-400', [
+              Component.text('Gig Reclaimed & Abandoned'),
+            ]),
+            p(classes: 'text-xs text-rose-300/90 mt-0.5 leading-relaxed', [
+              Component.text(msg['text'] as String? ?? 'Gig reclaimed by employer due to 48+ hours of inactivity.'),
+            ]),
+          ]),
+        ],
+      );
+    }
+
+    if (type == 'dispute_opened') {
+      final category = msg['category'] as String? ?? 'Dispute Filed';
+      final text = msg['text'] as String? ?? 'An administrative dispute has been opened for this gig.';
+      return div(
+        classes:
+            'w-full my-2 p-4 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex flex-col gap-2.5 shadow-md animate-fade-up',
+        [
+          div(classes: 'flex items-start gap-3', [
+            lIcon('scale', cls: 'w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5'),
+            div(classes: 'flex-1 min-w-0', [
+              div(classes: 'flex items-center gap-2 flex-wrap', [
+                p(classes: 'text-xs font-bold text-amber-400', [
+                  Component.text('Administrative Dispute Opened ⚖️'),
+                ]),
+                span(
+                  classes:
+                      'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30',
+                  [Component.text(category)],
+                ),
+              ]),
+              p(classes: 'text-xs text-amber-200/90 mt-1 leading-relaxed', [
+                Component.text(text),
+              ]),
+            ]),
+          ]),
+          div(
+            classes: 'px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-[11px] text-amber-300',
+            [
+              lIcon('lock', cls: 'w-3.5 h-3.5 text-amber-400'),
+              span([Component.text('Escrow is safely locked pending Tranyx Admin investigation.')]),
+            ],
+          ),
+        ],
+      );
+    }
+
+    if (type == 'dispute_resolved') {
+      final resType = msg['resolutionType'] as String? ?? '';
+      final empRefund = (msg['employerRefund'] as num?)?.toDouble() ?? 0.0;
+      final nyxPayout = (msg['nyxianPayout'] as num?)?.toDouble() ?? 0.0;
+      final notes = msg['notes'] as String? ?? '';
+      return div(
+        classes:
+            'w-full my-2 p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex flex-col gap-2.5 shadow-md animate-fade-up',
+        [
+          div(classes: 'flex items-start gap-3', [
+            lIcon('check-circle-2', cls: 'w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5'),
+            div(classes: 'flex-1 min-w-0', [
+              div(classes: 'flex items-center gap-2 flex-wrap', [
+                p(classes: 'text-xs font-bold text-emerald-400', [
+                  Component.text('Dispute Resolved by Admin 🛡️'),
+                ]),
+                span(
+                  classes:
+                      'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
+                  [Component.text(resType.replaceAll('_', ' '))],
+                ),
+              ]),
+              if (notes.isNotEmpty)
+                p(classes: 'text-xs text-emerald-200/90 mt-1 leading-relaxed', [
+                  Component.text(notes),
+                ]),
+            ]),
+          ]),
+          div(
+            classes: 'px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex flex-wrap items-center justify-between text-xs text-emerald-300 gap-2',
+            [
+              span([Component.text('Employer Refund: ₱${empRefund.toStringAsFixed(2)}')]),
+              span([Component.text('Nyxian Payout: ₱${nyxPayout.toStringAsFixed(2)}')]),
+            ],
+          ),
+        ],
+      );
+    }
+
     // Fallback for regular system text
     return div(
       classes: 'w-full my-2 p-3 text-center text-xs rounded-xl bg-zinc-500/10 text-zinc-400',

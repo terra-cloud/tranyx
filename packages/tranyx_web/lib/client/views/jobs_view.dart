@@ -1996,26 +1996,43 @@ class _JobDetails extends StatelessComponent {
                           p(classes: 'font-bold text-red-500 text-sm', [Component.text('Gig Inactive (Over 48h Without Progress)')]),
                           p(classes: 'text-xs mt-0.5 ${isDark ? "text-red-200/80" : "text-red-800/80"}', [
                             Component.text(
-                              'This gig has had zero progress or updates for over 48 hours. As the employer, you can reclaim this gig now. 100% of your escrow deposit will be immediately refunded to your wallet balance, and the job will be marked Abandoned.',
+                              'This gig has had zero progress or updates for over 48 hours. You can instantly reclaim with a 70% refund (30% retained as platform inactivity fee), or open a dispute with Admin for a full 100% refund investigation.',
                             ),
                           ]),
                         ]),
                       ]),
-                      button(
-                        classes:
-                            'w-full py-2.5 px-4 rounded-xl font-bold text-xs bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm',
-                        events: {
-                          'click': (_) {
-                            if (s.selectedJobData != null) {
-                              s.handleReclaimInactiveJob(s.selectedJobData!);
-                            }
+                      div(classes: 'flex flex-col sm:flex-row gap-2 pt-1', [
+                        button(
+                          classes:
+                              'flex-1 py-2.5 px-3 rounded-xl font-bold text-xs bg-red-600 hover:bg-red-700 text-white transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm',
+                          events: {
+                            'click': (_) {
+                              if (s.selectedJobData != null) {
+                                s.handleReclaimInactiveJob(s.selectedJobData!);
+                              }
+                            },
                           },
-                        },
-                        [
-                          lIcon('rotate-ccw', cls: 'w-4 h-4'),
-                          Component.text('Reclaim Inactive Gig (100% Escrow Refund)'),
-                        ],
-                      ),
+                          [
+                            lIcon('rotate-ccw', cls: 'w-4 h-4'),
+                            Component.text('Instant Reclaim (70% Refund)'),
+                          ],
+                        ),
+                        button(
+                          classes:
+                              'flex-1 py-2.5 px-3 rounded-xl font-bold text-xs border ${isDark ? "border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25" : "border-amber-400 bg-amber-100 text-amber-800 hover:bg-amber-200"} transition-colors flex items-center justify-center gap-2 cursor-pointer',
+                          events: {
+                            'click': (_) {
+                              if (s.selectedJobData != null) {
+                                s.openDisputeModal(s.selectedJobData!, 'Abandonment / Stalled Work');
+                              }
+                            },
+                          },
+                          [
+                            lIcon('scale', cls: 'w-4 h-4'),
+                            Component.text('Dispute for 100% Refund'),
+                          ],
+                        ),
+                      ]),
                     ],
                   )
                 else
@@ -2029,7 +2046,7 @@ class _JobDetails extends StatelessComponent {
                           p(classes: 'font-bold text-amber-500 text-sm', [Component.text('Cancellation Locked (Active Hire)')]),
                           p(classes: 'text-xs mt-0.5 ${isDark ? "text-amber-200/70" : "text-amber-800/80"}', [
                             Component.text(
-                              'A Nyxian has been hired for this gig. Unilateral cancellation is disabled to safeguard committed preparation and resources.',
+                              'A Nyxian has been hired for this gig. Unilateral cancellation is disabled to safeguard committed preparation and resources. If issues arise, you can open an Admin Dispute.',
                             ),
                           ]),
                         ]),
@@ -2040,18 +2057,13 @@ class _JobDetails extends StatelessComponent {
                         events: {
                           'click': (_) {
                             if (s.selectedJobData != null) {
-                              s.handleRequestJobDispute(s.selectedJobData!);
-                            } else {
-                              s.alertDialog(
-                                'Dispute & Support Assistance',
-                                'Unilateral cancellation is locked because an active Nyxian is hired. If you need assistance, please contact Tranyx Support.',
-                              );
+                              s.openDisputeModal(s.selectedJobData!, 'Unresponsive Counterparty');
                             }
                           },
                         },
                         [
-                          lIcon('help-circle', cls: 'w-4 h-4'),
-                          Component.text('Contact Admin / Support Dispute'),
+                          lIcon('scale', cls: 'w-4 h-4'),
+                          Component.text('Raise Dispute to Admin'),
                         ],
                       ),
                     ],
@@ -2180,6 +2192,25 @@ class _JobDetails extends StatelessComponent {
                     ],
                   ),
               ]);
+            }
+
+            if (status.toLowerCase() == 'disputed') {
+              return div(
+                classes: 'p-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 flex items-center gap-3',
+                [
+                  lIcon('scale', cls: 'w-6 h-6 text-amber-400 flex-shrink-0'),
+                  div([
+                    p(classes: 'font-bold text-amber-400 text-sm', [
+                      Component.text('Gig Under Admin Dispute'),
+                    ]),
+                    p(classes: 'text-xs ${isDark ? "text-amber-200/80" : "text-amber-900/80"} mt-0.5', [
+                      Component.text(
+                        'This gig is currently under arbitration review by Tranyx Administrators. Escrow is safely frozen until resolution.',
+                      ),
+                    ]),
+                  ]),
+                ],
+              );
             }
 
             if (status == 'Cancelled' || status == 'ADMIN_CANCELLED' || status == 'admin_cancelled' || status == 'Abandoned' || status == 'abandoned') {

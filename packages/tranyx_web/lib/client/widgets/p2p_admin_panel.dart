@@ -46,6 +46,16 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
   String _remoteWorkSlaInput = '240';
   String _longTermSlaInput = '720';
 
+  // Dispute & Arbitration State
+  List<Map<String, dynamic>> _disputes = [];
+  bool _isLoadingDisputes = false;
+  Map<String, dynamic>? _selectedDisputeForArbitration;
+  String _arbitrationResolutionType = 'REFUND_EMPLOYER';
+  String _arbitrationNotes = '';
+  double _arbitrationEmployerPercent = 50.0;
+  double _arbitrationNyxianPercent = 50.0;
+  bool _isExecutingArbitration = false;
+
   // Agent form state
   late String _agentName;
   late String _agentPhone;
@@ -64,6 +74,7 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
     _initAgentForm();
     _loadRequests();
     _loadSlaConfig();
+    _loadDisputes();
 
     // Start Real-time Queue Polling & Audio Dispatch Listener
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
@@ -284,6 +295,82 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
     }
   }
 
+  Future<void> _loadDisputes() async {
+    final token = SessionStorage.idToken;
+    if (token == null) return;
+    setState(() => _isLoadingDisputes = true);
+    try {
+      final svc = FirestoreService(token);
+      final list = await svc.fetchDisputes();
+      setState(() => _disputes = list);
+    } catch (e) {
+      print('Failed to fetch disputes: $e');
+    } finally {
+      setState(() => _isLoadingDisputes = false);
+    }
+  }
+
+  void _openArbitrationModal(Map<String, dynamic> dispute) {
+    setState(() {
+      _selectedDisputeForArbitration = dispute;
+      _arbitrationResolutionType = 'REFUND_EMPLOYER';
+      _arbitrationNotes = '';
+      _arbitrationEmployerPercent = 50.0;
+      _arbitrationNyxianPercent = 50.0;
+      _isExecutingArbitration = false;
+    });
+  }
+
+  void _closeArbitrationModal() {
+    setState(() {
+      _selectedDisputeForArbitration = null;
+      _arbitrationNotes = '';
+      _isExecutingArbitration = false;
+    });
+  }
+
+  Future<void> _handleExecuteArbitration() async {
+    final token = SessionStorage.idToken;
+    final adminUid = SessionStorage.uid;
+    if (token == null || adminUid == null) {
+      component.state.alertDialog('Authentication Error', 'Session expired. Please sign in again.');
+      return;
+    }
+    if (_selectedDisputeForArbitration == null) return;
+
+    final dispute = _selectedDisputeForArbitration!;
+    final disputeId = (dispute['id'] ?? dispute['disputeId'] ?? '').toString();
+
+    if (_arbitrationNotes.trim().length < 10) {
+      component.state.alertDialog('Justification Required', 'Please enter at least 10 characters explaining your arbitration rationale for both parties.');
+      return;
+    }
+
+    setState(() => _isExecutingArbitration = true);
+    try {
+      final svc = FirestoreService(token);
+      await svc.resolveDispute(
+        disputeId: disputeId,
+        adminUid: adminUid,
+        resolutionType: _arbitrationResolutionType,
+        notes: _arbitrationNotes.trim(),
+        employerPercent: _arbitrationResolutionType == 'SPLIT_ESCROW' ? _arbitrationEmployerPercent : null,
+        nyxianPercent: _arbitrationResolutionType == 'SPLIT_ESCROW' ? _arbitrationNyxianPercent : null,
+      );
+
+      _closeArbitrationModal();
+      await _loadDisputes();
+      await component.state.loadJobs();
+      component.state.showAppToast(
+        'Arbitration Executed 🛡️',
+        'Dispute successfully resolved via ${_arbitrationResolutionType.replaceAll('_', ' ')}.',
+      );
+    } catch (e) {
+      setState(() => _isExecutingArbitration = false);
+      component.state.alertDialog('Arbitration Failed', 'Error resolving dispute: $e');
+    }
+  }
+
   @override
   Component build(BuildContext context) {
     final s = component.state;
@@ -293,6 +380,7 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
 
     final pendingDepositCount = depositRequests.where((r) => r.status.toUpperCase() == 'PENDING_VERIFICATION' || r.status.toUpperCase() == 'WAITING_FOR_AGENT').length;
     final pendingWithdrawalCount = withdrawalRequests.where((r) => r.status.toUpperCase() == 'WAITING_FOR_AGENT' || r.status.toUpperCase() == 'AWAITING_AGENT_PAYMENT' || r.status.toUpperCase() == 'PENDING_CONFIRMATION').length;
+    final pendingDisputesCount = _disputes.where((d) => (d['status'] as String? ?? '').toUpperCase() == 'OPEN').length;
 
     // Filter deposits
     var filteredDeposits = depositRequests;
@@ -320,6 +408,24 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
             r.userAccountNumber.toLowerCase().contains(q) ||
             r.userAccountName.toLowerCase().contains(q) ||
             r.referenceNumber.toLowerCase().contains(q);
+      }).toList();
+    }
+
+    // Filter disputes
+    var filteredDisputes = _disputes;
+    if (_statusFilter != 'ALL') {
+      filteredDisputes = filteredDisputes.where((d) => (d['status'] as String? ?? '').toUpperCase() == _statusFilter.toUpperCase()).toList();
+    }
+    if (_searchQuery.trim().isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      filteredDisputes = filteredDisputes.where((d) {
+        final title = (d['jobTitle'] as String? ?? '').toLowerCase();
+        final id = (d['id'] as String? ?? '').toLowerCase();
+        final reason = (d['reason'] as String? ?? '').toLowerCase();
+        final cat = (d['category'] as String? ?? '').toLowerCase();
+        final empId = (d['employerId'] as String? ?? '').toLowerCase();
+        final nyxId = (d['acceptedNyxianId'] as String? ?? '').toLowerCase();
+        return title.contains(q) || id.contains(q) || reason.contains(q) || cat.contains(q) || empId.contains(q) || nyxId.contains(q);
       }).toList();
     }
 
@@ -416,6 +522,21 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
           [
             lIcon('qr-code', cls: 'w-4 h-4'),
             Component.text('Agent QR & Settings'),
+          ],
+        ),
+        button(
+          classes:
+              'px-5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer border-0 flex items-center gap-2 '
+              '${_activeTab == "queue_disputes" ? "bg-amber-600 text-white shadow-md shadow-amber-600/20" : "text-zinc-400 hover:text-zinc-200 bg-zinc-900/60 border border-zinc-800"}',
+          events: {
+            'click': (_) {
+              _loadDisputes();
+              setState(() { _activeTab = 'queue_disputes'; _statusFilter = 'ALL'; });
+            }
+          },
+          [
+            lIcon('scale', cls: 'w-4 h-4'),
+            Component.text('Disputes & Arbitration ($pendingDisputesCount pending)'),
           ],
         ),
       ]),
@@ -828,6 +949,63 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
         ),
       ],
 
+      // ── Tab 4: Disputes & Arbitration Queue ────────────────────────────────
+      if (_activeTab == 'queue_disputes') ...[
+        // Filter & Search Controls
+        div(classes: 'flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3', [
+          div(classes: 'flex items-center gap-1.5 overflow-x-auto pb-1', [
+            for (var opt in [
+              ('ALL', 'All Disputes (${_disputes.length})'),
+              ('OPEN', 'Pending Review ($pendingDisputesCount)'),
+              ('RESOLVED', 'Resolved'),
+            ])
+              button(
+                classes:
+                    'px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer border-0 '
+                    '${_statusFilter == opt.$1 ? "bg-zinc-200 text-zinc-900 font-bold" : "bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-800"}',
+                events: {'click': (_) => setState(() => _statusFilter = opt.$1)},
+                [Component.text(opt.$2)],
+              ),
+          ]),
+          div(classes: 'relative w-full md:w-72', [
+            div(classes: 'absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500', [
+              lIcon('search', cls: 'w-4 h-4'),
+            ]),
+            input(
+              type: InputType.text,
+              classes:
+                  'w-full pl-9 pr-4 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-500 transition',
+              attributes: {
+                'placeholder': 'Search dispute, job, reason...',
+                'value': _searchQuery,
+              },
+              events: {'input': (e) => setState(() => _searchQuery = getInputValue(e.target))},
+            ),
+          ]),
+        ]),
+
+        // Disputes List
+        if (_isLoadingDisputes)
+          div(classes: 'py-16 flex flex-col items-center justify-center gap-3 text-zinc-500', [
+            lIcon('loader', cls: 'w-6 h-6 animate-spin text-amber-500'),
+            span(classes: 'text-xs', [Component.text('Loading dispute registry...')]),
+          ])
+        else if (filteredDisputes.isEmpty)
+          div(
+            classes:
+                'py-16 rounded-3xl border border-dashed border-zinc-800 flex flex-col items-center justify-center gap-3 text-zinc-500',
+            [
+              lIcon('scale', cls: 'w-8 h-8 text-zinc-600'),
+              p(classes: 'text-xs font-semibold', [Component.text('No disputes match the selected filter.')]),
+            ],
+          )
+        else
+          div(classes: 'space-y-3', [
+            for (final disp in filteredDisputes)
+              _buildDisputeCard(disp, isDark),
+          ]),
+      ],
+
       // ── Full-Size Image Preview Modal ──────────────────────────────────────
       if (_previewImageUrl != null)
         div(
@@ -961,7 +1139,322 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
             ),
           ],
         ),
+
+      // ── Dispute Arbitration Modal ──────────────────────────────────────────
+      if (_selectedDisputeForArbitration != null)
+        _buildArbitrationModal(isDark),
     ]);
+  }
+
+  Component _buildDisputeCard(Map<String, dynamic> disp, bool isDark) {
+    final status = (disp['status'] as String? ?? 'OPEN').toUpperCase();
+    final isOpen = status == 'OPEN';
+    final disputeId = disp['id'] as String? ?? 'Unknown';
+    final jobTitle = disp['jobTitle'] as String? ?? 'Gig';
+    final escrow = (disp['escrowAmount'] as num?)?.toDouble() ?? 0.0;
+    final category = disp['category'] as String? ?? 'Dispute';
+    final reason = disp['reason'] as String? ?? '';
+    final openedByRole = disp['openedByRole'] as String? ?? 'User';
+    final createdAt = disp['createdAt'] != null
+        ? DateTime.fromMillisecondsSinceEpoch((disp['createdAt'] as num).toInt())
+        : null;
+    final dateStr = createdAt != null ? '${createdAt.month}/${createdAt.day} ${createdAt.hour.toString().padLeft(2, "0")}:${createdAt.minute.toString().padLeft(2, "0")}' : '';
+
+    final resType = disp['resolutionType'] as String? ?? '';
+    final notes = disp['resolutionNotes'] as String? ?? '';
+    final empRefund = (disp['employerRefund'] as num?)?.toDouble() ?? 0.0;
+    final nyxPayout = (disp['nyxianPayout'] as num?)?.toDouble() ?? 0.0;
+
+    return div(
+      classes:
+          'p-5 rounded-2xl ${isDark ? "bg-zinc-900/90 border border-zinc-800/90" : "bg-white border border-zinc-200"} shadow-sm hover:border-zinc-700 transition flex flex-col gap-4',
+      [
+        div(classes: 'flex flex-col md:flex-row md:items-center justify-between gap-3', [
+          div(classes: 'space-y-1', [
+            div(classes: 'flex items-center gap-2 flex-wrap', [
+              span(
+                classes:
+                    'px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${isOpen ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"}',
+                [Component.text(isOpen ? 'Needs Arbitration' : 'Resolved')],
+              ),
+              span(
+                classes:
+                    'px-2 py-0.5 rounded-md text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700',
+                [Component.text(category)],
+              ),
+              if (dateStr.isNotEmpty)
+                span(classes: 'text-[11px] text-zinc-500 font-mono', [Component.text(dateStr)]),
+            ]),
+            h4(classes: 'text-base font-bold text-white', [Component.text(jobTitle)]),
+            p(classes: 'text-xs text-zinc-400 font-mono', [
+              Component.text('Dispute ID: $disputeId • Filed by: ${openedByRole.toUpperCase()} (${disp['openedBy'] ?? ""})'),
+            ]),
+          ]),
+
+          div(classes: 'flex items-center justify-between md:justify-end gap-4 shrink-0', [
+            div(classes: 'text-left md:text-right', [
+              span(classes: 'text-[10px] uppercase font-bold text-zinc-500 block', [Component.text('Escrow at Stake')]),
+              span(classes: 'text-lg font-black text-indigo-400', [
+                Component.text('₱${escrow.toStringAsFixed(2)}'),
+              ]),
+            ]),
+            if (isOpen)
+              button(
+                classes:
+                    'px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition shadow-md shadow-amber-600/30 cursor-pointer border-0 flex items-center gap-1.5 active:scale-95',
+                events: {'click': (_) => _openArbitrationModal(disp)},
+                [
+                  lIcon('scale', cls: 'w-4 h-4'),
+                  Component.text('Review & Arbitrate'),
+                ],
+              ),
+          ]),
+        ]),
+
+        // Reason box
+        div(
+          classes: 'p-3.5 rounded-xl bg-zinc-950/60 border border-zinc-800 text-xs text-zinc-300 leading-relaxed',
+          [
+            p(classes: 'text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-1', [
+              Component.text('Dispute Grounds / User Statement:'),
+            ]),
+            Component.text(reason),
+          ],
+        ),
+
+        // If Resolved, show resolution details
+        if (!isOpen)
+          div(
+            classes: 'p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-200 leading-relaxed space-y-1.5',
+            [
+              div(classes: 'flex items-center justify-between flex-wrap gap-2', [
+                span(classes: 'font-bold text-emerald-400', [
+                  Component.text('Resolution: ${resType.replaceAll('_', ' ')}'),
+                ]),
+                span(classes: 'font-mono text-xs', [
+                  Component.text('Refund to Employer: ₱${empRefund.toStringAsFixed(2)} | Payout to Nyxian: ₱${nyxPayout.toStringAsFixed(2)}'),
+                ]),
+              ]),
+              if (notes.isNotEmpty)
+                p(classes: 'text-[11px] text-zinc-400', [
+                  Component.text('Admin Notes: $notes'),
+                ]),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Component _buildArbitrationModal(bool isDark) {
+    final dispute = _selectedDisputeForArbitration;
+    if (dispute == null) return div([], classes: 'hidden');
+
+    final disputeId = dispute['id'] as String? ?? 'Dispute';
+    final jobTitle = dispute['jobTitle'] as String? ?? 'Gig';
+    final escrow = (dispute['escrowAmount'] as num?)?.toDouble() ?? 0.0;
+    final category = dispute['category'] as String? ?? 'Dispute';
+    final reason = dispute['reason'] as String? ?? '';
+    final employerId = dispute['employerId'] as String? ?? '';
+    final nyxianId = dispute['acceptedNyxianId'] as String? ?? 'None';
+
+    final calculatedEmpRefund = _arbitrationResolutionType == 'REFUND_EMPLOYER'
+        ? escrow
+        : (_arbitrationResolutionType == 'PAY_NYXIAN' ? 0.0 : escrow * (_arbitrationEmployerPercent / 100.0));
+    final calculatedNyxPayout = _arbitrationResolutionType == 'PAY_NYXIAN'
+        ? escrow
+        : (_arbitrationResolutionType == 'REFUND_EMPLOYER' ? 0.0 : escrow * (_arbitrationNyxianPercent / 100.0));
+
+    return div(
+      classes: 'fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn',
+      [
+        div(
+          classes:
+              'w-full max-w-xl bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl space-y-4 text-white max-h-[90vh] overflow-y-auto no-scrollbar',
+          [
+            // Header
+            div(classes: 'flex items-center justify-between border-b border-zinc-800 pb-3', [
+              div(classes: 'flex items-center gap-2.5', [
+                div(
+                  classes: 'p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30',
+                  [lIcon('scale', cls: 'w-5 h-5')],
+                ),
+                div([
+                  h3(classes: 'text-base font-black text-white', [Component.text('Admin Arbitration Desk')]),
+                  p(classes: 'text-xs text-zinc-400', [Component.text('Dispute: $disputeId')]),
+                ]),
+              ]),
+              button(
+                classes: 'w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 flex items-center justify-center cursor-pointer border-0',
+                events: {'click': (_) => _closeArbitrationModal()},
+                [lIcon('x', cls: 'w-4 h-4')],
+              ),
+            ]),
+
+            // Gig & Dispute summary card
+            div(classes: 'p-3.5 rounded-2xl bg-zinc-950/60 border border-zinc-800 space-y-2 text-xs', [
+              div(classes: 'flex items-center justify-between', [
+                span(classes: 'font-bold text-white', [Component.text(jobTitle)]),
+                span(classes: 'font-black text-indigo-400 text-sm', [Component.text('₱${escrow.toStringAsFixed(2)} Escrow')]),
+              ]),
+              div(classes: 'flex items-center gap-2 text-zinc-400 font-mono text-[11px]', [
+                span([Component.text('Employer: $employerId')]),
+                span([Component.text('•')]),
+                span([Component.text('Nyxian: $nyxianId')]),
+              ]),
+              div(classes: 'p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300', [
+                p(classes: 'text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-0.5', [Component.text('Dispute: $category')]),
+                Component.text(reason),
+              ]),
+            ]),
+
+            // Resolution Pathways Selector
+            div(classes: 'space-y-2 text-left', [
+              label(classes: 'block text-xs font-bold uppercase tracking-wider text-zinc-400', [
+                Component.text('Select Arbitration Settlement Pathway:'),
+              ]),
+
+              // Path 1
+              div(
+                classes:
+                    'p-3.5 rounded-2xl border transition cursor-pointer flex items-start gap-3 ${_arbitrationResolutionType == "REFUND_EMPLOYER" ? "bg-indigo-600/15 border-indigo-500/60" : "bg-zinc-950/40 border-zinc-800 hover:border-zinc-700"}',
+                events: {'click': (_) => setState(() => _arbitrationResolutionType = 'REFUND_EMPLOYER')},
+                [
+                  div(classes: 'p-2 rounded-xl bg-indigo-500/20 text-indigo-400 shrink-0 mt-0.5', [
+                    lIcon('rotate-ccw', cls: 'w-4 h-4'),
+                  ]),
+                  div(classes: 'flex-1', [
+                    div(classes: 'flex items-center justify-between', [
+                      p(classes: 'font-bold text-xs text-white', [Component.text('Path 1: 100% Refund to Employer')]),
+                      span(classes: 'text-xs font-black text-indigo-400 font-mono', [Component.text('₱${escrow.toStringAsFixed(2)}')]),
+                    ]),
+                    p(classes: 'text-[11px] text-zinc-400 mt-0.5', [
+                      Component.text('Nyxian abandoned the task, exceeded SLA, or committed fraud. Full escrow is credited back to Employer.'),
+                    ]),
+                  ]),
+                ],
+              ),
+
+              // Path 2
+              div(
+                classes:
+                    'p-3.5 rounded-2xl border transition cursor-pointer flex items-start gap-3 ${_arbitrationResolutionType == "PAY_NYXIAN" ? "bg-emerald-600/15 border-emerald-500/60" : "bg-zinc-950/40 border-zinc-800 hover:border-zinc-700"}',
+                events: {'click': (_) => setState(() => _arbitrationResolutionType = 'PAY_NYXIAN')},
+                [
+                  div(classes: 'p-2 rounded-xl bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5', [
+                    lIcon('check-circle-2', cls: 'w-4 h-4'),
+                  ]),
+                  div(classes: 'flex-1', [
+                    div(classes: 'flex items-center justify-between', [
+                      p(classes: 'font-bold text-xs text-white', [Component.text('Path 2: 100% Payout to Nyxian')]),
+                      span(classes: 'text-xs font-black text-emerald-400 font-mono', [Component.text('₱${escrow.toStringAsFixed(2)}')]),
+                    ]),
+                    p(classes: 'text-[11px] text-zinc-400 mt-0.5', [
+                      Component.text('Work completed satisfactorily; employer was unresponsive or falsely refusing confirmation.'),
+                    ]),
+                  ]),
+                ],
+              ),
+
+              // Path 3
+              div(
+                classes:
+                    'p-3.5 rounded-2xl border transition cursor-pointer flex flex-col gap-3 ${_arbitrationResolutionType == "SPLIT_ESCROW" ? "bg-purple-600/15 border-purple-500/60" : "bg-zinc-950/40 border-zinc-800 hover:border-zinc-700"}',
+                events: {'click': (_) => setState(() => _arbitrationResolutionType = 'SPLIT_ESCROW')},
+                [
+                  div(classes: 'flex items-start gap-3', [
+                    div(classes: 'p-2 rounded-xl bg-purple-500/20 text-purple-400 shrink-0 mt-0.5', [
+                      lIcon('git-merge', cls: 'w-4 h-4'),
+                    ]),
+                    div(classes: 'flex-1', [
+                      div(classes: 'flex items-center justify-between', [
+                        p(classes: 'font-bold text-xs text-white', [Component.text('Path 3: Proportional Split Settlement')]),
+                        span(classes: 'text-xs font-black text-purple-400 font-mono', [
+                          Component.text('Emp: ₱${calculatedEmpRefund.toStringAsFixed(2)} | Nyx: ₱${calculatedNyxPayout.toStringAsFixed(2)}'),
+                        ]),
+                      ]),
+                      p(classes: 'text-[11px] text-zinc-400 mt-0.5', [
+                        Component.text('Partial task completed, or mutual fault. Custom distribution between Employer and Nyxian.'),
+                      ]),
+                    ]),
+                  ]),
+
+                  if (_arbitrationResolutionType == 'SPLIT_ESCROW')
+                    div(classes: 'pt-2 border-t border-zinc-800 space-y-3', [
+                      div(classes: 'flex items-center justify-between text-xs', [
+                        span(classes: 'text-zinc-400', [
+                          Component.text('Employer Refund: ${_arbitrationEmployerPercent.toStringAsFixed(0)}% (₱${calculatedEmpRefund.toStringAsFixed(2)})'),
+                        ]),
+                        span(classes: 'text-zinc-400', [
+                          Component.text('Nyxian Payout: ${_arbitrationNyxianPercent.toStringAsFixed(0)}% (₱${calculatedNyxPayout.toStringAsFixed(2)})'),
+                        ]),
+                      ]),
+                      div(classes: 'flex items-center gap-3', [
+                        span(classes: 'text-[11px] text-zinc-500', [Component.text('Employer')]),
+                        input(
+                          type: InputType.range,
+                          classes: 'flex-1 accent-purple-500 cursor-pointer',
+                          attributes: {
+                            'min': '0',
+                            'max': '100',
+                            'step': '5',
+                            'value': _arbitrationEmployerPercent.toStringAsFixed(0),
+                          },
+                          events: {
+                            'input': (e) {
+                              final val = double.tryParse(getInputValue(e.target)) ?? 50.0;
+                              setState(() {
+                                _arbitrationEmployerPercent = val;
+                                _arbitrationNyxianPercent = (100.0 - val).clamp(0.0, 100.0);
+                              });
+                            },
+                          },
+                        ),
+                        span(classes: 'text-[11px] text-zinc-500', [Component.text('Nyxian')]),
+                      ]),
+                    ]),
+                ],
+              ),
+            ]),
+
+            // Admin Justification Notes
+            div(classes: 'space-y-1.5 text-left', [
+              label(classes: 'block text-xs font-bold uppercase tracking-wider text-zinc-400', [
+                Component.text('Admin Arbitration Rationale (Min 10 chars):'),
+              ]),
+              textarea(
+                classes:
+                    'w-full p-3 bg-zinc-950 border border-zinc-800 rounded-2xl text-xs text-white focus:outline-none focus:border-amber-500 min-h-[80px] resize-none',
+                attributes: {'placeholder': 'Document evidence reviewed (e.g. Chat review confirmed zero response for 3 days)...'},
+                events: {'input': (e) => setState(() => _arbitrationNotes = getInputValue(e.target))},
+                [Component.text(_arbitrationNotes)],
+              ),
+            ]),
+
+            // Modal Actions
+            div(classes: 'flex justify-end gap-2.5 pt-2', [
+              button(
+                classes: 'px-4 py-2.5 rounded-xl text-xs font-semibold text-zinc-400 hover:bg-zinc-800 cursor-pointer border-0',
+                events: {'click': (_) => _closeArbitrationModal()},
+                [Component.text('Cancel')],
+              ),
+              button(
+                classes:
+                    'px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition shadow-lg shadow-amber-600/30 cursor-pointer border-0 active:scale-95 flex items-center gap-2 ${_isExecutingArbitration || _arbitrationNotes.trim().length < 10 ? "opacity-50 cursor-not-allowed" : ""}',
+                attributes: (_isExecutingArbitration || _arbitrationNotes.trim().length < 10) ? {'disabled': 'true'} : {},
+                events: (_isExecutingArbitration || _arbitrationNotes.trim().length < 10)
+                    ? {}
+                    : {'click': (_) => _handleExecuteArbitration()},
+                [
+                  if (_isExecutingArbitration) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                  lIcon('check-check', cls: 'w-4 h-4'),
+                  Component.text(_isExecutingArbitration ? 'Executing Settlement...' : 'Execute Arbitration Settlement'),
+                ],
+              ),
+            ]),
+          ],
+        ),
+      ],
+    );
   }
 
   Component _buildDepositRequestCard(DepositRequest req, bool isDark) {

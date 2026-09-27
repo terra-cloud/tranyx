@@ -1694,7 +1694,10 @@ class FirestoreService {
     final nyxianId = jobDoc['acceptedApplicantId'] as String? ?? jobDoc['nyxianId'] as String?;
 
     final escrowDoc = await getEscrow(jobId);
-    final isAlreadyRefunded = escrowDoc != null && (escrowDoc['status'] as String? ?? '').toLowerCase() == 'refunded';
+    final isAlreadyRefunded = escrowDoc != null && ((escrowDoc['status'] as String? ?? '').toLowerCase() == 'refunded' || (escrowDoc['status'] as String? ?? '').toLowerCase() == 'partially_refunded');
+
+    double refundAmount = 0.0;
+    double retentionFee = 0.0;
 
     if (!isAlreadyRefunded && employerId.isNotEmpty) {
       double totalEscrow = (escrowDoc?['amount'] as num?)?.toDouble() ?? 0.0;
@@ -1705,36 +1708,40 @@ class FirestoreService {
       }
 
       if (totalEscrow > 0.0) {
+        // 70% refund to employer, 30% retained as platform anti-collusion / inactivity fee
+        refundAmount = (totalEscrow * 0.70);
+        retentionFee = (totalEscrow * 0.30);
+
         final empDoc = await getDocument('users/$employerId');
         if (empDoc != null) {
           final currentBal = (empDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-          await createOrUpdate('users/$employerId', {
-            ...empDoc,
-            'tyxBalance': currentBal + totalEscrow,
+          await setDocument('users/$employerId', {
+            'tyxBalance': currentBal + refundAmount,
           });
         }
 
-        await createOrUpdate('escrow/$jobId', {
-          if (escrowDoc != null) ...escrowDoc,
+        await setDocument('escrow/$jobId', {
           'jobId': jobId,
           'employerId': employerId,
           'amount': totalEscrow,
-          'refundAmount': totalEscrow,
-          'status': 'refunded',
+          'refundAmount': refundAmount,
+          'platformRetentionFee': retentionFee,
+          'status': 'partially_refunded',
           'refundedAt': nowMillis,
           'refundedTo': employerId,
         });
 
         final jobTitle = (jobDoc['title'] as String?) ?? 'Job';
-        await createOrUpdate('transactions/refund_stale_job_$jobId', {
+        await setDocument('transactions/refund_stale_job_$jobId', {
           'id': 'refund_stale_job_$jobId',
           'uid': employerId,
           'jobId': jobId,
           'type': 'refund',
           'category': 'refund',
-          'amount': totalEscrow,
-          'title': 'Inactive Gig Escrow Reclaim',
-          'desc': '100% Escrow refund for reclaimed inactive gig "$jobTitle"',
+          'amount': refundAmount,
+          'retentionFee': retentionFee,
+          'title': 'Inactive Gig Escrow Reclaim (70%)',
+          'desc': '70% Escrow refund (₱${refundAmount.toStringAsFixed(2)}) for reclaimed inactive gig "$jobTitle". 30% (₱${retentionFee.toStringAsFixed(2)}) retained as platform inactivity fee.',
           'status': 'Completed',
           'method': 'Tranyx Escrow',
           'originRail': 'internal_balance',
@@ -1743,28 +1750,41 @@ class FirestoreService {
       }
     }
 
-    // Increment nyxian abandonedJobs
+    // Increment nyxian abandonedJobs (safe error isolation)
     if (nyxianId != null && nyxianId.trim().isNotEmpty) {
-      final nyxDoc = await getDocument('users/$nyxianId');
-      if (nyxDoc != null) {
-        final currentAbandoned = (nyxDoc['abandonedJobs'] as num?)?.toInt() ?? 0;
-        await createOrUpdate('users/$nyxianId', {
-          ...nyxDoc,
+      try {
+        final nyxDoc = await getDocument('users/$nyxianId');
+        final currentAbandoned = (nyxDoc?['abandonedJobs'] as num?)?.toInt() ?? 0;
+        await setDocument('users/$nyxianId', {
           'abandonedJobs': currentAbandoned + 1,
         });
+      } catch (e) {
+        print('Notice: Could not increment worker abandonedJobs: $e');
       }
     }
 
-    // Update job doc to Abandoned
-    await createOrUpdate('jobs/$jobId', {
-      ...jobDoc,
+    // Update job doc to Abandoned via setDocument (only authorized keys)
+    await setDocument('jobs/$jobId', {
       'status': 'Abandoned',
       'updatedAt': nowMillis,
       'abandonedAt': nowMillis,
       'abandonReason': reason?.trim().isNotEmpty == true
           ? reason!.trim()
-          : 'Job reclaimed by employer due to 48+ hours of inactivity',
+          : 'Job reclaimed by employer due to 48+ hours of inactivity (70% escrow refund)',
     });
+
+    // In-chat system notification
+    try {
+      final msgId = 'msg_reclaim_$nowMillis';
+      await setDocument('chats/$jobId/messages/$msgId', {
+        'senderId': 'system',
+        'senderName': 'Tranyx System',
+        'type': 'job_abandoned',
+        'text': 'Gig reclaimed by employer due to 48+ hours of inactivity. 70% (₱${refundAmount.toStringAsFixed(2)}) of escrow was refunded to employer wallet. 30% (₱${retentionFee.toStringAsFixed(2)}) retained as platform inactivity fee.',
+        'createdAt': nowMillis,
+      });
+      await setDocument('chats/$jobId', {'updatedAt': nowMillis});
+    } catch (_) {}
 
     // Write cancellation log
     final logId = 'log_$nowMillis';
@@ -1774,9 +1794,11 @@ class FirestoreService {
       'role': 'employer',
       'action': 'RECLAIM_INACTIVE_JOB',
       'status': 'ABANDONED',
+      'refundAmount': refundAmount,
+      'retentionFee': retentionFee,
       'reason': reason?.trim().isNotEmpty == true
           ? reason!.trim()
-          : 'Job reclaimed by employer due to 48+ hours of inactivity',
+          : 'Job reclaimed by employer due to 48+ hours of inactivity (70% escrow refund)',
       'previousStatus': jobDoc['status'] ?? 'In Progress',
       'acceptedApplicantId': nyxianId,
       'timestamp': nowMillis,
@@ -1786,8 +1808,8 @@ class FirestoreService {
     final empPrefix = employerId.length > 5 ? employerId.substring(0, 5) : employerId;
     await createOrUpdate('notifications/notif_reclaim_emp_${nowMillis}_$empPrefix', {
       'uid': employerId,
-      'title': 'Gig Reclaimed 🛡️',
-      'message': 'You successfully reclaimed inactive gig "${jobDoc['title']}". 100% of escrow has been refunded to your wallet.',
+      'title': 'Gig Reclaimed (70% Refund) 🛡️',
+      'message': 'You reclaimed inactive gig "${jobDoc['title']}". 70% (₱${refundAmount.toStringAsFixed(2)}) was refunded to your wallet. If you believe 100% refund is warranted, you can open an Admin Dispute.',
       'type': 'job_reclaimed',
       'jobId': jobId,
       'isRead': false,
@@ -1917,8 +1939,11 @@ class FirestoreService {
     required String reason,
     required double escrowAmount,
     required String openedByUid,
+    String? reasonCategory,
   }) async {
-    final disputeId = 'disp_${DateTime.now().millisecondsSinceEpoch}_${jobId.substring(0, jobId.length > 6 ? 6 : jobId.length)}';
+    final nowMillis = DateTime.now().millisecondsSinceEpoch;
+    final disputeId = 'disp_${nowMillis}_${jobId.substring(0, jobId.length > 6 ? 6 : jobId.length)}';
+    final category = reasonCategory ?? 'Abandonment / Stalled Work';
     await setDocument('disputes/$disputeId', {
       'id': disputeId,
       'jobId': jobId,
@@ -1928,15 +1953,301 @@ class FirestoreService {
       'openedBy': openedByUid,
       'openedByRole': openedByUid == acceptedNyxianId ? 'nyxian' : 'employer',
       'status': 'OPEN',
+      'category': category,
       'reason': reason.trim(),
       'escrowAmount': escrowAmount,
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-      'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      'createdAt': nowMillis,
+      'updatedAt': nowMillis,
       'resolvedAt': null,
       'resolutionType': null,
       'resolutionNotes': null,
     });
+
+    // Update job status to Disputed (complies with Rule 1e in firestore security rules)
+    try {
+      await setDocument('jobs/$jobId', {
+        'status': 'Disputed',
+        'disputeId': disputeId,
+        'disputedAt': nowMillis,
+        'disputedBy': openedByUid,
+        'updatedAt': nowMillis,
+      });
+    } catch (e) {
+      print('Notice: Failed to update job status to Disputed: $e');
+    }
+
+    // In-chat system notification for both parties
+    try {
+      final msgId = 'msg_disp_$nowMillis';
+      await setDocument('chats/$jobId/messages/$msgId', {
+        'senderId': 'system',
+        'senderName': 'Tranyx Arbitration',
+        'type': 'dispute_opened',
+        'disputeId': disputeId,
+        'openedBy': openedByUid,
+        'category': category,
+        'text': 'An administrative dispute has been opened for this gig: "${reason.trim()}". Escrow is frozen pending Tranyx Admin arbitration.',
+        'createdAt': nowMillis,
+      });
+      await setDocument('chats/$jobId', {'updatedAt': nowMillis});
+    } catch (_) {}
+
+    // In-app notifications
+    final otherPartyUid = openedByUid == employerId ? acceptedNyxianId : employerId;
+    if (otherPartyUid != null && otherPartyUid.isNotEmpty) {
+      await createNotification(
+        uid: otherPartyUid,
+        title: 'Dispute Opened ⚖️',
+        message: 'A dispute was opened for gig "$jobTitle". Tranyx Admin will arbitrate.',
+        type: 'dispute_opened',
+        chatId: jobId,
+      );
+    }
+    await createNotification(
+      uid: openedByUid,
+      title: 'Dispute Submitted 🛡️',
+      message: 'Your dispute for gig "$jobTitle" was submitted to Tranyx Admin for review.',
+      type: 'dispute_opened',
+      chatId: jobId,
+    );
+
     return disputeId;
+  }
+
+  /// Admin Arbitration for Gigs in Dispute
+  /// Path 1: 'REFUND_EMPLOYER' - 100% refund to employer (Nyxian abandoned or fraud)
+  /// Path 2: 'PAY_NYXIAN' - 100% payout to Nyxian (Employer unresponsive or falsely refusing confirmation)
+  /// Path 3: 'SPLIT_ESCROW' - Proportional split (e.g. 50/50 or custom ratio)
+  Future<void> resolveDispute({
+    required String disputeId,
+    required String adminUid,
+    required String resolutionType, // 'REFUND_EMPLOYER', 'PAY_NYXIAN', 'SPLIT_ESCROW'
+    required String notes,
+    double? employerPercent,
+    double? nyxianPercent,
+  }) async {
+    final disputeDoc = await getDocument('disputes/$disputeId');
+    if (disputeDoc == null) throw Exception('Dispute not found.');
+
+    final currentStatus = (disputeDoc['status'] as String? ?? '').toUpperCase();
+    if (currentStatus == 'RESOLVED') {
+      throw Exception('Dispute is already resolved.');
+    }
+
+    final jobId = disputeDoc['jobId'] as String? ?? '';
+    final employerId = disputeDoc['employerId'] as String? ?? '';
+    final nyxianId = disputeDoc['acceptedNyxianId'] as String?;
+    final jobDoc = await getDocument('jobs/$jobId');
+    final escrowDoc = await getEscrow(jobId);
+
+    double escrowAmount = (escrowDoc?['amount'] as num?)?.toDouble() ??
+        (disputeDoc['escrowAmount'] as num?)?.toDouble() ?? 0.0;
+    if (escrowAmount <= 0.0 && jobDoc != null) {
+      final pricing = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
+      final discount = (jobDoc['discountAmount'] as num?)?.toDouble() ?? 0.0;
+      escrowAmount = (pricing - discount).clamp(0.0, 999999.0);
+    }
+
+    final nowMillis = DateTime.now().millisecondsSinceEpoch;
+    double empRefund = 0.0;
+    double nyxPayout = 0.0;
+
+    if (resolutionType == 'REFUND_EMPLOYER') {
+      empRefund = escrowAmount;
+      nyxPayout = 0.0;
+
+      if (employerId.isNotEmpty && empRefund > 0.0) {
+        final empDoc = await getDocument('users/$employerId');
+        final curBal = (empDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+        await setDocument('users/$employerId', {'tyxBalance': curBal + empRefund});
+
+        await setDocument('transactions/disp_refund_$disputeId', {
+          'id': 'disp_refund_$disputeId',
+          'uid': employerId,
+          'jobId': jobId,
+          'type': 'refund',
+          'category': 'refund',
+          'amount': empRefund,
+          'title': 'Dispute Arbitration: 100% Escrow Refund',
+          'desc': 'Tranyx Admin awarded 100% refund for gig "${jobDoc?['title'] ?? jobId}". Note: $notes',
+          'status': 'Completed',
+          'method': 'Tranyx Escrow',
+          'originRail': 'internal_balance',
+          'createdAt': nowMillis,
+        });
+      }
+
+      await setDocument('escrow/$jobId', {
+        'status': 'refunded',
+        'refundAmount': empRefund,
+        'refundedAt': nowMillis,
+        'refundedTo': employerId,
+        'disputeResolution': 'REFUND_EMPLOYER',
+      });
+
+      await setDocument('jobs/$jobId', {
+        'status': 'Cancelled',
+        'updatedAt': nowMillis,
+      });
+    } else if (resolutionType == 'PAY_NYXIAN') {
+      empRefund = 0.0;
+      nyxPayout = escrowAmount;
+
+      if (nyxianId != null && nyxianId.isNotEmpty && nyxPayout > 0.0) {
+        final nyxDoc = await getDocument('users/$nyxianId');
+        final curBal = (nyxDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+        await setDocument('users/$nyxianId', {'tyxBalance': curBal + nyxPayout});
+
+        await setDocument('transactions/disp_payout_$disputeId', {
+          'id': 'disp_payout_$disputeId',
+          'uid': nyxianId,
+          'jobId': jobId,
+          'type': 'payout',
+          'category': 'payout',
+          'amount': nyxPayout,
+          'title': 'Dispute Arbitration: 100% Escrow Payout',
+          'desc': 'Tranyx Admin released 100% payout for gig "${jobDoc?['title'] ?? jobId}". Note: $notes',
+          'status': 'Completed',
+          'method': 'Tranyx Escrow',
+          'originRail': 'internal_balance',
+          'createdAt': nowMillis,
+        });
+      }
+
+      await setDocument('escrow/$jobId', {
+        'status': 'released',
+        'releasedAmount': nyxPayout,
+        'releasedAt': nowMillis,
+        'releasedTo': nyxianId,
+        'disputeResolution': 'PAY_NYXIAN',
+      });
+
+      await setDocument('jobs/$jobId', {
+        'status': 'Completed',
+        'updatedAt': nowMillis,
+      });
+    } else if (resolutionType == 'SPLIT_ESCROW') {
+      final eRatio = ((employerPercent ?? 50.0) / 100.0).clamp(0.0, 1.0);
+      final nRatio = ((nyxianPercent ?? 50.0) / 100.0).clamp(0.0, 1.0);
+      empRefund = (escrowAmount * eRatio);
+      nyxPayout = (escrowAmount * nRatio);
+
+      if (employerId.isNotEmpty && empRefund > 0.0) {
+        final empDoc = await getDocument('users/$employerId');
+        final curBal = (empDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+        await setDocument('users/$employerId', {'tyxBalance': curBal + empRefund});
+
+        await setDocument('transactions/disp_split_emp_$disputeId', {
+          'id': 'disp_split_emp_$disputeId',
+          'uid': employerId,
+          'jobId': jobId,
+          'type': 'refund',
+          'category': 'refund',
+          'amount': empRefund,
+          'title': 'Dispute Arbitration: Partial Refund (${(eRatio * 100).toStringAsFixed(0)}%)',
+          'desc': 'Tranyx Admin settlement for gig "${jobDoc?['title'] ?? jobId}". Note: $notes',
+          'status': 'Completed',
+          'method': 'Tranyx Escrow',
+          'originRail': 'internal_balance',
+          'createdAt': nowMillis,
+        });
+      }
+
+      if (nyxianId != null && nyxianId.isNotEmpty && nyxPayout > 0.0) {
+        final nyxDoc = await getDocument('users/$nyxianId');
+        final curBal = (nyxDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+        await setDocument('users/$nyxianId', {'tyxBalance': curBal + nyxPayout});
+
+        await setDocument('transactions/disp_split_nyx_$disputeId', {
+          'id': 'disp_split_nyx_$disputeId',
+          'uid': nyxianId,
+          'jobId': jobId,
+          'type': 'payout',
+          'category': 'payout',
+          'amount': nyxPayout,
+          'title': 'Dispute Arbitration: Partial Payout (${(nRatio * 100).toStringAsFixed(0)}%)',
+          'desc': 'Tranyx Admin settlement for gig "${jobDoc?['title'] ?? jobId}". Note: $notes',
+          'status': 'Completed',
+          'method': 'Tranyx Escrow',
+          'originRail': 'internal_balance',
+          'createdAt': nowMillis,
+        });
+      }
+
+      await setDocument('escrow/$jobId', {
+        'status': 'split_resolved',
+        'refundAmount': empRefund,
+        'releasedAmount': nyxPayout,
+        'resolvedAt': nowMillis,
+        'disputeResolution': 'SPLIT_ESCROW',
+      });
+
+      await setDocument('jobs/$jobId', {
+        'status': 'Completed',
+        'updatedAt': nowMillis,
+      });
+    }
+
+    // Mark dispute document RESOLVED
+    await setDocument('disputes/$disputeId', {
+      'status': 'RESOLVED',
+      'resolvedAt': nowMillis,
+      'resolvedBy': adminUid,
+      'resolutionType': resolutionType,
+      'resolutionNotes': notes,
+      'employerRefund': empRefund,
+      'nyxianPayout': nyxPayout,
+      'employerPercent': employerPercent,
+      'nyxianPercent': nyxianPercent,
+      'updatedAt': nowMillis,
+    });
+
+    // In-chat resolution notice
+    try {
+      final msgId = 'msg_disp_res_$nowMillis';
+      await setDocument('chats/$jobId/messages/$msgId', {
+        'senderId': 'system',
+        'senderName': 'Tranyx Arbitration',
+        'type': 'dispute_resolved',
+        'resolutionType': resolutionType,
+        'employerRefund': empRefund,
+        'nyxianPayout': nyxPayout,
+        'notes': notes,
+        'text': 'Dispute Resolved: $resolutionType.\nRefund to Employer: ₱${empRefund.toStringAsFixed(2)} | Payout to Nyxian: ₱${nyxPayout.toStringAsFixed(2)}.\nNotes: $notes',
+        'createdAt': nowMillis,
+      });
+      await setDocument('chats/$jobId', {'updatedAt': nowMillis});
+    } catch (_) {}
+
+    // Notify employer and nyxian
+    if (employerId.isNotEmpty) {
+      await createNotification(
+        uid: employerId,
+        title: 'Dispute Resolved ⚖️',
+        message: 'Admin resolved dispute for "${jobDoc?['title'] ?? jobId}". Resolution: $resolutionType. Refund: ₱${empRefund.toStringAsFixed(2)}.',
+        type: 'dispute_resolved',
+        chatId: jobId,
+      );
+    }
+    if (nyxianId != null && nyxianId.isNotEmpty) {
+      await createNotification(
+        uid: nyxianId,
+        title: 'Dispute Resolved ⚖️',
+        message: 'Admin resolved dispute for "${jobDoc?['title'] ?? jobId}". Resolution: $resolutionType. Payout: ₱${nyxPayout.toStringAsFixed(2)}.',
+        type: 'dispute_resolved',
+        chatId: jobId,
+      );
+    }
+  }
+
+  /// Fetch all disputes (for admin portal)
+  Future<List<Map<String, dynamic>>> fetchDisputes({String? statusFilter}) async {
+    final list = await getCollection('disputes');
+    if (statusFilter != null && statusFilter.isNotEmpty && statusFilter != 'ALL') {
+      return list.where((d) => (d['status'] as String? ?? '').toUpperCase() == statusFilter.toUpperCase()).toList();
+    }
+    list.sort((a, b) => (b['createdAt'] as num? ?? 0).compareTo(a['createdAt'] as num? ?? 0));
+    return list;
   }
 
   // ── Applications ───────────────────────────────────────────
