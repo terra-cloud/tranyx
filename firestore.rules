@@ -136,6 +136,12 @@ service cloud.firestore {
           'subscriptionTxId', 'subscriptionStatus', 'pendingSubscription', 
           'lastSubscriptionRejection', 'updatedAt'
         ]))
+        ||
+        // 5. Inactive gig reclaim: Allow incrementing worker's abandonedJobs metric
+        (isActiveUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['abandonedJobs']) &&
+          request.resource.data.abandonedJobs is number &&
+          (!('abandonedJobs' in resource.data) || request.resource.data.abandonedJobs == resource.data.abandonedJobs + 1)
+        )
       ) &&
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
 
@@ -470,6 +476,20 @@ service cloud.firestore {
         (isActiveUser() && resource.data.creatorId == request.auth.uid && 
           resource.data.status != 'Open' && resource.data.status != 'open' &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['employerRated'])
+        ) ||
+        // 1d. Creator (Employer): Reclaiming an inactive/stalled job and marking it Abandoned
+        (isActiveUser() && resource.data.creatorId == request.auth.uid &&
+          (request.resource.data.status == 'Abandoned' || request.resource.data.status == 'abandoned') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'abandonedAt', 'abandonReason', 'updatedAt'
+          ])
+        ) ||
+        // 1e. Active Participants: Raising a dispute for admin arbitration
+        (isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
+          (request.resource.data.status == 'Disputed' || request.resource.data.status == 'disputed') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'disputeId', 'disputedAt', 'disputedBy', 'updatedAt'
+          ])
         ) ||
         // 2. Assigned Nyxian (Freelancer): Can update work progress, status & completion fields
         (isActiveUser() && 'acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid && 
