@@ -45,5 +45,28 @@
 
     // Disputes Collection (Review and resolution portal)
     match /disputes/{disputeId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        resource.data.openedBy == request.auth.uid ||
+        resource.data.employerId == request.auth.uid ||
+        resource.data.acceptedNyxianId == request.auth.uid ||
+        isAdminOrStaff()
+      );
+      allow create: if isActiveUser() && (
+        request.resource.data.openedBy == request.auth.uid ||
+        isAdminOrStaff()
+      ) && (request.resource.data.status == 'OPEN' || request.resource.data.status == 'open');
+      allow update: if isAdminOrStaff() || (
+        isActiveUser() && (
+          resource.data.openedBy == request.auth.uid ||
+          resource.data.employerId == request.auth.uid ||
+          resource.data.acceptedNyxianId == request.auth.uid
+        ) &&
+        // Non-admin participants CANNOT alter dispute resolution or status to RESOLVED
+        request.resource.data.status == resource.data.status &&
+        !('resolutionPathway' in request.resource.data.diff(resource.data).affectedKeys()) &&
+        !('resolvedAt' in request.resource.data.diff(resource.data).affectedKeys()) &&
+        !('resolvedBy' in request.resource.data.diff(resource.data).affectedKeys())
+      );
+      allow delete: if isAdminOrStaff();
     }

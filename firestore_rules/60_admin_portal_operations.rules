@@ -87,6 +87,12 @@
       allow write: if isAdminOrStaff();
     }
 
+    // Platform Config Collection (Job SLAs, Platform Settings - Admin managed)
+    match /platform_config/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdminOrStaff();
+    }
+
     // Promos Collection
     match /promos/{promoId} {
       allow read: if isAuthenticated();

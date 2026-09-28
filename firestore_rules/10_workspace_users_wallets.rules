@@ -34,6 +34,12 @@
           'subscriptionTxId', 'subscriptionStatus', 'pendingSubscription', 
           'lastSubscriptionRejection', 'updatedAt'
         ]))
+        ||
+        // 5. Inactive gig reclaim: Allow incrementing worker's abandonedJobs metric
+        (isActiveUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['abandonedJobs']) &&
+          request.resource.data.abandonedJobs is number &&
+          (!('abandonedJobs' in resource.data) || request.resource.data.abandonedJobs == resource.data.abandonedJobs + 1)
+        )
       ) &&
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
 

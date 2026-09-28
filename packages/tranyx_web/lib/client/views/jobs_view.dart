@@ -745,6 +745,10 @@ class JobsViewComponent extends StatelessComponent {
     final badgeText = status == 'Open' ? dateReq.toUpperCase() : status.toUpperCase();
     final badgeCls = status == 'In Progress'
         ? 'bg-green-500/20 text-green-400 animate-pulse'
+        : status == 'Awaiting Acknowledgment'
+        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse'
+        : status == 'Acknowledgment Expired'
+        ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
         : status == 'Completed'
         ? 'bg-zinc-700/50 text-zinc-400'
         : (isUrgent ? 'bg-red-500/20 text-red-400' : 'bg-zinc-700 text-zinc-300');
@@ -757,8 +761,19 @@ class JobsViewComponent extends StatelessComponent {
       final myUid = s.userProfile?.uid ?? '';
 
       if (acceptedId == myUid) {
-        appliedStatusText = jobStatus == 'completed' ? 'ACCEPTED (COMPLETED)' : 'ACCEPTED';
-        appliedStatusCls = 'bg-green-500/20 text-green-400';
+        if (jobStatus == 'completed') {
+          appliedStatusText = 'ACCEPTED (COMPLETED)';
+          appliedStatusCls = 'bg-green-500/20 text-green-400';
+        } else if (jobStatus == 'awaiting acknowledgment') {
+          appliedStatusText = 'HIRED (ACTION REQUIRED)';
+          appliedStatusCls = 'bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse';
+        } else if (jobStatus == 'acknowledgment expired') {
+          appliedStatusText = 'EXPIRED';
+          appliedStatusCls = 'bg-rose-500/20 text-rose-400 border border-rose-500/30';
+        } else {
+          appliedStatusText = 'ACCEPTED (IN PROGRESS)';
+          appliedStatusCls = 'bg-green-500/20 text-green-400';
+        }
       } else if (acceptedId != null) {
         appliedStatusText = 'NOT CHOSEN';
         appliedStatusCls = 'bg-red-500/20 text-red-400';
@@ -1718,6 +1733,59 @@ class _JobDetails extends StatelessComponent {
                   ),
                 ]);
               } else if (status == 'Done' || status == 'done' || status == 'arrived_dropoff') {
+                DateTime? parseDate(dynamic val) {
+                  if (val == null) return null;
+                  if (val is DateTime) return val;
+                  if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+                  if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+                  if (val is String) {
+                    final dt = DateTime.tryParse(val);
+                    if (dt != null) return dt;
+                    final n = num.tryParse(val);
+                    if (n != null) return DateTime.fromMillisecondsSinceEpoch(n.toInt());
+                  }
+                  return null;
+                }
+                final doneAt = parseDate(s.selectedJobData?['updatedAt']) ?? parseDate(s.selectedJobData?['createdAt']) ?? DateTime.now();
+                final isEmployerUnresponsive = DateTime.now().difference(doneAt).inHours >= 48;
+
+                Component? unresponsiveBanner;
+                if (isEmployerUnresponsive) {
+                  unresponsiveBanner = div(
+                    classes: 'p-4 rounded-2xl border border-amber-500/35 bg-amber-500/10 flex flex-col gap-3',
+                    [
+                      div(classes: 'flex items-start gap-3', [
+                        lIcon('clock', cls: 'w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5'),
+                        div([
+                          p(classes: 'font-bold text-amber-500 text-sm', [
+                            Component.text('Employer Verification Delayed (Over 48h)'),
+                          ]),
+                          p(classes: 'text-xs mt-0.5 ${isDark ? "text-amber-200/80" : "text-amber-800/80"}', [
+                            Component.text(
+                              'You completed this gig over 48 hours ago, but the employer has not verified or released payment. You can request Admin Arbitration for direct payout review.',
+                            ),
+                          ]),
+                        ]),
+                      ]),
+                      button(
+                        classes:
+                            'w-full py-2.5 px-3 rounded-xl font-bold text-xs border ${isDark ? "border-amber-500/40 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30" : "border-amber-400 bg-amber-100 text-amber-800 hover:bg-amber-200"} transition-colors flex items-center justify-center gap-2 cursor-pointer',
+                        events: {
+                          'click': (_) {
+                            if (s.selectedJobData != null) {
+                              s.openDisputeModal(s.selectedJobData!, 'Employer Unresponsive upon Completion');
+                            }
+                          },
+                        },
+                        [
+                          lIcon('scale', cls: 'w-4 h-4'),
+                          Component.text('Request Admin Payout Review ⚖️'),
+                        ],
+                      ),
+                    ],
+                  );
+                }
+
                 if (hasTracker) {
                   // DELIVERY JOB (Tracker): Nyxian generates code
                   return div(classes: 'space-y-3', [
@@ -1743,6 +1811,7 @@ class _JobDetails extends StatelessComponent {
                         Component.text(s.isGeneratingCode ? 'Generating...' : 'Generate Completion QR / Code'),
                       ],
                     ),
+                    if (unresponsiveBanner != null) unresponsiveBanner,
                   ]);
                 } else {
                   // STANDARD JOB (No Tracker): Employer generates code, Nyxian enters
@@ -1767,6 +1836,7 @@ class _JobDetails extends StatelessComponent {
                       events: {'click': (_) => s.setState(() => s.showCompletionScanner = true)},
                       [lIcon('key', cls: 'w-5 h-5'), Component.text('Enter Payment Code')],
                     ),
+                    if (unresponsiveBanner != null) unresponsiveBanner,
                   ]);
                 }
               } else if (status == 'Completed' || status == 'completed') {
@@ -1951,7 +2021,7 @@ class _JobDetails extends StatelessComponent {
                 }
                 return null;
               }
-              final lastActive = parseDate(s.selectedJobData?['updatedAt']) ?? parseDate(s.selectedJobData?['createdAt']) ?? DateTime.now();
+              final lastActive = parseDate(s.selectedJobData?['lastActivityAt']) ?? parseDate(s.selectedJobData?['updatedAt']) ?? parseDate(s.selectedJobData?['createdAt']) ?? DateTime.now();
               final isStale = DateTime.now().difference(lastActive).inHours >= 48;
 
               return div(classes: 'space-y-3', [
@@ -1981,26 +2051,43 @@ class _JobDetails extends StatelessComponent {
                           p(classes: 'font-bold text-red-500 text-sm', [Component.text('Gig Inactive (Over 48h Without Progress)')]),
                           p(classes: 'text-xs mt-0.5 ${isDark ? "text-red-200/80" : "text-red-800/80"}', [
                             Component.text(
-                              'This gig has had zero progress or updates for over 48 hours. As the employer, you can reclaim this gig now. 100% of your escrow deposit will be immediately refunded to your wallet balance, and the job will be marked Abandoned.',
+                              'This gig has had zero progress or updates for over 48 hours. You can instantly reclaim with a 70% refund (30% retained as platform inactivity fee), or open a dispute with Admin for a full 100% refund investigation.',
                             ),
                           ]),
                         ]),
                       ]),
-                      button(
-                        classes:
-                            'w-full py-2.5 px-4 rounded-xl font-bold text-xs bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm',
-                        events: {
-                          'click': (_) {
-                            if (s.selectedJobData != null) {
-                              s.handleReclaimInactiveJob(s.selectedJobData!);
-                            }
+                      div(classes: 'flex flex-col sm:flex-row gap-2 pt-1', [
+                        button(
+                          classes:
+                              'flex-1 py-2.5 px-3 rounded-xl font-bold text-xs bg-red-600 hover:bg-red-700 text-white transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm',
+                          events: {
+                            'click': (_) {
+                              if (s.selectedJobData != null) {
+                                s.handleReclaimInactiveJob(s.selectedJobData!);
+                              }
+                            },
                           },
-                        },
-                        [
-                          lIcon('rotate-ccw', cls: 'w-4 h-4'),
-                          Component.text('Reclaim Inactive Gig (100% Escrow Refund)'),
-                        ],
-                      ),
+                          [
+                            lIcon('rotate-ccw', cls: 'w-4 h-4'),
+                            Component.text('Instant Reclaim (70% Refund)'),
+                          ],
+                        ),
+                        button(
+                          classes:
+                              'flex-1 py-2.5 px-3 rounded-xl font-bold text-xs border ${isDark ? "border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25" : "border-amber-400 bg-amber-100 text-amber-800 hover:bg-amber-200"} transition-colors flex items-center justify-center gap-2 cursor-pointer',
+                          events: {
+                            'click': (_) {
+                              if (s.selectedJobData != null) {
+                                s.openDisputeModal(s.selectedJobData!, 'Abandonment / Stalled Work');
+                              }
+                            },
+                          },
+                          [
+                            lIcon('scale', cls: 'w-4 h-4'),
+                            Component.text('Dispute for 100% Refund'),
+                          ],
+                        ),
+                      ]),
                     ],
                   )
                 else
@@ -2014,7 +2101,7 @@ class _JobDetails extends StatelessComponent {
                           p(classes: 'font-bold text-amber-500 text-sm', [Component.text('Cancellation Locked (Active Hire)')]),
                           p(classes: 'text-xs mt-0.5 ${isDark ? "text-amber-200/70" : "text-amber-800/80"}', [
                             Component.text(
-                              'A Nyxian has been hired for this gig. Unilateral cancellation is disabled to safeguard committed preparation and resources.',
+                              'A Nyxian has been hired for this gig. Unilateral cancellation is disabled to safeguard committed preparation and resources. If issues arise, you can open an Admin Dispute.',
                             ),
                           ]),
                         ]),
@@ -2025,18 +2112,13 @@ class _JobDetails extends StatelessComponent {
                         events: {
                           'click': (_) {
                             if (s.selectedJobData != null) {
-                              s.handleRequestJobDispute(s.selectedJobData!);
-                            } else {
-                              s.alertDialog(
-                                'Dispute & Support Assistance',
-                                'Unilateral cancellation is locked because an active Nyxian is hired. If you need assistance, please contact Tranyx Support.',
-                              );
+                              s.openDisputeModal(s.selectedJobData!, 'Unresponsive Counterparty');
                             }
                           },
                         },
                         [
-                          lIcon('help-circle', cls: 'w-4 h-4'),
-                          Component.text('Contact Admin / Support Dispute'),
+                          lIcon('scale', cls: 'w-4 h-4'),
+                          Component.text('Raise Dispute to Admin'),
                         ],
                       ),
                     ],
@@ -2165,6 +2247,25 @@ class _JobDetails extends StatelessComponent {
                     ],
                   ),
               ]);
+            }
+
+            if (status.toLowerCase() == 'disputed') {
+              return div(
+                classes: 'p-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 flex items-center gap-3',
+                [
+                  lIcon('scale', cls: 'w-6 h-6 text-amber-400 flex-shrink-0'),
+                  div([
+                    p(classes: 'font-bold text-amber-400 text-sm', [
+                      Component.text('Gig Under Admin Dispute'),
+                    ]),
+                    p(classes: 'text-xs ${isDark ? "text-amber-200/80" : "text-amber-900/80"} mt-0.5', [
+                      Component.text(
+                        'This gig is currently under arbitration review by Tranyx Administrators. Escrow is safely frozen until resolution.',
+                      ),
+                    ]),
+                  ]),
+                ],
+              );
             }
 
             if (status == 'Cancelled' || status == 'ADMIN_CANCELLED' || status == 'admin_cancelled' || status == 'Abandoned' || status == 'abandoned') {
@@ -3293,17 +3394,46 @@ class _ApplyJob extends StatelessComponent {
         options: const [('Standard Rate', 'standard'), ('Counter-offer', 'counter')],
         selected: s.isCounterOffer ? 'counter' : 'standard',
         isDark: isDark,
-        onChange: (v) => s.setState(() => s.isCounterOffer = v == 'counter'),
+        onChange: (v) => s.setState(() {
+          s.isCounterOffer = v == 'counter';
+          s.applyError = null;
+        }),
       ),
-      if (s.isCounterOffer)
+      if (s.isCounterOffer) ...[
+        div(classes: 'p-3.5 rounded-xl border flex items-center gap-2.5 ${isDark ? "bg-indigo-950/30 border-indigo-800/40 text-indigo-400" : "bg-indigo-50 border-indigo-200 text-indigo-700"} text-xs font-semibold', [
+          lIcon('info', cls: 'w-4 h-4 shrink-0'),
+          span([
+            Component.text(
+              JobCounterOfferValidator.getPermittedRangeDisplay(
+                (s.selectedJobData?['pricingValue'] as num?)?.toDouble() ?? 0.0,
+              ),
+            ),
+          ]),
+        ]),
         inputField(
           label: 'Your Rate (₱)',
           placeholder: '0.00',
           iconName: 'wallet',
           isDark: isDark,
           value: s.applyPriceRate,
-          onChange: (v) => s.setState(() => s.applyPriceRate = v),
+          onChange: (v) {
+            s.setState(() {
+              s.applyPriceRate = v;
+              if (v.trim().isNotEmpty) {
+                final origPrice = (s.selectedJobData?['pricingValue'] as num?)?.toDouble() ?? 0.0;
+                final res = JobCounterOfferValidator.validate(
+                  originalOffer: origPrice,
+                  counterOfferInput: v,
+                  isCounterOffer: true,
+                );
+                s.applyError = res.isValid ? null : res.errorMessage;
+              } else {
+                s.applyError = null;
+              }
+            });
+          },
         ),
+      ],
       div(classes: 'p-4 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"}', [
         div(classes: 'flex justify-between items-center mb-2', [
           span(classes: 'text-xs font-medium ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
