@@ -615,6 +615,7 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
               ),
             ]),
           ],
+        ),
       ],
 
       // ── Full-Size Image Preview Modal ──────────────────────────────────────
