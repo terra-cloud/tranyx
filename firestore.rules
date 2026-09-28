@@ -491,8 +491,28 @@ service cloud.firestore {
             'status', 'disputeId', 'disputedAt', 'disputedBy', 'updatedAt'
           ])
         ) ||
+        // Active participants can touch lastActivityAt
+        (isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastActivityAt'])
+        ) ||
         // 2. Assigned Nyxian (Freelancer): Can update work progress, status & completion fields
         (isActiveUser() && 'acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid && 
+          (
+            !('status' in request.resource.data.diff(resource.data).affectedKeys()) ||
+            request.resource.data.status == resource.data.status ||
+            (
+              (request.resource.data.status == 'In Progress' || request.resource.data.status == 'in progress') &&
+              (resource.data.status == 'Awaiting Acknowledgment' || resource.data.status == 'awaiting acknowledgment' || resource.data.status == 'In Progress' || resource.data.status == 'in progress')
+            ) ||
+            (
+              (request.resource.data.status == 'Done' || request.resource.data.status == 'done' || request.resource.data.status == 'arrived_dropoff') &&
+              (resource.data.status == 'In Progress' || resource.data.status == 'in progress' || resource.data.status == 'in_transit')
+            ) ||
+            (
+              (request.resource.data.status == 'Completed' || request.resource.data.status == 'completed') &&
+              (resource.data.status == 'Done' || resource.data.status == 'done' || resource.data.status == 'arrived_dropoff')
+            )
+          ) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'status', 'completionCode', 'receiptUrl', 'nyxianRated',
             'acknowledgedAt', 'acknowledgmentStatus', 'updatedAt'
@@ -587,6 +607,9 @@ service cloud.firestore {
       allow delete: if (isActiveUser() && (
         resource.data.employerId == request.auth.uid || 
         resource.data.creatorId == request.auth.uid
+      ) && (
+        resource.data.status == 'cancelled' || resource.data.status == 'Cancelled' ||
+        resource.data.status == 'refunded' || resource.data.status == 'Refunded'
       )) || isAdminOrStaff();
     }
 
@@ -773,7 +796,30 @@ service cloud.firestore {
 
     // Disputes Collection (Review and resolution portal)
     match /disputes/{disputeId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        resource.data.openedBy == request.auth.uid ||
+        resource.data.employerId == request.auth.uid ||
+        resource.data.acceptedNyxianId == request.auth.uid ||
+        isAdminOrStaff()
+      );
+      allow create: if isActiveUser() && (
+        request.resource.data.openedBy == request.auth.uid ||
+        isAdminOrStaff()
+      ) && (request.resource.data.status == 'OPEN' || request.resource.data.status == 'open');
+      allow update: if isAdminOrStaff() || (
+        isActiveUser() && (
+          resource.data.openedBy == request.auth.uid ||
+          resource.data.employerId == request.auth.uid ||
+          resource.data.acceptedNyxianId == request.auth.uid
+        ) &&
+        // Non-admin participants CANNOT alter dispute resolution or status to RESOLVED
+        request.resource.data.status == resource.data.status &&
+        !('resolutionPathway' in request.resource.data.diff(resource.data).affectedKeys()) &&
+        !('resolvedAt' in request.resource.data.diff(resource.data).affectedKeys()) &&
+        !('resolvedBy' in request.resource.data.diff(resource.data).affectedKeys())
+      );
+      allow delete: if isAdminOrStaff();
     }
 
 // >>> SOURCE: firestore_rules/60_admin_portal_operations.rules

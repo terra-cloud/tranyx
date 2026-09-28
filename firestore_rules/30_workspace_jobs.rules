@@ -55,8 +55,28 @@
             'status', 'disputeId', 'disputedAt', 'disputedBy', 'updatedAt'
           ])
         ) ||
+        // Active participants can touch lastActivityAt
+        (isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastActivityAt'])
+        ) ||
         // 2. Assigned Nyxian (Freelancer): Can update work progress, status & completion fields
         (isActiveUser() && 'acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid && 
+          (
+            !('status' in request.resource.data.diff(resource.data).affectedKeys()) ||
+            request.resource.data.status == resource.data.status ||
+            (
+              (request.resource.data.status == 'In Progress' || request.resource.data.status == 'in progress') &&
+              (resource.data.status == 'Awaiting Acknowledgment' || resource.data.status == 'awaiting acknowledgment' || resource.data.status == 'In Progress' || resource.data.status == 'in progress')
+            ) ||
+            (
+              (request.resource.data.status == 'Done' || request.resource.data.status == 'done' || request.resource.data.status == 'arrived_dropoff') &&
+              (resource.data.status == 'In Progress' || resource.data.status == 'in progress' || resource.data.status == 'in_transit')
+            ) ||
+            (
+              (request.resource.data.status == 'Completed' || request.resource.data.status == 'completed') &&
+              (resource.data.status == 'Done' || resource.data.status == 'done' || resource.data.status == 'arrived_dropoff')
+            )
+          ) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'status', 'completionCode', 'receiptUrl', 'nyxianRated',
             'acknowledgedAt', 'acknowledgmentStatus', 'updatedAt'
@@ -151,6 +171,9 @@
       allow delete: if (isActiveUser() && (
         resource.data.employerId == request.auth.uid || 
         resource.data.creatorId == request.auth.uid
+      ) && (
+        resource.data.status == 'cancelled' || resource.data.status == 'Cancelled' ||
+        resource.data.status == 'refunded' || resource.data.status == 'Refunded'
       )) || isAdminOrStaff();
     }
 
