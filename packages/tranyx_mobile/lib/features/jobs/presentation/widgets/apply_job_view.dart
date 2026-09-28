@@ -168,13 +168,11 @@ class _ApplyJobViewState extends ConsumerState<ApplyJobView> {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
                 color: isDarkMode
-                    ? AppColors.darkPrimary.withOpacity(0.12)
-                    : AppColors.lightPrimary.withOpacity(0.08),
+                    ? AppColors.indigo.withValues(alpha: 0.15)
+                    : AppColors.indigo.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: isDarkMode
-                      ? AppColors.darkPrimary.withOpacity(0.25)
-                      : AppColors.lightPrimary.withOpacity(0.25),
+                  color: AppColors.indigo.withValues(alpha: 0.25),
                 ),
               ),
               child: Row(
@@ -182,7 +180,7 @@ class _ApplyJobViewState extends ConsumerState<ApplyJobView> {
                   Icon(
                     Icons.info_outline,
                     size: 16,
-                    color: isDarkMode ? AppColors.darkPrimary : AppColors.lightPrimary,
+                    color: isDarkMode ? AppColors.purpleLight : AppColors.indigo,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -191,7 +189,7 @@ class _ApplyJobViewState extends ConsumerState<ApplyJobView> {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: isDarkMode ? AppColors.darkPrimary : AppColors.lightPrimary,
+                        color: isDarkMode ? AppColors.darkText : AppColors.indigo,
                       ),
                     ),
                   ),
@@ -453,6 +451,8 @@ class _ApplyJobViewState extends ConsumerState<ApplyJobView> {
                       );
                     }
                     return;
+                  }
+
                   double rate = selectedJob.pricingValue;
                   if (isCounterOffer) {
                     final validation = JobCounterOfferValidator.validate(

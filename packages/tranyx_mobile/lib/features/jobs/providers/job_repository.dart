@@ -425,18 +425,11 @@ class JobRepository {
       });
 
       // Categorize and determine acknowledgment SLA
-      final category = JobSlaHelper.classifyJob(
-        categoryName: jobData['category'] as String?,
-        categoryGroup: jobData['categoryGroup'] as String?,
-        title: jobData['title'] as String?,
-        locationType: jobData['locationType'] as String?,
-      );
+      final category = JobSlaHelper.classifyJob(jobData);
       final slaMinutes = category.defaultSlaMinutes;
       final deadline = JobSlaHelper.calculateDeadline(
-        category: category,
+        job: jobData,
         hiredAt: DateTime.fromMillisecondsSinceEpoch(now),
-        slaMinutes: slaMinutes,
-        jobDate: jobData['jobDate'] as String?,
       ).millisecondsSinceEpoch;
 
       // Update job status and accepted applicant details with SLA acknowledgment metadata
