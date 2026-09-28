@@ -320,6 +320,13 @@ class TranyxAppState extends State<TranyxApp> {
   bool isCheckingAuthenticity = false;
   String? authenticityResult;
 
+  // ── Dispute & Arbitration state ──────────────────────────────
+  bool showDisputeModal = false;
+  Map<String, dynamic>? disputeTargetJob;
+  String disputeCategory = 'Abandonment / Stalled Work';
+  String disputeExplanation = '';
+  bool isSubmittingDispute = false;
+
   String? get idToken => SessionStorage.idToken;
 
   bool showWalletActionMenu = false;
@@ -4304,6 +4311,10 @@ class TranyxAppState extends State<TranyxApp> {
         });
       } catch (_) {}
     });
+
+    if (!chatId.startsWith('rental_') && !chatId.startsWith('property_')) {
+      unawaited(checkJobSlaStatus(chatId));
+    }
   }
 
   void closeChat() {
@@ -4367,11 +4378,23 @@ class TranyxAppState extends State<TranyxApp> {
       return;
     }
 
+    _touchJobActivity(currentChatId);
+
     setState(() {
       chatInputText = '';
       chatPiiBlocked = false;
       chatDisintermediationBlocked = false;
     });
+  }
+
+  void _touchJobActivity(String chatId) {
+    if (chatId.isEmpty || chatId.startsWith('rental_') || chatId.startsWith('property_')) return;
+    final token = SessionStorage.idToken;
+    if (token != null) {
+      FirestoreService(token, _handleTokenRefresh).setDocument('jobs/$chatId', {
+        'lastActivityAt': DateTime.now().millisecondsSinceEpoch,
+      }).catchError((_) {});
+    }
   }
 
   Future<void> sendChatPhoto(dynamic event) async {
@@ -4388,6 +4411,7 @@ class TranyxAppState extends State<TranyxApp> {
       final url = await uploadChatPhotoJs(currentChatId, b64, mime);
       if (url != null) {
         sendChatMessageJs(currentChatId, uid, name, '', photoUrl: url);
+        _touchJobActivity(currentChatId);
       }
     } catch (_) {
     } finally {
@@ -4501,16 +4525,41 @@ class TranyxAppState extends State<TranyxApp> {
       final svc = FirestoreService(token, _handleTokenRefresh);
       final jobDoc = await svc.getDocument('jobs/$jobId');
       if (jobDoc != null) {
+        final hiredAt = DateTime.now();
+        final slaConfig = await svc.getJobSlaConfig();
+        final category = JobSlaHelper.classifyJob(jobDoc);
+        final slaMinutes = slaConfig.getSlaMinutes(category);
+        final deadline = JobSlaHelper.calculateDeadline(job: jobDoc, hiredAt: hiredAt, config: slaConfig);
+
         final updates = <String, dynamic>{
           ...jobDoc,
-          'status': 'In Progress',
+          'status': 'Awaiting Acknowledgment',
           'acceptedApplicantId': applicantUid,
+          'acceptedApplicantName': appData['applicantName'] as String? ?? 'Nyxian',
+          'hiredAt': hiredAt.millisecondsSinceEpoch,
+          'acknowledgmentDeadline': deadline.millisecondsSinceEpoch,
+          'acknowledgmentSlaMinutes': slaMinutes,
+          'acknowledgmentCategory': category.id,
+          'acknowledgmentStatus': 'pending',
+          'acknowledgmentReminderSent': false,
+          'updatedAt': hiredAt.millisecondsSinceEpoch,
         };
 
         // Use counter offer if provided
         if (appData['isCounterOffer'] == true && appData['proposalRate'] != null) {
           final rate = (appData['proposalRate'] as num).toDouble();
           final originalPrice = (jobDoc['pricingValue'] as num).toDouble();
+
+          final validation = JobCounterOfferValidator.validate(
+            originalOffer: originalPrice,
+            counterOfferInput: rate,
+            isCounterOffer: true,
+          );
+          if (!validation.isValid) {
+            showAppToast('Invalid Counter Offer', validation.errorMessage ?? 'Cannot accept invalid counter offer.');
+            setState(() => isUpdatingJobStatus = false);
+            return;
+          }
 
           final txFeeRate = (jobDoc['transactionFeeRate'] as num?)?.toDouble() ?? 0.07;
           final convFeeRate = (jobDoc['convenienceFeeRate'] as num?)?.toDouble() ?? 0.03;
@@ -4628,11 +4677,30 @@ class TranyxAppState extends State<TranyxApp> {
         await svc.awardPointsIfEligible(SessionStorage.uid ?? '', 'hire_applicant');
         await svc.awardPointsIfEligible(applicantUid, 'be_hired');
 
+        // Post acknowledgment request system message to the job chat
+        final durationLabel = JobSlaHelper.formatSlaDurationLabel(slaMinutes);
+        final msgId = 'msg_ack_req_${hiredAt.millisecondsSinceEpoch}';
+        await svc.createOrUpdate('chats/$jobId/messages/$msgId', {
+          'senderId': 'system',
+          'senderName': 'Tranyx System',
+          'type': 'acknowledgment_request',
+          'text': '🎉 You have been hired for this task.\nPlease acknowledge that you have received the job and are ready to proceed.\n\nPlease respond within $durationLabel.',
+          'category': category.id,
+          'deadline': deadline.millisecondsSinceEpoch,
+          'slaMinutes': slaMinutes,
+          'createdAt': hiredAt.millisecondsSinceEpoch,
+        });
+        await svc.createOrUpdate('chats/$jobId', {
+          'updatedAt': hiredAt.millisecondsSinceEpoch,
+        });
+
         final jobTitle = jobDoc['title'] as String? ?? 'Job';
         await svc.createNotification(
           uid: applicantUid,
-          title: 'Application Accepted',
-          message: 'You have been selected for the job "$jobTitle".',
+          title: 'Hired! Action Required: Acknowledge Job',
+          message: 'You have been hired for "$jobTitle". Please acknowledge within $durationLabel to start the gig.',
+          type: 'chat',
+          chatId: jobId,
         );
       }
       setState(() => isUpdatingJobStatus = false);
@@ -4640,13 +4708,123 @@ class TranyxAppState extends State<TranyxApp> {
       if (selectedJobData != null) {
         selectJobAndLoadDetails({
           ...selectedJobData!,
-          'status': 'In Progress',
+          'status': 'Awaiting Acknowledgment',
           'acceptedApplicantId': applicantUid,
         });
       }
     } catch (e) {
       setState(() => isUpdatingJobStatus = false);
     }
+  }
+
+  /// Nyxian acknowledges and starts the job from chat.
+  Future<void> acknowledgeJob(String jobId) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) return;
+
+    setState(() => isUpdatingJobStatus = true);
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      await svc.acknowledgeJob(
+        jobId: jobId,
+        nyxianUid: uid,
+        nyxianName: userProfile?.name,
+      );
+      showAppToast(
+        'Gig Acknowledged & Started',
+        'You have acknowledged the task. Escrow is active and timer has stopped.',
+      );
+      await loadJobs();
+      if (selectedJobData != null && selectedJobData!['id'] == jobId) {
+        selectJobAndLoadDetails({
+          ...selectedJobData!,
+          'status': 'In Progress',
+          'acknowledgmentStatus': 'acknowledged',
+        });
+      }
+    } catch (e) {
+      showAppToast('Acknowledgment Failed', e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      setState(() => isUpdatingJobStatus = false);
+    }
+  }
+
+  /// Cancels an unacknowledged/expired hiring and resets the job to Open for other applicants,
+  /// preserving escrow funds so the employer does not need to re-fund.
+  Future<void> cancelAndFindAnotherNyxian(String jobId) async {
+    final token = SessionStorage.idToken;
+    final uid = SessionStorage.uid;
+    if (token == null || uid == null) return;
+
+    setState(() => isUpdatingJobStatus = true);
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      await svc.resetJobForNewApplicants(
+        jobId: jobId,
+        reason: 'Hiring cancelled by Employer due to expiration/non-response. Job reopened for other applicants.',
+      );
+      showAppToast(
+        'Gig Reopened',
+        'Unresponsive applicant removed. You can now choose another Nyxian.',
+      );
+      await loadJobs();
+      if (selectedJobData != null && selectedJobData!['id'] == jobId) {
+        selectJobAndLoadDetails({
+          ...selectedJobData!,
+          'status': 'Open',
+          'acceptedApplicantId': null,
+          'acknowledgmentStatus': null,
+        });
+      }
+    } catch (e) {
+      showAppToast('Action Failed', e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      setState(() => isUpdatingJobStatus = false);
+    }
+  }
+
+  /// Checks SLA timer status (reminders & expiration) for a job in the background.
+  Future<void> checkJobSlaStatus(String jobId) async {
+    final token = SessionStorage.idToken;
+    if (token == null) return;
+
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final jobDoc = await svc.getDocument('jobs/$jobId');
+      if (jobDoc == null) return;
+
+      final status = (jobDoc['status'] as String? ?? '').toLowerCase();
+      if (status != 'awaiting acknowledgment') return;
+
+      final deadlineMs = (jobDoc['acknowledgmentDeadline'] as num?)?.toInt();
+      final hiredAtMs = (jobDoc['hiredAt'] as num?)?.toInt() ?? (jobDoc['createdAt'] as num?)?.toInt();
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+      if (deadlineMs != null) {
+        if (nowMs >= deadlineMs) {
+          // Expiration passed
+          await svc.expireJobAcknowledgment(jobId: jobId);
+          await loadJobs();
+          return;
+        }
+
+        // Check if reminder threshold is reached
+        final bool reminderSent = jobDoc['acknowledgmentReminderSent'] as bool? ?? false;
+        if (!reminderSent && hiredAtMs != null) {
+          final slaConfig = await svc.getJobSlaConfig();
+          final reminderTime = JobSlaHelper.calculateReminderTime(
+            job: jobDoc,
+            hiredAt: DateTime.fromMillisecondsSinceEpoch(hiredAtMs),
+            deadline: DateTime.fromMillisecondsSinceEpoch(deadlineMs),
+            config: slaConfig,
+          );
+          if (nowMs >= reminderTime.millisecondsSinceEpoch) {
+            await svc.sendJobAcknowledgmentReminder(jobId: jobId);
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> generateCompletionCode() async {
@@ -4861,7 +5039,11 @@ class TranyxAppState extends State<TranyxApp> {
         });
 
         // Delete escrow
-        await svc.deleteDocument('escrow/${job['id']}');
+        try {
+          await svc.deleteDocument('escrow/${job['id']}');
+        } catch (e) {
+          print('Notice releasing escrow: $e');
+        }
 
         // Mark job as complete
         await svc.createOrUpdate('jobs/${job['id']}', {
@@ -5074,7 +5256,11 @@ class TranyxAppState extends State<TranyxApp> {
       final escrowEmployerFees = (escrowDoc?['employerFees'] as num?)?.toDouble();
       final isFeePreFunded = escrowEmployerFees != null && escrowEmployerFees > 0;
 
-      await svc.deleteDocument('escrow/$jobId');
+      try {
+        await svc.deleteDocument('escrow/$jobId');
+      } catch (e) {
+        print('Notice releasing escrow: $e');
+      }
 
       // 1.1 Create escrow holdback record if enabled
       if (hasHoldback) {
@@ -5481,24 +5667,55 @@ class TranyxAppState extends State<TranyxApp> {
         });
       }
       setState(() => isUpdatingJobStatus = false);
-      alertDialog('Gig Reclaimed', 'The inactive gig has been marked Abandoned and 100% of your escrow deposit has been refunded to your wallet.');
+      alertDialog(
+        'Gig Reclaimed (70% Refund)',
+        'The inactive gig has been marked Abandoned. 70% of your escrow deposit has been refunded directly to your wallet balance. 30% was retained as a platform anti-collusion / inactivity fee.\n\nIf you experienced genuine abandonment or fraud and seek a 100% refund, you can open an Admin Dispute for full arbitration.',
+      );
     } catch (e) {
       setState(() => isUpdatingJobStatus = false);
       alertDialog('Error', 'Failed to reclaim gig: $e');
     }
   }
 
-  Future<void> handleRequestJobDispute(Map<String, dynamic> job) async {
+  void openDisputeModal(Map<String, dynamic> job, [String? defaultCategory]) {
+    setState(() {
+      disputeTargetJob = job;
+      disputeCategory = defaultCategory ?? 'Abandonment / Stalled Work';
+      disputeExplanation = '';
+      isSubmittingDispute = false;
+      showDisputeModal = true;
+    });
+  }
+
+  void closeDisputeModal() {
+    setState(() {
+      showDisputeModal = false;
+      disputeTargetJob = null;
+      disputeExplanation = '';
+      isSubmittingDispute = false;
+    });
+  }
+
+  Future<void> submitJobDisputeAction() async {
     final token = SessionStorage.idToken;
     final uid = SessionStorage.uid;
     if (token == null || uid == null) {
       alertDialog('Authentication Required', 'Please sign in to submit a dispute ticket.');
       return;
     }
+    if (disputeTargetJob == null) return;
 
+    final trimmedReason = disputeExplanation.trim();
+    if (trimmedReason.length < 15) {
+      alertDialog('Detailed Explanation Required', 'Please provide at least 15 characters explaining the grounds for arbitration.');
+      return;
+    }
+
+    setState(() => isSubmittingDispute = true);
     try {
       final svc = FirestoreService(token, _handleTokenRefresh);
-      final jobId = job['id'] as String? ?? '';
+      final job = disputeTargetJob!;
+      final jobId = (job['id'] ?? job['jobId'] ?? '').toString();
       final jobTitle = job['title'] as String? ?? 'Gig';
       final employerId = job['creatorId'] as String? ?? uid;
       final acceptedNyxian = job['acceptedApplicantId'] as String?;
@@ -5509,18 +5726,32 @@ class TranyxAppState extends State<TranyxApp> {
         jobTitle: jobTitle,
         employerId: employerId,
         acceptedNyxianId: acceptedNyxian,
-        reason: 'Dispute review requested by user regarding active gig commitments.',
+        reason: trimmedReason,
         escrowAmount: escrow,
         openedByUid: uid,
+        reasonCategory: disputeCategory,
       );
 
+      await loadJobs();
+      if (selectedJobData != null && selectedJobData!['id'] == jobId) {
+        selectJobAndLoadDetails({
+          ...selectedJobData!,
+          'status': 'Disputed',
+        });
+      }
+      closeDisputeModal();
       alertDialog(
-        'Dispute Ticket Submitted',
-        'Your dispute ticket for "$jobTitle" (Job ID: $jobId) has been dispatched to the Tranyx Admin Portal for arbitration and review.',
+        'Dispute Submitted for Arbitration ⚖️',
+        'Your dispute ticket for "$jobTitle" (Job ID: $jobId) has been dispatched to the Tranyx Admin Portal for arbitration and review. Escrow has been frozen.',
       );
     } catch (e) {
+      setState(() => isSubmittingDispute = false);
       alertDialog('Dispute Error', 'Failed to submit dispute ticket: $e');
     }
+  }
+
+  Future<void> handleRequestJobDispute(Map<String, dynamic> job, [String? defaultCategory]) async {
+    openDisputeModal(job, defaultCategory);
   }
 
   void handleRedeemProfilePromo(String code) async {
@@ -6037,6 +6268,24 @@ class TranyxAppState extends State<TranyxApp> {
       return;
     }
 
+    final double originalPrice = (selectedJobData?['pricingValue'] as num?)?.toDouble() ?? 0.0;
+    double proposalRateToSubmit = originalPrice;
+
+    if (isCounterOffer) {
+      final validation = JobCounterOfferValidator.validate(
+        originalOffer: originalPrice,
+        counterOfferInput: applyPriceRate,
+        isCounterOffer: true,
+      );
+      if (!validation.isValid) {
+        final err = validation.errorMessage ?? 'Invalid counter offer.';
+        showAppToast('Validation Error', err);
+        setState(() => applyError = err);
+        return;
+      }
+      proposalRateToSubmit = validation.sanitizedRate!;
+    }
+
     setState(() {
       isSubmittingApplication = true;
       applyError = null;
@@ -6048,7 +6297,7 @@ class TranyxAppState extends State<TranyxApp> {
         applicantName: userName.isEmpty ? 'Anonymous' : userName,
         applicantPhotoUrl: userPhotoUrl,
         coverNote: coverNote,
-        proposalRate: isCounterOffer ? (double.tryParse(applyPriceRate) ?? 0.0) : 0.0,
+        proposalRate: proposalRateToSubmit,
         isCounterOffer: isCounterOffer,
       );
 
@@ -8170,6 +8419,9 @@ class TranyxAppState extends State<TranyxApp> {
       // Walkthrough Tour overlay
       if (showWalkthroughModal) InteractiveWalkthroughModal(state: this),
 
+      // Dispute & Arbitration modal overlay
+      if (showDisputeModal && disputeTargetJob != null) JobDisputeModalComponent(state: this),
+
       // Chat overlay
       if (showChat) ChatWidget(state: this),
 
@@ -8717,6 +8969,164 @@ class MobileAppPromptModalComponent extends StatelessComponent {
                 events: {'click': (_) => s.setState(() => s.showMobileAppPrompt = false)},
                 [Component.text('Continue in Web Browser')],
               ),
+            ]),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class JobDisputeModalComponent extends StatelessComponent {
+  final TranyxAppState state;
+  const JobDisputeModalComponent({required this.state, super.key});
+
+  @override
+  Component build(BuildContext context) {
+    final s = state;
+    final isDark = s.isDark;
+    final job = s.disputeTargetJob;
+    if (job == null) return div([], classes: 'hidden');
+
+    final jobTitle = job['title'] as String? ?? 'Gig';
+    final pricingValue = (job['pricingValue'] as num?)?.toDouble() ?? 0.0;
+    final discountAmount = (job['discountAmount'] as num?)?.toDouble() ?? 0.0;
+    final escrowAtStake = (pricingValue - discountAmount).clamp(0.0, 999999.0);
+
+    final categories = [
+      'Abandonment / Stalled Work',
+      'Unfulfilled / Defective Work',
+      'False Completion Claim',
+      'Unresponsive Counterparty',
+      'Other Conflict',
+    ];
+
+    return div(
+      classes: 'fixed inset-0 z-[360] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
+      [
+        div(
+          classes:
+              'w-full max-w-lg rounded-3xl border p-6 relative overflow-hidden transition-all duration-300 '
+              '${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-900 shadow-2xl"}',
+          [
+            // Top accent flare
+            div(
+              [],
+              classes: 'absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-500',
+            ),
+
+            // Header
+            div(classes: 'flex items-start justify-between mb-4 pt-1', [
+              div(classes: 'flex items-center gap-3', [
+                div(
+                  classes: 'p-3 bg-amber-500/15 text-amber-500 rounded-2xl border border-amber-500/20',
+                  [lIcon('scale', cls: 'w-6 h-6')],
+                ),
+                div([
+                  h3(classes: 'text-lg font-black tracking-tight', [Component.text('Open Admin Dispute')]),
+                  p(classes: 'text-xs text-zinc-400 truncate max-w-[280px]', [Component.text(jobTitle)]),
+                ]),
+              ]),
+              button(
+                classes: 'p-2 rounded-full hover:bg-zinc-500/20 text-zinc-400 hover:text-zinc-200 transition cursor-pointer border-0',
+                events: {'click': (_) => s.closeDisputeModal()},
+                [lIcon('x', cls: 'w-5 h-5')],
+              ),
+            ]),
+
+            // Escrow protection banner
+            div(
+              classes: 'p-3.5 rounded-2xl mb-4 text-xs leading-relaxed border ${isDark ? "bg-amber-500/10 border-amber-500/30 text-amber-200/90" : "bg-amber-50 border-amber-200 text-amber-900"}',
+              [
+                p(classes: 'font-bold mb-1 flex items-center gap-1.5', [
+                  lIcon('shield-alert', cls: 'w-4 h-4 text-amber-400'),
+                  Component.text('Escrow Protection Protocol'),
+                ]),
+                Component.text(
+                  'Opening a dispute freezes the gig status and alerts Tranyx Administrators to review in-app chat logs, activity timestamps, and deliverables. Escrow remains safely locked until arbitration is resolved.',
+                ),
+              ],
+            ),
+
+            // Escrow at stake banner
+            div(
+              classes: 'px-4 py-2.5 rounded-xl border mb-4 flex items-center justify-between text-xs ${isDark ? "border-zinc-800 bg-zinc-950/60 text-zinc-300" : "border-zinc-200 bg-zinc-50 text-zinc-700"}',
+              [
+                span([Component.text('Protected Escrow at Stake:')]),
+                span(classes: 'font-extrabold text-indigo-400 text-sm', [Component.text('₱ ${escrowAtStake.toStringAsFixed(2)}')]),
+              ],
+            ),
+
+            // Form
+            div(classes: 'space-y-4 text-left', [
+              div([
+                label(classes: 'block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5', [
+                  Component.text('Dispute Category'),
+                ]),
+                select(
+                  classes:
+                      'w-full px-4 py-3 rounded-xl border text-sm font-medium outline-none transition ${isDark ? "bg-zinc-800 border-zinc-700 text-white focus:border-amber-500" : "bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-amber-500"}',
+                  events: {
+                    'change': (e) {
+                      final val = (e.target as web.HTMLSelectElement).value;
+                      s.setState(() => s.disputeCategory = val);
+                    },
+                  },
+                  [
+                    for (final cat in categories)
+                      option(
+                        value: cat,
+                        selected: s.disputeCategory == cat,
+                        [Component.text(cat)],
+                      ),
+                  ],
+                ),
+              ]),
+
+              div([
+                label(classes: 'block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5', [
+                  Component.text('Grounds & Explanation (Min 15 chars)'),
+                ]),
+                textarea(
+                  classes:
+                      'w-full h-28 px-4 py-3 rounded-xl border text-sm outline-none transition resize-none ${isDark ? "bg-zinc-800 border-zinc-700 text-white focus:border-amber-500" : "bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-amber-500"}',
+                  attributes: {
+                    'placeholder': 'Explain why you are disputing this gig. Include relevant details such as delays, unresponsiveness, or deviations from agreed scope...',
+                  },
+                  events: {
+                    'input': (e) {
+                      s.setState(() => s.disputeExplanation = getInputValue(e.target));
+                    },
+                  },
+                  [Component.text(s.disputeExplanation)],
+                ),
+                p(classes: 'text-[11px] text-zinc-500 mt-1', [
+                  Component.text('${s.disputeExplanation.trim().length} / 15 characters minimum'),
+                ]),
+              ]),
+
+              // Action buttons
+              div(classes: 'flex gap-3 pt-2', [
+                button(
+                  classes:
+                      'flex-1 py-3.5 rounded-2xl font-bold text-xs ${isDark ? "bg-zinc-800 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"} transition cursor-pointer border-0',
+                  events: {'click': (_) => s.closeDisputeModal()},
+                  [Component.text('Cancel')],
+                ),
+                button(
+                  classes:
+                      'flex-1 py-3.5 rounded-2xl font-bold text-xs text-white bg-amber-600 hover:bg-amber-500 transition shadow-lg shadow-amber-600/20 flex items-center justify-center gap-2 cursor-pointer border-0 ${s.isSubmittingDispute || s.disputeExplanation.trim().length < 15 ? "opacity-50 cursor-not-allowed" : ""}',
+                  attributes: (s.isSubmittingDispute || s.disputeExplanation.trim().length < 15) ? {'disabled': 'true'} : {},
+                  events: (s.isSubmittingDispute || s.disputeExplanation.trim().length < 15)
+                      ? {}
+                      : {'click': (_) => s.submitJobDisputeAction()},
+                  [
+                    if (s.isSubmittingDispute) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
+                    lIcon('scale', cls: 'w-4 h-4'),
+                    Component.text(s.isSubmittingDispute ? 'Submitting...' : 'Submit Dispute'),
+                  ],
+                ),
+              ]),
             ]),
           ],
         ),

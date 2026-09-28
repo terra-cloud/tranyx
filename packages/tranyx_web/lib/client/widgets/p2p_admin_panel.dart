@@ -36,6 +36,7 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
   final Map<String, List<int>> _withdrawalProofBytes = {};
   final Map<String, String> _withdrawalProofNames = {};
 
+
   // Agent form state
   late String _agentName;
   late String _agentPhone;
@@ -217,13 +218,13 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
     }
   }
 
+
   @override
   Component build(BuildContext context) {
     final s = component.state;
     final isDark = s.isDark;
     final depositRequests = s.pendingDepositRequests;
     final withdrawalRequests = s.pendingWithdrawalRequests;
-
     final pendingDepositCount = depositRequests.where((r) => r.status.toUpperCase() == 'PENDING_VERIFICATION' || r.status.toUpperCase() == 'WAITING_FOR_AGENT').length;
     final pendingWithdrawalCount = withdrawalRequests.where((r) => r.status.toUpperCase() == 'WAITING_FOR_AGENT' || r.status.toUpperCase() == 'AWAITING_AGENT_PAYMENT' || r.status.toUpperCase() == 'PENDING_CONFIRMATION').length;
 
@@ -255,6 +256,7 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
             r.referenceNumber.toLowerCase().contains(q);
       }).toList();
     }
+
 
     return div(classes: 'space-y-6 animate-fade-in', [
       // ── Header Card ────────────────────────────────────────────────────────
@@ -751,6 +753,11 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
         ),
     ]);
   }
+
+
+
+
+
 
   Component _buildDepositRequestCard(DepositRequest req, bool isDark) {
     final status = req.status.toUpperCase();
