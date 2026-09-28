@@ -4378,11 +4378,23 @@ class TranyxAppState extends State<TranyxApp> {
       return;
     }
 
+    _touchJobActivity(currentChatId);
+
     setState(() {
       chatInputText = '';
       chatPiiBlocked = false;
       chatDisintermediationBlocked = false;
     });
+  }
+
+  void _touchJobActivity(String chatId) {
+    if (chatId.isEmpty || chatId.startsWith('rental_') || chatId.startsWith('property_')) return;
+    final token = SessionStorage.idToken;
+    if (token != null) {
+      FirestoreService(token, _handleTokenRefresh).setDocument('jobs/$chatId', {
+        'lastActivityAt': DateTime.now().millisecondsSinceEpoch,
+      }).catchError((_) {});
+    }
   }
 
   Future<void> sendChatPhoto(dynamic event) async {
@@ -4399,6 +4411,7 @@ class TranyxAppState extends State<TranyxApp> {
       final url = await uploadChatPhotoJs(currentChatId, b64, mime);
       if (url != null) {
         sendChatMessageJs(currentChatId, uid, name, '', photoUrl: url);
+        _touchJobActivity(currentChatId);
       }
     } catch (_) {
     } finally {
@@ -4800,7 +4813,6 @@ class TranyxAppState extends State<TranyxApp> {
         final bool reminderSent = jobDoc['acknowledgmentReminderSent'] as bool? ?? false;
         if (!reminderSent && hiredAtMs != null) {
           final slaConfig = await svc.getJobSlaConfig();
-          final category = JobSlaHelper.classifyJob(jobDoc);
           final reminderTime = JobSlaHelper.calculateReminderTime(
             job: jobDoc,
             hiredAt: DateTime.fromMillisecondsSinceEpoch(hiredAtMs),

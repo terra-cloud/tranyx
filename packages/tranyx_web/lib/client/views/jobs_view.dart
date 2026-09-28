@@ -1733,6 +1733,59 @@ class _JobDetails extends StatelessComponent {
                   ),
                 ]);
               } else if (status == 'Done' || status == 'done' || status == 'arrived_dropoff') {
+                DateTime? parseDate(dynamic val) {
+                  if (val == null) return null;
+                  if (val is DateTime) return val;
+                  if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+                  if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
+                  if (val is String) {
+                    final dt = DateTime.tryParse(val);
+                    if (dt != null) return dt;
+                    final n = num.tryParse(val);
+                    if (n != null) return DateTime.fromMillisecondsSinceEpoch(n.toInt());
+                  }
+                  return null;
+                }
+                final doneAt = parseDate(s.selectedJobData?['updatedAt']) ?? parseDate(s.selectedJobData?['createdAt']) ?? DateTime.now();
+                final isEmployerUnresponsive = DateTime.now().difference(doneAt).inHours >= 48;
+
+                Component? unresponsiveBanner;
+                if (isEmployerUnresponsive) {
+                  unresponsiveBanner = div(
+                    classes: 'p-4 rounded-2xl border border-amber-500/35 bg-amber-500/10 flex flex-col gap-3',
+                    [
+                      div(classes: 'flex items-start gap-3', [
+                        lIcon('clock', cls: 'w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5'),
+                        div([
+                          p(classes: 'font-bold text-amber-500 text-sm', [
+                            Component.text('Employer Verification Delayed (Over 48h)'),
+                          ]),
+                          p(classes: 'text-xs mt-0.5 ${isDark ? "text-amber-200/80" : "text-amber-800/80"}', [
+                            Component.text(
+                              'You completed this gig over 48 hours ago, but the employer has not verified or released payment. You can request Admin Arbitration for direct payout review.',
+                            ),
+                          ]),
+                        ]),
+                      ]),
+                      button(
+                        classes:
+                            'w-full py-2.5 px-3 rounded-xl font-bold text-xs border ${isDark ? "border-amber-500/40 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30" : "border-amber-400 bg-amber-100 text-amber-800 hover:bg-amber-200"} transition-colors flex items-center justify-center gap-2 cursor-pointer',
+                        events: {
+                          'click': (_) {
+                            if (s.selectedJobData != null) {
+                              s.openDisputeModal(s.selectedJobData!, 'Employer Unresponsive upon Completion');
+                            }
+                          },
+                        },
+                        [
+                          lIcon('scale', cls: 'w-4 h-4'),
+                          Component.text('Request Admin Payout Review ⚖️'),
+                        ],
+                      ),
+                    ],
+                  );
+                }
+
                 if (hasTracker) {
                   // DELIVERY JOB (Tracker): Nyxian generates code
                   return div(classes: 'space-y-3', [
@@ -1758,6 +1811,7 @@ class _JobDetails extends StatelessComponent {
                         Component.text(s.isGeneratingCode ? 'Generating...' : 'Generate Completion QR / Code'),
                       ],
                     ),
+                    if (unresponsiveBanner != null) unresponsiveBanner,
                   ]);
                 } else {
                   // STANDARD JOB (No Tracker): Employer generates code, Nyxian enters
@@ -1782,6 +1836,7 @@ class _JobDetails extends StatelessComponent {
                       events: {'click': (_) => s.setState(() => s.showCompletionScanner = true)},
                       [lIcon('key', cls: 'w-5 h-5'), Component.text('Enter Payment Code')],
                     ),
+                    if (unresponsiveBanner != null) unresponsiveBanner,
                   ]);
                 }
               } else if (status == 'Completed' || status == 'completed') {
@@ -1966,7 +2021,7 @@ class _JobDetails extends StatelessComponent {
                 }
                 return null;
               }
-              final lastActive = parseDate(s.selectedJobData?['updatedAt']) ?? parseDate(s.selectedJobData?['createdAt']) ?? DateTime.now();
+              final lastActive = parseDate(s.selectedJobData?['lastActivityAt']) ?? parseDate(s.selectedJobData?['updatedAt']) ?? parseDate(s.selectedJobData?['createdAt']) ?? DateTime.now();
               final isStale = DateTime.now().difference(lastActive).inHours >= 48;
 
               return div(classes: 'space-y-3', [

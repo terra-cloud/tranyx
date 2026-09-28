@@ -1903,6 +1903,9 @@
       db.collection('chats').doc(chatId).collection('messages').add(msg);
       // Touch chat metadata
       db.collection('chats').doc(chatId).set({ updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      if (!chatId.startsWith('rental_') && !chatId.startsWith('property_')) {
+        db.collection('jobs').doc(chatId).set({ lastActivityAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(function () {});
+      }
 
       // Determine recipient and create notification
       const notificationText = photoUrl ? 'Sent a photo' : text;

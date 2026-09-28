@@ -1683,7 +1683,7 @@ class FirestoreService {
       return null;
     }
 
-    final lastActive = parseTs(jobDoc['updatedAt']) ?? parseTs(jobDoc['createdAt']) ?? DateTime.now();
+    final lastActive = parseTs(jobDoc['lastActivityAt']) ?? parseTs(jobDoc['updatedAt']) ?? parseTs(jobDoc['createdAt']) ?? DateTime.now();
     final inactiveHours = DateTime.now().difference(lastActive).inHours;
     if (inactiveHours < 48) {
       throw Exception('JOB_NOT_STALE: Inactivity threshold of 48 hours has not been reached ($inactiveHours hours elapsed).');
