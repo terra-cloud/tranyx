@@ -248,10 +248,10 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
       setState(() {
         _slaConfig = config;
         _immediateDeliverySlaInput = config.immediateDeliveryMinutes.toString();
-        _onDemandSlaInput = config.onDemandMinutes.toString();
+        _onDemandSlaInput = config.onDemandLocalMinutes.toString();
         _scheduledLocalSlaInput = config.scheduledLocalMinutes.toString();
-        _remoteWorkSlaInput = config.remoteWorkMinutes.toString();
-        _longTermSlaInput = config.longTermMinutes.toString();
+        _remoteWorkSlaInput = config.remoteOnlineMinutes.toString();
+        _longTermSlaInput = config.longTermProjectMinutes.toString();
       });
     } catch (e) {
       print('Failed to load SLA config: $e');
@@ -262,10 +262,10 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
 
   Future<void> _handleSaveSlaConfig() async {
     final imm = int.tryParse(_immediateDeliverySlaInput.trim()) ?? _slaConfig.immediateDeliveryMinutes;
-    final onDem = int.tryParse(_onDemandSlaInput.trim()) ?? _slaConfig.onDemandMinutes;
+    final onDem = int.tryParse(_onDemandSlaInput.trim()) ?? _slaConfig.onDemandLocalMinutes;
     final sched = int.tryParse(_scheduledLocalSlaInput.trim()) ?? _slaConfig.scheduledLocalMinutes;
-    final rem = int.tryParse(_remoteWorkSlaInput.trim()) ?? _slaConfig.remoteWorkMinutes;
-    final lt = int.tryParse(_longTermSlaInput.trim()) ?? _slaConfig.longTermMinutes;
+    final rem = int.tryParse(_remoteWorkSlaInput.trim()) ?? _slaConfig.remoteOnlineMinutes;
+    final lt = int.tryParse(_longTermSlaInput.trim()) ?? _slaConfig.longTermProjectMinutes;
 
     if (imm <= 0 || onDem <= 0 || sched <= 0 || rem <= 0 || lt <= 0) {
       component.state.alertDialog('Invalid Duration', 'All SLA durations must be positive numbers of minutes.');
@@ -276,12 +276,10 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
     try {
       final updated = JobSlaConfig(
         immediateDeliveryMinutes: imm,
-        onDemandMinutes: onDem,
+        onDemandLocalMinutes: onDem,
         scheduledLocalMinutes: sched,
-        remoteWorkMinutes: rem,
-        longTermMinutes: lt,
-        updatedAt: DateTime.now().millisecondsSinceEpoch,
-        updatedBy: SessionStorage.uid ?? 'admin',
+        remoteOnlineMinutes: rem,
+        longTermProjectMinutes: lt,
       );
       final token = SessionStorage.idToken;
       final svc = FirestoreService(token);
