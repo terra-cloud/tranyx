@@ -65,16 +65,15 @@
             !('status' in request.resource.data.diff(resource.data).affectedKeys()) ||
             request.resource.data.status == resource.data.status ||
             (
-              (request.resource.data.status == 'In Progress' || request.resource.data.status == 'in progress') &&
-              (resource.data.status == 'Awaiting Acknowledgment' || resource.data.status == 'awaiting acknowledgment' || resource.data.status == 'In Progress' || resource.data.status == 'in progress')
-            ) ||
-            (
-              (request.resource.data.status == 'Done' || request.resource.data.status == 'done' || request.resource.data.status == 'arrived_dropoff') &&
-              (resource.data.status == 'In Progress' || resource.data.status == 'in progress' || resource.data.status == 'in_transit')
-            ) ||
-            (
-              (request.resource.data.status == 'Completed' || request.resource.data.status == 'completed') &&
-              (resource.data.status == 'Done' || resource.data.status == 'done' || resource.data.status == 'arrived_dropoff')
+              request.resource.data.status in [
+                'In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
+                'in_transit', 'arrived_dropoff', 'Done', 'done', 'Completed', 'completed'
+              ] &&
+              resource.data.status in [
+                'Awaiting Acknowledgment', 'awaiting acknowledgment',
+                'In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
+                'in_transit', 'arrived_dropoff', 'Done', 'done'
+              ]
             )
           ) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -170,10 +169,9 @@
       );
       allow delete: if (isActiveUser() && (
         resource.data.employerId == request.auth.uid || 
-        resource.data.creatorId == request.auth.uid
-      ) && (
-        resource.data.status == 'cancelled' || resource.data.status == 'Cancelled' ||
-        resource.data.status == 'refunded' || resource.data.status == 'Refunded'
+        resource.data.creatorId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/jobs/$(jobId)) && 
+         get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid)
       )) || isAdminOrStaff();
     }
 

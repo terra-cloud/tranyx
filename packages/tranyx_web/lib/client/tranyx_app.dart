@@ -5039,7 +5039,11 @@ class TranyxAppState extends State<TranyxApp> {
         });
 
         // Delete escrow
-        await svc.deleteDocument('escrow/${job['id']}');
+        try {
+          await svc.deleteDocument('escrow/${job['id']}');
+        } catch (e) {
+          print('Notice releasing escrow: $e');
+        }
 
         // Mark job as complete
         await svc.createOrUpdate('jobs/${job['id']}', {
@@ -5252,7 +5256,11 @@ class TranyxAppState extends State<TranyxApp> {
       final escrowEmployerFees = (escrowDoc?['employerFees'] as num?)?.toDouble();
       final isFeePreFunded = escrowEmployerFees != null && escrowEmployerFees > 0;
 
-      await svc.deleteDocument('escrow/$jobId');
+      try {
+        await svc.deleteDocument('escrow/$jobId');
+      } catch (e) {
+        print('Notice releasing escrow: $e');
+      }
 
       // 1.1 Create escrow holdback record if enabled
       if (hasHoldback) {
