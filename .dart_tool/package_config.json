@@ -1854,6 +1854,12 @@
       "rootUri": "../packages/headless_nav_flutter",
       "packageUri": "lib/",
       "languageVersion": "3.11"
+    },
+    {
+      "name": "tranyx_landing",
+      "rootUri": "../packages/tranyx_landing",
+      "packageUri": "lib/",
+      "languageVersion": "3.11"
     }
   ],
   "generator": "pub",
