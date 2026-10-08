@@ -1,5 +1,6 @@
 import 'dart:js_interop_unsafe';
 import 'dart:convert';
+import 'package:shared/shared.dart';
 
 import 'package:web/web.dart' as web;
 import 'dart:typed_data';
@@ -223,9 +224,13 @@ void markNotificationReadJs(String notifId) {
 // ── Solana balance ────────────────────────────────────────────────────────────
 
 String getSolanaRpcUrl() {
+  final configuredRpc = Env.solanaRpcUrl;
+  if (configuredRpc.isNotEmpty) {
+    return configuredRpc;
+  }
   const env = String.fromEnvironment('ENV', defaultValue: 'dev');
   if (env == 'prod') {
-    return 'https://rpc.ankr.com/solana';
+    return 'https://api.mainnet-beta.solana.com';
   } else {
     // Both dev and uat environments point to Devnet where faucet SOL is active
     return 'https://api.devnet.solana.com';
