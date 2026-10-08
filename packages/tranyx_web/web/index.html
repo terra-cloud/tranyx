@@ -690,12 +690,12 @@
           if (hostname.includes("uat") || hostname.includes("devnet")) {
             fallbackRpc = "https://api.devnet.solana.com";
           } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
-            fallbackRpc = "https://rpc.ankr.com/solana";
+            fallbackRpc = "https://api.mainnet-beta.solana.com";
           }
         } catch (e) {}
         const finalRpc = rpcUrl || fallbackRpc;
         console.log("Connecting to Solana RPC:", finalRpc);
-        const connection = new solanaWeb3.Connection(finalRpc);
+        let connection = new solanaWeb3.Connection(finalRpc, "confirmed");
 
         const fromPubkey = new solanaWeb3.PublicKey(fromAddress);
         const toPubkey = new solanaWeb3.PublicKey(toAddress);
@@ -711,7 +711,19 @@
         );
 
         console.log("Fetching latest blockhash...");
-        const latestBlockHash = await connection.getLatestBlockhash("confirmed");
+        let latestBlockHash;
+        try {
+          latestBlockHash = await connection.getLatestBlockhash("confirmed");
+        } catch (bhErr) {
+          console.warn("Primary Solana RPC getLatestBlockhash failed, trying fallback...", bhErr);
+          const fallbackMainnet = "https://api.mainnet-beta.solana.com";
+          if (finalRpc !== fallbackMainnet && !finalRpc.includes("devnet") && !finalRpc.includes("testnet")) {
+            connection = new solanaWeb3.Connection(fallbackMainnet, "confirmed");
+            latestBlockHash = await connection.getLatestBlockhash("confirmed");
+          } else {
+            throw bhErr;
+          }
+        }
         console.log("Latest blockhash fetched successfully:", latestBlockHash.blockhash);
 
         transaction.recentBlockhash = latestBlockHash.blockhash;
@@ -725,6 +737,10 @@
         return signature;
       } catch (err) {
         console.error("sendSolPayment transaction error:", err);
+        const errMsg = (err && err.message) ? err.message : String(err);
+        if (errMsg.includes("403") || errMsg.includes("API key")) {
+          throw new Error("Solana network service is currently unavailable. Please check your network or try again.");
+        }
         throw err;
       }
     };
@@ -764,12 +780,12 @@
           if (hostname.includes("uat") || hostname.includes("devnet")) {
             fallbackRpc = "https://api.devnet.solana.com";
           } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
-            fallbackRpc = "https://rpc.ankr.com/solana";
+            fallbackRpc = "https://api.mainnet-beta.solana.com";
           }
         } catch (e) {}
         const finalRpc = rpcUrl || fallbackRpc;
         console.log("Connecting to Solana RPC:", finalRpc);
-        const connection = new solanaWeb3.Connection(finalRpc);
+        let connection = new solanaWeb3.Connection(finalRpc, "confirmed");
         const USDT_MINT = new solanaWeb3.PublicKey(usdtMint || fallbackUsdtMint);
         const USDT_DECIMALS = 6;
         const amountInMicroUsdt = Math.round(amountInUsdt * Math.pow(10, USDT_DECIMALS));
@@ -830,7 +846,19 @@
         transaction.add(transferInstruction);
 
         console.log("Fetching latest blockhash for USDT transfer...");
-        const latestBlockHash = await connection.getLatestBlockhash("confirmed");
+        let latestBlockHash;
+        try {
+          latestBlockHash = await connection.getLatestBlockhash("confirmed");
+        } catch (bhErr) {
+          console.warn("Primary Solana RPC getLatestBlockhash for USDT failed, trying fallback...", bhErr);
+          const fallbackMainnet = "https://api.mainnet-beta.solana.com";
+          if (finalRpc !== fallbackMainnet && !finalRpc.includes("devnet") && !finalRpc.includes("testnet")) {
+            connection = new solanaWeb3.Connection(fallbackMainnet, "confirmed");
+            latestBlockHash = await connection.getLatestBlockhash("confirmed");
+          } else {
+            throw bhErr;
+          }
+        }
         console.log("Latest blockhash fetched successfully:", latestBlockHash.blockhash);
         
         transaction.recentBlockhash = latestBlockHash.blockhash;
@@ -851,6 +879,10 @@
         return signature;
       } catch (error) {
         console.error("sendUsdtPayment failed:", error);
+        const errMsg = (error && error.message) ? error.message : String(error);
+        if (errMsg.includes("403") || errMsg.includes("API key")) {
+          throw new Error("Solana network service is currently unavailable. Please check your network or try again.");
+        }
         throw error;
       }
     };
@@ -945,7 +977,7 @@
           if (hostname.includes("uat") || hostname.includes("devnet")) {
             fallbackRpc = "https://api.devnet.solana.com";
           } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
-            fallbackRpc = "https://rpc.ankr.com/solana";
+            fallbackRpc = "https://api.mainnet-beta.solana.com";
           }
         } catch (e) {}
         const finalRpc = rpcUrl || fallbackRpc;
@@ -988,7 +1020,7 @@
           if (hostname.includes("uat") || hostname.includes("devnet")) {
             fallbackRpc = "https://api.devnet.solana.com";
           } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
-            fallbackRpc = "https://rpc.ankr.com/solana";
+            fallbackRpc = "https://api.mainnet-beta.solana.com";
           }
         } catch (e) {}
         const finalRpc = rpcUrl || fallbackRpc;
@@ -1143,7 +1175,7 @@
           if (hostname.includes("uat") || hostname.includes("devnet")) {
             fallbackRpc = "https://api.devnet.solana.com";
           } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
-            fallbackRpc = "https://rpc.ankr.com/solana";
+            fallbackRpc = "https://api.mainnet-beta.solana.com";
           }
         } catch (e) {}
         const connection = new solanaWeb3.Connection(rpcUrl || fallbackRpc);

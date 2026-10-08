@@ -71,6 +71,6 @@ If the instruction variable is declared inside the conditional block, it creates
 Always resolve the Solana RPC endpoints and USDT mints based on the environment instead of hardcoding Mainnet:
 - **dev**: Solana Devnet (`https://api.devnet.solana.com`)
 - **uat**: Solana Devnet (`https://api.devnet.solana.com`)
-- **prod**: Solana Mainnet (`https://rpc.ankr.com/solana`)
+- **prod**: Solana Mainnet (`https://api.mainnet-beta.solana.com` or custom `SOLANA_RPC_URL`)
 
-Ensure fallback RPCs in `index.html` parse `window.location.hostname` to choose the correct default network if no explicit `rpcUrl` is passed from Dart.
+Ensure fallback RPCs in `index.html` parse `window.location.hostname` to choose the correct default network if no explicit `rpcUrl` is passed from Dart. Note that unauthenticated `rpc.ankr.com/solana` returns HTTP 403 / `-32052`, so the default public RPC for mainnet is `https://api.mainnet-beta.solana.com`.

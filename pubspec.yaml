@@ -9,3 +9,4 @@ workspace:
   - packages/headless_nav_core
   - packages/headless_nav_jaspr
   - packages/headless_nav_flutter
+  - packages/tranyx_landing
