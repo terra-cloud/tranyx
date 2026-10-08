@@ -56,6 +56,7 @@ void main() {
     'GEMINI_AI_API_KEY',
     'SOLANA_PRIVATE_KEY',
     'SOLANA_PUBLIC_KEY',
+    'SOLANA_RPC_URL',
     'TREASURY_PRIVATE_KEY',
     'TREASURY_PUBLIC_KEY',
     'ENV',
