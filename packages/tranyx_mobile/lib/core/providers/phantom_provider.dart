@@ -9,6 +9,7 @@ import 'package:pinenacl/x25519.dart';
 import 'package:pinenacl/ed25519.dart';
 import 'package:bs58/bs58.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared/shared.dart';
 import 'package:tranyx_mobile/flavors.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 
@@ -135,9 +136,13 @@ class PhantomService {
   PhantomService(this._ref);
 
   String get rpcUrl {
+    final configuredRpc = Env.solanaRpcUrl;
+    if (configuredRpc.isNotEmpty) {
+      return configuredRpc;
+    }
     switch (F.appFlavor) {
       case Flavor.production:
-        return 'https://rpc.ankr.com/solana';
+        return 'https://api.mainnet-beta.solana.com';
       case Flavor.uat:
         return 'https://api.testnet.solana.com';
       case Flavor.dev:
