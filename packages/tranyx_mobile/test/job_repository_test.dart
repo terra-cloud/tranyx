@@ -237,6 +237,61 @@ void main() {
           throwsA(predicate((e) => e.toString().contains('Cannot accept counter offer'))),
         );
       });
+
+      test('acceptApplicant successfully sets Awaiting Acknowledgment and preserves escrow metadata', () async {
+        firestore.db['users/emp100'] = {
+          'id': 'emp100',
+          'tyxBalance': 5000.0,
+        };
+
+        firestore.db['jobs/job_hire_success'] = {
+          'id': 'job_hire_success',
+          'creatorId': 'emp100',
+          'title': 'Roof Repair',
+          'status': 'Open',
+          'pricingValue': 2000.0,
+          'hasInspectionHoldback': false,
+          'discountAmount': 0.0,
+        };
+
+        firestore.db['escrow/job_hire_success'] = {
+          'amount': 2000.0,
+          'employerFees': 100.0,
+          'totalEscrowed': 2100.0,
+          'employerId': 'emp100',
+          'status': 'held',
+          'createdAt': 1000000,
+        };
+
+        final validApp = JobApplication(
+          id: 'app_hire_ok',
+          jobId: 'job_hire_success',
+          applicantUid: 'nyx_worker_42',
+          applicantName: 'Bob the Builder',
+          coverNote: 'Ready to work',
+          proposalRate: 2000.0,
+          isCounterOffer: false,
+          createdAt: DateTime.now(),
+        );
+
+        await repo.acceptApplicant(
+          jobId: 'job_hire_success',
+          application: validApp,
+          employerUid: 'emp100',
+        );
+
+        final updatedJob = firestore.db['jobs/job_hire_success']!;
+        expect(updatedJob['status'], equals('Awaiting Acknowledgment'));
+        expect(updatedJob['acceptedApplicantId'], equals('nyx_worker_42'));
+        expect(updatedJob['acceptedApplicantName'], equals('Bob the Builder'));
+        expect(updatedJob['acknowledgmentStatus'], equals('pending'));
+
+        final updatedEscrow = firestore.db['escrow/job_hire_success']!;
+        expect(updatedEscrow['amount'], equals(2000.0));
+        expect(updatedEscrow['employerFees'], equals(100.0));
+        expect(updatedEscrow['totalEscrowed'], equals(2100.0));
+        expect(updatedEscrow['workerId'], equals('nyx_worker_42'));
+      });
     });
 
     test('Verify job questions and answers subcollections', () async {
