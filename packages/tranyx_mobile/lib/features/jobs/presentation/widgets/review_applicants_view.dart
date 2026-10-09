@@ -250,8 +250,18 @@ class _ReviewApplicantsViewState extends ConsumerState<ReviewApplicantsView> {
                                   : UIHelpers.buildPrimaryButton(
                                       "Accept Nyxian",
                                       () async {
-                                        final userProfile = ref.read(userProfileProvider).value;
-                                        if (userProfile == null) return;
+                                        final employerUid = ref.read(userProfileProvider).value?.uid ?? ref.read(userProvider)?.uid;
+                                        if (employerUid == null) {
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(
+                                                content: Text("Error: Employer profile not loaded. Please try again."),
+                                                backgroundColor: Colors.red,
+                                              ),
+                                            );
+                                          }
+                                          return;
+                                        }
 
                                         setState(() {
                                           _hiringApplicantId = applicant.applicantUid;
@@ -261,8 +271,16 @@ class _ReviewApplicantsViewState extends ConsumerState<ReviewApplicantsView> {
                                           await ref.read(jobRepositoryProvider).acceptApplicant(
                                             jobId: selectedJob.id,
                                             application: applicant,
-                                            employerUid: userProfile.uid,
+                                            employerUid: employerUid,
                                           );
+
+                                          final currentJob = ref.read(selectedJobProvider);
+                                          if (currentJob != null && currentJob.id == selectedJob.id) {
+                                            ref.read(selectedJobProvider.notifier).state = currentJob.copyWith(
+                                              status: 'Awaiting Acknowledgment',
+                                              acceptedApplicantId: applicant.applicantUid,
+                                            );
+                                          }
 
                                           ref.invalidate(userProfileProvider);
                                           ref.read(jobsViewProvider.notifier).state = 'success';
