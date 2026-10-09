@@ -3746,7 +3746,7 @@ class _ReviewApplicants extends StatelessComponent {
                             div(classes: 'flex-1 text-sm ${isDark ? "text-zinc-400" : "text-zinc-650"} md:px-4', [
                               Component.text(app['coverNote'] as String? ?? 'No cover note provided.'),
                             ]),
-                            if (status == 'Open' && acceptedId == null)
+                            if ((status.toLowerCase() == 'open' || status.toLowerCase() == 'reviewing') && acceptedId == null)
                               button(
                                 classes:
                                     'px-6 py-2 rounded-xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity whitespace-nowrap flex items-center gap-2',
