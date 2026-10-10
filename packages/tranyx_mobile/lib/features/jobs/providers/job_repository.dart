@@ -369,6 +369,9 @@ class JobRepository {
       if (!userSnap.exists) throw Exception('Employer profile not found.');
       final userData = userSnap.data()!;
 
+      final escrowSnap = await transaction.get(escrowRef);
+      final existingEscrow = escrowSnap.exists ? escrowSnap.data() : null;
+
       final double originalPrice = (jobData['pricingValue'] as num?)?.toDouble() ?? 0.0;
       final double rate = application.proposalRate;
       double newEmployerBalance = (userData['tyxBalance'] as num?)?.toDouble() ?? 0.0;
@@ -415,14 +418,20 @@ class JobRepository {
       final double discount = (jobData['discountAmount'] as num?)?.toDouble() ?? 0.0;
       final double discountedPrice = (finalPrice - discount).clamp(0.0, 999999.0);
 
-      transaction.set(escrowRef, {
+      final Map<String, dynamic> escrowData = {
+        if (existingEscrow != null) ...existingEscrow,
         'amount': discountedPrice,
         'employerId': employerUid,
+        'creatorId': employerUid,
+        'workerId': application.applicantUid,
         'status': 'held',
-        'createdAt': now,
+        'createdAt': (existingEscrow?['createdAt'] as num?)?.toInt() ?? now,
+        'updatedAt': now,
         'hasInspectionHoldback': hasInspectionHoldback,
         if (hasInspectionHoldback) 'holdbackAmount': holdbackAmount,
-      });
+      };
+
+      transaction.set(escrowRef, escrowData, SetOptions(merge: true));
 
       // Categorize and determine acknowledgment SLA
       final category = JobSlaHelper.classifyJob(jobData);
@@ -436,12 +445,14 @@ class JobRepository {
       transaction.update(jobRef, {
         'status': 'Awaiting Acknowledgment',
         'acceptedApplicantId': application.applicantUid,
+        'acceptedApplicantName': application.applicantName,
         'pricingValue': finalPrice,
         'acknowledgmentStatus': 'pending',
         'acknowledgmentCategory': category.id,
         'acknowledgmentSlaMinutes': slaMinutes,
         'acknowledgmentDeadline': deadline,
         'hiredAt': now,
+        'updatedAt': now,
         'acknowledgmentReminderSent': false,
       });
     });
