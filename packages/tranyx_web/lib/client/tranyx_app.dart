@@ -4531,8 +4531,7 @@ class TranyxAppState extends State<TranyxApp> {
         final slaMinutes = slaConfig.getSlaMinutes(category);
         final deadline = JobSlaHelper.calculateDeadline(job: jobDoc, hiredAt: hiredAt, config: slaConfig);
 
-        final updates = <String, dynamic>{
-          ...jobDoc,
+        final jobPatch = <String, dynamic>{
           'status': 'Awaiting Acknowledgment',
           'acceptedApplicantId': applicantUid,
           'acceptedApplicantName': appData['applicantName'] as String? ?? 'Nyxian',
@@ -4668,14 +4667,18 @@ class TranyxAppState extends State<TranyxApp> {
           }
 
           if (rate > 0) {
-            updates['pricingValue'] = rate;
-            updates['pricingType'] = 'Fixed Task'; // or keep previous type
+            jobPatch['pricingValue'] = rate;
+            jobPatch['pricingType'] = 'Fixed Task'; // or keep previous type
           }
         }
 
-        await svc.createOrUpdate('jobs/$jobId', updates);
-        await svc.awardPointsIfEligible(SessionStorage.uid ?? '', 'hire_applicant');
-        await svc.awardPointsIfEligible(applicantUid, 'be_hired');
+        await svc.setDocument('jobs/$jobId', jobPatch);
+
+        try {
+          await svc.awardPointsIfEligible(SessionStorage.uid ?? '', 'hire_applicant');
+        } catch (pointErr) {
+          print('Notice awarding hire_applicant points: $pointErr');
+        }
 
         // Post acknowledgment request system message to the job chat
         final durationLabel = JobSlaHelper.formatSlaDurationLabel(slaMinutes);
@@ -4704,6 +4707,7 @@ class TranyxAppState extends State<TranyxApp> {
         );
       }
       setState(() => isUpdatingJobStatus = false);
+      showAppToast('Applicant Accepted', 'The Nyxian has been hired and requested to acknowledge the job.');
       await loadJobs();
       if (selectedJobData != null) {
         selectJobAndLoadDetails({
@@ -4713,6 +4717,8 @@ class TranyxAppState extends State<TranyxApp> {
         });
       }
     } catch (e) {
+      print('acceptApplicant error: $e');
+      showAppToast('Hiring Failed', e.toString().replaceAll('Exception: ', ''));
       setState(() => isUpdatingJobStatus = false);
     }
   }
@@ -4731,6 +4737,11 @@ class TranyxAppState extends State<TranyxApp> {
         nyxianUid: uid,
         nyxianName: userProfile?.name,
       );
+      try {
+        await svc.awardPointsIfEligible(uid, 'be_hired');
+      } catch (pointErr) {
+        print('Notice awarding be_hired points: $pointErr');
+      }
       showAppToast(
         'Gig Acknowledged & Started',
         'You have acknowledged the task. Escrow is active and timer has stopped.',
