@@ -262,9 +262,20 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
       );
       return;
     }
-    final daily = double.tryParse(_priceDaily) ?? 0;
-    if (daily <= 0) {
-      setState(() => _error = 'Please provide a valid daily rate.');
+
+    final daily = double.tryParse(_priceDaily) ?? 0.0;
+    final p12h = double.tryParse(_price12h) ?? 0.0;
+    final weekly = double.tryParse(_priceWeekly) ?? 0.0;
+    final monthly = double.tryParse(_priceMonthly) ?? 0.0;
+
+    final pricingValidation = VehiclePricingRules.validate(
+      priceDaily: daily,
+      price12h: p12h,
+      priceWeekly: weekly,
+      priceMonthly: monthly,
+    );
+    if (!pricingValidation.isValid) {
+      setState(() => _error = pricingValidation.errorMessage);
       return;
     }
     if (_contractType == 'Custom Contract' && _customTerms.trim().isEmpty) {
@@ -724,40 +735,47 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                 // Step 2: Pricing & Location
                 div(id: 'edit-step-2-pricing-top', classes: 'h-0 w-full p-0 m-0 overflow-hidden', []),
                 h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Location')]),
-                div(classes: 'grid grid-cols-2 gap-4', [
-                  _inputField(
-                    'Daily Rate (Required)',
-                    _priceDaily,
-                    (v) => setState(() => _priceDaily = v),
-                    isDark,
-                    placeholder: '2500',
-                    type: InputType.number,
-                  ),
-                  _inputField(
-                    '12-Hour Rate',
-                    _price12h,
-                    (v) => setState(() => _price12h = v),
-                    isDark,
-                    placeholder: '1500',
-                    type: InputType.number,
-                  ),
-                  _inputField(
-                    'Weekly Rate',
-                    _priceWeekly,
-                    (v) => setState(() => _priceWeekly = v),
-                    isDark,
-                    placeholder: '15000',
-                    type: InputType.number,
-                  ),
-                  _inputField(
-                    'Monthly Rate',
-                    _priceMonthly,
-                    (v) => setState(() => _priceMonthly = v),
-                    isDark,
-                    placeholder: '50000',
-                    type: InputType.number,
-                  ),
-                ]),
+                () {
+                  final curDaily = double.tryParse(_priceDaily) ?? 0.0;
+                  final min12h = curDaily > 0 ? (curDaily * 0.4).toStringAsFixed(0) : '';
+                  final minWeekly = curDaily > 0 ? (curDaily * 3.5).toStringAsFixed(0) : '';
+                  final minMonthly = curDaily > 0 ? (curDaily * 12.0).toStringAsFixed(0) : '';
+
+                  return div(classes: 'grid grid-cols-2 gap-4', [
+                    _inputField(
+                      'Daily Rate (Required)',
+                      _priceDaily,
+                      (v) => setState(() => _priceDaily = v),
+                      isDark,
+                      placeholder: '2500',
+                      type: InputType.number,
+                    ),
+                    _inputField(
+                      curDaily > 0 ? '12-Hour Rate (Min ₱$min12h)' : '12-Hour Rate (Optional)',
+                      _price12h,
+                      (v) => setState(() => _price12h = v),
+                      isDark,
+                      placeholder: curDaily > 0 ? (curDaily * 0.5).toStringAsFixed(0) : '1500',
+                      type: InputType.number,
+                    ),
+                    _inputField(
+                      curDaily > 0 ? 'Weekly Rate (Min ₱$minWeekly)' : 'Weekly Rate (Optional)',
+                      _priceWeekly,
+                      (v) => setState(() => _priceWeekly = v),
+                      isDark,
+                      placeholder: minWeekly.isNotEmpty ? minWeekly : '15000',
+                      type: InputType.number,
+                    ),
+                    _inputField(
+                      curDaily > 0 ? 'Monthly Rate (Min ₱$minMonthly)' : 'Monthly Rate (Optional)',
+                      _priceMonthly,
+                      (v) => setState(() => _priceMonthly = v),
+                      isDark,
+                      placeholder: minMonthly.isNotEmpty ? minMonthly : '50000',
+                      type: InputType.number,
+                    ),
+                  ]);
+                }(),
                 div(classes: 'mt-4', [
                   _inputField(
                     'Late Penalty (Per Hour)',

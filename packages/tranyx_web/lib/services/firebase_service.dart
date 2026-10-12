@@ -2864,6 +2864,16 @@ class FirestoreService {
 
   /// Create a new vehicle rental posting (0% Free Listing - ₱0.00 upfront fee)
   Future<String> createRental(VehicleRental rental) async {
+    final pricingValidation = VehiclePricingRules.validate(
+      dailyRate: rental.priceDaily,
+      price12h: rental.price12h,
+      priceWeekly: rental.priceWeekly,
+      priceMonthly: rental.priceMonthly,
+    );
+    if (!pricingValidation.isValid) {
+      throw Exception(pricingValidation.errorMessage);
+    }
+
     final host = await getUser(rental.hostId);
     if (host == null) {
       throw Exception('Host profile not found.');
@@ -2922,6 +2932,20 @@ class FirestoreService {
   Future<String> createRentalFromMap(Map<String, dynamic> rentalMap) async {
     final hostId = rentalMap['hostId'] as String;
     final priceDaily = (rentalMap['priceDaily'] as num?)?.toDouble() ?? 0.0;
+    final price12h = (rentalMap['price12h'] as num?)?.toDouble() ?? 0.0;
+    final priceWeekly = (rentalMap['priceWeekly'] as num?)?.toDouble() ?? 0.0;
+    final priceMonthly = (rentalMap['priceMonthly'] as num?)?.toDouble() ?? 0.0;
+
+    final pricingValidation = VehiclePricingRules.validate(
+      dailyRate: priceDaily,
+      price12h: price12h,
+      priceWeekly: priceWeekly,
+      priceMonthly: priceMonthly,
+    );
+    if (!pricingValidation.isValid) {
+      throw Exception(pricingValidation.errorMessage);
+    }
+
     final brand = rentalMap['brand'] as String? ?? '';
     final model = rentalMap['model'] as String? ?? '';
     final year = rentalMap['year']?.toString() ?? '';
@@ -4597,6 +4621,16 @@ class FirestoreService {
     String? gpsTrackerId,
     List<String>? extraPhotos,
   }) async {
+    final pricingValidation = VehiclePricingRules.validate(
+      dailyRate: updatedRental.priceDaily,
+      price12h: updatedRental.price12h,
+      priceWeekly: updatedRental.priceWeekly,
+      priceMonthly: updatedRental.priceMonthly,
+    );
+    if (!pricingValidation.isValid) {
+      throw Exception(pricingValidation.errorMessage);
+    }
+
     final rentalDoc = await getDocument('rentals/$rentalId');
     if (rentalDoc == null) throw Exception('Vehicle listing not found.');
 
