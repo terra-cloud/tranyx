@@ -18,6 +18,13 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
   String categoryFilter = 'all'; // 'all', 'job', 'rental', 'property', 'support'
   String searchQuery = '';
 
+  @override
+  void initState() {
+    super.initState();
+    component.state.loadRenterPendingRequests();
+    component.state.loadHostPendingRequests();
+  }
+
   String _formatDate(dynamic raw) {
     if (raw == null) return '';
     try {
@@ -39,11 +46,13 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
     if (uid.isEmpty) return [];
 
     final list = <Map<String, dynamic>>[];
+    final seenChatIds = <String>{};
 
     // 1. Job Conversations
     for (final job in s.myJobs) {
       final id = job['id'] as String? ?? '';
       if (id.isEmpty) continue;
+      seenChatIds.add(id);
       final title = job['title'] as String? ?? 'Job Transaction';
       final status = (job['status'] as String? ?? 'Open').trim();
       final lowerStatus = status.toLowerCase();
@@ -79,7 +88,8 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
     // Also include applied jobs for freelancers
     for (final job in s.appliedJobs) {
       final id = job['id'] as String? ?? '';
-      if (id.isEmpty || list.any((c) => c['chatId'] == id)) continue;
+      if (id.isEmpty || seenChatIds.contains(id)) continue;
+      seenChatIds.add(id);
       final title = job['title'] as String? ?? 'Applied Job';
       final status = (job['status'] as String? ?? 'Open').trim();
       final lowerStatus = status.toLowerCase();
@@ -108,14 +118,21 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
       });
     }
 
-    // 2. Vehicle Rental Conversations
-    for (final rentalMap in s.realtimeRentals) {
-      final id = rentalMap['id'] as String? ?? '';
-      if (id.isEmpty) continue;
-      final rental = VehicleRental.fromMap(rentalMap, id);
-      final chatId = 'rental_$id';
-      final title = '${rental.year} ${rental.brand} ${rental.model}';
-      final status = rental.status;
+    // Helper: Add Vehicle Rental Conversation strictly if transaction exists
+    void addRentalConversation({
+      required String rentalId,
+      required String renteeId,
+      required String title,
+      required String counterparty,
+      required String status,
+      required int timestamp,
+      required bool isHost,
+    }) {
+      if (rentalId.isEmpty || renteeId.isEmpty) return;
+      final chatId = 'rental_${rentalId}_$renteeId';
+      if (seenChatIds.contains(chatId)) return;
+      seenChatIds.add(chatId);
+
       final lowerStatus = status.toLowerCase();
       final isArchived = lowerStatus == 'completed' ||
           lowerStatus == 'complete' ||
@@ -124,53 +141,236 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
           lowerStatus == 'expired' ||
           lowerStatus == 'closed';
 
-      final isHost = rental.hostId == uid;
-      final counterparty = isHost ? (rental.renteeName ?? 'Renter') : rental.hostName;
-      final ts = rental.createdAt.millisecondsSinceEpoch;
-
       list.add({
         'chatId': chatId,
         'type': 'rental',
         'typeLabel': 'Vehicle Rental',
-        'title': title,
-        'counterparty': counterparty,
-        'status': status,
+        'title': title.isNotEmpty ? title : 'Vehicle Rental',
+        'counterparty': counterparty.isNotEmpty ? counterparty : (isHost ? 'Renter' : 'Host'),
+        'status': status.isNotEmpty ? status : 'Pending',
         'isArchived': isArchived,
-        'timestamp': ts,
-        'dateStr': _formatDate(ts),
+        'timestamp': timestamp,
+        'dateStr': _formatDate(timestamp),
         'icon': 'car',
       });
     }
 
-    // 3. Property Rental Conversations
-    for (final prop in s.realtimeProperties) {
-      final id = prop.id;
-      if (id.isEmpty) continue;
-      final chatId = 'property_$id';
-      final title = prop.title;
-      final status = prop.status.isNotEmpty ? prop.status : 'Available';
+    // Helper: Add Property Rental Conversation strictly if transaction exists
+    void addPropertyConversation({
+      required String propertyId,
+      required String renteeId,
+      required String title,
+      required String counterparty,
+      required String status,
+      required int timestamp,
+      required bool isHost,
+    }) {
+      if (propertyId.isEmpty || renteeId.isEmpty) return;
+      final chatId = 'property_${propertyId}_$renteeId';
+      if (seenChatIds.contains(chatId)) return;
+      seenChatIds.add(chatId);
+
       final lowerStatus = status.toLowerCase();
       final isArchived = lowerStatus == 'completed' ||
+          lowerStatus == 'complete' ||
           lowerStatus == 'cancelled' ||
+          lowerStatus == 'rejected' ||
           lowerStatus == 'expired' ||
           lowerStatus == 'closed';
-
-      final isHost = prop.hostId == uid;
-      final counterparty = isHost ? 'Renter' : prop.hostName;
-      final ts = prop.createdAt.millisecondsSinceEpoch;
 
       list.add({
         'chatId': chatId,
         'type': 'property',
         'typeLabel': 'Property Rental',
-        'title': title,
-        'counterparty': counterparty,
-        'status': status,
+        'title': title.isNotEmpty ? title : 'Property Rental',
+        'counterparty': counterparty.isNotEmpty ? counterparty : (isHost ? 'Tenant' : 'Owner'),
+        'status': status.isNotEmpty ? status : 'Pending',
         'isArchived': isArchived,
-        'timestamp': ts,
-        'dateStr': _formatDate(ts),
+        'timestamp': timestamp,
+        'dateStr': _formatDate(timestamp),
         'icon': 'home',
       });
+    }
+
+    // 2. Vehicle Rental Conversations (ONLY from eligible transactions)
+    // 2a. Renter: Pending requests
+    for (final req in s.renterPendingRequests) {
+      final rentalId = (req['rentalId'] ?? req['id'])?.toString() ?? '';
+      final matchingRental = s.realtimeRentals.where((r) => r['id'] == rentalId).firstOrNull;
+      final year = req['year'] ?? matchingRental?['year'] ?? '';
+      final brand = req['brand'] ?? matchingRental?['brand'] ?? '';
+      final model = req['model'] ?? matchingRental?['model'] ?? '';
+      final title = '$year $brand $model'.trim();
+      final counterparty = (req['hostName'] ?? matchingRental?['hostName'] ?? 'Host').toString();
+      final status = (req['status'] ?? 'Pending').toString();
+      final ts = req['createdAt'] is num
+          ? (req['createdAt'] as num).toInt()
+          : (req['requestDate'] is num ? (req['requestDate'] as num).toInt() : 0);
+      addRentalConversation(
+        rentalId: rentalId,
+        renteeId: uid,
+        title: title,
+        counterparty: counterparty,
+        status: status,
+        timestamp: ts,
+        isHost: false,
+      );
+    }
+
+    // 2b. Renter: Active & Approved Bookings
+    for (final b in s.renterActiveBookings) {
+      final rentalId = (b['rentalId'] ?? b['id'])?.toString() ?? '';
+      final matchingRental = s.realtimeRentals.where((r) => r['id'] == rentalId).firstOrNull;
+      final year = b['year'] ?? matchingRental?['year'] ?? '';
+      final brand = b['brand'] ?? matchingRental?['brand'] ?? '';
+      final model = b['model'] ?? matchingRental?['model'] ?? '';
+      final title = '$year $brand $model'.trim();
+      final counterparty = (b['hostName'] ?? matchingRental?['hostName'] ?? 'Host').toString();
+      final status = (b['status'] ?? 'Active').toString();
+      final ts = b['startDate'] is num
+          ? (b['startDate'] as num).toInt()
+          : (b['createdAt'] is num ? (b['createdAt'] as num).toInt() : 0);
+      addRentalConversation(
+        rentalId: rentalId,
+        renteeId: uid,
+        title: title,
+        counterparty: counterparty,
+        status: status,
+        timestamp: ts,
+        isHost: false,
+      );
+    }
+
+    // 2c. Host: Incoming Pending Requests
+    for (final req in s.hostPendingRequests) {
+      final rentalId = (req['rentalId'] ?? req['id'])?.toString() ?? '';
+      final renteeId = (req['renteeId'])?.toString() ?? '';
+      if (renteeId.isEmpty) continue;
+      final matchingRental = s.realtimeRentals.where((r) => r['id'] == rentalId).firstOrNull;
+      final year = req['year'] ?? matchingRental?['year'] ?? '';
+      final brand = req['brand'] ?? matchingRental?['brand'] ?? '';
+      final model = req['model'] ?? matchingRental?['model'] ?? '';
+      final title = '$year $brand $model'.trim();
+      final counterparty = (req['renteeName'] ?? 'Prospective Renter').toString();
+      final status = (req['status'] ?? 'Pending').toString();
+      final ts = req['createdAt'] is num
+          ? (req['createdAt'] as num).toInt()
+          : (req['requestDate'] is num ? (req['requestDate'] as num).toInt() : 0);
+      addRentalConversation(
+        rentalId: rentalId,
+        renteeId: renteeId,
+        title: title,
+        counterparty: counterparty,
+        status: status,
+        timestamp: ts,
+        isHost: true,
+      );
+    }
+
+    // 2d. Host: Confirmed Active Rentals where renteeId is assigned
+    for (final rentalMap in s.realtimeRentals) {
+      final hostId = rentalMap['hostId']?.toString() ?? '';
+      final renteeId = rentalMap['renteeId']?.toString() ?? '';
+      if (hostId != uid || renteeId.isEmpty) continue;
+      final id = rentalMap['id']?.toString() ?? '';
+      final rental = VehicleRental.fromMap(rentalMap, id);
+      final title = '${rental.year} ${rental.brand} ${rental.model}'.trim();
+      final status = rental.status;
+      final counterparty = rental.renteeName ?? 'Renter';
+      final ts = rental.createdAt.millisecondsSinceEpoch;
+      addRentalConversation(
+        rentalId: id,
+        renteeId: renteeId,
+        title: title,
+        counterparty: counterparty,
+        status: status,
+        timestamp: ts,
+        isHost: true,
+      );
+    }
+
+    // 3. Property Rental Conversations (ONLY from eligible transactions)
+    // 3a. Renter: Property Pending Requests
+    for (final req in s.propertyRenterPendingRequests) {
+      final propId = (req['propertyId'] ?? req['id'])?.toString() ?? '';
+      final matchingProp = s.realtimeProperties.where((propItem) => propItem.id == propId).firstOrNull;
+      final title = (req['title'] ?? matchingProp?.title ?? 'Property Rental').toString();
+      final counterparty = (req['hostName'] ?? matchingProp?.hostName ?? 'Property Host').toString();
+      final status = (req['status'] ?? 'Pending').toString();
+      final ts = req['createdAt'] is num
+          ? (req['createdAt'] as num).toInt()
+          : (req['requestDate'] is num ? (req['requestDate'] as num).toInt() : 0);
+      addPropertyConversation(
+        propertyId: propId,
+        renteeId: uid,
+        title: title,
+        counterparty: counterparty,
+        status: status,
+        timestamp: ts,
+        isHost: false,
+      );
+    }
+
+    // 3b. Renter: Property Active Bookings
+    for (final b in s.propertyRenterActiveBookings) {
+      final propId = (b['propertyId'] ?? b['id'])?.toString() ?? '';
+      final matchingProp = s.realtimeProperties.where((propItem) => propItem.id == propId).firstOrNull;
+      final title = (b['title'] ?? matchingProp?.title ?? 'Property Rental').toString();
+      final counterparty = (b['hostName'] ?? matchingProp?.hostName ?? 'Property Host').toString();
+      final status = (b['status'] ?? 'Active').toString();
+      final ts = b['startDate'] is num
+          ? (b['startDate'] as num).toInt()
+          : (b['createdAt'] is num ? (b['createdAt'] as num).toInt() : 0);
+      addPropertyConversation(
+        propertyId: propId,
+        renteeId: uid,
+        title: title,
+        counterparty: counterparty,
+        status: status,
+        timestamp: ts,
+        isHost: false,
+      );
+    }
+
+    // 3c. Host: Incoming Property Pending Requests
+    for (final req in s.propertyHostPendingRequests) {
+      final propId = (req['propertyId'] ?? req['id'])?.toString() ?? '';
+      final renteeId = (req['renteeId'])?.toString() ?? '';
+      if (renteeId.isEmpty) continue;
+      final matchingProp = s.realtimeProperties.where((propItem) => propItem.id == propId).firstOrNull;
+      final title = (req['title'] ?? matchingProp?.title ?? 'Property Rental').toString();
+      final counterparty = (req['renteeName'] ?? 'Prospective Tenant').toString();
+      final status = (req['status'] ?? 'Pending').toString();
+      final ts = req['createdAt'] is num
+          ? (req['createdAt'] as num).toInt()
+          : (req['requestDate'] is num ? (req['requestDate'] as num).toInt() : 0);
+      addPropertyConversation(
+        propertyId: propId,
+        renteeId: renteeId,
+        title: title,
+        counterparty: counterparty,
+        status: status,
+        timestamp: ts,
+        isHost: true,
+      );
+    }
+
+    // 3d. Host: Confirmed Leased Properties where renteeId is assigned
+    for (final prop in s.realtimeProperties) {
+      if (prop.hostId != uid || prop.renteeId == null || prop.renteeId!.isEmpty) continue;
+      final id = prop.id;
+      final title = prop.title;
+      final status = prop.status.isNotEmpty ? prop.status : 'Occupied';
+      final ts = prop.createdAt.millisecondsSinceEpoch;
+      addPropertyConversation(
+        propertyId: id,
+        renteeId: prop.renteeId!,
+        title: title,
+        counterparty: 'Tenant',
+        status: status,
+        timestamp: ts,
+        isHost: true,
+      );
     }
 
     // 4. Customer Support Chat
