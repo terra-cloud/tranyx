@@ -69,4 +69,12 @@
         !('resolvedBy' in request.resource.data.diff(resource.data).affectedKeys())
       );
       allow delete: if isAdminOrStaff();
+
+      match /messages/{messageId} {
+        allow read, write: if isAuthenticated();
+      }
+
+      match /notes/{noteId} {
+        allow read, write: if isAdminOrStaff();
+      }
     }

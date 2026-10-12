@@ -10,5 +10,10 @@
       allow read: if true;
       allow write: if isActiveUser();
     }
+
+    match /{path=**}/qna/{qnaId} {
+      allow read: if true;
+      allow write: if isActiveUser() || isAdminOrStaff();
+    }
   }
 }

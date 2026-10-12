@@ -38,6 +38,7 @@ graph TD
 | 2026-09-07 19:55 | **Unit & Integration** | `packages/tranyx_mobile/test/transit_repository_test.dart` | Stop Receiving Bookings & Safe Listing Deletion (AC1-AC8): pause/resume future bookings, marketplace exclusion, blocking deletion when pending requests exist, soft-delete/archival on confirmed bookings with request preservation, clean deletion with fee refund. | **PASSED** (28/28 tests) |
 | 2026-09-07 19:56 | **Regression & Static Analysis** | `packages/tranyx_mobile`, `packages/tranyx_web`, `packages/shared` | Complete test suites: booking availability (7/7 tests passed), web wallet & fees (9/9 tests passed), mobile transit (28/28 tests passed), dart analyze mobile (0 errors), dart analyze web (0 errors). | **PASSED** (All suites green) |
 | 2026-09-14 16:15 | **Bug Fix & Deploy** | `packages/tranyx_web/lib/client/components/sign_contract_modal.dart`, `contract_viewer.dart`, `tranyx_app.dart`, `firestore.rules` | Fixed Sign Agreement modal infinite loading deadlock (bypassed `_isLoadingRental = false`), added 10s timeout, actionable retry UI, signing button guards, host PDF contract rendering, dynamic modal keying, and redeployed `tranyx-dev` rules to fix 403 `PERMISSION_DENIED`. | **PASSED** (Static analysis 0 errors, rules deployed) |
+| 2026-10-12 11:00 | **Security & Cross-Project Sync** | `firestore_rules/*`, `tool/build_rules.dart`, `tranyx_admin_portal/tool/sync_rules.dart` | Synchronized Firestore Security Rules between workspace and admin portal, added short-circuit CEL evaluation, zero privilege escalation on users, promo_audit_trail, qna subcollection, and automated build/predeploy mirroring. | **PASSED** (Compiled 48,335 bytes, balanced braces, 0 diff between repos) |
 
 ---
 
@@ -157,6 +158,23 @@ Validates the full lifecycle controls for pausing booking availability and perfo
 6. **Dynamic Keying**:
    - In `tranyx_app.dart`, updated `SignContractModalComponent` to use dynamic keying `ValueKey('sign-contract-modal-${signingContractId}-${signingContractRequestId}')` to prevent stale state retention.
 
+### G. Cross-Project Firestore Rules & Admin Portal Synchronization (`2026-10-12`)
+
+1. **Resolution of Cross-Project Permission Clashes**:
+   - Both `tranyx_workspace` (Web & Mobile) and `tranyx_admin_portal` (Admin Desk) target the shared Firebase backends (`tranyx-dev`, `tranyx-uat`, `tranyx-app`).
+   - Prior deployments from `tranyx_admin_portal` overwrote 1,500 lines of workspace rules with a 232-line legacy ruleset containing an insecure wildcard `match /{document=**}`.
+   - Conversely, deployments from `tranyx_workspace` broke admin features lacking explicit permissions (`promo_audit_trail`, `qna` subcollections).
+
+2. **Hardened Architecture & Security Enhancements**:
+   - **CEL Short-Circuiting**: Rewrote `isAdminOrStaff()` to check JWT claims and verified email domains first (0 document reads), lazy-falling back to `/users/{uid}` and `/p2p_agents/{uid}` to eliminate Firestore 10-read exhaustion.
+   - **Privilege Escalation Closed**: Non-admins can no longer modify `['role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil', 'tyxBalance']`.
+   - **Dual `qna` & `questions` Support**: Both `questions` (web/mobile) and `qna` (admin portal `listings.dart`) subcollections are supported.
+   - **Missing Collections Added**: Added explicit rules for `promo_audit_trail`, recursive `/system_config/{docId}/{subPath=**}`, `/platform_config/{docId}/{subPath=**}`, and `/disputes/{disputeId}/messages|notes`.
+
+3. **Automated Cross-Project Synchronization**:
+   - `tool/build_rules.dart` compiles the 10 modular files and mirrors `firestore.rules` directly to `../tranyx_admin_portal/firestore.rules`.
+   - `tranyx_admin_portal/firebase.json` has a `predeploy` hook executing `dart run tool/sync_rules.dart`, preventing any divergent deployment.
+
 > [!NOTE]
 > All automated tests execute directly against the `tranyx-dev` Firebase project, confirming both code logic correctness and database rule constraints.
 
@@ -224,3 +242,13 @@ To optimize workflow run times and ensure fast merge capabilities:
 >      b. **Actionable Recovery**: Network failures, timeouts, or missing documents must render an actionable error state with an interactive `[Retry]` button.
 >      c. **Signing Disabled Until Loaded**: The "Sign & Activate" button must remain strictly disabled and unclickable whenever agreement details are loading, failed, or empty.
 >      d. **Session Keying**: The modal component in `tranyx_app.dart` must use dynamic session keying based on `signingContractId` and `signingContractRequestId` to prevent state leakage between rentals.
+>
+> 7. **Cross-Project Firestore Security Rules Synchronization**:
+>    - `firestore_rules/*` (10 modular files in `tranyx_workspace`)
+>    - `tool/build_rules.dart` & `tool/deploy_rules.dart`
+>    - `tranyx_admin_portal/tool/sync_rules.dart` & `tranyx_admin_portal/firebase.json` (predeploy hook)
+>    - **Invariants**:
+>      a. **Single Source of Truth**: All rule additions or edits MUST be authored in `tranyx_workspace/firestore_rules/` via the `firestore-rules-author` subagent. Standalone authoring inside `tranyx_admin_portal/firestore.rules` is strictly forbidden.
+>      b. **Automated Mirroring**: Running `dart run tool/build_rules.dart` in `tranyx_workspace` MUST automatically compile and mirror `firestore.rules` to `../tranyx_admin_portal/firestore.rules`.
+>      c. **Predeploy Safety**: `tranyx_admin_portal/firebase.json` MUST maintain its predeploy hook executing `dart run tool/sync_rules.dart` to prevent any divergent rules deployment.
+

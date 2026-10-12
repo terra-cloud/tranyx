@@ -146,6 +146,12 @@
         allow read: if true;
         allow write: if isActiveUser();
       }
+
+      // Subcollection: QnA (Public Q&A alternative path)
+      match /qna/{qnaId} {
+        allow read: if true;
+        allow write: if isActiveUser() || isAdminOrStaff();
+      }
     }
 
     // Job Escrow Collection

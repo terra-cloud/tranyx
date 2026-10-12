@@ -90,6 +90,11 @@
         allow read: if true;
         allow write: if isActiveUser();
       }
+
+      match /qna/{qnaId} {
+        allow read: if true;
+        allow write: if isActiveUser() || isAdminOrStaff();
+      }
     }
 
     // Rental Requests Collection
