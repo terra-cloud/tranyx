@@ -51,4 +51,18 @@ void main() {
   for (final file in files) {
     print('  - ${file.uri.pathSegments.last}');
   }
+
+  // Cross-project synchronization to tranyx_admin_portal
+  final adminTargetDirs = [
+    Directory('../tranyx_admin_portal'),
+    Directory('/Users/zeuscajurao/Desktop/tranyx_admin_portal'),
+  ];
+  for (final adminDir in adminTargetDirs) {
+    if (adminDir.existsSync()) {
+      final adminRulesFile = File('${adminDir.path}/firestore.rules');
+      adminRulesFile.writeAsStringSync(compiledRules);
+      print('[SYNC SUCCESS] Mirrored firestore.rules to ${adminRulesFile.path} (${compiledRules.length} bytes)');
+      break;
+    }
+  }
 }
