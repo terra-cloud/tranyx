@@ -145,9 +145,15 @@ class _RentalDetailsModalState extends State<RentalDetailsModalComponent> {
     final contractTerms = (data['contractTerms'] ?? listingVehicle['contractTerms'] ?? listingProperty['contractTerms'] ?? 'Standard P2P Rental Terms and Conditions apply. Both parties agree to escrow protection, vehicle inspection protocols, and timely handover.').toString();
 
     // Chat thread info
-    final chatId = isProp ? 'property_${rentalId}_${component.appState.userProfile?.uid}' : 'rental_${rentalId}_${component.appState.userProfile?.uid}';
+    final renteeId = (data['renteeId'] ?? component.appState.userProfile?.uid)?.toString() ?? '';
+    final chatId = isProp ? 'property_${rentalId}_$renteeId' : 'rental_${rentalId}_$renteeId';
     final unreadCount = component.appState.getUnreadChatCount(chatId);
     final allowChat = data['allowChat'] ?? true;
+    final hasEligibleTransaction = component.appState.hasEligibleRentalTransaction(
+      rentalId,
+      renteeId,
+      isProperty: isProp,
+    );
 
     return div(
       classes: 'fixed inset-0 z-[9999] flex items-center justify-center p-3 md:p-6 bg-black/80 backdrop-blur-md animate-fade-in',
@@ -268,7 +274,7 @@ class _RentalDetailsModalState extends State<RentalDetailsModalComponent> {
                   'px-6 py-4 border-t flex flex-wrap items-center justify-between gap-3 ${isDark ? "border-zinc-800 bg-zinc-900/90" : "border-zinc-100 bg-zinc-50"}',
               [
                 div(classes: 'flex items-center gap-2', [
-                  if (allowChat)
+                  if (allowChat && hasEligibleTransaction)
                     button(
                       classes:
                           'px-4 py-2.5 rounded-xl text-xs font-bold border border-blue-500/30 text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 cursor-pointer flex items-center gap-2 transition-all',
