@@ -329,6 +329,22 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         _scrollToTop(scrollController);
         return false;
       }
+      final hourly12 = double.tryParse(_price12hController.text.trim()) ?? 0.0;
+      final weekly = double.tryParse(_priceWeeklyController.text.trim()) ?? 0.0;
+      final monthly = double.tryParse(_priceMonthlyController.text.trim()) ?? 0.0;
+
+      final pricingResult = VehiclePricingRules.validate(
+        priceDaily: daily,
+        price12h: hourly12,
+        priceWeekly: weekly,
+        priceMonthly: monthly,
+      );
+      if (!pricingResult.isValid) {
+        setState(() => _error = pricingResult.errorMessage);
+        _scrollToTop(scrollController);
+        return false;
+      }
+
       if (_addressController.text.trim().isEmpty) {
         setState(() => _error = 'Please enter the vehicle pickup address.');
         _scrollToTop(scrollController);
@@ -454,6 +470,22 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
             double.tryParse(_priceWeeklyController.text.trim()) ?? 0.0;
         final monthly =
             double.tryParse(_priceMonthlyController.text.trim()) ?? 0.0;
+
+        final pricingResult = VehiclePricingRules.validate(
+          priceDaily: daily,
+          price12h: hourly12,
+          priceWeekly: weekly,
+          priceMonthly: monthly,
+        );
+        if (!pricingResult.isValid) {
+          setState(() {
+            _isProcessing = false;
+            _error = pricingResult.errorMessage;
+          });
+          _scrollToTop(scrollController);
+          return;
+        }
+
         final extPenalty =
             double.tryParse(_extensionPenaltyController.text.trim()) ??
             (daily / 24 * 1.5);
@@ -1317,36 +1349,57 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         ),
                         const SizedBox(height: 16),
                       ] else ...[
-                        UIHelpers.buildTextField(
-                          Icons.monetization_on,
-                          "Daily Rental Rate (₱, Required)",
-                          isDarkMode,
-                          controller: _priceDailyController,
-                          keyboardType: TextInputType.number,
-                        ),
-                        const SizedBox(height: 16),
-                        UIHelpers.buildTextField(
-                          Icons.monetization_on_outlined,
-                          "12-Hour Rental Rate (Optional)",
-                          isDarkMode,
-                          controller: _price12hController,
-                          keyboardType: TextInputType.number,
-                        ),
-                        const SizedBox(height: 16),
-                        UIHelpers.buildTextField(
-                          Icons.monetization_on_outlined,
-                          "Weekly Rental Rate (Optional)",
-                          isDarkMode,
-                          controller: _priceWeeklyController,
-                          keyboardType: TextInputType.number,
-                        ),
-                        const SizedBox(height: 16),
-                        UIHelpers.buildTextField(
-                          Icons.monetization_on_outlined,
-                          "Monthly Rental Rate (Optional)",
-                          isDarkMode,
-                          controller: _priceMonthlyController,
-                          keyboardType: TextInputType.number,
+                        ListenableBuilder(
+                          listenable: _priceDailyController,
+                          builder: (context, _) {
+                            final daily = double.tryParse(_priceDailyController.text.trim()) ?? 0.0;
+                            final min12h = (daily * VehiclePricingRules.min12hMultiplier).ceil();
+                            final minWeekly = (daily * VehiclePricingRules.minWeeklyMultiplier).ceil();
+                            final minMonthly = (daily * VehiclePricingRules.minMonthlyMultiplier).ceil();
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                UIHelpers.buildTextField(
+                                  Icons.monetization_on,
+                                  "Daily Rental Rate (₱, Required)",
+                                  isDarkMode,
+                                  controller: _priceDailyController,
+                                  keyboardType: TextInputType.number,
+                                ),
+                                const SizedBox(height: 16),
+                                UIHelpers.buildTextField(
+                                  Icons.monetization_on_outlined,
+                                  daily > 0
+                                      ? "12-Hour Rental Rate (Optional, min. ₱$min12h)"
+                                      : "12-Hour Rental Rate (Optional)",
+                                  isDarkMode,
+                                  controller: _price12hController,
+                                  keyboardType: TextInputType.number,
+                                ),
+                                const SizedBox(height: 16),
+                                UIHelpers.buildTextField(
+                                  Icons.monetization_on_outlined,
+                                  daily > 0
+                                      ? "Weekly Rental Rate (Optional, min. ₱$minWeekly)"
+                                      : "Weekly Rental Rate (Optional)",
+                                  isDarkMode,
+                                  controller: _priceWeeklyController,
+                                  keyboardType: TextInputType.number,
+                                ),
+                                const SizedBox(height: 16),
+                                UIHelpers.buildTextField(
+                                  Icons.monetization_on_outlined,
+                                  daily > 0
+                                      ? "Monthly Rental Rate (Optional, min. ₱$minMonthly)"
+                                      : "Monthly Rental Rate (Optional)",
+                                  isDarkMode,
+                                  controller: _priceMonthlyController,
+                                  keyboardType: TextInputType.number,
+                                ),
+                              ],
+                            );
+                          },
                         ),
                         const SizedBox(height: 16),
                         UIHelpers.buildTextField(
