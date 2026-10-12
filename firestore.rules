@@ -58,45 +58,53 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.token.email != null && (
         request.auth.token.email.matches('.*\\.(agents|agent|admin|staff)@tranyx\\.(app|com|ph)$') ||
         request.auth.token.email.matches('.*@(admin|staff|agents|agent)\\.tranyx\\.(app|com|ph)$') ||
-        request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.ph|tranyx\\.com|terra\\.app)$')
+        request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.ph|tranyx\\.com|terra\\.app|tranyx\\.dev)$')
       );
+    }
+
+    // Step 1: Zero-read instant verification via Auth Token Claims & Verified Staff Email
+    function isAdminTokenOrEmail() {
+      return isAuthenticated() && (
+        (request.auth.token != null && (
+          ('admin' in request.auth.token && request.auth.token.admin == true) ||
+          ('superadmin' in request.auth.token && request.auth.token.superadmin == true) ||
+          ('role' in request.auth.token && (
+            request.auth.token.role in [
+              'admin', 'staff', 'support', 'agent', 'super_admin', 'superadmin',
+              'ADMIN', 'STAFF', 'AGENT', 'SUPER_ADMIN'
+            ]
+          ))
+        )) ||
+        (request.auth.token.email != null &&
+         request.auth.token.email_verified == true &&
+         request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.com|tranyx\\.ph|terra\\.app|tranyx\\.dev)$'))
+      );
+    }
+
+    // Step 2: Lazy fallback check on /users/{uid} document
+    function isUserAdminInDoc() {
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      let userDoc = exists(userPath) ? get(userPath).data : {};
+      return ('isAdmin' in userDoc && userDoc.isAdmin == true) ||
+        ('isStaff' in userDoc && userDoc.isStaff == true) ||
+        ('isSuperAdmin' in userDoc && userDoc.isSuperAdmin == true) ||
+        ('isP2pAgent' in userDoc && userDoc.isP2pAgent == true) ||
+        ('role' in userDoc && (
+          userDoc.role in [
+            'admin', 'staff', 'support', 'agent', 'p2p_agent', 'super_admin', 'superadmin',
+            'ADMIN', 'STAFF', 'AGENT', 'SUPPORT', 'SUPER_ADMIN', 'SUPERADMIN'
+          ]
+        ));
+    }
+
+    // Step 3: Lazy check on /p2p_agents/{uid} document
+    function isP2pAgentInDoc() {
+      return exists(/databases/$(database)/documents/p2p_agents/$(request.auth.uid));
     }
 
     // Helper to check if the user is an admin, staff member, or registered P2P agent
     function isAdminOrStaff() {
-      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
-      let hasUserDoc = exists(userPath);
-      let userDoc = hasUserDoc ? get(userPath).data : {};
-      
-      let agentPath = /databases/$(database)/documents/p2p_agents/$(request.auth.uid);
-      let isAgent = exists(agentPath);
-
-      return isAuthenticated() && (
-        isAgent ||
-        isStaffEmail() ||
-        (request.auth.token != null && (
-          ('admin' in request.auth.token && request.auth.token.admin == true) ||
-          ('role' in request.auth.token && (
-            request.auth.token.role == 'admin' ||
-            request.auth.token.role == 'staff' ||
-            request.auth.token.role == 'agent'
-          ))
-        )) ||
-        (hasUserDoc && (
-          ('isAdmin' in userDoc && userDoc.isAdmin == true) ||
-          ('isP2pAgent' in userDoc && userDoc.isP2pAgent == true) ||
-          ('role' in userDoc && (
-            userDoc.role == 'admin' ||
-            userDoc.role == 'staff' ||
-            userDoc.role == 'support' ||
-            userDoc.role == 'agent' ||
-            userDoc.role == 'p2p_agent' ||
-            userDoc.role == 'ADMIN' ||
-            userDoc.role == 'STAFF' ||
-            userDoc.role == 'AGENT'
-          ))
-        ))
-      );
+      return isAdminTokenOrEmail() || (isAuthenticated() && (isUserAdminInDoc() || isP2pAgentInDoc()));
     }
 
 // >>> SOURCE: firestore_rules/10_workspace_users_wallets.rules
@@ -120,7 +128,7 @@ service cloud.firestore {
       allow update: if (
         // 1. Regular User: Can update own profile fields (cannot alter admin role, ban, or suspension status)
         (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'role', 'banned', 'suspendedUntil'
+          'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil', 'tyxBalance'
         ]))
         || 
         // 2. Staff Bootstrap: User with official staff email domain can bootstrap staff role
@@ -265,7 +273,8 @@ service cloud.firestore {
     }
 
     match /claimed_p2p_references/{refKey} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAuthenticated() || isAdminOrStaff();
     }
 
     match /claimedReferences/{refKey} {
@@ -370,6 +379,11 @@ service cloud.firestore {
       match /questions/{questionId} {
         allow read: if true;
         allow write: if isActiveUser();
+      }
+
+      match /qna/{qnaId} {
+        allow read: if true;
+        allow write: if isActiveUser() || isAdminOrStaff();
       }
     }
 
@@ -582,6 +596,12 @@ service cloud.firestore {
         allow read: if true;
         allow write: if isActiveUser();
       }
+
+      // Subcollection: QnA (Public Q&A alternative path)
+      match /qna/{qnaId} {
+        allow read: if true;
+        allow write: if isActiveUser() || isAdminOrStaff();
+      }
     }
 
     // Job Escrow Collection
@@ -710,6 +730,11 @@ service cloud.firestore {
         allow read: if true;
         allow write: if isActiveUser();
       }
+
+      match /qna/{qnaId} {
+        allow read: if true;
+        allow write: if isActiveUser() || isAdminOrStaff();
+      }
     }
 
     // Property Requests Collection
@@ -818,6 +843,14 @@ service cloud.firestore {
         !('resolvedBy' in request.resource.data.diff(resource.data).affectedKeys())
       );
       allow delete: if isAdminOrStaff();
+
+      match /messages/{messageId} {
+        allow read, write: if isAuthenticated();
+      }
+
+      match /notes/{noteId} {
+        allow read, write: if isAdminOrStaff();
+      }
     }
 
 // >>> SOURCE: firestore_rules/60_admin_portal_operations.rules
@@ -897,6 +930,9 @@ service cloud.firestore {
     match /system_config/{docId} {
       allow read, write: if isAdminOrStaff();
     }
+    match /system_config/{docId}/{subPath=**} {
+      allow read, write: if isAdminOrStaff();
+    }
 
     // Config Collection (App-level public read-only config)
     match /config/app_config {
@@ -915,6 +951,10 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if isAdminOrStaff();
     }
+    match /platform_config/{docId}/{subPath=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdminOrStaff();
+    }
 
     // Promos Collection
     match /promos/{promoId} {
@@ -923,6 +963,11 @@ service cloud.firestore {
       allow update: if isAdminOrStaff() || 
         (isActiveUser() && 
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount', 'usedBy']));
+    }
+
+    // Promo Audit Trail Collection
+    match /promo_audit_trail/{auditId} {
+      allow read, write: if isAdminOrStaff();
     }
 
     // News & Promotions Collections
@@ -959,6 +1004,11 @@ service cloud.firestore {
     match /{path=**}/questions/{questionId} {
       allow read: if true;
       allow write: if isActiveUser();
+    }
+
+    match /{path=**}/qna/{qnaId} {
+      allow read: if true;
+      allow write: if isActiveUser() || isAdminOrStaff();
     }
   }
 }

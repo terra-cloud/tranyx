@@ -74,6 +74,9 @@
     match /system_config/{docId} {
       allow read, write: if isAdminOrStaff();
     }
+    match /system_config/{docId}/{subPath=**} {
+      allow read, write: if isAdminOrStaff();
+    }
 
     // Config Collection (App-level public read-only config)
     match /config/app_config {
@@ -92,6 +95,10 @@
       allow read: if isAuthenticated();
       allow write: if isAdminOrStaff();
     }
+    match /platform_config/{docId}/{subPath=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdminOrStaff();
+    }
 
     // Promos Collection
     match /promos/{promoId} {
@@ -100,6 +107,11 @@
       allow update: if isAdminOrStaff() || 
         (isActiveUser() && 
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount', 'usedBy']));
+    }
+
+    // Promo Audit Trail Collection
+    match /promo_audit_trail/{auditId} {
+      allow read, write: if isAdminOrStaff();
     }
 
     // News & Promotions Collections

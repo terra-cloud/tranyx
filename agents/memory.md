@@ -9,11 +9,13 @@
 - **Rule**: All image uploading must be performed using the `ImgBBService` (or `imageBBService`).
 - **Reasoning**: Directly uploading/storing large Base64 Data URLs inside Firestore documents exceeds Firestore's 1MB document size limit, causing database errors. Always upload images to ImgBB and store the returned HTTP URLs in Firestore.
 
-## Firestore Security Rules & Cross-Project Deploy Collisions
-- **Symptom**: Unexplained `FIRESTORE QUERY ERROR: 403 - Missing or insufficient permissions. PERMISSION_DENIED` on collections that should be readable/writable (e.g., `jobs`, `wallets`, `rentals`, `rental_requests`, `transactions`).
-- **Root Cause**: The developer machine may have multiple projects (e.g., `VieXpress`, `Tranyx`) sharing Firebase CLI authentication or project IDs. Deploying security rules from an external repo can accidentally overwrite `tranyx-dev`'s Firestore rules with unrelated rules (e.g. `patients`, `prescriptions`).
-- **Remediation**: Re-deploy the repository's rule set from `/Users/zeuscajurao/Desktop/tranyx_workspace`:
-  ```bash
-  firebase deploy --only firestore:rules --project tranyx-dev
-  ```
-  This immediately reinstates Tranyx's comprehensive rules for jobs, wallets, rentals, properties, and escrow transactions.
+## Firestore Security Rules Cross-Project Synchronization (`tranyx_workspace` & `tranyx_admin_portal`)
+- **Shared Architecture**: `tranyx_workspace` (Web & Mobile) and `tranyx_admin_portal` (Admin Desk) operate against the same Firebase projects (`tranyx-dev`, `tranyx-uat`, `tranyx-app`).
+- **Single Source of Truth**: `tranyx_workspace/firestore_rules/` is the single authoritative source of truth for ALL Cloud Firestore security rules.
+- **Automated Sync**: `dart run tool/build_rules.dart` compiles the modular rules into `firestore.rules` and automatically mirrors them to `../tranyx_admin_portal/firestore.rules`.
+- **Deployment Protocol**:
+  - Author changes in `tranyx_workspace/firestore_rules/` via `firestore-rules-author` subagent.
+  - Compile with `dart run tool/build_rules.dart`.
+  - Deploy with `dart run tool/deploy_rules.dart [dev|uat|prod|all]`.
+  - In `tranyx_admin_portal`, `firebase.json` has a `predeploy` hook executing `dart run tool/sync_rules.dart`.
+  - NEVER author standalone rules inside `tranyx_admin_portal/firestore.rules`.
