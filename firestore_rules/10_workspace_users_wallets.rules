@@ -18,7 +18,7 @@
       allow update: if (
         // 1. Regular User: Can update own profile fields (cannot alter admin role, ban, or suspension status)
         (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'role', 'banned', 'suspendedUntil'
+          'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil', 'tyxBalance'
         ]))
         || 
         // 2. Staff Bootstrap: User with official staff email domain can bootstrap staff role
@@ -163,7 +163,8 @@
     }
 
     match /claimed_p2p_references/{refKey} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAuthenticated() || isAdminOrStaff();
     }
 
     match /claimedReferences/{refKey} {
