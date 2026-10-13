@@ -856,33 +856,24 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                 ],
               ),
 
-              h3(classes: 'text-lg font-bold mb-4', [Component.text('Select Rental Package')]),
-              div(classes: 'grid grid-cols-2 gap-3', [
-                _packageOption(
-                  '12h',
-                  '12 Hours',
-                  ((r['price12h'] ?? r['halfDayRate']) as num?)?.toDouble() ?? 0,
-                  isDark,
-                ),
-                _packageOption(
-                  'Daily',
-                  'Daily',
-                  ((r['priceDaily'] ?? r['dailyRate']) as num?)?.toDouble() ?? 0,
-                  isDark,
-                ),
-                _packageOption(
-                  'Weekly',
-                  'Weekly',
-                  ((r['priceWeekly'] ?? r['weeklyRate']) as num?)?.toDouble() ?? 0,
-                  isDark,
-                ),
-                _packageOption(
-                  'Monthly',
-                  'Monthly',
-                  ((r['priceMonthly'] ?? r['monthlyRate']) as num?)?.toDouble() ?? 0,
-                  isDark,
-                ),
-              ]),
+              () {
+                final daily = ((r['priceDaily'] ?? r['dailyRate']) as num?)?.toDouble() ?? 0.0;
+                final p12h = ((r['price12h'] ?? r['halfDayRate']) as num?)?.toDouble() ?? 0.0;
+                final weekly = ((r['priceWeekly'] ?? r['weeklyRate']) as num?)?.toDouble() ?? 0.0;
+                final monthly = ((r['priceMonthly'] ?? r['monthlyRate']) as num?)?.toDouble() ?? 0.0;
+
+                final is12hValid = p12h > 0 && daily > 0 && p12h <= daily && p12h >= VehiclePricingRules.getMin12hRate(daily);
+                final isDailyValid = daily > 0;
+                final isWeeklyValid = weekly > 0 && daily > 0 && weekly >= VehiclePricingRules.getMinWeeklyRate(daily) && weekly > daily;
+                final isMonthlyValid = monthly > 0 && daily > 0 && monthly >= VehiclePricingRules.getMinMonthlyRate(daily) && (weekly <= 0 || monthly > weekly);
+
+                return div(classes: 'grid grid-cols-2 gap-3', [
+                  _packageOption('12h', '12 Hours', p12h, isDark, isValid: is12hValid),
+                  _packageOption('Daily', 'Daily', daily, isDark, isValid: isDailyValid),
+                  _packageOption('Weekly', 'Weekly', weekly, isDark, isValid: isWeeklyValid),
+                  _packageOption('Monthly', 'Monthly', monthly, isDark, isValid: isMonthlyValid),
+                ]);
+              }(),
 
               if (r['offersDriver'] == true) ...[
                 div(
@@ -1959,9 +1950,9 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     return '$y-$m-$d';
   }
 
-  Component _packageOption(String id, String labelText, double price, bool isDark) {
+  Component _packageOption(String id, String labelText, double price, bool isDark, {bool isValid = true}) {
     final isSelected = _selectedPackage == id;
-    final isAvailable = price > 0;
+    final isAvailable = price > 0 && isValid;
     return div(
       classes:
           'p-4 rounded-xl border-2 transition-all '
@@ -1972,7 +1963,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
           p(classes: 'font-semibold ${isSelected && isAvailable ? "text-purple-400" : ""}', [Component.text(labelText)]),
           if (!isAvailable)
             span(classes: 'text-[10px] px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-500 border border-zinc-500/20 uppercase font-bold', [
-              Component.text('Unavailable'),
+              Component.text(price > 0 ? 'Invalid Rate' : 'Unavailable'),
             ]),
         ]),
         p(classes: 'font-bold text-lg', [

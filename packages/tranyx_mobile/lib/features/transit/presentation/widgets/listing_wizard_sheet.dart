@@ -370,8 +370,13 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
       final weekly = double.tryParse(_priceWeeklyController.text.trim()) ?? 0.0;
       final daily = double.tryParse(_priceDailyController.text.trim()) ?? 0.0;
 
-      if (monthly <= 0 && weekly <= 0 && daily <= 0) {
-        setState(() => _error = 'Please provide at least one rental rate (Daily, Weekly, or Monthly).');
+      final pricingResult = PropertyPricingRules.validate(
+        priceDaily: daily,
+        priceWeekly: weekly,
+        priceMonthly: monthly,
+      );
+      if (!pricingResult.isValid) {
+        setState(() => _error = pricingResult.errorMessage);
         return false;
       }
       if (_addressController.text.trim().isEmpty) {
@@ -466,6 +471,20 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         final weekly =
             double.tryParse(_priceWeeklyController.text.trim()) ?? 0.0;
         final daily = double.tryParse(_priceDailyController.text.trim()) ?? 0.0;
+
+        final pricingResult = PropertyPricingRules.validate(
+          priceDaily: daily,
+          priceWeekly: weekly,
+          priceMonthly: monthly,
+        );
+        if (!pricingResult.isValid) {
+          setState(() {
+            _isProcessing = false;
+            _error = pricingResult.errorMessage;
+          });
+          return;
+        }
+
         final depositAmt =
             double.tryParse(_securityDepositController.text.trim()) ?? 0.0;
         final advanceAmt =

@@ -722,11 +722,21 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                 ]),
 
                 h3(classes: 'text-lg font-bold mb-3', [Component.text('Rental Period')]),
-                div(classes: 'grid grid-cols-3 gap-3 mb-4', [
-                  _packageOption('Monthly', 'Monthly Rate', ((pData['priceMonthly'] ?? 0) as num).toDouble(), isDark),
-                  _packageOption('Weekly', 'Weekly Rate', ((pData['priceWeekly'] ?? 0) as num).toDouble(), isDark),
-                  _packageOption('Daily', 'Daily Rate', ((pData['priceDaily'] ?? 0) as num).toDouble(), isDark),
-                ]),
+                () {
+                  final daily = ((pData['priceDaily'] ?? 0) as num).toDouble();
+                  final weekly = ((pData['priceWeekly'] ?? 0) as num).toDouble();
+                  final monthly = ((pData['priceMonthly'] ?? 0) as num).toDouble();
+
+                  final isDailyValid = daily > 0;
+                  final isWeeklyValid = weekly > 0 && (daily <= 0 || (weekly >= PropertyPricingRules.getMinWeeklyRate(daily) && weekly > daily));
+                  final isMonthlyValid = monthly > 0 && (daily <= 0 || monthly >= PropertyPricingRules.getMinMonthlyRate(daily)) && (weekly <= 0 || monthly > weekly);
+
+                  return div(classes: 'grid grid-cols-3 gap-3 mb-4', [
+                    _packageOption('Monthly', 'Monthly Rate', monthly, isDark, isValid: isMonthlyValid),
+                    _packageOption('Weekly', 'Weekly Rate', weekly, isDark, isValid: isWeeklyValid),
+                    _packageOption('Daily', 'Daily Rate', daily, isDark, isValid: isDailyValid),
+                  ]);
+                }(),
 
                 div(
                   classes:
@@ -1182,9 +1192,9 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
     );
   }
 
-  Component _packageOption(String duration, String title, double rate, bool isDark) {
+  Component _packageOption(String duration, String title, double rate, bool isDark, {bool isValid = true}) {
     final isSelected = _selectedDurationType == duration;
-    final isAvailable = rate > 0;
+    final isAvailable = rate > 0 && isValid;
 
     return div(
       classes:
@@ -1203,6 +1213,8 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         p(classes: 'text-sm font-extrabold', [
           if (isAvailable)
             Component.text('₱ ${rate.toStringAsFixed(0)}')
+          else if (rate > 0)
+            span(classes: 'text-xs text-amber-500 font-semibold', [Component.text('Invalid Rate')])
           else
             span(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-400"} font-normal', [Component.text('Not Offered')]),
         ]),

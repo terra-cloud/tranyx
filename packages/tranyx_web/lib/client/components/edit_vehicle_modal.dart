@@ -421,6 +421,20 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
         setState(() => _error = 'Please provide a valid daily rate.');
         return;
       }
+      final p12h = double.tryParse(_price12h) ?? 0.0;
+      final weekly = double.tryParse(_priceWeekly) ?? 0.0;
+      final monthly = double.tryParse(_priceMonthly) ?? 0.0;
+
+      final pricingValidation = VehiclePricingRules.validate(
+        priceDaily: daily,
+        price12h: p12h,
+        priceWeekly: weekly,
+        priceMonthly: monthly,
+      );
+      if (!pricingValidation.isValid) {
+        setState(() => _error = pricingValidation.errorMessage);
+        return;
+      }
       if (_offersDriver) {
         final drvPrice = double.tryParse(_driverDailyPrice) ?? 0;
         if (drvPrice <= 0) {
