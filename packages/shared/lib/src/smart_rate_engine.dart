@@ -87,8 +87,19 @@ class SmartRateEngine {
     final effectiveDays = totalDays <= 0 ? 1 : totalDays;
     final unoptimized = priceDaily > 0 ? (effectiveDays * priceDaily) : 0.0;
 
-    // If only daily rate is provided and no weekly/monthly rates exist:
-    if (priceWeekly <= 0 && priceMonthly <= 0) {
+    // Defense-in-depth: Sanitize rates to ensure weekly and monthly tiers are not
+    // lower than the daily rate or improperly inverted due to corrupt data.
+    final effectiveWeekly = (priceWeekly > 0 && (priceDaily <= 0 || priceWeekly > priceDaily))
+        ? priceWeekly
+        : 0.0;
+    final effectiveMonthly = (priceMonthly > 0 &&
+            (priceDaily <= 0 || priceMonthly > priceDaily) &&
+            (effectiveWeekly <= 0 || priceMonthly > effectiveWeekly))
+        ? priceMonthly
+        : 0.0;
+
+    // If only daily rate is provided and no valid weekly/monthly rates exist:
+    if (effectiveWeekly <= 0 && effectiveMonthly <= 0) {
       final total = effectiveDays * priceDaily;
       return TierOptimizationResult(
         totalBasePrice: total,
@@ -106,12 +117,12 @@ class SmartRateEngine {
     int weeks = 0;
     int days = 0;
 
-    if (priceMonthly > 0 && remainingDays >= 30) {
+    if (effectiveMonthly > 0 && remainingDays >= 30) {
       months = remainingDays ~/ 30;
       remainingDays %= 30;
     }
 
-    if (priceWeekly > 0 && remainingDays >= 7) {
+    if (effectiveWeekly > 0 && remainingDays >= 7) {
       weeks = remainingDays ~/ 7;
       remainingDays %= 7;
     }
@@ -121,7 +132,7 @@ class SmartRateEngine {
     // Step 2: Capping checks within remainder
     // Check 2A: Does leftover days * priceDaily exceed priceWeekly?
     bool cappedDaysToWeek = false;
-    if (priceWeekly > 0 && days > 0 && (days * priceDaily > priceWeekly)) {
+    if (effectiveWeekly > 0 && days > 0 && (days * priceDaily > effectiveWeekly)) {
       weeks += 1;
       days = 0;
       cappedDaysToWeek = true;
@@ -129,9 +140,9 @@ class SmartRateEngine {
 
     // Check 2B: Does (weeks * priceWeekly + days * priceDaily) exceed priceMonthly?
     bool cappedWeeksToMonth = false;
-    if (priceMonthly > 0) {
-      final subMonthCost = (weeks * priceWeekly) + (days * priceDaily);
-      if (subMonthCost > priceMonthly) {
+    if (effectiveMonthly > 0) {
+      final subMonthCost = (weeks * effectiveWeekly) + (days * priceDaily);
+      if (subMonthCost > effectiveMonthly) {
         months += 1;
         weeks = 0;
         days = 0;
@@ -140,7 +151,7 @@ class SmartRateEngine {
     }
 
     // Calculate candidate 1 cost
-    final candidate1Cost = (months * priceMonthly) + (weeks * priceWeekly) + (days * priceDaily);
+    final candidate1Cost = (months * effectiveMonthly) + (weeks * effectiveWeekly) + (days * priceDaily);
 
     // Check Candidate 2: Whole duration capped at next whole week (if total days <= 7 and priceWeekly > 0)
     double bestCost = candidate1Cost;
@@ -157,9 +168,9 @@ class SmartRateEngine {
     }
 
     // Check if flat weekly is cheaper than pure daily
-    if (priceWeekly > 0 && effectiveDays < 7 && (effectiveDays * priceDaily > priceWeekly)) {
-      if (priceWeekly < bestCost) {
-        bestCost = priceWeekly;
+    if (effectiveWeekly > 0 && effectiveDays < 7 && (effectiveDays * priceDaily > effectiveWeekly)) {
+      if (effectiveWeekly < bestCost) {
+        bestCost = effectiveWeekly;
         bestMonths = 0;
         bestWeeks = 1;
         bestDays = 0;
@@ -169,8 +180,8 @@ class SmartRateEngine {
     }
 
     // Check if flat monthly is cheaper than total
-    if (priceMonthly > 0 && priceMonthly < bestCost) {
-      bestCost = priceMonthly;
+    if (effectiveMonthly > 0 && effectiveMonthly < bestCost) {
+      bestCost = effectiveMonthly;
       bestMonths = 1;
       bestWeeks = 0;
       bestDays = 0;
@@ -181,10 +192,10 @@ class SmartRateEngine {
     // Build human-friendly breakdown string
     final List<String> parts = [];
     if (bestMonths > 0) {
-      parts.add('$bestMonths x Monthly (₱${(bestMonths * priceMonthly).toStringAsFixed(0)})');
+      parts.add('$bestMonths x Monthly (₱${(bestMonths * effectiveMonthly).toStringAsFixed(0)})');
     }
     if (bestWeeks > 0) {
-      parts.add('$bestWeeks x Weekly (₱${(bestWeeks * priceWeekly).toStringAsFixed(0)})');
+      parts.add('$bestWeeks x Weekly (₱${(bestWeeks * effectiveWeekly).toStringAsFixed(0)})');
     }
     if (bestDays > 0) {
       parts.add('$bestDays x Daily (₱${(bestDays * priceDaily).toStringAsFixed(0)})');
