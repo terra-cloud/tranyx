@@ -38,6 +38,16 @@ class TransitRepository {
 
   // ─── Vehicle Rentals ───────────────────────────────────────────────────
   Future<String> createRental(VehicleRental rental) async {
+    final pricingValidation = VehiclePricingRules.validate(
+      priceDaily: rental.priceDaily,
+      price12h: rental.price12h,
+      priceWeekly: rental.priceWeekly,
+      priceMonthly: rental.priceMonthly,
+    );
+    if (!pricingValidation.isValid) {
+      throw Exception(pricingValidation.errorMessage ?? 'Invalid vehicle pricing.');
+    }
+
     final host = await getUser(rental.hostId);
     if (host == null) throw Exception('Host profile not found.');
 
@@ -79,6 +89,20 @@ class TransitRepository {
   Future<String> createRentalFromMap(Map<String, dynamic> rentalMap) async {
     final hostId = rentalMap['hostId'] as String;
     final priceDaily = (rentalMap['priceDaily'] as num?)?.toDouble() ?? 0.0;
+    final price12h = (rentalMap['price12h'] as num?)?.toDouble() ?? 0.0;
+    final priceWeekly = (rentalMap['priceWeekly'] as num?)?.toDouble() ?? 0.0;
+    final priceMonthly = (rentalMap['priceMonthly'] as num?)?.toDouble() ?? 0.0;
+
+    final pricingValidation = VehiclePricingRules.validate(
+      priceDaily: priceDaily,
+      price12h: price12h,
+      priceWeekly: priceWeekly,
+      priceMonthly: priceMonthly,
+    );
+    if (!pricingValidation.isValid) {
+      throw Exception(pricingValidation.errorMessage ?? 'Invalid vehicle pricing.');
+    }
+
     final brand = rentalMap['brand'] as String? ?? '';
     final model = rentalMap['model'] as String? ?? '';
     final year = rentalMap['year']?.toString() ?? '';
@@ -1257,6 +1281,29 @@ class TransitRepository {
     final allRequests = await getAllRequestsForVehicle(rentalId);
     if (allRequests.isNotEmpty) {
       throw Exception('Cannot edit vehicle listing: Records of reservations or bookings exist for this unit.');
+    }
+
+    final priceDaily = (updatedData['priceDaily'] as num?)?.toDouble() ??
+        (existing['priceDaily'] as num?)?.toDouble() ??
+        0.0;
+    final price12h = (updatedData['price12h'] as num?)?.toDouble() ??
+        (existing['price12h'] as num?)?.toDouble() ??
+        0.0;
+    final priceWeekly = (updatedData['priceWeekly'] as num?)?.toDouble() ??
+        (existing['priceWeekly'] as num?)?.toDouble() ??
+        0.0;
+    final priceMonthly = (updatedData['priceMonthly'] as num?)?.toDouble() ??
+        (existing['priceMonthly'] as num?)?.toDouble() ??
+        0.0;
+
+    final pricingValidation = VehiclePricingRules.validate(
+      priceDaily: priceDaily,
+      price12h: price12h,
+      priceWeekly: priceWeekly,
+      priceMonthly: priceMonthly,
+    );
+    if (!pricingValidation.isValid) {
+      throw Exception(pricingValidation.errorMessage ?? 'Invalid vehicle pricing.');
     }
 
     final copy = Map<String, dynamic>.from(updatedData)

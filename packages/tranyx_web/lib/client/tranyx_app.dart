@@ -4181,6 +4181,86 @@ class TranyxAppState extends State<TranyxApp> {
     });
   }
 
+  /// Checks whether an eligible rental transaction (pending request, active booking, or confirmed rental)
+  /// exists between the authenticated user and the listing.
+  bool hasEligibleRentalTransaction(
+    String listingId,
+    String targetRenteeId, {
+    required bool isProperty,
+  }) {
+    final uid = SessionStorage.uid;
+    if (uid == null || listingId.isEmpty) return false;
+
+    if (!isProperty) {
+      // 1. Vehicle Rental - Check if current user is rentee
+      final isRentee = uid == targetRenteeId || targetRenteeId.isEmpty;
+      if (isRentee) {
+        final matchesPending = renterPendingRequests.any((r) =>
+            (r['rentalId'] == listingId || r['id'] == listingId) &&
+            (targetRenteeId.isEmpty || r['renteeId'] == targetRenteeId || r['renteeId'] == uid));
+        if (matchesPending) return true;
+
+        final matchesActive = renterActiveBookings.any((r) =>
+            (r['rentalId'] == listingId || r['id'] == listingId) &&
+            (targetRenteeId.isEmpty || r['renteeId'] == targetRenteeId || r['renteeId'] == uid));
+        if (matchesActive) return true;
+      }
+
+      // 2. Vehicle Rental - Check if current user is host
+      final rentalListing = realtimeRentals.firstWhere(
+        (r) => r['id'] == listingId,
+        orElse: () => <String, dynamic>{},
+      );
+      if (rentalListing.isNotEmpty && rentalListing['hostId'] == uid) {
+        if (targetRenteeId.isNotEmpty) {
+          final matchesHostReq = hostPendingRequests.any((r) =>
+              (r['rentalId'] == listingId || r['id'] == listingId) &&
+              r['renteeId'] == targetRenteeId);
+          if (matchesHostReq) return true;
+
+          if (rentalListing['renteeId'] == targetRenteeId) return true;
+        } else {
+          if (hostPendingRequests.any((r) => (r['rentalId'] == listingId || r['id'] == listingId))) return true;
+          if (rentalListing['renteeId'] != null && (rentalListing['renteeId'] as String).isNotEmpty) return true;
+        }
+      }
+    } else {
+      // 1. Property Rental - Check if current user is rentee/tenant
+      final isRentee = uid == targetRenteeId || targetRenteeId.isEmpty;
+      if (isRentee) {
+        final matchesPending = propertyRenterPendingRequests.any((propItem) =>
+            (propItem['propertyId'] == listingId || propItem['id'] == listingId) &&
+            (targetRenteeId.isEmpty || propItem['renteeId'] == targetRenteeId || propItem['renteeId'] == uid));
+        if (matchesPending) return true;
+
+        final matchesActive = propertyRenterActiveBookings.any((propItem) =>
+            (propItem['propertyId'] == listingId || propItem['id'] == listingId) &&
+            (targetRenteeId.isEmpty || propItem['renteeId'] == targetRenteeId || propItem['renteeId'] == uid));
+        if (matchesActive) return true;
+      }
+
+      // 2. Property Rental - Check if current user is host
+      final PropertyRental? propListing = realtimeProperties
+          .where((propItem) => propItem.id == listingId)
+          .firstOrNull;
+      if (propListing != null && propListing.hostId == uid) {
+        if (targetRenteeId.isNotEmpty) {
+          final matchesHostReq = propertyHostPendingRequests.any((propItem) =>
+              (propItem['propertyId'] == listingId || propItem['id'] == listingId) &&
+              propItem['renteeId'] == targetRenteeId);
+          if (matchesHostReq) return true;
+
+          if (propListing.renteeId == targetRenteeId) return true;
+        } else {
+          if (propertyHostPendingRequests.any((propItem) => (propItem['propertyId'] == listingId || propItem['id'] == listingId))) return true;
+          if (propListing.renteeId != null && propListing.renteeId!.isNotEmpty) return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
   // ── Chat Actions ──────────────────────────────────────────────
   void openChat(
     String chatId, {
@@ -4212,63 +4292,60 @@ class TranyxAppState extends State<TranyxApp> {
       }
     }
 
-    // Check if chatting is allowed for vehicle rentals (only if active)
-    if (!archived && chatId.startsWith('rental_')) {
+    // Check if chatting is allowed and eligible for vehicle rentals
+    if (chatId.startsWith('rental_')) {
       final parts = chatId.split('_');
-      if (parts.length >= 2) {
-        final rentalId = parts[1];
-        final rental = realtimeRentals.firstWhere(
-          (r) => r['id'] == rentalId,
-          orElse: () => <String, dynamic>{},
-        );
-        if (rental.isNotEmpty) {
-          final allowChatVal = rental['allowChat'] as bool? ?? false;
-          final isHost = rental['hostId'] == uid;
-          if (!isHost && !allowChatVal) {
-            print('Chat blocked: Vehicle host has not enabled chatting.');
-            return;
-          }
+      if (parts.length < 3) {
+        print('Chat blocked: Invalid vehicle chat format. Rentee ID is required.');
+        showAppToast('Chat Restricted', 'A valid booking request or active rental is required to open chat.');
+        return;
+      }
+      final rentalId = parts[1];
+      final renteeId = parts[2];
+
+      if (!archived && !hasEligibleRentalTransaction(rentalId, renteeId, isProperty: false)) {
+        print('Chat blocked: No eligible rental transaction exists for this vehicle.');
+        showAppToast('Chat Restricted', 'You can only message the vehicle owner after submitting a booking request or starting an active rental.');
+        return;
+      }
+
+      final rental = realtimeRentals.firstWhere(
+        (r) => r['id'] == rentalId,
+        orElse: () => <String, dynamic>{},
+      );
+      if (rental.isNotEmpty) {
+        final allowChatVal = rental['allowChat'] as bool? ?? true;
+        final isHost = rental['hostId'] == uid;
+        if (!isHost && !allowChatVal) {
+          showAppToast('Chat Unavailable', 'The vehicle host has currently disabled direct chat for this listing.');
+          return;
         }
       }
     }
 
-    // Check if chatting is allowed for properties (only if active)
-    if (!archived && chatId.startsWith('property_')) {
+    // Check if chatting is allowed and eligible for properties
+    if (chatId.startsWith('property_')) {
       final parts = chatId.split('_');
-      if (parts.length >= 2) {
-        final propertyId = parts[1];
-        final prop = realtimeProperties.firstWhere(
-          (item) => item.id == propertyId,
-          orElse: () => PropertyRental(
-            id: '',
-            hostId: '',
-            hostName: '',
-            title: '',
-            description: '',
-            type: PropertyType.house,
-            category: PropertyCategory.residential,
-            priceMonthly: 0,
-            priceWeekly: 0,
-            priceDaily: 0,
-            depositMonths: 0,
-            address: '',
-            latitude: 0,
-            longitude: 0,
-            photoUrls: [],
-            amenities: [],
-            status: '',
-            contractType: '',
-            contractTerms: '',
-            createdAt: DateTime.now(),
-            allowChat: false,
-          ),
-        );
-        if (prop.id.isNotEmpty) {
-          final isHost = prop.hostId == uid;
-          if (!isHost && !prop.allowChat) {
-            print('Chat blocked: Property host has not enabled chatting.');
-            return;
-          }
+      if (parts.length < 3) {
+        print('Chat blocked: Invalid property chat format. Tenant ID is required.');
+        showAppToast('Chat Restricted', 'A valid booking request or active lease is required to open chat.');
+        return;
+      }
+      final propertyId = parts[1];
+      final renteeId = parts[2];
+
+      if (!archived && !hasEligibleRentalTransaction(propertyId, renteeId, isProperty: true)) {
+        print('Chat blocked: No eligible rental transaction exists for this property.');
+        showAppToast('Chat Restricted', 'You can only message the property owner after submitting a booking request or starting an active lease.');
+        return;
+      }
+
+      final PropertyRental? prop = realtimeProperties.where((propItem) => propItem.id == propertyId).firstOrNull;
+      if (prop != null) {
+        final isHost = prop.hostId == uid;
+        if (!isHost && !prop.allowChat) {
+          showAppToast('Chat Unavailable', 'The property owner has currently disabled direct chat for this listing.');
+          return;
         }
       }
     }
