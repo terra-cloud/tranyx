@@ -1231,8 +1231,12 @@ class TransitRepository {
     final doc = await _firestore.collection('properties').doc(propertyId).get();
     if (!doc.exists) throw Exception('Property listing not found.');
 
-    final existing = PropertyRental.fromMap(doc.data()!, propertyId);
-    if (existing.status != 'Available' || (existing.renteeId != null && existing.renteeId!.isNotEmpty)) {
+    final rawDoc = doc.data()!;
+    final existing = PropertyRental.fromMap(rawDoc, propertyId);
+    final isEditableStatus = existing.status == 'Available' ||
+        existing.status == 'available' ||
+        existing.status == 'Not Accepting Bookings';
+    if (!isEditableStatus || (existing.renteeId != null && existing.renteeId!.isNotEmpty)) {
       throw Exception('Cannot edit a property listing that is currently booked or active.');
     }
 
@@ -1246,9 +1250,22 @@ class TransitRepository {
       throw Exception('Cannot edit property listing while pending booking requests exist. Please review or reject pending requests first.');
     }
 
-    final updatedMap = updatedProperty.toMap()
+    final updatedMap = Map<String, dynamic>.from(updatedProperty.toMap())
+      ..removeWhere((_, value) => value == null)
       ..['id'] = propertyId
+      ..['hostId'] = rawDoc['hostId'] ?? updatedProperty.hostId
+      ..['hostName'] = rawDoc['hostName'] ?? updatedProperty.hostName
+      ..['hostPhotoUrl'] = rawDoc['hostPhotoUrl'] ?? updatedProperty.hostPhotoUrl
+      ..['status'] = rawDoc['status'] ?? existing.status
+      ..['acceptingBookings'] = rawDoc['acceptingBookings'] ?? existing.acceptingBookings
+      ..['createdAt'] = rawDoc['createdAt'] ?? existing.createdAt.millisecondsSinceEpoch
       ..['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+    if (rawDoc.containsKey('isListingFeeWaived')) {
+      updatedMap['isListingFeeWaived'] = rawDoc['isListingFeeWaived'];
+    }
+    if (rawDoc.containsKey('listingFeePaid')) {
+      updatedMap['listingFeePaid'] = rawDoc['listingFeePaid'];
+    }
     await _firestore.collection('properties').doc(propertyId).update(updatedMap);
   }
 
@@ -1273,7 +1290,11 @@ class TransitRepository {
     if (!doc.exists) throw Exception('Rental listing not found.');
 
     final existing = doc.data()!;
-    if (existing['status'] != 'Available' || (existing['renteeId'] != null && (existing['renteeId'] as String).isNotEmpty)) {
+    final existingStatus = existing['status']?.toString() ?? 'Available';
+    final isEditableStatus = existingStatus == 'Available' ||
+        existingStatus == 'available' ||
+        existingStatus == 'Not Accepting Bookings';
+    if (!isEditableStatus || (existing['renteeId'] != null && (existing['renteeId'] as String).isNotEmpty)) {
       throw Exception('Cannot edit a vehicle listing that is currently booked or active.');
     }
 
@@ -1307,8 +1328,21 @@ class TransitRepository {
     }
 
     final copy = Map<String, dynamic>.from(updatedData)
+      ..removeWhere((_, value) => value == null)
       ..['id'] = rentalId
+      ..['hostId'] = existing['hostId'] ?? updatedData['hostId']
+      ..['hostName'] = existing['hostName'] ?? updatedData['hostName']
+      ..['hostPhotoUrl'] = existing['hostPhotoUrl'] ?? updatedData['hostPhotoUrl'] ?? ''
+      ..['status'] = existingStatus
+      ..['acceptingBookings'] = existing['acceptingBookings'] ?? updatedData['acceptingBookings'] ?? true
+      ..['createdAt'] = existing['createdAt'] ?? updatedData['createdAt'] ?? DateTime.now().millisecondsSinceEpoch
       ..['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+    if (existing.containsKey('isListingFeeWaived')) {
+      copy['isListingFeeWaived'] = existing['isListingFeeWaived'];
+    }
+    if (existing.containsKey('listingFeePaid')) {
+      copy['listingFeePaid'] = existing['listingFeePaid'];
+    }
     await _firestore.collection('rentals').doc(rentalId).update(copy);
   }
 
