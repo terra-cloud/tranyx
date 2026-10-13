@@ -132,6 +132,70 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
 
         _contractType = item['contractType'] as String? ?? 'Tranyx Standard';
         _customTermsController.text = item['contractTerms'] as String? ?? '';
+      } else {
+        final typeStr = (item['type'] ?? item['vehicleType'] ?? 'car').toString();
+        _selectedVehicleType = VehicleType.values.firstWhere(
+          (t) => t.name == typeStr,
+          orElse: () => VehicleType.car,
+        );
+        _fuelType = (item['fuelType'] as String?)?.isNotEmpty == true
+            ? item['fuelType'] as String
+            : 'Gasoline';
+        _transmission = (item['transmission'] as String?)?.isNotEmpty == true
+            ? item['transmission'] as String
+            : 'Automatic';
+        _brandController.text = item['brand'] as String? ?? '';
+        _modelController.text = (item['model'] ?? item['vehicleModel'] ?? '').toString();
+        final yr = (item['year'] as num?)?.toInt();
+        _yearController.text = yr != null && yr > 0 ? yr.toString() : '';
+        _plateController.text = item['plateNumber'] as String? ?? '';
+        _gpsTrackerController.text = item['gpsTrackerId'] as String? ?? '';
+
+        _ltoCrController.text = item['ltoCrNumber'] as String? ?? '';
+        _ltoOrController.text = item['ltoOrNumber'] as String? ?? '';
+        _insuranceProviderController.text =
+            (item['insuranceProvider'] as String?)?.isNotEmpty == true
+                ? item['insuranceProvider'] as String
+                : 'N/A';
+        _insurancePolicyController.text = item['insurancePolicyNumber'] as String? ?? '';
+        final val = (item['vehicleValue'] as num?)?.toDouble() ?? 0.0;
+        _vehicleValueController.text = val > 0 ? val.toStringAsFixed(0) : '';
+
+        final daily = (item['priceDaily'] as num?)?.toDouble() ?? 0.0;
+        final hourly12 = (item['price12h'] as num?)?.toDouble() ?? 0.0;
+        final weekly = (item['priceWeekly'] as num?)?.toDouble() ?? 0.0;
+        final monthly = (item['priceMonthly'] as num?)?.toDouble() ?? 0.0;
+        final extPenalty = (item['extensionRatePerHour'] as num?)?.toDouble() ?? 0.0;
+
+        _priceDailyController.text = daily > 0 ? daily.toStringAsFixed(0) : '';
+        _price12hController.text = hourly12 > 0 ? hourly12.toStringAsFixed(0) : '';
+        _priceWeeklyController.text = weekly > 0 ? weekly.toStringAsFixed(0) : '';
+        _priceMonthlyController.text = monthly > 0 ? monthly.toStringAsFixed(0) : '';
+        _extensionPenaltyController.text =
+            extPenalty > 0 ? extPenalty.toStringAsFixed(0) : '';
+        _addressController.text =
+            (item['pickupAddress'] ?? item['location'] ?? '').toString();
+
+        _offersDriver = item['offersDriver'] == true;
+        final drvPrice = (item['driverDailyPrice'] as num?)?.toDouble() ?? 0.0;
+        _driverDailyPriceController.text =
+            drvPrice > 0 ? drvPrice.toStringAsFixed(0) : '';
+        _driverNoteController.text = item['driverNote'] as String? ?? '';
+        _driverLicenseController.text = item['driverLicenseNumber'] as String? ?? '';
+
+        _photoUrl1Controller.text =
+            (item['interiorPhotoUrl'] ?? item['photoUrl'] ?? '').toString();
+        _photoUrl2Controller.text =
+            (item['frontPhotoUrl'] ?? item['photoUrl'] ?? '').toString();
+        _photoUrl3Controller.text =
+            (item['backPhotoUrl'] ?? item['photoUrl'] ?? '').toString();
+
+        final cType = (item['contractType'] as String?) ?? 'Tranyx Standard';
+        _contractType = cType == 'custom' || cType == 'Custom Contract'
+            ? 'Custom Contract'
+            : 'Tranyx Standard';
+        _customTermsController.text =
+            (item['contractTerms'] ?? item['legalTerms'] ?? '').toString();
       }
     } else {
       if (widget.isProperty) {
@@ -255,12 +319,10 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
 
       if (title.isEmpty) {
         setState(() => _error = 'Please enter a listing title.');
-        _scrollToTop(scrollController);
         return false;
       }
       if (desc.isEmpty) {
         setState(() => _error = 'Please enter a description.');
-        _scrollToTop(scrollController);
         return false;
       }
       if (checkProfanity(title) || checkProfanity(desc)) {
@@ -268,7 +330,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           () => _error =
               'Title or description contains inappropriate language.',
         );
-        _scrollToTop(scrollController);
         return false;
       }
     } else {
@@ -278,7 +339,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
 
       if (brand.isEmpty || model.isEmpty || plate.isEmpty) {
         setState(() => _error = 'Please fill out all vehicle specifications.');
-        _scrollToTop(scrollController);
         return false;
       }
 
@@ -287,7 +347,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           () => _error =
               'Please enter a valid Philippine plate (e.g. ABC-1234, ABC 1234, or 1234-5678901).',
         );
-        _scrollToTop(scrollController);
         return false;
       }
 
@@ -298,7 +357,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           () => _error =
               'Specifications contain inappropriate language.',
         );
-        _scrollToTop(scrollController);
         return false;
       }
     }
@@ -314,19 +372,16 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
 
       if (monthly <= 0 && weekly <= 0 && daily <= 0) {
         setState(() => _error = 'Please provide at least one rental rate (Daily, Weekly, or Monthly).');
-        _scrollToTop(scrollController);
         return false;
       }
       if (_addressController.text.trim().isEmpty) {
         setState(() => _error = 'Please enter the property address.');
-        _scrollToTop(scrollController);
         return false;
       }
     } else {
       final daily = double.tryParse(_priceDailyController.text.trim());
       if (daily == null || daily <= 0) {
         setState(() => _error = 'Please enter a valid daily rate.');
-        _scrollToTop(scrollController);
         return false;
       }
       final hourly12 = double.tryParse(_price12hController.text.trim()) ?? 0.0;
@@ -341,13 +396,11 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
       );
       if (!pricingResult.isValid) {
         setState(() => _error = pricingResult.errorMessage);
-        _scrollToTop(scrollController);
         return false;
       }
 
       if (_addressController.text.trim().isEmpty) {
         setState(() => _error = 'Please enter the vehicle pickup address.');
-        _scrollToTop(scrollController);
         return false;
       }
     }
@@ -368,7 +421,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         _isProcessing = false;
         _error = 'Please provide the Interior photo URL.';
       });
-      _scrollToTop(scrollController);
       return;
     }
     if (_photoUrl2Controller.text.trim().isEmpty) {
@@ -376,7 +428,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         _isProcessing = false;
         _error = 'Please provide the Front / Exterior photo URL.';
       });
-      _scrollToTop(scrollController);
       return;
     }
     if (!widget.isProperty && _photoUrl3Controller.text.trim().isEmpty) {
@@ -384,7 +435,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         _isProcessing = false;
         _error = 'Please provide the Back photo URL.';
       });
-      _scrollToTop(scrollController);
       return;
     }
 
@@ -393,7 +443,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         _isProcessing = false;
         _error = 'Your custom terms contain inappropriate language. Please review and try again.';
       });
-      _scrollToTop(scrollController);
       return;
     }
 
@@ -405,7 +454,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         _error =
             'Insufficient balance for listing fee. Required: ${fee.toStringAsFixed(2)} TYXBIT, Available: ${userProfile.tyxBalance.toStringAsFixed(2)} TYXBIT';
       });
-      _scrollToTop(scrollController);
       return;
     }
 
@@ -482,7 +530,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
             _isProcessing = false;
             _error = pricingResult.errorMessage;
           });
-          _scrollToTop(scrollController);
           return;
         }
 
@@ -566,7 +613,7 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
           SnackBar(
             content: Text(
               _isEditMode
-                  ? 'Property listing updated successfully!'
+                  ? '${widget.isProperty ? "Property" : "Vehicle"} listing updated successfully!'
                   : '${widget.isProperty ? "Property" : "Vehicle"} listed successfully! Posting fee deducted.',
             ),
             backgroundColor: Colors.green,
@@ -578,7 +625,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
         _isProcessing = false;
         _error = 'Error listing: $e';
       });
-      _scrollToTop(scrollController);
     }
   }
 
@@ -652,7 +698,9 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                         children: [
                           Text(
                             _isEditMode
-                                ? 'Edit Property Listing'
+                                ? (widget.isProperty
+                                    ? 'Edit Property Listing'
+                                    : 'Edit Vehicle Listing')
                                 : (widget.isProperty
                                     ? 'List a Property'
                                     : 'List a Vehicle'),
@@ -697,28 +745,6 @@ class _ListingWizardSheetState extends ConsumerState<ListingWizardSheet> {
                   controller: scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   children: [
-                    if (_error != null) ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withValues(alpha: 0.1),
-                          border: Border.all(
-                            color: Colors.red.withValues(alpha: 0.3),
-                          ),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          _error!,
-                          style: const TextStyle(
-                            color: Colors.red,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
                     if (_step == 1) ...[
                       // STEP 1: Specs / Specifications
                       if (widget.isProperty) ...[

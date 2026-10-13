@@ -263,11 +263,6 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
 
           // Body
           div(classes: 'p-6 flex-1 space-y-6', [
-            if (_error != null)
-              div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium', [
-                Component.text(_error!),
-              ]),
-
             if (_step == 1) ...[
               // Step 1: Specifications
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Property Details')]),

@@ -612,11 +612,6 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
 
             // Body
             div(classes: 'p-6 flex-1 space-y-6', [
-              if (_error != null)
-                div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium', [
-                  Component.text(_error!),
-                ]),
-
               if (_step == 1) ...[
                 // Image slider
                 div(
@@ -1080,95 +1075,106 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
             ]),
 
             // Footer
-            div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between', [
-              if (isHost) ...[
-                button(
+            div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex flex-col gap-4', [
+              if (_error != null)
+                div(
                   classes:
-                      'px-6 py-2.5 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors cursor-pointer',
-                  events: {
-                    'click': (_) => component.appState.setState(() {
-                      component.appState.showBookPropertyModal = false;
-                      component.appState.selectedPropertyData = null;
-                    }),
-                  },
-                  [Component.text('Close')],
+                      'w-full p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium flex items-center gap-3',
+                  [
+                    lIcon('alert-circle', cls: 'w-5 h-5 flex-shrink-0'),
+                    span(classes: 'flex-1', [Component.text(_error!)]),
+                  ],
                 ),
-                div(classes: 'flex items-center gap-3', [
-                  if ((pData['status'] == null || pData['status'] == 'Available') &&
-                      (pData['renteeId'] == null || (pData['renteeId'] as String).isEmpty))
-                    button(
-                      classes:
-                          'px-6 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-indigo-500/20',
-                      events: {
-                        'click': (_) => component.appState.setState(() {
-                          component.appState.showBookPropertyModal = false;
-                          component.appState.showEditPropertyModal = true;
-                        }),
-                      },
-                      [
-                        lIcon('edit-3', cls: 'w-4 h-4'),
-                        Component.text('Edit Listing'),
-                      ],
-                    ),
+              div(classes: 'flex items-center justify-between', [
+                if (isHost) ...[
                   button(
                     classes:
-                        'px-6 py-2.5 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-purple-500/20',
+                        'px-6 py-2.5 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors cursor-pointer',
                     events: {
                       'click': (_) => component.appState.setState(() {
                         component.appState.showBookPropertyModal = false;
-                        component.appState.showManagePropertyModal = true;
+                        component.appState.selectedPropertyData = null;
                       }),
                     },
-                    [
-                      lIcon('sliders', cls: 'w-4 h-4'),
-                      Component.text('Manage Listing'),
-                    ],
+                    [Component.text('Close')],
                   ),
-                ]),
-              ] else ...[
-                if (_step > 1)
-                  button(
-                    classes:
-                        'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors cursor-pointer',
-                    events: {'click': (_) => setState(() => _step--)},
-                    [Component.text('Back')],
-                  )
-                else
-                  div([]),
-
-                if (_step < 2)
-                  button(
-                    classes:
-                        'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
-                    events: {
-                      'click': (_) {
-                        if (_basePrice <= 0) {
-                          setState(() => _error = 'Rate option is not configured for this property.');
-                          return;
-                        }
-                        if (_hasBookingOverlap) {
-                          setState(() => _error = 'Selected duration overlaps with an existing reservation on ${_formatConflictingDates(_conflictingDates)}. Please choose a different start date or shorter duration.');
-                          return;
-                        }
-                        setState(() {
-                          _error = null;
-                          _step++;
-                        });
+                  div(classes: 'flex items-center gap-3', [
+                    if ((pData['status'] == null || pData['status'] == 'Available') &&
+                        (pData['renteeId'] == null || (pData['renteeId'] as String).isEmpty))
+                      button(
+                        classes:
+                            'px-6 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-indigo-500/20',
+                        events: {
+                          'click': (_) => component.appState.setState(() {
+                            component.appState.showBookPropertyModal = false;
+                            component.appState.showEditPropertyModal = true;
+                          }),
+                        },
+                        [
+                          lIcon('edit-3', cls: 'w-4 h-4'),
+                          Component.text('Edit Listing'),
+                        ],
+                      ),
+                    button(
+                      classes:
+                          'px-6 py-2.5 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-purple-500/20',
+                      events: {
+                        'click': (_) => component.appState.setState(() {
+                          component.appState.showBookPropertyModal = false;
+                          component.appState.showManagePropertyModal = true;
+                        }),
                       },
-                    },
-                    [Component.text('Review Terms')],
-                  )
-                else
-                  button(
-                    classes:
-                        'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
-                    events: {'click': (_) => _book()},
-                    [
-                      if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                      Component.text(_isBooking ? 'Locking Escrow...' : 'Submit Request'),
-                    ],
-                  ),
-              ],
+                      [
+                        lIcon('sliders', cls: 'w-4 h-4'),
+                        Component.text('Manage Listing'),
+                      ],
+                    ),
+                  ]),
+                ] else ...[
+                  if (_step > 1)
+                    button(
+                      classes:
+                          'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors cursor-pointer',
+                      events: {'click': (_) => setState(() => _step--)},
+                      [Component.text('Back')],
+                    )
+                  else
+                    div([]),
+
+                  if (_step < 2)
+                    button(
+                      classes:
+                          'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
+                      events: {
+                        'click': (_) {
+                          if (_basePrice <= 0) {
+                            setState(() => _error = 'Rate option is not configured for this property.');
+                            return;
+                          }
+                          if (_hasBookingOverlap) {
+                            setState(() => _error = 'Selected duration overlaps with an existing reservation on ${_formatConflictingDates(_conflictingDates)}. Please choose a different start date or shorter duration.');
+                            return;
+                          }
+                          setState(() {
+                            _error = null;
+                            _step++;
+                          });
+                        },
+                      },
+                      [Component.text('Review Terms')],
+                    )
+                  else
+                    button(
+                      classes:
+                          'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
+                      events: {'click': (_) => _book()},
+                      [
+                        if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                        Component.text(_isBooking ? 'Locking Escrow...' : 'Submit Request'),
+                      ],
+                    ),
+                ],
+              ]),
             ]),
           ],
         ),

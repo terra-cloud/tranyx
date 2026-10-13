@@ -229,11 +229,17 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
       if (monthly > 0) allowedDurations.add('MONTHLY');
       if (allowedDurations.isEmpty) allowedDurations.addAll(['DAILY', 'WEEKLY', 'MONTHLY']);
 
+      final existingData = component.appState.selectedPropertyData ?? <String, dynamic>{};
+      final existingCreatedAtMs = existingData['createdAt'];
+      final existingCreatedAt = existingCreatedAtMs is int
+          ? DateTime.fromMillisecondsSinceEpoch(existingCreatedAtMs)
+          : (existingCreatedAtMs is DateTime ? existingCreatedAtMs : DateTime.now());
+
       final updatedProperty = PropertyRental(
         id: _propertyId!,
         hostId: hostId,
         hostName: user.name,
-        hostPhotoUrl: user.photoUrl,
+        hostPhotoUrl: existingData['hostPhotoUrl'] as String? ?? user.photoUrl,
         title: _title.trim(),
         description: _description.trim(),
         type: _selectedType,
@@ -246,25 +252,30 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
         advanceAmount: advanceAmt,
         depositType: _depositType,
         depositValue: dVal,
-        isListingFeeWaived: true,
+        isListingFeeWaived: existingData['isListingFeeWaived'] as bool? ?? true,
         allowedDurations: allowedDurations,
         address: _address,
         latitude: _latitude ?? 14.5995,
         longitude: _longitude ?? 120.9842,
         photoUrls: finalPhotos,
         amenities: _amenities,
-        status: 'Available',
+        status: existingData['status'] as String? ?? 'Available',
+        acceptingBookings: existingData['acceptingBookings'] as bool? ?? true,
         contractType: _contractType,
         contractTerms: _contractType == 'Custom Contract' ? _customTerms : 'Standard P2P Lease terms',
-        createdAt: DateTime.now(),
-        allowChat: false,
+        createdAt: existingCreatedAt,
+        allowChat: existingData['allowChat'] as bool? ?? false,
       );
 
       // Save changes without charging fee
       await component.appState.firestore.updatePropertyRental(_propertyId!, updatedProperty);
 
-      // Close modal
+      // Update local state cache and close modal
       component.appState.setState(() {
+        final idx = component.appState.realtimeProperties.indexWhere((prop) => prop.id == _propertyId);
+        if (idx != -1) {
+          component.appState.realtimeProperties[idx] = updatedProperty;
+        }
         component.appState.showEditPropertyModal = false;
         component.appState.selectedPropertyData = null;
       });
@@ -276,7 +287,7 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
     } catch (e) {
       setState(() {
         _isSubmitting = false;
-        _error = e.toString();
+        _error = e.toString().replaceAll('Exception: ', '');
       });
     }
   }
@@ -351,12 +362,6 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
 
           // Body
           div(classes: 'p-6 flex-1 space-y-6', [
-            if (_error != null)
-              div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium flex items-center gap-2', [
-                lIcon('alert-circle', cls: 'w-5 h-5 flex-shrink-0'),
-                span([Component.text(_error!)]),
-              ]),
-
             // Eligibility Notice
             div(classes: 'p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/25 text-xs text-indigo-400 font-medium flex items-center gap-2', [
               lIcon('info', cls: 'w-4 h-4 flex-shrink-0'),
@@ -949,36 +954,47 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
           // Footer
           div(
             classes:
-                'sticky bottom-0 z-10 flex items-center justify-between p-6 border-t ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
+                'sticky bottom-0 z-10 flex flex-col gap-4 p-6 border-t ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
             [
-              if (_step > 1)
-                button(
+              if (_error != null)
+                div(
                   classes:
-                      'px-6 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors cursor-pointer',
-                  events: {'click': (_) => setState(() => _step--)},
-                  [Component.text('Back')],
-                )
-              else
-                div([]),
-
-              if (_step < 3)
-                button(
-                  classes:
-                      'px-8 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer shadow-lg shadow-purple-500/20',
-                  events: {'click': (_) => _handleNext()},
-                  [Component.text('Continue')],
-                )
-              else
-                button(
-                  classes:
-                      'px-8 py-2.5 rounded-xl text-sm font-semibold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer flex items-center gap-2 shadow-lg shadow-green-500/20',
-                  events: {'click': (_) => _submit()},
-                  disabled: _isSubmitting,
+                      'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium flex items-center gap-2',
                   [
-                    if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                    Component.text(_isSubmitting ? 'Saving Changes...' : 'Save Changes'),
+                    lIcon('alert-circle', cls: 'w-5 h-5 flex-shrink-0'),
+                    span([Component.text(_error!)]),
                   ],
                 ),
+              div(classes: 'flex items-center justify-between w-full', [
+                if (_step > 1)
+                  button(
+                    classes:
+                        'px-6 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors cursor-pointer',
+                    events: {'click': (_) => setState(() => _step--)},
+                    [Component.text('Back')],
+                  )
+                else
+                  div([]),
+
+                if (_step < 3)
+                  button(
+                    classes:
+                        'px-8 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer shadow-lg shadow-purple-500/20',
+                    events: {'click': (_) => _handleNext()},
+                    [Component.text('Continue')],
+                  )
+                else
+                  button(
+                    classes:
+                        'px-8 py-2.5 rounded-xl text-sm font-semibold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer flex items-center gap-2 shadow-lg shadow-green-500/20',
+                    events: {'click': (_) => _submit()},
+                    disabled: _isSubmitting,
+                    [
+                      if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                      Component.text(_isSubmitting ? 'Saving Changes...' : 'Save Changes'),
+                    ],
+                  ),
+              ]),
             ],
           ),
         ],
