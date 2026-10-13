@@ -1154,6 +1154,15 @@ class TransitRepository {
 
   // ─── Property Rentals ──────────────────────────────────────────────────
   Future<String> createPropertyRental(PropertyRental property) async {
+    final pricingResult = PropertyPricingRules.validate(
+      priceDaily: property.dailyRate,
+      priceWeekly: property.weeklyRate,
+      priceMonthly: property.monthlyRate,
+    );
+    if (!pricingResult.isValid) {
+      throw Exception(pricingResult.errorMessage ?? 'Invalid property pricing.');
+    }
+
     final host = await getUser(property.hostId);
     if (host == null) throw Exception('Host profile not found.');
 
@@ -1228,6 +1237,15 @@ class TransitRepository {
   }
 
   Future<void> updatePropertyRental(String propertyId, PropertyRental updatedProperty) async {
+    final pricingResult = PropertyPricingRules.validate(
+      priceDaily: updatedProperty.dailyRate,
+      priceWeekly: updatedProperty.weeklyRate,
+      priceMonthly: updatedProperty.monthlyRate,
+    );
+    if (!pricingResult.isValid) {
+      throw Exception(pricingResult.errorMessage ?? 'Invalid property pricing.');
+    }
+
     final doc = await _firestore.collection('properties').doc(propertyId).get();
     if (!doc.exists) throw Exception('Property listing not found.');
 

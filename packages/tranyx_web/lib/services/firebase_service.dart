@@ -4998,6 +4998,15 @@ class FirestoreService {
 
   /// Create a new property rental posting (0% Free Listing - ₱0.00 upfront fee)
   Future<String> createPropertyRental(PropertyRental property) async {
+    final pricingValidation = PropertyPricingRules.validate(
+      priceDaily: property.dailyRate,
+      priceWeekly: property.weeklyRate,
+      priceMonthly: property.monthlyRate,
+    );
+    if (!pricingValidation.isValid) {
+      throw Exception(pricingValidation.errorMessage ?? 'Invalid property pricing rates.');
+    }
+
     final host = await getUser(property.hostId);
     if (host == null) {
       throw Exception('Host profile not found.');
@@ -5114,6 +5123,15 @@ class FirestoreService {
 
   /// Update an existing property rental posting (only if no active or pending bookings exist)
   Future<void> updatePropertyRental(String propertyId, PropertyRental updatedProperty) async {
+    final pricingValidation = PropertyPricingRules.validate(
+      priceDaily: updatedProperty.dailyRate,
+      priceWeekly: updatedProperty.weeklyRate,
+      priceMonthly: updatedProperty.monthlyRate,
+    );
+    if (!pricingValidation.isValid) {
+      throw Exception(pricingValidation.errorMessage ?? 'Invalid property pricing rates.');
+    }
+
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
 
