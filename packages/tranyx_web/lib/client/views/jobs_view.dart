@@ -1365,21 +1365,31 @@ class _JobDetails extends StatelessComponent {
               ),
               // Chat with Employer button
               if (acceptedId != null && isAccepted && isChatActive)
-                button(
-                  classes:
-                      'w-full py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 relative',
-                  events: {'click': (_) => s.openChat(s.selectedJobData!['id'] as String)},
-                  [
-                    lIcon('message-square', cls: 'w-5 h-5'),
-                    Component.text('Chat with Employer'),
-                    if (s.getUnreadChatCount(s.selectedJobData!['id'] as String) > 0)
-                      span(
-                        classes:
-                            'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-xs font-black text-white bg-red-500 rounded-full border-2 border-white animate-pulse',
-                        [Component.text('${s.getUnreadChatCount(s.selectedJobData!['id'] as String)}')],
-                      ),
-                  ],
-                ),
+                () {
+                  final jId = s.selectedJobData!['id'] as String;
+                  final scopedChatId = 'job_${jId}_$acceptedId';
+                  return button(
+                    classes:
+                        'w-full py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 relative',
+                    events: {
+                      'click': (_) => s.openChat(
+                            scopedChatId,
+                            title: s.selectedJobData!['title'] as String?,
+                            counterpartyName: creatorName,
+                          ),
+                    },
+                    [
+                      lIcon('message-square', cls: 'w-5 h-5'),
+                      Component.text('Chat with Employer'),
+                      if (s.getUnreadChatCount(scopedChatId) > 0)
+                        span(
+                          classes:
+                              'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-xs font-black text-white bg-red-500 rounded-full border-2 border-white animate-pulse',
+                          [Component.text('${s.getUnreadChatCount(scopedChatId)}')],
+                        ),
+                    ],
+                  );
+                }(),
             ]);
           } else {
             // Employer View
@@ -1456,21 +1466,31 @@ class _JobDetails extends StatelessComponent {
                     ]),
                     // Chat button
                     if (isChatActive)
-                      button(
-                        classes:
-                            'w-full py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 relative',
-                        events: {'click': (_) => s.openChat(s.selectedJobData!['id'] as String)},
-                        [
-                          lIcon('message-square', cls: 'w-5 h-5'),
-                          Component.text('Chat with Nyxian'),
-                          if (s.getUnreadChatCount(s.selectedJobData!['id'] as String) > 0)
-                            span(
-                              classes:
-                                  'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-xs font-black text-white bg-red-500 rounded-full border-2 border-white animate-pulse',
-                              [Component.text('${s.getUnreadChatCount(s.selectedJobData!['id'] as String)}')],
-                            ),
-                        ],
-                      ),
+                      () {
+                        final jId = s.selectedJobData!['id'] as String;
+                        final scopedChatId = 'job_${jId}_$acceptedId';
+                        return button(
+                          classes:
+                              'w-full py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 relative',
+                          events: {
+                            'click': (_) => s.openChat(
+                                  scopedChatId,
+                                  title: s.selectedJobData!['title'] as String?,
+                                  counterpartyName: workerName,
+                                ),
+                          },
+                          [
+                            lIcon('message-square', cls: 'w-5 h-5'),
+                            Component.text('Chat with Nyxian'),
+                            if (s.getUnreadChatCount(scopedChatId) > 0)
+                              span(
+                                classes:
+                                    'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-xs font-black text-white bg-red-500 rounded-full border-2 border-white animate-pulse',
+                                [Component.text('${s.getUnreadChatCount(scopedChatId)}')],
+                              ),
+                          ],
+                        );
+                      }(),
                   ],
                 ),
             ]);
@@ -3653,21 +3673,31 @@ class _ReviewApplicants extends StatelessComponent {
                         div(classes: 'flex-1 text-sm ${isDark ? "text-zinc-400" : "text-zinc-650"} md:px-4', [
                           Component.text(coverNote),
                         ]),
-                        button(
-                          classes:
-                              'px-5 py-2.5 rounded-xl font-bold text-white bg-green-500 hover:bg-green-400 transition-colors flex items-center gap-2 text-sm whitespace-nowrap relative',
-                          events: {'click': (_) => s.openChat(job!['id'] as String)},
-                          [
-                            lIcon('message-square', cls: 'w-4 h-4'),
-                            Component.text('Chat with Worker'),
-                            if (s.getUnreadChatCount(job!['id'] as String) > 0)
-                              span(
-                                classes:
-                                    'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-xs font-black text-white bg-red-500 rounded-full border-2 border-white animate-pulse',
-                                [Component.text('${s.getUnreadChatCount(job['id'] as String)}')],
-                              ),
-                          ],
-                        ),
+                        () {
+                          final jId = job?['id'] as String? ?? '';
+                          final scopedChatId = 'job_${jId}_$acceptedId';
+                          return button(
+                            classes:
+                                'px-5 py-2.5 rounded-xl font-bold text-white bg-green-500 hover:bg-green-400 transition-colors flex items-center gap-2 text-sm whitespace-nowrap relative',
+                            events: {
+                              'click': (_) => s.openChat(
+                                    scopedChatId,
+                                    title: job?['title'] as String?,
+                                    counterpartyName: workerName,
+                                  ),
+                            },
+                            [
+                              lIcon('message-square', cls: 'w-4 h-4'),
+                              Component.text('Chat with Worker'),
+                              if (s.getUnreadChatCount(scopedChatId) > 0)
+                                span(
+                                  classes:
+                                      'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-xs font-black text-white bg-red-500 rounded-full border-2 border-white animate-pulse',
+                                  [Component.text('${s.getUnreadChatCount(scopedChatId)}')],
+                                ),
+                            ],
+                          );
+                        }(),
                       ],
                     );
                   },
@@ -3769,20 +3799,38 @@ class _ReviewApplicants extends StatelessComponent {
                             div(classes: 'flex-1 text-sm ${isDark ? "text-zinc-400" : "text-zinc-650"} md:px-4', [
                               Component.text(app['coverNote'] as String? ?? 'No cover note provided.'),
                             ]),
-                            if ((status.toLowerCase() == 'open' || status.toLowerCase() == 'reviewing') && acceptedId == null)
-                              button(
-                                classes:
-                                    'px-6 py-2 rounded-xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity whitespace-nowrap flex items-center gap-2',
-                                events: {'click': (_) => s.acceptApplicant(job!['id'], app)},
-                                [
-                                  if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
-                                  Component.text('Accept'),
-                                ],
-                              )
-                            else
-                              span(classes: 'text-xs text-zinc-550 font-bold uppercase tracking-wider', [
-                                Component.text('Not Selected'),
-                              ]),
+                            div(classes: 'flex items-center gap-2', [
+                              if (app['applicantUid'] != null)
+                                button(
+                                  classes:
+                                      'px-4 py-2 rounded-xl text-xs font-semibold ${isDark ? "bg-zinc-800 hover:bg-zinc-700 text-zinc-200" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-800"} transition-colors flex items-center gap-1.5 whitespace-nowrap',
+                                  events: {
+                                    'click': (_) => s.openChat(
+                                          'job_${job?['id']}_${app['applicantUid']}',
+                                          title: job?['title'] as String?,
+                                          counterpartyName: app['applicantName'] as String? ?? 'Applicant',
+                                        ),
+                                  },
+                                  [
+                                    lIcon('message-square', cls: 'w-3.5 h-3.5'),
+                                    Component.text('Message'),
+                                  ],
+                                ),
+                              if ((status.toLowerCase() == 'open' || status.toLowerCase() == 'reviewing') && acceptedId == null)
+                                button(
+                                  classes:
+                                      'px-6 py-2 rounded-xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity whitespace-nowrap flex items-center gap-2',
+                                  events: {'click': (_) => s.acceptApplicant(job!['id'], app)},
+                                  [
+                                    if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
+                                    Component.text('Accept'),
+                                  ],
+                                )
+                              else if (acceptedId != null)
+                                span(classes: 'text-xs text-zinc-550 font-bold uppercase tracking-wider', [
+                                  Component.text('Not Selected'),
+                                ]),
+                            ]),
                           ],
                         ),
                     ]),

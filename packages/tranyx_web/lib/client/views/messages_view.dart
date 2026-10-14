@@ -52,7 +52,6 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
     for (final job in s.myJobs) {
       final id = job['id'] as String? ?? '';
       if (id.isEmpty) continue;
-      seenChatIds.add(id);
       final title = job['title'] as String? ?? 'Job Transaction';
       final status = (job['status'] as String? ?? 'Open').trim();
       final lowerStatus = status.toLowerCase();
@@ -64,32 +63,89 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
           lowerStatus == 'closed' ||
           lowerStatus == 'rejected';
 
-      final creatorId = job['creatorId'] as String? ?? '';
+      final creatorId = job['creatorId'] as String? ?? job['userId'] as String? ?? '';
       final isEmployer = creatorId == uid;
-      final acceptedApplicant = job['acceptedApplicant'] as String? ?? job['acceptedApplicantName'] as String? ?? 'Contractor';
-      final employerName = job['creatorName'] as String? ?? 'Client';
-      final counterparty = isEmployer ? acceptedApplicant : employerName;
       final createdAt = job['createdAt'];
+      final acceptedApplicantId = job['acceptedApplicantId'] as String? ?? job['acceptedApplicantUid'] as String?;
+      final acceptedApplicantName = job['acceptedApplicant'] as String? ?? job['acceptedApplicantName'] as String? ?? 'Contractor';
 
-      list.add({
-        'chatId': id,
-        'type': 'job',
-        'typeLabel': 'Job & Gig',
-        'title': title,
-        'counterparty': counterparty,
-        'status': status,
-        'isArchived': isArchived,
-        'timestamp': createdAt is num ? createdAt.toInt() : 0,
-        'dateStr': _formatDate(createdAt),
-        'icon': 'briefcase',
-      });
+      if (isEmployer) {
+        // If an applicant is accepted, add their dedicated conversation thread
+        if (acceptedApplicantId != null && acceptedApplicantId.isNotEmpty) {
+          final chatId = 'job_${id}_$acceptedApplicantId';
+          if (!seenChatIds.contains(chatId)) {
+            seenChatIds.add(chatId);
+            list.add({
+              'chatId': chatId,
+              'type': 'job',
+              'typeLabel': 'Job & Gig',
+              'title': title,
+              'counterparty': acceptedApplicantName,
+              'status': status,
+              'isArchived': isArchived,
+              'timestamp': createdAt is num ? createdAt.toInt() : 0,
+              'dateStr': _formatDate(createdAt),
+              'icon': 'briefcase',
+            });
+          }
+        }
+
+        // Also add conversation threads for other applicants on this job if any
+        final rawApplicants = job['applicants'];
+        if (rawApplicants is List) {
+          for (final app in rawApplicants) {
+            if (app is Map) {
+              final appUid = (app['applicantUid'] ?? app['uid']) as String?;
+              final appName = app['applicantName'] as String? ?? 'Applicant';
+              if (appUid != null && appUid.isNotEmpty && appUid != acceptedApplicantId) {
+                final chatId = 'job_${id}_$appUid';
+                if (!seenChatIds.contains(chatId)) {
+                  seenChatIds.add(chatId);
+                  list.add({
+                    'chatId': chatId,
+                    'type': 'job',
+                    'typeLabel': 'Job & Gig',
+                    'title': title,
+                    'counterparty': appName,
+                    'status': 'Applicant',
+                    'isArchived': isArchived,
+                    'timestamp': createdAt is num ? createdAt.toInt() : 0,
+                    'dateStr': _formatDate(createdAt),
+                    'icon': 'briefcase',
+                  });
+                }
+              }
+            }
+          }
+        }
+      } else {
+        // Freelancer on this job
+        final chatId = 'job_${id}_$uid';
+        if (!seenChatIds.contains(chatId)) {
+          seenChatIds.add(chatId);
+          list.add({
+            'chatId': chatId,
+            'type': 'job',
+            'typeLabel': 'Job & Gig',
+            'title': title,
+            'counterparty': job['creatorName'] as String? ?? 'Employer',
+            'status': status,
+            'isArchived': isArchived,
+            'timestamp': createdAt is num ? createdAt.toInt() : 0,
+            'dateStr': _formatDate(createdAt),
+            'icon': 'briefcase',
+          });
+        }
+      }
     }
 
     // Also include applied jobs for freelancers
     for (final job in s.appliedJobs) {
       final id = job['id'] as String? ?? '';
-      if (id.isEmpty || seenChatIds.contains(id)) continue;
-      seenChatIds.add(id);
+      if (id.isEmpty) continue;
+      final chatId = 'job_${id}_$uid';
+      if (seenChatIds.contains(chatId)) continue;
+      seenChatIds.add(chatId);
       final title = job['title'] as String? ?? 'Applied Job';
       final status = (job['status'] as String? ?? 'Open').trim();
       final lowerStatus = status.toLowerCase();
@@ -105,7 +161,7 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
       final createdAt = job['createdAt'];
 
       list.add({
-        'chatId': id,
+        'chatId': chatId,
         'type': 'job',
         'typeLabel': 'Job & Gig',
         'title': title,

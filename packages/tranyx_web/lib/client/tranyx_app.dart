@@ -1104,7 +1104,16 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   int getUnreadChatCount(String chatId) {
-    return notifications.where((n) => n['type'] == 'chat' && n['chatId'] == chatId).length;
+    return notifications.where((n) {
+      if (n['type'] != 'chat') return false;
+      final nid = n['chatId']?.toString() ?? '';
+      if (nid == chatId) return true;
+      if (chatId.startsWith('job_')) {
+        final jid = chatId.split('_')[1];
+        if (nid == jid) return true;
+      }
+      return false;
+    }).length;
   }
 
   bool get hasUnreadJobChats {
@@ -4281,9 +4290,17 @@ class TranyxAppState extends State<TranyxApp> {
     String chatStatus = status ?? '';
     String closeDateStr = closedDate ?? '';
 
+    final actualJobId = chatId.startsWith('job_') ? chatId.split('_')[1] : chatId;
+
     if (!archived) {
       // Check jobs list
-      final job = myJobs.firstWhere((j) => j['id'] == chatId, orElse: () => <String, dynamic>{});
+      final job = myJobs.firstWhere(
+        (j) => j['id'] == actualJobId,
+        orElse: () => appliedJobs.firstWhere(
+          (j) => j['id'] == actualJobId,
+          orElse: () => (selectedJobData?['id'] == actualJobId ? selectedJobData! : <String, dynamic>{}),
+        ),
+      );
       if (job.isNotEmpty) {
         if (chatTitle.isEmpty) chatTitle = job['title'] as String? ?? '';
         final st = (job['status'] as String? ?? '').toLowerCase();
@@ -4291,6 +4308,58 @@ class TranyxAppState extends State<TranyxApp> {
         if (st == 'completed' || st == 'complete' || st == 'cancelled' || st == 'expired' || st == 'closed' || st == 'done') {
           archived = true;
         }
+      }
+    }
+
+    // Check if chatting is allowed and eligible for jobs
+    if (chatId.startsWith('job_')) {
+      final parts = chatId.split('_');
+      if (parts.length >= 3) {
+        final jobId = parts[1];
+        final applicantId = parts[2];
+
+        // Ensure user is either creator or applicant
+        final job = myJobs.firstWhere(
+          (j) => j['id'] == jobId,
+          orElse: () => appliedJobs.firstWhere(
+            (j) => j['id'] == jobId,
+            orElse: () => (selectedJobData?['id'] == jobId ? selectedJobData! : <String, dynamic>{}),
+          ),
+        );
+
+        final creatorId = job['creatorId'] as String? ?? job['userId'] as String? ?? '';
+        final isApplicant = uid == applicantId;
+        final isCreator = creatorId.isNotEmpty && uid == creatorId;
+
+        if (job.isNotEmpty && !isCreator && !isApplicant) {
+          showAppToast('Chat Restricted', 'You are not authorized to view this private applicant conversation.');
+          return;
+        }
+
+        if (counterpartyName == null || counterpartyName.isEmpty) {
+          if (isApplicant) {
+            counterpartyName = job['creatorName'] as String? ?? 'Employer';
+          } else {
+            final rawApplicants = job['applicants'];
+            if (rawApplicants is List) {
+              final match = rawApplicants.firstWhere(
+                (appItem) => appItem is Map && ((appItem['applicantUid'] ?? appItem['uid']) == applicantId),
+                orElse: () => null,
+              );
+              if (match is Map) {
+                counterpartyName = match['applicantName'] as String? ?? 'Applicant';
+              }
+            }
+            if (counterpartyName == null || counterpartyName.isEmpty) {
+              if (job['acceptedApplicantId'] == applicantId) {
+                counterpartyName = job['acceptedApplicantName'] as String? ?? 'Accepted Nyxian';
+              }
+            }
+          }
+        }
+
+        // Bridge legacy messages if eligible
+        unawaited(_bridgeLegacyJobMessagesIfEligible(jobId, applicantId, chatId));
       }
     }
 
@@ -4369,7 +4438,16 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     // Clear unread notifications for this chat
-    final notifsToRead = notifications.where((n) => n['type'] == 'chat' && n['chatId'] == chatId).toList();
+    final notifsToRead = notifications.where((n) {
+      if (n['type'] != 'chat') return false;
+      final nid = n['chatId']?.toString() ?? '';
+      if (nid == chatId) return true;
+      if (chatId.startsWith('job_')) {
+        final jid = chatId.split('_')[1];
+        if (nid == jid) return true;
+      }
+      return false;
+    }).toList();
     for (final notif in notifsToRead) {
       final notifId = notif['id'] as String?;
       if (notifId != null) {
@@ -4416,7 +4494,43 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     if (!chatId.startsWith('rental_') && !chatId.startsWith('property_')) {
-      unawaited(checkJobSlaStatus(chatId));
+      final actualJobId = chatId.startsWith('job_') ? chatId.split('_')[1] : chatId;
+      unawaited(checkJobSlaStatus(actualJobId));
+    }
+  }
+
+  Future<void> _bridgeLegacyJobMessagesIfEligible(String jobId, String applicantId, String targetChatId) async {
+    final token = SessionStorage.idToken;
+    if (token == null || token.isEmpty) return;
+    try {
+      final svc = FirestoreService(token, _handleTokenRefresh);
+      final job = await svc.getDocument('jobs/$jobId');
+      if (job == null) return;
+      final acceptedId = job['acceptedApplicantId'] as String? ?? job['acceptedApplicantUid'] as String?;
+      if (acceptedId != applicantId) return; // Only bridge for the accepted worker
+
+      // Check if target chat already has messages
+      final existingMsgs = await svc.getCollection('chats/$targetChatId/messages');
+      if (existingMsgs.isNotEmpty) return; // Already initialized or bridged
+
+      // Fetch legacy messages from chats/$jobId/messages
+      final legacyMsgs = await svc.getCollection('chats/$jobId/messages');
+      if (legacyMsgs.isEmpty) return;
+
+      for (final msg in legacyMsgs) {
+        final msgId = msg['id'] as String? ?? 'msg_${DateTime.now().millisecondsSinceEpoch}';
+        final data = Map<String, dynamic>.from(msg);
+        data.remove('id');
+        await svc.createOrUpdate('chats/$targetChatId/messages/$msgId', data);
+      }
+      await svc.createOrUpdate('chats/$targetChatId', {
+        'userIds': [job['creatorId'] ?? job['userId'], applicantId],
+        'jobId': jobId,
+        'applicantId': applicantId,
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      });
+    } catch (e) {
+      print('bridgeLegacyJobMessages error (ignoring): $e');
     }
   }
 
@@ -4800,7 +4914,8 @@ class TranyxAppState extends State<TranyxApp> {
         // Post acknowledgment request system message to the job chat
         final durationLabel = JobSlaHelper.formatSlaDurationLabel(slaMinutes);
         final msgId = 'msg_ack_req_${hiredAt.millisecondsSinceEpoch}';
-        await svc.createOrUpdate('chats/$jobId/messages/$msgId', {
+        final scopedChatId = 'job_${jobId}_$applicantUid';
+        final ackPayload = {
           'senderId': 'system',
           'senderName': 'Tranyx System',
           'type': 'acknowledgment_request',
@@ -4809,6 +4924,16 @@ class TranyxAppState extends State<TranyxApp> {
           'deadline': deadline.millisecondsSinceEpoch,
           'slaMinutes': slaMinutes,
           'createdAt': hiredAt.millisecondsSinceEpoch,
+        };
+        await svc.createOrUpdate('chats/$scopedChatId/messages/$msgId', ackPayload);
+        await svc.createOrUpdate('chats/$jobId/messages/$msgId', ackPayload);
+
+        final creatorUid = SessionStorage.uid ?? jobDoc['creatorId'] ?? '';
+        await svc.createOrUpdate('chats/$scopedChatId', {
+          'userIds': [creatorUid, applicantUid],
+          'jobId': jobId,
+          'applicantId': applicantUid,
+          'updatedAt': hiredAt.millisecondsSinceEpoch,
         });
         await svc.createOrUpdate('chats/$jobId', {
           'updatedAt': hiredAt.millisecondsSinceEpoch,
@@ -4820,7 +4945,7 @@ class TranyxAppState extends State<TranyxApp> {
           title: 'Hired! Action Required: Acknowledge Job',
           message: 'You have been hired for "$jobTitle". Please acknowledge within $durationLabel to start the gig.',
           type: 'chat',
-          chatId: jobId,
+          chatId: scopedChatId,
         );
       }
       setState(() => isUpdatingJobStatus = false);
@@ -4841,7 +4966,8 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   /// Nyxian acknowledges and starts the job from chat.
-  Future<void> acknowledgeJob(String jobId) async {
+  Future<void> acknowledgeJob(String rawJobId) async {
+    final jobId = rawJobId.startsWith('job_') ? rawJobId.split('_')[1] : rawJobId;
     final token = SessionStorage.idToken;
     final uid = SessionStorage.uid;
     if (token == null || uid == null) return;
@@ -4880,7 +5006,8 @@ class TranyxAppState extends State<TranyxApp> {
 
   /// Cancels an unacknowledged/expired hiring and resets the job to Open for other applicants,
   /// preserving escrow funds so the employer does not need to re-fund.
-  Future<void> cancelAndFindAnotherNyxian(String jobId) async {
+  Future<void> cancelAndFindAnotherNyxian(String rawJobId) async {
+    final jobId = rawJobId.startsWith('job_') ? rawJobId.split('_')[1] : rawJobId;
     final token = SessionStorage.idToken;
     final uid = SessionStorage.uid;
     if (token == null || uid == null) return;
@@ -4913,7 +5040,8 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   /// Checks SLA timer status (reminders & expiration) for a job in the background.
-  Future<void> checkJobSlaStatus(String jobId) async {
+  Future<void> checkJobSlaStatus(String rawJobId) async {
+    final jobId = rawJobId.startsWith('job_') ? rawJobId.split('_')[1] : rawJobId;
     final token = SessionStorage.idToken;
     if (token == null) return;
 

@@ -55,13 +55,18 @@ class _ChatWidgetState extends State<ChatWidget> {
     final msgs = s.chatMessages;
 
     final chatId = s.currentChatId;
-    if (chatId.isNotEmpty && chatId != _lastFetchedJobId) {
-      _lastFetchedJobId = chatId;
-      final existingJob = s.selectedJobData?['id'] == chatId
+    final isOtherChatType = chatId.startsWith('rental_') || chatId.startsWith('property_');
+    final actualJobId = (!isOtherChatType && chatId.startsWith('job_'))
+        ? chatId.split('_')[1]
+        : chatId;
+
+    if (chatId.isNotEmpty && !isOtherChatType && actualJobId != _lastFetchedJobId) {
+      _lastFetchedJobId = actualJobId;
+      final existingJob = s.selectedJobData?['id'] == actualJobId
           ? s.selectedJobData
-          : s.myJobs.firstWhere((j) => j['id'] == chatId, orElse: () => <String, dynamic>{});
+          : s.myJobs.firstWhere((j) => j['id'] == actualJobId, orElse: () => <String, dynamic>{});
       if (existingJob == null || existingJob.isEmpty) {
-        s.firestore.getDocument('jobs/$chatId').then((doc) {
+        s.firestore.getDocument('jobs/$actualJobId').then((doc) {
           if (mounted && doc != null) {
             setState(() {
               _fetchedJobData = doc;
@@ -71,12 +76,14 @@ class _ChatWidgetState extends State<ChatWidget> {
       }
     }
 
-    final activeJob = (s.selectedJobData?['id'] == chatId && s.selectedJobData != null)
+    final activeJob = (!isOtherChatType && s.selectedJobData?['id'] == actualJobId && s.selectedJobData != null)
         ? s.selectedJobData
-        : s.myJobs.firstWhere(
-            (j) => j['id'] == chatId,
-            orElse: () => _fetchedJobData ?? <String, dynamic>{},
-          );
+        : (!isOtherChatType
+            ? s.myJobs.firstWhere(
+                (j) => j['id'] == actualJobId,
+                orElse: () => _fetchedJobData ?? <String, dynamic>{},
+              )
+            : <String, dynamic>{});
     final hasAckMessageInHistory = msgs.any((m) => m['type'] == 'acknowledgment_request');
     final activeJobStatus = (activeJob?['status'] as String? ?? '').toLowerCase();
     final isJobAwaitingAck = activeJob != null &&
@@ -523,14 +530,20 @@ class _ChatWidgetState extends State<ChatWidget> {
     final type = msg['type'] as String? ?? '';
     final s = component.state;
     final chatId = s.currentChatId;
+    final isOtherChatType = chatId.startsWith('rental_') || chatId.startsWith('property_');
+    final actualJobId = (!isOtherChatType && chatId.startsWith('job_'))
+        ? chatId.split('_')[1]
+        : chatId;
 
     // Retrieve active job data if available
-    final job = (s.selectedJobData?['id'] == chatId && s.selectedJobData != null)
+    final job = (!isOtherChatType && s.selectedJobData?['id'] == actualJobId && s.selectedJobData != null)
         ? s.selectedJobData
-        : s.myJobs.firstWhere(
-            (j) => j['id'] == chatId,
-            orElse: () => _fetchedJobData ?? <String, dynamic>{},
-          );
+        : (!isOtherChatType
+            ? s.myJobs.firstWhere(
+                (j) => j['id'] == actualJobId,
+                orElse: () => _fetchedJobData ?? <String, dynamic>{},
+              )
+            : <String, dynamic>{});
     final acceptedNyxianId = job?['acceptedApplicantId'] as String? ?? '';
     final creatorId = job?['creatorId'] as String? ?? '';
     final isNyxian = uid == acceptedNyxianId;
