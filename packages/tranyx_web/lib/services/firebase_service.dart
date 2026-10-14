@@ -2633,14 +2633,20 @@ class FirestoreService {
 
     // Post system confirmation message in chat
     final msgId = 'msg_ack_${now.millisecondsSinceEpoch}';
-    await createOrUpdate('chats/$jobId/messages/$msgId', {
+    final scopedChatId = 'job_${jobId}_$nyxianUid';
+    final confMsg = {
       'senderId': 'system',
       'senderName': 'Tranyx System',
       'type': 'acknowledgment_confirmed',
       'text': '✅ Nyxian has acknowledged the job and is proceeding with the task.',
       'createdAt': now.millisecondsSinceEpoch,
-    });
+    };
+    await createOrUpdate('chats/$scopedChatId/messages/$msgId', confMsg);
+    await createOrUpdate('chats/$jobId/messages/$msgId', confMsg);
     // Touch chat metadata
+    await createOrUpdate('chats/$scopedChatId', {
+      'updatedAt': now.millisecondsSinceEpoch,
+    });
     await createOrUpdate('chats/$jobId', {
       'updatedAt': now.millisecondsSinceEpoch,
     });
@@ -2654,12 +2660,12 @@ class FirestoreService {
         title: 'Job Acknowledged',
         message: '${nyxianName ?? "Nyxian"} has acknowledged "$jobTitle" and is proceeding with the task.',
         type: 'chat',
-        chatId: jobId,
+        chatId: scopedChatId,
       );
     }
   }
 
-  /// Marks a job\'s acknowledgment period as expired due to non-response.
+  /// Marks a job's acknowledgment period as expired due to non-response.
   /// If Category A (Immediate / Delivery / Errand), automatically resets job so employer is not left waiting.
   Future<void> expireJobAcknowledgment({
     required String jobId,
@@ -2678,6 +2684,7 @@ class FirestoreService {
     final employerId = jobDoc['creatorId'] as String? ?? '';
     final nyxianId = jobDoc['acceptedApplicantId'] as String? ?? '';
     final category = jobDoc['acknowledgmentCategory'] as String? ?? '';
+    final scopedChatId = nyxianId.isNotEmpty ? 'job_${jobId}_$nyxianId' : jobId;
 
     await createOrUpdate('jobs/$jobId', {
       ...jobDoc,
@@ -2688,13 +2695,20 @@ class FirestoreService {
 
     // Post system message in chat
     final msgId = 'msg_exp_$nowMs';
-    await createOrUpdate('chats/$jobId/messages/$msgId', {
+    final expMsg = {
       'senderId': 'system',
       'senderName': 'Tranyx System',
       'type': 'acknowledgment_expired',
       'text': '⚠️ Nyxian has not acknowledged the job within the SLA period. You may cancel this hiring and look for another Nyxian.',
       'createdAt': nowMs,
-    });
+    };
+    if (scopedChatId != jobId) {
+      await createOrUpdate('chats/$scopedChatId/messages/$msgId', expMsg);
+      await createOrUpdate('chats/$scopedChatId', {
+        'updatedAt': nowMs,
+      });
+    }
+    await createOrUpdate('chats/$jobId/messages/$msgId', expMsg);
     await createOrUpdate('chats/$jobId', {
       'updatedAt': nowMs,
     });
@@ -2706,7 +2720,7 @@ class FirestoreService {
         title: 'Acknowledgment Period Expired',
         message: 'Nyxian did not acknowledge "$jobTitle" within the SLA window. You can cancel this hiring and find another Nyxian.',
         type: 'chat',
-        chatId: jobId,
+        chatId: scopedChatId,
       );
     }
 
@@ -2756,13 +2770,21 @@ class FirestoreService {
 
     // Chat reminder message
     final msgId = 'msg_rem_$nowMs';
-    await createOrUpdate('chats/$jobId/messages/$msgId', {
+    final scopedChatId = nyxianId.isNotEmpty ? 'job_${jobId}_$nyxianId' : jobId;
+    final remMsg = {
       'senderId': 'system',
       'senderName': 'Tranyx System',
       'type': 'acknowledgment_reminder',
       'text': '⏰ Reminder: Acknowledgment required soon. Please acknowledge and start the job before the deadline.',
       'createdAt': nowMs,
-    });
+    };
+    if (scopedChatId != jobId) {
+      await createOrUpdate('chats/$scopedChatId/messages/$msgId', remMsg);
+      await createOrUpdate('chats/$scopedChatId', {
+        'updatedAt': nowMs,
+      });
+    }
+    await createOrUpdate('chats/$jobId/messages/$msgId', remMsg);
     await createOrUpdate('chats/$jobId', {
       'updatedAt': nowMs,
     });
@@ -2773,7 +2795,7 @@ class FirestoreService {
         title: 'Acknowledgment Reminder',
         message: 'Reminder: Please acknowledge and start "$jobTitle" before your deadline.',
         type: 'chat',
-        chatId: jobId,
+        chatId: scopedChatId,
       );
     }
   }
@@ -2792,6 +2814,7 @@ class FirestoreService {
     final employerId = jobDoc['creatorId'] as String? ?? '';
     final jobTitle = jobDoc['title'] as String? ?? 'Job';
     final oldNyxianId = jobDoc['acceptedApplicantId'] as String?;
+    final scopedChatId = (oldNyxianId != null && oldNyxianId.isNotEmpty) ? 'job_${jobId}_$oldNyxianId' : jobId;
 
     await createOrUpdate('jobs/$jobId', {
       ...jobDoc,
@@ -2821,13 +2844,20 @@ class FirestoreService {
 
     // Post system message in chat
     final msgId = 'msg_reset_$nowMs';
-    await createOrUpdate('chats/$jobId/messages/$msgId', {
+    final resetMsg = {
       'senderId': 'system',
       'senderName': 'Tranyx System',
       'type': 'job_reopened',
       'text': reason ?? 'Gig has been reopened for other applicants. Escrow remains secured.',
       'createdAt': nowMs,
-    });
+    };
+    if (scopedChatId != jobId) {
+      await createOrUpdate('chats/$scopedChatId/messages/$msgId', resetMsg);
+      await createOrUpdate('chats/$scopedChatId', {
+        'updatedAt': nowMs,
+      });
+    }
+    await createOrUpdate('chats/$jobId/messages/$msgId', resetMsg);
     await createOrUpdate('chats/$jobId', {
       'updatedAt': nowMs,
     });
@@ -2838,7 +2868,7 @@ class FirestoreService {
         title: 'Gig Reopened for Applicants',
         message: 'Your gig "$jobTitle" is open again. You can now select another Nyxian.',
         type: 'chat',
-        chatId: jobId,
+        chatId: scopedChatId,
       );
     }
   }

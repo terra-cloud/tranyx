@@ -756,20 +756,31 @@ class HomeViewComponentState extends State<HomeViewComponent> {
                   events: {'click': (_) => s.selectJobAndLoadDetails(job)},
                   [Component.text('View Details')],
                 ),
-                button(
-                  classes:
-                      'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-350" : "border-zinc-200 hover:bg-zinc-100 text-zinc-700"} transition-colors relative',
-                  events: {'click': (_) => s.openChat(job['id'] as String)},
-                  [
-                    lIcon('message-square', cls: 'w-4 h-4'),
-                    if (s.getUnreadChatCount(job['id'] as String) > 0)
-                      span(
-                        classes:
-                            'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-[10px] font-black text-white bg-red-500 rounded-full border-2 ${isDark ? "border-zinc-900" : "border-white"} animate-pulse',
-                        [Component.text('${s.getUnreadChatCount(job['id'] as String)}')],
-                      ),
-                  ],
-                ),
+                () {
+                  final jId = job['id'] as String;
+                  final acceptedId = job['acceptedApplicantId'] as String? ?? s.userProfile?.uid ?? SessionStorage.uid ?? '';
+                  final scopedChatId = acceptedId.isNotEmpty ? 'job_${jId}_$acceptedId' : jId;
+                  return button(
+                    classes:
+                        'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-350" : "border-zinc-200 hover:bg-zinc-100 text-zinc-700"} transition-colors relative',
+                    events: {
+                      'click': (_) => s.openChat(
+                            scopedChatId,
+                            title: job['title'] as String?,
+                            counterpartyName: job['creatorName'] as String?,
+                          ),
+                    },
+                    [
+                      lIcon('message-square', cls: 'w-4 h-4'),
+                      if (s.getUnreadChatCount(scopedChatId) > 0)
+                        span(
+                          classes:
+                              'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-[10px] font-black text-white bg-red-500 rounded-full border-2 ${isDark ? "border-zinc-900" : "border-white"} animate-pulse',
+                          [Component.text('${s.getUnreadChatCount(scopedChatId)}')],
+                        ),
+                    ],
+                  );
+                }(),
               ]),
             ]),
           ],
@@ -820,20 +831,31 @@ class HomeViewComponentState extends State<HomeViewComponent> {
                 events: {'click': (_) => s.selectJobAndLoadDetails(job)},
                 [lIcon('users', cls: 'w-4 h-4'), Component.text(' Manage')],
               ),
-              button(
-                classes:
-                    'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-350" : "border-zinc-200 hover:bg-zinc-100 text-zinc-700"} transition-colors relative',
-                events: {'click': (_) => s.openChat(job['id'] as String)},
-                [
-                  lIcon('message-square', cls: 'w-4 h-4'),
-                  if (s.getUnreadChatCount(job['id'] as String) > 0)
-                    span(
-                      classes:
-                          'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-[10px] font-black text-white bg-red-500 rounded-full border-2 ${isDark ? "border-zinc-900" : "border-white"} animate-pulse',
-                      [Component.text('${s.getUnreadChatCount(job['id'] as String)}')],
-                    ),
-                ],
-              ),
+              () {
+                final jId = job['id'] as String;
+                final acceptedId = job['acceptedApplicantId'] as String? ?? '';
+                final scopedChatId = acceptedId.isNotEmpty ? 'job_${jId}_$acceptedId' : jId;
+                return button(
+                  classes:
+                      'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-350" : "border-zinc-200 hover:bg-zinc-100 text-zinc-700"} transition-colors relative',
+                  events: {
+                    'click': (_) => s.openChat(
+                          scopedChatId,
+                          title: job['title'] as String?,
+                          counterpartyName: job['acceptedApplicantName'] as String?,
+                        ),
+                  },
+                  [
+                    lIcon('message-square', cls: 'w-4 h-4'),
+                    if (s.getUnreadChatCount(scopedChatId) > 0)
+                      span(
+                        classes:
+                            'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-[10px] font-black text-white bg-red-500 rounded-full border-2 ${isDark ? "border-zinc-900" : "border-white"} animate-pulse',
+                        [Component.text('${s.getUnreadChatCount(scopedChatId)}')],
+                      ),
+                  ],
+                );
+              }(),
             ]),
           ]),
         ],

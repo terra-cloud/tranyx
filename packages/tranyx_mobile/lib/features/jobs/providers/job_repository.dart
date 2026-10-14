@@ -459,10 +459,13 @@ class JobRepository {
       // Post acknowledgment request system message to the job chat
       final durationLabel = JobSlaHelper.formatSlaDurationLabel(slaMinutes);
       final msgId = 'msg_ack_req_$now';
+      final scopedJobChatId = 'job_${jobId}_${application.applicantUid}';
+      final scopedChatMsgRef = _firestore.collection('chats').doc(scopedJobChatId).collection('messages').doc(msgId);
+      final scopedChatRef = _firestore.collection('chats').doc(scopedJobChatId);
       final chatMsgRef = _firestore.collection('chats').doc(jobId).collection('messages').doc(msgId);
       final chatRef = _firestore.collection('chats').doc(jobId);
 
-      transaction.set(chatMsgRef, {
+      final ackPayload = {
         'senderId': 'system',
         'senderName': 'Tranyx System',
         'type': 'acknowledgment_request',
@@ -471,7 +474,17 @@ class JobRepository {
         'deadline': deadline,
         'slaMinutes': slaMinutes,
         'createdAt': now,
-      });
+      };
+
+      transaction.set(scopedChatMsgRef, ackPayload);
+      transaction.set(scopedChatRef, {
+        'userIds': [jobData['creatorId'], application.applicantUid],
+        'jobId': jobId,
+        'applicantId': application.applicantUid,
+        'updatedAt': now,
+      }, SetOptions(merge: true));
+
+      transaction.set(chatMsgRef, ackPayload);
       transaction.set(chatRef, {
         'updatedAt': now,
       }, SetOptions(merge: true));
