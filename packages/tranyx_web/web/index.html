@@ -1833,9 +1833,10 @@
         .onSnapshot((snapshot) => {
           const msgs = [];
           snapshot.forEach(doc => msgs.push({ ...doc.data(), id: doc.id }));
-          callback(JSON.stringify(msgs));
+          callback(JSON.stringify({ status: 'ok', messages: msgs }));
         }, (err) => {
           console.error('Chat listener error:', err);
+          callback(JSON.stringify({ status: 'error', error: err ? (err.message || String(err)) : 'Failed to load messages', messages: [] }));
         });
       _chatUnsubs[chatId] = unsub;
     };

@@ -424,6 +424,8 @@ class TranyxAppState extends State<TranyxApp> {
   String currentChatClosedDate = '';
   String currentChatCounterpartyName = '';
   List<Map<String, dynamic>> chatMessages = [];
+  bool isChatLoading = false;
+  String? chatLoadError;
   String chatInputText = '';
   bool chatPiiBlocked = false;
   bool chatDisintermediationBlocked = false;
@@ -4362,6 +4364,8 @@ class TranyxAppState extends State<TranyxApp> {
       chatInputText = '';
       chatPiiBlocked = false;
       chatDisintermediationBlocked = false;
+      isChatLoading = true;
+      chatLoadError = null;
     });
 
     // Clear unread notifications for this chat
@@ -4374,8 +4378,25 @@ class TranyxAppState extends State<TranyxApp> {
     }
     listenToChatJs(chatId, (String jsonStr) {
       try {
-        final raw = jsonDecode(jsonStr) as List<dynamic>;
+        final decoded = jsonDecode(jsonStr);
+        List<dynamic> raw = [];
+        if (decoded is Map) {
+          final status = decoded['status'] as String?;
+          if (status == 'error') {
+            setState(() {
+              isChatLoading = false;
+              chatLoadError = decoded['error'] as String? ?? 'Failed to load messages';
+            });
+            return;
+          }
+          raw = decoded['messages'] as List<dynamic>? ?? [];
+        } else if (decoded is List<dynamic>) {
+          raw = decoded;
+        }
+
         setState(() {
+          isChatLoading = false;
+          chatLoadError = null;
           chatMessages = raw.map((m) {
             final map = Map<String, dynamic>.from(m as Map);
             // Normalize Firestore timestamp
@@ -4386,12 +4407,29 @@ class TranyxAppState extends State<TranyxApp> {
             return map;
           }).toList();
         });
-      } catch (_) {}
+      } catch (err) {
+        setState(() {
+          isChatLoading = false;
+          chatLoadError = 'Failed to parse chat messages';
+        });
+      }
     });
 
     if (!chatId.startsWith('rental_') && !chatId.startsWith('property_')) {
       unawaited(checkJobSlaStatus(chatId));
     }
+  }
+
+  void reloadCurrentChat() {
+    if (currentChatId.isEmpty) return;
+    openChat(
+      currentChatId,
+      title: currentChatTitle,
+      status: currentChatStatus,
+      isArchived: currentChatIsArchived,
+      closedDate: currentChatClosedDate,
+      counterpartyName: currentChatCounterpartyName,
+    );
   }
 
   void closeChat() {
@@ -4408,6 +4446,8 @@ class TranyxAppState extends State<TranyxApp> {
       chatInputText = '';
       chatPiiBlocked = false;
       chatDisintermediationBlocked = false;
+      isChatLoading = false;
+      chatLoadError = null;
     });
   }
 
