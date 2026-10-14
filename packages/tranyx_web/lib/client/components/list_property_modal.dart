@@ -101,8 +101,13 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
     final weekly = double.tryParse(_priceWeekly) ?? 0.0;
     final monthly = double.tryParse(_priceMonthly) ?? 0.0;
 
-    if (daily <= 0 && weekly <= 0 && monthly <= 0) {
-      setState(() => _error = 'Please provide at least one rental rate (Daily, Weekly, or Monthly).');
+    final pricingValidation = PropertyPricingRules.validate(
+      priceDaily: daily,
+      priceWeekly: weekly,
+      priceMonthly: monthly,
+    );
+    if (!pricingValidation.isValid) {
+      setState(() => _error = pricingValidation.errorMessage);
       return;
     }
 
@@ -214,8 +219,13 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
       final weekly = double.tryParse(_priceWeekly) ?? 0.0;
       final monthly = double.tryParse(_priceMonthly) ?? 0.0;
 
-      if (daily <= 0 && weekly <= 0 && monthly <= 0) {
-        setState(() => _error = 'Please provide at least one rental rate (Daily, Weekly, or Monthly).');
+      final pricingValidation = PropertyPricingRules.validate(
+        priceDaily: daily,
+        priceWeekly: weekly,
+        priceMonthly: monthly,
+      );
+      if (!pricingValidation.isValid) {
+        setState(() => _error = pricingValidation.errorMessage);
         return;
       }
       if (component.appState.pickupAddress.isEmpty) {
@@ -263,11 +273,6 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
 
           // Body
           div(classes: 'p-6 flex-1 space-y-6', [
-            if (_error != null)
-              div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium', [
-                Component.text(_error!),
-              ]),
-
             if (_step == 1) ...[
               // Step 1: Specifications
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Property Details')]),
@@ -390,32 +395,38 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
             ] else if (_step == 2) ...[
               // Step 2: Pricing & Location
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Deposit Terms')]),
-              div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-6', [
-                _inputField(
-                  'Daily Rate (₱/day)',
-                  _priceDaily,
-                  (v) => setState(() => _priceDaily = v),
-                  isDark,
-                  placeholder: 'e.g. 1500',
-                  type: InputType.number,
-                ),
-                _inputField(
-                  'Weekly Rate (₱/week)',
-                  _priceWeekly,
-                  (v) => setState(() => _priceWeekly = v),
-                  isDark,
-                  placeholder: 'e.g. 8000',
-                  type: InputType.number,
-                ),
-                _inputField(
-                  'Monthly Rent (₱/month)',
-                  _priceMonthly,
-                  (v) => setState(() => _priceMonthly = v),
-                  isDark,
-                  placeholder: 'e.g. 30000',
-                  type: InputType.number,
-                ),
-              ]),
+              () {
+                final curDaily = double.tryParse(_priceDaily) ?? 0.0;
+                final minWeekly = curDaily > 0 ? (curDaily * PropertyPricingRules.minWeeklyMultiplier).toStringAsFixed(0) : '';
+                final minMonthly = curDaily > 0 ? (curDaily * PropertyPricingRules.minMonthlyMultiplier).toStringAsFixed(0) : '';
+
+                return div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-6', [
+                  _inputField(
+                    'Daily Rate (₱/day)',
+                    _priceDaily,
+                    (v) => setState(() => _priceDaily = v),
+                    isDark,
+                    placeholder: 'e.g. 1500',
+                    type: InputType.number,
+                  ),
+                  _inputField(
+                    curDaily > 0 ? 'Weekly Rate (Min ₱$minWeekly)' : 'Weekly Rate (₱/week)',
+                    _priceWeekly,
+                    (v) => setState(() => _priceWeekly = v),
+                    isDark,
+                    placeholder: minWeekly.isNotEmpty ? minWeekly : 'e.g. 8000',
+                    type: InputType.number,
+                  ),
+                  _inputField(
+                    curDaily > 0 ? 'Monthly Rent (Min ₱$minMonthly)' : 'Monthly Rent (₱/month)',
+                    _priceMonthly,
+                    (v) => setState(() => _priceMonthly = v),
+                    isDark,
+                    placeholder: minMonthly.isNotEmpty ? minMonthly : 'e.g. 30000',
+                    type: InputType.number,
+                  ),
+                ]);
+              }(),
 
               // Security Deposit Policy Selector
               div(classes: 'p-4 rounded-xl border mb-6 ${isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-zinc-50 border-zinc-200"}', [

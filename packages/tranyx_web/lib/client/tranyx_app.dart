@@ -8583,17 +8583,6 @@ class SmsVerificationModalComponent extends StatelessComponent {
               ),
             ]),
 
-            // Error banner if any
-            if (s.smsVerificationError != null)
-              div(
-                classes:
-                    'p-3 mb-4 rounded-xl text-xs bg-red-500/10 border border-red-500/20 text-red-400 flex gap-2 items-start animate-shake',
-                [
-                  lIcon('alert-circle', cls: 'w-4 h-4 flex-shrink-0 mt-0.5'),
-                  span(classes: 'font-medium', [Component.text(s.smsVerificationError!)]),
-                ],
-              ),
-
             // OTP Code Simulator Box (Only if simulated code is active!)
             if (codeSent && s.simulatedSmsCode != null)
               div(
@@ -8660,6 +8649,16 @@ class SmsVerificationModalComponent extends StatelessComponent {
                 ]),
               ]),
 
+              if (s.smsVerificationError != null)
+                div(
+                  classes:
+                      'p-3 mb-4 rounded-xl text-xs bg-red-500/10 border border-red-500/20 text-red-400 flex gap-2 items-start animate-shake',
+                  [
+                    lIcon('alert-circle', cls: 'w-4 h-4 flex-shrink-0 mt-0.5'),
+                    span(classes: 'font-medium', [Component.text(s.smsVerificationError!)]),
+                  ],
+                ),
+
               button(
                 classes:
                     'w-full py-3.5 rounded-2xl font-bold text-white logo-gradient hover:opacity-95 transition-opacity flex items-center justify-center gap-2',
@@ -8713,6 +8712,16 @@ class SmsVerificationModalComponent extends StatelessComponent {
                   ),
                 ]),
               ]),
+
+              if (s.smsVerificationError != null)
+                div(
+                  classes:
+                      'p-3 mb-4 rounded-xl text-xs bg-red-500/10 border border-red-500/20 text-red-400 flex gap-2 items-start animate-shake',
+                  [
+                    lIcon('alert-circle', cls: 'w-4 h-4 flex-shrink-0 mt-0.5'),
+                    span(classes: 'font-medium', [Component.text(s.smsVerificationError!)]),
+                  ],
+                ),
 
               div(classes: 'flex gap-3', [
                 button(

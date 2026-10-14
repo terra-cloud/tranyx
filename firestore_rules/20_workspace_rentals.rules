@@ -27,19 +27,40 @@
       allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid && isValidVehiclePricing(request.resource.data);
       
       allow update: if 
-        // 1. Host (Vehicle Owner): Can update vehicle/price details & accept bookings when status is Available
+        // 1. Host (Vehicle Owner): Can update vehicle/price details & accept bookings when not actively rented
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
-          (resource.data.status == 'Available' || resource.data.status == 'available') &&
+          request.resource.data.hostId == resource.data.hostId &&
+          !(resource.data.status in ['Booked', 'Rented', 'On the way to Rentee', 'Returning', 'Active']) &&
+          (request.resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Awaiting Signature', 'awaiting signature'] ||
+           request.resource.data.status == resource.data.status) &&
           (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['priceDaily', 'price12h', 'priceWeekly', 'priceMonthly']) ||
            isValidVehiclePricing(request.resource.data)) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'brand', 'model', 'year', 'type', 'plateNumber', 'vehicleValue', 
-            'ltoCrNumber', 'ltoOrNumber', 'insuranceProvider', 'insurancePolicyNumber', 
-            'franchisePermit', 'interiorPhotoUrl', 'frontPhotoUrl', 'backPhotoUrl', 
-            'contractType', 'contractTerms', 'price12h', 'priceDaily', 'priceWeekly', 
-            'priceMonthly', 'extensionRatePerHour', 'latePenaltyRatePerHour', 'status', 
-            'fuelType', 'transmission', 'offersDriver', 'driverDailyPrice', 'driverNote', 
-            'driverLicenseNumber', 'renteeId', 'renteeName', 'renteePhotoUrl', 
+            // Identity & metadata
+            'id', 'hostName', 'hostPhotoUrl', 'acceptingBookings', 'status',
+            'isListingFeeWaived', 'createdAt', 'updatedAt',
+            // Vehicle specs
+            'brand', 'model', 'vehicleModel', 'year', 'type', 'vehicleType',
+            'plateNumber', 'transmission', 'fuelType', 'seatingCapacity',
+            'mileageLimitPerDay', 'minDriverAge', 'fuelPolicy', 'description', 'features',
+            // Pricing & deposit
+            'price12h', 'hourlyRate', 'priceDaily', 'PricePerDay', 'pricePerDay',
+            'priceWeekly', 'weeklyRate', 'priceMonthly', 'monthlyRate',
+            'allowedDurations', 'extensionRatePerHour', 'latePenaltyRatePerHour',
+            'vehicleValue', 'securityDeposit', 'depositType', 'depositValue',
+            'securityDepositPolicy',
+            // Location & compliance
+            'location', 'pickupAddress', 'pickupLat', 'pickupLng',
+            'ltoCrNumber', 'ltoOrNumber', 'insuranceProvider', 'insurancePolicyNumber',
+            'franchisePermit', 'gpsTrackerId',
+            // Photos & legal terms
+            'photoUrl', 'interiorPhotoUrl', 'frontPhotoUrl', 'backPhotoUrl',
+            'extraPhotos', 'contractType', 'contractTerms', 'legalTerms',
+            'termsPreset', 'termsTitle', 'termsContent', 'requireRenteeSignature',
+            // Driver options
+            'offersDriver', 'driverDailyPrice', 'driverNote', 'driverLicenseNumber',
+            // Trip & rentee fields
+            'renteeId', 'renteeName', 'renteePhotoUrl', 
             'renteePhone', 'renteeRating', 'startEpoch', 'endEpoch', 'expectedReturnEpoch', 
             'deliveryType', 'deliveryAddress', 'deliveryFee', 'currentLocationLat', 
             'currentLocationLng', 'fuelLevel', 'odoMeter', 'pickupPhotos', 
@@ -52,8 +73,8 @@
             'verificationGovtIdUrl', 'verificationStatus', 'hostIsVerified', 
             'hostVerificationStatus', 'hostVerificationTier', 'renteeIsVerified', 
             'renteeVerificationStatus', 'renteeVerificationTier',
-            // Listing deletion, archival, pause/resume & GPS tracking
-            'isDeleted', 'acceptingBookings', 'deletedAt', 'gpsTrackerId'
+            // Listing deletion & archival
+            'isDeleted', 'deletedAt'
           ])
         ) ||
         // 1b. Host: When awaiting signature, can revoke approval (back to Available) or activate lease

@@ -2375,6 +2375,249 @@ void main() {
         expect(firestore.db['property_escrows/p_signed']!['status'], equals('Refunded'));
       });
     });
+
+    group('Vehicle & Property Listing Free Edits (updateRental & updatePropertyRental)', () {
+      test('updateRental saves changes to photos, legal terms, and pricing while preserving immutable metadata and charging zero fees', () async {
+        final originalCreatedAt = DateTime(2026, 1, 15, 10, 30).millisecondsSinceEpoch;
+        firestore.db['users/host_edit'] = {
+          'name': 'Original Host',
+          'tyxBalance': 500.0,
+        };
+        firestore.db['rentals/vehicle_edit_1'] = {
+          'id': 'vehicle_edit_1',
+          'hostId': 'host_edit',
+          'hostName': 'Original Host',
+          'hostPhotoUrl': 'https://img.bb/host.jpg',
+          'brand': 'Toyota',
+          'model': 'Vios',
+          'year': 2022,
+          'type': 'car',
+          'plateNumber': 'NBC 1234',
+          'priceDaily': 2000.0,
+          'interiorPhotoUrl': 'https://img.bb/orig_int.jpg',
+          'frontPhotoUrl': 'https://img.bb/orig_front.jpg',
+          'backPhotoUrl': 'https://img.bb/orig_back.jpg',
+          'extraPhotos': <String>[],
+          'contractType': 'tranyx',
+          'contractTerms': 'Original Terms',
+          'status': 'Available',
+          'acceptingBookings': true,
+          'listingFeePaid': 30.0,
+          'isListingFeeWaived': false,
+          'createdAt': originalCreatedAt,
+        };
+
+        final updatedRental = VehicleRental(
+          id: 'vehicle_edit_1',
+          hostId: 'host_edit',
+          hostName: 'Attempted Changed Name',
+          brand: 'Toyota',
+          model: 'Vios GR-S',
+          year: 2023,
+          type: VehicleType.car,
+          plateNumber: 'NBC 1234',
+          vehicleValue: 950000.0,
+          ltoCrNumber: 'CR-UPDATED',
+          ltoOrNumber: 'OR-UPDATED',
+          insuranceProvider: 'AXA Philippines',
+          insurancePolicyNumber: 'POL-UPDATED',
+          interiorPhotoUrl: 'https://img.bb/orig_int.jpg', // Retained existing photo
+          frontPhotoUrl: 'https://img.bb/new_front.jpg', // Newly uploaded photo
+          backPhotoUrl: 'https://img.bb/orig_back.jpg', // Retained existing photo
+          contractType: 'custom',
+          contractTerms: 'Updated Custom Legal Terms',
+          price12h: 1500.0,
+          priceDaily: 2500.0,
+          priceWeekly: 15000.0,
+          priceMonthly: 50000.0,
+          extensionRatePerHour: 200.0,
+          latePenaltyRatePerHour: 400.0,
+          status: 'Available',
+          pickupAddress: 'Makati CBD',
+          pickupLat: 14.5547,
+          pickupLng: 121.0244,
+          createdAt: DateTime.now(),
+        );
+
+        final payload = updatedRental.toMap()
+          ..['extraPhotos'] = ['https://img.bb/extra_1.jpg'];
+        await repo.updateRental('vehicle_edit_1', payload);
+
+        final saved = firestore.db['rentals/vehicle_edit_1']!;
+        expect(saved['model'], equals('Vios GR-S'));
+        expect(saved['year'], equals(2023));
+        expect(saved['priceDaily'], equals(2500.0));
+        expect(saved['interiorPhotoUrl'], equals('https://img.bb/orig_int.jpg'));
+        expect(saved['frontPhotoUrl'], equals('https://img.bb/new_front.jpg'));
+        expect(saved['backPhotoUrl'], equals('https://img.bb/orig_back.jpg'));
+        expect(saved['extraPhotos'], equals(['https://img.bb/extra_1.jpg']));
+        expect(saved['contractType'], equals('custom'));
+        expect(saved['contractTerms'], equals('Updated Custom Legal Terms'));
+
+        // Immutable fields preserved
+        expect(saved['hostId'], equals('host_edit'));
+        expect(saved['hostName'], equals('Original Host'));
+        expect(saved['hostPhotoUrl'], equals('https://img.bb/host.jpg'));
+        expect(saved['createdAt'], equals(originalCreatedAt));
+        expect(saved['status'], equals('Available'));
+        expect(saved['acceptingBookings'], isTrue);
+        expect(saved['listingFeePaid'], equals(30.0));
+
+        // Null keys stripped from update payload
+        expect(saved.containsKey('renteeId'), isFalse);
+
+        // Free edit: Host wallet balance unchanged
+        expect(firestore.db['users/host_edit']!['tyxBalance'], equals(500.0));
+      });
+
+      test('updateRental allows editing when status is Not Accepting Bookings and preserves paused status', () async {
+        firestore.db['rentals/vehicle_paused'] = {
+          'id': 'vehicle_paused',
+          'hostId': 'host_edit',
+          'hostName': 'Original Host',
+          'brand': 'Honda',
+          'model': 'City',
+          'status': 'Not Accepting Bookings',
+          'acceptingBookings': false,
+          'createdAt': 1700000000000,
+        };
+
+        final updatedRental = VehicleRental(
+          id: 'vehicle_paused',
+          hostId: 'host_edit',
+          hostName: 'Original Host',
+          brand: 'Honda',
+          model: 'City RS',
+          year: 2024,
+          type: VehicleType.car,
+          plateNumber: 'XYZ 999',
+          vehicleValue: 1000000.0,
+          ltoCrNumber: 'CR1',
+          ltoOrNumber: 'OR1',
+          insuranceProvider: 'Prudential',
+          insurancePolicyNumber: 'P1',
+          interiorPhotoUrl: 'https://img.bb/i.jpg',
+          frontPhotoUrl: 'https://img.bb/f.jpg',
+          backPhotoUrl: 'https://img.bb/b.jpg',
+          contractType: 'tranyx',
+          contractTerms: 'Terms',
+          price12h: 1200.0,
+          priceDaily: 2200.0,
+          priceWeekly: 12000.0,
+          priceMonthly: 40000.0,
+          extensionRatePerHour: 150.0,
+          latePenaltyRatePerHour: 300.0,
+          status: 'Available',
+          pickupAddress: 'BGC',
+          pickupLat: 14.5,
+          pickupLng: 121.0,
+          createdAt: DateTime.now(),
+        );
+
+        await repo.updateRental('vehicle_paused', updatedRental.toMap());
+
+        final saved = firestore.db['rentals/vehicle_paused']!;
+        expect(saved['model'], equals('City RS'));
+        expect(saved['status'], equals('Not Accepting Bookings'));
+        expect(saved['acceptingBookings'], isFalse);
+      });
+
+      test('updateRental rejects editing when vehicle is actively Booked or Rented', () async {
+        firestore.db['rentals/vehicle_booked'] = {
+          'id': 'vehicle_booked',
+          'hostId': 'host_edit',
+          'hostName': 'Original Host',
+          'status': 'Booked',
+        };
+
+        final updatedRental = VehicleRental(
+          id: 'vehicle_booked',
+          hostId: 'host_edit',
+          hostName: 'Original Host',
+          brand: 'Honda',
+          model: 'City RS',
+          year: 2024,
+          type: VehicleType.car,
+          plateNumber: 'XYZ 999',
+          vehicleValue: 1000000.0,
+          ltoCrNumber: 'CR1',
+          ltoOrNumber: 'OR1',
+          insuranceProvider: 'Prudential',
+          insurancePolicyNumber: 'P1',
+          interiorPhotoUrl: 'https://img.bb/i.jpg',
+          frontPhotoUrl: 'https://img.bb/f.jpg',
+          backPhotoUrl: 'https://img.bb/b.jpg',
+          contractType: 'tranyx',
+          contractTerms: 'Terms',
+          price12h: 1200.0,
+          priceDaily: 2200.0,
+          priceWeekly: 12000.0,
+          priceMonthly: 40000.0,
+          extensionRatePerHour: 150.0,
+          latePenaltyRatePerHour: 300.0,
+          status: 'Booked',
+          pickupAddress: 'BGC',
+          pickupLat: 14.5,
+          pickupLng: 121.0,
+          createdAt: DateTime.now(),
+        );
+
+        expect(
+          () => repo.updateRental('vehicle_booked', updatedRental.toMap()),
+          throwsA(isA<Exception>()),
+        );
+      });
+
+      test('updatePropertyRental saves changes to photos and legal terms while preserving immutable metadata', () async {
+        final originalCreatedAt = DateTime(2026, 2, 1, 8, 0).millisecondsSinceEpoch;
+        firestore.db['properties/prop_edit_1'] = {
+          'id': 'prop_edit_1',
+          'hostId': 'host_prop',
+          'hostName': 'Property Host',
+          'hostPhotoUrl': 'https://img.bb/host_p.jpg',
+          'title': 'Old Title',
+          'status': 'Available',
+          'acceptingBookings': true,
+          'createdAt': originalCreatedAt,
+        };
+
+        final updatedProp = PropertyRental(
+          id: 'prop_edit_1',
+          hostId: 'host_prop',
+          hostName: 'Changed Host',
+          title: 'Updated Luxury Loft',
+          description: 'Renovated unit',
+          type: PropertyType.condo,
+          category: PropertyCategory.residential,
+          priceMonthly: 45000.0,
+          priceWeekly: 14000.0,
+          priceDaily: 3000.0,
+          depositMonths: 2,
+          address: 'Rockwell, Makati',
+          latitude: 14.5650,
+          longitude: 121.0360,
+          photoUrls: ['https://img.bb/existing.jpg', 'https://img.bb/new_photo.jpg'],
+          amenities: ['WiFi', 'Gym', 'Pool'],
+          status: 'Available',
+          contractType: 'custom',
+          contractTerms: 'Updated Lease Agreement',
+          createdAt: DateTime.now(),
+        );
+
+        await repo.updatePropertyRental('prop_edit_1', updatedProp);
+
+        final saved = firestore.db['properties/prop_edit_1']!;
+        expect(saved['title'], equals('Updated Luxury Loft'));
+        expect(saved['photoUrls'], equals(['https://img.bb/existing.jpg', 'https://img.bb/new_photo.jpg']));
+        expect(saved['contractType'], equals('custom'));
+        expect(saved['contractTerms'], equals('Updated Lease Agreement'));
+        expect(saved['hostId'], equals('host_prop'));
+        expect(saved['hostName'], equals('Property Host'));
+        expect(saved['hostPhotoUrl'], equals('https://img.bb/host_p.jpg'));
+        expect(saved['createdAt'], equals(originalCreatedAt));
+        expect(saved.containsKey('renteeId'), isFalse);
+      });
+    });
   });
 }
 

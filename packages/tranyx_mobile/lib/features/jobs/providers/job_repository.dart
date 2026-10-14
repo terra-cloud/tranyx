@@ -455,6 +455,26 @@ class JobRepository {
         'updatedAt': now,
         'acknowledgmentReminderSent': false,
       });
+
+      // Post acknowledgment request system message to the job chat
+      final durationLabel = JobSlaHelper.formatSlaDurationLabel(slaMinutes);
+      final msgId = 'msg_ack_req_$now';
+      final chatMsgRef = _firestore.collection('chats').doc(jobId).collection('messages').doc(msgId);
+      final chatRef = _firestore.collection('chats').doc(jobId);
+
+      transaction.set(chatMsgRef, {
+        'senderId': 'system',
+        'senderName': 'Tranyx System',
+        'type': 'acknowledgment_request',
+        'text': '🎉 You have been hired for this task.\nPlease acknowledge that you have received the job and are ready to proceed.\n\nPlease respond within $durationLabel.',
+        'category': category.id,
+        'deadline': deadline,
+        'slaMinutes': slaMinutes,
+        'createdAt': now,
+      });
+      transaction.set(chatRef, {
+        'updatedAt': now,
+      }, SetOptions(merge: true));
     });
   }
 

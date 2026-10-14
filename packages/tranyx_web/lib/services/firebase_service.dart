@@ -4635,7 +4635,11 @@ class FirestoreService {
     if (rentalDoc == null) throw Exception('Vehicle listing not found.');
 
     final existing = VehicleRental.fromMap(rentalDoc, rentalId);
-    if (existing.status != 'Available' || (existing.renteeId != null && existing.renteeId!.isNotEmpty)) {
+    final isEditableStatus =
+        existing.status == 'Available' ||
+        existing.status == 'available' ||
+        existing.status == 'Not Accepting Bookings';
+    if (!isEditableStatus || (existing.renteeId != null && existing.renteeId!.isNotEmpty)) {
       throw Exception('Cannot edit a vehicle listing that is currently rented or active.');
     }
 
@@ -4645,17 +4649,65 @@ class FirestoreService {
       throw Exception('Cannot edit vehicle listing: Records of reservations or bookings exist for this unit.');
     }
 
-    final updatedMap = updatedRental.toMap();
+    final serialized = updatedRental.toMap();
+    final updatedMap = <String, dynamic>{
+      ...rentalDoc,
+      ...serialized,
+    };
     updatedMap['id'] = rentalId;
+    updatedMap['hostId'] = rentalDoc['hostId'] ?? existing.hostId;
+    updatedMap['hostName'] = rentalDoc['hostName'] ?? existing.hostName;
+    if (rentalDoc['hostPhotoUrl'] != null) {
+      updatedMap['hostPhotoUrl'] = rentalDoc['hostPhotoUrl'];
+    }
+    if (rentalDoc['createdAt'] != null) {
+      updatedMap['createdAt'] = rentalDoc['createdAt'];
+    }
+    if (rentalDoc['status'] != null) {
+      updatedMap['status'] = rentalDoc['status'];
+    }
+    if (rentalDoc['acceptingBookings'] != null) {
+      updatedMap['acceptingBookings'] = rentalDoc['acceptingBookings'];
+    }
+    if (rentalDoc['listingFeePaid'] != null) {
+      updatedMap['listingFeePaid'] = rentalDoc['listingFeePaid'];
+    }
+    if (rentalDoc['isListingFeeWaived'] != null) {
+      updatedMap['isListingFeeWaived'] = rentalDoc['isListingFeeWaived'];
+    }
+    if (rentalDoc['hostIsVerified'] != null) {
+      updatedMap['hostIsVerified'] = rentalDoc['hostIsVerified'];
+    }
+    if (rentalDoc['hostVerificationStatus'] != null) {
+      updatedMap['hostVerificationStatus'] = rentalDoc['hostVerificationStatus'];
+    }
+    if (rentalDoc['hostVerificationTier'] != null) {
+      updatedMap['hostVerificationTier'] = rentalDoc['hostVerificationTier'];
+    }
+    updatedMap['franchisePermit'] = updatedRental.franchisePermit ?? '';
+    updatedMap['driverNote'] = updatedRental.driverNote ?? '';
+    updatedMap['driverLicenseNumber'] = updatedRental.driverLicenseNumber ?? '';
     updatedMap['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
     if (gpsTrackerId != null && gpsTrackerId.trim().isNotEmpty) {
       updatedMap['gpsTrackerId'] = gpsTrackerId.trim();
+    } else if (rentalDoc['gpsTrackerId'] != null) {
+      updatedMap['gpsTrackerId'] = rentalDoc['gpsTrackerId'];
     }
     if (extraPhotos != null) {
       updatedMap['extraPhotos'] = extraPhotos.where((url) => url.isNotEmpty).toList();
+    } else if (rentalDoc['extraPhotos'] != null) {
+      updatedMap['extraPhotos'] = rentalDoc['extraPhotos'];
     }
 
-    await setDocument('rentals/$rentalId', updatedMap);
+    // Remove null values so setDocument's updateMask does not delete existing fields
+    updatedMap.removeWhere((_, value) => value == null);
+
+    try {
+      await setDocument('rentals/$rentalId', updatedMap);
+    } catch (e) {
+      print('[FirebaseService.updateVehicleRental] Error updating rentals/$rentalId: $e');
+      rethrow;
+    }
   }
 
   /// Fetch all pending extensions for a specific vehicle
@@ -4946,6 +4998,15 @@ class FirestoreService {
 
   /// Create a new property rental posting (0% Free Listing - ₱0.00 upfront fee)
   Future<String> createPropertyRental(PropertyRental property) async {
+    final pricingValidation = PropertyPricingRules.validate(
+      priceDaily: property.dailyRate,
+      priceWeekly: property.weeklyRate,
+      priceMonthly: property.monthlyRate,
+    );
+    if (!pricingValidation.isValid) {
+      throw Exception(pricingValidation.errorMessage ?? 'Invalid property pricing rates.');
+    }
+
     final host = await getUser(property.hostId);
     if (host == null) {
       throw Exception('Host profile not found.');
@@ -5062,11 +5123,24 @@ class FirestoreService {
 
   /// Update an existing property rental posting (only if no active or pending bookings exist)
   Future<void> updatePropertyRental(String propertyId, PropertyRental updatedProperty) async {
+    final pricingValidation = PropertyPricingRules.validate(
+      priceDaily: updatedProperty.dailyRate,
+      priceWeekly: updatedProperty.weeklyRate,
+      priceMonthly: updatedProperty.monthlyRate,
+    );
+    if (!pricingValidation.isValid) {
+      throw Exception(pricingValidation.errorMessage ?? 'Invalid property pricing rates.');
+    }
+
     final propDoc = await getDocument('properties/$propertyId');
     if (propDoc == null) throw Exception('Property listing not found.');
 
     final existing = PropertyRental.fromMap(propDoc, propertyId);
-    if (existing.status != 'Available' || (existing.renteeId != null && existing.renteeId!.isNotEmpty)) {
+    final isEditableStatus =
+        existing.status == 'Available' ||
+        existing.status == 'available' ||
+        existing.status == 'Not Accepting Bookings';
+    if (!isEditableStatus || (existing.renteeId != null && existing.renteeId!.isNotEmpty)) {
       throw Exception('Cannot edit property listing that is currently booked or active.');
     }
 
@@ -5075,11 +5149,52 @@ class FirestoreService {
       throw Exception('Cannot edit property terms while pending lease booking requests exist. Please review or reject pending requests first.');
     }
 
-    final updatedMap = updatedProperty.toMap();
+    final serialized = updatedProperty.toMap();
+    final updatedMap = <String, dynamic>{
+      ...propDoc,
+      ...serialized,
+    };
     updatedMap['id'] = propertyId;
+    updatedMap['hostId'] = propDoc['hostId'] ?? existing.hostId;
+    updatedMap['hostName'] = propDoc['hostName'] ?? existing.hostName;
+    if (propDoc['hostPhotoUrl'] != null) {
+      updatedMap['hostPhotoUrl'] = propDoc['hostPhotoUrl'];
+    }
+    if (propDoc['createdAt'] != null) {
+      updatedMap['createdAt'] = propDoc['createdAt'];
+    }
+    if (propDoc['status'] != null) {
+      updatedMap['status'] = propDoc['status'];
+    }
+    if (propDoc['acceptingBookings'] != null) {
+      updatedMap['acceptingBookings'] = propDoc['acceptingBookings'];
+    }
+    if (propDoc['listingFeePaid'] != null) {
+      updatedMap['listingFeePaid'] = propDoc['listingFeePaid'];
+    }
+    if (propDoc['isListingFeeWaived'] != null) {
+      updatedMap['isListingFeeWaived'] = propDoc['isListingFeeWaived'];
+    }
+    if (propDoc['hostIsVerified'] != null) {
+      updatedMap['hostIsVerified'] = propDoc['hostIsVerified'];
+    }
+    if (propDoc['hostVerificationStatus'] != null) {
+      updatedMap['hostVerificationStatus'] = propDoc['hostVerificationStatus'];
+    }
+    if (propDoc['hostVerificationTier'] != null) {
+      updatedMap['hostVerificationTier'] = propDoc['hostVerificationTier'];
+    }
     updatedMap['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
 
-    await setDocument('properties/$propertyId', updatedMap);
+    // Remove null values so setDocument's updateMask does not delete existing fields
+    updatedMap.removeWhere((_, value) => value == null);
+
+    try {
+      await setDocument('properties/$propertyId', updatedMap);
+    } catch (e) {
+      print('[FirebaseService.updatePropertyRental] Error updating properties/$propertyId: $e');
+      rethrow;
+    }
   }
 
   /// Fetch all properties

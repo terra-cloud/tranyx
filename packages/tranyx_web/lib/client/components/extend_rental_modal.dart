@@ -296,12 +296,6 @@ class _ExtendRentalModalState extends State<ExtendRentalModalComponent> {
 
             // Body
             div(classes: 'p-6 flex-1 space-y-6', [
-              if (_error != null)
-                div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-medium flex items-center gap-2.5', [
-                  lIcon('alert-triangle', cls: 'w-5 h-5 flex-shrink-0 text-red-400'),
-                  span([Component.text(_error!)]),
-                ]),
-
               if (_conflictNotice != null)
                 div(
                   classes:
@@ -543,7 +537,16 @@ class _ExtendRentalModalState extends State<ExtendRentalModalComponent> {
             ]),
 
             // Footer
-            div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"}', [
+            div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex flex-col gap-4', [
+              if (_error != null)
+                div(
+                  classes:
+                      'w-full p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-medium flex items-center gap-2.5',
+                  [
+                    lIcon('alert-triangle', cls: 'w-5 h-5 flex-shrink-0 text-red-400'),
+                    span(classes: 'flex-1', [Component.text(_error!)]),
+                  ],
+                ),
               if (_maxAllowedHours <= 0)
                 button(
                   classes:

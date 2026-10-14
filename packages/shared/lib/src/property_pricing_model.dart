@@ -177,24 +177,38 @@ class PropertyPricingModel {
     double unitRate = 0.0;
     DurationTier appliedTier;
 
+    // Sanitize rates against inverted/corrupted values
+    final safeDailyRate = (dailyRate != null && dailyRate! > 0) ? dailyRate : null;
+    double? safeWeeklyRate = (weeklyRate != null && weeklyRate! > 0) ? weeklyRate : null;
+    if (safeWeeklyRate != null && safeDailyRate != null && safeWeeklyRate < safeDailyRate) {
+      safeWeeklyRate = null;
+    }
+    double? safeMonthlyRate = (monthlyRate != null && monthlyRate! > 0) ? monthlyRate : null;
+    if (safeMonthlyRate != null && safeDailyRate != null && safeMonthlyRate < safeDailyRate) {
+      safeMonthlyRate = null;
+    }
+    if (safeMonthlyRate != null && safeWeeklyRate != null && safeMonthlyRate <= safeWeeklyRate) {
+      safeMonthlyRate = null;
+    }
+
     // 1. Duration-Driven Base Rent Determination
-    if (totalDays >= 30 && monthlyRate != null && monthlyRate! > 0) {
+    if (totalDays >= 30 && safeMonthlyRate != null) {
       appliedTier = DurationTier.monthly;
-      unitRate = monthlyRate!;
+      unitRate = safeMonthlyRate;
       final months = totalDays ~/ 30;
       final remainingDays = totalDays % 30;
-      final dailyFallback = dailyRate ?? (weeklyRate != null && weeklyRate! > 0 ? weeklyRate! / 7 : monthlyRate! / 30);
-      baseRent = (months * monthlyRate!) + (remainingDays * dailyFallback);
-    } else if (totalDays >= 7 && weeklyRate != null && weeklyRate! > 0) {
+      final dailyFallback = safeDailyRate ?? (safeWeeklyRate != null ? safeWeeklyRate / 7 : safeMonthlyRate / 30);
+      baseRent = (months * safeMonthlyRate) + (remainingDays * dailyFallback);
+    } else if (totalDays >= 7 && safeWeeklyRate != null) {
       appliedTier = DurationTier.weekly;
-      unitRate = weeklyRate!;
+      unitRate = safeWeeklyRate;
       final weeks = totalDays ~/ 7;
       final remainingDays = totalDays % 7;
-      final dailyFallback = dailyRate ?? (weeklyRate! / 7);
-      baseRent = (weeks * weeklyRate!) + (remainingDays * dailyFallback);
+      final dailyFallback = safeDailyRate ?? (safeWeeklyRate / 7);
+      baseRent = (weeks * safeWeeklyRate) + (remainingDays * dailyFallback);
     } else {
       appliedTier = DurationTier.daily;
-      final rate = dailyRate ?? (weeklyRate != null && weeklyRate! > 0 ? weeklyRate! / 7 : (monthlyRate != null && monthlyRate! > 0 ? monthlyRate! / 30 : 0.0));
+      final rate = safeDailyRate ?? (safeWeeklyRate != null ? safeWeeklyRate / 7 : (safeMonthlyRate != null ? safeMonthlyRate / 30 : 0.0));
       unitRate = rate;
       baseRent = rate * totalDays;
     }
