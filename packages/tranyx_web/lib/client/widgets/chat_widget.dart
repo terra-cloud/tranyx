@@ -71,6 +71,38 @@ class _ChatWidgetState extends State<ChatWidget> {
       }
     }
 
+    final activeJob = (s.selectedJobData?['id'] == chatId && s.selectedJobData != null)
+        ? s.selectedJobData
+        : s.myJobs.firstWhere(
+            (j) => j['id'] == chatId,
+            orElse: () => _fetchedJobData ?? <String, dynamic>{},
+          );
+    final hasAckMessageInHistory = msgs.any((m) => m['type'] == 'acknowledgment_request');
+    final activeJobStatus = (activeJob?['status'] as String? ?? '').toLowerCase();
+    final isJobAwaitingAck = activeJob != null &&
+        activeJob.isNotEmpty &&
+        (activeJobStatus == 'awaiting acknowledgment' ||
+            activeJob['acknowledgmentStatus'] == 'pending' ||
+            (activeJob['acknowledgmentDeadline'] != null &&
+                activeJobStatus != 'completed' &&
+                activeJobStatus != 'complete' &&
+                activeJobStatus != 'cancelled' &&
+                activeJobStatus != 'expired' &&
+                activeJobStatus != 'open'));
+    final syntheticAckMsg = isJobAwaitingAck
+        ? <String, dynamic>{
+            'senderId': 'system',
+            'senderName': 'Tranyx System',
+            'type': 'acknowledgment_request',
+            'text':
+                '🎉 You have been hired for this task.\nPlease acknowledge that you have received the job and are ready to proceed.',
+            'category': activeJob['acknowledgmentCategory'] ?? '',
+            'deadline': activeJob['acknowledgmentDeadline'],
+            'slaMinutes': activeJob['acknowledgmentSlaMinutes'],
+            'createdAt': activeJob['hiredAt'] ?? DateTime.now().millisecondsSinceEpoch,
+          }
+        : null;
+
     // Real-time disintermediation keywords scanning
     final inputTextLower = s.chatInputText.toLowerCase();
     final hasDisintermediationKeywords =
@@ -161,7 +193,40 @@ class _ChatWidgetState extends State<ChatWidget> {
               classes: 'flex-1 overflow-y-auto px-4 py-4 space-y-3 no-scrollbar',
               attributes: {'id': 'chat-messages-container'},
               [
-                if (msgs.isEmpty)
+                if (s.isChatLoading && msgs.isEmpty)
+                  div(classes: 'h-full flex flex-col items-center justify-center gap-3 text-center px-4', [
+                    if (!hasAckMessageInHistory && isJobAwaitingAck && syntheticAckMsg != null)
+                      _buildSystemMessage(syntheticAckMsg, uid, isDark),
+                    lIcon('loader-2', cls: 'w-8 h-8 animate-spin text-indigo-400'),
+                    p(classes: 'text-sm font-medium ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                      Component.text('Loading conversation...'),
+                    ]),
+                  ])
+                else if (s.chatLoadError != null && s.chatLoadError!.isNotEmpty && msgs.isEmpty)
+                  div(classes: 'h-full flex flex-col items-center justify-center gap-3 text-center px-6', [
+                    if (!hasAckMessageInHistory && isJobAwaitingAck && syntheticAckMsg != null)
+                      _buildSystemMessage(syntheticAckMsg, uid, isDark),
+                    div(
+                      classes: 'p-3 rounded-2xl bg-rose-500/10 text-rose-400',
+                      [lIcon('alert-circle', cls: 'w-8 h-8')],
+                    ),
+                    p(classes: 'text-sm font-bold text-rose-400', [
+                      Component.text('Unable to load messages'),
+                    ]),
+                    p(classes: 'text-xs text-zinc-500 max-w-xs', [
+                      Component.text(s.chatLoadError!),
+                    ]),
+                    button(
+                      classes:
+                          'mt-1 px-4 py-2 rounded-xl text-xs font-bold logo-gradient text-white cursor-pointer hover:opacity-90 transition-opacity flex items-center gap-2',
+                      events: {'click': (_) => s.reloadCurrentChat()},
+                      [
+                        lIcon('refresh-cw', cls: 'w-3.5 h-3.5'),
+                        Component.text('Retry'),
+                      ],
+                    ),
+                  ])
+                else if (msgs.isEmpty && (!isJobAwaitingAck || hasAckMessageInHistory))
                   div(classes: 'h-full flex flex-col items-center justify-center gap-3 text-center', [
                     div(
                       classes: 'p-4 rounded-2xl ${s.currentChatIsArchived ? "bg-zinc-800 text-zinc-500" : "bg-indigo-500/10 text-indigo-400"}',
@@ -178,8 +243,11 @@ class _ChatWidgetState extends State<ChatWidget> {
                       ),
                     ]),
                   ])
-                else
+                else ...[
+                  if (!hasAckMessageInHistory && isJobAwaitingAck && syntheticAckMsg != null)
+                    _buildSystemMessage(syntheticAckMsg, uid, isDark),
                   for (final msg in msgs) _buildMessage(msg, uid, isDark),
+                ],
               ],
             ),
 
