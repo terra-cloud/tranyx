@@ -55,7 +55,7 @@ class _ChatWidgetState extends State<ChatWidget> {
     final msgs = s.chatMessages;
 
     final chatId = s.currentChatId;
-    if (chatId != null && chatId != _lastFetchedJobId) {
+    if (chatId.isNotEmpty && chatId != _lastFetchedJobId) {
       _lastFetchedJobId = chatId;
       final existingJob = s.selectedJobData?['id'] == chatId
           ? s.selectedJobData
