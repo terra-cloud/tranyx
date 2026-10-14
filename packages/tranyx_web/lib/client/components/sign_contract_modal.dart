@@ -220,11 +220,6 @@ class _SignContractModalState extends State<SignContractModalComponent> {
 
             // Body
             div(classes: 'p-6 flex-1 overflow-y-auto space-y-5', [
-              if (_error != null)
-                div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium', [
-                  Component.text(_error!),
-                ]),
-
               p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
                 Component.text(
                   'Please read the agreement details and sign in the designated box below to activate the lease/rental.',
@@ -343,23 +338,37 @@ class _SignContractModalState extends State<SignContractModalComponent> {
             // Footer
             div(
               classes:
-                  'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-end gap-3',
+                  'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex flex-col gap-4',
               [
-                button(
-                  classes:
-                      'px-5 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors text-sm',
-                  events: {'click': (_) => component.onSigned()},
-                  [Component.text('Cancel')],
-                ),
-                button(
-                  classes:
-                      'px-6 py-2 rounded-xl font-bold transition-colors flex items-center gap-2 text-sm border-0 '
-                      '${canSign ? "text-white bg-green-500 hover:bg-green-600 cursor-pointer shadow-lg shadow-green-500/20" : "bg-zinc-800 text-zinc-500 cursor-not-allowed border-zinc-700/50"}',
-                  events: canSign ? {'click': (_) => _submitSignature()} : {},
-                  disabled: !canSign,
+                if (_error != null)
+                  div(
+                    classes:
+                        'w-full p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium flex items-center gap-2',
+                    [
+                      lIcon('alert-circle', cls: 'w-4 h-4 shrink-0'),
+                      span(classes: 'flex-1', [Component.text(_error!)]),
+                    ],
+                  ),
+                div(
+                  classes: 'flex items-center justify-end gap-3',
                   [
-                    if (_isSigning) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                    Component.text(_isSigning ? 'Activating...' : 'Sign & Activate'),
+                    button(
+                      classes:
+                          'px-5 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors text-sm',
+                      events: {'click': (_) => component.onSigned()},
+                      [Component.text('Cancel')],
+                    ),
+                    button(
+                      classes:
+                          'px-6 py-2 rounded-xl font-bold transition-colors flex items-center gap-2 text-sm border-0 '
+                          '${canSign ? "text-white bg-green-500 hover:bg-green-600 cursor-pointer shadow-lg shadow-green-500/20" : "bg-zinc-800 text-zinc-500 cursor-not-allowed border-zinc-700/50"}',
+                      events: canSign ? {'click': (_) => _submitSignature()} : {},
+                      disabled: !canSign,
+                      [
+                        if (_isSigning) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                        Component.text(_isSigning ? 'Activating...' : 'Sign & Activate'),
+                      ],
+                    ),
                   ],
                 ),
               ],

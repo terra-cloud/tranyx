@@ -202,17 +202,6 @@ class _EditJobModalState extends State<EditJobModalComponent> {
               ),
             ]),
 
-            // Error banner
-            if (_error != null)
-              div(
-                classes:
-                    'p-4 rounded-2xl bg-red-500/10 border border-red-500/25 text-red-500 text-sm flex items-center gap-2 animate-fade-up',
-                [
-                  lIcon('alert-circle', cls: 'w-5 h-5 flex-shrink-0 text-red-500'),
-                  span([Component.text(_error!)]),
-                ],
-              ),
-
             // Pre-hire Applicant Notice
             if (_applicantCount > 0)
               div(
@@ -465,22 +454,33 @@ class _EditJobModalState extends State<EditJobModalComponent> {
             ),
 
             // Footer actions
-            div(classes: 'flex items-center justify-end gap-3 pt-4 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
-              button(
-                classes:
-                    'px-6 py-3 rounded-2xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-100 text-zinc-700"} transition-colors cursor-pointer',
-                events: {'click': (_) => component.appState.closeEditJobModal()},
-                [Component.text('Cancel')],
-              ),
-              button(
-                classes:
-                    'px-8 py-3 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-2 cursor-pointer ${_isSubmitting ? "opacity-60 cursor-not-allowed" : ""}',
-                events: _isSubmitting ? {} : {'click': (_) => _handleSubmit()},
-                [
-                  if (_isSubmitting) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
-                  Component.text(_isSubmitting ? 'Saving...' : 'Save Changes'),
-                ],
-              ),
+            div(classes: 'flex flex-col gap-4 pt-4 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+              if (_error != null)
+                div(
+                  classes:
+                      'w-full p-4 rounded-2xl bg-red-500/10 border border-red-500/25 text-red-500 text-sm flex items-center gap-2 animate-fade-up',
+                  [
+                    lIcon('alert-circle', cls: 'w-5 h-5 flex-shrink-0 text-red-500'),
+                    span(classes: 'flex-1', [Component.text(_error!)]),
+                  ],
+                ),
+              div(classes: 'flex items-center justify-end gap-3', [
+                button(
+                  classes:
+                      'px-6 py-3 rounded-2xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-100 text-zinc-700"} transition-colors cursor-pointer',
+                  events: {'click': (_) => component.appState.closeEditJobModal()},
+                  [Component.text('Cancel')],
+                ),
+                button(
+                  classes:
+                      'px-8 py-3 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-2 cursor-pointer ${_isSubmitting ? "opacity-60 cursor-not-allowed" : ""}',
+                  events: _isSubmitting ? {} : {'click': (_) => _handleSubmit()},
+                  [
+                    if (_isSubmitting) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
+                    Component.text(_isSubmitting ? 'Saving...' : 'Save Changes'),
+                  ],
+                ),
+              ]),
             ]),
           ],
         ),

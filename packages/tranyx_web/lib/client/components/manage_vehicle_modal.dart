@@ -440,16 +440,6 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
 
             // Content
             div(classes: 'p-6 overflow-y-auto space-y-6 flex-1', [
-              if (_error != null)
-                div(
-                  classes:
-                      'mb-4 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2',
-                  [
-                    lIcon('alert-circle', cls: 'w-5 h-5 flex-shrink-0'),
-                    span([Component.text(_error!)]),
-                  ],
-                ),
-
               if (isNotAccepting)
                 div(classes: 'mb-4 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs flex items-center justify-between', [
                   div(classes: 'flex items-center gap-2', [
@@ -579,6 +569,16 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
                   ),
                 ],
               ),
+
+              if (_error != null)
+                div(
+                  classes:
+                      'mb-4 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2',
+                  [
+                    lIcon('alert-circle', cls: 'w-5 h-5 flex-shrink-0'),
+                    span([Component.text(_error!)]),
+                  ],
+                ),
 
               // Host Listing Controls (Edit, Pause/Resume, Delete)
               if (_showPendingWarning)

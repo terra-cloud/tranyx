@@ -310,10 +310,17 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
       final user = component.appState.userProfile;
       if (user == null) throw Exception('User profile not loaded.');
 
+      final existingData = component.appState.selectedRentalData ?? <String, dynamic>{};
+      final existingCreatedAtMs = existingData['createdAt'];
+      final existingCreatedAt = existingCreatedAtMs is int
+          ? DateTime.fromMillisecondsSinceEpoch(existingCreatedAtMs)
+          : (existingCreatedAtMs is DateTime ? existingCreatedAtMs : DateTime.now());
+
       final updatedRental = VehicleRental(
         id: _rentalId!,
         hostId: hostId,
         hostName: user.name,
+        hostPhotoUrl: existingData['hostPhotoUrl'] as String? ?? user.photoUrl,
         type: _selectedType,
         brand: _brand,
         model: _model,
@@ -333,8 +340,9 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
         pickupAddress: _pickupAddress.isNotEmpty ? _pickupAddress : 'Default Garage',
         pickupLat: _pickupLat ?? 14.5995,
         pickupLng: _pickupLng ?? 120.9842,
-        status: 'Available',
-        createdAt: DateTime.now(),
+        status: existingData['status'] as String? ?? 'Available',
+        acceptingBookings: existingData['acceptingBookings'] as bool? ?? true,
+        createdAt: existingCreatedAt,
         vehicleValue: double.tryParse(_vehicleValue) ?? 0,
         ltoCrNumber: _ltoCrNumber.trim().isNotEmpty ? _ltoCrNumber.trim() : 'PENDING',
         ltoOrNumber: _ltoOrNumber.trim().isNotEmpty ? _ltoOrNumber.trim() : 'PENDING',
@@ -360,8 +368,19 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
         extraPhotos: extraPhotosList,
       );
 
-      // Close modal and clear selected state
+      // Update local state cache and close modal
       component.appState.setState(() {
+        final idx = component.appState.realtimeRentals.indexWhere((r) => r['id'] == _rentalId);
+        if (idx != -1) {
+          component.appState.realtimeRentals[idx] = {
+            ...component.appState.realtimeRentals[idx],
+            ...updatedRental.toMap(),
+            'id': _rentalId!,
+            'extraPhotos': extraPhotosList,
+            if (_gpsTrackerId.trim().isNotEmpty) 'gpsTrackerId': _gpsTrackerId.trim(),
+            'updatedAt': DateTime.now().millisecondsSinceEpoch,
+          };
+        }
         component.appState.showEditVehicleModal = false;
         component.appState.selectedRentalData = null;
       });
@@ -373,7 +392,7 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
     } catch (e) {
       setState(() {
         _isSubmitting = false;
-        _error = e.toString();
+        _error = e.toString().replaceAll('Exception: ', '');
       });
     }
   }
@@ -384,50 +403,56 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
     if (_step == 1) {
       if (_brand.trim().isEmpty || _model.trim().isEmpty || _year.trim().isEmpty || _plateNumber.trim().isEmpty) {
         setState(() => _error = 'Please fill out all vehicle specifications.');
-        _scrollToTop();
         return;
       }
       if (int.tryParse(_year) == null) {
         setState(() => _error = 'Year must be a valid number.');
-        _scrollToTop();
         return;
       }
       if (!_isValidPhilippinePlate(_plateNumber)) {
         setState(
           () => _error = 'Please enter a valid Philippine Plate Number (e.g. ABC-1234, MC-12345) or MV File Number.',
         );
-        _scrollToTop();
         return;
       }
     } else if (_step == 2) {
       final daily = double.tryParse(_priceDaily) ?? 0;
       if (daily <= 0) {
         setState(() => _error = 'Please provide a valid daily rate.');
-        _scrollToTop();
+        return;
+      }
+      final p12h = double.tryParse(_price12h) ?? 0.0;
+      final weekly = double.tryParse(_priceWeekly) ?? 0.0;
+      final monthly = double.tryParse(_priceMonthly) ?? 0.0;
+
+      final pricingValidation = VehiclePricingRules.validate(
+        priceDaily: daily,
+        price12h: p12h,
+        priceWeekly: weekly,
+        priceMonthly: monthly,
+      );
+      if (!pricingValidation.isValid) {
+        setState(() => _error = pricingValidation.errorMessage);
         return;
       }
       if (_offersDriver) {
         final drvPrice = double.tryParse(_driverDailyPrice) ?? 0;
         if (drvPrice <= 0) {
           setState(() => _error = 'Please enter a valid driver daily rate.');
-          _scrollToTop();
           return;
         }
         final cleanedLicense = _driverLicenseNumber.replaceAll(RegExp(r'[\s-]'), '');
         if (cleanedLicense.length != 11) {
           setState(() => _error = 'Please enter a valid Driver\'s License Number (11 characters).');
-          _scrollToTop();
           return;
         }
         if (_driverNote.trim().isEmpty) {
           setState(() => _error = 'Please provide a driver note.');
-          _scrollToTop();
           return;
         }
       }
       if (component.appState.pickupAddress.isEmpty) {
         setState(() => _error = 'Please select and confirm a vehicle location on the map picker.');
-        _scrollToTop();
         return;
       }
       _pickupAddress = component.appState.pickupAddress;
@@ -498,10 +523,6 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
             // Body
             div(classes: 'p-6 flex-1 space-y-6', [
               div(id: 'edit-vehicle-modal-top', classes: 'h-0 w-full p-0 m-0 overflow-hidden', []),
-              if (_error != null)
-                div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium', [
-                  Component.text(_error!),
-                ]),
 
               if (_step == 1) ...[
                 // Step 1: Specs
@@ -1194,42 +1215,49 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
             // Footer
             div(
               classes:
-                  'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between',
+                  'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex flex-col gap-4',
               [
-                if (_step > 1)
-                  button(
-                    classes:
-                        'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors cursor-pointer bg-transparent',
-                    events: {
-                      'click': (e) {
-                        final prevStep = _step - 1;
-                        setState(() => _step = prevStep);
-                        _onEnterStep(prevStep);
-                      },
-                    },
-                    [Component.text('Back')],
-                  )
-                else
-                  div([]),
-
-                if (_step < 3)
-                  button(
-                    classes:
-                        'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
-                    events: {'click': (e) => _handleNext()},
-                    [Component.text('Continue')],
-                  )
-                else
-                  button(
-                    classes:
-                        'px-8 py-2 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-indigo-500/20',
-                    events: {'click': (e) => _submit()},
-                    disabled: _isSubmitting,
-                    [
-                      if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                      Component.text(_isSubmitting ? 'Saving Changes...' : 'Save Changes'),
-                    ],
+                if (_error != null)
+                  div(
+                    classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium',
+                    [Component.text(_error!)],
                   ),
+                div(classes: 'flex items-center justify-between w-full', [
+                  if (_step > 1)
+                    button(
+                      classes:
+                          'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors cursor-pointer bg-transparent',
+                      events: {
+                        'click': (e) {
+                          final prevStep = _step - 1;
+                          setState(() => _step = prevStep);
+                          _onEnterStep(prevStep);
+                        },
+                      },
+                      [Component.text('Back')],
+                    )
+                  else
+                    div([]),
+
+                  if (_step < 3)
+                    button(
+                      classes:
+                          'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
+                      events: {'click': (e) => _handleNext()},
+                      [Component.text('Continue')],
+                    )
+                  else
+                    button(
+                      classes:
+                          'px-8 py-2 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-indigo-500/20',
+                      events: {'click': (e) => _submit()},
+                      disabled: _isSubmitting,
+                      [
+                        if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                        Component.text(_isSubmitting ? 'Saving Changes...' : 'Save Changes'),
+                      ],
+                    ),
+                ]),
               ],
             ),
           ],

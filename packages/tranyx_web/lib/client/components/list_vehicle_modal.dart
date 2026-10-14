@@ -295,25 +295,21 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
     if (_step == 1) {
       if (_brand.trim().isEmpty || _model.trim().isEmpty || _year.trim().isEmpty || _plateNumber.trim().isEmpty) {
         setState(() => _error = 'Please fill out all vehicle specifications.');
-        _scrollToTop();
         return;
       }
       if (int.tryParse(_year) == null) {
         setState(() => _error = 'Year must be a valid number.');
-        _scrollToTop();
         return;
       }
       if (!_isValidPhilippinePlate(_plateNumber)) {
         setState(
           () => _error = 'Please enter a valid Philippine Plate Number (e.g. ABC-1234, MC-12345) or MV File Number.',
         );
-        _scrollToTop();
         return;
       }
     } else if (_step == 2) {
       if (_priceDaily.trim().isEmpty) {
         setState(() => _error = 'Please provide a daily rate.');
-        _scrollToTop();
         return;
       }
       final daily = double.tryParse(_priceDaily) ?? 0.0;
@@ -329,7 +325,6 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
       );
       if (!pricingValidation.isValid) {
         setState(() => _error = pricingValidation.errorMessage);
-        _scrollToTop();
         return;
       }
       if (_offersDriver) {
@@ -337,24 +332,20 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
             double.tryParse(_driverDailyPrice) == null ||
             double.parse(_driverDailyPrice) < 0) {
           setState(() => _error = 'Please enter a valid driver daily rate.');
-          _scrollToTop();
           return;
         }
         final cleanedLicense = _driverLicenseNumber.replaceAll(RegExp(r'[\s-]'), '');
         if (cleanedLicense.length != 11) {
           setState(() => _error = 'Please enter a valid Driver\'s License Number (11 characters).');
-          _scrollToTop();
           return;
         }
         if (_driverNote.trim().isEmpty) {
           setState(() => _error = 'Please provide a driver note.');
-          _scrollToTop();
           return;
         }
       }
       if (component.appState.pickupAddress.isEmpty) {
         setState(() => _error = 'Please select and confirm a vehicle location on the map picker.');
-        _scrollToTop();
         return;
       }
       _pickupAddress = component.appState.pickupAddress;
@@ -423,10 +414,6 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
           // Body
           div(classes: 'p-6 flex-1 space-y-6', [
             div(id: 'list-vehicle-modal-top', classes: 'h-0 w-full p-0 m-0 overflow-hidden', []),
-            if (_error != null)
-              div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium', [
-                Component.text(_error!),
-              ]),
 
             if (_step == 1) ...[
               // Step 1: Specs

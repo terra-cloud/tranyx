@@ -8,26 +8,42 @@
       allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid;
       
       allow update: if 
-        // 1. Host (Property Owner): Can update property details & accept bookings when status is Available
+        // 1. Host (Property Owner): Can update property details & accept bookings when not actively rented
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
-          (resource.data.status == 'Available' || resource.data.status == 'available') &&
+          request.resource.data.hostId == resource.data.hostId &&
+          (resource.data.status == 'Available' || resource.data.status == 'available' || resource.data.status == 'Not Accepting Bookings') &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'title', 'description', 'propertyType', 'address', 'landmark', 
-            'lat', 'lng', 'bedrooms', 'bathrooms', 'maxGuests', 'nightlyPrice', 
-            'weeklyDiscount', 'monthlyDiscount', 'cleaningFee', 'depositAmount', 
-            'amenities', 'houseRules', 'images', 'contractType', 'contractTerms', 
-            'status', 'renteeId', 'renteeName', 'renteePhotoUrl', 'checkInDate', 
+            // Identity & metadata
+            'id', 'hostName', 'hostPhotoUrl', 'title', 'type', 'category',
+            'propertyType', 'description', 'status', 'acceptingBookings',
+            'isListingFeeWaived', 'createdAt', 'updatedAt',
+            // Pricing & deposit
+            'pricePerMonth', 'priceMonthly', 'priceWeekly', 'priceDaily',
+            'nightlyPrice', 'weeklyDiscount', 'monthlyDiscount', 'cleaningFee',
+            'allowedDurations', 'depositMonths', 'depositAmount',
+            'securityDepositAmount', 'advanceAmount', 'depositType',
+            'depositValue', 'securityDepositPolicy',
+            // Location & specs
+            'address', 'location', 'landmark', 'lat', 'lng', 'latitude', 'longitude',
+            'bedrooms', 'bathrooms', 'maxGuests', 'sqft', 'furnishing',
+            'amenities', 'houseRules',
+            // Photos & legal terms
+            'photoUrl', 'photoUrls', 'images', 'contractType', 'contractTerms',
+            'legalTerms', 'termsPreset', 'termsTitle', 'termsContent',
+            'requireRenteeSignature',
+            // Lease & rentee fields
+            'renteeId', 'renteeName', 'renteePhotoUrl', 'checkInDate', 
             'checkOutDate', 'hostRated', 'renteeRated',
             // Booking acceptance & lease metadata
             'rentalDurationType', 'rentalMultiplier', 'startDate', 'endDate', 
-            'totalCost', 'baseRentAmount', 'securityDepositAmount', 'bookingFee', 
+            'totalCost', 'baseRentAmount', 'bookingFee', 
             'customerPlatformFeeRate', 'hostCommissionRate', 'renteeSignatureName', 
             'signedAt', 'currentRequestId', 'allowChat', 'licenseNumber', 
             'verificationSelfieUrl', 'verificationGovtIdUrl', 'verificationStatus', 
             'hostIsVerified', 'hostVerificationStatus', 'hostVerificationTier', 
             'renteeIsVerified', 'renteeVerificationStatus', 'renteeVerificationTier',
-            // Listing deletion, archival & pause/resume
-            'isDeleted', 'acceptingBookings', 'deletedAt'
+            // Listing deletion & archival
+            'isDeleted', 'deletedAt'
           ])
         ) ||
         // 1b. Host: When awaiting signature, can revoke approval (back to Available) or activate lease

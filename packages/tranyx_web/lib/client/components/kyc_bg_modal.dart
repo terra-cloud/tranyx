@@ -131,15 +131,6 @@ class _KycBgModalState extends State<KycBgModalComponent> {
             div(
               classes: 'p-6 space-y-5 flex-1 overflow-y-auto max-h-[65vh]',
               [
-                if (_error != null)
-                  div(
-                    classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold flex items-center gap-2',
-                    [
-                      lIcon('alert-triangle', cls: 'w-4 h-4 shrink-0'),
-                      Component.text(_error!),
-                    ],
-                  ),
-
                 // Clearance Type Dropdown
                 div(
                   classes: 'space-y-1.5',
@@ -257,19 +248,32 @@ class _KycBgModalState extends State<KycBgModalComponent> {
 
             // Footer / Actions
             div(
-              classes: 'p-6 border-t flex items-center justify-end gap-3 ${isDark ? "border-zinc-800 bg-zinc-900/10" : "border-zinc-100 bg-zinc-50/20"} rounded-b-3xl',
+              classes: 'p-6 border-t flex flex-col gap-4 ${isDark ? "border-zinc-800 bg-zinc-900/10" : "border-zinc-100 bg-zinc-50/20"} rounded-b-3xl',
               [
-                button(
-                  classes: 'px-4 py-2.5 rounded-xl text-xs font-bold ${isDark ? "hover:bg-zinc-800 text-zinc-400" : "hover:bg-zinc-100 text-zinc-650"} transition-all cursor-pointer border-0 bg-transparent',
-                  events: {'click': (_) => s.setState(() => s.showKycBgModal = false)},
-                  [Component.text('Cancel')],
-                ),
-                button(
-                  classes: 'px-6 py-2.5 rounded-xl text-xs font-bold text-white logo-gradient hover:opacity-95 transition-all flex items-center gap-1.5 cursor-pointer border-0',
-                  events: s.isLoadingKyc ? {} : {'click': (_) => _submit()},
+                if (_error != null)
+                  div(
+                    classes: 'w-full p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold flex items-center gap-2',
+                    [
+                      lIcon('alert-triangle', cls: 'w-4 h-4 shrink-0'),
+                      span(classes: 'flex-1', [Component.text(_error!)]),
+                    ],
+                  ),
+                div(
+                  classes: 'flex items-center justify-end gap-3',
                   [
-                    if (s.isLoadingKyc) lIcon('loader-2', cls: 'w-3.5 h-3.5 animate-spin'),
-                    Component.text(s.isLoadingKyc ? 'Submitting...' : 'Submit Clearance'),
+                    button(
+                      classes: 'px-4 py-2.5 rounded-xl text-xs font-bold ${isDark ? "hover:bg-zinc-800 text-zinc-400" : "hover:bg-zinc-100 text-zinc-650"} transition-all cursor-pointer border-0 bg-transparent',
+                      events: {'click': (_) => s.setState(() => s.showKycBgModal = false)},
+                      [Component.text('Cancel')],
+                    ),
+                    button(
+                      classes: 'px-6 py-2.5 rounded-xl text-xs font-bold text-white logo-gradient hover:opacity-95 transition-all flex items-center gap-1.5 cursor-pointer border-0',
+                      events: s.isLoadingKyc ? {} : {'click': (_) => _submit()},
+                      [
+                        if (s.isLoadingKyc) lIcon('loader-2', cls: 'w-3.5 h-3.5 animate-spin'),
+                        Component.text(s.isLoadingKyc ? 'Submitting...' : 'Submit Clearance'),
+                      ],
+                    ),
                   ],
                 ),
               ],

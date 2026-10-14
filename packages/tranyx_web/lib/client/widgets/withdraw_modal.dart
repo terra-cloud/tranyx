@@ -461,13 +461,6 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
 
             // Body
             div(classes: 'p-6 space-y-5 max-h-[75vh] overflow-y-auto custom-scrollbar', [
-              // Alerts
-              if (_errorMessage != null)
-                div(classes: 'p-3.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2', [
-                  lIcon('alert-circle', cls: 'w-4 h-4 flex-shrink-0'),
-                  span([Component.text(_errorMessage!)]),
-                ]),
-
               if (_successMessage != null)
                 div(classes: 'p-3.5 rounded-2xl bg-green-500/10 border border-green-500/20 text-green-400 text-xs flex items-center gap-2', [
                   lIcon('check-circle-2', cls: 'w-4 h-4 flex-shrink-0'),
@@ -819,6 +812,12 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
                     ]),
                   ]),
 
+                  if (_errorMessage != null)
+                    div(classes: 'p-3.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2', [
+                      lIcon('alert-circle', cls: 'w-4 h-4 flex-shrink-0'),
+                      span(classes: 'flex-1', [Component.text(_errorMessage!)]),
+                    ]),
+
                   // Request button
                   button(
                     classes:
@@ -996,6 +995,12 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
                     ),
                   ]),
                 ]),
+
+                if (_errorMessage != null)
+                  div(classes: 'p-3.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2', [
+                    lIcon('alert-circle', cls: 'w-4 h-4 flex-shrink-0'),
+                    span(classes: 'flex-1', [Component.text(_errorMessage!)]),
+                  ]),
 
                 // Submit Button
                 button(
