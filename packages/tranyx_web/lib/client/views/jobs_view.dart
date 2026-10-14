@@ -753,6 +753,20 @@ class JobsViewComponent extends StatelessComponent {
         ? 'bg-zinc-700/50 text-zinc-400'
         : (isUrgent ? 'bg-red-500/20 text-red-400' : 'bg-zinc-700 text-zinc-300');
 
+    final deadlineMs = (j['acknowledgmentDeadline'] as num?)?.toInt();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    String? ackCountdownLabel;
+    bool isAckExpired = false;
+    if (status == 'Awaiting Acknowledgment' && deadlineMs != null) {
+      if (nowMs >= deadlineMs) {
+        isAckExpired = true;
+        ackCountdownLabel = 'SLA Expired';
+      } else {
+        final remaining = Duration(milliseconds: deadlineMs - nowMs);
+        ackCountdownLabel = '${JobSlaHelper.formatRemainingTime(remaining)} left';
+      }
+    }
+
     String? appliedStatusText;
     String? appliedStatusCls;
     if (s.activeJobPane == 'applied') {
@@ -819,6 +833,15 @@ class JobsViewComponent extends StatelessComponent {
         ]),
         div(classes: 'flex flex-col items-end gap-1.5', [
           span(classes: 'px-2 py-0.5 rounded text-[10px] font-bold $badgeCls', [Component.text(badgeText)]),
+          if (ackCountdownLabel != null)
+            span(
+              classes:
+                  'px-2 py-0.5 rounded text-[9px] font-extrabold flex items-center gap-1 ${isAckExpired ? "bg-rose-500/20 text-rose-400 border border-rose-500/30" : "bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse"}',
+              [
+                lIcon(isAckExpired ? 'alert-triangle' : 'timer', cls: 'w-3 h-3'),
+                Component.text(ackCountdownLabel),
+              ],
+            ),
           if (appliedStatusText != null)
             span(
               classes: 'px-2 py-0.5 rounded text-[9px] font-bold $appliedStatusCls',

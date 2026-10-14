@@ -17,6 +17,8 @@ class ChatWidget extends StatefulComponent {
 class _ChatWidgetState extends State<ChatWidget> {
   final String _inputId = 'chat-msg-input';
   Timer? _tickerTimer;
+  Map<String, dynamic>? _fetchedJobData;
+  String? _lastFetchedJobId;
 
   @override
   void initState() {
@@ -51,6 +53,23 @@ class _ChatWidgetState extends State<ChatWidget> {
     final isDark = s.isDark;
     final uid = SessionStorage.uid ?? '';
     final msgs = s.chatMessages;
+
+    final chatId = s.currentChatId;
+    if (chatId != null && chatId != _lastFetchedJobId) {
+      _lastFetchedJobId = chatId;
+      final existingJob = s.selectedJobData?['id'] == chatId
+          ? s.selectedJobData
+          : s.myJobs.firstWhere((j) => j['id'] == chatId, orElse: () => <String, dynamic>{});
+      if (existingJob == null || existingJob.isEmpty) {
+        s.firestore.getDocument('jobs/$chatId').then((doc) {
+          if (mounted && doc != null) {
+            setState(() {
+              _fetchedJobData = doc;
+            });
+          }
+        }).catchError((_) {});
+      }
+    }
 
     // Real-time disintermediation keywords scanning
     final inputTextLower = s.chatInputText.toLowerCase();
@@ -438,9 +457,12 @@ class _ChatWidgetState extends State<ChatWidget> {
     final chatId = s.currentChatId;
 
     // Retrieve active job data if available
-    final job = s.selectedJobData?['id'] == chatId
+    final job = (s.selectedJobData?['id'] == chatId && s.selectedJobData != null)
         ? s.selectedJobData
-        : s.myJobs.firstWhere((j) => j['id'] == chatId, orElse: () => <String, dynamic>{});
+        : s.myJobs.firstWhere(
+            (j) => j['id'] == chatId,
+            orElse: () => _fetchedJobData ?? <String, dynamic>{},
+          );
     final acceptedNyxianId = job?['acceptedApplicantId'] as String? ?? '';
     final creatorId = job?['creatorId'] as String? ?? '';
     final isNyxian = uid == acceptedNyxianId;
