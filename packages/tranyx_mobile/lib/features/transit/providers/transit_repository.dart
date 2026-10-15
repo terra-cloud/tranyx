@@ -1027,36 +1027,43 @@ class TransitRepository {
     }
 
     if (escrowDoc == null || !escrowDoc.exists) throw Exception('Escrow transaction not found.');
-    if (escrowDoc.data()!['status'] != 'Held') throw Exception('Escrow is not in Held status.');
+    final currentEscrowStatus = escrowDoc.data()!['status'] as String? ?? '';
+    final bool isAlreadyReleased = currentEscrowStatus == 'Released';
+
+    if (!isAlreadyReleased && currentEscrowStatus != 'Held') {
+      throw Exception('Escrow is not in Held status. Current status: $currentEscrowStatus.');
+    }
 
     final cost = ((bookingDoc?['totalCost'] ?? rental.totalCost ?? escrowDoc.data()!['amount']) as num).toDouble();
     final commission = cost * 0.03;
     final hostPayout = cost - commission;
 
-    await updateTyxBalance(hostId, host.tyxBalance + hostPayout);
+    if (!isAlreadyReleased) {
+      await updateTyxBalance(hostId, host.tyxBalance + hostPayout);
 
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    await _firestore.collection('transactions').doc(txId).set({
-      'uid': hostId,
-      'type': 'payment',
-      'amount': hostPayout,
-      'baseAmount': cost,
-      'commissionFee': commission,
-      'commissionLabel': 'Platform Commission (3%)',
-      'title': 'Rental Earnings Payout',
-      'desc': 'Payout for rental ${rental.brand} ${rental.model} (3% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    });
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      await _firestore.collection('transactions').doc(txId).set({
+        'uid': hostId,
+        'type': 'payment',
+        'amount': hostPayout,
+        'baseAmount': cost,
+        'commissionFee': commission,
+        'commissionLabel': 'Platform Commission (3%)',
+        'title': 'Rental Earnings Payout',
+        'desc': 'Payout for rental ${rental.brand} ${rental.model} (3% platform commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      });
 
-    final escrowRelease = {
-      'status': 'Released',
-      'releasedAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
-      await _firestore.collection('rental_escrows').doc(resolvedReqId).update(escrowRelease);
+      final escrowRelease = {
+        'status': 'Released',
+        'releasedAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+        await _firestore.collection('rental_escrows').doc(resolvedReqId).update(escrowRelease);
+      }
+      await _firestore.collection('rental_escrows').doc(actualRentalId).update(escrowRelease);
     }
-    await _firestore.collection('rental_escrows').doc(actualRentalId).update(escrowRelease);
 
     final historyId = 'rh_${DateTime.now().microsecondsSinceEpoch}';
     final historyDoc = {
@@ -2171,7 +2178,12 @@ class TransitRepository {
 
     if (escrowDoc == null || !escrowDoc.exists) throw Exception('Escrow transaction not found.');
     final escrowData = escrowDoc.data()!;
-    if (escrowData['status'] != 'Held') throw Exception('Escrow is not in Held status.');
+    final currentEscrowStatus = escrowData['status'] as String? ?? '';
+    final bool isAlreadyReleased = currentEscrowStatus == 'Released';
+
+    if (!isAlreadyReleased && currentEscrowStatus != 'Held') {
+      throw Exception('Escrow is not in Held status. Current status: $currentEscrowStatus.');
+    }
 
     final feeConfig = await getPlatformFeeConfig();
     final hostCommRate = (escrowData['hostCommissionRate'] as num?)?.toDouble() ??
@@ -2187,39 +2199,45 @@ class TransitRepository {
     final baseRent = (escrowData['baseRentAmount'] as num?)?.toDouble() ??
         (totalCustomerPaid - securityDeposit - customerFee).clamp(0.0, 9999999.0);
 
-    final hostCommission = double.parse((baseRent * hostCommRate).toStringAsFixed(2));
-    final hostPayout = double.parse((baseRent - hostCommission).toStringAsFixed(2));
+    final hostCommission = (isAlreadyReleased && escrowData['hostCommissionAmount'] != null)
+        ? (escrowData['hostCommissionAmount'] as num).toDouble()
+        : double.parse((baseRent * hostCommRate).toStringAsFixed(2));
+    final hostPayout = (isAlreadyReleased && escrowData['hostPayoutAmount'] != null)
+        ? (escrowData['hostPayoutAmount'] as num).toDouble()
+        : double.parse((baseRent - hostCommission).toStringAsFixed(2));
 
-    await updateTyxBalance(hostId, host.tyxBalance + hostPayout);
+    if (!isAlreadyReleased) {
+      await updateTyxBalance(hostId, host.tyxBalance + hostPayout);
 
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    await _firestore.collection('transactions').doc(txId).set({
-      'uid': hostId,
-      'type': 'payment',
-      'amount': hostPayout,
-      'baseRentAmount': baseRent,
-      'securityDepositAmount': 0.0,
-      'hostCommissionRate': hostCommRate,
-      'hostCommissionAmount': hostCommission,
-      'title': 'Property Rental Payout',
-      'desc':
-          'Earnings payout for "${property.title}" (${PlatformFeeConfig.formatPercent(hostCommRate)} TRANYX commission of ₱${hostCommission.toStringAsFixed(2)} deducted)',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    });
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      await _firestore.collection('transactions').doc(txId).set({
+        'uid': hostId,
+        'type': 'payment',
+        'amount': hostPayout,
+        'baseRentAmount': baseRent,
+        'securityDepositAmount': 0.0,
+        'hostCommissionRate': hostCommRate,
+        'hostCommissionAmount': hostCommission,
+        'title': 'Property Rental Payout',
+        'desc':
+            'Earnings payout for "${property.title}" (${PlatformFeeConfig.formatPercent(hostCommRate)} TRANYX commission of ₱${hostCommission.toStringAsFixed(2)} deducted)',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      });
 
-    final escrowRelease = {
-      'status': 'Released',
-      'releasedAt': DateTime.now().millisecondsSinceEpoch,
-      'hostCommissionRate': hostCommRate,
-      'hostCommissionAmount': hostCommission,
-      'hostPayoutAmount': hostPayout,
-      'securityDepositRefunded': securityDeposit,
-    };
-    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
-      await _firestore.collection('property_escrows').doc(resolvedReqId).update(escrowRelease);
+      final escrowRelease = {
+        'status': 'Released',
+        'releasedAt': DateTime.now().millisecondsSinceEpoch,
+        'hostCommissionRate': hostCommRate,
+        'hostCommissionAmount': hostCommission,
+        'hostPayoutAmount': hostPayout,
+        'securityDepositRefunded': securityDeposit,
+      };
+      if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+        await _firestore.collection('property_escrows').doc(resolvedReqId).update(escrowRelease);
+      }
+      await _firestore.collection('property_escrows').doc(actualPropertyId).update(escrowRelease);
     }
-    await _firestore.collection('property_escrows').doc(actualPropertyId).update(escrowRelease);
 
     // Refund security deposit to rentee upon lease completion
     final targetRentee = bookingDoc?['renteeId'] ?? property.renteeId;

@@ -56,11 +56,14 @@
             'currentRequestId', 'renteeSignatureName', 'signedAt', 'licenseNumber', 'allowChat'
           ])
         ) ||
-        // 1c. Host: When property is active/booked, can submit rating, accept extensions, or update status
+        // 1c. Host: When property is active/booked, can submit rating, accept extensions, or complete/reset rental
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           resource.data.status != 'Available' && resource.data.status != 'available' &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'hostRated', 'endDate', 'checkOutDate', 'totalCost', 'status'
+            'hostRated', 'endDate', 'checkOutDate', 'totalCost', 'status',
+            'renteeId', 'renteeName', 'renteePhotoUrl', 'rentalDurationType', 'rentalMultiplier',
+            'startDate', 'baseRentAmount', 'securityDepositAmount', 'bookingFee',
+            'renteeSignatureName', 'signedAt', 'currentRequestId', 'licenseNumber', 'allowChat'
           ])
         ) ||
         // 2a. Assigned Rentee: Can sign contract when status is Awaiting Signature
