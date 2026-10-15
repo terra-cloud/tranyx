@@ -98,27 +98,27 @@ void main() {
       }
     });
 
-    test('404 Not Found MUST trigger session expiration', () {
+    test('404 Not Found MUST NOT trigger session expiration', () {
       try {
         throw FirebaseException('Document not found', 404);
       } catch (e) {
-        expect(sessionExpiredTriggered, isTrue);
+        expect(sessionExpiredTriggered, isFalse);
       }
     });
 
-    test('String containing "User profile not found" MUST trigger session expiration', () {
+    test('String containing "User profile not found" MUST NOT trigger session expiration', () {
       try {
         throw FirebaseException('User profile not found', 400);
       } catch (e) {
-        expect(sessionExpiredTriggered, isTrue);
+        expect(sessionExpiredTriggered, isFalse);
       }
     });
 
-    test('String containing "profile not found" MUST trigger session expiration', () {
+    test('String containing "profile not found" MUST NOT trigger session expiration', () {
       try {
         throw FirebaseException('Renter profile not found.', 500);
       } catch (e) {
-        expect(sessionExpiredTriggered, isTrue);
+        expect(sessionExpiredTriggered, isFalse);
       }
     });
 

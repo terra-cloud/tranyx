@@ -175,6 +175,31 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
       await component.appState.loadUserProfile();
       component.appState.walletBalance = component.appState.userProfile?.tyxBalance ?? component.appState.walletBalance;
 
+      // Update in-memory property data
+      prop['status'] = 'Available';
+      prop['renteeId'] = '';
+      prop['renteeName'] = '';
+      prop['renteePhotoUrl'] = '';
+      prop['currentRequestId'] = '';
+
+      for (int i = 0; i < component.appState.realtimeProperties.length; i++) {
+        final item = component.appState.realtimeProperties[i];
+        if (item.id == prop['id']) {
+          final updated = PropertyRental.fromMap({
+            ...item.toMap(),
+            'status': 'Available',
+            'renteeId': '',
+            'renteeName': '',
+            'renteePhotoUrl': '',
+            'currentRequestId': '',
+          }, item.id);
+          component.appState.realtimeProperties[i] = updated;
+        }
+      }
+
+      component.appState.propertyRenterActiveBookings.removeWhere((b) =>
+          b['propertyId'] == prop['id'] || b['id'] == prop['id'] || b['id'] == prop['currentRequestId']);
+
       component.appState.setState(() {
         component.appState.showManagePropertyModal = false;
         component.appState.selectedPropertyData = null;
@@ -200,7 +225,35 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
       await component.appState.firestore.completePropertyRental(prop['id'], requestId: requestId);
       await component.appState.loadUserProfile();
       component.appState.walletBalance = component.appState.userProfile?.tyxBalance ?? component.appState.walletBalance;
-      _loadRequests();
+
+      prop['status'] = 'Available';
+      prop['renteeId'] = '';
+      prop['renteeName'] = '';
+      prop['renteePhotoUrl'] = '';
+      prop['currentRequestId'] = '';
+
+      for (int i = 0; i < component.appState.realtimeProperties.length; i++) {
+        final item = component.appState.realtimeProperties[i];
+        if (item.id == prop['id']) {
+          final updated = PropertyRental.fromMap({
+            ...item.toMap(),
+            'status': 'Available',
+            'renteeId': '',
+            'renteeName': '',
+            'renteePhotoUrl': '',
+            'currentRequestId': '',
+          }, item.id);
+          component.appState.realtimeProperties[i] = updated;
+        }
+      }
+
+      component.appState.propertyRenterActiveBookings.removeWhere((b) =>
+          b['propertyId'] == prop['id'] || b['id'] == prop['id'] || b['id'] == requestId);
+
+      component.appState.setState(() {
+        component.appState.showManagePropertyModal = false;
+        component.appState.selectedPropertyData = null;
+      });
       component.appState.showAppToast('Lease Completed', 'Lease earnings have been deposited into your wallet.');
     } catch (e) {
       setState(() => _error = 'Failed to complete lease: $e');
@@ -667,7 +720,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
                     ),
                   ]),
 
-                if (status == 'Active')
+                if (status == 'Active' || status == 'Ongoing' || status == 'Occupied' || status == 'Returning')
                   div(classes: 'flex flex-col sm:flex-row gap-2 mb-6', [
                     button(
                       classes:

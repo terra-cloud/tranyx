@@ -255,9 +255,12 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     } else {
       // 🏢 PROPERTIES RENT MODE
       final activeLeases = s.propertyRenterActiveBookings.isNotEmpty
-          ? s.propertyRenterActiveBookings
+          ? s.propertyRenterActiveBookings.where((b) {
+              final st = (b['status'] ?? '').toString().toLowerCase();
+              return st != 'completed' && st != 'complete' && st != 'cancelled';
+            }).toList()
           : s.realtimeProperties
-              .where((prop) => prop.renteeId == currentUid && prop.status != 'Available' && prop.status != 'Completed')
+              .where((prop) => prop.renteeId == currentUid && prop.status != 'Available' && prop.status.toLowerCase() != 'completed')
               .toList();
 
       final availableProperties = s.realtimeProperties.where((prop) {

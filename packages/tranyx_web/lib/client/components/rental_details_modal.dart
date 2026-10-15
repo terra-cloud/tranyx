@@ -96,8 +96,12 @@ class _RentalDetailsModalState extends State<RentalDetailsModalComponent> {
       rawStatus.toLowerCase() == 'approved'
     );
 
-    final status = isAwaitingSignature ? 'Awaiting Signature' : rawStatus;
-    final isOngoing = status == 'Ongoing' || status == 'Active' || status == 'On the way to Rentee' || status == 'Returning';
+    final isCompleted = rawStatus.toLowerCase() == 'completed' ||
+        rawStatus.toLowerCase() == 'complete' ||
+        (isProp && matchedProp != null && matchedProp.status == 'Available' && (matchedProp.renteeId == null || matchedProp.renteeId!.isEmpty));
+
+    final status = isCompleted ? 'Completed' : (isAwaitingSignature ? 'Awaiting Signature' : rawStatus);
+    final isOngoing = !isCompleted && (status == 'Ongoing' || status == 'Active' || status == 'On the way to Rentee' || status == 'Returning');
 
     // Photos
     final photos = (data['photoUrls'] as List?)?.map((e) => e.toString()).toList() ??
@@ -351,6 +355,16 @@ class _RentalDetailsModalState extends State<RentalDetailsModalComponent> {
                       [
                         lIcon('navigation', cls: 'w-4 h-4 text-white'),
                         Component.text('Open Live Tracker & GPS'),
+                      ],
+                    ),
+                  ],
+                  if (isCompleted || status == 'Completed' || status == 'Complete') ...[
+                    div(
+                      classes:
+                          'p-2.5 px-4 rounded-xl text-center bg-green-500/10 border border-green-500/20 text-green-500 font-bold text-xs flex items-center justify-center gap-2',
+                      [
+                        lIcon('check-circle', cls: 'w-4 h-4 text-green-500'),
+                        Component.text('Rental Completed & Settled'),
                       ],
                     ),
                   ],

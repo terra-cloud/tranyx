@@ -382,6 +382,131 @@ void main() {
     );
 
     test(
+      'completePropertyRental self-heals when escrow is already Released without duplicate host payout',
+      () async {
+        const propId = 'prop_idempotent_123';
+        const reqId = 'req_idempotent_123';
+        const hostId = 'host_idempotent';
+        const renteeId = 'rentee_idempotent';
+
+        firestore.db['users/$hostId'] = {
+          'name': 'Host Idempotent',
+          'tyxBalance': 5000.0,
+        };
+        firestore.db['users/$renteeId'] = {
+          'name': 'Rentee Idempotent',
+          'tyxBalance': 2000.0,
+        };
+        firestore.db['properties/$propId'] = {
+          'id': propId,
+          'hostId': hostId,
+          'title': 'Stuck Condo',
+          'status': 'Active',
+          'totalCost': 8000.0,
+          'baseRentAmount': 8000.0,
+          'renteeId': renteeId,
+          'currentRequestId': reqId,
+        };
+        firestore.db['property_requests/$reqId'] = {
+          'id': reqId,
+          'propertyId': propId,
+          'hostId': hostId,
+          'renteeId': renteeId,
+          'status': 'Active',
+        };
+        // Escrow already in Released status from a prior run
+        firestore.db['property_escrows/$propId'] = {
+          'propertyId': propId,
+          'requestId': reqId,
+          'renteeId': renteeId,
+          'hostId': hostId,
+          'amount': 8240.0,
+          'baseRentAmount': 8000.0,
+          'hostCommissionAmount': 560.0,
+          'hostPayoutAmount': 7440.0,
+          'status': 'Released',
+        };
+
+        // Complete the lease - should self-heal without throwing or double paying
+        await repo.completePropertyRental(propId, requestId: reqId);
+
+        // Host balance should remain unchanged (5000.0 - no duplicate 7440.0 payout)
+        final host = await repo.getUser(hostId);
+        expect(host!.tyxBalance, equals(5000.0));
+
+        // Property listing status must be reset to Available with cleared booking pointers
+        final propDoc = await firestore.collection('properties').doc(propId).get();
+        expect(propDoc.data()!['status'], equals('Available'));
+        expect(propDoc.data()!['renteeId'], equals(''));
+        expect(propDoc.data()!['currentRequestId'], equals(''));
+
+        // Request document must be marked Completed
+        final reqDoc = await firestore.collection('property_requests').doc(reqId).get();
+        expect(reqDoc.data()!['status'], equals('Completed'));
+      },
+    );
+
+    test(
+      'completeRental self-heals when vehicle escrow is already Released without duplicate payout',
+      () async {
+        const vehicleId = 'veh_idempotent_123';
+        const reqId = 'veh_req_idempotent';
+        const hostId = 'veh_host_idempotent';
+        const renteeId = 'veh_rentee_idempotent';
+
+        firestore.db['users/$hostId'] = {
+          'name': 'Veh Host',
+          'tyxBalance': 10000.0,
+        };
+        firestore.db['users/$renteeId'] = {
+          'name': 'Veh Rentee',
+          'tyxBalance': 3000.0,
+        };
+        firestore.db['rentals/$vehicleId'] = {
+          'id': vehicleId,
+          'hostId': hostId,
+          'brand': 'Toyota',
+          'model': 'Hilux',
+          'status': 'Returning',
+          'totalCost': 4000.0,
+          'renteeId': renteeId,
+          'currentRequestId': reqId,
+        };
+        firestore.db['rental_requests/$reqId'] = {
+          'id': reqId,
+          'rentalId': vehicleId,
+          'hostId': hostId,
+          'renteeId': renteeId,
+          'status': 'Returning',
+        };
+        firestore.db['rental_escrows/$vehicleId'] = {
+          'rentalId': vehicleId,
+          'requestId': reqId,
+          'renteeId': renteeId,
+          'hostId': hostId,
+          'amount': 4120.0,
+          'status': 'Released',
+        };
+
+        await repo.completeRental(vehicleId, requestId: reqId);
+
+        // Host balance should remain unchanged (10000.0)
+        final host = await repo.getUser(hostId);
+        expect(host!.tyxBalance, equals(10000.0));
+
+        // Vehicle listing status must be reset to Available
+        final vehDoc = await firestore.collection('rentals').doc(vehicleId).get();
+        expect(vehDoc.data()!['status'], equals('Available'));
+        expect(vehDoc.data()!['renteeId'], equals(''));
+        expect(vehDoc.data()!['currentRequestId'], equals(''));
+
+        // Request document must be marked Completed
+        final reqDoc = await firestore.collection('rental_requests').doc(reqId).get();
+        expect(reqDoc.data()!['status'], equals('Completed'));
+      },
+    );
+
+    test(
       'Verify submission of ratings writes to correct collections',
       () async {
         firestore.db['users/targetUser'] = {
