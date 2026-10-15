@@ -3317,43 +3317,50 @@ class FirestoreService {
     if (escrowDoc == null) {
       throw Exception('Escrow transaction not found. Payout aborted to ensure secure transaction.');
     }
-    if (escrowDoc['status'] != 'Held') {
-      throw Exception('Escrow is not in Held status. Current status: ${escrowDoc['status']}. Payout aborted.');
+    final currentEscrowStatus = escrowDoc['status'] as String? ?? '';
+    final bool isAlreadyReleased = currentEscrowStatus == 'Released';
+
+    if (!isAlreadyReleased && currentEscrowStatus != 'Held') {
+      throw Exception('Escrow is not in Held status. Current status: $currentEscrowStatus. Payout aborted.');
     }
 
     final cost = ((bookingDoc?['totalCost'] ?? rental.totalCost ?? escrowDoc['amount']) as num).toDouble();
     final commission = cost * 0.03;
     final hostPayout = cost - commission;
 
-    // Release payout to host
-    final newHostBalance = host.tyxBalance + hostPayout;
-    await updateTyxBalance(hostId, newHostBalance);
+    if (!isAlreadyReleased) {
+      // Release payout to host
+      final newHostBalance = host.tyxBalance + hostPayout;
+      await updateTyxBalance(hostId, newHostBalance);
 
-    // Save transaction for host
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': hostId,
-      'type': 'payment',
-      'amount': hostPayout,
-      'baseAmount': cost,
-      'commissionFee': commission,
-      'commissionLabel': 'Platform Commission (3%)',
-      'title': 'Rental Earnings Payout',
-      'desc': 'Rental payout for ${rental.brand} ${rental.model} ($txId)',
-      'status': 'Completed',
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
+      // Save transaction for host
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'uid': hostId,
+        'type': 'payment',
+        'amount': hostPayout,
+        'baseAmount': cost,
+        'commissionFee': commission,
+        'commissionLabel': 'Platform Commission (3%)',
+        'title': 'Rental Earnings Payout',
+        'desc': 'Rental payout for ${rental.brand} ${rental.model} ($txId)',
+        'status': 'Completed',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
+      await setDocument('transactions/$txId', txData);
 
-    // Release escrow record
-    final escrowRelease = {
-      'status': 'Released',
-      'releasedAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
-      await setDocument('rental_escrows/$resolvedReqId', escrowRelease);
+      // Release escrow record
+      final escrowRelease = {
+        'status': 'Released',
+        'releasedAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+        await setDocument('rental_escrows/$resolvedReqId', escrowRelease);
+      }
+      await setDocument('rental_escrows/$actualRentalId', escrowRelease);
+    } else {
+      print('Escrow for vehicle $actualRentalId is already Released. Skipping redundant host payout and proceeding to self-heal listing status.');
     }
-    await setDocument('rental_escrows/$actualRentalId', escrowRelease);
 
     // Save transaction and rental details to history
     final historyId = 'rh_${DateTime.now().microsecondsSinceEpoch}';
@@ -4321,6 +4328,7 @@ class FirestoreService {
     // Property rentals — as host and as rentee
     await runQuery('property_history', 'hostId', 'property');
     await runQuery('property_history', 'renteeId', 'property');
+    await runQuery('property_history', 'renterId', 'property');
 
     // Sort by completedAt descending
     list.sort((a, b) {
@@ -6109,8 +6117,11 @@ class FirestoreService {
     if (escrowDoc == null) {
       throw Exception('Escrow transaction not found. Payout aborted to ensure secure transaction.');
     }
-    if (escrowDoc['status'] != 'Held') {
-      throw Exception('Escrow is not in Held status. Current status: ${escrowDoc['status']}. Payout aborted.');
+    final currentEscrowStatus = escrowDoc['status'] as String? ?? '';
+    final bool isAlreadyReleased = currentEscrowStatus == 'Released';
+
+    if (!isAlreadyReleased && currentEscrowStatus != 'Held') {
+      throw Exception('Escrow is not in Held status. Current status: $currentEscrowStatus. Payout aborted.');
     }
 
     // Determine Base Rent and Host Commission (excluding security deposits)
@@ -6128,54 +6139,62 @@ class FirestoreService {
         (propDoc['hostCommissionRate'] as num?)?.toDouble() ??
         feeConfig.propertyHostCommissionRate;
 
-    final commission = double.parse((baseRent * hostCommRate).toStringAsFixed(2));
-    final hostPayout = double.parse((baseRent - commission).toStringAsFixed(2));
+    final commission = (isAlreadyReleased && escrowDoc['hostCommissionDeducted'] != null)
+        ? (escrowDoc['hostCommissionDeducted'] as num).toDouble()
+        : double.parse((baseRent * hostCommRate).toStringAsFixed(2));
+    final hostPayout = (isAlreadyReleased && escrowDoc['hostPayout'] != null)
+        ? (escrowDoc['hostPayout'] as num).toDouble()
+        : double.parse((baseRent - commission).toStringAsFixed(2));
 
-    // Release payout to host
-    final newHostBalance = host.tyxBalance + hostPayout;
-    await updateTyxBalance(hostId, newHostBalance);
+    if (!isAlreadyReleased) {
+      // Release payout to host
+      final newHostBalance = host.tyxBalance + hostPayout;
+      await updateTyxBalance(hostId, newHostBalance);
 
-    // Save transaction for host
-    final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
-    final txData = {
-      'uid': hostId,
-      'type': 'payment',
-      'amount': hostPayout,
-      'baseRentAmount': baseRent,
-      'securityDepositAmount': 0.0,
-      'commissionFee': commission,
-      'commissionRate': hostCommRate,
-      'commissionLabel': 'TRANYX Host Commission (${PlatformFeeConfig.formatPercent(hostCommRate)})',
-      'title': 'Property Rental Payout',
-      'desc':
-          'Earnings payout for "${property.title}" (${PlatformFeeConfig.formatPercent(hostCommRate)} TRANYX commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
-      'method': 'Tranyx Wallet',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    await setDocument('transactions/$txId', txData);
+      // Save transaction for host
+      final txId = 'tx_${DateTime.now().microsecondsSinceEpoch}';
+      final txData = {
+        'uid': hostId,
+        'type': 'payment',
+        'amount': hostPayout,
+        'baseRentAmount': baseRent,
+        'securityDepositAmount': 0.0,
+        'commissionFee': commission,
+        'commissionRate': hostCommRate,
+        'commissionLabel': 'TRANYX Host Commission (${PlatformFeeConfig.formatPercent(hostCommRate)})',
+        'title': 'Property Rental Payout',
+        'desc':
+            'Earnings payout for "${property.title}" (${PlatformFeeConfig.formatPercent(hostCommRate)} TRANYX commission of ${commission.toStringAsFixed(2)} TYXBIT deducted)',
+        'method': 'Tranyx Wallet',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      await setDocument('transactions/$txId', txData);
 
-    // Update escrow on both requestId and propertyId
-    final escrowRelease = {
-      'status': 'Released',
-      'hostCommissionDeducted': commission,
-      'hostPayout': hostPayout,
-      'securityDepositRefunded': secDeposit,
-      'securityDepositStatus': secDeposit > 0.0 ? 'RefundPending' : 'None',
-      'securityDepositAmount': secDeposit,
-      'releasedAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
-      final ex = await getDocument('property_escrows/$resolvedReqId');
-      await setDocument('property_escrows/$resolvedReqId', {
-        if (ex != null) ...ex,
+      // Update escrow on both requestId and propertyId
+      final escrowRelease = {
+        'status': 'Released',
+        'hostCommissionDeducted': commission,
+        'hostPayout': hostPayout,
+        'securityDepositRefunded': secDeposit,
+        'securityDepositStatus': secDeposit > 0.0 ? 'RefundPending' : 'None',
+        'securityDepositAmount': secDeposit,
+        'releasedAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
+        final ex = await getDocument('property_escrows/$resolvedReqId');
+        await setDocument('property_escrows/$resolvedReqId', {
+          if (ex != null) ...ex,
+          ...escrowRelease,
+        });
+      }
+      final exProp = await getDocument('property_escrows/$actualPropertyId');
+      await setDocument('property_escrows/$actualPropertyId', {
+        if (exProp != null) ...exProp,
         ...escrowRelease,
       });
+    } else {
+      print('Escrow for property $actualPropertyId is already Released. Skipping redundant host payout and proceeding to self-heal listing status.');
     }
-    final exProp = await getDocument('property_escrows/$actualPropertyId');
-    await setDocument('property_escrows/$actualPropertyId', {
-      if (exProp != null) ...exProp,
-      ...escrowRelease,
-    });
 
     // Attempt direct security deposit refund if caller has permissions, otherwise reconcilePendingEscrows handles it automatically
     final targetRentee = bookingDoc?['renteeId'] ?? property.renteeId;
@@ -6217,6 +6236,8 @@ class FirestoreService {
       'id': historyId,
       'propertyId': actualPropertyId,
       'requestId': resolvedReqId ?? '',
+      'renteeId': targetRentee?.toString() ?? '',
+      'renterId': targetRentee?.toString() ?? '',
       'status': 'Completed',
       'completedAt': DateTime.now().millisecondsSinceEpoch,
       'hostCommissionAmount': commission,
@@ -6228,8 +6249,13 @@ class FirestoreService {
     // Mark specific request in property_requests as Completed
     if (resolvedReqId != null && resolvedReqId.isNotEmpty) {
       try {
-        await setDocument('property_requests/$resolvedReqId', {'status': 'Completed'});
-      } catch (_) {}
+        await setDocument('property_requests/$resolvedReqId', {
+          'status': 'Completed',
+          'completedAt': DateTime.now().millisecondsSinceEpoch,
+        });
+      } catch (e) {
+        print('Error marking property_request as Completed: $e');
+      }
     }
 
     // Check if other ongoing/booked requests remain on this property
