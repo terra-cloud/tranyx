@@ -1,5 +1,10 @@
 # Antigravity Workspace Guidelines & Operational Memory
 
+## Scope Isolation, Strict Focus & Anti-Over-Engineering
+- **Single-Issue Isolation**: Solve each issue, bug, or feature request strictly on its own. Never touch, modify, or refactor unrelated features, collections, or workflows.
+- **Execute Only What Was Asked**: Focus purely and directly on the specific task requested by the user. Do not expand scope, introduce unrequested changes, or modify adjacent codebases.
+- **No Over-Engineering**: Implement the minimum viable diff. Favor straightforward, direct solutions over complex abstractions, speculative redesigns, or sweeping architectural refactors that risk introducing regressions or loops.
+
 ## Git Commit & Push Workflow
 - **Commit Each Feature Separately**: When working on features, tasks, or bug fixes, always stage and commit each distinct unit of work separately with clear, conventional commit messages (`feat: ...`, `fix: ...`, `refactor: ...`, `test: ...`). This provides a clear, granular ledger of completed work.
 - **NEVER Push to Remote**: NEVER execute `git push`. The user maintains full control and will decide when to push and squash commits to remote. All commits made by the agent must remain strictly local.

@@ -3011,12 +3011,11 @@ class _CreateJob extends StatelessComponent {
               final total = price + txFee + convFee;
               final msg =
                   'Confirm Posting:\n\n'
-                  'Escrow Deposit: ₱${price.toStringAsFixed(2)}\n'
+                  'Escrow Deposit (Gig Payout): ₱${price.toStringAsFixed(2)}\n'
                   '7% Transaction Fee: ₱${txFee.toStringAsFixed(2)}\n'
                   '3% Convenience Fee: ₱${convFee.toStringAsFixed(2)}\n'
-                  'Total Cost: ₱${total.toStringAsFixed(2)}\n\n'
-                  'Only the base price of ₱${price.toStringAsFixed(2)} will be deducted from your wallet now to fund the escrow. '
-                  'The fees will be charged automatically upon successful job completion. Do you want to proceed?';
+                  'Total Escrowed: ₱${total.toStringAsFixed(2)}\n\n'
+                  'The total amount of ₱${total.toStringAsFixed(2)} will be deducted and held securely in escrow upfront to guarantee your gig and platform fees. Funds are only disbursed upon successful gig completion. Do you want to proceed?';
 
               final confirmed = confirmDialog(msg);
               if (confirmed) {
@@ -3407,7 +3406,7 @@ class _CreateJob extends StatelessComponent {
               ]),
               p(classes: 'text-[9px] text-zinc-500 leading-normal', [
                 Component.text(
-                  'Notice: Only the base price of ₱${basePrice.toStringAsFixed(2)} is deducted from your wallet to fund the escrow now. The 10% platform fee (₱${totalFees.toStringAsFixed(2)}) will only be charged from your wallet upon successful completion of the job.',
+                  'Notice: The total cost of ₱${totalCost.toStringAsFixed(2)} (₱${basePrice.toStringAsFixed(2)} gig payout + ₱${totalFees.toStringAsFixed(2)} platform fees) is deducted and held securely in escrow upfront upon posting. Funds are only disbursed upon successful job completion.',
                 ),
               ]),
             ],

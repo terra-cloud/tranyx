@@ -2565,7 +2565,8 @@ class TranyxAppState extends State<TranyxApp> {
       });
 
       await loadJobs();
-    } catch (e) {
+    } catch (e, st) {
+      print('handlePostJob error: $e\n$st');
       final errStr = e.toString();
       final lowerErr = errStr.toLowerCase();
       if (lowerErr.contains('401') ||
@@ -2573,9 +2574,25 @@ class TranyxAppState extends State<TranyxApp> {
           lowerErr.contains('id-token-expired') ||
           lowerErr.contains('auth/id-token-expired')) {
         triggerSessionExpired();
+        setState(() {
+          postJobError = 'Your session has expired. Please log in again to post this gig.';
+          isPostingJob = false;
+          showDepositModal = false;
+        });
+        return;
       }
+
+      String friendlyMsg = errStr;
+      if (lowerErr.contains('403') || lowerErr.contains('permission')) {
+        friendlyMsg =
+            'Permission denied: Unable to complete job posting. Please ensure your account is in good standing and try again, or refresh your session.';
+      } else if (lowerErr.contains('insufficient') || lowerErr.contains('funds')) {
+        friendlyMsg =
+            'Insufficient balance: Please deposit additional TYXBIT to cover the gig payout and escrow fees.';
+      }
+
       setState(() {
-        postJobError = errStr;
+        postJobError = friendlyMsg;
         isPostingJob = false;
         showDepositModal = false;
       });
