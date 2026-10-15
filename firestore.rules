@@ -986,10 +986,10 @@ service cloud.firestore {
       allow read, write: if isAdminOrStaff();
     }
 
-    // Config Collection (App-level public read-only config)
-    match /config/app_config {
+    // Config Collection (App-level and third-party API configs)
+    match /config/{docId} {
       allow read: if isAuthenticated();
-      allow write: if false;
+      allow write: if isAdminOrStaff();
     }
 
     // Platform Fees Collection (Admin managed)

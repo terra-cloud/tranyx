@@ -291,9 +291,25 @@ class PaymentModalComponent extends StatelessComponent {
                                 'change': (e) async {
                                   final files = await readFilesFromEvent(e);
                                   if (files.isNotEmpty) {
+                                    final f = files.first;
+                                    if (f.bytes.isEmpty) {
+                                      s.setState(() => s.postJobError = 'Selected image file is empty.');
+                                      return;
+                                    }
+                                    if (f.bytes.length > 10 * 1024 * 1024) {
+                                      s.setState(() => s.postJobError = 'Selected file exceeds the 10MB limit. Please choose a smaller image.');
+                                      return;
+                                    }
+                                    final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : '';
+                                    const allowed = {'jpg', 'jpeg', 'png', 'webp', 'heic', 'gif'};
+                                    if (ext.isNotEmpty && !allowed.contains(ext)) {
+                                      s.setState(() => s.postJobError = 'Unsupported format (.$ext). Please select a PNG, JPG, or JPEG file.');
+                                      return;
+                                    }
                                     s.setState(() {
-                                      s.p2pProofBytes = files.first.bytes;
-                                      s.p2pProofFileName = files.first.name;
+                                      s.postJobError = null;
+                                      s.p2pProofBytes = f.bytes;
+                                      s.p2pProofFileName = f.name;
                                     });
                                   }
                                 }
