@@ -22,6 +22,8 @@ class WithdrawalRequest {
   final int? claimedAt;
   final int? proofSubmittedAt;
   final int? verifiedAt;
+  final String originRail;
+  final bool balanceDeducted;
 
   const WithdrawalRequest({
     required this.id,
@@ -47,6 +49,8 @@ class WithdrawalRequest {
     this.claimedAt,
     this.proofSubmittedAt,
     this.verifiedAt,
+    this.originRail = '',
+    this.balanceDeducted = false,
   });
 
   factory WithdrawalRequest.fromMap(Map map, {String? docId}) {
@@ -110,6 +114,8 @@ class WithdrawalRequest {
       claimedAt: claimedAt,
       proofSubmittedAt: proofSubmittedAt,
       verifiedAt: verifiedAt,
+      originRail: (map['originRail'] ?? '').toString(),
+      balanceDeducted: map['balanceDeducted'] == true,
     );
   }
 
@@ -138,6 +144,8 @@ class WithdrawalRequest {
       if (claimedAt != null) 'claimedAt': claimedAt,
       if (proofSubmittedAt != null) 'proofSubmittedAt': proofSubmittedAt,
       if (verifiedAt != null) 'verifiedAt': verifiedAt,
+      if (originRail.isNotEmpty) 'originRail': originRail,
+      'balanceDeducted': balanceDeducted,
     };
   }
 
@@ -165,6 +173,8 @@ class WithdrawalRequest {
     int? claimedAt,
     int? proofSubmittedAt,
     int? verifiedAt,
+    String? originRail,
+    bool? balanceDeducted,
   }) {
     return WithdrawalRequest(
       id: id ?? this.id,
@@ -190,6 +200,8 @@ class WithdrawalRequest {
       claimedAt: claimedAt ?? this.claimedAt,
       proofSubmittedAt: proofSubmittedAt ?? this.proofSubmittedAt,
       verifiedAt: verifiedAt ?? this.verifiedAt,
+      originRail: originRail ?? this.originRail,
+      balanceDeducted: balanceDeducted ?? this.balanceDeducted,
     );
   }
 }

@@ -7589,10 +7589,7 @@ class FirestoreService {
     }
 
     final newBalance = currentBalance - amount;
-    await createOrUpdate('users/$uid', {
-      if (userDoc != null) ...userDoc,
-      'tyxBalance': newBalance,
-    });
+    await setDocument('users/$uid', {'tyxBalance': newBalance});
 
     final now = DateTime.now().millisecondsSinceEpoch;
     final id = 'with_${now}_${Random().nextInt(999999)}';
@@ -7610,6 +7607,8 @@ class FirestoreService {
       userQrUrl: userQrUrl,
       status: 'PENDING_REVIEW',
       createdAt: now,
+      originRail: 'manual_p2p',
+      balanceDeducted: true,
     );
 
     // 1. Dual-write to both withdrawal_requests and withdrawalRequests for seamless admin portal & client sync
@@ -7620,6 +7619,8 @@ class FirestoreService {
       'accountName': cleanAccountName,
       'accountNumber': cleanAccountNumber,
       'referenceNumber': refNumber,
+      'originRail': 'manual_p2p',
+      'balanceDeducted': true,
       'status': 'PENDING_REVIEW',
       'p2pStatus': 'WAITING_FOR_AGENT',
       'updatedAt': now,
@@ -7647,6 +7648,7 @@ class FirestoreService {
       'description': 'Withdrawal via $cleanMethod ($cleanAccountNumber)',
       'desc': 'Withdrawal via $cleanMethod ($cleanAccountNumber)',
       'originRail': 'manual_p2p',
+      'balanceDeducted': true,
       if (userQrUrl.isNotEmpty) 'userQrUrl': userQrUrl,
       'createdAt': now,
       'updatedAt': now,
@@ -7900,25 +7902,27 @@ class FirestoreService {
         await getDocument('withdrawalRequests/$withdrawalRequestId');
     if (reqDoc == null) return;
     final currentStatus = (reqDoc['status'] as String? ?? '').toUpperCase();
-    if (currentStatus == 'APPROVED' || currentStatus == 'COMPLETED' || currentStatus == 'CANCELLED') return;
+    if (currentStatus == 'APPROVED' || currentStatus == 'COMPLETED' || currentStatus == 'CANCELLED' || currentStatus == 'REJECTED') return;
 
     final uid = reqDoc['uid'] as String? ?? reqDoc['userId'] as String;
     final amount = (reqDoc['amount'] as num).toDouble();
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // 1. Refund locked amount back to user's available balance
-    final userDoc = await getDocument('users/$uid');
-    final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-    final restoredBalance = currentBalance + amount;
-    await createOrUpdate('users/$uid', {
-      if (userDoc != null) ...userDoc,
-      'tyxBalance': restoredBalance,
-    });
+    // 1. Only refund locked amount if it was genuinely deducted and not yet refunded
+    final wasDeducted = reqDoc['balanceDeducted'] == true;
+    if (wasDeducted) {
+      final userDoc = await getDocument('users/$uid');
+      final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+      final restoredBalance = currentBalance + amount;
+      await setDocument('users/$uid', {'tyxBalance': restoredBalance});
+    }
 
     final updatedDoc = {
       ...reqDoc,
       'status': 'CANCELLED',
       'p2pStatus': 'CANCELLED',
+      'balanceDeducted': false,
+      if (wasDeducted) 'refundedAt': now,
       if (reason != null && reason.isNotEmpty) 'rejectionReason': reason,
       'verifiedAt': now,
       'updatedAt': now,
@@ -7928,23 +7932,27 @@ class FirestoreService {
     await createOrUpdate('withdrawal_requests/$withdrawalRequestId', updatedDoc);
     await createOrUpdate('withdrawalRequests/$withdrawalRequestId', updatedDoc);
 
-    // 3. Update user wallet sub-collection
-    await createOrUpdate('wallets/$uid/transactions/$withdrawalRequestId', {
+    // 3. Update user wallet sub-collection (preserve existing transaction fields via setDocument)
+    final refundNote = wasDeducted
+        ? '₱${amount.toStringAsFixed(2)} refunded to wallet.'
+        : 'Request cancelled.';
+    await setDocument('wallets/$uid/transactions/$withdrawalRequestId', {
       'status': 'CANCELLED',
-      'desc': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
-      'description': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
+      'desc': 'Cashout cancelled. $refundNote',
+      'description': 'Cashout cancelled. $refundNote',
       'verifiedAt': now,
       'updatedAt': now,
     });
 
     // 4. Update transaction
-    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId');
+    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId') ??
+        await getDocument('transactions/tx_$withdrawalRequestId');
     if (txDoc != null) {
-      await createOrUpdate('transactions/p2p_with_$withdrawalRequestId', {
-        ...txDoc,
+      final txKey = txDoc['id'] ?? 'p2p_with_$withdrawalRequestId';
+      await setDocument('transactions/$txKey', {
         'status': 'CANCELLED',
-        'desc': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
-        'description': 'Cashout cancelled. ₱${amount.toStringAsFixed(2)} refunded to wallet.',
+        'desc': 'Cashout cancelled. $refundNote',
+        'description': 'Cashout cancelled. $refundNote',
         'verifiedAt': now,
         'updatedAt': now,
       });
@@ -7963,24 +7971,31 @@ class FirestoreService {
     final reqDoc = await getDocument('withdrawal_requests/$withdrawalRequestId') ??
         await getDocument('withdrawalRequests/$withdrawalRequestId');
     if (reqDoc == null) throw Exception('Withdrawal request not found.');
+    final currentStatus = (reqDoc['status'] as String? ?? '').toUpperCase();
+    if (currentStatus == 'REJECTED' || currentStatus == 'CANCELLED') {
+      return; // Idempotent guard: already rejected/cancelled
+    }
+
     final uid = reqDoc['uid'] as String? ?? reqDoc['userId'] as String;
     final amount = (reqDoc['amount'] as num).toDouble();
-    final paymentMethod = reqDoc['paymentMethod'] ?? reqDoc['payoutMethod'] ?? 'GCash';
+    final paymentMethod = reqDoc['paymentMethod'] ?? reqDoc['payoutMethod'] ?? reqDoc['method'] ?? 'GCash';
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // 1. Refund locked balance
-    final userDoc = await getDocument('users/$uid');
-    final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-    final restoredBalance = currentBalance + amount;
-    await createOrUpdate('users/$uid', {
-      if (userDoc != null) ...userDoc,
-      'tyxBalance': restoredBalance,
-    });
+    // 1. Only refund locked balance if it was genuinely deducted and not yet refunded
+    final wasDeducted = reqDoc['balanceDeducted'] == true;
+    if (wasDeducted) {
+      final userDoc = await getDocument('users/$uid');
+      final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+      final restoredBalance = currentBalance + amount;
+      await setDocument('users/$uid', {'tyxBalance': restoredBalance});
+    }
 
     final updatedDoc = {
       ...reqDoc,
       'status': 'REJECTED',
       'p2pStatus': 'REJECTED',
+      'balanceDeducted': false,
+      if (wasDeducted) 'refundedAt': now,
       'adminUid': adminUid,
       'rejectionReason': cleanReason,
       'verifiedAt': now,
@@ -7991,37 +8006,44 @@ class FirestoreService {
     await createOrUpdate('withdrawal_requests/$withdrawalRequestId', updatedDoc);
     await createOrUpdate('withdrawalRequests/$withdrawalRequestId', updatedDoc);
 
-    // 3. Update user wallet sub-collection
-    await createOrUpdate('wallets/$uid/transactions/$withdrawalRequestId', {
+    // 3. Update user wallet sub-collection (preserve existing transaction fields via setDocument)
+    final refundNote = wasDeducted
+        ? '₱${amount.toStringAsFixed(2)} refunded.'
+        : 'Request rejected.';
+    await setDocument('wallets/$uid/transactions/$withdrawalRequestId', {
       'status': 'REJECTED',
       'rejectionReason': cleanReason,
-      'desc': 'Cashout rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} refunded.',
-      'description': 'Cashout rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} refunded.',
+      'desc': 'Cashout rejected: $cleanReason. $refundNote',
+      'description': 'Cashout rejected: $cleanReason. $refundNote',
       'verifiedAt': now,
       'adminUid': adminUid,
       'updatedAt': now,
     });
 
     // 4. Update transaction
-    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId');
+    final txDoc = await getDocument('transactions/p2p_with_$withdrawalRequestId') ??
+        await getDocument('transactions/tx_$withdrawalRequestId');
     if (txDoc != null) {
-      await createOrUpdate('transactions/p2p_with_$withdrawalRequestId', {
-        ...txDoc,
+      final txKey = txDoc['id'] ?? 'p2p_with_$withdrawalRequestId';
+      await setDocument('transactions/$txKey', {
         'status': 'REJECTED',
         'rejectionReason': cleanReason,
-        'desc': 'Cashout rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} refunded.',
-        'description': 'Cashout rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} refunded.',
+        'desc': 'Cashout rejected: $cleanReason. $refundNote',
+        'description': 'Cashout rejected: $cleanReason. $refundNote',
         'verifiedAt': now,
         'adminUid': adminUid,
         'updatedAt': now,
       });
     }
 
-    // 4. Send notification
+    // 5. Send notification
+    final notifMessage = wasDeducted
+        ? 'Your $paymentMethod cashout was rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} has been returned to your wallet.'
+        : 'Your $paymentMethod cashout was rejected: $cleanReason.';
     await createOrUpdate('notifications/notif_with_${withdrawalRequestId}_$now', {
       'uid': uid,
       'title': 'Withdrawal Request Rejected',
-      'message': 'Your $paymentMethod cashout was rejected: $cleanReason. ₱${amount.toStringAsFixed(2)} has been returned to your wallet.',
+      'message': notifMessage,
       'type': 'withdrawal_rejected',
       'createdAt': now,
       'read': false,
