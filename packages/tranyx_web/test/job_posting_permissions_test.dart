@@ -84,7 +84,11 @@ void main() {
 
   group('Firestore Rules Verification: Users Collection & tyxBalance Permitted', () {
     test('Rule 1 under match /users/{userId} does NOT blacklist tyxBalance', () {
-      final rulesFile = File('../../firestore_rules/10_workspace_users_wallets.rules');
+      final candidates = [
+        File('firestore_rules/10_workspace_users_wallets.rules'),
+        File('../../firestore_rules/10_workspace_users_wallets.rules'),
+      ];
+      final rulesFile = candidates.firstWhere((f) => f.existsSync(), orElse: () => candidates.first);
       expect(rulesFile.existsSync(), isTrue, reason: '10_workspace_users_wallets.rules must exist');
 
       final content = rulesFile.readAsStringSync();
@@ -124,7 +128,11 @@ void main() {
     });
 
     test('Compiled firestore.rules also contains unblocked tyxBalance and non-negative guard', () {
-      final compiledRules = File('../../firestore.rules');
+      final candidates = [
+        File('firestore.rules'),
+        File('../../firestore.rules'),
+      ];
+      final compiledRules = candidates.firstWhere((f) => f.existsSync(), orElse: () => candidates.first);
       expect(compiledRules.existsSync(), isTrue, reason: 'firestore.rules must exist');
 
       final content = compiledRules.readAsStringSync();
