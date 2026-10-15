@@ -53,7 +53,15 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
         final svc = FirestoreService(token, component.state.handleTokenRefresh);
         final req = await svc.getP2pWithdrawalRequest(reqId);
         if (req != null && mounted) {
-          component.state.activeP2pWithdrawalRequest = req;
+          final isSolana = req.originRail == 'mwa_on_chain' ||
+              req.paymentMethod.toLowerCase().contains('solana') ||
+              req.userAccountNumber.isEmpty;
+          if (isSolana) {
+            component.state.activeP2pWithdrawalId = null;
+            component.state.activeP2pWithdrawalRequest = null;
+          } else {
+            component.state.activeP2pWithdrawalRequest = req;
+          }
           setState(() {});
         }
       } catch (_) {}
@@ -260,6 +268,15 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
       final svc = FirestoreService(token, s.handleTokenRefresh);
       final methodTitle = 'Solana ($_selectedCoin)';
 
+      // 1. Atomic balance verification and deduction FIRST
+      final userDoc = await svc.getDocument('users/$uid');
+      final currentBal = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? tyxBal;
+      if (amount > currentBal) {
+        throw Exception('Requested withdrawal amount exceeds your available balance.');
+      }
+      final newBal = (currentBal - amount).clamp(0.0, double.infinity);
+      await svc.setDocument('users/$uid', {'tyxBalance': newBal});
+
       final feePhp = (amount * 0.02);
       final netPhp = (amount - feePhp);
       final activeRate = _selectedCoin == 'SOL' ? (_solToPhpRate > 0 ? _solToPhpRate : 8000.0) : (_usdToPhpRate > 0 ? _usdToPhpRate : 57.0);
@@ -268,6 +285,7 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
       final requestData = <String, dynamic>{
         'id': requestId,
         'uid': uid,
+        'userId': uid,
         'userName': s.userName,
         'amount': amount,
         'feeAmount': feePhp,
@@ -279,6 +297,10 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
         'status': 'Pending',
         'createdAt': timestamp,
         'method': methodTitle,
+        'paymentMethod': methodTitle,
+        'payoutMethod': 'Solana',
+        'originRail': 'mwa_on_chain',
+        'balanceDeducted': true,
         'walletPublicKey': walletKey,
       };
 
@@ -327,6 +349,9 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
         ...requestData,
         'userId': uid,
         'originRail': 'mwa_on_chain',
+        'paymentMethod': methodTitle,
+        'payoutMethod': 'Solana',
+        'balanceDeducted': true,
         'status': txStatus,
         if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
         'updatedAt': timestamp,
@@ -354,8 +379,9 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
         'status': txStatus,
         'originRail': 'mwa_on_chain',
         'payoutMethod': 'Solana',
-        'paymentMethod': 'Solana',
-        'method': 'Solana',
+        'paymentMethod': methodTitle,
+        'method': methodTitle,
+        'balanceDeducted': true,
         'walletPublicKey': walletKey,
         if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
         'referenceNumber': requestId.length >= 8 ? requestId.substring(0, 8).toUpperCase() : requestId,
@@ -377,10 +403,6 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
         'id': txId,
         'amount': -amount,
       });
-
-      // Deduct balance
-      final newBal = (tyxBal - amount).clamp(0.0, double.infinity);
-      await svc.createOrUpdate('users/$uid', {'tyxBalance': newBal});
 
       // Update local state
       s.userProfile = s.userProfile?.copyWith(tyxBalance: newBal);

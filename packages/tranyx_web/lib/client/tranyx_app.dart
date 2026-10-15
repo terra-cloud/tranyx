@@ -3073,7 +3073,9 @@ class TranyxAppState extends State<TranyxApp> {
       final withdrawals = await svc.fetchUserP2pWithdrawalRequests(uid);
       WithdrawalRequest? pendingWith;
       for (final w in withdrawals) {
-        final isSolana = w.paymentMethod.toLowerCase().contains('solana');
+        final isSolana = w.originRail == 'mwa_on_chain' ||
+            w.paymentMethod.toLowerCase().contains('solana') ||
+            w.userAccountNumber.isEmpty;
         if (isSolana) continue; // Solana is direct on-chain crypto, not a manual P2P agent request!
 
         final st = w.status.toUpperCase();
