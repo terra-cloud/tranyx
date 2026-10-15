@@ -2680,7 +2680,8 @@ class TranyxAppState extends State<TranyxApp> {
     } catch (e) {
       setState(() {
         isSubmittingP2p = false;
-        postJobError = 'Submission failed: $e';
+        final cleanMsg = e.toString().replaceFirst(RegExp(r'^(Exception:\s*|Error:\s*)'), '');
+        postJobError = 'Submission failed: $cleanMsg';
       });
     }
   }
@@ -2865,7 +2866,8 @@ class TranyxAppState extends State<TranyxApp> {
     } catch (e) {
       setState(() {
         isSubmittingP2p = false;
-        postJobError = 'Submission failed: $e';
+        final cleanMsg = e.toString().replaceFirst(RegExp(r'^(Exception:\s*|Error:\s*)'), '');
+        postJobError = 'Submission failed: $cleanMsg';
       });
     }
   }

@@ -2,6 +2,7 @@
 // Uses package:http and package:web for web-safe networking and storage.
 // Run jaspr with: --dart-define=ENV=dev   (or uat / prod)
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:http/http.dart' as http;
@@ -8076,52 +8077,131 @@ typedef LocalNyxAIService = GeminiService;
 
 
 // ── ImgBB service ─────────────────────────────────────────────────────────────
+class ImageUploadException implements Exception {
+  final String message;
+  const ImageUploadException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 class ImgBBService {
   final FirebaseConfig? config;
   final String? idToken;
   final Future<String?> Function()? onTokenRefresh;
 
+  static String? _cachedResolvedKey;
+
   ImgBBService(this.config, {this.idToken, this.onTokenRefresh});
 
   Future<String> _getApiKey() async {
-    return Env.imgbbApiKey;
+    if (_cachedResolvedKey != null && _cachedResolvedKey!.isNotEmpty) {
+      return _cachedResolvedKey!;
+    }
+
+    final envKey = Env.imgbbApiKey.trim();
+    if (envKey.isNotEmpty && envKey != 'abfd185244dc224ff987946bc9775bfc') {
+      _cachedResolvedKey = envKey;
+      return envKey;
+    }
+
+    // 1. Try resolving dynamically from Firestore 'config/imgbb' (standard cross-project format)
+    try {
+      final fsService = FirestoreService(idToken, onTokenRefresh);
+      final doc = await fsService.getDocument('config/imgbb');
+      if (doc != null) {
+        final key = doc['apiKey'] ?? doc['key'] ?? doc['api_key'];
+        if (key != null && key.toString().trim().isNotEmpty) {
+          final resolved = key.toString().trim();
+          _cachedResolvedKey = resolved;
+          return resolved;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Try resolving dynamically from Firestore 'config/app_config'
+    try {
+      final fsService = FirestoreService(idToken, onTokenRefresh);
+      final doc = await fsService.getDocument('config/app_config');
+      if (doc != null) {
+        final key = doc['imgbbApiKey'] ?? doc['imgbb'] ?? doc['apiKey'];
+        if (key != null && key.toString().trim().isNotEmpty) {
+          final resolved = key.toString().trim();
+          _cachedResolvedKey = resolved;
+          return resolved;
+        }
+      }
+    } catch (_) {}
+
+    if (envKey.isNotEmpty) {
+      _cachedResolvedKey = envKey;
+      return envKey;
+    }
+
+    return '';
   }
 
   Future<String?> uploadImageBytes(List<int> bytes, String filename, {int? expiration}) async {
+    // 1. Client-side input validation
+    if (bytes.isEmpty) {
+      throw const ImageUploadException('The selected file is empty. Please select a valid receipt screenshot.');
+    }
+
+    if (bytes.length > 10 * 1024 * 1024) {
+      throw const ImageUploadException('The selected file exceeds the 10MB limit. Please upload a smaller image.');
+    }
+
+    final cleanFilename = filename.trim();
+    final dotIdx = cleanFilename.lastIndexOf('.');
+    final ext = dotIdx != -1 ? cleanFilename.substring(dotIdx + 1).toLowerCase() : '';
+    const allowedExtensions = {'jpg', 'jpeg', 'png', 'webp', 'heic', 'gif'};
+    if (ext.isNotEmpty && !allowedExtensions.contains(ext)) {
+      throw ImageUploadException('Unsupported file format (.$ext). Please upload a PNG, JPG, or JPEG image.');
+    }
+
+    final apiKey = await _getApiKey();
+    if (apiKey.isEmpty) {
+      throw const ImageUploadException('Image upload service is not configured (missing API key). Please contact support.');
+    }
+
+    final uri = Uri.parse('https://api.imgbb.com/1/upload');
+    String? lastErrorReason;
+
+    // 2. Try URL-encoded base64 POST (fast & direct in browser)
     try {
-      final apiKey = await _getApiKey();
-      if (apiKey.isEmpty) {
-        print('[ImgBB] API key is missing');
-        return null;
-      }
+      final b64 = base64Encode(bytes);
+      final res = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {
+          'key': apiKey,
+          'image': b64,
+          'name': cleanFilename.replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), ''),
+          if (expiration != null) 'expiration': expiration.toString(),
+        },
+      ).timeout(const Duration(seconds: 30));
 
-      final uri = Uri.parse('https://api.imgbb.com/1/upload');
-
-      // 1. Try URL-encoded base64 POST (fast & direct in browser)
-      try {
-        final b64 = base64Encode(bytes);
-        final res = await http.post(
-          uri,
-          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-          body: {
-            'key': apiKey,
-            'image': b64,
-            'name': filename.replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), ''),
-            if (expiration != null) 'expiration': expiration.toString(),
-          },
-        );
-        if (res.statusCode == 200) {
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final url = data['data']?['url'] as String? ?? data['data']?['display_url'] as String?;
+        if (url != null && url.isNotEmpty) return url;
+      } else {
+        print('[ImgBB] Base64 upload failed with status ${res.statusCode}: ${res.body}');
+        try {
           final data = jsonDecode(res.body);
-          final url = data['data']['url'] as String? ?? data['data']['display_url'] as String?;
-          if (url != null && url.isNotEmpty) return url;
-        } else {
-          print('[ImgBB] Base64 upload failed with status ${res.statusCode}: ${res.body}');
-        }
-      } catch (e) {
-        print('[ImgBB] Base64 upload error: $e');
+          final msg = data['error']?['message']?.toString();
+          if (msg != null && msg.isNotEmpty) lastErrorReason = msg;
+        } catch (_) {}
       }
+    } on TimeoutException {
+      throw const ImageUploadException('Image upload timed out. Please check your internet connection and try again.');
+    } catch (e) {
+      print('[ImgBB] Base64 upload error: $e');
+      if (e is ImageUploadException) rethrow;
+    }
 
-      // 2. Fallback to multipart request
+    // 3. Fallback to multipart request
+    try {
       var multipartUri = uri.replace(
         queryParameters: {
           'key': apiKey,
@@ -8129,21 +8209,37 @@ class ImgBBService {
         },
       );
       var request = http.MultipartRequest('POST', multipartUri);
-      request.files.add(http.MultipartFile.fromBytes('image', bytes, filename: filename));
+      request.files.add(http.MultipartFile.fromBytes('image', bytes, filename: cleanFilename));
 
-      var streamedResponse = await request.send();
+      var streamedResponse = await request.send().timeout(const Duration(seconds: 30));
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return data['data']['url'] as String? ?? data['data']['display_url'] as String?;
+        final url = data['data']?['url'] as String? ?? data['data']?['display_url'] as String?;
+        if (url != null && url.isNotEmpty) return url;
       } else {
         print('[ImgBB] Multipart upload failed with status ${response.statusCode}: ${response.body}');
-        return null;
+        try {
+          final data = jsonDecode(response.body);
+          final msg = data['error']?['message']?.toString();
+          if (msg != null && msg.isNotEmpty) lastErrorReason = msg;
+        } catch (_) {}
       }
+    } on TimeoutException {
+      throw const ImageUploadException('Image upload timed out. Please check your internet connection and try again.');
     } catch (e) {
-      print('[ImgBB] uploadImageBytes error: $e');
-      return null;
+      print('[ImgBB] Multipart upload error: $e');
+      if (e is ImageUploadException) rethrow;
     }
+
+    if (lastErrorReason != null && lastErrorReason.isNotEmpty) {
+      if (lastErrorReason.toLowerCase().contains('forbidden')) {
+        throw const ImageUploadException('Image upload gateway rejected request (forbidden). Please try again or contact support.');
+      }
+      throw ImageUploadException('Failed to upload receipt screenshot: $lastErrorReason');
+    }
+
+    throw const ImageUploadException('Failed to upload receipt screenshot. Please try again.');
   }
 }
