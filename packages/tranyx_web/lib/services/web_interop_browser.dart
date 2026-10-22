@@ -973,23 +973,6 @@ void createAdminBanTicketJs(String userId, String userName, String chatId, Strin
   } catch (_) {}
 }
 
-Future<String?> uploadChatPhotoJs(String chatId, String base64Data, String mimeType) async {
-  try {
-    final result = await web.window
-        .callMethod<JSPromise>(
-          'uploadChatPhoto'.toJS,
-          chatId.toJS,
-          base64Data.toJS,
-          mimeType.toJS,
-        )
-        .toDart;
-    if (result == null) return null;
-    return (result as JSString).toDart;
-  } catch (_) {
-    return null;
-  }
-}
-
 JSFunction? _jobDetailsUnsub;
 
 void listenToJobDetailsJs(String jobId, void Function(String) callback) {

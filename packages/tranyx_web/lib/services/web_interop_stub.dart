@@ -121,7 +121,6 @@ String sendChatMessageJs(
   String? category,
 }) => 'ok';
 void createAdminBanTicketJs(String userId, String userName, String chatId, String offendingText, String violationType) {}
-Future<String?> uploadChatPhotoJs(String chatId, String base64Data, String mimeType) async => null;
 
 // Job Details stubs
 void listenToJobDetailsJs(String jobId, void Function(String) callback) {}
