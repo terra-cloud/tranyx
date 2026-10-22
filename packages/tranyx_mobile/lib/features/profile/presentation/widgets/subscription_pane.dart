@@ -299,6 +299,13 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
                 }
               }
 
+              // uid + linkedAt only, never credentials (KAN-124).
+              await ref
+                  .read(firestoreProvider)
+                  .collection('walletLinks')
+                  .doc(address)
+                  .set({'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch});
+
               await ref
                   .read(firestoreProvider)
                   .collection('users')
@@ -307,13 +314,6 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
                 'walletPublicKey': address,
                 'connectedWalletType': 'trust',
               });
-
-              // uid + linkedAt only, never credentials (KAN-124).
-              await ref
-                  .read(firestoreProvider)
-                  .collection('walletLinks')
-                  .doc(address)
-                  .set({'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch});
 
               ref.invalidate(userProfileProvider);
               if (mounted) {

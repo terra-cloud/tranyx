@@ -1940,6 +1940,13 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                 }
               }
 
+              // One-wallet-one-account index: uid + linkedAt only, never credentials (KAN-124).
+              await ref
+                  .read(firestoreProvider)
+                  .collection('walletLinks')
+                  .doc(address)
+                  .set({'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch});
+
               await ref
                   .read(firestoreProvider)
                   .collection('users')
@@ -1948,13 +1955,6 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                     'walletPublicKey': address,
                     'connectedWalletType': 'trust',
                   });
-
-              // One-wallet-one-account index: uid + linkedAt only, never credentials (KAN-124).
-              await ref
-                  .read(firestoreProvider)
-                  .collection('walletLinks')
-                  .doc(address)
-                  .set({'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch});
 
               ref.invalidate(userProfileProvider);
 

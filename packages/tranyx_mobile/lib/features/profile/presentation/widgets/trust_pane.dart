@@ -690,20 +690,20 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
 
             await ref
                 .read(firestoreProvider)
-                .collection('users')
-                .doc(uid)
-                .update({
-                  'walletPublicKey': address,
-                  'connectedWalletType': 'trust',
-                });
-
-            await ref
-                .read(firestoreProvider)
                 .collection('walletLinks')
                 .doc(address)
                 .set({
                   'uid': uid,
                   'linkedAt': DateTime.now().millisecondsSinceEpoch,
+                });
+
+            await ref
+                .read(firestoreProvider)
+                .collection('users')
+                .doc(uid)
+                .update({
+                  'walletPublicKey': address,
+                  'connectedWalletType': 'trust',
                 });
 
             ref.invalidate(userProfileProvider);
