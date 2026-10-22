@@ -117,18 +117,22 @@ service cloud.firestore {
       return isAuthenticated() && (data.get('uid', '') == request.auth.uid || data.get('userId', '') == request.auth.uid);
     }
 
-    // Owner edits to a withdrawal request after create. Amount, payout destination and owner are fixed;
-    // status may only move to CANCELLED before an agent claims it, or to APPROVED once the agent has
-    // sent proof (PENDING_CONFIRMATION). Everything else is admin/agent only.
+    // Owner edits to a withdrawal request after create: allowlist of the fields the owner's cancel and
+    // confirm-receipt writes touch (web firebase_service.dart cancelP2pWithdrawalRequest /
+    // confirmP2pWithdrawalCompleted, mobile transit_repository.dart). Status may only move to CANCELLED
+    // before an agent claims it, or to APPROVED once the agent has sent proof (PENDING_CONFIRMATION).
+    // balanceDeducted/refundedAt may only change as part of that cancel, and only to "not deducted",
+    // so an owner can't re-arm a refund. adminUid may only name the owner. Everything else is admin/agent only.
     function isOwnerWithdrawalUpdate() {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       let from = resource.data.get('status', '');
       let to = request.resource.data.get('status', '');
+      let cancelling = changed.hasAny(['status']) && to == 'CANCELLED' && from in ['WAITING_FOR_AGENT', 'PENDING_REVIEW', 'PENDING'];
       return ownsRecord(resource.data) &&
-        !changed.hasAny(['uid', 'userId', 'amount', 'cryptoAmount', 'destinationWallet', 'accountNumber', 'userAccountNumber']) &&
-        (!changed.hasAny(['status']) ||
-          (to == 'CANCELLED' && from in ['WAITING_FOR_AGENT', 'PENDING_REVIEW', 'PENDING']) ||
-          (to == 'APPROVED' && from == 'PENDING_CONFIRMATION'));
+        changed.hasOnly(['status', 'p2pStatus', 'balanceDeducted', 'refundedAt', 'rejectionReason', 'verifiedAt', 'updatedAt', 'adminUid']) &&
+        (!changed.hasAny(['status']) || cancelling || (to == 'APPROVED' && from == 'PENDING_CONFIRMATION')) &&
+        (!changed.hasAny(['balanceDeducted', 'refundedAt']) || (cancelling && request.resource.data.get('balanceDeducted', false) == false)) &&
+        (!changed.hasAny(['adminUid']) || request.resource.data.adminUid == request.auth.uid);
     }
 
     // Users Collection (Strict segregation of User vs Admin fields)
@@ -226,7 +230,11 @@ service cloud.firestore {
 
     // Global Transactions Collection
     match /transactions/{txId} {
-      allow read: if isAuthenticated(); // signed-in only: employer/worker flows read each other's job tx docs
+      // get: signed-in only, because employer/worker flows read each other's job tx docs by id
+      // (tranyx_app.dart payout_nyx_* / fees_emp_*, firebase_service.dart existingTx checks), and some
+      // of those ids don't exist yet. list: owner only (getMyTransactions filters uid == caller).
+      allow get: if isAuthenticated();
+      allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
       allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$'));
       allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);
       allow delete: if isAdminOrStaff();
@@ -512,18 +520,18 @@ service cloud.firestore {
     // WORKSPACE: JOBS, APPLICATIONS, ESCROWS & REPUTATION
     // ------------------------------------------------------------------------
 
-    // Jobs Collection (Anti-Exploitation: Employer CANNOT alter terms once hired)
-    match /jobs/{jobId} {
-      allow read: if true; // Publicly browse jobs
-      allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid;
-      
-      // Update: one allow per action (rules OR them). Same conditions as the former single
-      // OR-expression, split so each action stays small and is reviewed on its own.
-      // 1. Creator (Employer): Can update listing details ONLY when job status is Open or Reviewing
-      allow update: if isActiveUser() && resource.data.creatorId == request.auth.uid &&
-        (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
-        (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+    // Non-admin job updates, one branch per action (see allow update in /jobs).
+    function isJobParticipantUpdate() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changed = after.diff(before).affectedKeys();
+      let isCreator = before.creatorId == request.auth.uid;
+      let isWorker = before.get('acceptedApplicantId', null) == request.auth.uid;
+      let openOrReviewing = before.status in ['Open', 'open', 'Reviewing', 'reviewing'];
+      let unassigned = before.get('acceptedApplicantId', null) == null || before.acceptedApplicantId == '';
+      return
+        // 1. Creator (Employer): Can update listing details ONLY when job status is Open or Reviewing
+        (isCreator && openOrReviewing && unassigned && changed.hasOnly([
           'id', 'title', 'description', 'category', 'categoryGroup', 'employmentType',
           'dateRequirement', 'jobDate', 'timePreference', 'pricingType', 'pricingValue',
           'locationType', 'address', 'landmark', 'status', 'applicantCount',
@@ -535,69 +543,52 @@ service cloud.firestore {
           'creatorName', 'creatorType', 'createdAt', 'updatedAt',
           'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
           'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
-        ]);
-      // 1b. Creator (Employer): Resetting, re-opening or cancelling an unacknowledged or expired job
-      allow update: if isActiveUser() && resource.data.creatorId == request.auth.uid &&
-        (resource.data.status == 'Awaiting Acknowledgment' || resource.data.status == 'awaiting acknowledgment' ||
-         resource.data.status == 'Acknowledgment Expired' || resource.data.status == 'acknowledgment expired') &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'acceptedApplicantId', 'acceptedApplicantName', 'updatedAt',
-          'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
-          'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
-        ]);
-      // 1c. Creator (Employer): When job is completed/active, can ONLY submit employer rating
-      allow update: if isActiveUser() && resource.data.creatorId == request.auth.uid &&
-        resource.data.status != 'Open' && resource.data.status != 'open' &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['employerRated']);
-      // 1d. Creator (Employer): Reclaiming an inactive/stalled job and marking it Abandoned
-      allow update: if isActiveUser() && resource.data.creatorId == request.auth.uid &&
-        (request.resource.data.status == 'Abandoned' || request.resource.data.status == 'abandoned') &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'abandonedAt', 'abandonReason', 'updatedAt'
-        ]);
-      // 1e. Active Participants: Raising a dispute for admin arbitration
-      allow update: if isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
-        (request.resource.data.status == 'Disputed' || request.resource.data.status == 'disputed') &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'disputeId', 'disputedAt', 'disputedBy', 'updatedAt'
-        ]);
-      // Active participants can touch lastActivityAt
-      allow update: if isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastActivityAt']);
-      // 2. Assigned Nyxian (Freelancer): Can update work progress, status & completion fields
-      allow update: if isActiveUser() && 'acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid &&
-        (
-          !('status' in request.resource.data.diff(resource.data).affectedKeys()) ||
-          request.resource.data.status == resource.data.status ||
-          (
-            request.resource.data.status in [
-              'In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
-              'in_transit', 'arrived_dropoff', 'Done', 'done', 'Completed', 'completed'
-            ] &&
-            resource.data.status in [
-              'Awaiting Acknowledgment', 'awaiting acknowledgment',
-              'In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
-              'in_transit', 'arrived_dropoff', 'Done', 'done'
-            ]
-          )
-        ) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'completionCode', 'receiptUrl', 'nyxianRated',
-          'acknowledgedAt', 'acknowledgmentStatus', 'updatedAt'
-        ]);
-      // 2b. SLA Expiration or Reminder update by active participants
-      allow update: if isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
-        (resource.data.status == 'Awaiting Acknowledgment' || resource.data.status == 'awaiting acknowledgment') &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'acknowledgmentStatus', 'acknowledgmentReminderSent', 'updatedAt'
-        ]);
-      // 3. Any Active Applicant: Can apply to or withdraw from an Open/Reviewing job
-      allow update: if isActiveUser() &&
-        (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
-        (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'applicantCount', 'applicantUids', 'recentApplicantPhotos'
-        ]);
+        ])) ||
+        // 1b. Creator (Employer): Resetting, re-opening or cancelling an unacknowledged or expired job
+        (isCreator &&
+          before.status in ['Awaiting Acknowledgment', 'awaiting acknowledgment', 'Acknowledgment Expired', 'acknowledgment expired'] &&
+          changed.hasOnly([
+            'status', 'acceptedApplicantId', 'acceptedApplicantName', 'updatedAt',
+            'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
+            'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
+          ])) ||
+        // 1c. Creator (Employer): When job is completed/active, can ONLY submit employer rating
+        (isCreator && before.status != 'Open' && before.status != 'open' && changed.hasOnly(['employerRated'])) ||
+        // 1d. Creator (Employer): Reclaiming an inactive/stalled job and marking it Abandoned
+        (isCreator && after.status in ['Abandoned', 'abandoned'] &&
+          changed.hasOnly(['status', 'abandonedAt', 'abandonReason', 'updatedAt'])) ||
+        // 1e. Active Participants: Raising a dispute for admin arbitration
+        ((isCreator || isWorker) && after.status in ['Disputed', 'disputed'] &&
+          changed.hasOnly(['status', 'disputeId', 'disputedAt', 'disputedBy', 'updatedAt'])) ||
+        // Active participants can touch lastActivityAt
+        ((isCreator || isWorker) && changed.hasOnly(['lastActivityAt'])) ||
+        // 2. Assigned Nyxian (Freelancer): Can update work progress, status & completion fields
+        (isWorker &&
+          (!changed.hasAny(['status']) || after.status == before.status ||
+            (after.status in ['In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
+                             'in_transit', 'arrived_dropoff', 'Done', 'done', 'Completed', 'completed'] &&
+             before.status in ['Awaiting Acknowledgment', 'awaiting acknowledgment',
+                            'In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
+                            'in_transit', 'arrived_dropoff', 'Done', 'done'])) &&
+          changed.hasOnly(['status', 'completionCode', 'receiptUrl', 'nyxianRated',
+                           'acknowledgedAt', 'acknowledgmentStatus', 'updatedAt'])) ||
+        // 2b. SLA Expiration or Reminder update by active participants
+        ((isCreator || isWorker) && before.status in ['Awaiting Acknowledgment', 'awaiting acknowledgment'] &&
+          changed.hasOnly(['status', 'acknowledgmentStatus', 'acknowledgmentReminderSent', 'updatedAt'])) ||
+        // 3. Any Active Applicant: Can apply to or withdraw from an Open/Reviewing job
+        (openOrReviewing && unassigned &&
+          changed.hasOnly(['applicantCount', 'applicantUids', 'recentApplicantPhotos']));
+    }
+
+    // Jobs Collection (Anti-Exploitation: Employer CANNOT alter terms once hired)
+    match /jobs/{jobId} {
+      allow read: if true; // Publicly browse jobs
+      allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid;
+      
+      // Update: same per-action conditions as before, but evaluated in ONE function so the shared
+      // values (diff, caller role, status) are computed once. Denied writes used to run every allow
+      // separately and hit the 1,000-expression limit; behaviour is unchanged.
+      allow update: if isJobParticipantUpdate() && isActiveUser();
       // 4. Admin / Staff
       allow update: if isAdminOrStaff();
 
