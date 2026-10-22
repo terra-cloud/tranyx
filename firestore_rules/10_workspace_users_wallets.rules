@@ -7,18 +7,22 @@
       return isAuthenticated() && (data.get('uid', '') == request.auth.uid || data.get('userId', '') == request.auth.uid);
     }
 
-    // Owner edits to a withdrawal request after create. Amount, payout destination and owner are fixed;
-    // status may only move to CANCELLED before an agent claims it, or to APPROVED once the agent has
-    // sent proof (PENDING_CONFIRMATION). Everything else is admin/agent only.
+    // Owner edits to a withdrawal request after create: allowlist of the fields the owner's cancel and
+    // confirm-receipt writes touch (web firebase_service.dart cancelP2pWithdrawalRequest /
+    // confirmP2pWithdrawalCompleted, mobile transit_repository.dart). Status may only move to CANCELLED
+    // before an agent claims it, or to APPROVED once the agent has sent proof (PENDING_CONFIRMATION).
+    // balanceDeducted/refundedAt may only change as part of that cancel, and only to "not deducted",
+    // so an owner can't re-arm a refund. adminUid may only name the owner. Everything else is admin/agent only.
     function isOwnerWithdrawalUpdate() {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       let from = resource.data.get('status', '');
       let to = request.resource.data.get('status', '');
+      let cancelling = changed.hasAny(['status']) && to == 'CANCELLED' && from in ['WAITING_FOR_AGENT', 'PENDING_REVIEW', 'PENDING'];
       return ownsRecord(resource.data) &&
-        !changed.hasAny(['uid', 'userId', 'amount', 'cryptoAmount', 'destinationWallet', 'accountNumber', 'userAccountNumber']) &&
-        (!changed.hasAny(['status']) ||
-          (to == 'CANCELLED' && from in ['WAITING_FOR_AGENT', 'PENDING_REVIEW', 'PENDING']) ||
-          (to == 'APPROVED' && from == 'PENDING_CONFIRMATION'));
+        changed.hasOnly(['status', 'p2pStatus', 'balanceDeducted', 'refundedAt', 'rejectionReason', 'verifiedAt', 'updatedAt', 'adminUid']) &&
+        (!changed.hasAny(['status']) || cancelling || (to == 'APPROVED' && from == 'PENDING_CONFIRMATION')) &&
+        (!changed.hasAny(['balanceDeducted', 'refundedAt']) || (cancelling && request.resource.data.get('balanceDeducted', false) == false)) &&
+        (!changed.hasAny(['adminUid']) || request.resource.data.adminUid == request.auth.uid);
     }
 
     // Users Collection (Strict segregation of User vs Admin fields)
@@ -116,7 +120,11 @@
 
     // Global Transactions Collection
     match /transactions/{txId} {
-      allow read: if isAuthenticated(); // signed-in only: employer/worker flows read each other's job tx docs
+      // get: signed-in only, because employer/worker flows read each other's job tx docs by id
+      // (tranyx_app.dart payout_nyx_* / fees_emp_*, firebase_service.dart existingTx checks), and some
+      // of those ids don't exist yet. list: owner only (getMyTransactions filters uid == caller).
+      allow get: if isAuthenticated();
+      allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
       allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$'));
       allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);
       allow delete: if isAdminOrStaff();
