@@ -148,6 +148,23 @@ service cloud.firestore {
         (get(jobPath).data.creatorId == request.auth.uid || get(jobPath).data.get('acceptedApplicantId', null) == request.auth.uid);
     }
 
+    // Structured global transaction ids name the record they belong to, so their uid must be that
+    // record's party (app writers: job completion payout_nyx_ = hired worker, fees_emp_ = employer;
+    // cancel/delete refund_job_ / refund_stale_job_ = employer; deletePropertyRental refund_prop_ =
+    // host; P2P p2p_dep_ / p2p_with_ = owner of the deposit / withdrawal request written just before).
+    function isTxIdParty(txId, uid) {
+      let jobPath = /databases/$(database)/documents/jobs/$(txId.replace('^(payout_nyx|fees_emp|refund_job|refund_stale_job)_', ''));
+      let propPath = /databases/$(database)/documents/properties/$(txId.replace('^refund_prop_', ''));
+      let depPath = /databases/$(database)/documents/deposit_requests/$(txId.replace('^p2p_dep_', ''));
+      let wrPath = /databases/$(database)/documents/withdrawal_requests/$(txId.replace('^p2p_with_', ''));
+      return
+        (txId.matches('^payout_nyx_.+') && exists(jobPath) && get(jobPath).data.get('acceptedApplicantId', null) == uid) ||
+        (txId.matches('^(fees_emp|refund_job|refund_stale_job)_.+') && exists(jobPath) && get(jobPath).data.creatorId == uid) ||
+        (txId.matches('^refund_prop_.+') && exists(propPath) && get(propPath).data.hostId == uid) ||
+        (txId.matches('^p2p_dep_.+') && exists(depPath) && get(depPath).data.get('uid', '') == uid) ||
+        (txId.matches('^p2p_with_.+') && exists(wrPath) && get(wrPath).data.get('uid', '') == uid);
+    }
+
     // Users Collection (Strict segregation of User vs Admin fields)
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
@@ -259,7 +276,10 @@ service cloud.firestore {
       allow get: if isAuthenticated() &&
         (resource == null || ownsRecord(resource.data) || isTxJobParticipant(txId) || isAdminOrStaff());
       allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
-      allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$'));
+      // create: a structured id (see isTxIdParty) only by its own party, so nobody can squat a
+      // public job / property / request id before the real writer.
+      allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$') &&
+        (!txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*') || isTxIdParty(txId, request.auth.uid)));
       allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);
       allow delete: if isAdminOrStaff();
     }

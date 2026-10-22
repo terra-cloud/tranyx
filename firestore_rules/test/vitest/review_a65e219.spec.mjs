@@ -62,7 +62,7 @@ describe('RV-A65-C: becoming a job party to read someone else\'s payout', () => 
     await assertSucceeds(setDoc(doc(db, 'jobs/j9'), job('eve', { acceptedApplicantId: null })));
     await assertFails(getDoc(doc(db, 'transactions/fees_emp_j9')));
   });
-  knownHole('KNOWN-HOLE RV-A65-C4 [MEDIUM] non-party cannot pre-create (squat) a job-derived tx id payout_nyx_<publicJobId> / fees_emp_<jobId>', async () => {
+  it('RV-A65-C4 [MEDIUM] non-party cannot pre-create (squat) a job-derived tx id payout_nyx_<publicJobId> / fees_emp_<jobId>', async () => {
     // Job ids are public (jobs allow read: true). The app reads the id first and skips the write if it exists (idempotency).
     await seed({ 'users/poster': userProfile('poster'), 'users/eve': userProfile('eve'), 'jobs/j5': job('poster', { status: 'In Progress', acceptedApplicantId: 'worker' }) });
     await assertFails(setDoc(doc(user('eve'), 'transactions/payout_nyx_j5'), { uid: 'eve', amount: 1, status: 'Successful', type: 'fee', createdAt: NOW }));
