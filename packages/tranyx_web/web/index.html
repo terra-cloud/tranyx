@@ -2050,20 +2050,6 @@
       return 'ok';
     };
 
-    window.uploadChatPhoto = async function (chatId, base64Data, mimeType) {
-      if (!firebase.apps.length) return null;
-      try {
-        const storage = firebase.storage();
-        const ref = storage.ref(`chat_photos/${chatId}/${Date.now()}`);
-        const blob = await fetch('data:' + mimeType + ';base64,' + base64Data).then(r => r.blob());
-        const snap = await ref.put(blob, { contentType: mimeType });
-        return await snap.ref.getDownloadURL();
-      } catch (e) {
-        console.error('uploadChatPhoto error', e);
-        return null;
-      }
-    };
-
     // ── Signature Pad ──────────────────────────────────────────────────────────
     window.initSignaturePad = function (canvasId) {
       const canvas = document.getElementById(canvasId);

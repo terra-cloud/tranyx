@@ -4651,14 +4651,19 @@ class TranyxAppState extends State<TranyxApp> {
       if (files.isEmpty) return;
       final file = files.first;
       final name = userProfile?.name ?? userName;
-      final b64 = base64Encode(file.bytes);
-      final mime = file.name.endsWith('.png') ? 'image/png' : 'image/jpeg';
-      final url = await uploadChatPhotoJs(currentChatId, b64, mime);
-      if (url != null) {
-        sendChatMessageJs(currentChatId, uid, name, '', photoUrl: url);
-        _touchJobActivity(currentChatId);
+      // Same ImgBB path (and key resolution) as every other web upload.
+      final url = await ImgBBService(currentFirebaseConfig, idToken: SessionStorage.idToken, onTokenRefresh: _handleTokenRefresh)
+          .uploadImageBytes(file.bytes, file.name);
+      if (url == null || url.isEmpty) {
+        showAppToast('Photo Not Sent', 'Failed to upload your photo. Please try again.');
+        return;
       }
+      sendChatMessageJs(currentChatId, uid, name, '', photoUrl: url);
+      _touchJobActivity(currentChatId);
+    } on ImageUploadException catch (e) {
+      showAppToast('Photo Not Sent', e.message);
     } catch (_) {
+      showAppToast('Photo Not Sent', 'Failed to upload your photo. Please try again.');
     } finally {
       setState(() => isUploadingChatPhoto = false);
     }
