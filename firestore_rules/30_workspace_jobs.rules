@@ -114,10 +114,11 @@
         )) || isAdminOrStaff();
       }
 
-      // Subcollection: Messages (Job chat room)
+      // Subcollection: Messages (old job chat room): the job's employer, hired worker or applicants.
+      // isChatParty on the caller's own scoped id job_<jobId>_<uid> is exactly that check.
       match /messages/{messageId} {
-        allow read: if isAuthenticated();
-        allow write: if isActiveUser() || isAdminOrStaff();
+        allow read: if (isAuthenticated() && isChatParty('job_' + jobId + '_' + request.auth.uid, request.auth.uid)) || isAdminOrStaff();
+        allow write: if (isActiveUser() && isChatParty('job_' + jobId + '_' + request.auth.uid, request.auth.uid)) || isAdminOrStaff();
       }
 
       // Subcollection: Questions (Public Q&A)
