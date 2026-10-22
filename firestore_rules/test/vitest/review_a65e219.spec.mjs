@@ -96,7 +96,7 @@ describe('RV-A65-D: WR2-05 owner cannot forge verification state', () => {
     await base2('PENDING_CONFIRMATION');
     await assertFails(updateDoc(doc(user('eve'), 'withdrawal_requests/wr1'), { status: 'APPROVED', p2pStatus: 'COMPLETED' }));
   });
-  knownHole('KNOWN-HOLE RV-A65-D5 [LOW] verifiedAt is not pinned: owner can backdate/future-date it, and set it on a cancel (10_...:37 only checks `is number`)', async () => {
+  it('RV-A65-D5 [LOW] verifiedAt is not pinned: owner can backdate/future-date it, and set it on a cancel (10_...:37 only checks `is number`)', async () => {
     await base2('PENDING_CONFIRMATION');
     await assertFails(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'APPROVED', p2pStatus: 'COMPLETED', verifiedAt: 1 }));
   });

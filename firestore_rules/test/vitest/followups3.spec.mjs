@@ -1,7 +1,7 @@
 // Follow-ups to Kelvin's review of a65e219: structured tx ids pinned to their party, job tx reads, verifiedAt bounds.
 import { describe, it } from 'vitest';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { setupEnv, seed, user, adminClaim, userProfile, job, property, withdrawal } from './helpers.mjs';
 
 setupEnv();
@@ -75,5 +75,30 @@ describe('FU3-RD: missing job/property tx ids are only checkable by their partie
     await prep();
     for (const id of ['payout_nyx_j1', 'fees_emp_j1', 'refund_prop_p1', 'payout_nyx_j8', 'refund_prop_p8'])
       await assertFails(getDoc(doc(user('eve'), `transactions/${id}`)));
+  });
+});
+
+describe('FU3-WR: owner verifiedAt is bounded by the request and request.time', () => {
+  const wr = (status, extra = {}) => seed({ 'withdrawal_requests/wr1': withdrawal('u1', { status, ...extra }) });
+  it('FU3-WR-01 [MUST-ALLOW] confirm and cancel with verifiedAt = now (transit_repository.dart / firebase_service.dart)', async () => {
+    await wr('PENDING_CONFIRMATION');
+    await assertSucceeds(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'APPROVED', p2pStatus: 'COMPLETED', adminUid: 'u1', verifiedAt: Date.now() }));
+    await wr('WAITING_FOR_AGENT');
+    await assertSucceeds(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'CANCELLED', verifiedAt: Date.now() }));
+  });
+  it('FU3-WR-02 [LOW] verifiedAt before the request was created, or > 5 min in the future, is denied', async () => {
+    const db = user('u1');
+    for (const v of [1, NOW - 7200000, Date.now() + 3600000]) {
+      await wr('PENDING_CONFIRMATION');
+      await assertFails(updateDoc(doc(db, 'withdrawal_requests/wr1'), { status: 'APPROVED', p2pStatus: 'COMPLETED', verifiedAt: v }));
+      await wr('PENDING_REVIEW');
+      await assertFails(updateDoc(doc(db, 'withdrawal_requests/wr1'), { status: 'CANCELLED', verifiedAt: v }));
+    }
+  });
+  it('FU3-WR-03 [LOW] a request with no createdAt only accepts verifiedAt within 5 min of request.time', async () => {
+    const db = user('u1');
+    await seed({ 'withdrawal_requests/wr2': { uid: 'u1', userId: 'u1', amount: 5, status: 'PENDING_CONFIRMATION' } });
+    await assertFails(updateDoc(doc(db, 'withdrawal_requests/wr2'), { status: 'APPROVED', verifiedAt: Date.now() - 3600000 }));
+    await assertSucceeds(updateDoc(doc(db, 'withdrawal_requests/wr2'), { status: 'APPROVED', verifiedAt: Date.now() }));
   });
 });

@@ -123,7 +123,9 @@ service cloud.firestore {
     // transit_repository.dart. Every owner write must be one of those two transitions, and each extra
     // field is pinned to it: p2pStatus mirrors the transition, balanceDeducted/refundedAt and
     // rejectionReason only on cancel (never re-arming a refund), adminUid only on confirm and only the
-    // owner. Everything else is admin/agent only.
+    // owner. verifiedAt (epoch ms, both apps write DateTime.now()) can't predate the request or sit more
+    // than 5 minutes past request.time; cancel still sets it because shipped mobile/web clients do.
+    // Everything else is admin/agent only.
     function isOwnerWithdrawalUpdate() {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       let next = request.resource.data;
@@ -137,7 +139,9 @@ service cloud.firestore {
         (!changed.hasAny(['balanceDeducted', 'refundedAt']) || (cancelling && next.get('balanceDeducted', false) == false)) &&
         (!changed.hasAny(['rejectionReason']) || (cancelling && next.rejectionReason is string && next.rejectionReason.size() <= 500)) &&
         (!changed.hasAny(['adminUid']) || (confirming && next.adminUid == request.auth.uid)) &&
-        (!changed.hasAny(['verifiedAt']) || next.verifiedAt is number);
+        (!changed.hasAny(['verifiedAt']) || (next.verifiedAt is number &&
+          next.verifiedAt >= resource.data.get('createdAt', request.time.toMillis() - 300000) &&
+          next.verifiedAt <= request.time.toMillis() + 300000));
     }
 
     // Job-derived global transaction ids (tranyx_app.dart completion flow): payout_nyx_<jobId> is the
