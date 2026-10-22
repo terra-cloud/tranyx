@@ -7,22 +7,35 @@
       return isAuthenticated() && (data.get('uid', '') == request.auth.uid || data.get('userId', '') == request.auth.uid);
     }
 
-    // Owner edits to a withdrawal request after create: allowlist of the fields the owner's cancel and
-    // confirm-receipt writes touch (web firebase_service.dart cancelP2pWithdrawalRequest /
-    // confirmP2pWithdrawalCompleted, mobile transit_repository.dart). Status may only move to CANCELLED
-    // before an agent claims it, or to APPROVED once the agent has sent proof (PENDING_CONFIRMATION).
-    // balanceDeducted/refundedAt may only change as part of that cancel, and only to "not deducted",
-    // so an owner can't re-arm a refund. adminUid may only name the owner. Everything else is admin/agent only.
+    // Owner edits to a withdrawal request after create. The owner only ever cancels (before an agent
+    // claims it) or confirms receipt (once the agent sent proof, PENDING_CONFIRMATION -> APPROVED):
+    // web firebase_service.dart cancelP2pWithdrawalRequest / confirmP2pWithdrawalCompleted, mobile
+    // transit_repository.dart. Every owner write must be one of those two transitions, and each extra
+    // field is pinned to it: p2pStatus mirrors the transition, balanceDeducted/refundedAt and
+    // rejectionReason only on cancel (never re-arming a refund), adminUid only on confirm and only the
+    // owner. Everything else is admin/agent only.
     function isOwnerWithdrawalUpdate() {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let next = request.resource.data;
       let from = resource.data.get('status', '');
-      let to = request.resource.data.get('status', '');
+      let to = next.get('status', '');
       let cancelling = changed.hasAny(['status']) && to == 'CANCELLED' && from in ['WAITING_FOR_AGENT', 'PENDING_REVIEW', 'PENDING'];
-      return ownsRecord(resource.data) &&
+      let confirming = changed.hasAny(['status']) && to == 'APPROVED' && from == 'PENDING_CONFIRMATION';
+      return ownsRecord(resource.data) && (cancelling || confirming) &&
         changed.hasOnly(['status', 'p2pStatus', 'balanceDeducted', 'refundedAt', 'rejectionReason', 'verifiedAt', 'updatedAt', 'adminUid']) &&
-        (!changed.hasAny(['status']) || cancelling || (to == 'APPROVED' && from == 'PENDING_CONFIRMATION')) &&
-        (!changed.hasAny(['balanceDeducted', 'refundedAt']) || (cancelling && request.resource.data.get('balanceDeducted', false) == false)) &&
-        (!changed.hasAny(['adminUid']) || request.resource.data.adminUid == request.auth.uid);
+        (!changed.hasAny(['p2pStatus']) || next.p2pStatus == (cancelling ? 'CANCELLED' : 'COMPLETED')) &&
+        (!changed.hasAny(['balanceDeducted', 'refundedAt']) || (cancelling && next.get('balanceDeducted', false) == false)) &&
+        (!changed.hasAny(['rejectionReason']) || (cancelling && next.rejectionReason is string && next.rejectionReason.size() <= 500)) &&
+        (!changed.hasAny(['adminUid']) || (confirming && next.adminUid == request.auth.uid)) &&
+        (!changed.hasAny(['verifiedAt']) || next.verifiedAt is number);
+    }
+
+    // Job-derived global transaction ids (tranyx_app.dart completion flow): payout_nyx_<jobId> is the
+    // worker's payout, fees_emp_<jobId> the employer's fees, and either party reads both by id.
+    function isTxJobParticipant(txId) {
+      let jobPath = /databases/$(database)/documents/jobs/$(txId.replace('^(payout_nyx|fees_emp)_', ''));
+      return txId.matches('^(payout_nyx|fees_emp)_.+') && exists(jobPath) &&
+        (get(jobPath).data.creatorId == request.auth.uid || get(jobPath).data.get('acceptedApplicantId', null) == request.auth.uid);
     }
 
     // Users Collection (Strict segregation of User vs Admin fields)
@@ -129,10 +142,12 @@
 
     // Global Transactions Collection
     match /transactions/{txId} {
-      // get: signed-in only, because employer/worker flows read each other's job tx docs by id
-      // (tranyx_app.dart payout_nyx_* / fees_emp_*, firebase_service.dart existingTx checks), and some
-      // of those ids don't exist yet. list: owner only (getMyTransactions filters uid == caller).
-      allow get: if isAuthenticated();
+      // get: owner, a participant of the job a payout_nyx_/fees_emp_ id names, or admin/agent.
+      // An id that doesn't exist yet is readable by any signed-in user (existence only): the app's
+      // idempotency checks (existingTx, txNyxDoc/txEmpDoc, p2p_* lookups) read before writing.
+      // list: owner only (getMyTransactions filters uid == caller).
+      allow get: if isAuthenticated() &&
+        (resource == null || ownsRecord(resource.data) || isTxJobParticipant(txId) || isAdminOrStaff());
       allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
       allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$'));
       allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);

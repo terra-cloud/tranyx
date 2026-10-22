@@ -84,7 +84,8 @@ describe('P1-SUB: subscriptions + transactions', () => {
     await assertSucceeds(updateDoc(doc(db, 'transactions/tx1'), { receiptUrl: 'https://example.invalid/r.webp' }));
   });
   it('P1-TX-02 [MUST-ALLOW] signed-in employer reads the worker payout tx doc (tranyx_app.dart:5183 getDocument)', async () => {
-    await seed({ 'transactions/payout_nyx_j1': { uid: 'worker', type: 'payout', amount: 800, status: 'Successful' } });
+    // The real call runs on a loaded job, so the job doc (poster hired worker) exists.
+    await seed({ 'jobs/j1': job('poster', { status: 'In Progress', acceptedApplicantId: 'worker' }), 'transactions/payout_nyx_j1': { uid: 'worker', type: 'payout', amount: 800, status: 'Successful' } });
     await assertSucceeds(getDoc(doc(user('poster'), 'transactions/payout_nyx_j1')));
   });
   it('P1-TX-03 [MUST-ALLOW] admin marks a subscription tx Successful (admin panel subscriptions.dart:494)', async () => {
