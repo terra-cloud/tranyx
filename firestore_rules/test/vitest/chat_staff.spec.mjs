@@ -187,12 +187,12 @@ describe('FLOW: the 6 newly denied app flows (documents current behaviour on 290
     await assertSucceeds(setDoc(doc(user('host'), 'chats/rental_r2_pending'), { updatedAt: serverTimestamp(), userIds: ['pending', 'host'], rentalId: 'r2', type: 'rental' }, { merge: true }));
     await assertSucceeds(addDoc(collection(user('pending'), 'chats/rental_r2_pending/messages'), m));
   });
-  it('FLOW-3 createdAt ms: 4 min skew ok, 6 min past/future denied (offline-queued mobile writes > 5 min are dropped); serverTimestamp ok', async () => {
+  it('FLOW-3 createdAt ms: 4 min skew ok, 6 min past now ok (offline queue, KAN-139), 6 min future denied; serverTimestamp ok', async () => {
     await base();
     const r = user('renter');
     const m = (createdAt) => ({ senderId: 'renter', senderName: 'R', content: 'x', createdAt });
     await assertSucceeds(addDoc(collection(r, `${RENTAL}/messages`), m(now() - 240000)));
-    await assertFails(addDoc(collection(r, `${RENTAL}/messages`), m(now() - 360000)));
+    await assertSucceeds(addDoc(collection(r, `${RENTAL}/messages`), m(now() - 360000)));
     await assertFails(addDoc(collection(r, `${RENTAL}/messages`), m(now() + 360000)));
     await assertSucceeds(addDoc(collection(r, `${RENTAL}/messages`), m(serverTimestamp())));
   });
@@ -232,9 +232,13 @@ describe('MSG: message shapes still accepted', () => {
     await base();
     await assertSucceeds(setDoc(doc(user('worker'), JOB), { updatedAt: now() }));
   });
-  it('BREAK MSG-04 [MEDIUM] (documents current denial; fix = allow removedKeys) web REST full-overwrite touch is DENIED when the chat doc carries any field outside the allow-list (legacy createdAt, admin status/resolvedAt)', async () => {
-    await base({ [JOB]: { userIds: ['poster', 'worker'], jobId: 'j1', applicantId: 'worker', type: 'job', updatedAt: 1, createdAt: 1 } });
-    await assertFails(setDoc(doc(user('worker'), JOB), { updatedAt: now() }));
+  it('MSG-04 web REST full-overwrite touch is allowed when the chat doc carries fields outside the allow-list (legacy createdAt, admin status) (KAN-139)', async () => {
+    await base({ [JOB]: { userIds: ['poster', 'worker'], jobId: 'j1', applicantId: 'worker', type: 'job', updatedAt: 1, createdAt: 1, status: 'resolved' } });
+    await assertSucceeds(setDoc(doc(user('worker'), JOB), { updatedAt: now() }));
+  });
+  it('MSG-04 guard: a party still cannot add a field outside the allow-list', async () => {
+    await base();
+    await assertFails(setDoc(doc(user('worker'), JOB), { status: 'resolved' }, { merge: true }));
   });
 });
 
@@ -247,10 +251,11 @@ describe('STAFF-OPEN: still open on 2902ace (Saga flagged)', () => {
     await base();
     await assertFails(setDoc(doc(user('eve'), 'notifications/notif_admin_1'), { uid: 'worker', title: 'Tranyx Admin: verify your wallet', message: 'go to evil.example', type: 'job_completed', senderUid: 'eve', senderName: 'Tranyx Support', isRead: false, createdAt: now() }));
   });
-  it('TRAD6-01 web user full overwrite createOrUpdate(support_chats/<uid>) (firebase_service.dart:2449/2465) is allowed and wipes desk fields', async () => {
+  it('TRAD6-01 support message parent write uses an update mask, so status and assignedAgentId survive (KAN-139, TRAD-6)', async () => {
     await base();
-    await assertSucceeds(setDoc(doc(user('u1'), 'support_chats/u1'), { lastMessage: 'again', updatedAt: now(), userIds: ['u1'] }));
-    const snap = await (async () => { let d; await (await import('./helpers.mjs')).env.withSecurityRulesDisabled(async (c) => { d = (await c.firestore().doc('support_chats/u1').get()).data(); }); return d; })();
-    if ('status' in snap || 'assignedAgentId' in snap) throw new Error('desk fields survived');
+    await assertSucceeds(updateDoc(doc(user('u1'), 'support_chats/u1'), { lastMessage: 'again', updatedAt: now(), userIds: ['u1'] }));
+    let snap;
+    await (await import('./helpers.mjs')).env.withSecurityRulesDisabled(async (c) => { snap = (await c.firestore().doc('support_chats/u1').get()).data(); });
+    if (snap.status !== 'assigned' || snap.assignedAgentId !== 'staff1' || snap.lastMessage !== 'again') throw new Error(JSON.stringify(snap));
   });
 });

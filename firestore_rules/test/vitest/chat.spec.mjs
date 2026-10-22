@@ -172,6 +172,13 @@ describe('CHAT-H: holes (secure expectation; every one is open on be724522: /cha
     await assertFails(addDoc(collection(user('worker'), `${JOB}/messages`), msg('worker', { createdAt: 946684800000 })));
     await assertFails(addDoc(collection(user('worker'), `${JOB}/messages`), msg('worker', { createdAt: now() + 86400000 })));
   });
+  it('CHAT-10b createdAt window edges: 23 h old passes, 25 h old and 6 min ahead fail (KAN-139)', async () => {
+    await base();
+    const w = collection(user('worker'), `${JOB}/messages`), H = 3600000;
+    await assertSucceeds(addDoc(w, msg('worker', { createdAt: now() - 23 * H })));
+    await assertFails(addDoc(w, msg('worker', { createdAt: now() - 25 * H })));
+    await assertFails(addDoc(w, msg('worker', { createdAt: now() + 6 * 60000 })));
+  });
   // LOW: storage/cost abuse; UI has no limit either.
   it('CHAT-11 [LOW] message text/content is capped (e.g. 2,000 chars) and has a known shape', async () => {
     await base();
