@@ -97,3 +97,5 @@ assets/.env
 temp_scratch/
 scratch/
 
+# Firebase emulator local data (tool/emulators.sh)
+.emulator-data/
