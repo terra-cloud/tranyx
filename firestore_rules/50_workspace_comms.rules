@@ -42,7 +42,9 @@
 
     function isValidChatDoc(chatId) {
       let d = request.resource.data;
-      let changed = d.diff(resource == null ? {} : resource.data).affectedKeys();
+      // added + changed only: a REST full overwrite drops fields it doesn't send (status, createdAt), which is fine (MSG-04).
+      let df = d.diff(resource == null ? {} : resource.data);
+      let changed = df.addedKeys().union(df.changedKeys());
       let c = chatInfo(chatId);
       return changed.hasOnly(['userIds', 'jobId', 'applicantId', 'rentalId', 'propertyId', 'type', 'id', 'lastMessage', 'updatedAt']) &&
         (!('userIds' in changed) || !('userIds' in d) ||
@@ -60,7 +62,9 @@
         (d.senderId == request.auth.uid ? d.get('type', 'text') == 'text' :
           (d.senderId == 'system' && d.get('type', '') in ['acknowledgment_request', 'acknowledgment_confirmed',
             'acknowledgment_expired', 'acknowledgment_reminder', 'job_reopened', 'job_abandoned', 'dispute_opened'])) &&
-        (d.createdAt == request.time || (d.createdAt is int && math.abs(d.createdAt - request.time.toMillis()) <= 300000)) &&
+        // epoch ms from up to 24 h ago (offline queue) to 5 min ahead (clock skew).
+        (d.createdAt == request.time || (d.createdAt is int && d.createdAt >= request.time.toMillis() - 86400000 &&
+          d.createdAt <= request.time.toMillis() + 300000)) &&
         d.get('text', '') is string && d.get('text', '').size() <= 2000 &&
         d.get('content', '') is string && d.get('content', '').size() <= 2000 &&
         // Host switched chat off on the listing (manage_listing_sheet.dart:1504); the host can still post.

@@ -2446,7 +2446,8 @@ class FirestoreService {
     await _patch(url, body, idToken, _refreshToken);
 
     // Also update parent chat document
-    await createOrUpdate('support_chats/$uid', {
+    // Masked write: keep desk fields (status, assignedAgentId) set by staff (TRAD-6).
+    await setDocument('support_chats/$uid', {
       'lastMessage': content,
       'updatedAt': now,
       'userIds': [uid],
@@ -2462,7 +2463,8 @@ class FirestoreService {
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     // Set parent chat
-    await createOrUpdate('support_chats/$uid', {
+    // Masked write: keep desk fields (status, assignedAgentId) set by staff (TRAD-6).
+    await setDocument('support_chats/$uid', {
       'lastMessage': content,
       'updatedAt': now,
       'userIds': [uid],
