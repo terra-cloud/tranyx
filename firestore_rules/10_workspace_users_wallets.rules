@@ -159,12 +159,14 @@
 
     // Global Transactions Collection
     match /transactions/{txId} {
-      // get: owner, a participant of the job a payout_nyx_/fees_emp_ id names, or admin/agent.
-      // An id that doesn't exist yet is readable by any signed-in user (existence only): the app's
-      // idempotency checks (existingTx, txNyxDoc/txEmpDoc, p2p_* lookups) read before writing.
+      // get: owner, a participant of the job a payout_nyx_/fees_emp_ id names (only while the doc's
+      // uid is still that job's worker/employer, so re-creating a deleted job id grants nothing), or
+      // admin/agent. An id that doesn't exist yet is readable by any signed-in user (existence only):
+      // the app's idempotency checks (existingTx, txNyxDoc/txEmpDoc, p2p_* lookups) read before writing.
       // list: owner only (getMyTransactions filters uid == caller).
       allow get: if isAuthenticated() &&
-        (resource == null || ownsRecord(resource.data) || isTxJobParticipant(txId) || isAdminOrStaff());
+        (resource == null || ownsRecord(resource.data) ||
+          (isTxJobParticipant(txId) && isTxIdParty(txId, resource.data.get('uid', ''))) || isAdminOrStaff());
       allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
       // create: a structured id (see isTxIdParty) only by its own party, so nobody can squat a
       // public job / property / request id before the real writer.

@@ -269,12 +269,14 @@ service cloud.firestore {
 
     // Global Transactions Collection
     match /transactions/{txId} {
-      // get: owner, a participant of the job a payout_nyx_/fees_emp_ id names, or admin/agent.
-      // An id that doesn't exist yet is readable by any signed-in user (existence only): the app's
-      // idempotency checks (existingTx, txNyxDoc/txEmpDoc, p2p_* lookups) read before writing.
+      // get: owner, a participant of the job a payout_nyx_/fees_emp_ id names (only while the doc's
+      // uid is still that job's worker/employer, so re-creating a deleted job id grants nothing), or
+      // admin/agent. An id that doesn't exist yet is readable by any signed-in user (existence only):
+      // the app's idempotency checks (existingTx, txNyxDoc/txEmpDoc, p2p_* lookups) read before writing.
       // list: owner only (getMyTransactions filters uid == caller).
       allow get: if isAuthenticated() &&
-        (resource == null || ownsRecord(resource.data) || isTxJobParticipant(txId) || isAdminOrStaff());
+        (resource == null || ownsRecord(resource.data) ||
+          (isTxJobParticipant(txId) && isTxIdParty(txId, resource.data.get('uid', ''))) || isAdminOrStaff());
       allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
       // create: a structured id (see isTxIdParty) only by its own party, so nobody can squat a
       // public job / property / request id before the real writer.
@@ -636,12 +638,16 @@ service cloud.firestore {
       // 4. Admin / Staff
       allow update: if isAdminOrStaff();
 
+      // A creator can't delete a job that already has payout/fee records: the tx docs would outlive
+      // it and the public job id could be re-created by someone else (deleteJob / tranyx_app.dart
+      // only delete Open/Cancelled jobs, which never have them).
       allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid && (
         resource.data.status == 'Open' || 
         resource.data.status == 'open' || 
         resource.data.status == 'Cancelled' || 
         resource.data.status == 'cancelled'
-      )) || isAdminOrStaff();
+      ) && !exists(/databases/$(database)/documents/transactions/$('payout_nyx_' + jobId)) &&
+        !exists(/databases/$(database)/documents/transactions/$('fees_emp_' + jobId))) || isAdminOrStaff();
 
       // Subcollection: Applications
       match /applications/{applicantId} {

@@ -74,12 +74,16 @@
       // 4. Admin / Staff
       allow update: if isAdminOrStaff();
 
+      // A creator can't delete a job that already has payout/fee records: the tx docs would outlive
+      // it and the public job id could be re-created by someone else (deleteJob / tranyx_app.dart
+      // only delete Open/Cancelled jobs, which never have them).
       allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid && (
         resource.data.status == 'Open' || 
         resource.data.status == 'open' || 
         resource.data.status == 'Cancelled' || 
         resource.data.status == 'cancelled'
-      )) || isAdminOrStaff();
+      ) && !exists(/databases/$(database)/documents/transactions/$('payout_nyx_' + jobId)) &&
+        !exists(/databases/$(database)/documents/transactions/$('fees_emp_' + jobId))) || isAdminOrStaff();
 
       // Subcollection: Applications
       match /applications/{applicantId} {

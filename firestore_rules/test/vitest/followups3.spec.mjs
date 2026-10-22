@@ -1,7 +1,7 @@
 // Follow-ups to Kelvin's review of a65e219: structured tx ids pinned to their party, job tx reads, verifiedAt bounds.
 import { describe, it } from 'vitest';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { setupEnv, seed, user, adminClaim, userProfile, job, property, withdrawal } from './helpers.mjs';
 
 setupEnv();
@@ -38,5 +38,27 @@ describe('FU3-ID: structured transaction ids belong to their party', () => {
     await prep();
     await assertFails(setDoc(doc(user('worker'), 'transactions/fees_emp_j1'), tx('worker')));
     await assertFails(setDoc(doc(user('poster'), 'transactions/payout_nyx_j1'), tx('poster')));
+  });
+});
+
+describe('FU3-DEL: job deletes cannot orphan payout/fee records', () => {
+  it('FU3-DEL-01 [MUST-ALLOW] creator deletes an Open/Cancelled job with no payout/fee records (deleteJob / tranyx_app.dart:6278)', async () => {
+    await prep();
+    await seed({ 'jobs/j2': job('poster', { status: 'Open' }), 'jobs/j3': job('poster', { status: 'Cancelled' }), 'transactions/refund_job_j3': tx('poster') });
+    await assertSucceeds(deleteDoc(doc(user('poster'), 'jobs/j2')));
+    await assertSucceeds(deleteDoc(doc(user('poster'), 'jobs/j3')));
+  });
+  it('FU3-DEL-02 [MEDIUM] creator cannot delete a job that has a payout_nyx_/fees_emp_ record; admin still can', async () => {
+    await prep();
+    await seed({ 'jobs/j4': job('poster', { status: 'Cancelled' }), 'transactions/fees_emp_j4': tx('poster', 'fee'),
+                 'jobs/j5': job('poster', { status: 'Open' }), 'transactions/payout_nyx_j5': tx('worker', 'payout') });
+    await assertFails(deleteDoc(doc(user('poster'), 'jobs/j4')));
+    await assertFails(deleteDoc(doc(user('poster'), 'jobs/j5')));
+    await assertSucceeds(deleteDoc(doc(adminClaim(), 'jobs/j4')));
+  });
+  it('FU3-DEL-03 [MEDIUM] re-created job id with the old worker as hired does not expose the old employer fees', async () => {
+    await seed({ 'users/eve': userProfile('eve'), 'transactions/fees_emp_j9': tx('poster', 'fee'),
+                 'jobs/j9': job('eve', { status: 'Open', acceptedApplicantId: 'poster' }) });
+    await assertFails(getDoc(doc(user('eve'), 'transactions/fees_emp_j9')));
   });
 });

@@ -54,7 +54,7 @@ describe('RV-A65-C: becoming a job party to read someone else\'s payout', () => 
     await seed({ 'users/poster': userProfile('poster'), 'users/eve': userProfile('eve'), 'jobs/j3': job('poster', { status: 'Open' }) });
     await assertFails(updateDoc(doc(user('eve'), 'jobs/j3'), { acceptedApplicantId: 'eve', applicantUids: ['worker', 'eve'] }));
   });
-  knownHole('KNOWN-HOLE RV-A65-C3 [MEDIUM] orphaned job tx: after a job doc is deleted, re-creating jobs/<sameId> must not grant read on the old payout/fees', async () => {
+  it('RV-A65-C3 [MEDIUM] orphaned job tx: after a job doc is deleted, re-creating jobs/<sameId> must not grant read on the old payout/fees', async () => {
     // Creator may delete Open/Cancelled jobs (30_...:77); tx docs survive. Anyone can then create jobs/<id> as creator.
     await seed({ 'users/poster': userProfile('poster'), 'users/eve': userProfile('eve'),
       'transactions/fees_emp_j9': { uid: 'poster', amount: 40, status: 'Successful', type: 'fee', createdAt: NOW } });
