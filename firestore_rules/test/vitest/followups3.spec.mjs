@@ -62,3 +62,18 @@ describe('FU3-DEL: job deletes cannot orphan payout/fee records', () => {
     await assertFails(getDoc(doc(user('eve'), 'transactions/fees_emp_j9')));
   });
 });
+
+describe('FU3-RD: missing job/property tx ids are only checkable by their parties', () => {
+  it('FU3-RD-01 [MUST-ALLOW] job participants check not-yet-created payout/fee ids (tranyx_app.dart:5176/5243, deductTyxBalanceSafely); host checks refund_prop_', async () => {
+    await prep();
+    for (const who of ['poster', 'worker'])
+      for (const id of ['payout_nyx_j1', 'fees_emp_j1']) await assertSucceeds(getDoc(doc(user(who), `transactions/${id}`)));
+    await assertSucceeds(getDoc(doc(user('host'), 'transactions/refund_prop_p1')));
+    await assertSucceeds(getDoc(doc(adminClaim(), 'transactions/payout_nyx_j8')));
+  });
+  it('FU3-RD-02 [LOW] non-party gets PERMISSION_DENIED for missing payout/fee/refund_prop ids, existing job or not', async () => {
+    await prep();
+    for (const id of ['payout_nyx_j1', 'fees_emp_j1', 'refund_prop_p1', 'payout_nyx_j8', 'refund_prop_p8'])
+      await assertFails(getDoc(doc(user('eve'), `transactions/${id}`)));
+  });
+});

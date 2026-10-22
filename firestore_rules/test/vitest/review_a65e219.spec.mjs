@@ -21,7 +21,7 @@ describe('RV-A65-A: existence oracle on predictable tx ids', () => {
     for (const id of ['payout_nyx_j1', 'fees_emp_j1', 'refund_prop_p1'])
       await assertFails(getDoc(doc(user('eve'), `transactions/${id}`)));
   });
-  knownHole('KNOWN-HOLE RV-A65-A2 [LOW] non-party cannot tell an existing tx id from a missing one (denied vs allowed-null = existence oracle)', async () => {
+  it('RV-A65-A2 [LOW] non-party cannot tell an existing tx id from a missing one (denied vs allowed-null = existence oracle)', async () => {
     await base();
     // Existing -> PERMISSION_DENIED (A1). Missing -> allowed (resource == null). Secure expectation: missing is also denied for non-parties.
     await assertFails(getDoc(doc(user('eve'), 'transactions/refund_prop_p2')));

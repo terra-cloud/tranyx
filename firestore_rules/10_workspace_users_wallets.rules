@@ -163,9 +163,13 @@
       // uid is still that job's worker/employer, so re-creating a deleted job id grants nothing), or
       // admin/agent. An id that doesn't exist yet is readable by any signed-in user (existence only):
       // the app's idempotency checks (existingTx, txNyxDoc/txEmpDoc, p2p_* lookups) read before writing.
+      // Missing payout_nyx_/fees_emp_/refund_prop_ ids only by that job's participants / the host, so
+      // denied-vs-missing can't be used to probe someone else's records.
       // list: owner only (getMyTransactions filters uid == caller).
       allow get: if isAuthenticated() &&
-        (resource == null || ownsRecord(resource.data) ||
+        ((resource == null && (!txId.matches('^(payout_nyx|fees_emp|refund_prop)_.*') ||
+            isTxJobParticipant(txId) || isTxIdParty(txId, request.auth.uid))) ||
+          (resource != null && ownsRecord(resource.data)) ||
           (isTxJobParticipant(txId) && isTxIdParty(txId, resource.data.get('uid', ''))) || isAdminOrStaff());
       allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
       // create: a structured id (see isTxIdParty) only by its own party, so nobody can squat a
