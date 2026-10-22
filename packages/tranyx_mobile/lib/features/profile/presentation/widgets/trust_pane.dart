@@ -703,8 +703,6 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
                 .doc(address)
                 .set({
                   'uid': uid,
-                  'email': FirebaseAuth.instance.currentUser?.email,
-                  'provider': 'password',
                   'linkedAt': DateTime.now().millisecondsSinceEpoch,
                 });
 

@@ -81,7 +81,7 @@ describe('MON: world-readable money collections', () => {
     await seed({ 'subscriptions/s1': { uid: 'victim', plan: 'pro_monthly', paymentAmount: 299, txId: 'abc', status: 'active' } });
     await assertFails(getDoc(doc(guest(), 'subscriptions/s1')));
   });
-  knownHole('KNOWN-HOLE MON-T3 [MEDIUM] guest cannot read walletLinks (wallet->uid map) (compiled:204)', async () => {
+  it('MON-T3 [MEDIUM] guest cannot read walletLinks (wallet->uid map)', async () => {
     await seed({ 'walletLinks/9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin': { uid: 'victim', linkedAt: 1761120000000 } });
     await assertFails(getDoc(doc(guest(), 'walletLinks/9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin')));
   });

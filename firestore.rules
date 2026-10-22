@@ -222,10 +222,19 @@ service cloud.firestore {
       }
     }
 
-    // Wallet Links Collection
+    // Wallet Links Collection: wallet address -> uid, one wallet per account. Wallet sign-in was
+    // removed (KAN-124), so nothing reads this before sign-in. Get stays open to signed-in users for
+    // the "already linked to another account" check; the same mapping is public on
+    // users/{uid}.walletPublicKey. Docs hold uid + linkedAt only (no tokens or passwords), and only
+    // the linked owner can re-write or delete one.
     match /walletLinks/{walletPublicKey} {
-      allow read: if true;
-      allow write: if isActiveUser() && request.resource.data.uid == request.auth.uid;
+      allow get: if isAuthenticated();
+      allow list: if isAdminOrStaff();
+      allow create: if isActiveUser() && request.resource.data.uid == request.auth.uid &&
+        request.resource.data.keys().hasOnly(['uid', 'linkedAt']);
+      allow update: if isActiveUser() && resource.data.uid == request.auth.uid &&
+        request.resource.data.uid == request.auth.uid && request.resource.data.keys().hasOnly(['uid', 'linkedAt']);
+      allow delete: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);
     }
 
     // Global Transactions Collection

@@ -79,7 +79,7 @@ class AuthController {
 
   Future<void> signInWithEmailAndPassword(String email, String password) async {
     final userCredential = await _auth.signInWithEmailAndPassword(email: email, password: password);
-    await SecureStorageHelper.savePassword(password);
+    await SecureStorageHelper.deletePassword(); // wipe the copy older builds kept for wallet sign-in
 
     final user = userCredential.user;
     if (user != null) {
@@ -103,7 +103,7 @@ class AuthController {
       }
     }
 
-    await _linkPendingWallet(password);
+    await _linkPendingWallet();
   }
 
   Future<void> createUserWithEmailAndPassword({
@@ -120,7 +120,7 @@ class AuthController {
       email: email,
       password: password,
     );
-    await SecureStorageHelper.savePassword(password);
+    await SecureStorageHelper.deletePassword(); // wipe the copy older builds kept for wallet sign-in
 
     final user = userCredential.user;
     if (user != null) {
@@ -140,7 +140,7 @@ class AuthController {
       );
 
       await _firestore.collection('users').doc(user.uid).set(profile.toMap());
-      await _linkPendingWallet(password);
+      await _linkPendingWallet();
       await SecureStorageHelper.saveHasSeenOnboarding(false);
     }
   }
@@ -200,33 +200,22 @@ class AuthController {
         }
       }
 
-      await _linkPendingWallet(null);
+      await _linkPendingWallet();
     }
   }
 
-  Future<void> _linkPendingWallet(String? password) async {
+  Future<void> _linkPendingWallet() async {
     final pendingWalletKey = _ref.read(pendingWalletPublicKeyProvider);
     if (pendingWalletKey != null) {
       _ref.read(pendingWalletPublicKeyProvider.notifier).state = null;
       try {
         final user = _auth.currentUser;
         if (user != null) {
-          final providers = user.providerData.map((p) => p.providerId).toList();
-          final provider = providers.contains('google.com') ? 'google.com' : 'password';
-
-          final linkData = <String, dynamic>{
-            'uid': user.uid,
-            'email': user.email,
-            'provider': provider,
-            'linkedAt': DateTime.now().millisecondsSinceEpoch,
-          };
-          if (password != null) {
-            linkData['password'] = SecureStorageHelper.obfuscate(password);
-          }
+          // uid + linkedAt only: walletLinks never holds credentials (KAN-124).
           await _firestore
               .collection('walletLinks')
               .doc(pendingWalletKey)
-              .set(linkData);
+              .set({'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch});
           await _firestore.collection('users').doc(user.uid).update({
             'walletPublicKey': pendingWalletKey,
           });

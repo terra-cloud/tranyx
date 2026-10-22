@@ -2,7 +2,7 @@
 import { describe, it } from 'vitest';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
-import { knownHole, setupEnv, seed, user, guest, userProfile, job, withdrawal } from './helpers.mjs';
+import { setupEnv, seed, user, guest, userProfile, job, withdrawal } from './helpers.mjs';
 
 setupEnv();
 const NOW = 1761123600000;
@@ -10,11 +10,11 @@ const ADDR = '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin';
 
 describe('WL: walletLinks (wallet address -> uid map)', () => {
   // Single-doc guest read is MON-T3 (money.spec.mjs). These add the enumeration and hijack cases.
-  knownHole('KNOWN-HOLE WL-01 [MEDIUM] guest cannot read walletLinks/{address} or enumerate the collection (10_...:94 / walletLinks read: if true)', async () => {
+  it('WL-01 [MEDIUM] guest cannot read walletLinks/{address} or enumerate the collection', async () => {
     await seed({ [`walletLinks/${ADDR}`]: { uid: 'victim', linkedAt: NOW } });
     await assertFails(getDocs(collection(guest(), 'walletLinks')));
   });
-  knownHole('KNOWN-HOLE WL-02 [CRITICAL] signed-in user cannot overwrite another user\'s walletLinks doc (re-point victim wallet to self; 10_...:95)', async () => {
+  it('WL-02 [CRITICAL] signed-in user cannot overwrite another user\'s walletLinks doc (re-point victim wallet to self)', async () => {
     await seed({ 'users/u2': userProfile('u2'), [`walletLinks/${ADDR}`]: { uid: 'victim', linkedAt: NOW } });
     await assertFails(setDoc(doc(user('u2'), `walletLinks/${ADDR}`), { uid: 'u2', linkedAt: NOW }));
   });

@@ -308,23 +308,12 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
                 'connectedWalletType': 'trust',
               });
 
-              final password = await SecureStorageHelper.getPassword();
-              final obfuscatedPassword = password != null
-                  ? SecureStorageHelper.obfuscate(password)
-                  : null;
-              final linkData = <String, dynamic>{
-                'uid': user.uid,
-                'email': user.email,
-                'linkedAt': DateTime.now().millisecondsSinceEpoch,
-              };
-              if (obfuscatedPassword != null) {
-                linkData['password'] = obfuscatedPassword;
-              }
+              // uid + linkedAt only, never credentials (KAN-124).
               await ref
                   .read(firestoreProvider)
                   .collection('walletLinks')
                   .doc(address)
-                  .set(linkData);
+                  .set({'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch});
 
               ref.invalidate(userProfileProvider);
               if (mounted) {

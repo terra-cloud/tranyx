@@ -1848,38 +1848,9 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       }
     }
 
-    try {
-      final walletLinkDoc = await ref
-          .read(firestoreProvider)
-          .collection('walletLinks')
-          .doc(newAddress)
-          .get();
-      if (walletLinkDoc.exists) {
-        final linkData = walletLinkDoc.data();
-        final email = linkData?['email'] as String?;
-        final obfuscatedPassword = linkData?['password'] as String?;
-        if (email != null &&
-            obfuscatedPassword != null &&
-            obfuscatedPassword.isNotEmpty) {
-          final password = SecureStorageHelper.deobfuscate(obfuscatedPassword);
-          await ref
-              .read(firebaseAuthProvider)
-              .signInWithEmailAndPassword(email: email, password: password);
-          ref.invalidate(userProfileProvider);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Switched to account linked with: $newAddress'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
-        }
-      } else {
-        ref.read(pendingWalletPublicKeyProvider.notifier).state = newAddress;
-        ref.read(authViewProvider.notifier).state = 'register-path';
-      }
-    } catch (_) {}
+    // Wallet sign-in was removed (KAN-124): the new wallet is linked after the user signs in
+    // with email or Google (AuthController._linkPendingWallet).
+    ref.read(pendingWalletPublicKeyProvider.notifier).state = newAddress;
   }
 
   Future<void> _handleMobileDisconnect() async {
@@ -1978,24 +1949,12 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                     'connectedWalletType': 'trust',
                   });
 
-              // Write wallet link for cross-platform login support
-              final password = await SecureStorageHelper.getPassword();
-              final obfuscatedPassword = password != null
-                  ? SecureStorageHelper.obfuscate(password)
-                  : null;
-              final linkData = <String, dynamic>{
-                'uid': user.uid,
-                'email': user.email,
-                'linkedAt': DateTime.now().millisecondsSinceEpoch,
-              };
-              if (obfuscatedPassword != null) {
-                linkData['password'] = obfuscatedPassword;
-              }
+              // One-wallet-one-account index: uid + linkedAt only, never credentials (KAN-124).
               await ref
                   .read(firestoreProvider)
                   .collection('walletLinks')
                   .doc(address)
-                  .set(linkData);
+                  .set({'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch});
 
               ref.invalidate(userProfileProvider);
 

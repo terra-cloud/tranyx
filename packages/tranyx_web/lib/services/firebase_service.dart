@@ -1001,8 +1001,8 @@ class FirestoreService {
   }
 
   // ── Wallet Links ───────────────────────────────────────────
-  /// Stores a mapping from walletPublicKey -> uid in walletLinks collection.
-  Future<void> linkWalletToUser(String uid, String walletPublicKey, {String? refreshToken}) async {
+  /// Stores a mapping from walletPublicKey -> uid in walletLinks collection (one wallet, one account).
+  Future<void> linkWalletToUser(String uid, String walletPublicKey) async {
     final existingLink = await getWalletLink(walletPublicKey);
     if (existingLink != null) {
       final existingUid = existingLink['uid'] as String?;
@@ -1011,13 +1011,11 @@ class FirestoreService {
       }
     }
 
+    // uid + linkedAt only: walletLinks never holds credentials (KAN-124; rules reject other fields).
     final data = <String, dynamic>{
       'uid': uid,
       'linkedAt': DateTime.now().millisecondsSinceEpoch,
     };
-    if (refreshToken != null) {
-      data['refreshToken'] = refreshToken;
-    }
     await createOrUpdate('walletLinks/$walletPublicKey', data);
     // Also store walletPublicKey on the user document for reference
     await setDocument('users/$uid', {'walletPublicKey': walletPublicKey});
