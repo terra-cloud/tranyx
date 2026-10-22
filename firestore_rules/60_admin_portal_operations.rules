@@ -78,9 +78,9 @@
       allow read, write: if isAdminOrStaff();
     }
 
-    // Config Collection (App-level and third-party API configs)
+    // Config Collection. Clients only read config/app_config; third-party API docs (e.g. config/imgbb) are admin only.
     match /config/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if isAdminOrStaff() || (isAuthenticated() && docId == 'app_config');
       allow write: if isAdminOrStaff();
     }
 

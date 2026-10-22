@@ -74,7 +74,7 @@ describe('MA-406b37c config read', () => {
     await seed({ 'users/u1': userProfile('u1') });
     await assertFails(setDoc(doc(user('u1'), 'config/app_config'), { maintenance: true }));
   });
-  knownHole('KNOWN-HOLE MA-06-hole [HIGH] ordinary user cannot read third-party API config docs (config/{docId} widened in 406b37c: 60_...:82-85 / compiled:993-996)', async () => {
+  it('MA-06-hole [HIGH] ordinary user cannot read third-party API config docs (config/{docId} widened in 406b37c: 60_...:82-85 / compiled:993-996)', async () => {
     await seed({ 'config/imgbb': { apiKey: 'FIXTURE_NOT_A_SECRET' } });
     await assertFails(getDoc(doc(user('u1'), 'config/imgbb')));
   });
