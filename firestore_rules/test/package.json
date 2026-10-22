@@ -4,11 +4,13 @@
   "description": "Firestore rules tests and seed data. Emulator only (project demo-tranyx).",
   "scripts": {
     "test": "node --test",
-    "seed": "node seed.js"
+    "seed": "node seed.js",
+    "test:rules": "firebase --config ../../firebase.json emulators:exec --only firestore --project demo-tranyx \"vitest run --config vitest.config.mjs\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
     "firebase": "^12.19.0",
-    "firebase-admin": "^14.5.0"
+    "firebase-admin": "^14.5.0",
+    "vitest": "^4.1.12"
   }
 }

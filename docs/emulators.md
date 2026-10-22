@@ -49,3 +49,11 @@ firebase emulators:exec --project demo-tranyx --only firestore "npm test --prefi
 
 Tests live in `firestore_rules/test/*.test.js` (Node's built-in `node:test` + `@firebase/rules-unit-testing`).
 `tool/build_rules.dart` only compiles top-level `firestore_rules/*.rules`, so the test folder doesn't affect the rules build.
+
+Security suite (vitest, `firestore_rules/test/vitest/*.spec.mjs`; starts its own emulator):
+
+```sh
+npm run test:rules --prefix firestore_rules/test
+```
+
+`knownHole`/`planned` tests are expected failures (`it.fails`) for open holes; closing a hole turns one red, so switch it to a plain `it` in the same commit.
