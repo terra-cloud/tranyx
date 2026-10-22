@@ -110,12 +110,13 @@ describe('RV-A65-E: expression-limit probe (denied paths evaluate every branch)'
   it('RV-A65-E1 a heavy denied tx get and a heavy denied withdrawal update return PERMISSION_DENIED, not an evaluation error', async () => {
     await base();
     await seed({ 'withdrawal_requests/wr1': withdrawal('u1', { status: 'REJECTED' }) });
-    for (const p of [
+    // Attach a handler to each request as it is created, so none rejects unobserved while an earlier one is awaited.
+    const settled = [
       getDoc(doc(user('eve'), 'transactions/payout_nyx_j1')),
       updateDoc(doc(user('eve'), 'withdrawal_requests/wr1'), { status: 'CANCELLED', p2pStatus: 'CANCELLED', balanceDeducted: false, refundedAt: NOW, rejectionReason: 'x', verifiedAt: NOW, adminUid: 'eve', updatedAt: NOW }),
       updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'CANCELLED', p2pStatus: 'CANCELLED', balanceDeducted: false, refundedAt: NOW, rejectionReason: 'x', verifiedAt: NOW, updatedAt: NOW }),
-    ]) {
-      const err = await p.then(() => null, (e) => e);
+    ].map((p) => p.then(() => null, (e) => e));
+    for (const err of await Promise.all(settled)) {
       expect(err?.code).toBe('permission-denied');
       expect(String(err?.message)).not.toMatch(/limit|maximum|exceed/i);
     }

@@ -2,26 +2,102 @@
     // WORKSPACE: CHATS, COMMUNICATIONS, SUPPORT TICKETS & NOTIFICATIONS
     // ------------------------------------------------------------------------
 
-    // Notifications Collection
+    // Chat ids name the record they belong to (index.html sendChatMessage, tranyx_app.dart openChat,
+    // active_trip_tracker_sheet.dart:263, job_repository.dart:462):
+    //   job_<jobId>_<uid>                      employer <-> that applicant or hired worker
+    //   rental_<rentalId>_<uid>, property_<propertyId>_<uid>   listing host <-> that renter
+    //   <jobId>                                legacy room: employer <-> hired worker
+    // Membership comes from that record, not chats.userIds, because web posts the first message before
+    // it writes the chat doc (index.html:2046 runs before the async :1998).
+    function chatInfo(chatId) {
+      let p = chatId.split('_');
+      let kind = (p.size() == 3 && p[0] in ['job', 'rental', 'property']) ? p[0] : 'legacy';
+      let coll = kind == 'rental' ? 'rentals' : (kind == 'property' ? 'properties' : 'jobs');
+      let path = /databases/$(database)/documents/$(coll)/$(kind == 'legacy' ? chatId : p[1]);
+      let rec = exists(path) ? get(path).data : {};
+      let renter = kind == 'legacy' ? rec.get('acceptedApplicantId', null) : p[2];
+      return {
+        'kind': kind,
+        'rec': rec,
+        'renter': renter,
+        'owner': kind in ['rental', 'property'] ? rec.get('hostId', null) : rec.get('creatorId', null),
+        'renterOk': kind == 'legacy' ||
+          (kind == 'job' && (renter == rec.get('acceptedApplicantId', null) || renter in rec.get('applicantUids', []))) ||
+          (kind != 'job' && renter == rec.get('renteeId', null))
+      };
+    }
+
+    // A pending/approved requester is not the listing's renteeId yet and request ids (req_<micros>) can't be
+    // derived from the chat id, so for rental/property chats the renter is also a party once the HOST has
+    // written them into userIds (manage_property_modal.dart:905, manage_vehicle_modal.dart:1193).
+    // Ceiling: a requester can't open that chat until the host has messaged first. Upgrade: put the
+    // request id in the chat id, or let a Cloud Function create the chat on request approval.
+    function isChatParty(chatId, uid) {
+      let c = chatInfo(chatId);
+      let chatPath = /databases/$(database)/documents/chats/$(chatId);
+      return (c.owner != null && uid == c.owner) ||
+        (c.renter != null && uid == c.renter && (c.renterOk ||
+          (c.kind in ['rental', 'property'] && exists(chatPath) && uid in get(chatPath).data.get('userIds', []))));
+    }
+
+    function isValidChatDoc(chatId) {
+      let d = request.resource.data;
+      let changed = d.diff(resource == null ? {} : resource.data).affectedKeys();
+      let c = chatInfo(chatId);
+      return changed.hasOnly(['userIds', 'jobId', 'applicantId', 'rentalId', 'propertyId', 'type', 'id', 'lastMessage', 'updatedAt']) &&
+        (!('userIds' in changed) || !('userIds' in d) ||
+          (d.userIds is list && d.userIds.size() == 2 && d.userIds.toSet() == [c.renter, c.owner].toSet()));
+    }
+
+    // senderId is the caller, or 'system' with a known type. Ceiling: clients still write system
+    // messages (job_repository.dart:463, firebase_service.dart:1778/1981/2643/2705/2781/2854,
+    // tranyx_app.dart:4933) until a Cloud Function owns them (CHAT-P1).
+    function isValidChatMessage(chatId) {
+      let d = request.resource.data;
+      let c = chatInfo(chatId);
+      return d.keys().hasOnly(['senderId', 'senderName', 'text', 'content', 'photoUrl', 'type', 'createdAt',
+                               'category', 'deadline', 'slaMinutes', 'disputeId', 'openedBy']) &&
+        (d.senderId == request.auth.uid ? d.get('type', 'text') == 'text' :
+          (d.senderId == 'system' && d.get('type', '') in ['acknowledgment_request', 'acknowledgment_confirmed',
+            'acknowledgment_expired', 'acknowledgment_reminder', 'job_reopened', 'job_abandoned', 'dispute_opened'])) &&
+        (d.createdAt == request.time || (d.createdAt is int && math.abs(d.createdAt - request.time.toMillis()) <= 300000)) &&
+        d.get('text', '') is string && d.get('text', '').size() <= 2000 &&
+        d.get('content', '') is string && d.get('content', '').size() <= 2000 &&
+        // Host switched chat off on the listing (manage_listing_sheet.dart:1504); the host can still post.
+        (c.kind in ['job', 'legacy'] || request.auth.uid == c.owner || c.rec.get('allowChat', true) != false);
+    }
+
+    // Notifications Collection. Any signed-in user may notify another (chat, hire, P2P flows write the
+    // recipient's doc); only the recipient or admin reads, deletes or marks it.
     match /notifications/{notifId} {
-      allow read, update, delete: if resource == null || !('uid' in resource.data) || resource.data.uid == request.auth.uid || isAdminOrStaff() || isAuthenticated();
+      allow read, delete: if (isAuthenticated() && resource.data.get('uid', null) == request.auth.uid) || isAdminOrStaff();
+      // 'id': web re-saves the doc it read with its id field (tranyx_app.dart:1211).
+      allow update: if (isAuthenticated() && resource.data.get('uid', null) == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'id'])) || isAdminOrStaff();
       allow create: if isActiveUser() || isAuthenticated() || isAdminOrStaff();
     }
 
     // Direct Chats Collection
     match /chats/{chatId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow get: if (isAuthenticated() && isChatParty(chatId, request.auth.uid)) || isAdminOrStaff();
+      allow list, delete: if isAdminOrStaff();
+      allow create, update: if (isActiveUser() && isChatParty(chatId, request.auth.uid) && isValidChatDoc(chatId)) || isAdminOrStaff();
 
       match /messages/{messageId} {
-        allow read, write: if isActiveUser() || isAdminOrStaff();
+        allow read: if (isAuthenticated() && isChatParty(chatId, request.auth.uid)) || isAdminOrStaff();
+        allow create: if (isActiveUser() && isChatParty(chatId, request.auth.uid) && isValidChatMessage(chatId)) || isAdminOrStaff();
+        allow update, delete: if isAdminOrStaff();
       }
     }
 
-    // Support Chats Collection
+    // Support Chats Collection: keyed by the user's uid; the support desk is staff/agents (isAdminOrStaff).
     match /support_chats/{chatId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isOwner(chatId) || isAdminOrStaff();
+      allow write: if (isOwner(chatId) && isActiveUser()) || isAdminOrStaff();
       match /messages/{messageId} {
-        allow read, write: if isActiveUser() || isAdminOrStaff();
+        allow read: if isOwner(chatId) || isAdminOrStaff();
+        allow create: if (isOwner(chatId) && isActiveUser() && request.resource.data.senderId == request.auth.uid) || isAdminOrStaff();
+        allow update, delete: if isAdminOrStaff();
       }
     }
 
