@@ -2,6 +2,25 @@
     // WORKSPACE: USERS, WALLETS, TRANSACTIONS & FINANCES
     // ------------------------------------------------------------------------
 
+    // Money record owner: the doc's uid or userId field is the caller.
+    function ownsRecord(data) {
+      return isAuthenticated() && (data.get('uid', '') == request.auth.uid || data.get('userId', '') == request.auth.uid);
+    }
+
+    // Owner edits to a withdrawal request after create. Amount, payout destination and owner are fixed;
+    // status may only move to CANCELLED before an agent claims it, or to APPROVED once the agent has
+    // sent proof (PENDING_CONFIRMATION). Everything else is admin/agent only.
+    function isOwnerWithdrawalUpdate() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let from = resource.data.get('status', '');
+      let to = request.resource.data.get('status', '');
+      return ownsRecord(resource.data) &&
+        !changed.hasAny(['uid', 'userId', 'amount', 'cryptoAmount', 'destinationWallet', 'accountNumber', 'userAccountNumber']) &&
+        (!changed.hasAny(['status']) ||
+          (to == 'CANCELLED' && from in ['WAITING_FOR_AGENT', 'PENDING_REVIEW', 'PENDING']) ||
+          (to == 'APPROVED' && from == 'PENDING_CONFIRMATION'));
+    }
+
     // Users Collection (Strict segregation of User vs Admin fields)
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
@@ -27,8 +46,8 @@
         // 3. Admin / Staff: Can update admin, moderation & verification fields
         isAdminOrStaff()
         ||
-        // 4. Subscription verification & activation updates
-        (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        // 4. Owner's own subscription fields (self-grant stays open until server-side activation: phase 2)
+        (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'isPremium', 'premiumUntil', 'accountType', 'subscriptionPlan', 
           'subscriptionStartedAt', 'subscriptionPaymentMethod', 'subscriptionPaymentAmount', 
           'subscriptionTxId', 'subscriptionStatus', 'pendingSubscription', 
@@ -97,17 +116,17 @@
 
     // Global Transactions Collection
     match /transactions/{txId} {
-      allow read: if true;
+      allow read: if isAuthenticated(); // signed-in only: employer/worker flows read each other's job tx docs
       allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$'));
-      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid) || (isAuthenticated() && (resource.data.type == 'subscription' || resource.data.kind == 'subscription'));
+      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);
       allow delete: if isAdminOrStaff();
     }
 
     // Subscriptions Collection (P2P Hybrid PRO Subscriptions)
     match /subscriptions/{subId} {
-      allow read: if true;
-      allow create: if isAuthenticated();
-      allow update: if isAdminOrStaff() || isAuthenticated();
+      allow read: if isAdminOrStaff() || ownsRecord(resource.data);
+      allow create: if isAdminOrStaff() || (isAuthenticated() && request.resource.data.uid == request.auth.uid);
+      allow update: if isAdminOrStaff();
       allow delete: if isAdminOrStaff();
     }
 
@@ -127,48 +146,54 @@
     }
 
     match /deposits/{depositId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAdminOrStaff() || ownsRecord(resource.data);
+      allow write: if isAdminOrStaff();
     }
 
     // Withdrawal Requests Collections (Dual-collection sync: withdrawal_requests & withdrawalRequests)
     match /withdrawal_requests/{reqId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
       allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow update: if isAdminOrStaff() || isOwnerWithdrawalUpdate();
       allow delete: if isAdminOrStaff();
     }
 
     match /withdrawalRequests/{requestId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
       allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow update: if isAdminOrStaff() || isOwnerWithdrawalUpdate();
       allow delete: if isAdminOrStaff();
     }
 
     match /withdrawals/{requestId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAdminOrStaff() || ownsRecord(resource.data);
+      allow write: if isAdminOrStaff();
     }
 
     match /cashout_requests/{requestId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAdminOrStaff() || ownsRecord(resource.data);
+      allow write: if isAdminOrStaff();
     }
 
     // Deposit References & Claimed References Collections
     match /deposit_references/{refKey} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAdminOrStaff() || ownsRecord(resource.data);
+      allow write: if isAdminOrStaff();
     }
 
     match /claimed_references/{refKey} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAdminOrStaff() || ownsRecord(resource.data);
+      allow write: if isAdminOrStaff();
     }
 
     match /claimed_p2p_references/{refKey} {
-      allow read: if true;
-      allow write: if isAuthenticated() || isAdminOrStaff();
+      allow read: if isAdminOrStaff() || ownsRecord(resource.data);
+      allow write: if isAdminOrStaff();
     }
 
     match /claimedReferences/{refKey} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAdminOrStaff() || ownsRecord(resource.data);
+      allow write: if isAdminOrStaff();
     }
 
     // Points History Collection
