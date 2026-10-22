@@ -23,7 +23,7 @@ describe('FU2-TX: by-id reads the app relies on', () => {
   it('FU2-TX-02 [MUST-ALLOW] any signed-in user can check a tx id that does not exist yet (existingTx / deductTyxBalanceSafely idempotency)', async () => {
     await prep();
     await assertSucceeds(getDoc(doc(user('u2'), 'transactions/tx_ref_escrow9')));
-    await assertSucceeds(getDoc(doc(user('u2'), 'transactions/payout_nyx_jobNotThere')));
+    await assertSucceeds(getDoc(doc(user('u2'), 'transactions/p2p_dep_notThere')));
   });
   it('FU2-TX-03 [MUST-ALLOW] owner reads own p2p tx; admin/agent reads any (firebase_service.dart p2p_with_/p2p_dep_)', async () => {
     await prep();

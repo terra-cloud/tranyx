@@ -44,7 +44,8 @@ describe('FU-TX: transactions listing is owner-only; single-doc get unchanged', 
     await seedTx();
     await assertSucceeds(getDocs(collection(adminClaim(), 'transactions')));
   });
-  it('FU-TX-04 [MUST-ALLOW] signed-in get of a not-yet-written job tx id (existingTx / payout_nyx_* checks)', async () => {
+  it('FU-TX-04 [MUST-ALLOW] job participant get of a not-yet-written job tx id (existingTx / payout_nyx_* checks)', async () => {
+    await seed({ 'jobs/missing': job('poster') });
     await assertSucceeds(getDoc(doc(user('poster'), 'transactions/payout_nyx_missing')));
   });
 });

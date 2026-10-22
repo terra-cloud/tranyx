@@ -662,51 +662,58 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
 
         modal.onModalConnect.subscribe((ModalConnect? event) async {
           modal.onModalConnect.unsubscribeAll();
-          final address = modal.session?.getAddress(NetworkUtils.solana);
-          if (address != null && address.isNotEmpty) {
-            // ── 1:1 guard: check if this wallet is already owned by another user ──
-            final existingDoc = await ref
-                .read(firestoreProvider)
-                .collection('walletLinks')
-                .doc(address)
-                .get();
+          try {
+            final address = modal.session?.getAddress(NetworkUtils.solana);
+            if (address != null && address.isNotEmpty) {
+              // ── 1:1 guard: check if this wallet is already owned by another user ──
+              final existingDoc = await ref
+                  .read(firestoreProvider)
+                  .collection('walletLinks')
+                  .doc(address)
+                  .get();
 
-            if (existingDoc.exists) {
-              final existingUid = existingDoc.data()?['uid'] as String?;
-              if (existingUid != null && existingUid != uid) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'This wallet is already linked to another account. Each wallet can only be connected to one account.',
+              if (existingDoc.exists) {
+                final existingUid = existingDoc.data()?['uid'] as String?;
+                if (existingUid != null && existingUid != uid) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'This wallet is already linked to another account. Each wallet can only be connected to one account.',
+                        ),
+                        backgroundColor: Colors.red,
                       ),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                    );
+                  }
+                  return;
                 }
-                return;
               }
+
+              // walletLinks index + profile key in one batch: both land or neither does (KAN-124).
+              final firestore = ref.read(firestoreProvider);
+              await (firestore.batch()
+                    ..set(firestore.collection('walletLinks').doc(address), {
+                      'uid': uid,
+                      'linkedAt': DateTime.now().millisecondsSinceEpoch,
+                    })
+                    ..update(firestore.collection('users').doc(uid), {
+                      'walletPublicKey': address,
+                      'connectedWalletType': 'trust',
+                    }))
+                  .commit();
+
+              ref.invalidate(userProfileProvider);
             }
-
-            await ref
-                .read(firestoreProvider)
-                .collection('walletLinks')
-                .doc(address)
-                .set({
-                  'uid': uid,
-                  'linkedAt': DateTime.now().millisecondsSinceEpoch,
-                });
-
-            await ref
-                .read(firestoreProvider)
-                .collection('users')
-                .doc(uid)
-                .update({
-                  'walletPublicKey': address,
-                  'connectedWalletType': 'trust',
-                });
-
-            ref.invalidate(userProfileProvider);
+          } catch (e) {
+            // This callback runs after _linkSolanaWallet returned, so its catch can't see errors.
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Failed to connect wallet: $e'),
+                  backgroundColor: AppColors.red,
+                ),
+              );
+            }
           }
         });
       } else {

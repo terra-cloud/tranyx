@@ -1941,20 +1941,16 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
               }
 
               // One-wallet-one-account index: uid + linkedAt only, never credentials (KAN-124).
-              await ref
-                  .read(firestoreProvider)
-                  .collection('walletLinks')
-                  .doc(address)
-                  .set({'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch});
-
-              await ref
-                  .read(firestoreProvider)
-                  .collection('users')
-                  .doc(user.uid)
-                  .update({
-                    'walletPublicKey': address,
-                    'connectedWalletType': 'trust',
-                  });
+              // Written with the profile key in one batch: both land or neither does.
+              final firestore = ref.read(firestoreProvider);
+              await (firestore.batch()
+                    ..set(firestore.collection('walletLinks').doc(address),
+                        {'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch})
+                    ..update(firestore.collection('users').doc(user.uid), {
+                      'walletPublicKey': address,
+                      'connectedWalletType': 'trust',
+                    }))
+                  .commit();
 
               ref.invalidate(userProfileProvider);
 

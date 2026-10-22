@@ -299,21 +299,17 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
                 }
               }
 
-              // uid + linkedAt only, never credentials (KAN-124).
-              await ref
-                  .read(firestoreProvider)
-                  .collection('walletLinks')
-                  .doc(address)
-                  .set({'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch});
-
-              await ref
-                  .read(firestoreProvider)
-                  .collection('users')
-                  .doc(user.uid)
-                  .update({
-                'walletPublicKey': address,
-                'connectedWalletType': 'trust',
-              });
+              // uid + linkedAt only, never credentials (KAN-124). One batch with the profile key:
+              // both land or neither does.
+              final firestore = ref.read(firestoreProvider);
+              await (firestore.batch()
+                    ..set(firestore.collection('walletLinks').doc(address),
+                        {'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch})
+                    ..update(firestore.collection('users').doc(user.uid), {
+                      'walletPublicKey': address,
+                      'connectedWalletType': 'trust',
+                    }))
+                  .commit();
 
               ref.invalidate(userProfileProvider);
               if (mounted) {
@@ -325,6 +321,9 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
             } catch (e) {
               if (mounted) {
                 setState(() => _isProcessing = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to save Trust Wallet address: $e'), backgroundColor: Colors.red),
+                );
               }
             }
           }
