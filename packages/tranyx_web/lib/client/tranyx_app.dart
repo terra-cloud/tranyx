@@ -1762,7 +1762,6 @@ class TranyxAppState extends State<TranyxApp> {
           await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(
             result.uid,
             walletKey,
-            refreshToken: result.refreshToken,
           );
         } catch (_) {}
       }
@@ -1867,7 +1866,6 @@ class TranyxAppState extends State<TranyxApp> {
           await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(
             result.uid,
             walletKey,
-            refreshToken: result.refreshToken,
           );
         } catch (_) {}
       }
@@ -2010,7 +2008,6 @@ class TranyxAppState extends State<TranyxApp> {
           await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(
             authResult.uid,
             walletKey,
-            refreshToken: authResult.refreshToken,
           );
         } catch (_) {}
       }
@@ -2085,7 +2082,6 @@ class TranyxAppState extends State<TranyxApp> {
           await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(
             authResult.uid,
             walletKey,
-            refreshToken: authResult.refreshToken,
           );
         } catch (_) {}
       }
@@ -3224,7 +3220,7 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       // Check cross-account conflict: is this wallet already linked to another Tranyx account?
-      final linkData = await FirestoreService().getWalletLink(connectedPubKey);
+      final linkData = await FirestoreService(token, _handleTokenRefresh).getWalletLink(connectedPubKey);
       if (linkData != null) {
         final existingUid = linkData['uid'] as String?;
         if (existingUid != null && existingUid != uid) {
@@ -3237,7 +3233,6 @@ class TranyxAppState extends State<TranyxApp> {
         await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
           uid,
           connectedPubKey,
-          refreshToken: SessionStorage.refreshToken,
         );
         await loadUserProfile();
       }
@@ -3394,7 +3389,7 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       // Check cross-account conflict
-      final linkData = await FirestoreService().getWalletLink(connectedPubKey);
+      final linkData = await FirestoreService(token, _handleTokenRefresh).getWalletLink(connectedPubKey);
       if (linkData != null) {
         final existingUid = linkData['uid'] as String?;
         if (existingUid != null && existingUid != uid) {
@@ -3407,7 +3402,6 @@ class TranyxAppState extends State<TranyxApp> {
         await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
           uid,
           connectedPubKey,
-          refreshToken: SessionStorage.refreshToken,
         );
         await loadUserProfile();
       }
@@ -3749,7 +3743,7 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       // Check cross-account conflict
-      final linkData = await FirestoreService().getWalletLink(connectedPubKey);
+      final linkData = await FirestoreService(token, _handleTokenRefresh).getWalletLink(connectedPubKey);
       if (linkData != null) {
         final existingUid = linkData['uid'] as String?;
         if (existingUid != null && existingUid != uid) {
@@ -3762,7 +3756,6 @@ class TranyxAppState extends State<TranyxApp> {
         await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
           uid,
           connectedPubKey,
-          refreshToken: SessionStorage.refreshToken,
         );
         await loadUserProfile();
       }
@@ -7437,113 +7430,9 @@ class TranyxAppState extends State<TranyxApp> {
     }
 
     if (!isAuthenticated) {
-      setState(() {
-        isAuthLoading = true;
-        authError = null;
-      });
-
-      try {
-        final publicKey = await connectSolanaWallet(type);
-        if (publicKey == null) {
-          setState(() {
-            authError = 'Wallet connection was rejected or failed.';
-            isAuthLoading = false;
-          });
-          return;
-        }
-
-        final linkData = await FirestoreService().getWalletLink(publicKey);
-
-        if (linkData != null) {
-          final existingUid = linkData['uid'] as String?;
-          final refreshToken = linkData['refreshToken'] as String?;
-
-          if (refreshToken != null) {
-            try {
-              final authService = FirebaseAuthService();
-              final newIdToken = await authService.refreshIdToken(refreshToken);
-              final userData = await authService.getUserData(newIdToken);
-
-              final authResult = AuthResult(
-                uid: existingUid!,
-                idToken: newIdToken,
-                refreshToken: refreshToken,
-                email: userData['email'] as String?,
-                displayName: userData['displayName'] as String?,
-              );
-
-              SessionStorage.save(authResult);
-
-              final profile = await FirestoreService(authResult.idToken, _handleTokenRefresh).getUser(authResult.uid);
-              final profileType = profile?.accountType ?? AccountType.employer;
-
-              SessionStorage.saveProfile(
-                name: profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User'),
-                email: authResult.email ?? '',
-                accountType: profileType.name,
-              );
-
-              setState(() {
-                userEmail = authResult.email ?? '';
-                userProfile = profile;
-                isAuthenticated = true;
-                accountType = profileType;
-                hybridToggle = profileType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-                userName = profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User');
-                isAuthLoading = false;
-                walletAddress = '${publicKey.substring(0, 4)}...${publicKey.substring(publicKey.length - 4)}';
-                walletState = WalletState.connected;
-              });
-
-              _initGemini();
-              await loadJobs();
-              await loadTransactions();
-              _startListeningNotifications();
-              _startListeningJobs();
-              _startListeningRentals();
-              _startListeningProperties();
-
-              final balance = await getSolanaBalance(publicKey) ?? 0.0;
-              final collectibles = await getSolanaTokenCollectibles(publicKey) ?? [];
-              setState(() {
-                walletBalance = balance;
-                walletCollectibles = collectibles;
-              });
-
-              if (pendingQrJobId != null && pendingQrCode != null) {
-                await executePendingQrVerification();
-              }
-              return;
-            } catch (e) {
-              setState(() {
-                isAuthLoading = false;
-                authError = 'Wallet recognized but session expired. Please sign in with email & password.';
-                pendingWalletPublicKey = publicKey;
-              });
-              return;
-            }
-          } else {
-            setState(() {
-              isAuthLoading = false;
-              authError = 'Wallet recognized! Please sign in with your email & password to continue.';
-              pendingWalletPublicKey = publicKey;
-            });
-            return;
-          }
-        } else {
-          setState(() {
-            isAuthLoading = false;
-            authError = null;
-            pendingWalletPublicKey = publicKey;
-            authView = AuthView.registerPath;
-          });
-        }
-      } catch (e) {
-        setState(() {
-          authError = 'Wallet connection error: ${e.toString()}';
-          isAuthLoading = false;
-        });
-      }
+      // Wallet sign-in was removed (KAN-124): it restored sessions from refresh tokens stored in
+      // walletLinks. Sign in with email or Google first, then connect the wallet.
+      setState(() => authError = 'Wallet sign-in is turned off. Sign in with email or Google, then connect your wallet.');
     } else {
       setState(() => walletState = WalletState.connecting);
       try {
@@ -7574,7 +7463,7 @@ class TranyxAppState extends State<TranyxApp> {
         final currentUid = SessionStorage.uid;
         if (token != null && currentUid != null) {
           // ── 1:1 guard: check if this wallet is already owned by another user ──
-          final linkData = await FirestoreService().getWalletLink(publicKey);
+          final linkData = await FirestoreService(token, _handleTokenRefresh).getWalletLink(publicKey);
           if (linkData != null) {
             final existingUid = linkData['uid'] as String?;
             if (existingUid != null && existingUid != currentUid) {
@@ -7588,7 +7477,6 @@ class TranyxAppState extends State<TranyxApp> {
             await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
               currentUid,
               publicKey,
-              refreshToken: SessionStorage.refreshToken,
             );
             await loadUserProfile();
           } catch (_) {}
@@ -7697,65 +7585,8 @@ class TranyxAppState extends State<TranyxApp> {
 
     // 2. Fetch the wallet link in Firestore
     try {
-      final linkData = await FirestoreService().getWalletLink(newPublicKey);
-      if (linkData != null) {
-        final existingUid = linkData['uid'] as String?;
-        final refreshToken = linkData['refreshToken'] as String?;
-        if (refreshToken != null) {
-          final authService = FirebaseAuthService();
-          final newIdToken = await authService.refreshIdToken(refreshToken);
-          final userData = await authService.getUserData(newIdToken);
-          final authResult = AuthResult(
-            uid: existingUid!,
-            idToken: newIdToken,
-            refreshToken: refreshToken,
-            email: userData['email'] as String?,
-            displayName: userData['displayName'] as String?,
-          );
-
-          SessionStorage.save(authResult);
-
-          final profile = await FirestoreService(authResult.idToken, _handleTokenRefresh).getUser(authResult.uid);
-          final profileType = profile?.accountType ?? AccountType.employer;
-
-          SessionStorage.saveProfile(
-            name: profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User'),
-            email: authResult.email ?? '',
-            accountType: profileType.name,
-          );
-
-          setState(() {
-            isAuthenticated = true;
-            userEmail = authResult.email ?? '';
-            userProfile = profile;
-            accountType = profileType;
-            hybridToggle = profileType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-            userName = profile?.name ?? authResult.displayName ?? (authResult.email?.split('@').first ?? 'User');
-            walletAddress = '${newPublicKey.substring(0, 4)}...${newPublicKey.substring(newPublicKey.length - 4)}';
-            walletState = WalletState.connected;
-            selectedWalletType = type;
-          });
-
-          _initGemini();
-          await loadJobs();
-          await loadTransactions();
-          _startListeningNotifications();
-          _startListeningJobs();
-          _startAllRentalAndPropertyListeners(existingUid);
-
-          final balance = await getSolanaBalance(newPublicKey) ?? 0.0;
-          final collectibles = await getSolanaTokenCollectibles(newPublicKey) ?? [];
-          setState(() {
-            walletBalance = balance;
-            walletCollectibles = collectibles;
-          });
-
-          showAppToast('Account Switched', 'Successfully switched to wallet account: $walletAddress');
-          return;
-        }
-      }
-
-      // If no link found, sign out of current session and go to registration flow
+      // Wallet sign-in was removed (KAN-124): a wallet switch signs out; the new wallet links after
+      // the user signs in with email or Google.
       await signOutJs();
       SessionStorage.clear();
       setState(() {
@@ -7763,10 +7594,10 @@ class TranyxAppState extends State<TranyxApp> {
         pendingWalletPublicKey = newPublicKey;
         selectedWalletType = type;
         walletState = WalletState.disconnected;
-        authView = AuthView.registerPath;
-        authError = 'No linked account found for this wallet. Please register or sign in to link it.';
+        authView = AuthView.login;
+        authError = 'Wallet sign-in is turned off. Sign in with email or Google and this wallet will be linked.';
       });
-      showAppToast('Wallet Connected', 'Please sign in or register to link this wallet.');
+      showAppToast('Wallet Changed', 'Sign in with email or Google to link this wallet.');
     } catch (e) {
       setState(() {
         authError = 'Error switching wallet account: ${e.toString()}';
@@ -7839,7 +7670,7 @@ class TranyxAppState extends State<TranyxApp> {
       }
 
       // Check if wallet is already linked to another account
-      final linkData = await FirestoreService().getWalletLink(publicKey);
+      final linkData = await FirestoreService(token, _handleTokenRefresh).getWalletLink(publicKey);
       if (linkData != null) {
         final existingUid = linkData['uid'] as String?;
         if (existingUid != null && existingUid != uid) {
@@ -7850,7 +7681,6 @@ class TranyxAppState extends State<TranyxApp> {
       await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
         uid,
         publicKey,
-        refreshToken: SessionStorage.refreshToken,
       );
 
       // Refresh local profile
