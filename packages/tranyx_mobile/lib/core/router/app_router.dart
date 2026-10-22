@@ -204,22 +204,18 @@ final routerProvider = Provider<GoRouter>((ref) {
                   }
                 }
 
-                // One-wallet-one-account index first, so a rejected link never leaves walletPublicKey set
-                // without its walletLinks doc. uid + linkedAt only: never credentials (KAN-124).
-                await ref
-                    .read(firestoreProvider)
-                    .collection('walletLinks')
-                    .doc(userSolanaPublicKey)
-                    .set({'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch});
-
-                await ref
-                    .read(firestoreProvider)
-                    .collection('users')
-                    .doc(user.uid)
-                    .update({
-                      'walletPublicKey': userSolanaPublicKey,
-                      'connectedWalletType': walletType,
-                    });
+                // One-wallet-one-account index and profile key in one batch, so a rejected link never
+                // leaves walletPublicKey set without its walletLinks doc. uid + linkedAt only: never
+                // credentials (KAN-124).
+                final firestore = ref.read(firestoreProvider);
+                await (firestore.batch()
+                      ..set(firestore.collection('walletLinks').doc(userSolanaPublicKey),
+                          {'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch})
+                      ..update(firestore.collection('users').doc(user.uid), {
+                        'walletPublicKey': userSolanaPublicKey,
+                        'connectedWalletType': walletType,
+                      }))
+                    .commit();
                 ref.invalidate(userProfileProvider);
 
                 if (context.mounted) {
