@@ -1,6 +1,15 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 
+/// Soft CSS gradient orb (visible color + animated drift).
+Component brandOrb(String posCls, String animCls) {
+  return div(
+    classes: 'brand-orb $animCls pointer-events-none absolute $posCls',
+    attributes: {'aria-hidden': 'true'},
+    [],
+  );
+}
+
 /// Shared animated brand metaballs (soft continuous drift).
 /// Classes: brand-blob + brand-blob-a/b/c (aliases of w01-blob keyframes).
 /// Honors prefers-reduced-motion via styles.css.
@@ -8,7 +17,7 @@ Component brandBlob(String src, String posCls, String animCls, {required bool is
   return img(
     src: src,
     classes:
-        'brand-blob w01-blob $animCls pointer-events-none absolute max-w-none $posCls ${isDark ? "opacity-40" : ""}',
+        'brand-blob w01-blob $animCls pointer-events-none absolute max-w-none $posCls ${isDark ? "opacity-50" : ""}',
     attributes: {'alt': '', 'aria-hidden': 'true'},
   );
 }
@@ -51,10 +60,30 @@ class AuthBrandShell extends StatelessComponent {
     super.key,
   });
 
+  List<Component> _desktopBlobs() => [
+        brandOrb('left-[-80px] top-[320px]', 'brand-orb-a'),
+        brandOrb('left-[340px] top-[80px]', 'brand-orb-b'),
+        brandOrb('left-[280px] top-[600px]', 'brand-orb-c'),
+        brandBlob('/images/w01/05633.svg', 'left-[-60px] top-[380px] size-[420px]', 'brand-blob-a w01-blob-a', isDark: isDark),
+        brandBlob('/images/w01/54cd1.svg', 'left-[360px] top-[120px] size-[300px]', 'brand-blob-b w01-blob-b', isDark: isDark),
+        brandBlob('/images/w01/1a12a.svg', 'left-[300px] top-[640px] size-[260px]', 'brand-blob-c w01-blob-c', isDark: isDark),
+      ];
+
+  List<Component> _tabletBlobs() => [
+        brandOrb('left-[400px] top-[-140px]', 'brand-orb-a'),
+        brandOrb('left-[560px] top-[40px]', 'brand-orb-b'),
+        brandBlob('/images/w01/937b1.svg', 'left-[420px] top-[-120px] size-[360px]', 'brand-blob-a w01-blob-a', isDark: isDark),
+        brandBlob('/images/w01/1a12a.svg', 'left-[600px] top-[80px] size-[260px]', 'brand-blob-b w01-blob-b', isDark: isDark),
+      ];
+
+  List<Component> _mobileBlobs() => [
+        brandOrb('left-[140px] top-[-160px]', 'brand-orb-a'),
+        brandBlob('/images/w01/2f57f.svg', 'left-[160px] top-[-140px] size-[300px]', 'brand-blob-a w01-blob-a', isDark: isDark),
+      ];
+
   @override
   Component build(BuildContext context) {
     final pageBg = isDark ? 'bg-zinc-950 text-zinc-50' : 'bg-[#f4f4f5] text-[#18181b]';
-    final brandBg = isDark ? 'bg-zinc-900' : 'bg-white';
     final textPrimary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
     final textSecondary = isDark ? 'text-zinc-400' : 'text-[#52525b]';
 
@@ -104,11 +133,9 @@ class AuthBrandShell extends StatelessComponent {
           [
             div(
               classes:
-                  'relative w-[680px] shrink-0 flex flex-col justify-between overflow-hidden $brandBg px-[72px] py-16',
+                  'auth-brand-panel relative w-[680px] shrink-0 flex flex-col justify-between overflow-hidden px-[72px] py-16',
               [
-                brandBlob('/images/w01/05633.svg', 'left-[-60px] top-[380px] size-[420px]', 'brand-blob-a w01-blob-a', isDark: isDark),
-                brandBlob('/images/w01/54cd1.svg', 'left-[360px] top-[120px] size-[300px]', 'brand-blob-b w01-blob-b', isDark: isDark),
-                brandBlob('/images/w01/1a12a.svg', 'left-[300px] top-[640px] size-[260px]', 'brand-blob-c w01-blob-c', isDark: isDark),
+                ..._desktopBlobs(),
                 logo,
                 brandCopy,
                 overline,
@@ -131,10 +158,9 @@ class AuthBrandShell extends StatelessComponent {
           [
             div(
               classes:
-                  'relative w-full h-[300px] shrink-0 overflow-hidden $brandBg px-14 py-10 flex flex-col gap-4 items-start',
+                  'auth-brand-panel relative w-full h-[300px] shrink-0 overflow-hidden px-14 py-10 flex flex-col gap-4 items-start',
               [
-                brandBlob('/images/w01/937b1.svg', 'left-[420px] top-[-120px] size-[360px]', 'brand-blob-a w01-blob-a', isDark: isDark),
-                brandBlob('/images/w01/1a12a.svg', 'left-[600px] top-[80px] size-[260px]', 'brand-blob-b w01-blob-b', isDark: isDark),
+                ..._tabletBlobs(),
                 div(classes: 'relative z-10 flex items-center', [
                   img(
                     src: '/images/w01/fef74.png',
@@ -173,7 +199,7 @@ class AuthBrandShell extends StatelessComponent {
           classes:
               'flex sm:hidden relative w-full min-h-screen flex-col gap-5 items-start px-4 pt-6 pb-8 overflow-hidden $pageBg',
           [
-            brandBlob('/images/w01/2f57f.svg', 'left-[160px] top-[-140px] size-[300px]', 'brand-blob-a w01-blob-a', isDark: isDark),
+            ..._mobileBlobs(),
             div(classes: 'relative z-10 flex items-center', [
               img(
                 src: '/images/w01/fef74.png',

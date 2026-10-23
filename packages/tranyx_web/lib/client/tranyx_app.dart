@@ -15,6 +15,7 @@ import 'package:tranyx_web/components/ui_helpers.dart';
 import 'package:tranyx_web/services/map_interop.dart';
 
 import '../state/app_state.dart';
+import '../pages/about.dart';
 import '../pages/privacy_policy.dart';
 import '../pages/terms_of_use.dart';
 import '../client/views/auth_view.dart';
@@ -8463,6 +8464,9 @@ class TranyxAppState extends State<TranyxApp> {
     }
     if (path == '/terms-of-use') {
       return const TermsOfUse();
+    }
+    if (path == '/about') {
+      return const About();
     }
 
     final darkBg = isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900';
