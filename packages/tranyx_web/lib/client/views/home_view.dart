@@ -229,21 +229,38 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         ]),
       ]),
 
-      // ── Home Tab Selector ─────────────────────────────────
-      div(classes: 'flex border-b ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
-        button(
-          classes:
-              'px-6 py-3 font-semibold text-sm transition-all border-b-2 ${_homeTab == 'dashboard' ? 'border-indigo-500 text-indigo-400 font-bold' : 'border-transparent ${isDark ? "text-zinc-500 hover:text-zinc-300" : "text-zinc-450 hover:text-zinc-650"}'}',
-          events: {'click': (_) => setState(() => _homeTab = 'dashboard')},
-          [Component.text('Dashboard')],
-        ),
-        button(
-          classes:
-              'px-6 py-3 font-semibold text-sm transition-all border-b-2 ${_homeTab == 'news' ? 'border-indigo-500 text-indigo-400 font-bold' : 'border-transparent ${isDark ? "text-zinc-500 hover:text-zinc-300" : "text-zinc-450 hover:text-zinc-650"}'}',
-          events: {'click': (_) => setState(() => _homeTab = 'news')},
-          [Component.text('News & Promos')],
-        ),
-      ]),
+      // ── Home Tab Selector (W10 pill segments) ─────────────
+      div(
+        classes:
+            'inline-flex gap-1 p-1 rounded-[14px] border '
+            '${isDark ? "bg-zinc-900 border-zinc-800" : "bg-[#fafafa] border-[#e4e4e7]"}',
+        [
+          button(
+            classes:
+                'h-9 px-4 rounded-[10px] text-sm font-semibold transition-all border-0 cursor-pointer '
+                '${_homeTab == 'dashboard'
+                    ? (isDark
+                        ? "bg-zinc-800 text-zinc-50 shadow"
+                        : "bg-white text-[#18181b] shadow-[0_4px_12px_rgba(9,9,11,0.04),0_1px_2px_rgba(9,9,11,0.06)]")
+                    : (isDark ? "bg-transparent text-zinc-400" : "bg-transparent text-[#52525b]")}',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => setState(() => _homeTab = 'dashboard')},
+            [Component.text('Dashboard')],
+          ),
+          button(
+            classes:
+                'h-9 px-4 rounded-[10px] text-sm font-semibold transition-all border-0 cursor-pointer '
+                '${_homeTab == 'news'
+                    ? (isDark
+                        ? "bg-zinc-800 text-zinc-50 shadow"
+                        : "bg-white text-[#18181b] shadow-[0_4px_12px_rgba(9,9,11,0.04),0_1px_2px_rgba(9,9,11,0.06)]")
+                    : (isDark ? "bg-transparent text-zinc-400" : "bg-transparent text-[#52525b]")}',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => setState(() => _homeTab = 'news')},
+            [Component.text('News')],
+          ),
+        ],
+      ),
 
       if (_homeTab == 'news') ...[
         // Promo redemption form
@@ -426,14 +443,19 @@ class HomeViewComponentState extends State<HomeViewComponent> {
             ],
           ),
 
-        // ── Quick Stats Bar ───────────────────────────────────
-        _quickStatsBar(isDark: isDark, isNyxian: isNyxian, s: s),
+        // ── W10 wallet + current gig (Nyxian ≥1280 side-by-side) ──
+        if (isNyxian)
+          _walletAndCurrentGigRow(isDark: isDark, s: s)
+        else ...[
+          _quickStatsBar(isDark: isDark, isNyxian: isNyxian, s: s),
+          _ongoingWidget(isDark: isDark, isNyxian: isNyxian, s: s),
+        ],
 
         // ── Active P2P Transactions (Deposits & Withdrawals) ──
         _activeP2pTransactionsBanner(isDark: isDark, s: s),
 
-        // ── Ongoing / Current Gig Widget ──────────────────────
-        _ongoingWidget(isDark: isDark, isNyxian: isNyxian, s: s),
+        // ── W10 Nyxian stats (3-up; wallet lives in hero card) ─
+        if (isNyxian) _nyxianStatsRow(isDark: isDark, s: s),
 
         // ── Active Trackers & Trips ───────────────────────────
         _activeTrackersSection(isDark: isDark, s: s),
@@ -967,6 +989,278 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         ],
       );
     }
+  }
+
+
+  /// W10 purple Tyxbit wallet + Current Gig card (live data only).
+  Component _walletAndCurrentGigRow({required bool isDark, required TranyxAppState s}) {
+    final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
+    final pendingTotal = s.pendingHoldbacks.fold<double>(
+      0.0,
+      (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0.0),
+    );
+    final job = s.ongoingJob;
+    final surface = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-[#e4e4e7] shadow-sm';
+
+    Component wallet = div(
+      classes:
+          'flex-1 min-w-[260px] rounded-3xl px-7 py-6 text-white '
+          'bg-gradient-to-r from-[#4f46e5] to-[#7c3aed] '
+          'shadow-[0_8px_20px_-6px_rgba(79,70,229,0.25)] flex flex-col gap-1.5',
+      [
+        div(classes: 'flex items-center gap-2', [
+          lIcon('wallet', cls: 'w-[18px] h-[18px] text-white'),
+          span(classes: 'flex-1 text-sm font-semibold', [Component.text('Tyxbit Wallet')]),
+          span(classes: 'text-xs font-mono text-white/80', [Component.text('1 TYX = ₱1')]),
+        ]),
+        p(classes: 'm-0 text-[40px] leading-[48px] font-bold tracking-tight tabular-nums', [
+          Component.text('₱ ${tyxBal.toStringAsFixed(2)}'),
+        ]),
+        p(classes: 'm-0 text-[13px] text-white/85', [
+          Component.text(
+            pendingTotal > 0
+                ? '+ ₱${pendingTotal.toStringAsFixed(2)} Pending · releases when jobs complete'
+                : 'Available balance · escrow releases when jobs complete',
+          ),
+        ]),
+        div(classes: 'flex flex-wrap items-center gap-3 pt-3', [
+          button(
+            classes:
+                'h-11 px-[18px] rounded-xl bg-white text-[#4f46e5] text-sm font-semibold '
+                'border-0 cursor-pointer flex items-center gap-2 hover:opacity-95',
+            attributes: {'type': 'button'},
+            events: {
+              'click': (_) => s.setState(() {
+                s.showDepositModal = true;
+              }),
+            },
+            [lIcon('plus', cls: 'w-[18px] h-[18px]'), Component.text('Deposit Tyx')],
+          ),
+          button(
+            classes:
+                'h-11 px-[18px] rounded-xl bg-white/16 border border-white/40 text-white text-sm font-semibold '
+                'cursor-pointer flex items-center gap-2 hover:bg-white/25',
+            attributes: {'type': 'button'},
+            events: {
+              'click': (_) => s.setState(() {
+                s.showWithdrawModal = true;
+              }),
+            },
+            [lIcon('arrow-up', cls: 'w-[18px] h-[18px]'), Component.text('Withdraw')],
+          ),
+          button(
+            classes:
+                'h-11 pl-3 text-white text-sm font-semibold bg-transparent border-0 cursor-pointer '
+                'flex items-center gap-1.5 hover:underline',
+            attributes: {'type': 'button'},
+            events: {
+              'click': (_) => s.setState(() {
+                s.activeTab = AppTab.profile;
+                s.profileView = ProfileView.history;
+              }),
+            },
+            [Component.text('History'), lIcon('chevron-right', cls: 'w-4 h-4')],
+          ),
+        ]),
+      ],
+    );
+
+    Component currentGig;
+    if (job != null) {
+      final title = job['title'] as String? ?? 'Current Gig';
+      final employer = job['creatorName'] as String? ?? 'Employer';
+      final loc = job['locationName'] as String? ??
+          job['address'] as String? ??
+          job['approxArea'] as String? ??
+          'Approx. area';
+      final pay = (job['pricingValue'] as num?)?.toDouble() ?? 0.0;
+      final initials = employer
+          .split(RegExp(r'\s+'))
+          .where((part) => part.isNotEmpty)
+          .take(2)
+          .map((part) => part[0].toUpperCase())
+          .join();
+      final jId = job['id'] as String;
+      final acceptedId =
+          job['acceptedApplicantId'] as String? ?? s.userProfile?.uid ?? SessionStorage.uid ?? '';
+      final scopedChatId = acceptedId.isNotEmpty ? 'job_${jId}_$acceptedId' : jId;
+
+      currentGig = div(
+        classes: 'w-full xl:w-[440px] shrink-0 rounded-[20px] border p-6 flex flex-col gap-3 $surface',
+        [
+          div(classes: 'flex items-center gap-2', [
+            span(classes: 'flex-1 text-sm font-semibold ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+              Component.text('Current Gig'),
+            ]),
+            span(
+              classes:
+                  'inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-xs font-semibold '
+                  'bg-[#fef2f2] text-[#dc2626]',
+              [
+                span(classes: 'w-1.5 h-1.5 rounded-full bg-[#dc2626] animate-pulse', []),
+                Component.text('LIVE'),
+              ],
+            ),
+          ]),
+          p(classes: 'm-0 text-xl font-semibold tracking-tight ${isDark ? "text-zinc-50" : "text-[#18181b]"}', [
+            Component.text(title),
+          ]),
+          div(classes: 'flex items-center gap-2', [
+            div(
+              classes:
+                  'size-7 rounded-[14px] flex items-center justify-center text-[11px] font-bold '
+                  '${isDark ? "bg-indigo-500/20 text-indigo-300" : "bg-[#eef2ff] text-[#4f46e5]"}',
+              [Component.text(initials.isEmpty ? '?' : initials)],
+            ),
+            span(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+              Component.text('$employer · Employer'),
+            ]),
+          ]),
+          div(classes: 'flex items-center gap-1.5', [
+            lIcon('map-pin', cls: 'w-4 h-4 ${isDark ? "text-zinc-500" : "text-[#71717a]"}'),
+            span(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [Component.text(loc)]),
+          ]),
+          div(classes: 'flex items-center gap-3', [
+            div(
+              classes: 'h-2 w-[120px] rounded bg-[#fafafa] dark:bg-zinc-800 overflow-hidden',
+              [
+                div(
+                  classes: 'h-2 rounded bg-[#4f46e5]',
+                  attributes: {'style': 'width: 65%'},
+                  [],
+                ),
+              ],
+            ),
+            span(classes: 'text-xs font-medium ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+              Component.text('In progress · Php ${pay.toStringAsFixed(2)}'),
+            ]),
+          ]),
+          div(classes: 'flex gap-3 pt-1', [
+            button(
+              classes:
+                  'flex-1 h-12 rounded-xl text-sm font-semibold text-white bg-[#4f46e5] border-0 cursor-pointer '
+                  'shadow-[0_8px_10px_rgba(79,70,229,0.25)] hover:opacity-95',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => s.selectJobAndLoadDetails(job)},
+              [Component.text('View Details')],
+            ),
+            button(
+              classes:
+                  'h-12 px-5 rounded-xl text-sm font-semibold border cursor-pointer '
+                  '${isDark ? "bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "bg-white border-[#d4d4d8] text-[#18181b] hover:bg-zinc-50"}',
+              attributes: {'type': 'button'},
+              events: {
+                'click': (_) => s.openChat(
+                      scopedChatId,
+                      title: job['title'] as String?,
+                      counterpartyName: job['creatorName'] as String?,
+                    ),
+              },
+              [Component.text('Message')],
+            ),
+          ]),
+        ],
+      );
+    } else {
+      currentGig = div(
+        classes: 'w-full xl:w-[440px] shrink-0 rounded-[20px] border p-6 flex flex-col gap-3 $surface',
+        [
+          div(classes: 'flex items-center gap-2', [
+            span(classes: 'flex-1 text-sm font-semibold ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+              Component.text('Current Gig'),
+            ]),
+            span(
+              classes:
+                  'h-6 px-2.5 rounded-full text-xs font-semibold '
+                  '${isDark ? "bg-zinc-800 text-zinc-400" : "bg-zinc-100 text-zinc-500"}',
+              [Component.text('Idle')],
+            ),
+          ]),
+          p(classes: 'm-0 text-base ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+            Component.text('No active gig. Browse available jobs to start earning.'),
+          ]),
+          button(
+            classes:
+                'mt-auto h-12 rounded-xl text-sm font-semibold text-white bg-[#4f46e5] border-0 cursor-pointer '
+                'shadow-[0_8px_10px_rgba(79,70,229,0.25)] hover:opacity-95',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => s.openJobsBrowse()},
+            [Component.text('Find gigs')],
+          ),
+        ],
+      );
+    }
+
+    return div(classes: 'flex flex-col xl:flex-row gap-6 items-stretch', [wallet, currentGig]);
+  }
+
+  /// W10 Nyxian stats — Gigs Done / Total Earned / Trust Rating (live profile).
+  Component _nyxianStatsRow({required bool isDark, required TranyxAppState s}) {
+    final card = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-[#e4e4e7] shadow-sm';
+    final label = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+    final title = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final jobsDone = s.userProfile?.jobsDone ?? 0;
+    final totalEarned = s.userProfile?.totalEarned ?? 0.0;
+    final rating = s.userProfile?.rating;
+
+    Component cell({
+      required String icon,
+      required String name,
+      required String value,
+      required String action,
+      required void Function() onTap,
+    }) {
+      return button(
+        classes:
+            'flex-1 min-w-[160px] text-left rounded-[20px] border px-6 py-5 flex flex-col gap-2 cursor-pointer $card',
+        attributes: {'type': 'button'},
+        events: {'click': (_) => onTap()},
+        [
+          div(classes: 'flex items-center gap-2', [
+            lIcon(icon, cls: 'w-[18px] h-[18px] $label'),
+            span(classes: 'text-sm $label', [Component.text(name)]),
+          ]),
+          p(classes: 'm-0 text-[28px] leading-9 font-bold tracking-tight $title', [Component.text(value)]),
+          span(classes: 'inline-flex items-center gap-1 text-sm font-semibold text-[#4f46e5]', [
+            Component.text(action),
+            lIcon('chevron-right', cls: 'w-3.5 h-3.5'),
+          ]),
+        ],
+      );
+    }
+
+    return div(classes: 'flex flex-col sm:flex-row gap-6', [
+      cell(
+        icon: 'briefcase',
+        name: 'Gigs Done',
+        value: '$jobsDone',
+        action: 'View Profile',
+        onTap: () => s.setState(() {
+          s.activeTab = AppTab.profile;
+          s.profileView = ProfileView.main;
+        }),
+      ),
+      cell(
+        icon: 'trending-up',
+        name: 'Total Earned',
+        value: '₱ ${totalEarned.toStringAsFixed(0)}',
+        action: 'View Earnings',
+        onTap: () => s.setState(() {
+          s.activeTab = AppTab.profile;
+          s.profileView = ProfileView.history;
+        }),
+      ),
+      cell(
+        icon: 'star',
+        name: 'Trust Rating',
+        value: rating != null ? rating.toStringAsFixed(1) : 'Unrated',
+        action: 'View Reviews',
+        onTap: () => s.setState(() {
+          s.activeTab = AppTab.profile;
+          s.profileView = ProfileView.reviews;
+        }),
+      ),
+    ]);
   }
 
   /// W10 Top Services — live category chip tallies (same keywords as W20 filters).

@@ -1,13 +1,18 @@
 # Scratchpad — web redesign Batch A
 
-## Auth stack (priority — current)
-- W01 Sign In — split + animated blobs (prior)
-- W02 Join / W03 Create / W04 Verification / Forgot — AuthBrandShell
-- Shared motion: `lib/client/widgets/auth_brand_shell.dart` + `.brand-blob*` CSS (w01-blob keyframes, reduced-motion)
-- Paths @ http://localhost:8080/
-  - Sign In → Get Started → Join (W02) → Continue → Create (W03) → Create Account → Verification (W04) → Back to Login
-  - Sign In → Forgot password? → Reset → Send reset link (live Firebase)
-- System theme; live Firebase register sends verification email
+## Done recently
+- W01–W06 auth/legal (prior)
+- W10 Nyxian dashboard: Figma sidebar (248 lg / 80 md), Find gigs CTA, Tyxbit mini, pill Dashboard/News, purple wallet + Current Gig row, 3-up live stats, Top Services filters → W20, Nearby live rentals
+- W20 Jobs Browse: live GigFilterEngine chips/distance/sort/remote, My Applications label, wider master list, count line
+- W22 Job details: animated brand-blob hero when listing has no photos
 
-## Filters WIP paused
-- `78238b9` GigFilterEngine category chips — resume after auth looks good
+## Next
+- W30 Rentals · Vehicles filters polish to Figma
+- W40 Messages two-pane
+- W50 Profile
+- W54 Withdraw
+- Responsive 834/390 passes for W10/W20
+
+## Localhost
+- http://localhost:8080/ (jaspr serve ENV=dev) — sign in as Nyxian to see W10
+- Dashboard tab = home; Jobs = W20; open a gig = W22

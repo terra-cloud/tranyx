@@ -27,18 +27,28 @@ class JobsViewComponent extends StatelessComponent {
     if (s.jobsView == JobsView.list) {
       final displayJobs = isNyxian ? _getFilteredJobs(s.availableJobs, s) : _getFilteredJobs(s.myJobs, s);
 
-      return div(classes: 'flex flex-col md:flex-row gap-6 animate-fade-up', [
-        // Left list pane
-        div(classes: 'w-full md:w-80 flex-shrink-0 space-y-4', [
-          div(classes: 'flex items-center justify-between', [
-            h2(classes: 'text-xl font-bold', [
-              Component.text(
-                isNyxian
-                    ? (s.activeJobPane == 'active'
-                          ? 'Active Gigs'
-                          : (s.activeJobPane == 'history' ? 'Past Gigs' : 'Available Gigs'))
-                    : (s.activeJobPane == 'history' ? 'Past History' : 'My Postings'),
-              ),
+      return div(classes: 'flex flex-col xl:flex-row gap-6 animate-fade-up', [
+        // Left list pane (W20 master)
+        div(classes: 'w-full xl:w-[420px] 2xl:w-[460px] flex-shrink-0 space-y-4', [
+          div(classes: 'flex items-center justify-between gap-3', [
+            div(classes: 'min-w-0', [
+              h2(classes: 'text-xl font-bold m-0', [
+                Component.text(
+                  isNyxian
+                      ? (s.activeJobPane == 'active'
+                            ? 'Active Gigs'
+                            : (s.activeJobPane == 'history'
+                                ? 'Past Gigs'
+                                : (s.activeJobPane == 'applied' ? 'My Applications' : 'Browse Gigs')))
+                      : (s.activeJobPane == 'history' ? 'Past History' : 'My Postings'),
+                ),
+              ]),
+              if (isNyxian && s.activeJobPane != 'history' && s.activeJobPane != 'applied')
+                p(classes: 'm-0 mt-1 text-xs font-medium ${isDark ? "text-zinc-500" : "text-[#71717a]"}', [
+                  Component.text(
+                    '${displayJobs.length} gig${displayJobs.length == 1 ? "" : "s"} near you',
+                  ),
+                ]),
             ]),
             if (!isNyxian)
               button(
@@ -75,7 +85,7 @@ class JobsViewComponent extends StatelessComponent {
                       'flex-1 py-2.5 text-xs font-bold rounded-xl transition-all '
                       '${s.activeJobPane == 'applied' ? (isDark ? "bg-zinc-900 text-white shadow" : "bg-white text-zinc-900 shadow") : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"}',
                   events: {'click': (_) => s.setState(() => s.activeJobPane = 'applied')},
-                  [Component.text('Applied')],
+                  [Component.text('My Applications')],
                 ),
                 button(
                   classes:
@@ -1295,6 +1305,30 @@ class _JobDetails extends StatelessComponent {
               ],
             );
           },
+        )
+      else
+        div(
+          classes:
+              'w-full h-56 md:h-72 rounded-3xl overflow-hidden relative border '
+              '${isDark ? "border-zinc-800" : "border-[#e4e4e7]"} '
+              'bg-gradient-to-r from-[#c7d2fe] to-[#a78bfa]',
+          [
+            div(
+              classes: 'brand-blob brand-blob-a absolute -left-8 top-2 w-48 h-48 rounded-full '
+                  'bg-[#818cf8]/70 blur-2xl pointer-events-none',
+              [],
+            ),
+            div(
+              classes: 'brand-blob brand-blob-b absolute right-6 -bottom-10 w-56 h-56 rounded-full '
+                  'bg-[#c084fc]/65 blur-2xl pointer-events-none',
+              [],
+            ),
+            div(
+              classes: 'brand-blob brand-blob-c absolute left-1/3 top-1/4 w-40 h-40 rounded-full '
+                  'bg-white/50 blur-xl pointer-events-none',
+              [],
+            ),
+          ],
         ),
 
       // Job meta chips
