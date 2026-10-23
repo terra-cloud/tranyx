@@ -490,7 +490,7 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
             ]),
             div([
               h1(classes: 'text-2xl font-black ${isDark ? "text-white" : "text-zinc-900"}', [
-                Component.text('Messages & Conversations'),
+                Component.text('Messages'),
               ]),
               p(classes: 'text-xs text-zinc-500 mt-0.5', [
                 Component.text('Communicate with clients, freelancers, hosts, and support safely inside Tranyx'),
@@ -509,7 +509,7 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
             classes:
                 'w-full pl-10 pr-4 py-2 rounded-xl text-xs border ${isDark ? "bg-zinc-900/80 border-zinc-800 text-zinc-200" : "bg-white border-zinc-200 text-zinc-800"} outline-none focus:border-indigo-500 transition',
             attributes: {
-              'placeholder': 'Search messages or counterparties...',
+              'placeholder': 'Search messages...',
               'value': searchQuery,
             },
             events: {
@@ -545,15 +545,22 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
         // Category Filter Pills
         div(classes: 'flex flex-wrap items-center gap-1.5', [
           for (final filter in [
-            {'id': 'all', 'label': 'All Types'},
-            {'id': 'job', 'label': 'Jobs & Gigs'},
-            {'id': 'rental', 'label': 'Vehicle Rentals'},
+            {'id': 'all', 'label': 'All'},
+            {'id': 'job', 'label': 'Jobs'},
+            {'id': 'rental', 'label': 'Rentals'},
             {'id': 'property', 'label': 'Properties'},
             {'id': 'support', 'label': 'Support'},
           ])
             button(
               classes:
-                  'px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${categoryFilter == filter['id'] ? "bg-zinc-800 text-indigo-400 border border-indigo-500/30" : "bg-zinc-800/40 text-zinc-400 hover:text-zinc-200 border border-zinc-800"}',
+                  'px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border '
+                  '${categoryFilter == filter['id']
+                      ? (isDark
+                          ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/40"
+                          : "bg-[#18181b] text-white border-[#18181b]")
+                      : (isDark
+                          ? "bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200"
+                          : "bg-white text-[#52525b] border-[#e4e4e7] hover:bg-zinc-50")}',
               events: {'click': (_) => setState(() => categoryFilter = filter['id']!)},
               [Component.text(filter['label']!)],
             ),

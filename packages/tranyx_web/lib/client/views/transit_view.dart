@@ -23,6 +23,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
   String _searchQuery = '';
   double? _maxPrice;
   String _selectedDurationFilter = 'any'; // 'any', 'daily', 'weekly', 'monthly', 'yearly'
+  String _selectedVehicleType = 'any'; // W30 type chip: any/car/motorcycle/truck/van/mpv
+  bool _rentalsMapView = false; // W30 grid/map toggle (≥834)
 
   // Property specific filters
   PropertyCategory? _selectedCategory;
@@ -160,9 +162,38 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           final brand = (r['brand'] ?? '').toString().toLowerCase();
           final model = (r['model'] ?? '').toString().toLowerCase();
           final type = (r['type'] ?? r['vehicleType'] ?? '').toString().toLowerCase();
-          if (!brand.contains(query) && !model.contains(query) && !type.contains(query)) {
+          final loc = (r['pickupAddress'] ?? r['location'] ?? r['area'] ?? '').toString().toLowerCase();
+          if (!brand.contains(query) &&
+              !model.contains(query) &&
+              !type.contains(query) &&
+              !loc.contains(query)) {
             return false;
           }
+        }
+
+        if (_selectedVehicleType != 'any') {
+          final type = (r['type'] ?? r['vehicleType'] ?? '').toString().toLowerCase();
+          final category = (r['category'] ?? '').toString().toLowerCase();
+          final hay = '$type $category';
+          final want = _selectedVehicleType.toLowerCase();
+          if (!hay.contains(want) &&
+              !(want == 'car' && (hay.contains('sedan') || hay.contains('hatch') || hay.contains('suv'))) &&
+              !(want == 'motorcycle' && (hay.contains('motor') || hay.contains('scooter') || hay.contains('bike'))) &&
+              !(want == 'truck' && (hay.contains('truck') || hay.contains('l300') || hay.contains('pickup'))) &&
+              !(want == 'mpv' && (hay.contains('mpv') || hay.contains('innova') || hay.contains('ertiga') || hay.contains('van')))) {
+            return false;
+          }
+        }
+
+        if (_selectedDurationFilter == 'daily') {
+          final daily = double.tryParse((r['priceDaily'] ?? r['dailyRate'] ?? '').toString()) ?? 0.0;
+          if (daily <= 0) return false;
+        } else if (_selectedDurationFilter == 'weekly') {
+          final weekly = double.tryParse((r['priceWeekly'] ?? r['weeklyRate'] ?? '').toString()) ?? 0.0;
+          if (weekly <= 0) return false;
+        } else if (_selectedDurationFilter == 'monthly') {
+          final monthly = double.tryParse((r['priceMonthly'] ?? r['monthlyRate'] ?? '').toString()) ?? 0.0;
+          if (monthly <= 0) return false;
         }
 
         final double pickupLat = (r['pickupLat'] as num?)?.toDouble() ?? 14.5995;
@@ -238,19 +269,53 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         ],
 
         // Search & Filter header
-        _buildVehicleFilters(isDark, s),
+        _buildVehicleFilters(isDark, s, resultCount: availableRentals.length),
 
-        // Available listings grid
+        // Available listings grid (W30: 3 / 2 / 1)
         if (availableRentals.isEmpty)
           div(
             classes:
                 'p-10 rounded-2xl border border-dashed ${isDark ? "border-zinc-800 text-zinc-500 bg-zinc-900/10" : "border-zinc-200 text-zinc-400 bg-zinc-50/50"} text-center font-medium',
             [Component.text('No matching vehicles available for rent.')],
           )
+        else if (_rentalsMapView)
+          div(
+            classes:
+                'p-10 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900/40 text-zinc-400" : "border-zinc-200 bg-zinc-50 text-zinc-500"} text-center text-sm font-medium',
+            [
+              Component.text(
+                'Map view shows ${availableRentals.length} live listing${availableRentals.length == 1 ? "" : "s"} in your filter. Switch back to Grid to book.',
+              ),
+            ],
+          )
         else
-          div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4', [
+          div(classes: 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4', [
             for (final v in availableRentals) _vehicleCard(v, isDark, isHostView: false),
           ]),
+
+        // W30 list-a-vehicle promo (live CTA → host modal)
+        div(
+          classes:
+              'mt-2 p-5 md:p-6 rounded-2xl border flex flex-col md:flex-row md:items-center gap-4 '
+              '${isDark ? "bg-zinc-900 border-zinc-800" : "bg-[#eef2ff] border-indigo-100"}',
+          [
+            div(classes: 'flex-1 space-y-1', [
+              p(classes: 'm-0 text-sm font-semibold ${isDark ? "text-zinc-100" : "text-[#18181b]"}', [
+                Component.text('Turn your vehicle into earnings. List your car, motorcycle, or truck and earn while it’s parked.'),
+              ]),
+              p(classes: 'm-0 text-xs ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+                Component.text('Listing Fee: ₱0.00 (100% Free)'),
+              ]),
+            ]),
+            button(
+              classes:
+                  'shrink-0 h-11 px-5 rounded-xl text-sm font-semibold text-white bg-[#4f46e5] border-0 cursor-pointer hover:opacity-95',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => s.setState(() => s.showListVehicleModal = true)},
+              [Component.text('List a Vehicle')],
+            ),
+          ],
+        ),
       ]);
     } else {
       // 🏢 PROPERTIES RENT MODE
@@ -481,71 +546,123 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
   // ── Filter Builder Helpers ──────────────────────────────────────────────────
 
-  Component _buildVehicleFilters(bool isDark, TranyxAppState s) {
+  Component _buildVehicleFilters(bool isDark, TranyxAppState s, {required int resultCount}) {
+    final field =
+        'text-xs h-10 px-3 rounded-xl border outline-none cursor-pointer '
+        '${isDark ? "bg-zinc-900 border-zinc-700 text-zinc-100" : "bg-white border-[#e4e4e7] text-[#18181b]"}';
+    final distLabel = s.geofenceRadius >= 999.0
+        ? 'any distance'
+        : 'within ${s.geofenceRadius.toStringAsFixed(0)} km';
     return div(classes: 'space-y-3', [
-      div(
-        classes:
-            'flex items-center gap-3 p-4 rounded-2xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
-        [
-          lIcon('search', cls: 'w-5 h-5 ${isDark ? "text-zinc-600" : "text-zinc-400"}'),
-          input(
-            classes: 'bg-transparent border-none outline-none flex-1 text-sm text-white',
-            type: InputType.search,
-            attributes: {
-              'placeholder': 'Search vehicles, location...',
-              'value': _searchQuery,
-            },
-            events: {
-              'input': (e) => setState(() => _searchQuery = getInputValue(e.target)),
-            },
-          ),
-        ],
-      ),
       div(classes: 'flex flex-wrap items-center gap-3', [
-        div(classes: 'flex items-center gap-2 text-xs', [
-          span(classes: 'font-semibold ${isDark ? "text-zinc-500" : "text-zinc-400"} flex items-center gap-1', [
-            lIcon('map-pin', cls: 'w-3.5 h-3.5 text-purple-400'),
-            Component.text('Distance:'),
-          ]),
-          select(
-            classes:
-                'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
-            events: {
-              'change': (e) {
-                final val = getInputValue(e.target);
-                s.setState(() => s.geofenceRadius = double.parse(val));
+        div(
+          classes:
+              'flex-1 min-w-[220px] flex items-center gap-2 h-11 px-3 rounded-xl border '
+              '${isDark ? "bg-zinc-900 border-zinc-700" : "bg-white border-[#e4e4e7]"}',
+          [
+            lIcon('search', cls: 'w-4 h-4 ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
+            input(
+              classes:
+                  'bg-transparent border-none outline-none flex-1 text-sm min-w-0 '
+                  '${isDark ? "text-zinc-100 placeholder-zinc-500" : "text-[#18181b] placeholder-[#71717a]"}',
+              type: InputType.search,
+              attributes: {
+                'placeholder': 'Search vehicles, location...',
+                'value': _searchQuery,
+                'id': 'w30-vehicle-search',
+                'name': 'w30-vehicle-search',
               },
+              events: {
+                'input': (e) => setState(() => _searchQuery = getInputValue(e.target)),
+              },
+            ),
+          ],
+        ),
+        select(
+          classes: field,
+          events: {
+            'change': (e) => setState(() => _selectedVehicleType = getInputValue(e.target)),
+          },
+          [
+            option(value: 'any', selected: _selectedVehicleType == 'any', [Component.text('All Types')]),
+            option(value: 'car', selected: _selectedVehicleType == 'car', [Component.text('Cars')]),
+            option(value: 'motorcycle', selected: _selectedVehicleType == 'motorcycle', [Component.text('Motorcycles')]),
+            option(value: 'mpv', selected: _selectedVehicleType == 'mpv', [Component.text('MPV / Van')]),
+            option(value: 'truck', selected: _selectedVehicleType == 'truck', [Component.text('Trucks')]),
+          ],
+        ),
+        select(
+          classes: field,
+          events: {
+            'change': (e) {
+              final val = getInputValue(e.target);
+              s.setState(() => s.geofenceRadius = double.parse(val));
             },
-            [
-              option(value: '5.0', selected: s.geofenceRadius == 5.0, [Component.text('Within 5 km')]),
-              option(value: '15.0', selected: s.geofenceRadius == 15.0, [Component.text('Within 15 km')]),
-              option(value: '30.0', selected: s.geofenceRadius == 30.0, [Component.text('Within 30 km')]),
-              option(value: '50.0', selected: s.geofenceRadius == 50.0, [Component.text('Within 50 km')]),
-              option(value: '100.0', selected: s.geofenceRadius == 100.0, [Component.text('Within 100 km')]),
-              option(value: '9999.0', selected: s.geofenceRadius >= 999.0, [Component.text('Any Distance')]),
-            ],
+          },
+          [
+            option(value: '5.0', selected: s.geofenceRadius == 5.0, [Component.text('Within 5 km')]),
+            option(value: '15.0', selected: s.geofenceRadius == 15.0, [Component.text('Within 15 km')]),
+            option(value: '30.0', selected: s.geofenceRadius == 30.0, [Component.text('Within 30 km')]),
+            option(value: '50.0', selected: s.geofenceRadius == 50.0, [Component.text('Within 50 km')]),
+            option(value: '100.0', selected: s.geofenceRadius == 100.0, [Component.text('Within 100 km')]),
+            option(value: '9999.0', selected: s.geofenceRadius >= 999.0, [Component.text('Any Distance')]),
+          ],
+        ),
+        select(
+          classes: field,
+          events: {
+            'change': (e) {
+              final val = getInputValue(e.target);
+              setState(() => _maxPrice = val == 'any' ? null : double.tryParse(val));
+            },
+          },
+          [
+            option(value: 'any', selected: _maxPrice == null, [Component.text('Any Price')]),
+            option(value: '1500', selected: _maxPrice == 1500, [Component.text('Under ₱1,500/day')]),
+            option(value: '3000', selected: _maxPrice == 3000, [Component.text('Under ₱3,000/day')]),
+            option(value: '5000', selected: _maxPrice == 5000, [Component.text('Under ₱5,000/day')]),
+            option(value: '10000', selected: _maxPrice == 10000, [Component.text('Under ₱10,000/day')]),
+          ],
+        ),
+        select(
+          classes: field,
+          events: {
+            'change': (e) => setState(() => _selectedDurationFilter = getInputValue(e.target)),
+          },
+          [
+            option(value: 'any', selected: _selectedDurationFilter == 'any', [Component.text('Any Rent Option')]),
+            option(value: 'daily', selected: _selectedDurationFilter == 'daily', [Component.text('Daily')]),
+            option(value: 'weekly', selected: _selectedDurationFilter == 'weekly', [Component.text('Weekly')]),
+            option(value: 'monthly', selected: _selectedDurationFilter == 'monthly', [Component.text('Monthly')]),
+          ],
+        ),
+      ]),
+      div(classes: 'flex items-center justify-between gap-3', [
+        p(classes: 'm-0 text-xs font-medium ${isDark ? "text-zinc-400" : "text-[#71717a]"}', [
+          Component.text(
+            '$resultCount vehicle${resultCount == 1 ? "" : "s"} $distLabel of you',
           ),
         ]),
-        div(classes: 'flex items-center gap-2 ml-auto', [
-          span(classes: 'text-xs font-semibold ${isDark ? "text-zinc-400" : "text-zinc-550"}', [
-            Component.text('Max Price:'),
-          ]),
-          select(
+        div(classes: 'hidden md:flex items-center gap-1', [
+          button(
             classes:
-                'text-xs p-1.5 rounded-xl border ${isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-white border-zinc-300"} outline-none cursor-pointer',
-            events: {
-              'change': (e) {
-                final val = getInputValue(e.target);
-                setState(() => _maxPrice = val == 'any' ? null : double.tryParse(val));
-              },
-            },
-            [
-              option(value: 'any', [Component.text('Any Price')]),
-              option(value: '1500', [Component.text('Under ₱1,500/day')]),
-              option(value: '3000', [Component.text('Under ₱3,000/day')]),
-              option(value: '5000', [Component.text('Under ₱5,000/day')]),
-              option(value: '10000', [Component.text('Under ₱10,000/day')]),
-            ],
+                'h-9 px-3 rounded-lg text-xs font-semibold border cursor-pointer '
+                '${!_rentalsMapView
+                    ? (isDark ? "bg-zinc-800 border-zinc-600 text-white" : "bg-[#18181b] border-[#18181b] text-white")
+                    : (isDark ? "bg-transparent border-zinc-700 text-zinc-400" : "bg-white border-[#e4e4e7] text-[#52525b]")}',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => setState(() => _rentalsMapView = false)},
+            [Component.text('Grid')],
+          ),
+          button(
+            classes:
+                'h-9 px-3 rounded-lg text-xs font-semibold border cursor-pointer '
+                '${_rentalsMapView
+                    ? (isDark ? "bg-zinc-800 border-zinc-600 text-white" : "bg-[#18181b] border-[#18181b] text-white")
+                    : (isDark ? "bg-transparent border-zinc-700 text-zinc-400" : "bg-white border-[#e4e4e7] text-[#52525b]")}',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => setState(() => _rentalsMapView = true)},
+            [Component.text('Map')],
           ),
         ]),
       ]),
@@ -560,7 +677,9 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         [
           lIcon('search', cls: 'w-5 h-5 ${isDark ? "text-zinc-600" : "text-zinc-400"}'),
           input(
-            classes: 'bg-transparent border-none outline-none flex-1 text-sm text-white',
+            classes:
+                'bg-transparent border-none outline-none flex-1 text-sm '
+                '${isDark ? "text-zinc-100 placeholder-zinc-500" : "text-[#18181b] placeholder-[#71717a]"}',
             type: InputType.search,
             attributes: {
               'placeholder': 'Search property title, address, description...',

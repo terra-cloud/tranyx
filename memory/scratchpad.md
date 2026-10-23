@@ -1,18 +1,15 @@
 # Scratchpad — web redesign Batch A
 
-## Done recently
-- W01–W06 auth/legal (prior)
-- W10 Nyxian dashboard: Figma sidebar (248 lg / 80 md), Find gigs CTA, Tyxbit mini, pill Dashboard/News, purple wallet + Current Gig row, 3-up live stats, Top Services filters → W20, Nearby live rentals
-- W20 Jobs Browse: live GigFilterEngine chips/distance/sort/remote, My Applications label, wider master list, count line
-- W22 Job details: animated brand-blob hero when listing has no photos
+## Landed on feat/web-redesign-batch-a
+- W10/W20/W22 shell + dashboard/jobs (`c06d349`)
+- W30 vehicle filters/grid/banner + W40 message chips (this commit)
 
-## Next
-- W30 Rentals · Vehicles filters polish to Figma
-- W40 Messages two-pane
-- W50 Profile
-- W54 Withdraw
-- Responsive 834/390 passes for W10/W20
+## Still lighter / reuse existing live UI
+- W50 Profile — existing profile_view panes (live)
+- W54 Withdraw — existing withdraw_modal from wallet Deposit/Withdraw CTAs
+- Responsive 834/390 polish pass still open for W10/W20/W30
 
-## Localhost
-- http://localhost:8080/ (jaspr serve ENV=dev) — sign in as Nyxian to see W10
-- Dashboard tab = home; Jobs = W20; open a gig = W22
+## Localhost paths
+- http://localhost:8080/ — sign in as Nyxian
+- Dashboard (home) · Jobs · Rentals · Messages · Profile
+- Wallet Withdraw / Deposit from W10 purple card
