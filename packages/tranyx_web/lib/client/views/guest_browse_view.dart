@@ -1,10 +1,98 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
+import '../utils/geo_helper.dart';
 
-/// W05 Guest · Browse home — public listings + signup CTAs (light & dark).
+/// Top service groups that actually have open jobs (no zero-count padding / no Figma fixtures).
+List<({JobCategoryGroup group, int count})> _liveTopGroups(
+  List<Map<String, dynamic>> jobs, {
+  int limit = 6,
+}) {
+  final tally = <String, int>{};
+  for (final job in jobs) {
+    final raw = job['categoryGroup'] as String?;
+    if (raw != null && raw.isNotEmpty) {
+      tally[raw] = (tally[raw] ?? 0) + 1;
+    }
+  }
+  final entries = tally.entries
+      .map((e) {
+        final grp = JobCategoryGroup.values.where((g) => g.name == e.key).firstOrNull;
+        if (grp == null) return null;
+        return (group: grp, count: e.value);
+      })
+      .whereType<({JobCategoryGroup group, int count})>()
+      .toList()
+    ..sort((grpA, grpB) => grpB.count.compareTo(grpA.count));
+  return entries.take(limit).toList();
+}
+
+String _jobTitle(Map<String, dynamic> j) {
+  var title = j['title'] as String? ?? '';
+  if (title.isEmpty || title == 'Untitled') {
+    final category = j['category'] as String? ?? '';
+    final categoryLabel = j['categoryLabel'] as String? ?? '';
+    final nameToNormalize = categoryLabel.isNotEmpty ? categoryLabel : category;
+    title = nameToNormalize.isNotEmpty ? normalizeCategoryName(nameToNormalize) : 'Untitled Gig';
+  }
+  return title;
+}
+
+String _jobRate(Map<String, dynamic> j) {
+  final pricingValue = (j['pricingValue'] as num?)?.toDouble() ?? 0.0;
+  final pricingType = j['pricingType'] as String? ?? '';
+  if (pricingValue <= 0) return 'Rate on join';
+  final typeSuffix = pricingType.isNotEmpty ? ' / $pricingType' : '';
+  return 'Php ${pricingValue.toStringAsFixed(2)}$typeSuffix';
+}
+
+List<String> _jobTags(Map<String, dynamic> j, TranyxAppState s) {
+  final tags = <String>[];
+  final category = j['category'] as String? ?? '';
+  final categoryLabel = j['categoryLabel'] as String? ?? '';
+  final cat = normalizeCategoryName(categoryLabel.isNotEmpty ? categoryLabel : category);
+  if (cat.isNotEmpty) tags.add(cat);
+
+  final locationType = (j['locationType'] as String? ?? '').trim();
+  if (locationType.toLowerCase() == 'remote') {
+    tags.add('Remote');
+  } else {
+    final jobLat = (j['latitude'] as num?)?.toDouble() ?? (j['pickupLat'] as num?)?.toDouble();
+    final jobLng = (j['longitude'] as num?)?.toDouble() ?? (j['pickupLng'] as num?)?.toDouble();
+    if (jobLat != null && jobLng != null) {
+      final dist = calculateDistance(s.userLatitude, s.userLongitude, jobLat, jobLng);
+      tags.add('${dist.toStringAsFixed(1)} km');
+    } else if (locationType.isNotEmpty) {
+      tags.add(locationType);
+    }
+  }
+  return tags;
+}
+
+String _approxAreaLabel({
+  required double? lat,
+  required double? lng,
+  required TranyxAppState s,
+  String? cityHint,
+}) {
+  final parts = <String>['Approx. area'];
+  final city = (cityHint ?? '').trim();
+  if (city.isNotEmpty) {
+    // Keep city/area tokens only — strip street-like fragments when possible.
+    final first = city.split(',').first.trim();
+    if (first.isNotEmpty && first.length < 48) parts.add(first);
+  }
+  if (lat != null && lng != null) {
+    final dist = calculateDistance(s.userLatitude, s.userLongitude, lat, lng);
+    parts.add('${dist.toStringAsFixed(1)} km');
+  }
+  return parts.join(' · ');
+}
+
+/// W05 Guest · Browse home — live public listings + signup CTAs (light & dark).
 class GuestBrowseViewComponent extends StatelessComponent {
   final TranyxAppState state;
   const GuestBrowseViewComponent({required this.state, super.key});
@@ -21,6 +109,72 @@ class GuestBrowseViewComponent extends StatelessComponent {
         : 'bg-white border border-[#e4e4e7] shadow-[0px_4px_12px_0px_rgba(9,9,11,0.04)]';
     final link = 'text-[#4f46e5]';
 
+    final openJobs = List<Map<String, dynamic>>.from(s.availableJobs)
+      ..sort((jobA, jobB) {
+        final aTime = jobA['createdAt'] as int? ?? 0;
+        final bTime = jobB['createdAt'] as int? ?? 0;
+        return bTime.compareTo(aTime);
+      });
+    final topGroups = _liveTopGroups(openJobs, limit: 6);
+    final gigPreview = openJobs.take(3).toList();
+    final jobsLoading = s.isLoadingJobs && openJobs.isEmpty;
+
+    final availableVehicles = s.realtimeRentals.where((r) {
+      final status = (r['status'] ?? '').toString();
+      if (status != 'Available' && status.toLowerCase() != 'available') return false;
+      if (r['isDeleted'] == true) return false;
+      return true;
+    }).toList()
+      ..sort((vehA, vehB) {
+        final aLat = (vehA['pickupLat'] as num?)?.toDouble();
+        final aLng = (vehA['pickupLng'] as num?)?.toDouble();
+        final bLat = (vehB['pickupLat'] as num?)?.toDouble();
+        final bLng = (vehB['pickupLng'] as num?)?.toDouble();
+        final distA = (aLat != null && aLng != null)
+            ? calculateDistance(s.userLatitude, s.userLongitude, aLat, aLng)
+            : double.infinity;
+        final distB = (bLat != null && bLng != null)
+            ? calculateDistance(s.userLatitude, s.userLongitude, bLat, bLng)
+            : double.infinity;
+        return distA.compareTo(distB);
+      });
+
+    final availableProperties = s.realtimeProperties.where((prop) {
+      final status = prop.status;
+      if (status == 'Inactive' ||
+          status == 'Unpublished' ||
+          status == 'Archived' ||
+          status == 'Deleted' ||
+          status == 'Not Accepting Bookings') {
+        return false;
+      }
+      if (prop.isDeleted) return false;
+      if (status != 'Available' && status.toLowerCase() != 'available') return false;
+      return true;
+    }).toList()
+      ..sort((propA, propB) {
+        final distA = calculateDistance(s.userLatitude, s.userLongitude, propA.latitude, propA.longitude);
+        final distB = calculateDistance(s.userLatitude, s.userLongitude, propB.latitude, propB.longitude);
+        return distA.compareTo(distB);
+      });
+
+    // Interleave vehicles + properties by distance for the nearby strip (max 3).
+    final nearbyRentals = <({bool isProperty, dynamic item, double dist})>[];
+    for (final v in availableVehicles) {
+      final lat = (v['pickupLat'] as num?)?.toDouble();
+      final lng = (v['pickupLng'] as num?)?.toDouble();
+      final dist = (lat != null && lng != null)
+          ? calculateDistance(s.userLatitude, s.userLongitude, lat, lng)
+          : double.infinity;
+      nearbyRentals.add((isProperty: false, item: v, dist: dist));
+    }
+    for (final p in availableProperties) {
+      final dist = calculateDistance(s.userLatitude, s.userLongitude, p.latitude, p.longitude);
+      nearbyRentals.add((isProperty: true, item: p, dist: dist));
+    }
+    nearbyRentals.sort((rA, rB) => rA.dist.compareTo(rB.dist));
+    final rentalPreview = nearbyRentals.take(3).toList();
+
     return div(classes: 'w05-guest space-y-10 animate-fade-up font-dm-sans', [
       // Hero
       div(classes: 'flex flex-col gap-3 max-w-3xl', [
@@ -33,7 +187,7 @@ class GuestBrowseViewComponent extends StatelessComponent {
           classes: 'm-0 text-base leading-6 $textSecondary max-w-2xl',
           [
             Component.text(
-              'Public listings near Makati. Exact address and contact unlock after you join and get hired.',
+              'Public listings near you. Exact address and contact unlock after you join and get hired.',
             ),
           ],
         ),
@@ -77,7 +231,7 @@ class GuestBrowseViewComponent extends StatelessComponent {
         ],
       ),
 
-      // Top Services
+      // Top Services (live category tallies)
       _sectionHeader(
         title: 'Top Services',
         action: 'See All',
@@ -85,24 +239,47 @@ class GuestBrowseViewComponent extends StatelessComponent {
         textPrimary: textPrimary,
         link: link,
       ),
-      div(classes: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3', [
-        for (final item in _topServices)
-          div(
-            classes: '$card rounded-2xl p-4 flex flex-col gap-3 cursor-pointer hover:border-[#4f46e5]/40 transition-colors',
-            events: {'click': (_) => s.switchTab(AppTab.jobs)},
-            [
-              div(
-                classes:
-                    'size-10 rounded-xl flex items-center justify-center ${isDark ? "bg-indigo-500/15" : "bg-[#eef2ff]"}',
-                [lIcon(item.$2, cls: 'w-5 h-5 text-[#4f46e5]')],
-              ),
-              div([
-                p(classes: 'm-0 font-semibold text-sm $textPrimary', [Component.text(item.$1)]),
-                p(classes: 'm-0 text-xs mt-0.5 $textMuted', [Component.text('${item.$3} jobs open')]),
-              ]),
-            ],
-          ),
-      ]),
+      if (jobsLoading)
+        div(classes: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3', [
+          for (var i = 0; i < 6; i++)
+            div(
+              classes: '$card rounded-2xl p-4 h-[88px] animate-pulse',
+              [div(classes: 'size-10 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', [])],
+            ),
+        ])
+      else if (topGroups.isEmpty)
+        _emptyCard(
+          card: card,
+          textMuted: textMuted,
+          message: 'No open services right now. Check back soon or create an account to post a gig.',
+        )
+      else
+        div(classes: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3', [
+          for (final item in topGroups)
+            div(
+              classes:
+                  '$card rounded-2xl p-4 flex flex-col gap-3 cursor-pointer hover:border-[#4f46e5]/40 transition-colors',
+              events: {
+                'click': (_) {
+                  s.handleHomeSearch(item.group.label);
+                },
+              },
+              [
+                div(
+                  classes:
+                      'size-10 rounded-xl flex items-center justify-center ${isDark ? "bg-indigo-500/15" : "bg-[#eef2ff]"}',
+                  [lIcon(item.group.icon, cls: 'w-5 h-5 text-[#4f46e5]')],
+                ),
+                div([
+                  p(classes: 'm-0 font-semibold text-sm $textPrimary', [Component.text(item.group.label)]),
+                  p(
+                    classes: 'm-0 text-xs mt-0.5 $textMuted',
+                    [Component.text('${item.count} job${item.count == 1 ? '' : 's'} open')],
+                  ),
+                ]),
+              ],
+            ),
+        ]),
 
       // Open gigs
       _sectionHeader(
@@ -112,28 +289,44 @@ class GuestBrowseViewComponent extends StatelessComponent {
         textPrimary: textPrimary,
         link: link,
       ),
-      div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
-        for (final g in _sampleGigs)
-          div(
-            classes: '$card rounded-2xl p-5 flex flex-col gap-3 cursor-pointer hover:border-[#4f46e5]/40 transition-colors',
-            events: {'click': (_) => s.promptGuestSignUp()},
-            [
-              p(classes: 'm-0 font-semibold text-[15px] $textPrimary', [Component.text(g.$1)]),
-              div(classes: 'flex flex-wrap gap-2', [
-                for (final tag in g.$2)
-                  span(
-                    classes:
-                        'px-2.5 py-1 rounded-full text-xs font-semibold ${isDark ? "bg-zinc-800 text-zinc-300" : "bg-zinc-100 text-zinc-600"}',
-                    [Component.text(tag)],
+      if (jobsLoading)
+        div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
+          for (var i = 0; i < 3; i++)
+            div(classes: '$card rounded-2xl p-5 h-[120px] animate-pulse', []),
+        ])
+      else if (gigPreview.isEmpty)
+        _emptyCard(
+          card: card,
+          textMuted: textMuted,
+          message: 'No open gigs nearby yet. Browse again later or sign up to get notified.',
+        )
+      else
+        div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
+          for (final g in gigPreview)
+            div(
+              classes:
+                  '$card rounded-2xl p-5 flex flex-col gap-3 cursor-pointer hover:border-[#4f46e5]/40 transition-colors',
+              events: {'click': (_) => s.promptGuestSignUp()},
+              [
+                p(classes: 'm-0 font-semibold text-[15px] $textPrimary', [Component.text(_jobTitle(g))]),
+                div(classes: 'flex flex-wrap gap-2', [
+                  for (final tag in _jobTags(g, s))
+                    span(
+                      classes:
+                          'px-2.5 py-1 rounded-full text-xs font-semibold ${isDark ? "bg-zinc-800 text-zinc-300" : "bg-zinc-100 text-zinc-600"}',
+                      [Component.text(tag)],
+                    ),
+                ]),
+                div(classes: 'flex items-center justify-between mt-1', [
+                  p(classes: 'm-0 font-semibold text-base $textPrimary', [Component.text(_jobRate(g))]),
+                  p(
+                    classes: 'm-0 text-xs $textMuted',
+                    [Component.text(formatPostingDate(g['createdAt'], withPrefix: false))],
                   ),
-              ]),
-              div(classes: 'flex items-center justify-between mt-1', [
-                p(classes: 'm-0 font-semibold text-base $textPrimary', [Component.text(g.$3)]),
-                p(classes: 'm-0 text-xs $textMuted', [Component.text(g.$4)]),
-              ]),
-            ],
-          ),
-      ]),
+                ]),
+              ],
+            ),
+        ]),
 
       // Nearby rentals
       _sectionHeader(
@@ -143,41 +336,35 @@ class GuestBrowseViewComponent extends StatelessComponent {
         textPrimary: textPrimary,
         link: link,
       ),
-      div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
-        for (final r in _sampleRentals)
-          div(
-            classes: '$card rounded-[20px] overflow-hidden flex flex-col cursor-pointer hover:border-[#4f46e5]/40 transition-colors',
-            events: {'click': (_) => s.promptGuestSignUp()},
-            [
-              div(
-                classes:
-                    'relative h-[140px] bg-gradient-to-r ${r.$5 ? "from-sky-200 to-violet-300" : "from-indigo-200 to-violet-400"} ${isDark ? "opacity-80" : ""}',
-                [
-                  span(
-                    classes:
-                        'absolute top-3 left-3 px-2.5 h-6 inline-flex items-center rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700',
-                    [Component.text('Available')],
+      if (rentalPreview.isEmpty)
+        _emptyCard(
+          card: card,
+          textMuted: textMuted,
+          message: 'No rentals available nearby yet. View all once hosts publish listings.',
+        )
+      else
+        div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
+          for (final entry in rentalPreview)
+            entry.isProperty
+                ? _propertyCard(
+                    entry.item as PropertyRental,
+                    s: s,
+                    isDark: isDark,
+                    card: card,
+                    textPrimary: textPrimary,
+                    textSecondary: textSecondary,
+                    textMuted: textMuted,
+                  )
+                : _vehicleCard(
+                    entry.item as Map<String, dynamic>,
+                    s: s,
+                    isDark: isDark,
+                    card: card,
+                    textPrimary: textPrimary,
+                    textSecondary: textSecondary,
+                    textMuted: textMuted,
                   ),
-                ],
-              ),
-              div(classes: 'p-4 flex flex-col gap-1.5', [
-                p(classes: 'm-0 font-semibold text-[15px] $textPrimary', [Component.text(r.$1)]),
-                p(classes: 'm-0 text-xs font-medium $textSecondary', [Component.text(r.$2)]),
-                div(classes: 'flex items-center gap-1 $textMuted', [
-                  img(src: '/images/w05/3a723.svg', classes: 'size-3.5 ${isDark ? "opacity-70 invert" : ""}', attributes: {'alt': ''}),
-                  span(classes: 'text-xs', [Component.text(r.$3)]),
-                ]),
-                div(classes: 'flex items-center justify-between pt-1.5', [
-                  p(classes: 'm-0 font-semibold text-[17px] $textPrimary', [Component.text(r.$4)]),
-                  div(classes: 'flex items-center gap-1', [
-                    img(src: '/images/w05/f1da2.svg', classes: 'size-3.5', attributes: {'alt': ''}),
-                    span(classes: 'text-xs font-medium $textSecondary', [Component.text(r.$6)]),
-                  ]),
-                ]),
-              ]),
-            ],
-          ),
-      ]),
+        ]),
 
       // Locked features
       p(classes: 'm-0 text-sm font-medium $textMuted', [Component.text('Locked until you join.')]),
@@ -204,6 +391,169 @@ class GuestBrowseViewComponent extends StatelessComponent {
     ]);
   }
 
+  Component _emptyCard({
+    required String card,
+    required String textMuted,
+    required String message,
+  }) {
+    return div(
+      classes: '$card rounded-2xl px-5 py-8 text-center',
+      [p(classes: 'm-0 text-sm $textMuted', [Component.text(message)])],
+    );
+  }
+
+  Component _vehicleCard(
+    Map<String, dynamic> r, {
+    required TranyxAppState s,
+    required bool isDark,
+    required String card,
+    required String textPrimary,
+    required String textSecondary,
+    required String textMuted,
+  }) {
+    final brand = (r['brand'] ?? '').toString().trim();
+    final model = (r['model'] ?? '').toString().trim();
+    final year = (r['year'] ?? '').toString().trim();
+    var title = '$brand $model'.trim();
+    if (title.isEmpty) title = (r['title'] ?? 'Vehicle').toString();
+    if (year.isNotEmpty && !title.contains(year)) title = '$title $year'.trim();
+
+    final type = (r['type'] ?? r['vehicleType'] ?? '').toString();
+    final transmission = (r['transmission'] ?? '').toString();
+    final seats = r['seats'] ?? r['seatCount'];
+    final metaParts = <String>[];
+    if (type.isNotEmpty) metaParts.add(type[0].toUpperCase() + type.substring(1));
+    if (transmission.isNotEmpty) metaParts.add(transmission);
+    if (seats != null && seats.toString().isNotEmpty) metaParts.add('$seats seats');
+
+    final priceVal = (r['priceDaily'] as num?)?.toDouble() ?? (r['dailyRate'] as num?)?.toDouble() ?? 0.0;
+    final priceLabel = priceVal > 0 ? '₱ ${priceVal.toStringAsFixed(0)}/day' : 'Price on join';
+
+    final lat = (r['pickupLat'] as num?)?.toDouble();
+    final lng = (r['pickupLng'] as num?)?.toDouble();
+    final cityHint = (r['pickupCity'] ?? r['city'] ?? r['area'] ?? '').toString();
+    final area = _approxAreaLabel(lat: lat, lng: lng, s: s, cityHint: cityHint);
+
+    final photoUrl =
+        r['frontPhotoUrl'] ?? r['frontPhoto'] ?? r['photoUrl'] ?? r['interiorPhotoUrl'] ?? r['backPhotoUrl'];
+    final hasPhoto = photoUrl != null && photoUrl.toString().isNotEmpty && photoUrl.toString() != 'null';
+    final rating = (r['rating'] as num?)?.toDouble() ?? (r['hostRating'] as num?)?.toDouble();
+
+    return div(
+      classes:
+          '$card rounded-[20px] overflow-hidden flex flex-col cursor-pointer hover:border-[#4f46e5]/40 transition-colors',
+      events: {'click': (_) => s.promptGuestSignUp()},
+      [
+        div(
+          classes:
+              'relative h-[140px] overflow-hidden ${hasPhoto ? "" : "bg-gradient-to-r from-indigo-200 to-violet-400 ${isDark ? "opacity-80" : ""}"}',
+          [
+            if (hasPhoto)
+              img(
+                src: photoUrl.toString(),
+                classes: 'absolute inset-0 w-full h-full object-cover ${isDark ? "opacity-90" : ""}',
+                attributes: {'alt': title},
+              ),
+            span(
+              classes:
+                  'absolute top-3 left-3 px-2.5 h-6 inline-flex items-center rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700',
+              [Component.text('Available')],
+            ),
+          ],
+        ),
+        div(classes: 'p-4 flex flex-col gap-1.5', [
+          p(classes: 'm-0 font-semibold text-[15px] $textPrimary', [Component.text(title)]),
+          if (metaParts.isNotEmpty)
+            p(classes: 'm-0 text-xs font-medium $textSecondary', [Component.text(metaParts.join(' • '))]),
+          div(classes: 'flex items-center gap-1 $textMuted', [
+            img(
+              src: '/images/w05/3a723.svg',
+              classes: 'size-3.5 ${isDark ? "opacity-70 invert" : ""}',
+              attributes: {'alt': ''},
+            ),
+            span(classes: 'text-xs', [Component.text(area)]),
+          ]),
+          div(classes: 'flex items-center justify-between pt-1.5', [
+            p(classes: 'm-0 font-semibold text-[17px] $textPrimary', [Component.text(priceLabel)]),
+            if (rating != null)
+              div(classes: 'flex items-center gap-1', [
+                img(src: '/images/w05/f1da2.svg', classes: 'size-3.5', attributes: {'alt': ''}),
+                span(
+                  classes: 'text-xs font-medium $textSecondary',
+                  [Component.text(rating.toStringAsFixed(1))],
+                ),
+              ]),
+          ]),
+        ]),
+      ],
+    );
+  }
+
+  Component _propertyCard(
+    PropertyRental prop, {
+    required TranyxAppState s,
+    required bool isDark,
+    required String card,
+    required String textPrimary,
+    required String textSecondary,
+    required String textMuted,
+  }) {
+    final metaParts = <String>[
+      prop.category.label,
+      prop.type.label,
+    ];
+    final priceLabel = prop.priceMonthly > 0
+        ? '₱ ${prop.priceMonthly.toStringAsFixed(0)}/mo'
+        : (prop.priceDaily > 0 ? '₱ ${prop.priceDaily.toStringAsFixed(0)}/day' : 'Price on join');
+    // Guests only see approximate distance — exact address unlocks after signup.
+    final area = _approxAreaLabel(
+      lat: prop.latitude,
+      lng: prop.longitude,
+      s: s,
+    );
+    final hasPhoto = prop.photoUrls.isNotEmpty && prop.photoUrls.first.isNotEmpty;
+
+    return div(
+      classes:
+          '$card rounded-[20px] overflow-hidden flex flex-col cursor-pointer hover:border-[#4f46e5]/40 transition-colors',
+      events: {'click': (_) => s.promptGuestSignUp()},
+      [
+        div(
+          classes:
+              'relative h-[140px] overflow-hidden ${hasPhoto ? "" : "bg-gradient-to-r from-sky-200 to-violet-300 ${isDark ? "opacity-80" : ""}"}',
+          [
+            if (hasPhoto)
+              img(
+                src: prop.photoUrls.first,
+                classes: 'absolute inset-0 w-full h-full object-cover ${isDark ? "opacity-90" : ""}',
+                attributes: {'alt': prop.title},
+              ),
+            span(
+              classes:
+                  'absolute top-3 left-3 px-2.5 h-6 inline-flex items-center rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700',
+              [Component.text('Available')],
+            ),
+          ],
+        ),
+        div(classes: 'p-4 flex flex-col gap-1.5', [
+          p(classes: 'm-0 font-semibold text-[15px] $textPrimary', [Component.text(prop.title)]),
+          p(classes: 'm-0 text-xs font-medium $textSecondary', [Component.text(metaParts.join(' • '))]),
+          div(classes: 'flex items-center gap-1 $textMuted', [
+            img(
+              src: '/images/w05/3a723.svg',
+              classes: 'size-3.5 ${isDark ? "opacity-70 invert" : ""}',
+              attributes: {'alt': ''},
+            ),
+            span(classes: 'text-xs', [Component.text(area)]),
+          ]),
+          div(classes: 'flex items-center justify-between pt-1.5', [
+            p(classes: 'm-0 font-semibold text-[17px] $textPrimary', [Component.text(priceLabel)]),
+          ]),
+        ]),
+      ],
+    );
+  }
+
   Component _sectionHeader({
     required String title,
     required String action,
@@ -214,7 +564,8 @@ class GuestBrowseViewComponent extends StatelessComponent {
     return div(classes: 'flex items-center justify-between', [
       h2(classes: 'm-0 text-lg font-bold $textPrimary', [Component.text(title)]),
       button(
-        classes: 'font-semibold text-sm $link bg-transparent border-0 cursor-pointer hover:underline flex items-center gap-1',
+        classes:
+            'font-semibold text-sm $link bg-transparent border-0 cursor-pointer hover:underline flex items-center gap-1',
         attributes: {'type': 'button'},
         events: {'click': (_) => onAction()},
         [
@@ -248,7 +599,11 @@ class GuestBrowseViewComponent extends StatelessComponent {
           div(classes: 'min-w-0', [
             div(classes: 'flex items-center gap-2', [
               p(classes: 'm-0 font-semibold text-sm $textPrimary', [Component.text(title)]),
-              img(src: '/images/w05/295b0.svg', classes: 'size-3.5 ${isDark ? "opacity-70 invert" : ""}', attributes: {'alt': 'Locked'}),
+              img(
+                src: '/images/w05/295b0.svg',
+                classes: 'size-3.5 ${isDark ? "opacity-70 invert" : ""}',
+                attributes: {'alt': 'Locked'},
+              ),
             ]),
             p(classes: 'm-0 text-xs mt-0.5 $textSecondary', [Component.text(body)]),
           ]),
@@ -309,26 +664,3 @@ class GuestLockedPane extends StatelessComponent {
     );
   }
 }
-
-// Sample public listings mirroring Figma W05 copy (static until guest reads ship).
-const _topServices = <(String, String, int)>[
-  ('Cleaning', 'sparkles', 12),
-  ('Plumbing', 'activity', 8),
-  ('Electrical', 'zap', 6),
-  ('Carpentry', 'pen-tool', 5),
-  ('Laundry', 'refresh-cw', 4),
-  ('Delivery', 'truck', 9),
-];
-
-const _sampleGigs = <(String, List<String>, String, String)>[
-  ('Aircon cleaning · 2 units', ['Cleaning', '2.1 km'], 'Php 1,500.00', '12 min ago'),
-  ('Fix leaking kitchen sink', ['Plumbing', '3.4 km'], 'Php 900.00', '28 min ago'),
-  ('Logo vector clean-up', ['Remote', 'Design'], 'Php 2,000.00', '1 hr ago'),
-];
-
-// title, meta, area, price, isProperty, rating
-const _sampleRentals = <(String, String, String, String, bool, String)>[
-  ('Toyota Vios 2022', 'Sedan • Automatic • 5 seats', 'Approx. area · Makati · 2.4 km', '₱ 1,800/day', false, '4.9'),
-  ('Studio near BGC', 'Furnished • Wi‑Fi • 1 bath', 'Approx. area · Taguig · 3.1 km', '₱ 18,000/mo', true, '4.8'),
-  ('Honda Click 125', 'Scooter • Automatic', 'Approx. area · Makati · 1.2 km', '₱ 450/day', false, '4.7'),
-];

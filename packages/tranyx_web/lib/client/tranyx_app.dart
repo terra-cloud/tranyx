@@ -2226,6 +2226,7 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   /// W05 — enter public browse shell without signing in.
+  /// Loads live open jobs (public read) and relies on existing rentals/properties listeners.
   void enterGuestBrowse() {
     setState(() {
       isGuestBrowse = true;
@@ -2234,7 +2235,38 @@ class TranyxAppState extends State<TranyxApp> {
       activeTab = AppTab.home;
       authError = null;
       authView = AuthView.login;
+      // Guest Jobs tab browses open employer gigs (same as Nyxian browse).
+      accountType = AccountType.nyxian;
+      hybridToggle = AccountType.nyxian;
     });
+    // Public Firestore reads — no auth token required (jobs/rentals/properties allow read: true).
+    unawaited(loadGuestPublicListings());
+  }
+
+  /// Fetch publicly readable open gigs for guest browse / Jobs tab.
+  /// Rentals + properties already stream via initState listeners.
+  Future<void> loadGuestPublicListings() async {
+    if (!isGuestBrowse) return;
+    setState(() {
+      isLoadingJobs = true;
+      jobsError = null;
+    });
+    try {
+      // Viewer=nyxian → employer Open postings (gigs guests can apply to after signup).
+      final avail = await _firestore.getAvailableJobs(AccountType.nyxian);
+      if (!isGuestBrowse) return;
+      setState(() {
+        availableJobs = avail;
+        isLoadingJobs = false;
+      });
+    } catch (e) {
+      if (!isGuestBrowse) return;
+      setState(() {
+        jobsError = e.toString();
+        isLoadingJobs = false;
+        availableJobs = [];
+      });
+    }
   }
 
   void exitGuestBrowse({AuthView view = AuthView.login}) {
