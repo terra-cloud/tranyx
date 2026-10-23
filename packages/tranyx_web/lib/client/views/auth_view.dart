@@ -43,10 +43,11 @@ class _LoginScreenState extends State<_LoginScreen> {
   // ignore: invalid_use_of_protected_member
   void setState(void Function() fn) => super.setState(fn);
 
-  Component _featureRow(String iconSrc, String label) {
+  Component _featureRow(String iconSrc, String label, {required bool isDark}) {
     return div(classes: 'flex gap-3 items-center', [
       div(
-        classes: 'bg-[#eef2ff] flex items-center justify-center rounded-[10px] shrink-0 size-9',
+        classes:
+            '${isDark ? "bg-indigo-500/15" : "bg-[#eef2ff]"} flex items-center justify-center rounded-[10px] shrink-0 size-9',
         [
           img(
             src: iconSrc,
@@ -56,7 +57,8 @@ class _LoginScreenState extends State<_LoginScreen> {
         ],
       ),
       p(
-        classes: 'font-semibold leading-[22px] text-[15px] text-[#18181b] m-0',
+        classes:
+            'font-semibold leading-[22px] text-[15px] m-0 ${isDark ? "text-zinc-50" : "text-[#18181b]"}',
         [Component.text(label)],
       ),
     ]);
@@ -68,29 +70,32 @@ class _LoginScreenState extends State<_LoginScreen> {
     required String iconSrc,
     required String value,
     required void Function(String) onChange,
+    required bool isDark,
     String type = 'text',
     bool isPassword = false,
     bool isPasswordVisible = false,
     void Function()? onTogglePassword,
   }) {
     final inputId = label.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+    final controlBorder = isDark ? 'bg-zinc-900 border-zinc-700 focus-within:border-[#4f46e5]' : 'bg-white border-[#d4d4d8] focus-within:border-[#4f46e5]';
+    final labelCls = isDark
+        ? 'font-semibold leading-5 text-sm text-zinc-100 tracking-[0.1px] m-0'
+        : 'font-semibold leading-5 text-sm text-[#18181b] tracking-[0.1px] m-0';
+    final inputCls = isDark
+        ? 'bg-transparent border-none outline-none flex-1 min-w-0 text-[15px] leading-[22px] text-zinc-50 placeholder:text-zinc-500'
+        : 'bg-transparent border-none outline-none flex-1 min-w-0 text-[15px] leading-[22px] text-[#18181b] placeholder:text-[#71717a]';
     return div(classes: 'flex flex-col gap-1.5 items-start w-full', [
-      p(
-        classes: 'font-semibold leading-5 text-sm text-[#18181b] tracking-[0.1px] m-0',
-        [Component.text(label)],
-      ),
+      p(classes: labelCls, [Component.text(label)]),
       div(
-        classes:
-            'bg-white border border-[#d4d4d8] flex gap-2.5 h-12 items-center px-3.5 relative rounded-xl w-full focus-within:border-[#4f46e5]',
+        classes: '$controlBorder border flex gap-2.5 h-12 items-center px-3.5 relative rounded-xl w-full',
         [
           img(
             src: iconSrc,
-            classes: 'size-[18px] shrink-0',
+            classes: 'size-[18px] shrink-0 ${isDark ? "opacity-80" : ""}',
             attributes: {'alt': '', 'aria-hidden': 'true'},
           ),
           input<String>(
-            classes:
-                'bg-transparent border-none outline-none flex-1 min-w-0 text-[15px] leading-[22px] text-[#18181b] placeholder:text-[#71717a]',
+            classes: inputCls,
             type: (isPassword && isPasswordVisible)
                 ? InputType.text
                 : (type == 'password'
@@ -115,7 +120,7 @@ class _LoginScreenState extends State<_LoginScreen> {
               [
                 img(
                   src: '/images/w01/932ea.svg',
-                  classes: 'size-[18px]',
+                  classes: 'size-[18px] ${isDark ? "opacity-80 invert" : ""}',
                   attributes: {'alt': '', 'aria-hidden': 'true'},
                 ),
               ],
@@ -128,33 +133,48 @@ class _LoginScreenState extends State<_LoginScreen> {
   @override
   Component build(BuildContext context) {
     final s = component.state;
+    final isDark = s.isDark;
     final errorMsg = _localError ?? s.authError;
 
+    final pageBg = isDark ? 'bg-zinc-950' : 'bg-[#f4f4f5]';
+    final brandBg = isDark ? 'bg-zinc-950' : 'bg-white';
+    final formCard =
+        isDark
+            ? 'bg-zinc-900 border border-zinc-800 shadow-[0px_8px_24px_-4px_rgba(0,0,0,0.45)]'
+            : 'bg-white border border-[#e4e4e7] shadow-[0px_8px_24px_-4px_rgba(9,9,11,0.08)]';
+    final textPrimary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final textSecondary = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+    final textMuted = isDark ? 'text-zinc-500' : 'text-[#71717a]';
+    final divider = isDark ? 'bg-zinc-800' : 'bg-[#e4e4e7]';
+    final secondaryBtn =
+        isDark
+            ? 'bg-zinc-900 border-zinc-700 text-zinc-100 hover:bg-zinc-800'
+            : 'bg-white border-[#d4d4d8] text-[#18181b] hover:bg-zinc-50';
+    final link = 'text-[#4f46e5]';
+
     return div(
-      classes: 'w01-signin flex w-full min-h-screen items-stretch bg-[#f4f4f5] font-dm-sans',
+      classes: 'w01-signin flex w-full min-h-screen items-stretch $pageBg font-dm-sans',
       [
         // Left brand panel
         div(
           classes:
-              'hidden lg:flex relative w-[680px] shrink-0 flex-col justify-between overflow-hidden bg-white px-[72px] py-16',
+              'hidden lg:flex relative w-[680px] shrink-0 flex-col justify-between overflow-hidden $brandBg px-[72px] py-16',
           [
-            // Gradient blobs
             img(
               src: '/images/w01/05633.svg',
-              classes: 'pointer-events-none absolute left-[-60px] top-[380px] size-[420px] max-w-none',
+              classes: 'pointer-events-none absolute left-[-60px] top-[380px] size-[420px] max-w-none ${isDark ? "opacity-40" : ""}',
               attributes: {'alt': '', 'aria-hidden': 'true'},
             ),
             img(
               src: '/images/w01/54cd1.svg',
-              classes: 'pointer-events-none absolute left-[360px] top-[120px] size-[300px] max-w-none',
+              classes: 'pointer-events-none absolute left-[360px] top-[120px] size-[300px] max-w-none ${isDark ? "opacity-40" : ""}',
               attributes: {'alt': '', 'aria-hidden': 'true'},
             ),
             img(
               src: '/images/w01/1a12a.svg',
-              classes: 'pointer-events-none absolute left-[300px] top-[640px] size-[260px] max-w-none',
+              classes: 'pointer-events-none absolute left-[300px] top-[640px] size-[260px] max-w-none ${isDark ? "opacity-40" : ""}',
               attributes: {'alt': '', 'aria-hidden': 'true'},
             ),
-            // Logo
             div(classes: 'relative z-10 flex items-center', [
               img(
                 src: '/images/w01/fef74.png',
@@ -162,14 +182,13 @@ class _LoginScreenState extends State<_LoginScreen> {
                 attributes: {'alt': 'Tranyx'},
               ),
             ]),
-            // Headline + features
             div(classes: 'relative z-10 flex flex-col gap-5 items-start', [
-              div(classes: 'font-bold text-[48px] leading-[56px] tracking-[-1.2px] text-[#18181b]', [
+              div(classes: 'font-bold text-[48px] leading-[56px] tracking-[-1.2px] $textPrimary', [
                 p(classes: 'm-0', [Component.text('Work. Earn. Rent.')]),
                 p(classes: 'm-0', [Component.text('Discover.')]),
               ]),
               p(
-                classes: 'm-0 font-normal text-base leading-6 text-[#52525b] w-full max-w-[480px]',
+                classes: 'm-0 font-normal text-base leading-6 $textSecondary w-full max-w-[480px]',
                 [
                   Component.text(
                     'Find freelance gigs, rent vehicles and properties, and earn securely on the all-in-one P2P platform. Powered by Web3 escrow and verified Nyxians in the Philippines.',
@@ -177,14 +196,14 @@ class _LoginScreenState extends State<_LoginScreen> {
                 ],
               ),
               div(classes: 'flex flex-col gap-3 items-start pt-2', [
-                _featureRow('/images/w01/c1457.svg', 'Freelance gigs near you'),
-                _featureRow('/images/w01/a193d.svg', 'Vehicle & space rentals'),
-                _featureRow('/images/w01/d726a.svg', 'Escrow-protected payments'),
+                _featureRow('/images/w01/c1457.svg', 'Freelance gigs near you', isDark: isDark),
+                _featureRow('/images/w01/a193d.svg', 'Vehicle & space rentals', isDark: isDark),
+                _featureRow('/images/w01/d726a.svg', 'Escrow-protected payments', isDark: isDark),
               ]),
             ]),
             p(
               classes:
-                  'relative z-10 m-0 font-semibold text-[11px] leading-4 tracking-[0.8px] text-[#52525b] uppercase',
+                  'relative z-10 m-0 font-semibold text-[11px] leading-4 tracking-[0.8px] $textSecondary uppercase',
               [Component.text('One Platform. Endless Opportunities.')],
             ),
           ],
@@ -195,16 +214,15 @@ class _LoginScreenState extends State<_LoginScreen> {
           classes: 'flex flex-1 flex-col gap-6 items-center justify-center min-w-0 px-6 sm:px-12 py-10',
           [
             div(
-              classes:
-                  'bg-white border border-[#e4e4e7] flex flex-col gap-4 items-start p-8 relative rounded-3xl shadow-[0px_8px_24px_-4px_rgba(9,9,11,0.08)] w-full max-w-[440px]',
+              classes: '$formCard flex flex-col gap-4 items-start p-8 relative rounded-3xl w-full max-w-[440px]',
               [
                 div(classes: 'flex flex-col gap-1 items-start', [
                   p(
-                    classes: 'm-0 font-bold text-2xl leading-8 tracking-[-0.4px] text-[#18181b]',
+                    classes: 'm-0 font-bold text-2xl leading-8 tracking-[-0.4px] $textPrimary',
                     [Component.text('Sign In')],
                   ),
                   p(
-                    classes: 'm-0 font-normal text-sm leading-5 text-[#52525b]',
+                    classes: 'm-0 font-normal text-sm leading-5 $textSecondary',
                     [Component.text('Welcome back to Tranyx.')],
                   ),
                 ]),
@@ -212,20 +230,20 @@ class _LoginScreenState extends State<_LoginScreen> {
                 if (errorMsg != null)
                   div(
                     key: Key('error-msg'),
-                    classes: 'w-full p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 text-sm',
+                    classes: 'w-full p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-sm',
                     [Component.text(errorMsg)],
                   ),
 
                 if (_localInfo != null)
                   div(
-                    classes: 'w-full p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-700 text-sm',
+                    classes: 'w-full p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-sm',
                     [Component.text(_localInfo!)],
                   ),
 
                 if (_showForgotSent)
                   div(
                     key: Key('forgot-sent'),
-                    classes: 'w-full p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-700 text-sm',
+                    classes: 'w-full p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-500 text-sm',
                     [Component.text('Password reset email sent! Check your inbox.')],
                   ),
 
@@ -236,6 +254,7 @@ class _LoginScreenState extends State<_LoginScreen> {
                   type: 'email',
                   value: _email,
                   onChange: (v) => setState(() => _email = v),
+                  isDark: isDark,
                 ),
                 _w01Field(
                   label: 'Password',
@@ -247,12 +266,13 @@ class _LoginScreenState extends State<_LoginScreen> {
                   isPassword: true,
                   isPasswordVisible: _showPassword,
                   onTogglePassword: () => setState(() => _showPassword = !_showPassword),
+                  isDark: isDark,
                 ),
 
                 div(key: Key('forgot-pwd-btn'), classes: 'flex items-center justify-end w-full', [
                   button(
                     classes:
-                        'font-semibold text-sm leading-5 tracking-[0.1px] text-[#4f46e5] bg-transparent border-0 cursor-pointer p-0 hover:underline',
+                        'font-semibold text-sm leading-5 tracking-[0.1px] $link bg-transparent border-0 cursor-pointer p-0 hover:underline',
                     attributes: {'type': 'button'},
                     events: {
                       'click': (_) async {
@@ -303,18 +323,18 @@ class _LoginScreenState extends State<_LoginScreen> {
                 ),
 
                 div(key: Key('divider'), classes: 'flex gap-3 items-center w-full', [
-                  div(classes: 'flex-1 h-px bg-[#e4e4e7]', []),
+                  div(classes: 'flex-1 h-px $divider', []),
                   span(
-                    classes: 'font-medium text-xs leading-4 text-[#71717a]',
+                    classes: 'font-medium text-xs leading-4 $textMuted',
                     [Component.text('or continue with')],
                   ),
-                  div(classes: 'flex-1 h-px bg-[#e4e4e7]', []),
+                  div(classes: 'flex-1 h-px $divider', []),
                 ]),
 
                 div(classes: 'flex gap-3 items-center w-full', [
                   button(
                     classes:
-                        'flex-1 h-12 rounded-xl font-semibold text-sm tracking-[0.1px] text-[#18181b] bg-white border border-[#d4d4d8] hover:bg-zinc-50 transition-colors flex items-center justify-center gap-2 cursor-pointer',
+                        'flex-1 h-12 rounded-xl font-semibold text-sm tracking-[0.1px] border $secondaryBtn transition-colors flex items-center justify-center gap-2 cursor-pointer',
                     attributes: {'type': 'button'},
                     events: {'click': (_) => s.handleGoogleSignIn()},
                     [
@@ -324,7 +344,7 @@ class _LoginScreenState extends State<_LoginScreen> {
                   ),
                   button(
                     classes:
-                        'flex-1 h-12 rounded-xl font-semibold text-sm tracking-[0.1px] text-[#18181b] bg-white border border-[#d4d4d8] hover:bg-zinc-50 transition-colors flex items-center justify-center gap-2 cursor-pointer',
+                        'flex-1 h-12 rounded-xl font-semibold text-sm tracking-[0.1px] border $secondaryBtn transition-colors flex items-center justify-center gap-2 cursor-pointer',
                     attributes: {'type': 'button'},
                     events: {'click': (_) => s.handlePhantomSignIn()},
                     [
@@ -334,11 +354,11 @@ class _LoginScreenState extends State<_LoginScreen> {
                   ),
                 ]),
 
-                div(classes: 'h-px w-full bg-[#e4e4e7]', []),
+                div(classes: 'h-px w-full $divider', []),
 
                 button(
                   classes:
-                      'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] text-[#4f46e5] bg-transparent border-0 cursor-pointer hover:underline',
+                      'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] $link bg-transparent border-0 cursor-pointer hover:underline',
                   attributes: {'type': 'button'},
                   events: {
                     'click': (_) => setState(() {
@@ -353,10 +373,10 @@ class _LoginScreenState extends State<_LoginScreen> {
                   key: Key('register-link'),
                   classes: 'w-full m-0 flex gap-1 items-center justify-center text-sm leading-5',
                   [
-                    span(classes: 'text-[#52525b]', [Component.text("Don't have an account?")]),
+                    span(classes: textSecondary, [Component.text("Don't have an account?")]),
                     button(
                       classes:
-                          'font-semibold tracking-[0.1px] text-[#4f46e5] bg-transparent border-0 cursor-pointer p-0 hover:underline',
+                          'font-semibold tracking-[0.1px] $link bg-transparent border-0 cursor-pointer p-0 hover:underline',
                       attributes: {'type': 'button'},
                       events: {'click': (_) => s.setState(() => s.authView = AuthView.registerPath)},
                       [Component.text('Get Started')],
@@ -366,27 +386,26 @@ class _LoginScreenState extends State<_LoginScreen> {
               ],
             ),
 
-            // Legal links under card
             div(
               key: Key('terms-link-login'),
               classes: 'flex font-medium gap-2 items-center text-xs leading-4',
               [
                 button(
-                  classes: 'text-[#4f46e5] bg-transparent border-0 cursor-pointer p-0 hover:underline',
+                  classes: '$link bg-transparent border-0 cursor-pointer p-0 hover:underline',
                   attributes: {'type': 'button'},
                   events: {'click': (_) => web.window.location.assign('/terms-of-use')},
                   [Component.text('Terms of Use')],
                 ),
-                span(classes: 'text-[#71717a]', [Component.text('•')]),
+                span(classes: textMuted, [Component.text('•')]),
                 button(
-                  classes: 'text-[#4f46e5] bg-transparent border-0 cursor-pointer p-0 hover:underline',
+                  classes: '$link bg-transparent border-0 cursor-pointer p-0 hover:underline',
                   attributes: {'type': 'button'},
                   events: {'click': (_) => web.window.location.assign('/privacy-policy')},
                   [Component.text('Privacy Policy')],
                 ),
-                span(classes: 'text-[#71717a]', [Component.text('•')]),
+                span(classes: textMuted, [Component.text('•')]),
                 button(
-                  classes: 'text-[#4f46e5] bg-transparent border-0 cursor-pointer p-0 hover:underline',
+                  classes: '$link bg-transparent border-0 cursor-pointer p-0 hover:underline',
                   attributes: {'type': 'button'},
                   events: {
                     'click': (_) => setState(() {

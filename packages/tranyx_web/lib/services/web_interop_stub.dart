@@ -14,6 +14,8 @@ class SessionStorage {
   static bool get hasSession => false;
   static String? get activeTab => null;
   static set activeTab(String? val) {}
+  static String? get themePreference => null;
+  static set themePreference(String? val) {}
   static void clear() {}
   static void updateIdToken(String token) {}
 

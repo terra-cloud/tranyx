@@ -40,7 +40,7 @@ class TopHeaderComponent extends StatelessComponent {
           button(
             classes:
                 'p-2.5 rounded-xl transition-colors ${isDark ? "bg-zinc-800 text-zinc-400 hover:text-yellow-400" : "bg-zinc-100 text-zinc-500 hover:text-indigo-600"}',
-            events: {'click': (_) => s.setState(() => s.isDark = !s.isDark)},
+            events: {'click': (_) => s.toggleTheme()},
             attributes: {'title': isDark ? 'Light mode' : 'Dark mode'},
             [lIcon(isDark ? 'sun' : 'moon', cls: 'w-4 h-4')],
           ),

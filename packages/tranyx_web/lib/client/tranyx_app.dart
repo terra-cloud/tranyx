@@ -63,13 +63,86 @@ class TranyxApp extends StatefulComponent {
 
 class TranyxAppState extends State<TranyxApp> {
   // ── Theme / Auth ────────────────────────────────────────────
-  bool _isDark = true;
-  bool get isDark => _isDark;
-  set isDark(bool value) {
-    if (_isDark != value) {
-      _isDark = value;
-      updateAllMapsTheme(isDark: value);
+  /// Explicit preference: `'light'`, `'dark'`, or `null` = follow OS.
+  String? _themePreference;
+  bool _systemPrefersDark = true;
+  web.MediaQueryList? _colorSchemeMql;
+  web.EventListener? _colorSchemeListener;
+
+  /// Effective dark mode (stored preference wins; else OS).
+  bool get isDark {
+    final pref = _themePreference;
+    if (pref == 'dark') return true;
+    if (pref == 'light') return false;
+    return _systemPrefersDark;
+  }
+
+  bool get followsSystemTheme => _themePreference == null;
+
+  /// Backward-compatible setter: treating assignment as an *explicit* user pick.
+  set isDark(bool value) => setThemePreference(value ? 'dark' : 'light');
+
+  /// Persist explicit theme (`'light'`/`'dark'`) or pass `null` to return to system.
+  void setThemePreference(String? mode) {
+    final normalized = (mode == 'light' || mode == 'dark') ? mode : null;
+    _themePreference = normalized;
+    SessionStorage.themePreference = normalized;
+    _applyResolvedTheme(notify: true);
+  }
+
+  void toggleTheme() => setThemePreference(isDark ? 'light' : 'dark');
+
+  void clearThemePreference() => setThemePreference(null);
+
+  void _initThemeFromSystemAndStorage() {
+    _themePreference = SessionStorage.themePreference;
+    try {
+      final mql = web.window.matchMedia('(prefers-color-scheme: dark)');
+      _colorSchemeMql = mql;
+      _systemPrefersDark = mql.matches;
+      _colorSchemeListener = ((web.Event _) {
+        final matches = _colorSchemeMql?.matches ?? false;
+        if (_systemPrefersDark == matches) return;
+        _systemPrefersDark = matches;
+        // Only react to OS changes when the user has not pinned a preference.
+        if (_themePreference == null && mounted) {
+          _applyResolvedTheme(notify: true);
+        }
+      }).toJS;
+      mql.addEventListener('change', _colorSchemeListener!);
+    } catch (_) {
+      _systemPrefersDark = true;
     }
+    _applyResolvedTheme(notify: false);
+  }
+
+  void _applyResolvedTheme({required bool notify}) {
+    final dark = isDark;
+    _syncDomTheme(dark);
+    try {
+      updateAllMapsTheme(isDark: dark);
+    } catch (_) {}
+    if (notify && mounted) setState(() {});
+  }
+
+  void _syncDomTheme(bool dark) {
+    try {
+      final root = web.document.documentElement;
+      if (root == null) return;
+      if (dark) {
+        root.classList.add('dark');
+        root.classList.remove('light');
+      } else {
+        root.classList.add('light');
+        root.classList.remove('dark');
+      }
+      root.setAttribute('data-theme', dark ? 'dark' : 'light');
+      final htmlEl = root as web.HTMLElement;
+      htmlEl.style.setProperty('color-scheme', dark ? 'dark' : 'light');
+      // Keep body canvas in sync for first paint / non-Tailwind areas.
+      web.document.body?.style.setProperty('background-color', dark ? '#09090b' : '#f4f4f5');
+      web.document.body?.style.setProperty('color', dark ? '#fafafa' : '#18181b');
+    } catch (_) {}
   }
   bool showWebSplash = true;
   bool showMobileAppPrompt = false;
@@ -682,6 +755,7 @@ class TranyxAppState extends State<TranyxApp> {
   @override
   void initState() {
     super.initState();
+    _initThemeFromSystemAndStorage();
     _handleMobileRedirect();
     onSessionExpiredGlobal = () {
       triggerSessionExpired();
@@ -744,6 +818,20 @@ class TranyxAppState extends State<TranyxApp> {
     } else {
       _checkGoogleRedirectResult().whenComplete(scheduleDismissal);
     }
+  }
+
+  @override
+  void dispose() {
+    try {
+      final mql = _colorSchemeMql;
+      final listener = _colorSchemeListener;
+      if (mql != null && listener != null) {
+        mql.removeEventListener('change', listener);
+      }
+    } catch (_) {}
+    _colorSchemeMql = null;
+    _colorSchemeListener = null;
+    super.dispose();
   }
 
   void _handleMobileRedirect() {
@@ -8296,8 +8384,9 @@ class TranyxAppState extends State<TranyxApp> {
       // W01 Sign-in uses a full-bleed split layout; other auth steps keep the
       // centered card + metaballs shell.
       if (authView == AuthView.login) {
+        final loginBg = isDark ? 'bg-zinc-950 text-zinc-50' : 'bg-[#f4f4f5] text-[#18181b]';
         return div(
-          classes: 'min-h-screen w-full relative overflow-x-hidden bg-[#f4f4f5] font-dm-sans text-[#18181b]',
+          classes: 'min-h-screen w-full relative overflow-x-hidden font-dm-sans $loginBg',
           [
             AuthViewComponent(state: this),
             if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),

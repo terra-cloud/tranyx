@@ -1,5 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
+  <script>
+    // Apply theme before first paint: stored preference, else OS prefers-color-scheme.
+    (function () {
+      try {
+        var pref = localStorage.getItem('tranyx_theme_preference');
+        var dark = pref === 'dark' || (pref !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var root = document.documentElement;
+        root.classList.add(dark ? 'dark' : 'light');
+        root.classList.remove(dark ? 'light' : 'dark');
+        root.setAttribute('data-theme', dark ? 'dark' : 'light');
+        root.style.colorScheme = dark ? 'dark' : 'light';
+      } catch (e) {}
+    })();
+  </script>
+
 
 <head>
   <meta charset="utf-8">
@@ -86,10 +101,16 @@
       padding: 0;
       margin: 0;
       font-family: 'Inter', sans-serif;
+    }
+    html.dark, html.dark body {
       background-color: #09090b;
-      /* zinc-950 */
       color: #fafafa;
-      /* zinc-50 */
+      color-scheme: dark;
+    }
+    html.light, html.light body {
+      background-color: #f4f4f5;
+      color: #18181b;
+      color-scheme: light;
     }
 
     /* Refined Premium Web Splash Screen Styling */

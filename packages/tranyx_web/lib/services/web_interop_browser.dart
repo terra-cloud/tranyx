@@ -621,6 +621,9 @@ class SessionStorage {
 
   static const _activeTabKey = 'tranyx_active_tab';
 
+  /// Explicit theme: 'light' | 'dark'. Null / missing = follow OS.
+  static const _themePrefKey = 'tranyx_theme_preference';
+
   static void save(dynamic auth) {
     web.window.localStorage.setItem(_uid, auth.uid as String);
     web.window.localStorage.setItem(_tok, auth.idToken as String);
@@ -666,6 +669,21 @@ class SessionStorage {
       web.window.localStorage.setItem(_activeTabKey, val);
     } else {
       web.window.localStorage.removeItem(_activeTabKey);
+    }
+  }
+
+  /// Stored explicit theme preference: `'light'`, `'dark'`, or `null` (system).
+  static String? get themePreference {
+    final v = web.window.localStorage.getItem(_themePrefKey);
+    if (v == 'light' || v == 'dark') return v;
+    return null;
+  }
+
+  static set themePreference(String? val) {
+    if (val == 'light' || val == 'dark') {
+      web.window.localStorage.setItem(_themePrefKey, val!);
+    } else {
+      web.window.localStorage.removeItem(_themePrefKey);
     }
   }
 
