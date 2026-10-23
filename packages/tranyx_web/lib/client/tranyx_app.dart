@@ -5189,16 +5189,7 @@ class TranyxAppState extends State<TranyxApp> {
               final newGigsCount = gigsCount + 1;
               final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
 
-              await svc.createOrUpdate('users/$nyxianId', {
-                ...nyxDoc,
-                'tyxBalance': currentNyxBal + immediatePayout,
-                'jobsDone': currentJobsDone + 1,
-                'totalEarned': currentEarned + immediatePayout,
-                'completedGigsCount': newGigsCount,
-                'repeatHireRate': repeatHireRate,
-              });
-
-              // Log payout transaction for Nyxian
+              // Log payout first so KAN-136 rules can link the credit (sequential writes).
               await svc.createOrUpdate('transactions/payout_nyx_${job['id']}', {
                 'uid': nyxianId,
                 'title': 'Gig Payout Released',
@@ -5213,6 +5204,17 @@ class TranyxAppState extends State<TranyxApp> {
                 'method': 'Tranyx Wallet',
                 'createdAt': DateTime.now().millisecondsSinceEpoch,
                 'type': 'payout',
+              });
+
+              await svc.createOrUpdate('users/$nyxianId', {
+                ...nyxDoc,
+                'tyxBalance': currentNyxBal + immediatePayout,
+                'jobsDone': currentJobsDone + 1,
+                'totalEarned': currentEarned + immediatePayout,
+                'completedGigsCount': newGigsCount,
+                'repeatHireRate': repeatHireRate,
+                // KAN-136 stopgap: links credit to payout_nyx_<jobId> (until KAN-126).
+                'lastCompletedJobId': job['id'],
               });
             }
           }
@@ -5563,24 +5565,7 @@ class TranyxAppState extends State<TranyxApp> {
             final newGigsCount = gigsCount + 1;
             final repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
 
-            await svc.createOrUpdate('users/$nyxianId', {
-              ...nyxDoc,
-              'tyxBalance': currentNyxBal + immediatePayout,
-              'jobsDone': currentJobsDone + 1,
-              'totalEarned': currentEarned + immediatePayout,
-              'completedGigsCount': newGigsCount,
-              'repeatHireRate': repeatHireRate,
-              if (redeemedPromoCode != null) 'activePromoCode': null,
-              if (redeemedPromoCode != null) 'activePromoDiscountType': null,
-              if (redeemedPromoCode != null) 'activePromoDiscountValue': null,
-            });
-
-            // Increment promo usage
-            if (redeemedPromoCode != null) {
-              await svc.incrementPromoUsage(redeemedPromoCode, nyxianId);
-            }
-
-            // Log payout transaction for Nyxian
+            // Log payout first so KAN-136 rules can link the credit (sequential writes).
             final commissionRate = (jobDoc['commissionRate'] as num?)?.toDouble() ?? 0.03;
             final holdbackRate = (jobDoc['holdbackRate'] as num?)?.toDouble() ?? 0.10;
             await svc.createOrUpdate('transactions/payout_nyx_$jobId', {
@@ -5594,12 +5579,31 @@ class TranyxAppState extends State<TranyxApp> {
               'commissionRate': commissionRate,
               'holdbackAmount': holdbackAmount,
               'holdbackRate': holdbackRate,
-              'promoCode': ?redeemedPromoCode,
+              if (redeemedPromoCode != null) 'promoCode': redeemedPromoCode,
               'status': 'Successful',
               'method': 'Tranyx Wallet',
               'createdAt': DateTime.now().millisecondsSinceEpoch,
               'type': 'payout',
             });
+
+            await svc.createOrUpdate('users/$nyxianId', {
+              ...nyxDoc,
+              'tyxBalance': currentNyxBal + immediatePayout,
+              'jobsDone': currentJobsDone + 1,
+              'totalEarned': currentEarned + immediatePayout,
+              'completedGigsCount': newGigsCount,
+              'repeatHireRate': repeatHireRate,
+              // KAN-136 stopgap: links credit to payout_nyx_<jobId> (until KAN-126).
+              'lastCompletedJobId': jobId,
+              if (redeemedPromoCode != null) 'activePromoCode': null,
+              if (redeemedPromoCode != null) 'activePromoDiscountType': null,
+              if (redeemedPromoCode != null) 'activePromoDiscountValue': null,
+            });
+
+            // Increment promo usage
+            if (redeemedPromoCode != null) {
+              await svc.incrementPromoUsage(redeemedPromoCode, nyxianId);
+            }
           }
         }
       }
