@@ -167,7 +167,7 @@ describe('CHAT-H: holes (secure expectation; every one is open on be724522: /cha
     await assertFails(addDoc(collection(user('eve'), 'chats/rental_r1_eve/messages'), msg('eve')));
   });
   // LOW: ordering / dispute timelines rely on createdAt.
-  it('CHAT-10 [LOW] message createdAt must be request.time or epoch ms within 5 min of now', async () => {
+  it('CHAT-10 [LOW] message createdAt must be request.time or epoch ms in the 24h-past / 5min-ahead window', async () => {
     await base();
     await assertFails(addDoc(collection(user('worker'), `${JOB}/messages`), msg('worker', { createdAt: 946684800000 })));
     await assertFails(addDoc(collection(user('worker'), `${JOB}/messages`), msg('worker', { createdAt: now() + 86400000 })));

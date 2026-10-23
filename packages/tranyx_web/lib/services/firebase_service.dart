@@ -2644,11 +2644,11 @@ class FirestoreService {
     };
     await createOrUpdate('chats/$scopedChatId/messages/$msgId', confMsg);
     await createOrUpdate('chats/$jobId/messages/$msgId', confMsg);
-    // Touch chat metadata
-    await createOrUpdate('chats/$scopedChatId', {
+    // Touch chat metadata (masked setDocument: keep userIds/status/resolvedAt; KAN-139)
+    await setDocument('chats/$scopedChatId', {
       'updatedAt': now.millisecondsSinceEpoch,
     });
-    await createOrUpdate('chats/$jobId', {
+    await setDocument('chats/$jobId', {
       'updatedAt': now.millisecondsSinceEpoch,
     });
 
@@ -2705,12 +2705,12 @@ class FirestoreService {
     };
     if (scopedChatId != jobId) {
       await createOrUpdate('chats/$scopedChatId/messages/$msgId', expMsg);
-      await createOrUpdate('chats/$scopedChatId', {
+      await setDocument('chats/$scopedChatId', {
         'updatedAt': nowMs,
       });
     }
     await createOrUpdate('chats/$jobId/messages/$msgId', expMsg);
-    await createOrUpdate('chats/$jobId', {
+    await setDocument('chats/$jobId', {
       'updatedAt': nowMs,
     });
 
@@ -2781,12 +2781,12 @@ class FirestoreService {
     };
     if (scopedChatId != jobId) {
       await createOrUpdate('chats/$scopedChatId/messages/$msgId', remMsg);
-      await createOrUpdate('chats/$scopedChatId', {
+      await setDocument('chats/$scopedChatId', {
         'updatedAt': nowMs,
       });
     }
     await createOrUpdate('chats/$jobId/messages/$msgId', remMsg);
-    await createOrUpdate('chats/$jobId', {
+    await setDocument('chats/$jobId', {
       'updatedAt': nowMs,
     });
 
@@ -2854,12 +2854,12 @@ class FirestoreService {
     };
     if (scopedChatId != jobId) {
       await createOrUpdate('chats/$scopedChatId/messages/$msgId', resetMsg);
-      await createOrUpdate('chats/$scopedChatId', {
+      await setDocument('chats/$scopedChatId', {
         'updatedAt': nowMs,
       });
     }
     await createOrUpdate('chats/$jobId/messages/$msgId', resetMsg);
-    await createOrUpdate('chats/$jobId', {
+    await setDocument('chats/$jobId', {
       'updatedAt': nowMs,
     });
 
