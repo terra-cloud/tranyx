@@ -84,17 +84,10 @@
       allow write: if isAdminOrStaff();
     }
 
-    // Platform Fees Collection (Admin managed). KAN-136 stopgap: job parties may create the
-    // completion fee rollup doc keyed by jobId when the matching payout/fee txs are in the batch.
+    // Platform Fees Collection (Admin managed). Client creates stay Function-only (KAN-136-P1 / D10).
     match /platform_fees/{feeId} {
       allow read: if isAuthenticated();
       allow write: if isAdminOrStaff();
-      allow create: if isActiveUser() &&
-        exists(/databases/$(database)/documents/jobs/$(feeId)) &&
-        (get(/databases/$(database)/documents/jobs/$(feeId)).data.creatorId == request.auth.uid ||
-         get(/databases/$(database)/documents/jobs/$(feeId)).data.get('acceptedApplicantId', null) == request.auth.uid) &&
-        (existsAfter(/databases/$(database)/documents/transactions/$('payout_nyx_' + feeId)) ||
-         existsAfter(/databases/$(database)/documents/transactions/$('fees_emp_' + feeId)));
     }
 
     // Platform Config Collection (Job SLAs, Platform Settings - Admin managed)

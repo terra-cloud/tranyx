@@ -153,12 +153,13 @@
         resource.data.creatorId == request.auth.uid || 
         isAdminOrStaff()
       );
-      allow delete: if (isActiveUser() && (
-        resource.data.employerId == request.auth.uid || 
-        resource.data.creatorId == request.auth.uid ||
-        (exists(/databases/$(database)/documents/jobs/$(jobId)) && 
-         get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid)
-      )) || isAdminOrStaff();
+      // KAN-136-09: only after the job is Completed (same-batch getAfter or already Completed).
+      allow delete: if isAdminOrStaff() || (isActiveUser() &&
+        exists(/databases/$(database)/documents/jobs/$(jobId)) &&
+        getAfter(/databases/$(database)/documents/jobs/$(jobId)).data.status in ['Completed', 'completed'] &&
+        (resource.data.employerId == request.auth.uid ||
+         resource.data.creatorId == request.auth.uid ||
+         get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid));
     }
 
     // Escrow Holdbacks Collection

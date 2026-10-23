@@ -59,20 +59,17 @@
         (txId.matches('^p2p_with_.+') && exists(wrPath) && get(wrPath).data.get('uid', '') == uid);
     }
 
-    // KAN-136 stopgap (until KAN-126 Cloud Function ledger): job completion still writes
-    // payout_nyx_ / fees_emp_ from the client. Allow that batch shape only — not free minting.
-    // Rates on the tx must match the job snapshot, else config/app_config, else built-in defaults.
-    function jobCompletionRatesOk(jobId, d, kind) {
+    // KAN-136 stopgap (until KAN-126 Cloud Function ledger): hired worker may create
+    // payout_nyx_<jobId> type=payout with amount bound to the job price. fees_emp_ /
+    // platform_fees / employer-driven completion stay Function-only (P1/P2).
+    function jobCompletionRatesOk(jobId, d) {
       let job = get(/databases/$(database)/documents/jobs/$(jobId)).data;
       let cfgPath = /databases/$(database)/documents/config/app_config;
       let cfg = exists(cfgPath) ? get(cfgPath).data : {};
       let commission = job.get('commissionRate', cfg.get('commissionRate', 0.03));
       let holdback = job.get('holdbackRate', cfg.get('holdbackRate', 0.10));
-      let txFee = job.get('transactionFeeRate', job.get('txFeeRate', cfg.get('transactionFeeRate', 0.07)));
-      let convFee = job.get('convenienceFeeRate', job.get('convFeeRate', cfg.get('convenienceFeeRate', 0.03)));
-      return kind == 'payout'
-        ? d.get('commissionRate', commission) == commission && d.get('holdbackRate', holdback) == holdback
-        : d.get('transactionFeeRate', txFee) == txFee && d.get('convenienceFeeRate', convFee) == convFee;
+      return d.get('commissionRate', commission) == commission &&
+        d.get('holdbackRate', holdback) == holdback;
     }
     // Payout create: if the worker user doc is credited in the same batch, the bump cannot exceed amount.
     function payoutCreditCapped(d) {
@@ -80,78 +77,29 @@
       return !exists(uPath) ||
         (getAfter(uPath).data.get('tyxBalance', 0) - get(uPath).data.get('tyxBalance', 0) <= d.amount + 0.0001);
     }
-    // Either job party may write the completion txs (mobile/web batch is one caller).
+    // Amount bound to job price (KAN-136-D2): > 0 and <= pricingValue (holdback may lower the immediate payout).
+    function payoutAmountBoundToJob(jobId, d) {
+      let price = get(/databases/$(database)/documents/jobs/$(jobId)).data.get('pricingValue', 0);
+      return price is number && price > 0 &&
+        d.amount is number && d.amount > 0 && d.amount <= price &&
+        d.get('baseAmount', price) == price;
+    }
     function isJobCompletionTxCreate(txId) {
       let d = request.resource.data;
-      let jobId = txId.replace('^(payout_nyx|fees_emp)_', '');
+      let jobId = txId.replace('^payout_nyx_', '');
       let jobPath = /databases/$(database)/documents/jobs/$(jobId);
-      let isPayout = txId.matches('^payout_nyx_.+') && d.type == 'payout' &&
-        d.uid == get(jobPath).data.get('acceptedApplicantId', '');
-      let isFee = txId.matches('^fees_emp_.+') && d.type == 'fee_deduction' &&
-        d.uid == get(jobPath).data.creatorId;
-      return isActiveUser() && txId.matches('^(payout_nyx|fees_emp)_.+') && exists(jobPath) &&
-        isTxJobParticipant(txId) && (isPayout || isFee) &&
+      return isActiveUser() &&
+        txId.matches('^payout_nyx_.+') &&
+        exists(jobPath) &&
+        d.type == 'payout' &&
+        d.uid == request.auth.uid &&
+        get(jobPath).data.get('acceptedApplicantId', null) == request.auth.uid &&
         d.keys().hasAll(['uid', 'amount', 'status', 'type', 'createdAt']) &&
-        d.amount is number && d.amount >= 0 && d.status == 'Successful' &&
-        jobCompletionRatesOk(jobId, d, isPayout ? 'payout' : 'fee') &&
-        (!isPayout || payoutCreditCapped(d));
+        d.status == 'Successful' &&
+        payoutAmountBoundToJob(jobId, d) &&
+        jobCompletionRatesOk(jobId, d) &&
+        payoutCreditCapped(d);
     }
-    // Credit worker only alongside payout_nyx_<jobId>, capped at its amount.
-    // lastCompletedJobId links the user write to that payout (mobile batch or web sequential).
-    // Replay guard: lastCompletedJobId must change to this jobId (not already set to it).
-    function isJobPayoutCredit(userId) {
-      // Cheap reject before any getAfter / job lookups (keeps deny paths under the 1000-expr limit).
-      let jobId = request.resource.data.get('lastCompletedJobId', '');
-      return jobId is string && jobId.size() > 0 &&
-        resource.data.get('lastCompletedJobId', '') != jobId &&
-        isJobPayoutCreditChecked(userId, jobId);
-    }
-    function isJobPayoutCreditChecked(userId, jobId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
-      let payoutPath = /databases/$(database)/documents/transactions/$( 'payout_nyx_' + jobId );
-      let before = resource.data.get('tyxBalance', 0);
-      let after = request.resource.data.get('tyxBalance', before);
-      let delta = after - before;
-      return isActiveUser() &&
-        changed.hasOnly(['tyxBalance', 'jobsDone', 'totalEarned', 'completedGigsCount', 'repeatHireRate',
-          'activePromoCode', 'activePromoDiscountType', 'activePromoDiscountValue', 'lastCompletedJobId']) &&
-        after is number && after >= 0 && delta >= 0 &&
-        existsAfter(payoutPath) &&
-        getAfter(payoutPath).data.get('uid', '') == userId &&
-        getAfter(payoutPath).data.get('type', '') == 'payout' &&
-        getAfter(payoutPath).data.amount is number && delta <= getAfter(payoutPath).data.amount + 0.0001 &&
-        isTxJobParticipant('payout_nyx_' + jobId);
-    }
-    // Employer fee debit during completion (batch or sequential). Replay guard on lastCompletedJobId.
-    function isJobFeeDebit(userId) {
-      let jobId = request.resource.data.get('lastCompletedJobId', '');
-      return jobId is string && jobId.size() > 0 &&
-        resource.data.get('lastCompletedJobId', '') != jobId &&
-        isJobFeeDebitChecked(userId, jobId);
-    }
-    function isJobFeeDebitChecked(userId, jobId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
-      let feePath = /databases/$(database)/documents/transactions/$( 'fees_emp_' + jobId );
-      let before = resource.data.get('tyxBalance', 0);
-      let after = request.resource.data.get('tyxBalance', before);
-      return isActiveUser() &&
-        changed.hasOnly(['tyxBalance', 'lastCompletedJobId']) &&
-        after is number && after >= 0 && after <= before &&
-        exists(/databases/$(database)/documents/jobs/$(jobId)) &&
-        userId == get(/databases/$(database)/documents/jobs/$(jobId)).data.creatorId &&
-        existsAfter(feePath) &&
-        getAfter(feePath).data.get('uid', '') == userId &&
-        isTxJobParticipant('fees_emp_' + jobId);
-    }
-    // Owner path: tyxBalance may stay or decrease. Increases must go through isJobPayoutCredit (branch 6).
-    function ownerTyxBalanceOk() {
-      let before = resource.data.get('tyxBalance', 0);
-      let after = request.resource.data.get('tyxBalance', before);
-      return !('tyxBalance' in request.resource.data) ||
-        (after is number && after >= 0 && after <= before);
-    }
-
-
 
     // Users Collection (Strict segregation of User vs Admin fields)
     match /users/{userId} {
@@ -167,13 +115,12 @@
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
 
       allow update: if (
-        // 1. Regular User: Can update own profile fields (cannot alter admin role, ban, or suspension status).
-        // tyxBalance increases are NOT free here — see ownerTyxBalanceOk / isJobPayoutCredit (KAN-136).
+        // 1. Regular User: Can update own profile fields (cannot alter admin role, ban, or suspension status)
         (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil'
-        ]) && ownerTyxBalanceOk())
+        ]))
         || 
-        // 2. Staff Bootstrap: User with official staff email domain can bootstrap staff role
+        // 2. Staff Bootstrap: verified staff-domain email only (isStaffEmail requires email_verified; KAN-136-B3)
         (isOwner(userId) && isStaffEmail())
         ||
         // 3. Admin / Staff: Can update admin, moderation & verification fields
@@ -192,12 +139,6 @@
           request.resource.data.abandonedJobs is number &&
           (!('abandonedJobs' in resource.data) || request.resource.data.abandonedJobs == resource.data.abandonedJobs + 1)
         )
-        ||
-        // 6. KAN-136 stopgap: job-completion credit to the worker (caller may be employer or worker)
-        isJobPayoutCredit(userId)
-        ||
-        // 7. KAN-136 stopgap: employer fee debit during completion (caller may be worker or employer)
-        isJobFeeDebit(userId)
       ) &&
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
 
@@ -279,10 +220,12 @@
       allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
       // create: a structured id (see isTxIdParty) only by its own party, so nobody can squat a
       // public job / property / request id before the real writer.
-      // KAN-136 stopgap: job completion payout/fee_deduction creates (isJobCompletionTxCreate) until KAN-126.
+      // KAN-136 stopgap: hired worker may create payout_nyx_<job> type=payout (amount bound to job price).
       allow create: if isAdminOrStaff() || isJobCompletionTxCreate(txId) || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$') &&
         (!txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*') || isTxIdParty(txId, request.auth.uid)));
-      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);
+      // KAN-136-05: structured job/property/p2p tx ids are create-only for clients (no owner rewrite/replay).
+      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid &&
+        !txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*'));
       allow delete: if isAdminOrStaff();
     }
 
