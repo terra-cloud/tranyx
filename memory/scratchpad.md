@@ -11,3 +11,7 @@
 
 ## Next
 W10 Nyxian Dashboard, W20 Jobs, W22 details, W30 Rentals, W40 Messages, W50 Profile, W54 Withdraw
+
+## W10 ready
+- Figma node 8:82 (Nyxian Dashboard 1440). Redesign home_view for authenticated Nyxian; reuse guest chrome patterns (sidebar labels) when touching auth chrome.
+- Jobs empty in guest until public reads exist — static W05 cards intentional.
