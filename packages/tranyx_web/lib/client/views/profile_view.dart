@@ -110,6 +110,7 @@ class _ProfileMenu extends StatelessComponent {
       (ProfileView.professional, 'briefcase', 'Professional Info'),
       (ProfileView.main, 'settings', 'Account Settings'),
       (ProfileView.payment, 'credit-card', 'Payment Methods'),
+      (ProfileView.withdraw, 'arrow-up-circle', 'Withdraw Funds'),
       (ProfileView.trust, 'shield-check', 'Trust & Verification'),
       (ProfileView.support, 'help-circle', 'Help & Support'),
       (ProfileView.history, 'activity', historyLabel),
