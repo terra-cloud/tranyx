@@ -35,6 +35,7 @@ class _LoginScreenState extends State<_LoginScreen> {
   String _email = '';
   String _password = '';
   String? _localError;
+  String? _localInfo;
   bool _showForgotSent = false;
   bool _showPassword = false;
 
@@ -42,171 +43,365 @@ class _LoginScreenState extends State<_LoginScreen> {
   // ignore: invalid_use_of_protected_member
   void setState(void Function() fn) => super.setState(fn);
 
+  Component _featureRow(String iconSrc, String label) {
+    return div(classes: 'flex gap-3 items-center', [
+      div(
+        classes: 'bg-[#eef2ff] flex items-center justify-center rounded-[10px] shrink-0 size-9',
+        [
+          img(
+            src: iconSrc,
+            classes: 'size-[18px]',
+            attributes: {'alt': '', 'aria-hidden': 'true'},
+          ),
+        ],
+      ),
+      p(
+        classes: 'font-semibold leading-[22px] text-[15px] text-[#18181b] m-0',
+        [Component.text(label)],
+      ),
+    ]);
+  }
+
+  Component _w01Field({
+    required String label,
+    required String placeholder,
+    required String iconSrc,
+    required String value,
+    required void Function(String) onChange,
+    String type = 'text',
+    bool isPassword = false,
+    bool isPasswordVisible = false,
+    void Function()? onTogglePassword,
+  }) {
+    final inputId = label.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+    return div(classes: 'flex flex-col gap-1.5 items-start w-full', [
+      p(
+        classes: 'font-semibold leading-5 text-sm text-[#18181b] tracking-[0.1px] m-0',
+        [Component.text(label)],
+      ),
+      div(
+        classes:
+            'bg-white border border-[#d4d4d8] flex gap-2.5 h-12 items-center px-3.5 relative rounded-xl w-full focus-within:border-[#4f46e5]',
+        [
+          img(
+            src: iconSrc,
+            classes: 'size-[18px] shrink-0',
+            attributes: {'alt': '', 'aria-hidden': 'true'},
+          ),
+          input<String>(
+            classes:
+                'bg-transparent border-none outline-none flex-1 min-w-0 text-[15px] leading-[22px] text-[#18181b] placeholder:text-[#71717a]',
+            type: (isPassword && isPasswordVisible)
+                ? InputType.text
+                : (type == 'password'
+                    ? InputType.password
+                    : (type == 'email' ? InputType.email : InputType.text)),
+            value: value,
+            attributes: {
+              'placeholder': placeholder,
+              'value': value,
+              'id': inputId,
+              'name': inputId,
+              'autocomplete': isPassword ? 'current-password' : 'email',
+            },
+            onInput: onChange,
+          ),
+          if (isPassword && onTogglePassword != null)
+            button(
+              classes:
+                  'p-0 bg-transparent border-0 cursor-pointer shrink-0 flex items-center justify-center size-[18px]',
+              events: {'click': (_) => onTogglePassword()},
+              attributes: {'type': 'button', 'aria-label': isPasswordVisible ? 'Hide password' : 'Show password'},
+              [
+                img(
+                  src: '/images/w01/932ea.svg',
+                  classes: 'size-[18px]',
+                  attributes: {'alt': '', 'aria-hidden': 'true'},
+                ),
+              ],
+            ),
+        ],
+      ),
+    ]);
+  }
+
   @override
   Component build(BuildContext context) {
     final s = component.state;
-    final isDark = s.isDark;
-    final cardCls = isDark
-        ? 'bg-zinc-900/60 backdrop-blur-xl border-zinc-800/80 shadow-2xl'
-        : 'bg-white/70 backdrop-blur-xl border-zinc-200/80 shadow-xl';
-
     final errorMsg = _localError ?? s.authError;
 
-    return div(classes: 'w-full animate-fade-up', [
-      // Logo & Header
-      div(classes: 'flex flex-col items-center mb-8', [
-        div(classes: 'p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 shadow-lg backdrop-blur-md mb-3', [
-          svgLogo(size: 'w-10 h-10'),
-        ]),
-        div(classes: 'text-center', [
-          h1(
-            classes: 'splash-title text-center text-white text-[2.25rem] font-black uppercase tracking-[0.04em] m-0',
-            [Component.text('TRANYX')],
-          ),
-          p(
-            classes:
-                'splash-subtitle text-center text-zinc-400 text-[0.78rem] font-semibold uppercase tracking-[0.28em] mt-1.5',
-            [Component.text('One Platform. Endless Opportunities.')],
-          ),
-        ]),
-      ]),
-
-      // Card
-      div(classes: 'rounded-3xl border p-8 $cardCls', [
-        h2(key: Key('title'), classes: 'text-xl font-bold mb-6', [Component.text('Sign In')]),
-
-        if (errorMsg != null)
-          div(
-            key: Key('error-msg'),
-            classes: 'mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm',
-            [Component.text(errorMsg)],
-          ),
-
-        if (_showForgotSent)
-          div(
-            key: Key('forgot-sent'),
-            classes: 'mb-4 p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-sm',
-            [Component.text('Password reset email sent! Check your inbox.')],
-          ),
-
-        div(key: Key('inputs'), classes: 'space-y-4', [
-          inputField(
-            label: 'Email',
-            placeholder: 'you@example.com',
-            iconName: 'mail',
-            type: 'email',
-            isDark: isDark,
-            value: _email,
-            onChange: (v) => setState(() => _email = v),
-          ),
-          inputField(
-            label: 'Password',
-            placeholder: '••••••••',
-            iconName: 'lock',
-            type: 'password',
-            isDark: isDark,
-            value: _password,
-            onChange: (v) => setState(() => _password = v),
-            isPassword: true,
-            isPasswordVisible: _showPassword,
-            onTogglePassword: () => setState(() => _showPassword = !_showPassword),
-          ),
-        ]),
-
-        div(key: Key('forgot-pwd-btn'), classes: 'mt-2 text-right', [
-          button(
-            classes: 'text-xs ${isDark ? "text-indigo-400" : "text-indigo-600"} hover:underline',
-            events: {
-              'click': (_) async {
-                if (_email.isEmpty) {
-                  setState(() => _localError = 'Enter your email to reset password.');
-                  return;
-                }
-                setState(() => _localError = null);
-                await s.handleForgotPassword(_email);
-                setState(() => _showForgotSent = true);
-              },
-            },
-            [Component.text('Forgot password?')],
-          ),
-        ]),
-
-        // Sign-in button
-        button(
-          key: Key('signin-btn'),
+    return div(
+      classes: 'w01-signin flex w-full min-h-screen items-stretch bg-[#f4f4f5] font-dm-sans',
+      [
+        // Left brand panel
+        div(
           classes:
-              'mt-6 w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
-          events: {
-            'click': (_) async {
-              if (_email.isEmpty || _password.isEmpty) {
-                setState(() => _localError = 'Please fill in all fields.');
-                return;
-              }
-              setState(() => _localError = null);
-              await s.handleSignIn(_email, _password);
-            },
-          },
+              'hidden lg:flex relative w-[680px] shrink-0 flex-col justify-between overflow-hidden bg-white px-[72px] py-16',
           [
-            if (s.isAuthLoading) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
-            Component.text(s.isAuthLoading ? ' Signing in...' : 'Sign In'),
+            // Gradient blobs
+            img(
+              src: '/images/w01/05633.svg',
+              classes: 'pointer-events-none absolute left-[-60px] top-[380px] size-[420px] max-w-none',
+              attributes: {'alt': '', 'aria-hidden': 'true'},
+            ),
+            img(
+              src: '/images/w01/54cd1.svg',
+              classes: 'pointer-events-none absolute left-[360px] top-[120px] size-[300px] max-w-none',
+              attributes: {'alt': '', 'aria-hidden': 'true'},
+            ),
+            img(
+              src: '/images/w01/1a12a.svg',
+              classes: 'pointer-events-none absolute left-[300px] top-[640px] size-[260px] max-w-none',
+              attributes: {'alt': '', 'aria-hidden': 'true'},
+            ),
+            // Logo
+            div(classes: 'relative z-10 flex items-center', [
+              img(
+                src: '/images/w01/fef74.png',
+                classes: 'h-10 w-[51px] object-contain',
+                attributes: {'alt': 'Tranyx'},
+              ),
+            ]),
+            // Headline + features
+            div(classes: 'relative z-10 flex flex-col gap-5 items-start', [
+              div(classes: 'font-bold text-[48px] leading-[56px] tracking-[-1.2px] text-[#18181b]', [
+                p(classes: 'm-0', [Component.text('Work. Earn. Rent.')]),
+                p(classes: 'm-0', [Component.text('Discover.')]),
+              ]),
+              p(
+                classes: 'm-0 font-normal text-base leading-6 text-[#52525b] w-full max-w-[480px]',
+                [
+                  Component.text(
+                    'Find freelance gigs, rent vehicles and properties, and earn securely on the all-in-one P2P platform. Powered by Web3 escrow and verified Nyxians in the Philippines.',
+                  ),
+                ],
+              ),
+              div(classes: 'flex flex-col gap-3 items-start pt-2', [
+                _featureRow('/images/w01/c1457.svg', 'Freelance gigs near you'),
+                _featureRow('/images/w01/a193d.svg', 'Vehicle & space rentals'),
+                _featureRow('/images/w01/d726a.svg', 'Escrow-protected payments'),
+              ]),
+            ]),
+            p(
+              classes:
+                  'relative z-10 m-0 font-semibold text-[11px] leading-4 tracking-[0.8px] text-[#52525b] uppercase',
+              [Component.text('One Platform. Endless Opportunities.')],
+            ),
           ],
         ),
 
-        // Divider
-        div(key: Key('divider'), classes: 'flex items-center gap-4 my-6', [
-          div([], classes: 'flex-1 h-px ${isDark ? "bg-zinc-800" : "bg-zinc-200"}'),
-          span(classes: 'text-xs ${isDark ? "text-zinc-600" : "text-zinc-400"}', [Component.text('or continue with')]),
-          div([], classes: 'flex-1 h-px ${isDark ? "bg-zinc-800" : "bg-zinc-200"}'),
-        ]),
+        // Right form side
+        div(
+          classes: 'flex flex-1 flex-col gap-6 items-center justify-center min-w-0 px-6 sm:px-12 py-10',
+          [
+            div(
+              classes:
+                  'bg-white border border-[#e4e4e7] flex flex-col gap-4 items-start p-8 relative rounded-3xl shadow-[0px_8px_24px_-4px_rgba(9,9,11,0.08)] w-full max-w-[440px]',
+              [
+                div(classes: 'flex flex-col gap-1 items-start', [
+                  p(
+                    classes: 'm-0 font-bold text-2xl leading-8 tracking-[-0.4px] text-[#18181b]',
+                    [Component.text('Sign In')],
+                  ),
+                  p(
+                    classes: 'm-0 font-normal text-sm leading-5 text-[#52525b]',
+                    [Component.text('Welcome back to Tranyx.')],
+                  ),
+                ]),
 
-        // Social Logins
-        div(classes: 'flex flex-col gap-3 mb-6', [
-          button(
-            classes:
-                'w-full py-3.5 rounded-2xl font-semibold border flex items-center justify-center gap-3 transition-colors ${isDark ? "border-zinc-800 hover:bg-zinc-800 text-zinc-300" : "border-zinc-200 hover:bg-zinc-50 text-zinc-700"}',
-            events: {'click': (_) => s.handleGoogleSignIn()},
-            [
-              // Google SVG Icon
-              googleSvgIcon(size: 'w-5 h-5'),
-              Component.text('Google'),
-            ],
-          ),
-          button(
-            classes:
-                'w-full py-3.5 rounded-2xl font-semibold border flex items-center justify-center gap-3 transition-colors ${isDark ? "border-purple-500/30 hover:bg-purple-500/10 text-purple-400" : "border-purple-200 hover:bg-purple-50 text-purple-600"}',
-            events: {'click': (_) => s.handlePhantomSignIn()},
-            [
-              lIcon('wallet', cls: 'w-5 h-5'),
-              Component.text('Solana Wallet'),
-            ],
-          ),
-        ]),
+                if (errorMsg != null)
+                  div(
+                    key: Key('error-msg'),
+                    classes: 'w-full p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 text-sm',
+                    [Component.text(errorMsg)],
+                  ),
 
-        // Register link
-        p(key: Key('register-link'), classes: 'text-center text-sm ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-          Component.text("Don't have an account? "),
-          button(
-            classes: 'font-semibold ${isDark ? "text-indigo-400" : "text-indigo-600"} hover:underline',
-            events: {'click': (_) => s.setState(() => s.authView = AuthView.registerPath)},
-            [Component.text('Get Started')],
-          ),
-        ]),
+                if (_localInfo != null)
+                  div(
+                    classes: 'w-full p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-700 text-sm',
+                    [Component.text(_localInfo!)],
+                  ),
 
-        p(key: Key('terms-link-login'), classes: 'text-center text-xs mt-6 ${isDark ? "text-zinc-650" : "text-zinc-400"}', [
-          button(
-            classes: 'underline bg-transparent border-0 cursor-pointer text-zinc-450 hover:text-white transition-colors p-0 font-medium',
-            events: {'click': (_) => web.window.location.assign('/terms-of-use')},
-            [Component.text('Terms of Use')],
-          ),
-          Component.text('  •  '),
-          button(
-            classes: 'underline bg-transparent border-0 cursor-pointer text-zinc-450 hover:text-white transition-colors p-0 font-medium',
-            events: {'click': (_) => web.window.location.assign('/privacy-policy')},
-            [Component.text('Privacy Policy')],
-          ),
-        ]),
-      ]),
-    ]);
+                if (_showForgotSent)
+                  div(
+                    key: Key('forgot-sent'),
+                    classes: 'w-full p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-700 text-sm',
+                    [Component.text('Password reset email sent! Check your inbox.')],
+                  ),
+
+                _w01Field(
+                  label: 'Email',
+                  placeholder: 'you@example.com',
+                  iconSrc: '/images/w01/b7212.svg',
+                  type: 'email',
+                  value: _email,
+                  onChange: (v) => setState(() => _email = v),
+                ),
+                _w01Field(
+                  label: 'Password',
+                  placeholder: '••••••••',
+                  iconSrc: '/images/w01/a5857.svg',
+                  type: 'password',
+                  value: _password,
+                  onChange: (v) => setState(() => _password = v),
+                  isPassword: true,
+                  isPasswordVisible: _showPassword,
+                  onTogglePassword: () => setState(() => _showPassword = !_showPassword),
+                ),
+
+                div(key: Key('forgot-pwd-btn'), classes: 'flex items-center justify-end w-full', [
+                  button(
+                    classes:
+                        'font-semibold text-sm leading-5 tracking-[0.1px] text-[#4f46e5] bg-transparent border-0 cursor-pointer p-0 hover:underline',
+                    attributes: {'type': 'button'},
+                    events: {
+                      'click': (_) async {
+                        if (_email.isEmpty) {
+                          setState(() {
+                            _localError = 'Enter your email to reset password.';
+                            _localInfo = null;
+                          });
+                          return;
+                        }
+                        setState(() {
+                          _localError = null;
+                          _localInfo = null;
+                        });
+                        await s.handleForgotPassword(_email);
+                        setState(() => _showForgotSent = true);
+                      },
+                    },
+                    [Component.text('Forgot password?')],
+                  ),
+                ]),
+
+                button(
+                  key: Key('signin-btn'),
+                  classes:
+                      'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] text-white bg-[#4f46e5] shadow-[0px_8px_10px_rgba(79,70,229,0.25)] hover:opacity-90 transition-opacity flex items-center justify-center gap-2 border-0 cursor-pointer',
+                  attributes: {'type': 'button'},
+                  events: {
+                    'click': (_) async {
+                      if (_email.isEmpty || _password.isEmpty) {
+                        setState(() {
+                          _localError = 'Please fill in all fields.';
+                          _localInfo = null;
+                        });
+                        return;
+                      }
+                      setState(() {
+                        _localError = null;
+                        _localInfo = null;
+                      });
+                      await s.handleSignIn(_email, _password);
+                    },
+                  },
+                  [
+                    if (s.isAuthLoading) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
+                    Component.text(s.isAuthLoading ? ' Signing in...' : 'Sign In'),
+                  ],
+                ),
+
+                div(key: Key('divider'), classes: 'flex gap-3 items-center w-full', [
+                  div(classes: 'flex-1 h-px bg-[#e4e4e7]', []),
+                  span(
+                    classes: 'font-medium text-xs leading-4 text-[#71717a]',
+                    [Component.text('or continue with')],
+                  ),
+                  div(classes: 'flex-1 h-px bg-[#e4e4e7]', []),
+                ]),
+
+                div(classes: 'flex gap-3 items-center w-full', [
+                  button(
+                    classes:
+                        'flex-1 h-12 rounded-xl font-semibold text-sm tracking-[0.1px] text-[#18181b] bg-white border border-[#d4d4d8] hover:bg-zinc-50 transition-colors flex items-center justify-center gap-2 cursor-pointer',
+                    attributes: {'type': 'button'},
+                    events: {'click': (_) => s.handleGoogleSignIn()},
+                    [
+                      googleSvgIcon(size: 'w-5 h-5'),
+                      Component.text('Google'),
+                    ],
+                  ),
+                  button(
+                    classes:
+                        'flex-1 h-12 rounded-xl font-semibold text-sm tracking-[0.1px] text-[#18181b] bg-white border border-[#d4d4d8] hover:bg-zinc-50 transition-colors flex items-center justify-center gap-2 cursor-pointer',
+                    attributes: {'type': 'button'},
+                    events: {'click': (_) => s.handlePhantomSignIn()},
+                    [
+                      lIcon('wallet', cls: 'w-5 h-5 text-[#4f46e5]'),
+                      Component.text('Solana Wallet'),
+                    ],
+                  ),
+                ]),
+
+                div(classes: 'h-px w-full bg-[#e4e4e7]', []),
+
+                button(
+                  classes:
+                      'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] text-[#4f46e5] bg-transparent border-0 cursor-pointer hover:underline',
+                  attributes: {'type': 'button'},
+                  events: {
+                    'click': (_) => setState(() {
+                          _localInfo = 'Guest browse is coming in Batch A (W05).';
+                          _localError = null;
+                        }),
+                  },
+                  [Component.text('Browse as guest')],
+                ),
+
+                p(
+                  key: Key('register-link'),
+                  classes: 'w-full m-0 flex gap-1 items-center justify-center text-sm leading-5',
+                  [
+                    span(classes: 'text-[#52525b]', [Component.text("Don't have an account?")]),
+                    button(
+                      classes:
+                          'font-semibold tracking-[0.1px] text-[#4f46e5] bg-transparent border-0 cursor-pointer p-0 hover:underline',
+                      attributes: {'type': 'button'},
+                      events: {'click': (_) => s.setState(() => s.authView = AuthView.registerPath)},
+                      [Component.text('Get Started')],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            // Legal links under card
+            div(
+              key: Key('terms-link-login'),
+              classes: 'flex font-medium gap-2 items-center text-xs leading-4',
+              [
+                button(
+                  classes: 'text-[#4f46e5] bg-transparent border-0 cursor-pointer p-0 hover:underline',
+                  attributes: {'type': 'button'},
+                  events: {'click': (_) => web.window.location.assign('/terms-of-use')},
+                  [Component.text('Terms of Use')],
+                ),
+                span(classes: 'text-[#71717a]', [Component.text('•')]),
+                button(
+                  classes: 'text-[#4f46e5] bg-transparent border-0 cursor-pointer p-0 hover:underline',
+                  attributes: {'type': 'button'},
+                  events: {'click': (_) => web.window.location.assign('/privacy-policy')},
+                  [Component.text('Privacy Policy')],
+                ),
+                span(classes: 'text-[#71717a]', [Component.text('•')]),
+                button(
+                  classes: 'text-[#4f46e5] bg-transparent border-0 cursor-pointer p-0 hover:underline',
+                  attributes: {'type': 'button'},
+                  events: {
+                    'click': (_) => setState(() {
+                          _localInfo = 'About page coming soon.';
+                          _localError = null;
+                        }),
+                  },
+                  [Component.text('About')],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
   }
 }
 

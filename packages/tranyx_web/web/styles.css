@@ -412,3 +412,15 @@ textarea {
 .theme-dark .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
   border-top-color: #18181b !important;
 }
+
+/* ── W01 Auth · Sign in (Batch A redesign) ── */
+.font-dm-sans,
+.w01-signin,
+.w01-signin * {
+  font-family: 'DM Sans', Inter, system-ui, -apple-system, sans-serif;
+}
+
+.w01-signin input::placeholder {
+  color: #71717a;
+  opacity: 1;
+}

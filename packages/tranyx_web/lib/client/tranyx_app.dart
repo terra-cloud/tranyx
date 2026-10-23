@@ -8293,6 +8293,19 @@ class TranyxAppState extends State<TranyxApp> {
     }
 
     if (!isAuthenticated) {
+      // W01 Sign-in uses a full-bleed split layout; other auth steps keep the
+      // centered card + metaballs shell.
+      if (authView == AuthView.login) {
+        return div(
+          classes: 'min-h-screen w-full relative overflow-x-hidden bg-[#f4f4f5] font-dm-sans text-[#18181b]',
+          [
+            AuthViewComponent(state: this),
+            if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
+            if (showMobileAppPrompt) MobileAppPromptModalComponent(state: this),
+          ],
+        );
+      }
+
       // Trigger random web metaballs initialization
       Timer.run(() => initRandomMetaballs('web-metaballs-container'));
 
