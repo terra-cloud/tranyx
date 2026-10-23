@@ -8,54 +8,6 @@ import '../../services/web_interop.dart';
 import 'package:shared/shared.dart';
 import '../utils/geo_helper.dart';
 
-// ── Top-services computation helper ──────────────────────────────────────────
-/// Returns the top [limit] JobCategoryGroups ranked by how many jobs exist
-/// for each group in [allJobs]. Falls back to the first static groups when
-/// the list is empty.
-List<({JobCategoryGroup group, int count})> _computeTopGroups(
-  List<Map<String, dynamic>> allJobs, {
-  int limit = 4,
-}) {
-  // Tally jobs per category group
-  final tally = <String, int>{};
-  for (final job in allJobs) {
-    final raw = job['categoryGroup'] as String?;
-    if (raw != null && raw.isNotEmpty) {
-      tally[raw] = (tally[raw] ?? 0) + 1;
-    }
-  }
-
-  if (tally.isEmpty) {
-    // Fall back to first [limit] static groups with zero count
-    return JobCategoryGroup.values.take(limit).map((g) => (group: g, count: 0)).toList();
-  }
-
-  // Resolve to enum values and sort descending by count
-  final entries =
-      tally.entries
-          .map((e) {
-            final grp = JobCategoryGroup.values.where((g) => g.name == e.key).firstOrNull;
-            if (grp == null) return null;
-            return (group: grp, count: e.value);
-          })
-          .whereType<({JobCategoryGroup group, int count})>()
-          .toList()
-        ..sort((grpA, grpB) => grpB.count.compareTo(grpA.count));
-
-  // Pad with unseen groups when fewer than [limit] distinct groups appear
-  if (entries.length < limit) {
-    final seen = entries.map((e) => e.group).toSet();
-    for (final g in JobCategoryGroup.values) {
-      if (!seen.contains(g)) {
-        entries.add((group: g, count: 0));
-      }
-      if (entries.length >= limit) break;
-    }
-  }
-
-  return entries.take(limit).toList();
-}
-
 class HomeViewComponent extends StatefulComponent {
   final TranyxAppState state;
   const HomeViewComponent({required this.state, super.key});
@@ -487,8 +439,16 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         _activeTrackersSection(isDark: isDark, s: s),
 
         if (isNyxian) ...[
-          // ── Top Services Grid (Firebase-synced) ───────────────
+          // ── Top Services Grid (live chip filters → W20) ────────
           _topServicesSection(isDark: isDark, s: s),
+
+          // ── Nearby Rentals (live vehicles + properties) ────────
+          _nearbyRentalsSection(
+            isDark: isDark,
+            s: s,
+            vehicles: localVehicles,
+            properties: localProperties,
+          ),
 
           // ── Transit Teaser ────────────────────────────────────
           _transitTeaser(isDark: isDark, onTap: () => s.switchTab(AppTab.transit)),
@@ -1009,19 +969,50 @@ class HomeViewComponentState extends State<HomeViewComponent> {
     }
   }
 
-  /// Renders the Firebase-synced Top Services grid for Nyxian home view.
+  /// W10 Top Services — live category chip tallies (same keywords as W20 filters).
   Component _topServicesSection({required bool isDark, required TranyxAppState s}) {
+    final isLoading = s.isLoadingJobs;
     final allJobs = [...s.availableJobs, ...s.myJobs];
-    final isLoading = s.isLoadingJobs && allJobs.isEmpty;
-    final topGroups = _computeTopGroups(allJobs);
+    // Exclude own postings from open-count where uid known
+    final uid = s.userProfile?.uid;
+    final openJobs = allJobs.where((j) {
+      final status = (j['status'] as String?)?.toLowerCase() ?? 'open';
+      if (status != 'open' && status != 'available') return false;
+      if (uid != null && j['employerId'] == uid) return false;
+      return true;
+    }).toList();
+
+    const chips = ['Cleaning', 'Plumbing', 'Electrical', 'Carpentry', 'Laundry', 'Delivery'];
+    const icons = {
+      'Cleaning': 'sparkles',
+      'Plumbing': 'wrench',
+      'Electrical': 'zap',
+      'Carpentry': 'hammer',
+      'Laundry': 'refresh-cw',
+      'Delivery': 'truck',
+    };
+
+    final tallies = <String, int>{
+      for (final chip in chips)
+        chip: openJobs
+            .where(
+              (g) => GigFilterEngine.evaluateCategoryMatch(
+                gig: g,
+                categoryFilter: chip,
+              ),
+            )
+            .length,
+    };
 
     final cardBase = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+    final textPrimary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final textMuted = isDark ? 'text-zinc-400' : 'text-[#71717a]';
 
-    return div([
-      div(classes: 'flex items-center justify-between mb-5', [
+    return div(classes: 'space-y-4', [
+      div(classes: 'flex items-center justify-between', [
         div(classes: 'flex items-center gap-2', [
-          h2(classes: 'text-lg font-bold', [Component.text('Top Services')]),
-          if (!isLoading && allJobs.isNotEmpty)
+          h2(classes: 'text-lg font-bold m-0 $textPrimary', [Component.text('Top Services')]),
+          if (!isLoading && openJobs.isNotEmpty)
             span(
               classes:
                   'px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/20',
@@ -1030,73 +1021,219 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         ]),
         button(
           classes:
-              'text-sm font-semibold ${isDark ? "text-indigo-400" : "text-indigo-600"} hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer',
-          events: {'click': (_) => s.setState(() => s.showCategoryModal = true)},
+              'text-sm font-semibold text-[#4f46e5] hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer',
+          events: {'click': (_) => s.openJobsBrowse()},
           [Component.text('See All'), lIcon('chevron-right', cls: 'w-4 h-4')],
         ),
       ]),
-
       if (isLoading)
-        // Shimmer skeleton while jobs load
-        div(classes: 'grid grid-cols-2 md:grid-cols-4 gap-4', [
-          for (int i = 0; i < 4; i++)
+        div(classes: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3', [
+          for (int i = 0; i < 6; i++)
             div(
-              classes: 'animate-pulse rounded-2xl border $cardBase p-5 flex flex-col items-center gap-3',
-              [
-                div(classes: 'w-12 h-12 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', []),
-                div(classes: 'w-20 h-3 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-200"}', []),
-                div(classes: 'w-12 h-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-200"}', []),
-              ],
+              classes: 'animate-pulse rounded-2xl border $cardBase p-4 h-[112px]',
+              [div(classes: 'w-10 h-10 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', [])],
             ),
         ])
+      else if (openJobs.isEmpty)
+        div(
+          classes: 'rounded-2xl border $cardBase p-6 text-sm $textMuted',
+          [
+            Component.text('No open gigs yet. Check back soon or broaden your search on Jobs.'),
+            button(
+              classes: 'ml-2 text-[#4f46e5] font-semibold bg-transparent border-0 cursor-pointer hover:underline',
+              events: {'click': (_) => s.openJobsBrowse()},
+              [Component.text('Browse Jobs')],
+            ),
+          ],
+        )
       else
-        div(classes: 'grid grid-cols-2 md:grid-cols-4 gap-4', [
-          for (int i = 0; i < topGroups.length; i++)
-            _categoryGroupCard(topGroups[i].group, topGroups[i].count, isDark, s, i),
+        div(classes: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3', [
+          for (final chip in chips)
+            button(
+              classes:
+                  'relative flex flex-col items-start gap-2 p-4 rounded-2xl border text-left transition-all cursor-pointer bg-transparent $cardBase hover:border-[#4f46e5]/50',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => s.openJobsBrowse(filter: chip)},
+              [
+                div(
+                  classes:
+                      'size-10 rounded-xl flex items-center justify-center ${isDark ? "bg-indigo-500/15" : "bg-[#eef2ff]"}',
+                  [lIcon(icons[chip] ?? 'briefcase', cls: 'w-5 h-5 text-[#4f46e5]')],
+                ),
+                span(classes: 'text-sm font-semibold $textPrimary', [Component.text(chip)]),
+                span(classes: 'text-xs $textMuted flex items-center gap-1.5', [
+                  span(classes: 'size-1.5 rounded-full bg-emerald-500', []),
+                  Component.text(
+                    '${tallies[chip] ?? 0} job${(tallies[chip] ?? 0) == 1 ? '' : 's'} open',
+                  ),
+                ]),
+              ],
+            ),
         ]),
     ]);
   }
 
-  /// Renders a single category group card with a live job count badge.
-  Component _categoryGroupCard(
-    JobCategoryGroup group,
-    int jobCount,
-    bool isDark,
-    TranyxAppState s,
-    int index,
-  ) {
-    final cardCls = isDark
-        ? 'bg-zinc-900 border-zinc-800 hover:border-indigo-500/50'
-        : 'bg-white border-zinc-200 shadow-sm hover:shadow-md';
 
-    return button(
-      classes:
-          'relative flex flex-col items-center justify-center gap-3 p-5 rounded-2xl border transition-all card-hover text-center stagger-${index + 1} animate-fade-up cursor-pointer bg-transparent $cardCls',
+  /// W10 Nearby Rentals — live Available listings within geofence (no mocks).
+  Component _nearbyRentalsSection({
+    required bool isDark,
+    required TranyxAppState s,
+    required List<Map<String, dynamic>> vehicles,
+    required List<PropertyRental> properties,
+  }) {
+    final textPrimary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final textMuted = isDark ? 'text-zinc-400' : 'text-[#71717a]';
+    final card = isDark
+        ? 'bg-zinc-900 border border-zinc-800'
+        : 'bg-white border border-[#e4e4e7] shadow-sm';
+
+    final mixed = <({bool isProperty, dynamic item})>[];
+    for (final v in vehicles.take(2)) {
+      mixed.add((isProperty: false, item: v));
+    }
+    for (final p in properties.take(3 - mixed.length)) {
+      mixed.add((isProperty: true, item: p));
+    }
+    if (mixed.length < 3) {
+      for (final v in vehicles.skip(2).take(3 - mixed.length)) {
+        mixed.add((isProperty: false, item: v));
+      }
+    }
+
+    return div(classes: 'space-y-4', [
+      div(classes: 'flex items-center justify-between', [
+        h2(classes: 'text-lg font-bold m-0 $textPrimary', [Component.text('Nearby Rentals')]),
+        button(
+          classes:
+              'text-sm font-semibold text-[#4f46e5] hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer',
+          events: {'click': (_) => s.switchTab(AppTab.transit)},
+          [Component.text('View All'), lIcon('chevron-right', cls: 'w-4 h-4')],
+        ),
+      ]),
+      if (mixed.isEmpty)
+        div(
+          classes: 'rounded-2xl border $card p-6 text-sm $textMuted',
+          [
+            Component.text('No rentals available nearby yet. View all once hosts publish listings.'),
+          ],
+        )
+      else
+        div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
+          for (final entry in mixed)
+            entry.isProperty
+                ? _nearMePropertyTile(
+                    entry.item as PropertyRental,
+                    isDark: isDark,
+                    s: s,
+                    card: card,
+                    textPrimary: textPrimary,
+                    textMuted: textMuted,
+                  )
+                : _nearMeVehicleTile(
+                    entry.item as Map<String, dynamic>,
+                    isDark: isDark,
+                    s: s,
+                    card: card,
+                    textPrimary: textPrimary,
+                    textMuted: textMuted,
+                  ),
+        ]),
+    ]);
+  }
+
+  Component _nearMeVehicleTile(
+    Map<String, dynamic> r, {
+    required bool isDark,
+    required TranyxAppState s,
+    required String card,
+    required String textPrimary,
+    required String textMuted,
+  }) {
+    final title = (r['vehicleName'] ?? r['name'] ?? r['title'] ?? 'Vehicle').toString();
+    final rate = (r['dailyRate'] as num?)?.toDouble() ??
+        (r['pricePerDay'] as num?)?.toDouble() ??
+        0.0;
+    final city = (r['pickupCity'] ?? r['city'] ?? r['address'] ?? '').toString();
+    final lat = (r['pickupLat'] as num?)?.toDouble();
+    final lng = (r['pickupLng'] as num?)?.toDouble();
+    final dist = (lat != null && lng != null)
+        ? calculateDistance(s.userLatitude, s.userLongitude, lat, lng)
+        : null;
+    final type = (r['vehicleType'] ?? r['type'] ?? '').toString();
+    final meta = [
+      if (type.isNotEmpty) type,
+      if (dist != null) '${dist.toStringAsFixed(1)} km',
+    ].join(' · ');
+
+    return div(
+      classes: '$card rounded-2xl overflow-hidden cursor-pointer hover:border-[#4f46e5]/40 transition-colors',
+      events: {'click': (_) => s.switchTab(AppTab.transit)},
+      [
+        div(classes: 'h-36 bg-gradient-to-r from-indigo-200 to-violet-300 relative', [
+          span(
+            classes:
+                'absolute top-3 left-3 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700',
+            [Component.text('Available')],
+          ),
+        ]),
+        div(classes: 'p-4 space-y-1', [
+          p(classes: 'm-0 font-semibold text-[15px] $textPrimary', [Component.text(title)]),
+          if (meta.isNotEmpty) p(classes: 'm-0 text-xs $textMuted', [Component.text(meta)]),
+          if (city.isNotEmpty)
+            p(classes: 'm-0 text-xs $textMuted flex items-center gap-1', [
+              lIcon('map-pin', cls: 'w-3.5 h-3.5'),
+              Component.text(city),
+            ]),
+          p(classes: 'm-0 pt-1 font-semibold text-[17px] $textPrimary', [
+            Component.text(rate > 0 ? '₱ ${rate.toStringAsFixed(0)}/day' : 'Rate on request'),
+          ]),
+        ]),
+      ],
+    );
+  }
+
+  Component _nearMePropertyTile(
+    PropertyRental prop, {
+    required bool isDark,
+    required TranyxAppState s,
+    required String card,
+    required String textPrimary,
+    required String textMuted,
+  }) {
+    final rate = prop.monthlyRate;
+    final dist = calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude);
+    final area = prop.address.split(',').first.trim();
+    return div(
+      classes: '$card rounded-2xl overflow-hidden cursor-pointer hover:border-[#4f46e5]/40 transition-colors',
       events: {
-        'click': (_) => s.handleHomeSearch(group.label),
+        'click': (_) => s.setState(() {
+          s.activeTab = AppTab.transit;
+          s.activeRentalCategory = RentalCategory.properties;
+        }),
       },
       [
-        // Live job count badge (only if > 0)
-        if (jobCount > 0)
-          div(
+        div(classes: 'h-36 bg-gradient-to-r from-sky-200 to-violet-300 relative', [
+          span(
             classes:
-                'absolute top-3 right-3 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500 text-white leading-tight',
-            [Component.text('$jobCount')],
+                'absolute top-3 left-3 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700',
+            [Component.text('Available')],
           ),
-        div(classes: 'p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', [
-          lIcon(group.icon, cls: 'w-6 h-6 text-indigo-400'),
         ]),
-        span(classes: 'text-sm font-semibold leading-tight', [Component.text(group.label)]),
-        if (jobCount > 0)
-          span(
-            classes: 'text-[10px] ${isDark ? "text-zinc-500" : "text-zinc-400"}',
-            [Component.text('$jobCount job${jobCount == 1 ? "" : "s"} open')],
-          )
-        else
-          span(
-            classes: 'text-[10px] ${isDark ? "text-zinc-600" : "text-zinc-400"}',
-            [Component.text('Browse')],
-          ),
+        div(classes: 'p-4 space-y-1', [
+          p(classes: 'm-0 font-semibold text-[15px] $textPrimary', [Component.text(prop.title)]),
+          p(classes: 'm-0 text-xs $textMuted', [
+            Component.text('${prop.category.label} · ${prop.type.label}'),
+          ]),
+          p(classes: 'm-0 text-xs $textMuted flex items-center gap-1', [
+            lIcon('map-pin', cls: 'w-3.5 h-3.5'),
+            Component.text(
+              '${area.isNotEmpty ? area : 'Approx. area'} · ${dist.toStringAsFixed(1)} km',
+            ),
+          ]),
+          p(classes: 'm-0 pt-1 font-semibold text-[17px] $textPrimary', [
+            Component.text(rate > 0 ? '₱ ${rate.toStringAsFixed(0)}/mo' : 'Rate on request'),
+          ]),
+        ]),
       ],
     );
   }

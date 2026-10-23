@@ -1,4 +1,5 @@
 import 'package:jaspr/dom.dart';
+import 'package:web/web.dart' as web;
 import 'package:jaspr/jaspr.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
@@ -27,13 +28,48 @@ class TopHeaderComponent extends StatelessComponent {
         ]),
 
         // Page title on desktop
-        div(classes: 'hidden md:flex items-center gap-3', [
-          h1(classes: 'text-xl font-bold', [Component.text(_tabLabel(s.activeTab))]),
+        div(classes: 'hidden md:flex items-center gap-3 shrink-0', [
+          h1(classes: 'text-xl font-bold m-0', [Component.text(_tabLabel(s.activeTab))]),
           span(
-            classes: 'px-3 py-1 rounded-md text-xs font-bold ${s.accountType.badgeClasses}',
+            classes: 'px-3 py-1 rounded-full text-xs font-bold ${s.accountType.badgeClasses}',
             [Component.text(s.accountType.label)],
           ),
         ]),
+
+        // Global search (W10/W20) — filters live Jobs browse
+        div(
+          classes:
+              'hidden lg:flex flex-1 max-w-sm ml-6 h-11 items-center gap-2 px-3 rounded-xl border '
+              '${isDark ? "bg-zinc-900 border-zinc-700" : "bg-[#fafafa] border-[#e4e4e7]"}',
+          [
+            lIcon('search', cls: 'w-4 h-4 ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
+            input(
+              classes:
+                  'bg-transparent border-0 outline-none flex-1 text-sm min-w-0 '
+                  '${isDark ? "text-zinc-200 placeholder-zinc-500" : "text-[#18181b] placeholder-[#71717a]"}',
+              type: InputType.search,
+              attributes: {
+                'placeholder': 'Search gigs, vehicles, spaces',
+                'value': s.homeSearchQuery,
+                'id': 'topbar-search',
+                'name': 'topbar-search',
+              },
+              events: {
+                'input': (e) => s.setState(() => s.homeSearchQuery = getInputValue(e.target)),
+                'keydown': (e) {
+                  final key = (e as web.KeyboardEvent).key;
+                  if (key == 'Enter') s.handleHomeSearch(s.homeSearchQuery);
+                },
+              },
+            ),
+            span(
+              classes:
+                  'text-[11px] font-semibold px-1.5 py-0.5 rounded border shrink-0 '
+                  '${isDark ? "border-zinc-700 text-zinc-500" : "border-[#e4e4e7] text-[#71717a]"}',
+              [Component.text('⌘K')],
+            ),
+          ],
+        ),
 
         // Right side actions
         div(classes: 'flex items-center gap-2 ml-auto', [

@@ -347,5 +347,66 @@ void main() {
       );
       expect(matchUserNoCoords, isTrue);
     });
+
+    test('Category chip: Cleaning matches cleaning jobs only', () {
+      final cleaning = {
+        'id': 'c1',
+        'title': 'House deep clean',
+        'category': 'House Cleaning',
+        'categoryGroup': 'cleaning',
+        'pricingValue': 800.0,
+        'latitude': 14.55,
+        'longitude': 121.0,
+      };
+      final plumbing = {
+        'id': 'p1',
+        'title': 'Fix sink',
+        'category': 'Plumbing',
+        'categoryGroup': 'homeRepair',
+        'pricingValue': 900.0,
+        'latitude': 14.55,
+        'longitude': 121.0,
+      };
+      expect(
+        GigFilterEngine.evaluateCategoryMatch(gig: cleaning, categoryFilter: 'Cleaning'),
+        isTrue,
+      );
+      expect(
+        GigFilterEngine.evaluateCategoryMatch(gig: plumbing, categoryFilter: 'Cleaning'),
+        isFalse,
+      );
+      expect(
+        GigFilterEngine.evaluateCategoryMatch(gig: plumbing, categoryFilter: 'Plumbing'),
+        isTrue,
+      );
+    });
+
+    test('Category chip: Remote Gigs matches only remote modality', () {
+      final remote = {
+        'id': 'r1',
+        'title': 'Logo design',
+        'category': 'Design',
+        'locationType': 'remote',
+        'pricingValue': 1500.0,
+      };
+      final onsite = {
+        'id': 'o1',
+        'title': 'Paint wall',
+        'category': 'Painting',
+        'locationType': 'onsite',
+        'pricingValue': 1500.0,
+        'latitude': 14.55,
+        'longitude': 121.0,
+      };
+      expect(
+        GigFilterEngine.evaluateCategoryMatch(gig: remote, categoryFilter: 'Remote Gigs'),
+        isTrue,
+      );
+      expect(
+        GigFilterEngine.evaluateCategoryMatch(gig: onsite, categoryFilter: 'Remote Gigs'),
+        isFalse,
+      );
+    });
+
   });
 }

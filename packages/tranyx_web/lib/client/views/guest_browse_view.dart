@@ -6,28 +6,40 @@ import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
 import '../utils/geo_helper.dart';
 
-/// Top service groups that actually have open jobs (no zero-count padding / no Figma fixtures).
-List<({JobCategoryGroup group, int count})> _liveTopGroups(
-  List<Map<String, dynamic>> jobs, {
-  int limit = 6,
-}) {
-  final tally = <String, int>{};
-  for (final job in jobs) {
-    final raw = job['categoryGroup'] as String?;
-    if (raw != null && raw.isNotEmpty) {
-      tally[raw] = (tally[raw] ?? 0) + 1;
-    }
-  }
-  final entries = tally.entries
-      .map((e) {
-        final grp = JobCategoryGroup.values.where((g) => g.name == e.key).firstOrNull;
-        if (grp == null) return null;
-        return (group: grp, count: e.value);
-      })
-      .whereType<({JobCategoryGroup group, int count})>()
-      .toList()
-    ..sort((grpA, grpB) => grpB.count.compareTo(grpA.count));
-  return entries.take(limit).toList();
+/// W05/W10 Top Services chips — same keywords as W20 browse filters (live tallies).
+const _kTopServiceChips = [
+  'Cleaning',
+  'Plumbing',
+  'Electrical',
+  'Carpentry',
+  'Laundry',
+  'Delivery',
+];
+
+const _kTopServiceIcons = {
+  'Cleaning': 'sparkles',
+  'Plumbing': 'wrench',
+  'Electrical': 'zap',
+  'Carpentry': 'hammer',
+  'Laundry': 'refresh-cw',
+  'Delivery': 'truck',
+};
+
+List<({String chip, int count})> _liveTopServiceChips(List<Map<String, dynamic>> jobs) {
+  return [
+    for (final chip in _kTopServiceChips)
+      (
+        chip: chip,
+        count: jobs
+            .where(
+              (g) => GigFilterEngine.evaluateCategoryMatch(
+                gig: g,
+                categoryFilter: chip,
+              ),
+            )
+            .length,
+      ),
+  ];
 }
 
 String _jobTitle(Map<String, dynamic> j) {
@@ -115,7 +127,7 @@ class GuestBrowseViewComponent extends StatelessComponent {
         final bTime = jobB['createdAt'] as int? ?? 0;
         return bTime.compareTo(aTime);
       });
-    final topGroups = _liveTopGroups(openJobs, limit: 6);
+    final topGroups = _liveTopServiceChips(openJobs);
     final gigPreview = openJobs.take(3).toList();
     final jobsLoading = s.isLoadingJobs && openJobs.isEmpty;
 
@@ -235,7 +247,7 @@ class GuestBrowseViewComponent extends StatelessComponent {
       _sectionHeader(
         title: 'Top Services',
         action: 'See All',
-        onAction: () => s.switchTab(AppTab.jobs),
+        onAction: () => s.openJobsBrowse(),
         textPrimary: textPrimary,
         link: link,
       ),
@@ -247,7 +259,7 @@ class GuestBrowseViewComponent extends StatelessComponent {
               [div(classes: 'size-10 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', [])],
             ),
         ])
-      else if (topGroups.isEmpty)
+      else if (openJobs.isEmpty)
         _emptyCard(
           card: card,
           textMuted: textMuted,
@@ -260,18 +272,16 @@ class GuestBrowseViewComponent extends StatelessComponent {
               classes:
                   '$card rounded-2xl p-4 flex flex-col gap-3 cursor-pointer hover:border-[#4f46e5]/40 transition-colors',
               events: {
-                'click': (_) {
-                  s.handleHomeSearch(item.group.label);
-                },
+                'click': (_) => s.openJobsBrowse(filter: item.chip),
               },
               [
                 div(
                   classes:
                       'size-10 rounded-xl flex items-center justify-center ${isDark ? "bg-indigo-500/15" : "bg-[#eef2ff]"}',
-                  [lIcon(item.group.icon, cls: 'w-5 h-5 text-[#4f46e5]')],
+                  [lIcon(_kTopServiceIcons[item.chip] ?? 'briefcase', cls: 'w-5 h-5 text-[#4f46e5]')],
                 ),
                 div([
-                  p(classes: 'm-0 font-semibold text-sm $textPrimary', [Component.text(item.group.label)]),
+                  p(classes: 'm-0 font-semibold text-sm $textPrimary', [Component.text(item.chip)]),
                   p(
                     classes: 'm-0 text-xs mt-0.5 $textMuted',
                     [Component.text('${item.count} job${item.count == 1 ? '' : 's'} open')],

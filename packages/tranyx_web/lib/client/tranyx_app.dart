@@ -2394,11 +2394,35 @@ class TranyxAppState extends State<TranyxApp> {
 
   void handleHomeSearch(String query) {
     if (query.trim().isEmpty) return;
+    openJobsBrowse(search: query.trim());
+  }
+
+  /// Open Jobs · Browse with an optional category chip and/or text search.
+  /// Preserves filter state for master–detail (W20). Live lists only — no mocks.
+  void openJobsBrowse({String filter = 'All', String search = ''}) {
     setState(() {
-      homeSearchQuery = query.trim();
-      activeJobFilter = 'All';
+      activeJobFilter = filter.trim().isEmpty ? 'All' : filter.trim();
+      homeSearchQuery = search.trim();
       activeTab = AppTab.jobs;
       jobsView = JobsView.list;
+      // Nyxian + guest browse pane; employers keep their active pane.
+      if (isGuestBrowse || currentViewMode == AccountType.nyxian) {
+        activeJobPane = 'browse';
+      }
+      // Remote chip implies include-remote ON so modality isn't double-gated.
+      if (activeJobFilter == 'Remote Gigs' || activeJobFilter == 'Remote') {
+        includeRemoteJobs = true;
+      }
+    });
+  }
+
+  void resetJobFilters() {
+    setState(() {
+      activeJobFilter = 'All';
+      homeSearchQuery = '';
+      geofenceRadius = 9999.0;
+      includeRemoteJobs = true;
+      jobSortOrder = 'Newest';
     });
   }
 

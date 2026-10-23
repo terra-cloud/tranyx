@@ -157,10 +157,45 @@ class JobsViewComponent extends StatelessComponent {
               s.activeJobPane != 'active' &&
               s.activeJobPane != 'history' &&
               s.activeJobPane != 'applied') ...[
+            // W20 search — live text filter via homeSearchQuery
+            div(
+              classes:
+                  'flex items-center gap-2 px-3 h-12 rounded-xl border mb-2 '
+                  '${isDark ? "bg-zinc-900 border-zinc-700" : "bg-white border-zinc-200"}',
+              [
+                lIcon('search', cls: 'w-4 h-4 ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
+                input(
+                  classes:
+                      'bg-transparent border-0 outline-none flex-1 text-sm '
+                      '${isDark ? "text-zinc-200 placeholder-zinc-500" : "text-zinc-800 placeholder-zinc-400"}',
+                  type: InputType.search,
+                  attributes: {
+                    'placeholder': 'Search gigs, skills, places...',
+                    'value': s.homeSearchQuery,
+                    'id': 'jobs-browse-search',
+                    'name': 'jobs-browse-search',
+                  },
+                  events: {
+                    'input': (e) => s.setState(() => s.homeSearchQuery = getInputValue(e.target)),
+                  },
+                ),
+              ],
+            ),
+            // W20 browse chips — live GigFilterEngine category keywords
+            div(classes: 'flex gap-2 flex-wrap items-center mb-2', [
+              for (final chip in GigFilterEngine.browseCategoryChips)
+                _filterChip(chip, s.activeJobFilter == chip, isDark, s),
+              button(
+                classes:
+                    'px-2 py-1.5 text-xs font-bold text-[#4f46e5] hover:underline bg-transparent border-0 cursor-pointer',
+                events: {'click': (_) => s.resetJobFilters()},
+                [Component.text('Reset Filters')],
+              ),
+            ]),
+            // Secondary presets
             div(classes: 'flex gap-2 flex-wrap mb-2', [
               _filterChip('Recommended', s.activeJobFilter == 'Recommended', isDark, s),
               _filterChip('High Paying', s.activeJobFilter == 'High Paying', isDark, s),
-              _filterChip('All', s.activeJobFilter == 'All', isDark, s),
             ]),
             // Geofence distance row, Remote toggle & Sort order
             div(classes: 'flex flex-wrap items-center gap-3 mb-2', [
@@ -278,13 +313,7 @@ class JobsViewComponent extends StatelessComponent {
                     button(
                       classes:
                           'self-start sm:self-auto text-xs font-bold text-purple-400 hover:text-purple-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors',
-                      events: {
-                        'click': (_) => s.setState(() {
-                          s.activeJobFilter = 'All';
-                          s.geofenceRadius = 9999.0;
-                          s.includeRemoteJobs = true;
-                        }),
-                      },
+                      events: {'click': (_) => s.resetJobFilters()},
                       [
                         lIcon('rotate-ccw', cls: 'w-3 h-3'),
                         Component.text('Clear All'),
@@ -360,11 +389,7 @@ class JobsViewComponent extends StatelessComponent {
                         classes:
                             'px-4 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-md shadow-purple-600/20 transition-all cursor-pointer inline-flex items-center gap-1.5',
                         events: {
-                          'click': (_) => s.setState(() {
-                            s.activeJobFilter = 'All';
-                            s.geofenceRadius = 9999.0;
-                            s.includeRemoteJobs = true;
-                          }),
+                          'click': (_) => s.resetJobFilters(),
                         },
                         [
                           lIcon('rotate-ccw', cls: 'w-3.5 h-3.5'),
@@ -512,7 +537,14 @@ class JobsViewComponent extends StatelessComponent {
         : (isDark ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200');
     return button(
       classes: 'px-3 py-1.5 rounded-lg text-xs font-semibold $cls transition-colors cursor-pointer',
-      events: {'click': (_) => s.setState(() => s.activeJobFilter = label)},
+      events: {
+        'click': (_) => s.setState(() {
+          s.activeJobFilter = label;
+          if (label == 'Remote Gigs' || label == 'Remote') {
+            s.includeRemoteJobs = true;
+          }
+        }),
+      },
       [Component.text(label)],
     );
   }
