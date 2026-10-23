@@ -228,13 +228,14 @@ describe('MSG: message shapes still accepted', () => {
     await assertSucceeds(addDoc(collection(r, `${RENTAL}/messages`), { senderId: 'renter', senderName: 'R', content: 'x', createdAt: now() }));
     await assertSucceeds(setDoc(doc(r, RENTAL), { id: 'rental_r1_renter', lastMessage: 'x', updatedAt: now(), userIds: ['renter', 'host'] }, { merge: true }));
   });
-  it('MSG-03 web REST full-overwrite touch createOrUpdate(chats/<id>, {updatedAt}) on a job chat (firebase_service.dart:2646)', async () => {
+  it('MSG-03 web masked touch setDocument(chats/<id>, {updatedAt}) on a job chat (firebase_service.dart:2648-2862, KAN-139)', async () => {
     await base();
-    await assertSucceeds(setDoc(doc(user('worker'), JOB), { updatedAt: now() }));
+    await assertSucceeds(setDoc(doc(user('worker'), JOB), { updatedAt: now() }, { merge: true }));
   });
-  it('MSG-04 web REST full-overwrite touch is allowed when the chat doc carries fields outside the allow-list (legacy createdAt, admin status) (KAN-139)', async () => {
-    await base({ [JOB]: { userIds: ['poster', 'worker'], jobId: 'j1', applicantId: 'worker', type: 'job', updatedAt: 1, createdAt: 1, status: 'resolved' } });
-    await assertSucceeds(setDoc(doc(user('worker'), JOB), { updatedAt: now() }));
+  it('MSG-04 full overwrite that drops userIds or strips status/resolvedAt is denied; merge touch keeps them (KAN-139)', async () => {
+    await base({ [JOB]: { userIds: ['poster', 'worker'], jobId: 'j1', applicantId: 'worker', type: 'job', updatedAt: 1, createdAt: 1, status: 'resolved', resolvedAt: 2 } });
+    await assertFails(setDoc(doc(user('worker'), JOB), { updatedAt: now() }));
+    await assertSucceeds(setDoc(doc(user('worker'), JOB), { updatedAt: now() }, { merge: true }));
   });
   it('MSG-04 guard: a party still cannot add a field outside the allow-list', async () => {
     await base();
@@ -257,5 +258,10 @@ describe('STAFF-OPEN: still open on 2902ace (Saga flagged)', () => {
     let snap;
     await (await import('./helpers.mjs')).env.withSecurityRulesDisabled(async (c) => { snap = (await c.firestore().doc('support_chats/u1').get()).data(); });
     if (snap.status !== 'assigned' || snap.assignedAgentId !== 'staff1' || snap.lastMessage !== 'again') throw new Error(JSON.stringify(snap));
+  });
+  // App path is masked (TRAD6-01 / support_chat_mask_test.dart). Rules still allow a raw full overwrite that wipes desk fields.
+  knownHole('KNOWN-HOLE TRAD6-02 [MEDIUM] owner full overwrite of support_chats/<uid> cannot wipe desk fields (status/assignedAgentId) (KAN-139, TRAD-6)', async () => {
+    await base();
+    await assertFails(setDoc(doc(user('u1'), 'support_chats/u1'), { lastMessage: 'again', updatedAt: now(), userIds: ['u1'] }));
   });
 });

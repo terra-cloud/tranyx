@@ -1,9 +1,9 @@
-// ============================================================================
+// =============================================================================
 // TRANYX PRODUCTION CLOUD FIRESTORE RULES
 // AUTO-GENERATED - DO NOT DIRECTLY EDIT THIS FILE!
 // To make changes, edit files in "firestore_rules/" and compile via:
-//   dart run tool/build_rules.dart
-// ============================================================================
+//   python3 /tmp/saga_rules/compile.py firestore_rules firestore.rules
+// =============================================================================
 
 // >>> SOURCE: firestore_rules/00_header.rules
 // ============================================================================
@@ -937,11 +937,14 @@ service cloud.firestore {
 
     function isValidChatDoc(chatId) {
       let d = request.resource.data;
-      // added + changed only: a REST full overwrite drops fields it doesn't send (status, createdAt), which is fine (MSG-04).
+      // added + changed: allow-listed. removedKeys: never drop userIds; never strip status/resolvedAt (KAN-139).
+      // Web chat touches use masked setDocument (firebase_service.dart ack/expire/reminder/reset); other removals (e.g. legacy createdAt) stay ok.
       let df = d.diff(resource == null ? {} : resource.data);
       let changed = df.addedKeys().union(df.changedKeys());
+      let removed = df.removedKeys();
       let c = chatInfo(chatId);
       return changed.hasOnly(['userIds', 'jobId', 'applicantId', 'rentalId', 'propertyId', 'type', 'id', 'lastMessage', 'updatedAt']) &&
+        !removed.hasAny(['userIds', 'status', 'resolvedAt']) &&
         (!('userIds' in changed) || !('userIds' in d) ||
           (d.userIds is list && d.userIds.size() == 2 && d.userIds.toSet() == [c.renter, c.owner].toSet()));
     }
@@ -1214,4 +1217,3 @@ service cloud.firestore {
     }
   }
 }
-
