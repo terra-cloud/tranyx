@@ -43,17 +43,15 @@ class _LoginScreenState extends State<_LoginScreen> {
   // ignore: invalid_use_of_protected_member
   void setState(void Function() fn) => super.setState(fn);
 
+  // ── Shared pieces ───────────────────────────────────────────
+
   Component _featureRow(String iconSrc, String label, {required bool isDark}) {
     return div(classes: 'flex gap-3 items-center', [
       div(
         classes:
             '${isDark ? "bg-indigo-500/15" : "bg-[#eef2ff]"} flex items-center justify-center rounded-[10px] shrink-0 size-9',
         [
-          img(
-            src: iconSrc,
-            classes: 'size-[18px]',
-            attributes: {'alt': '', 'aria-hidden': 'true'},
-          ),
+          img(src: iconSrc, classes: 'size-[18px]', attributes: {'alt': '', 'aria-hidden': 'true'}),
         ],
       ),
       p(
@@ -71,13 +69,17 @@ class _LoginScreenState extends State<_LoginScreen> {
     required String value,
     required void Function(String) onChange,
     required bool isDark,
+    String idPrefix = '',
     String type = 'text',
     bool isPassword = false,
     bool isPasswordVisible = false,
     void Function()? onTogglePassword,
   }) {
-    final inputId = label.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
-    final controlBorder = isDark ? 'bg-zinc-900 border-zinc-700 focus-within:border-[#4f46e5]' : 'bg-white border-[#d4d4d8] focus-within:border-[#4f46e5]';
+    final inputId =
+        '$idPrefix${label.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}';
+    final controlBorder = isDark
+        ? 'bg-zinc-900 border-zinc-700 focus-within:border-[#4f46e5]'
+        : 'bg-white border-[#d4d4d8] focus-within:border-[#4f46e5]';
     final labelCls = isDark
         ? 'font-semibold leading-5 text-sm text-zinc-100 tracking-[0.1px] m-0'
         : 'font-semibold leading-5 text-sm text-[#18181b] tracking-[0.1px] m-0';
@@ -116,7 +118,10 @@ class _LoginScreenState extends State<_LoginScreen> {
               classes:
                   'p-0 bg-transparent border-0 cursor-pointer shrink-0 flex items-center justify-center size-[18px]',
               events: {'click': (_) => onTogglePassword()},
-              attributes: {'type': 'button', 'aria-label': isPasswordVisible ? 'Hide password' : 'Show password'},
+              attributes: {
+                'type': 'button',
+                'aria-label': isPasswordVisible ? 'Hide password' : 'Show password',
+              },
               [
                 img(
                   src: '/images/w01/932ea.svg',
@@ -130,290 +135,395 @@ class _LoginScreenState extends State<_LoginScreen> {
     ]);
   }
 
+  Component _blob(String src, String posCls, String animCls, {required bool isDark}) {
+    return img(
+      src: src,
+      classes:
+          'w01-blob $animCls pointer-events-none absolute max-w-none $posCls ${isDark ? "opacity-40" : ""}',
+      attributes: {'alt': '', 'aria-hidden': 'true'},
+    );
+  }
+
+  Component _legalLinks({
+    required bool isDark,
+    required String link,
+    required String textMuted,
+  }) {
+    return div(
+      key: Key('terms-link-login'),
+      classes: 'flex font-medium gap-2 items-center text-xs leading-4 flex-wrap justify-center',
+      [
+        button(
+          classes: '$link bg-transparent border-0 cursor-pointer p-0 hover:underline',
+          attributes: {'type': 'button'},
+          events: {'click': (_) => web.window.location.assign('/terms-of-use')},
+          [Component.text('Terms of Use')],
+        ),
+        span(classes: textMuted, [Component.text('•')]),
+        button(
+          classes: '$link bg-transparent border-0 cursor-pointer p-0 hover:underline',
+          attributes: {'type': 'button'},
+          events: {'click': (_) => web.window.location.assign('/privacy-policy')},
+          [Component.text('Privacy Policy')],
+        ),
+        span(classes: textMuted, [Component.text('•')]),
+        button(
+          classes: '$link bg-transparent border-0 cursor-pointer p-0 hover:underline',
+          attributes: {'type': 'button'},
+          events: {
+            'click': (_) => setState(() {
+                  _localInfo = 'About page coming soon.';
+                  _localError = null;
+                }),
+          },
+          [Component.text('About')],
+        ),
+      ],
+    );
+  }
+
+  Component _signInCard({
+    required TranyxAppState s,
+    required bool isDark,
+    required String formCard,
+    required String textPrimary,
+    required String textSecondary,
+    required String textMuted,
+    required String divider,
+    required String secondaryBtn,
+    required String link,
+    String idPrefix = '',
+    String cardWidthCls = 'w-full max-w-[440px]',
+    String cardPadCls = 'p-8',
+  }) {
+    final errorMsg = _localError ?? s.authError;
+    return div(
+      classes: '$formCard flex flex-col gap-4 items-start $cardPadCls relative rounded-3xl $cardWidthCls',
+      [
+        div(classes: 'flex flex-col gap-1 items-start', [
+          p(
+            classes: 'm-0 font-bold text-2xl leading-8 tracking-[-0.4px] $textPrimary',
+            [Component.text('Sign In')],
+          ),
+          p(
+            classes: 'm-0 font-normal text-sm leading-5 $textSecondary',
+            [Component.text('Welcome back to Tranyx.')],
+          ),
+        ]),
+        if (errorMsg != null)
+          div(
+            key: Key('error-msg'),
+            classes: 'w-full p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-sm',
+            [Component.text(errorMsg)],
+          ),
+        if (_localInfo != null)
+          div(
+            classes: 'w-full p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-sm',
+            [Component.text(_localInfo!)],
+          ),
+        if (_showForgotSent)
+          div(
+            key: Key('forgot-sent'),
+            classes: 'w-full p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-500 text-sm',
+            [Component.text('Password reset email sent! Check your inbox.')],
+          ),
+        _w01Field(
+          label: 'Email',
+          placeholder: 'you@example.com',
+          iconSrc: '/images/w01/b7212.svg',
+          type: 'email',
+          value: _email,
+          onChange: (v) => setState(() => _email = v),
+          isDark: isDark,
+          idPrefix: idPrefix,
+        ),
+        _w01Field(
+          label: 'Password',
+          placeholder: '••••••••',
+          iconSrc: '/images/w01/a5857.svg',
+          type: 'password',
+          value: _password,
+          onChange: (v) => setState(() => _password = v),
+          isPassword: true,
+          isPasswordVisible: _showPassword,
+          onTogglePassword: () => setState(() => _showPassword = !_showPassword),
+          isDark: isDark,
+          idPrefix: idPrefix,
+        ),
+        div(key: Key('forgot-pwd-btn'), classes: 'flex items-center justify-end w-full', [
+          button(
+            classes:
+                'font-semibold text-sm leading-5 tracking-[0.1px] $link bg-transparent border-0 cursor-pointer p-0 hover:underline',
+            attributes: {'type': 'button'},
+            events: {
+              'click': (_) async {
+                if (_email.isEmpty) {
+                  setState(() {
+                    _localError = 'Enter your email to reset password.';
+                    _localInfo = null;
+                  });
+                  return;
+                }
+                setState(() {
+                  _localError = null;
+                  _localInfo = null;
+                });
+                await s.handleForgotPassword(_email);
+                setState(() => _showForgotSent = true);
+              },
+            },
+            [Component.text('Forgot password?')],
+          ),
+        ]),
+        button(
+          key: Key('signin-btn'),
+          classes:
+              'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] text-white bg-[#4f46e5] shadow-[0px_8px_10px_rgba(79,70,229,0.25)] hover:opacity-90 transition-opacity flex items-center justify-center gap-2 border-0 cursor-pointer',
+          attributes: {'type': 'button'},
+          events: {
+            'click': (_) async {
+              if (_email.isEmpty || _password.isEmpty) {
+                setState(() {
+                  _localError = 'Please fill in all fields.';
+                  _localInfo = null;
+                });
+                return;
+              }
+              setState(() {
+                _localError = null;
+                _localInfo = null;
+              });
+              await s.handleSignIn(_email, _password);
+            },
+          },
+          [
+            if (s.isAuthLoading) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
+            Component.text(s.isAuthLoading ? ' Signing in...' : 'Sign In'),
+          ],
+        ),
+        div(key: Key('divider'), classes: 'flex gap-3 items-center w-full', [
+          div(classes: 'flex-1 h-px $divider', []),
+          span(classes: 'font-medium text-xs leading-4 $textMuted', [Component.text('or continue with')]),
+          div(classes: 'flex-1 h-px $divider', []),
+        ]),
+        div(classes: 'flex gap-3 items-center w-full', [
+          button(
+            classes:
+                'flex-1 h-12 rounded-xl font-semibold text-sm tracking-[0.1px] border $secondaryBtn transition-colors flex items-center justify-center gap-2 cursor-pointer',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => s.handleGoogleSignIn()},
+            [googleSvgIcon(size: 'w-5 h-5'), Component.text('Google')],
+          ),
+          button(
+            classes:
+                'flex-1 h-12 rounded-xl font-semibold text-sm tracking-[0.1px] border $secondaryBtn transition-colors flex items-center justify-center gap-2 cursor-pointer',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => s.handlePhantomSignIn()},
+            [
+              lIcon('wallet', cls: 'w-5 h-5 text-[#4f46e5]'),
+              Component.text('Solana Wallet'),
+            ],
+          ),
+        ]),
+        div(classes: 'h-px w-full $divider', []),
+        button(
+          classes:
+              'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] $link bg-transparent border-0 cursor-pointer hover:underline',
+          attributes: {'type': 'button'},
+          events: {'click': (_) => s.enterGuestBrowse()},
+          [Component.text('Browse as guest')],
+        ),
+        p(
+          key: Key('register-link'),
+          classes: 'w-full m-0 flex gap-1 items-center justify-center text-sm leading-5 flex-wrap',
+          [
+            span(classes: textSecondary, [Component.text("Don't have an account?")]),
+            button(
+              classes:
+                  'font-semibold tracking-[0.1px] $link bg-transparent border-0 cursor-pointer p-0 hover:underline',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => s.setState(() => s.authView = AuthView.registerPath)},
+              [Component.text('Get Started')],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Component build(BuildContext context) {
     final s = component.state;
     final isDark = s.isDark;
-    final errorMsg = _localError ?? s.authError;
 
     final pageBg = isDark ? 'bg-zinc-950' : 'bg-[#f4f4f5]';
     final brandBg = isDark ? 'bg-zinc-950' : 'bg-white';
-    final formCard =
-        isDark
-            ? 'bg-zinc-900 border border-zinc-800 shadow-[0px_8px_24px_-4px_rgba(0,0,0,0.45)]'
-            : 'bg-white border border-[#e4e4e7] shadow-[0px_8px_24px_-4px_rgba(9,9,11,0.08)]';
+    final formCard = isDark
+        ? 'bg-zinc-900 border border-zinc-800 shadow-[0px_8px_24px_-4px_rgba(0,0,0,0.45)]'
+        : 'bg-white border border-[#e4e4e7] shadow-[0px_8px_24px_-4px_rgba(9,9,11,0.08)]';
     final textPrimary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
     final textSecondary = isDark ? 'text-zinc-400' : 'text-[#52525b]';
     final textMuted = isDark ? 'text-zinc-500' : 'text-[#71717a]';
     final divider = isDark ? 'bg-zinc-800' : 'bg-[#e4e4e7]';
-    final secondaryBtn =
-        isDark
-            ? 'bg-zinc-900 border-zinc-700 text-zinc-100 hover:bg-zinc-800'
-            : 'bg-white border-[#d4d4d8] text-[#18181b] hover:bg-zinc-50';
-    final link = 'text-[#4f46e5]';
+    final secondaryBtn = isDark
+        ? 'bg-zinc-900 border-zinc-700 text-zinc-100 hover:bg-zinc-800'
+        : 'bg-white border-[#d4d4d8] text-[#18181b] hover:bg-zinc-50';
+    const link = 'text-[#4f46e5]';
 
+    final card = _signInCard(
+      s: s,
+      isDark: isDark,
+      formCard: formCard,
+      textPrimary: textPrimary,
+      textSecondary: textSecondary,
+      textMuted: textMuted,
+      divider: divider,
+      secondaryBtn: secondaryBtn,
+      link: link,
+      idPrefix: 'd-',
+    );
+    final cardTablet = _signInCard(
+      s: s,
+      isDark: isDark,
+      formCard: formCard,
+      textPrimary: textPrimary,
+      textSecondary: textSecondary,
+      textMuted: textMuted,
+      divider: divider,
+      secondaryBtn: secondaryBtn,
+      link: link,
+      idPrefix: 't-',
+      cardWidthCls: 'w-full max-w-[480px]',
+    );
+    final cardMobile = _signInCard(
+      s: s,
+      isDark: isDark,
+      formCard: formCard,
+      textPrimary: textPrimary,
+      textSecondary: textSecondary,
+      textMuted: textMuted,
+      divider: divider,
+      secondaryBtn: secondaryBtn,
+      link: link,
+      idPrefix: 'm-',
+      cardWidthCls: 'w-full',
+      cardPadCls: 'px-5 py-8',
+    );
+    final legal = _legalLinks(isDark: isDark, link: link, textMuted: textMuted);
+
+    // Breakpoints (Tailwind defaults): <640 mobile · 640–1023 tablet · ≥1024 desktop
     return div(
-      classes: 'w01-signin flex w-full min-h-screen items-stretch $pageBg font-dm-sans',
+      classes: 'w01-signin w-full min-h-screen $pageBg font-dm-sans',
       [
-        // Left brand panel
+        // ── Desktop ≥1024: split 680 + form ─────────────────
         div(
-          classes:
-              'hidden lg:flex relative w-[680px] shrink-0 flex-col justify-between overflow-hidden $brandBg px-[72px] py-16',
+          classes: 'hidden lg:flex w-full min-h-screen items-stretch',
           [
-            img(
-              src: '/images/w01/05633.svg',
-              classes: 'pointer-events-none absolute left-[-60px] top-[380px] size-[420px] max-w-none ${isDark ? "opacity-40" : ""}',
-              attributes: {'alt': '', 'aria-hidden': 'true'},
-            ),
-            img(
-              src: '/images/w01/54cd1.svg',
-              classes: 'pointer-events-none absolute left-[360px] top-[120px] size-[300px] max-w-none ${isDark ? "opacity-40" : ""}',
-              attributes: {'alt': '', 'aria-hidden': 'true'},
-            ),
-            img(
-              src: '/images/w01/1a12a.svg',
-              classes: 'pointer-events-none absolute left-[300px] top-[640px] size-[260px] max-w-none ${isDark ? "opacity-40" : ""}',
-              attributes: {'alt': '', 'aria-hidden': 'true'},
-            ),
-            div(classes: 'relative z-10 flex items-center', [
-              img(
-                src: '/images/w01/fef74.png',
-                classes: 'h-10 w-[51px] object-contain',
-                attributes: {'alt': 'Tranyx'},
-              ),
-            ]),
-            div(classes: 'relative z-10 flex flex-col gap-5 items-start', [
-              div(classes: 'font-bold text-[48px] leading-[56px] tracking-[-1.2px] $textPrimary', [
-                p(classes: 'm-0', [Component.text('Work. Earn. Rent.')]),
-                p(classes: 'm-0', [Component.text('Discover.')]),
-              ]),
-              p(
-                classes: 'm-0 font-normal text-base leading-6 $textSecondary w-full max-w-[480px]',
-                [
-                  Component.text(
-                    'Find freelance gigs, rent vehicles and properties, and earn securely on the all-in-one P2P platform. Powered by Web3 escrow and verified Nyxians in the Philippines.',
-                  ),
-                ],
-              ),
-              div(classes: 'flex flex-col gap-3 items-start pt-2', [
-                _featureRow('/images/w01/c1457.svg', 'Freelance gigs near you', isDark: isDark),
-                _featureRow('/images/w01/a193d.svg', 'Vehicle & space rentals', isDark: isDark),
-                _featureRow('/images/w01/d726a.svg', 'Escrow-protected payments', isDark: isDark),
-              ]),
-            ]),
-            p(
+            div(
               classes:
-                  'relative z-10 m-0 font-semibold text-[11px] leading-4 tracking-[0.8px] $textSecondary uppercase',
-              [Component.text('One Platform. Endless Opportunities.')],
+                  'relative w-[680px] shrink-0 flex flex-col justify-between overflow-hidden $brandBg px-[72px] py-16',
+              [
+                _blob('/images/w01/05633.svg', 'left-[-60px] top-[380px] size-[420px]', 'w01-blob-a', isDark: isDark),
+                _blob('/images/w01/54cd1.svg', 'left-[360px] top-[120px] size-[300px]', 'w01-blob-b', isDark: isDark),
+                _blob('/images/w01/1a12a.svg', 'left-[300px] top-[640px] size-[260px]', 'w01-blob-c', isDark: isDark),
+                div(classes: 'relative z-10 flex items-center', [
+                  img(
+                    src: '/images/w01/fef74.png',
+                    classes: 'h-10 w-[51px] object-contain',
+                    attributes: {'alt': 'Tranyx'},
+                  ),
+                ]),
+                div(classes: 'relative z-10 flex flex-col gap-5 items-start', [
+                  div(classes: 'font-bold text-[48px] leading-[56px] tracking-[-1.2px] $textPrimary', [
+                    p(classes: 'm-0', [Component.text('Work. Earn. Rent.')]),
+                    p(classes: 'm-0', [Component.text('Discover.')]),
+                  ]),
+                  p(
+                    classes: 'm-0 font-normal text-base leading-6 $textSecondary w-full max-w-[480px]',
+                    [
+                      Component.text(
+                        'Find freelance gigs, rent vehicles and properties, and earn securely on the all-in-one P2P platform. Powered by Web3 escrow and verified Nyxians in the Philippines.',
+                      ),
+                    ],
+                  ),
+                  div(classes: 'flex flex-col gap-3 items-start pt-2', [
+                    _featureRow('/images/w01/c1457.svg', 'Freelance gigs near you', isDark: isDark),
+                    _featureRow('/images/w01/a193d.svg', 'Vehicle & space rentals', isDark: isDark),
+                    _featureRow('/images/w01/d726a.svg', 'Escrow-protected payments', isDark: isDark),
+                  ]),
+                ]),
+                p(
+                  classes:
+                      'relative z-10 m-0 font-semibold text-[11px] leading-4 tracking-[0.8px] $textSecondary uppercase',
+                  [Component.text('One Platform. Endless Opportunities.')],
+                ),
+              ],
+            ),
+            div(
+              classes: 'flex flex-1 flex-col gap-6 items-center justify-center min-w-0 px-12 py-10 $pageBg',
+              [card, legal],
             ),
           ],
         ),
 
-        // Right form side
+        // ── Tablet 640–1023: top brand band + centered 480 card ─
         div(
-          classes: 'flex flex-1 flex-col gap-6 items-center justify-center min-w-0 px-6 sm:px-12 py-10',
+          classes: 'hidden sm:flex lg:hidden w-full min-h-screen flex-col',
           [
             div(
-              classes: '$formCard flex flex-col gap-4 items-start p-8 relative rounded-3xl w-full max-w-[440px]',
+              classes:
+                  'relative w-full h-[300px] shrink-0 overflow-hidden $brandBg px-14 py-10 flex flex-col gap-4 items-start',
               [
-                div(classes: 'flex flex-col gap-1 items-start', [
-                  p(
-                    classes: 'm-0 font-bold text-2xl leading-8 tracking-[-0.4px] $textPrimary',
-                    [Component.text('Sign In')],
-                  ),
-                  p(
-                    classes: 'm-0 font-normal text-sm leading-5 $textSecondary',
-                    [Component.text('Welcome back to Tranyx.')],
-                  ),
-                ]),
-
-                if (errorMsg != null)
-                  div(
-                    key: Key('error-msg'),
-                    classes: 'w-full p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-sm',
-                    [Component.text(errorMsg)],
-                  ),
-
-                if (_localInfo != null)
-                  div(
-                    classes: 'w-full p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-sm',
-                    [Component.text(_localInfo!)],
-                  ),
-
-                if (_showForgotSent)
-                  div(
-                    key: Key('forgot-sent'),
-                    classes: 'w-full p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-500 text-sm',
-                    [Component.text('Password reset email sent! Check your inbox.')],
-                  ),
-
-                _w01Field(
-                  label: 'Email',
-                  placeholder: 'you@example.com',
-                  iconSrc: '/images/w01/b7212.svg',
-                  type: 'email',
-                  value: _email,
-                  onChange: (v) => setState(() => _email = v),
-                  isDark: isDark,
-                ),
-                _w01Field(
-                  label: 'Password',
-                  placeholder: '••••••••',
-                  iconSrc: '/images/w01/a5857.svg',
-                  type: 'password',
-                  value: _password,
-                  onChange: (v) => setState(() => _password = v),
-                  isPassword: true,
-                  isPasswordVisible: _showPassword,
-                  onTogglePassword: () => setState(() => _showPassword = !_showPassword),
-                  isDark: isDark,
-                ),
-
-                div(key: Key('forgot-pwd-btn'), classes: 'flex items-center justify-end w-full', [
-                  button(
-                    classes:
-                        'font-semibold text-sm leading-5 tracking-[0.1px] $link bg-transparent border-0 cursor-pointer p-0 hover:underline',
-                    attributes: {'type': 'button'},
-                    events: {
-                      'click': (_) async {
-                        if (_email.isEmpty) {
-                          setState(() {
-                            _localError = 'Enter your email to reset password.';
-                            _localInfo = null;
-                          });
-                          return;
-                        }
-                        setState(() {
-                          _localError = null;
-                          _localInfo = null;
-                        });
-                        await s.handleForgotPassword(_email);
-                        setState(() => _showForgotSent = true);
-                      },
-                    },
-                    [Component.text('Forgot password?')],
+                _blob('/images/w01/937b1.svg', 'left-[420px] top-[-120px] size-[360px]', 'w01-blob-a', isDark: isDark),
+                _blob('/images/w01/1a12a.svg', 'left-[600px] top-[80px] size-[260px]', 'w01-blob-b', isDark: isDark),
+                div(classes: 'relative z-10 flex items-center', [
+                  img(
+                    src: '/images/w01/fef74.png',
+                    classes: 'h-9 w-[46px] object-contain',
+                    attributes: {'alt': 'Tranyx'},
                   ),
                 ]),
-
-                button(
-                  key: Key('signin-btn'),
-                  classes:
-                      'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] text-white bg-[#4f46e5] shadow-[0px_8px_10px_rgba(79,70,229,0.25)] hover:opacity-90 transition-opacity flex items-center justify-center gap-2 border-0 cursor-pointer',
-                  attributes: {'type': 'button'},
-                  events: {
-                    'click': (_) async {
-                      if (_email.isEmpty || _password.isEmpty) {
-                        setState(() {
-                          _localError = 'Please fill in all fields.';
-                          _localInfo = null;
-                        });
-                        return;
-                      }
-                      setState(() {
-                        _localError = null;
-                        _localInfo = null;
-                      });
-                      await s.handleSignIn(_email, _password);
-                    },
-                  },
-                  [
-                    if (s.isAuthLoading) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
-                    Component.text(s.isAuthLoading ? ' Signing in...' : 'Sign In'),
-                  ],
-                ),
-
-                div(key: Key('divider'), classes: 'flex gap-3 items-center w-full', [
-                  div(classes: 'flex-1 h-px $divider', []),
-                  span(
-                    classes: 'font-medium text-xs leading-4 $textMuted',
-                    [Component.text('or continue with')],
-                  ),
-                  div(classes: 'flex-1 h-px $divider', []),
-                ]),
-
-                div(classes: 'flex gap-3 items-center w-full', [
-                  button(
-                    classes:
-                        'flex-1 h-12 rounded-xl font-semibold text-sm tracking-[0.1px] border $secondaryBtn transition-colors flex items-center justify-center gap-2 cursor-pointer',
-                    attributes: {'type': 'button'},
-                    events: {'click': (_) => s.handleGoogleSignIn()},
-                    [
-                      googleSvgIcon(size: 'w-5 h-5'),
-                      Component.text('Google'),
-                    ],
-                  ),
-                  button(
-                    classes:
-                        'flex-1 h-12 rounded-xl font-semibold text-sm tracking-[0.1px] border $secondaryBtn transition-colors flex items-center justify-center gap-2 cursor-pointer',
-                    attributes: {'type': 'button'},
-                    events: {'click': (_) => s.handlePhantomSignIn()},
-                    [
-                      lIcon('wallet', cls: 'w-5 h-5 text-[#4f46e5]'),
-                      Component.text('Solana Wallet'),
-                    ],
-                  ),
-                ]),
-
-                div(classes: 'h-px w-full $divider', []),
-
-                button(
-                  classes:
-                      'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] $link bg-transparent border-0 cursor-pointer hover:underline',
-                  attributes: {'type': 'button'},
-                  events: {
-                    'click': (_) => s.enterGuestBrowse(),
-                  },
-                  [Component.text('Browse as guest')],
-                ),
-
                 p(
-                  key: Key('register-link'),
-                  classes: 'w-full m-0 flex gap-1 items-center justify-center text-sm leading-5',
+                  classes:
+                      'relative z-10 m-0 font-bold text-[32px] leading-10 tracking-[-0.6px] $textPrimary',
+                  [Component.text('Work. Earn. Rent. Discover.')],
+                ),
+                p(
+                  classes: 'relative z-10 m-0 font-normal text-base leading-6 $textSecondary max-w-[520px]',
                   [
-                    span(classes: textSecondary, [Component.text("Don't have an account?")]),
-                    button(
-                      classes:
-                          'font-semibold tracking-[0.1px] $link bg-transparent border-0 cursor-pointer p-0 hover:underline',
-                      attributes: {'type': 'button'},
-                      events: {'click': (_) => s.setState(() => s.authView = AuthView.registerPath)},
-                      [Component.text('Get Started')],
+                    Component.text(
+                      'Find freelance gigs, rent vehicles and properties, and earn securely on the all-in-one P2P platform.',
                     ),
                   ],
                 ),
               ],
             ),
-
             div(
-              key: Key('terms-link-login'),
-              classes: 'flex font-medium gap-2 items-center text-xs leading-4',
-              [
-                button(
-                  classes: '$link bg-transparent border-0 cursor-pointer p-0 hover:underline',
-                  attributes: {'type': 'button'},
-                  events: {'click': (_) => web.window.location.assign('/terms-of-use')},
-                  [Component.text('Terms of Use')],
-                ),
-                span(classes: textMuted, [Component.text('•')]),
-                button(
-                  classes: '$link bg-transparent border-0 cursor-pointer p-0 hover:underline',
-                  attributes: {'type': 'button'},
-                  events: {'click': (_) => web.window.location.assign('/privacy-policy')},
-                  [Component.text('Privacy Policy')],
-                ),
-                span(classes: textMuted, [Component.text('•')]),
-                button(
-                  classes: '$link bg-transparent border-0 cursor-pointer p-0 hover:underline',
-                  attributes: {'type': 'button'},
-                  events: {
-                    'click': (_) => setState(() {
-                          _localInfo = 'About page coming soon.';
-                          _localError = null;
-                        }),
-                  },
-                  [Component.text('About')],
-                ),
-              ],
+              classes: 'flex flex-1 flex-col gap-5 items-center w-full pt-10 px-6 pb-10 $pageBg',
+              [cardTablet, legal],
             ),
+          ],
+        ),
+
+        // ── Mobile <640: stacked logo + headline + full-width card ─
+        div(
+          classes: 'flex sm:hidden relative w-full min-h-screen flex-col gap-5 items-start px-4 pt-6 pb-8 overflow-hidden $pageBg',
+          [
+            _blob('/images/w01/2f57f.svg', 'left-[160px] top-[-140px] size-[300px]', 'w01-blob-a', isDark: isDark),
+            div(classes: 'relative z-10 flex items-center', [
+              img(
+                src: '/images/w01/fef74.png',
+                classes: 'h-8 w-[41px] object-contain',
+                attributes: {'alt': 'Tranyx'},
+              ),
+            ]),
+            p(
+              classes:
+                  'relative z-10 m-0 font-bold text-2xl leading-8 tracking-[-0.4px] $textPrimary',
+              [Component.text('Work. Earn. Rent. Discover.')],
+            ),
+            div(classes: 'relative z-10 w-full', [cardMobile]),
+            div(classes: 'relative z-10 w-full flex justify-center', [legal]),
           ],
         ),
       ],

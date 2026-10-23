@@ -421,6 +421,7 @@ textarea {
   border-top-color: #18181b !important;
 }
 
+
 /* ── W01 Auth · Sign in (Batch A redesign) ── */
 .font-dm-sans,
 .w01-signin,
@@ -431,4 +432,37 @@ textarea {
 .w01-signin input::placeholder {
   color: #71717a;
   opacity: 1;
+}
+
+/* Soft continuous brand-orb drift (desktop / tablet / mobile) */
+@keyframes w01-blob-drift-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(28px, -20px, 0) scale(1.06); }
+  66% { transform: translate3d(-18px, 14px, 0) scale(0.96); }
+}
+@keyframes w01-blob-drift-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  40% { transform: translate3d(-22px, 18px, 0) scale(1.04); }
+  70% { transform: translate3d(16px, -12px, 0) scale(0.98); }
+}
+@keyframes w01-blob-drift-c {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(12px, 22px, 0) scale(1.08); }
+}
+
+.w01-blob {
+  will-change: transform;
+  transform-origin: center center;
+}
+.w01-blob-a { animation: w01-blob-drift-a 18s ease-in-out infinite; }
+.w01-blob-b { animation: w01-blob-drift-b 22s ease-in-out infinite; }
+.w01-blob-c { animation: w01-blob-drift-c 26s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .w01-blob,
+  .w01-blob-a,
+  .w01-blob-b,
+  .w01-blob-c {
+    animation: none !important;
+  }
 }
