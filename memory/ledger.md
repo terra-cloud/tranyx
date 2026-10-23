@@ -2,7 +2,7 @@
 
 | Timestamp (Asia/Manila) | Target | Status | Notes |
 | --- | --- | --- | --- |
-| 2026-10-23 11:24 | W05 Guest Browse live data | PENDING_COMMIT | Dropped Figma fixtures; `loadGuestPublicListings` + realtime rentals/properties |
+| 2026-10-23 11:24 | W05 Guest Browse live data | COMMITTED | `14b1e68` loadGuestPublicListings + realtime rentals/properties |
 | 2026-10-23 11:15 | W01 Auth · Sign in | SUPERSEDED | `881fb75` initial |
 | 2026-10-23 11:25 | System theme | COMMITTED | `afb6953` |
 | 2026-10-23 11:40 | W05 Guest Browse | COMMITTED | `f2bcd7f` |
