@@ -458,11 +458,21 @@ textarea {
 .w01-blob-b { animation: w01-blob-drift-b 22s ease-in-out infinite; }
 .w01-blob-c { animation: w01-blob-drift-c 26s ease-in-out infinite; }
 
+/* Shared aliases — use on W01–W04, forgot, guest, dashboards */
+.brand-blob { will-change: transform; transform-origin: center center; }
+.brand-blob-a { animation: w01-blob-drift-a 18s ease-in-out infinite; }
+.brand-blob-b { animation: w01-blob-drift-b 22s ease-in-out infinite; }
+.brand-blob-c { animation: w01-blob-drift-c 26s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .w01-blob,
   .w01-blob-a,
   .w01-blob-b,
-  .w01-blob-c {
+  .w01-blob-c,
+  .brand-blob,
+  .brand-blob-a,
+  .brand-blob-b,
+  .brand-blob-c {
     animation: none !important;
   }
 }

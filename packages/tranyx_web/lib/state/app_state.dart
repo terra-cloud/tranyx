@@ -7,7 +7,7 @@ enum AppTab { home, jobs, transit, messages, profile }
 
 // Uses AccountType from package:core
 
-enum AuthView { login, registerPath, registerDetails, kycPending }
+enum AuthView { login, registerPath, registerDetails, kycPending, forgotPassword }
 
 enum JobsView { list, details, create, apply, review, success }
 

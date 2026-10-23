@@ -2,6 +2,8 @@
 
 | Timestamp (Asia/Manila) | Target | Status | Notes |
 | --- | --- | --- | --- |
+| 2026-10-23 11:45 | W02–W04 + Forgot auth redesign | COMMITTED | AuthBrandShell + animated brand-blob; full-bleed auth |
+
 | 2026-10-23 11:24 | W05 Guest Browse live data | COMMITTED | `14b1e68` loadGuestPublicListings + realtime rentals/properties |
 | 2026-10-23 11:15 | W01 Auth · Sign in | SUPERSEDED | `881fb75` initial |
 | 2026-10-23 11:25 | System theme | COMMITTED | `afb6953` |

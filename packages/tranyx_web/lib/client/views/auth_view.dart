@@ -3,7 +3,9 @@ import 'package:jaspr/jaspr.dart';
 import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
+import '../../services/web_interop.dart';
 import '../../state/app_state.dart';
+import '../widgets/auth_brand_shell.dart';
 import 'package:shared/shared.dart';
 
 class AuthViewComponent extends StatelessComponent {
@@ -18,6 +20,7 @@ class AuthViewComponent extends StatelessComponent {
       AuthView.registerPath => _RegisterPathScreen(state: s),
       AuthView.registerDetails => _RegisterDetailsScreen(state: s),
       AuthView.kycPending => _KycPendingScreen(state: s),
+      AuthView.forgotPassword => _ForgotPasswordScreen(state: s),
     };
   }
 }
@@ -36,7 +39,6 @@ class _LoginScreenState extends State<_LoginScreen> {
   String _password = '';
   String? _localError;
   String? _localInfo;
-  bool _showForgotSent = false;
   bool _showPassword = false;
 
   @override
@@ -139,7 +141,7 @@ class _LoginScreenState extends State<_LoginScreen> {
     return img(
       src: src,
       classes:
-          'w01-blob $animCls pointer-events-none absolute max-w-none $posCls ${isDark ? "opacity-40" : ""}',
+          'brand-blob w01-blob $animCls pointer-events-none absolute max-w-none $posCls ${isDark ? "opacity-40" : ""}',
       attributes: {'alt': '', 'aria-hidden': 'true'},
     );
   }
@@ -221,12 +223,6 @@ class _LoginScreenState extends State<_LoginScreen> {
             classes: 'w-full p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-sm',
             [Component.text(_localInfo!)],
           ),
-        if (_showForgotSent)
-          div(
-            key: Key('forgot-sent'),
-            classes: 'w-full p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-500 text-sm',
-            [Component.text('Password reset email sent! Check your inbox.')],
-          ),
         _w01Field(
           label: 'Email',
           placeholder: 'you@example.com',
@@ -256,20 +252,14 @@ class _LoginScreenState extends State<_LoginScreen> {
                 'font-semibold text-sm leading-5 tracking-[0.1px] $link bg-transparent border-0 cursor-pointer p-0 hover:underline',
             attributes: {'type': 'button'},
             events: {
-              'click': (_) async {
-                if (_email.isEmpty) {
-                  setState(() {
-                    _localError = 'Enter your email to reset password.';
-                    _localInfo = null;
-                  });
-                  return;
-                }
-                setState(() {
-                  _localError = null;
-                  _localInfo = null;
+              'click': (_) {
+                s.setState(() {
+                  if (_email.trim().isNotEmpty) {
+                    s.pendingVerifyEmail = _email.trim();
+                  }
+                  s.authView = AuthView.forgotPassword;
+                  s.authError = null;
                 });
-                await s.handleForgotPassword(_email);
-                setState(() => _showForgotSent = true);
               },
             },
             [Component.text('Forgot password?')],
@@ -423,9 +413,9 @@ class _LoginScreenState extends State<_LoginScreen> {
               classes:
                   'relative w-[680px] shrink-0 flex flex-col justify-between overflow-hidden $brandBg px-[72px] py-16',
               [
-                _blob('/images/w01/05633.svg', 'left-[-60px] top-[380px] size-[420px]', 'w01-blob-a', isDark: isDark),
-                _blob('/images/w01/54cd1.svg', 'left-[360px] top-[120px] size-[300px]', 'w01-blob-b', isDark: isDark),
-                _blob('/images/w01/1a12a.svg', 'left-[300px] top-[640px] size-[260px]', 'w01-blob-c', isDark: isDark),
+                _blob('/images/w01/05633.svg', 'left-[-60px] top-[380px] size-[420px]', 'brand-blob-a w01-blob-a', isDark: isDark),
+                _blob('/images/w01/54cd1.svg', 'left-[360px] top-[120px] size-[300px]', 'brand-blob-b w01-blob-b', isDark: isDark),
+                _blob('/images/w01/1a12a.svg', 'left-[300px] top-[640px] size-[260px]', 'brand-blob-c w01-blob-c', isDark: isDark),
                 div(classes: 'relative z-10 flex items-center', [
                   img(
                     src: '/images/w01/fef74.png',
@@ -474,8 +464,8 @@ class _LoginScreenState extends State<_LoginScreen> {
               classes:
                   'relative w-full h-[300px] shrink-0 overflow-hidden $brandBg px-14 py-10 flex flex-col gap-4 items-start',
               [
-                _blob('/images/w01/937b1.svg', 'left-[420px] top-[-120px] size-[360px]', 'w01-blob-a', isDark: isDark),
-                _blob('/images/w01/1a12a.svg', 'left-[600px] top-[80px] size-[260px]', 'w01-blob-b', isDark: isDark),
+                _blob('/images/w01/937b1.svg', 'left-[420px] top-[-120px] size-[360px]', 'brand-blob-a w01-blob-a', isDark: isDark),
+                _blob('/images/w01/1a12a.svg', 'left-[600px] top-[80px] size-[260px]', 'brand-blob-b w01-blob-b', isDark: isDark),
                 div(classes: 'relative z-10 flex items-center', [
                   img(
                     src: '/images/w01/fef74.png',
@@ -509,7 +499,7 @@ class _LoginScreenState extends State<_LoginScreen> {
         div(
           classes: 'flex sm:hidden relative w-full min-h-screen flex-col gap-5 items-start px-4 pt-6 pb-8 overflow-hidden $pageBg',
           [
-            _blob('/images/w01/2f57f.svg', 'left-[160px] top-[-140px] size-[300px]', 'w01-blob-a', isDark: isDark),
+            _blob('/images/w01/2f57f.svg', 'left-[160px] top-[-140px] size-[300px]', 'brand-blob-a w01-blob-a', isDark: isDark),
             div(classes: 'relative z-10 flex items-center', [
               img(
                 src: '/images/w01/fef74.png',
@@ -531,144 +521,224 @@ class _LoginScreenState extends State<_LoginScreen> {
   }
 }
 
-// ── Register Path Screen ──────────────────────────────────────
-class _RegisterPathScreen extends StatelessComponent {
+// ── Register Path Screen (W02 Join) ───────────────────────────
+class _RegisterPathScreen extends StatefulComponent {
   final TranyxAppState state;
   const _RegisterPathScreen({required this.state});
 
   @override
-  Component build(BuildContext context) {
-    final s = state;
-    final isDark = s.isDark;
+  State<_RegisterPathScreen> createState() => _RegisterPathScreenState();
+}
 
-    return div(classes: 'w-full animate-fade-up', [
-      // Back + Logo header
-      div(classes: 'flex flex-col items-center mb-10', [
-        button(
-          classes:
-              'self-start mb-4 p-2 rounded-full ${isDark ? "bg-zinc-800 text-zinc-400 hover:text-white" : "bg-zinc-100 text-zinc-600 hover:text-zinc-900"} transition-colors',
-          events: {'click': (_) => s.setState(() => s.authView = AuthView.login)},
-          [lIcon('arrow-left')],
-        ),
-        svgLogo(size: 'w-10 h-10'),
-        div(classes: 'mt-4 text-center', [
-          h1(classes: 'text-2xl font-black ${isDark ? "text-white" : "text-zinc-900"}', [Component.text('Join Tranyx')]),
-          p(classes: 'text-sm font-semibold tracking-wide mt-1.5 ${isDark ? "text-indigo-300/90" : "text-indigo-600/90"}', [
+class _RegisterPathScreenState extends State<_RegisterPathScreen> {
+  // Figma defaults to Nyxian selected
+  AccountType _selected = AccountType.nyxian;
+
+  @override
+  // ignore: invalid_use_of_protected_member
+  void setState(void Function() fn) => super.setState(fn);
+
+  @override
+  void initState() {
+    super.initState();
+    final pending = component.state.pendingAccountType;
+    if (pending == AccountType.employer || pending == AccountType.nyxian) {
+      _selected = pending!;
+    }
+  }
+
+  void _continue() {
+    final s = component.state;
+    if (s.pendingGoogleAuthResult != null) {
+      s.handleGoogleRegisterComplete(_selected);
+      return;
+    }
+    s.setState(() {
+      s.pendingAccountType = _selected;
+      s.authView = AuthView.registerDetails;
+      s.authError = null;
+    });
+  }
+
+  Component _roleCard({
+    required AccountType type,
+    required String letter,
+    required String title,
+    required String subtitle,
+    required String avatarBg,
+    required String avatarFg,
+    required bool isDark,
+  }) {
+    final selected = _selected == type;
+    final border = selected
+        ? 'border-2 border-[#4f46e5] bg-[#eef2ff]/60 dark:bg-indigo-500/10'
+        : (isDark
+            ? 'border border-zinc-700 bg-zinc-900'
+            : 'border border-[#e4e4e7] bg-white');
+    return button(
+      classes: 'w-full flex flex-col items-start overflow-clip p-5 relative rounded-[20px] $border text-left cursor-pointer bg-transparent transition-colors',
+      attributes: {'type': 'button'},
+      events: {'click': (_) => setState(() => _selected = type)},
+      [
+        div(classes: 'flex gap-3 items-center w-full', [
+          div(
+            classes: '$avatarBg flex items-center justify-center overflow-clip relative rounded-[22px] shrink-0 size-11',
+            [
+              p(classes: 'm-0 font-bold text-[17px] $avatarFg', [Component.text(letter)]),
+            ],
+          ),
+          div(classes: 'flex flex-1 flex-col gap-0.5 items-start min-w-0', [
+            p(
+              classes: 'm-0 font-semibold text-[17px] leading-6 ${isDark ? "text-zinc-50" : "text-[#18181b]"}',
+              [Component.text(title)],
+            ),
+            p(
+              classes: 'm-0 font-normal text-sm leading-5 ${isDark ? "text-zinc-400" : "text-[#52525b]"}',
+              [Component.text(subtitle)],
+            ),
+          ]),
+          if (selected)
+            div(
+              classes:
+                  'bg-[#4f46e5] border-2 border-[#4f46e5] flex items-center justify-center rounded-[11px] shrink-0 size-[22px]',
+              [
+                img(
+                  src: '/images/w01/e5c29.svg',
+                  classes: 'size-3.5',
+                  attributes: {'alt': '', 'aria-hidden': 'true'},
+                ),
+              ],
+            )
+          else
+            div(
+              classes:
+                  'border-2 ${isDark ? "border-zinc-600" : "border-[#d4d4d8]"} rounded-[11px] shrink-0 size-[22px]',
+              [],
+            ),
+        ]),
+      ],
+    );
+  }
+
+  Component _joinCard({required bool isDark, String widthCls = 'w-full max-w-[480px]'}) {
+    final s = component.state;
+    final formCard = isDark
+        ? 'bg-zinc-900 border border-zinc-700 shadow-[0px_8px_24px_-4px_rgba(0,0,0,0.45)]'
+        : 'bg-white border border-[#e4e4e7] shadow-[0px_8px_24px_-4px_rgba(9,9,11,0.08)]';
+    final textPrimary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final textSecondary = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+    final link = 'text-[#4f46e5]';
+
+    return div(
+      classes: '$formCard flex flex-col gap-4 items-start p-8 relative rounded-3xl $widthCls',
+      [
+        div(classes: 'flex flex-col gap-1 items-start', [
+          p(classes: 'm-0 font-bold text-2xl leading-8 tracking-[-0.4px] $textPrimary', [
+            Component.text('Join Tranyx'),
+          ]),
+          p(classes: 'm-0 font-normal text-sm leading-5 $textSecondary', [
             Component.text('Choose your account type to get started'),
           ]),
         ]),
-      ]),
-
-      // Wallet linked banner
-      if (s.pendingWalletPublicKey != null)
-        div(classes: 'mb-4 p-4 rounded-2xl border border-purple-500/30 bg-purple-500/10 flex items-start gap-3', [
-          lIcon('wallet', cls: 'w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5'),
-          div([
-            p(classes: 'text-sm font-semibold text-purple-400', [Component.text('Phantom Wallet Connected 🎉')]),
-            p(classes: 'text-xs mt-0.5 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-              Component.text(
-                '${s.pendingWalletPublicKey!.substring(0, 6)}...${s.pendingWalletPublicKey!.substring(s.pendingWalletPublicKey!.length - 4)} — Your wallet will be linked after registration.',
-              ),
-            ]),
-          ]),
-        ]),
-
-      // Account type cards
-      div(classes: 'space-y-4', [
         if (s.authError != null)
           div(
-            classes: 'p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm mb-4',
+            classes: 'w-full p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-sm',
             [Component.text(s.authError!)],
           ),
-
-        _accountTypeCard(
-          icon: 'briefcase',
-          title: 'Employer',
-          subtitle: 'Post jobs and find skilled Nyxians for your tasks',
-          accentCls: 'text-blue-400',
-          badgeCls: 'bg-blue-500/20 text-blue-400',
-          badge: 'EMPLOYER',
-          isDark: isDark,
-          onTap: () {
-            if (s.pendingGoogleAuthResult != null) {
-              s.handleGoogleRegisterComplete(AccountType.employer);
-            } else {
-              s.setState(() {
-                s.pendingAccountType = AccountType.employer;
-                s.authView = AuthView.registerDetails;
-              });
-            }
-          },
-        ),
-        _accountTypeCard(
-          icon: 'zap',
+        _roleCard(
+          type: AccountType.nyxian,
+          letter: 'N',
           title: 'Nyxian Worker',
           subtitle: 'Offer your skills and earn on your own schedule',
-          accentCls: 'text-green-400',
-          badgeCls: 'bg-green-500/20 text-green-400',
-          badge: 'NYXIAN',
+          avatarBg: isDark ? 'bg-emerald-500/15' : 'bg-[#f0fdf4]',
+          avatarFg: isDark ? 'text-emerald-400' : 'text-[#15803d]',
           isDark: isDark,
-          onTap: () {
-            if (s.pendingGoogleAuthResult != null) {
-              s.handleGoogleRegisterComplete(AccountType.nyxian);
-            } else {
-              s.setState(() {
-                s.pendingAccountType = AccountType.nyxian;
-                s.authView = AuthView.registerDetails;
-              });
-            }
-          },
         ),
-      ]),
-
-      p(classes: 'text-center text-sm mt-6 ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-        Component.text('Already have an account? '),
+        _roleCard(
+          type: AccountType.employer,
+          letter: 'E',
+          title: 'Employer',
+          subtitle: 'Post jobs and find skilled Nyxians for your tasks',
+          avatarBg: isDark ? 'bg-blue-500/15' : 'bg-[#eff6ff]',
+          avatarFg: isDark ? 'text-blue-400' : 'text-[#1d4ed8]',
+          isDark: isDark,
+        ),
+        div(classes: 'flex gap-2 items-center pl-1 w-full', [
+          span(
+            classes:
+                'px-2.5 h-6 inline-flex items-center rounded-full text-xs font-semibold ${isDark ? "bg-amber-500/15 text-amber-300" : "bg-[#fffbeb] text-[#b45309]"}',
+            [Component.text('Hybrid PRO')],
+          ),
+          p(classes: 'm-0 flex-1 font-medium text-xs leading-4 $textSecondary', [
+            Component.text('Do both later — upgrade to Pro from your profile.'),
+          ]),
+        ]),
         button(
-          classes: 'font-semibold ${isDark ? "text-indigo-400" : "text-indigo-600"} hover:underline',
-          events: {'click': (_) => s.setState(() => s.authView = AuthView.login)},
-          [Component.text('Sign In')],
+          classes:
+              'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] text-white bg-[#4f46e5] shadow-[0px_8px_10px_rgba(79,70,229,0.25)] hover:opacity-90 transition-opacity flex items-center justify-center border-0 cursor-pointer',
+          attributes: {'type': 'button'},
+          events: {'click': (_) => _continue()},
+          [Component.text('Continue')],
         ),
-      ]),
+        div(classes: 'flex gap-1 items-center justify-center w-full text-sm', [
+          span(classes: textSecondary, [Component.text('Already have an account?')]),
+          button(
+            classes: 'font-semibold $link bg-transparent border-0 cursor-pointer p-0 hover:underline',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => s.setState(() => s.authView = AuthView.login)},
+            [Component.text('Sign In')],
+          ),
+        ]),
+      ],
+    );
+  }
+
+  Component? _walletBanner({required bool isDark}) {
+    final s = component.state;
+    final key = s.pendingWalletPublicKey;
+    if (key == null) return null;
+    final short = key.length > 10 ? '${key.substring(0, 4)}…${key.substring(key.length - 4)}' : key;
+    return div(classes: 'w-full max-w-[480px] flex flex-col gap-2', [
+      p(
+        classes:
+            'm-0 font-semibold text-[11px] tracking-[0.8px] uppercase ${isDark ? "text-zinc-500" : "text-[#52525b]"}',
+        [Component.text('Solana sign-up state')],
+      ),
+      div(
+        classes:
+            'w-full flex gap-3 items-start px-4 py-3.5 rounded-2xl border ${isDark ? "bg-emerald-500/10 border-emerald-500/30" : "bg-[#ecfdf5] border-[#e4e4e7]"}',
+        [
+          img(src: '/images/w01/bfc38.svg', classes: 'size-5 mt-0.5', attributes: {'alt': ''}),
+          div(classes: 'flex flex-col gap-0.5 min-w-0', [
+            p(
+              classes: 'm-0 font-semibold text-[15px] ${isDark ? "text-zinc-50" : "text-[#18181b]"}',
+              [Component.text('Phantom Wallet Connected 🎉')],
+            ),
+            p(
+              classes: 'm-0 text-sm ${isDark ? "text-zinc-400" : "text-[#52525b]"}',
+              [Component.text('Wallet $short linked. Pick an account type to finish.')],
+            ),
+          ]),
+        ],
+      ),
     ]);
   }
 
-  Component _accountTypeCard({
-    required String icon,
-    required String title,
-    required String subtitle,
-    required String accentCls,
-    required String badgeCls,
-    required String badge,
-    required bool isDark,
-    required void Function() onTap,
-  }) {
-    final cardCls = isDark
-        ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
-        : 'bg-white border-zinc-200 shadow-sm hover:shadow-md';
-    return button(
-      classes:
-          'w-full flex items-center justify-between p-5 rounded-2xl border transition-all text-left card-hover $cardCls',
-      events: {'click': (_) => onTap()},
-      [
-        div(classes: 'flex items-center gap-4', [
-          div(classes: 'p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', [
-            lIcon(icon, cls: 'w-6 h-6 $accentCls'),
-          ]),
-          div([
-            div(classes: 'flex items-center gap-2', [
-              span(classes: 'font-semibold text-base', [Component.text(title)]),
-              span(classes: 'px-2 py-0.5 rounded text-[10px] font-bold $badgeCls', [Component.text(badge)]),
-            ]),
-            p(classes: 'text-sm mt-0.5 ${isDark ? "text-zinc-500" : "text-zinc-500"}', [Component.text(subtitle)]),
-          ]),
-        ]),
-        lIcon('chevron-right', cls: 'w-5 h-5 ${isDark ? "text-zinc-600" : "text-zinc-300"}'),
-      ],
+  @override
+  Component build(BuildContext context) {
+    final s = component.state;
+    final isDark = s.isDark;
+    return AuthBrandShell(
+      isDark: isDark,
+      card: _joinCard(isDark: isDark),
+      cardTablet: _joinCard(isDark: isDark, widthCls: 'w-full max-w-[480px]'),
+      cardMobile: _joinCard(isDark: isDark, widthCls: 'w-full'),
+      belowCard: _walletBanner(isDark: isDark),
     );
   }
 }
 
-// ── Register Details Screen ───────────────────────────────────
+// ── Register Details (W03 Create account) ─────────────────────
 class _RegisterDetailsScreen extends StatefulComponent {
   final TranyxAppState state;
   const _RegisterDetailsScreen({required this.state});
@@ -690,127 +760,215 @@ class _RegisterDetailsScreenState extends State<_RegisterDetailsScreen> {
   bool get _hasUppercase => _password.contains(RegExp(r'[A-Z]'));
   bool get _hasNumber => _password.contains(RegExp(r'[0-9]'));
   bool get _isPasswordValid => _hasMinLength && _hasUppercase && _hasNumber;
+  bool get _passwordsMatch =>
+      _confirmPassword.isNotEmpty && _password == _confirmPassword;
+  bool get _canSubmit =>
+      _name.trim().isNotEmpty &&
+      _email.trim().isNotEmpty &&
+      _isPasswordValid &&
+      _passwordsMatch;
 
   @override
   // ignore: invalid_use_of_protected_member
   void setState(void Function() fn) => super.setState(fn);
 
-  @override
-  Component build(BuildContext context) {
-    final s = component.state;
-    final isDark = s.isDark;
-    final typeLabel = s.pendingAccountType?.label ?? 'Account';
-    final cardCls = isDark ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-xl';
-
-    final errorMsg = _localError ?? s.authError;
-
-    return div(classes: 'w-full animate-fade-up', [
-      div(classes: 'flex flex-col items-center mb-10', [
-        button(
-          classes:
-              'self-start mb-4 p-2 rounded-full ${isDark ? "bg-zinc-800 text-zinc-400 hover:text-white" : "bg-zinc-100 text-zinc-600"} transition-colors',
-          events: {'click': (_) => s.setState(() => s.authView = AuthView.registerPath)},
-          [lIcon('arrow-left')],
-        ),
-        svgLogo(size: 'w-10 h-10'),
-        div(classes: 'mt-4 text-center', [
-          h1(classes: 'text-2xl font-bold', [Component.text('Create Your Account')]),
-          p(classes: 'text-sm mt-1 ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-            Component.text('Setting up your $typeLabel profile'),
-          ]),
-        ]),
-      ]),
-
-      div(classes: 'rounded-3xl border p-8 $cardCls', [
-        if (errorMsg != null)
-          div(
-            key: Key('error'),
-            classes: 'mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm',
-            [Component.text(errorMsg)],
+  Component _field({
+    required String label,
+    required String placeholder,
+    required String iconSrc,
+    required String value,
+    required void Function(String) onChange,
+    required bool isDark,
+    String type = 'text',
+    bool isPassword = false,
+    bool isPasswordVisible = false,
+    void Function()? onTogglePassword,
+    bool danger = false,
+    String? helper,
+  }) {
+    final border = danger
+        ? 'border-2 border-[#ef4444]'
+        : (isDark ? 'border border-zinc-600' : 'border border-[#d4d4d8]');
+    final inputId = 'reg_${label.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}';
+    return div(classes: 'flex flex-col gap-1.5 items-start w-full', [
+      p(
+        classes:
+            'm-0 font-semibold text-sm tracking-[0.1px] ${isDark ? "text-zinc-50" : "text-[#18181b]"}',
+        [Component.text(label)],
+      ),
+      div(
+        classes:
+            'bg-transparent $border flex gap-2.5 h-12 items-center overflow-clip px-3.5 relative rounded-xl w-full ${isDark ? "bg-zinc-950" : "bg-white"}',
+        [
+          img(src: iconSrc, classes: 'size-[18px] shrink-0 ${isDark ? "opacity-70 invert" : ""}', attributes: {'alt': ''}),
+          input(
+            id: inputId,
+            classes:
+                'bg-transparent border-0 outline-none flex-1 text-[15px] leading-[22px] min-w-0 ${isDark ? "text-zinc-50 placeholder-zinc-500" : "text-[#18181b] placeholder-[#a1a1aa]"}',
+            type: type == 'email'
+                ? InputType.email
+                : (isPassword && !isPasswordVisible ? InputType.password : InputType.text),
+            attributes: {
+              'placeholder': placeholder,
+              'value': value,
+              'autocomplete': isPassword ? 'new-password' : (type == 'email' ? 'email' : 'name'),
+            },
+            events: {
+              'input': (e) => onChange(getInputValue(e.target)),
+            },
           ),
-
-        if (s.pendingWalletPublicKey != null)
-          div(classes: 'mb-4 p-3 rounded-xl border border-purple-500/30 bg-purple-500/10 flex items-center gap-3', [
-            lIcon('wallet', cls: 'w-4 h-4 text-purple-400 flex-shrink-0'),
-            p(classes: 'text-xs text-purple-400', [
-              Component.text(
-                '🦊 Wallet: ${s.pendingWalletPublicKey!.substring(0, 6)}...${s.pendingWalletPublicKey!.substring(s.pendingWalletPublicKey!.length - 4)} will be linked',
-              ),
-            ]),
-          ]),
-
-        div(key: Key('inputs'), classes: 'space-y-4', [
-          inputField(
-            label: 'Full Name',
-            placeholder: 'John Doe',
-            iconName: 'user-circle',
-            isDark: isDark,
-            value: _name,
-            onChange: (v) => setState(() => _name = v),
-          ),
-          inputField(
-            label: 'Email',
-            placeholder: 'you@example.com',
-            iconName: 'mail',
-            type: 'email',
-            isDark: isDark,
-            value: _email,
-            onChange: (v) => setState(() => _email = v),
-          ),
-          inputField(
-            label: 'Password',
-            placeholder: '••••••••',
-            iconName: 'lock',
-            type: 'password',
-            isDark: isDark,
-            value: _password,
-            onChange: (v) => setState(() => _password = v),
-            isPassword: true,
-            isPasswordVisible: _showPassword,
-            onTogglePassword: () => setState(() => _showPassword = !_showPassword),
-          ),
-          if (_password.isNotEmpty)
-            div(
-              key: Key('pwd-checklist'),
-              classes: 'p-3.5 rounded-2xl border text-xs space-y-2 ${isDark ? "bg-zinc-950/40 border-zinc-800 text-zinc-400" : "bg-zinc-50 border-zinc-200 text-zinc-600"}',
+          if (isPassword && onTogglePassword != null)
+            button(
+              classes: 'bg-transparent border-0 cursor-pointer p-0 shrink-0',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => onTogglePassword()},
               [
-                div(classes: 'font-semibold mb-1 text-[10px] uppercase tracking-wider ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                  Component.text('Password Requirements'),
-                ]),
-                div(classes: 'flex items-center gap-2', [
-                  lIcon(_hasMinLength ? 'check' : 'circle', cls: 'w-3.5 h-3.5 ${_hasMinLength ? "text-emerald-500" : "text-zinc-500"}'),
-                  span(classes: _hasMinLength ? 'text-emerald-500' : '', [Component.text('At least 8 characters')]),
-                ]),
-                div(classes: 'flex items-center gap-2', [
-                  lIcon(_hasUppercase ? 'check' : 'circle', cls: 'w-3.5 h-3.5 ${_hasUppercase ? "text-emerald-500" : "text-zinc-500"}'),
-                  span(classes: _hasUppercase ? 'text-emerald-500' : '', [Component.text('At least one uppercase letter (A-Z)')]),
-                ]),
-                div(classes: 'flex items-center gap-2', [
-                  lIcon(_hasNumber ? 'check' : 'circle', cls: 'w-3.5 h-3.5 ${_hasNumber ? "text-emerald-500" : "text-zinc-500"}'),
-                  span(classes: _hasNumber ? 'text-emerald-500' : '', [Component.text('At least one number (0-9)')]),
-                ]),
+                img(
+                  src: '/images/w01/932ea.svg',
+                  classes: 'size-[18px] ${isDark ? "opacity-70 invert" : ""}',
+                  attributes: {'alt': isPasswordVisible ? 'Hide' : 'Show'},
+                ),
               ],
             ),
-          inputField(
-            label: 'Confirm Password',
-            placeholder: '••••••••',
-            iconName: 'lock',
-            type: 'password',
-            isDark: isDark,
-            value: _confirmPassword,
-            onChange: (v) => setState(() => _confirmPassword = v),
-            isPassword: true,
-            isPasswordVisible: _showConfirmPassword,
-            onTogglePassword: () => setState(() => _showConfirmPassword = !_showConfirmPassword),
-          ),
+        ],
+      ),
+      if (helper != null)
+        div(classes: 'flex gap-1.5 items-center w-full', [
+          img(src: '/images/w01/03198.svg', classes: 'size-3.5', attributes: {'alt': ''}),
+          p(classes: 'm-0 flex-1 font-medium text-xs leading-4 text-[#dc2626]', [Component.text(helper)]),
         ]),
+    ]);
+  }
 
+  Component _reqRow(bool ok, String label, bool isDark) {
+    return div(classes: 'flex gap-2 items-center', [
+      div(
+        classes:
+            '${ok ? "bg-[#ecfdf5]" : (isDark ? "bg-zinc-800" : "bg-[#fafafa]")} flex items-center justify-center rounded-[9px] size-[18px]',
+        [
+          img(
+            src: ok ? '/images/w01/bfc38.svg' : '/images/w01/4633f.svg',
+            classes: 'size-3',
+            attributes: {'alt': ''},
+          ),
+        ],
+      ),
+      p(
+        classes:
+            'm-0 text-sm leading-5 ${ok ? "text-[#047857]" : (isDark ? "text-zinc-400" : "text-[#52525b]")}',
+        [Component.text(label)],
+      ),
+    ]);
+  }
+
+  Component _createCard({required bool isDark, String widthCls = 'w-full max-w-[460px]'}) {
+    final s = component.state;
+    final formCard = isDark
+        ? 'bg-zinc-900 border border-zinc-700 shadow-[0px_8px_24px_-4px_rgba(0,0,0,0.45)]'
+        : 'bg-white border border-[#e4e4e7] shadow-[0px_8px_24px_-4px_rgba(9,9,11,0.08)]';
+    final textPrimary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final textSecondary = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+    final type = s.pendingAccountType ?? AccountType.nyxian;
+    final typeLabel = type == AccountType.nyxian ? 'Nyxian' : 'Employer';
+    final badgeBg = type == AccountType.nyxian
+        ? (isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-[#f0fdf4] text-[#15803d]')
+        : (isDark ? 'bg-blue-500/15 text-blue-300' : 'bg-[#eff6ff] text-[#1d4ed8]');
+    final errorMsg = _localError ?? s.authError;
+    final confirmDanger =
+        _confirmPassword.isNotEmpty && _password != _confirmPassword;
+
+    return div(
+      classes: '$formCard flex flex-col gap-4 items-start p-8 relative rounded-3xl $widthCls',
+      [
+        div(classes: 'flex flex-col gap-1 items-start', [
+          p(classes: 'm-0 font-bold text-2xl leading-8 tracking-[-0.4px] $textPrimary', [
+            Component.text('Create Your Account'),
+          ]),
+          div(classes: 'flex gap-2 items-center', [
+            p(classes: 'm-0 text-sm $textSecondary', [
+              Component.text('Setting up your $typeLabel profile'),
+            ]),
+            span(
+              classes: 'px-2.5 h-6 inline-flex items-center rounded-full text-xs font-semibold $badgeBg',
+              [Component.text(typeLabel)],
+            ),
+          ]),
+        ]),
         button(
-          key: Key('register-btn'),
           classes:
-              'mt-6 w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
+              'text-sm font-semibold text-[#4f46e5] bg-transparent border-0 cursor-pointer p-0 hover:underline',
+          attributes: {'type': 'button'},
+          events: {'click': (_) => s.setState(() => s.authView = AuthView.registerPath)},
+          [Component.text('← Change account type')],
+        ),
+        if (errorMsg != null)
+          div(
+            classes: 'w-full p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-sm',
+            [Component.text(errorMsg)],
+          ),
+        _field(
+          label: 'Full Name',
+          placeholder: 'Juan Dela Cruz',
+          iconSrc: '/images/w01/65364.svg',
+          value: _name,
+          onChange: (v) => setState(() => _name = v),
+          isDark: isDark,
+        ),
+        _field(
+          label: 'Email',
+          placeholder: 'juan@example.com',
+          iconSrc: '/images/w01/b7212.svg',
+          type: 'email',
+          value: _email,
+          onChange: (v) => setState(() => _email = v),
+          isDark: isDark,
+        ),
+        _field(
+          label: 'Password',
+          placeholder: '••••••••••',
+          iconSrc: '/images/w01/a5857.svg',
+          value: _password,
+          onChange: (v) => setState(() => _password = v),
+          isDark: isDark,
+          isPassword: true,
+          isPasswordVisible: _showPassword,
+          onTogglePassword: () => setState(() => _showPassword = !_showPassword),
+        ),
+        if (_password.isNotEmpty)
+          div(
+            classes:
+                'w-full flex flex-col gap-2 px-3.5 py-3 rounded-xl ${isDark ? "bg-zinc-950" : "bg-[#fafafa]"}',
+            [
+              p(
+                classes: 'm-0 font-semibold text-sm tracking-[0.1px] $textPrimary',
+                [Component.text('Password Requirements')],
+              ),
+              _reqRow(_hasMinLength, 'At least 8 characters', isDark),
+              _reqRow(_hasUppercase, 'At least one uppercase letter (A-Z)', isDark),
+              _reqRow(_hasNumber, 'At least one number (0-9)', isDark),
+            ],
+          ),
+        _field(
+          label: 'Confirm Password',
+          placeholder: '••••••••',
+          iconSrc: '/images/w01/a5857.svg',
+          value: _confirmPassword,
+          onChange: (v) => setState(() => _confirmPassword = v),
+          isDark: isDark,
+          isPassword: true,
+          isPasswordVisible: _showConfirmPassword,
+          onTogglePassword: () => setState(() => _showConfirmPassword = !_showConfirmPassword),
+          danger: confirmDanger,
+          helper: confirmDanger ? 'Passwords do not match.' : null,
+        ),
+        button(
+          classes:
+              'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] flex items-center justify-center gap-2 border-0 '
+              '${_canSubmit && !s.isAuthLoading ? "text-white bg-[#4f46e5] shadow-[0px_8px_10px_rgba(79,70,229,0.25)] hover:opacity-90 cursor-pointer" : "text-[#a1a1aa] bg-[#e4e4e7] cursor-not-allowed"}',
+          attributes: {'type': 'button', if (!_canSubmit || s.isAuthLoading) 'disabled': 'true'},
           events: {
             'click': (_) async {
+              if (!_canSubmit || s.isAuthLoading) return;
               if (_name.isEmpty || _email.isEmpty || _password.isEmpty) {
                 setState(() => _localError = 'Please fill in all fields.');
                 return;
@@ -825,10 +983,10 @@ class _RegisterDetailsScreenState extends State<_RegisterDetailsScreen> {
               }
               setState(() => _localError = null);
               await s.handleRegister(
-                name: _name,
-                email: _email,
+                name: _name.trim(),
+                email: _email.trim(),
                 password: _password,
-                type: s.pendingAccountType ?? AccountType.employer,
+                type: s.pendingAccountType ?? AccountType.nyxian,
               );
             },
           },
@@ -837,68 +995,245 @@ class _RegisterDetailsScreenState extends State<_RegisterDetailsScreen> {
             Component.text(s.isAuthLoading ? ' Creating...' : 'Create Account'),
           ],
         ),
+        p(
+          classes: 'm-0 w-full text-center font-medium text-xs leading-4 $textSecondary',
+          [
+            Component.text('By creating an account you agree to our '),
+            button(
+              classes: 'underline bg-transparent border-0 cursor-pointer p-0 font-medium text-[#4f46e5]',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => web.window.location.assign('/terms-of-use')},
+              [Component.text('Terms of Use')],
+            ),
+            Component.text(' and '),
+            button(
+              classes: 'underline bg-transparent border-0 cursor-pointer p-0 font-medium text-[#4f46e5]',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => web.window.location.assign('/privacy-policy')},
+              [Component.text('Privacy Policy')],
+            ),
+            Component.text('.'),
+          ],
+        ),
+      ],
+    );
+  }
 
-        p(key: Key('terms-link'), classes: 'text-center text-xs mt-4 ${isDark ? "text-zinc-650" : "text-zinc-400"}', [
-          Component.text('By creating an account you agree to our '),
-          button(
-            classes: 'underline bg-transparent border-0 cursor-pointer text-zinc-450 hover:text-white transition-colors p-0 font-medium',
-            events: {'click': (_) => web.window.location.assign('/terms-of-use')},
-            [Component.text('Terms of Use')],
-          ),
-          Component.text(' and '),
-          button(
-            classes: 'underline bg-transparent border-0 cursor-pointer text-zinc-450 hover:text-white transition-colors p-0 font-medium',
-            events: {'click': (_) => web.window.location.assign('/privacy-policy')},
-            [Component.text('Privacy Policy')],
-          ),
-        ]),
-      ]),
-    ]);
+  @override
+  Component build(BuildContext context) {
+    final isDark = component.state.isDark;
+    return AuthBrandShell(
+      isDark: isDark,
+      card: _createCard(isDark: isDark),
+      cardMobile: _createCard(isDark: isDark, widthCls: 'w-full'),
+    );
   }
 }
 
-// ── KYC Pending Screen ────────────────────────────────────────
+// ── Verification Pending (W04) ────────────────────────────────
 class _KycPendingScreen extends StatelessComponent {
   final TranyxAppState state;
   const _KycPendingScreen({required this.state});
 
-  @override
-  Component build(BuildContext context) {
+  Component _card({required bool isDark, String widthCls = 'w-full max-w-[440px]'}) {
     final s = state;
-    final isDark = s.isDark;
-    final cardCls = isDark ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-xl';
+    final formCard = isDark
+        ? 'bg-zinc-900 border border-zinc-700 shadow-[0px_8px_24px_-4px_rgba(0,0,0,0.45)]'
+        : 'bg-white border border-[#e4e4e7] shadow-[0px_8px_24px_-4px_rgba(9,9,11,0.08)]';
+    final textPrimary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final textSecondary = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+    final email = s.pendingVerifyEmail ?? s.userEmail;
+    final emailBit = email.isNotEmpty ? ' to $email' : '';
 
-    return div(classes: 'w-full animate-fade-up', [
-      div(classes: 'rounded-3xl border p-10 $cardCls text-center', [
-        div(classes: 'flex justify-center mb-6', [
-          div(classes: 'p-6 rounded-3xl bg-amber-500/10 border border-amber-500/20', [
-            lIcon('hourglass', cls: 'w-12 h-12 text-amber-400 animate-pulse'),
-          ]),
-        ]),
-        h1(classes: 'text-2xl font-bold mb-3', [Component.text('Verification Pending')]),
-        p(classes: 'text-sm leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-600"} max-w-sm mx-auto', [
-          Component.text(
-            "Your account is under review. Our team will verify your details within 24–48 hours. "
-            "You'll receive an email once approved.",
+    return div(
+      classes: '$formCard flex flex-col gap-4 items-start p-8 relative rounded-3xl $widthCls',
+      [
+        div(classes: 'flex flex-col gap-3 items-center pt-2 w-full', [
+          div(
+            classes:
+                '${isDark ? "bg-indigo-500/15" : "bg-[#eef2ff]"} flex items-center justify-center rounded-[36px] size-[72px]',
+            [
+              img(
+                src: '/images/w01/00ef3.svg',
+                classes: 'size-8 ${isDark ? "invert opacity-80" : ""}',
+                attributes: {'alt': ''},
+              ),
+            ],
+          ),
+          p(
+            classes: 'm-0 font-bold text-2xl leading-8 tracking-[-0.4px] text-center $textPrimary',
+            [Component.text('Verification Pending')],
+          ),
+          p(
+            classes: 'm-0 text-[15px] leading-[22px] text-center $textSecondary w-full',
+            [
+              Component.text(
+                'Check your inbox for updates. We sent a verification link$emailBit.',
+              ),
+            ],
           ),
         ]),
-        div(
+        button(
           classes:
-              'mt-8 p-4 rounded-2xl ${isDark ? "bg-zinc-800 border border-zinc-700" : "bg-zinc-50 border border-zinc-200"} text-sm ${isDark ? "text-zinc-400" : "text-zinc-600"}',
-          [
-            div(classes: 'flex items-center gap-3 justify-center', [
-              lIcon('mail', cls: 'w-4 h-4'),
-              Component.text('Check your inbox for updates'),
-            ]),
-          ],
+              'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] border flex items-center justify-center cursor-pointer '
+              '${isDark ? "bg-zinc-900 border-zinc-600 text-zinc-50 hover:bg-zinc-800" : "bg-white border-[#d4d4d8] text-[#18181b] hover:bg-zinc-50"}',
+          attributes: {'type': 'button'},
+          events: {
+            'click': (_) async {
+              await s.handleResendVerificationEmail();
+            },
+          },
+          [Component.text(s.isAuthLoading ? 'Sending…' : 'Resend email')],
         ),
         button(
           classes:
-              'mt-6 px-6 py-3 rounded-xl ${isDark ? "bg-zinc-800 hover:bg-zinc-700 text-zinc-300" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"} text-sm font-medium transition-colors',
+              'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] text-[#4f46e5] bg-transparent border-0 cursor-pointer hover:underline',
+          attributes: {'type': 'button'},
+          events: {
+            'click': (_) => s.setState(() {
+              s.authView = AuthView.login;
+              s.isAuthenticated = false;
+            }),
+          },
+          [Component.text('Back to Login')],
+        ),
+      ],
+    );
+  }
+
+  @override
+  Component build(BuildContext context) {
+    final isDark = state.isDark;
+    return AuthBrandShell(
+      isDark: isDark,
+      card: _card(isDark: isDark),
+      cardMobile: _card(isDark: isDark, widthCls: 'w-full'),
+    );
+  }
+}
+
+// ── Forgot Password (W01 styling + live reset) ────────────────
+class _ForgotPasswordScreen extends StatefulComponent {
+  final TranyxAppState state;
+  const _ForgotPasswordScreen({required this.state});
+
+  @override
+  State<_ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
+}
+
+class _ForgotPasswordScreenState extends State<_ForgotPasswordScreen> {
+  String _email = '';
+  String? _localError;
+  String? _localInfo;
+  bool _sent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final seed = component.state.pendingVerifyEmail ?? '';
+    if (seed.isNotEmpty) _email = seed;
+  }
+
+  @override
+  // ignore: invalid_use_of_protected_member
+  void setState(void Function() fn) => super.setState(fn);
+
+  Component _card({required bool isDark, String widthCls = 'w-full max-w-[440px]'}) {
+    final s = component.state;
+    final formCard = isDark
+        ? 'bg-zinc-900 border border-zinc-700 shadow-[0px_8px_24px_-4px_rgba(0,0,0,0.45)]'
+        : 'bg-white border border-[#e4e4e7] shadow-[0px_8px_24px_-4px_rgba(9,9,11,0.08)]';
+    final textPrimary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final textSecondary = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+    final border = isDark ? 'border border-zinc-600' : 'border border-[#d4d4d8]';
+
+    return div(
+      classes: '$formCard flex flex-col gap-4 items-start p-8 relative rounded-3xl $widthCls',
+      [
+        div(classes: 'flex flex-col gap-1 items-start', [
+          p(classes: 'm-0 font-bold text-2xl leading-8 tracking-[-0.4px] $textPrimary', [
+            Component.text('Reset Password'),
+          ]),
+          p(classes: 'm-0 text-sm leading-5 $textSecondary', [
+            Component.text('Enter your email and we’ll send a reset link.'),
+          ]),
+        ]),
+        if (_localError != null)
+          div(
+            classes: 'w-full p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-sm',
+            [Component.text(_localError!)],
+          ),
+        if (_sent || _localInfo != null)
+          div(
+            key: Key('forgot-sent'),
+            classes: 'w-full p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-600 text-sm',
+            [Component.text(_localInfo ?? 'Password reset email sent! Check your inbox.')],
+          ),
+        div(classes: 'flex flex-col gap-1.5 w-full', [
+          p(classes: 'm-0 font-semibold text-sm tracking-[0.1px] $textPrimary', [Component.text('Email')]),
+          div(
+            classes: 'flex gap-2.5 h-12 items-center px-3.5 rounded-xl $border ${isDark ? "bg-zinc-950" : "bg-white"}',
+            [
+              img(
+                src: '/images/w01/b7212.svg',
+                classes: 'size-[18px] ${isDark ? "opacity-70 invert" : ""}',
+                attributes: {'alt': ''},
+              ),
+              input(
+                classes:
+                    'bg-transparent border-0 outline-none flex-1 text-[15px] ${isDark ? "text-zinc-50 placeholder-zinc-500" : "text-[#18181b] placeholder-[#a1a1aa]"}',
+                type: InputType.email,
+                attributes: {'placeholder': 'you@example.com', 'value': _email},
+                events: {'input': (e) => setState(() => _email = getInputValue(e.target))},
+              ),
+            ],
+          ),
+        ]),
+        button(
+          classes:
+              'w-full h-12 rounded-xl font-semibold text-sm text-white bg-[#4f46e5] shadow-[0px_8px_10px_rgba(79,70,229,0.25)] hover:opacity-90 border-0 cursor-pointer',
+          attributes: {'type': 'button'},
+          events: {
+            'click': (_) async {
+              if (_email.trim().isEmpty) {
+                setState(() {
+                  _localError = 'Enter your email to reset password.';
+                  _localInfo = null;
+                  _sent = false;
+                });
+                return;
+              }
+              setState(() {
+                _localError = null;
+                _localInfo = null;
+              });
+              await s.handleForgotPassword(_email.trim());
+              setState(() {
+                _sent = true;
+                _localInfo = 'Password reset email sent! Check your inbox.';
+              });
+            },
+          },
+          [Component.text('Send reset link')],
+        ),
+        button(
+          classes:
+              'w-full h-12 rounded-xl font-semibold text-sm text-[#4f46e5] bg-transparent border-0 cursor-pointer hover:underline',
+          attributes: {'type': 'button'},
           events: {'click': (_) => s.setState(() => s.authView = AuthView.login)},
           [Component.text('Back to Login')],
         ),
-      ]),
-    ]);
+      ],
+    );
+  }
+
+  @override
+  Component build(BuildContext context) {
+    final isDark = component.state.isDark;
+    return AuthBrandShell(
+      isDark: isDark,
+      card: _card(isDark: isDark),
+      cardMobile: _card(isDark: isDark, widthCls: 'w-full'),
+    );
   }
 }

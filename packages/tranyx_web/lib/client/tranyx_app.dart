@@ -175,6 +175,7 @@ class TranyxAppState extends State<TranyxApp> {
 
   AccountType accountType = AccountType.employer;
   AuthView authView = AuthView.login;
+  String? pendingVerifyEmail;
   AccountType? pendingAccountType;
   String? pendingWalletPublicKey; // set when coming from Phantom sign-in for new users
   AuthResult? pendingGoogleAuthResult;
@@ -1934,21 +1935,6 @@ class TranyxAppState extends State<TranyxApp> {
       await FirestoreService(result.idToken, _handleTokenRefresh).saveUser(profile);
       SessionStorage.saveProfile(name: name, email: email, accountType: type.name);
 
-      setState(() {
-        isAuthenticated = true;
-        accountType = type;
-        hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-        userName = name;
-        userEmail = email;
-        userProfile = profile;
-        isAuthLoading = false;
-        authView = AuthView.login;
-        activeTab = AppTab.home;
-      });
-
-      // Launch walkthrough for new registered user
-      openWalkthroughModal();
-
       // Link Phantom wallet if present from sign-in flow
       if (pendingWalletPublicKey != null) {
         final walletKey = pendingWalletPublicKey!;
@@ -1961,16 +1947,23 @@ class TranyxAppState extends State<TranyxApp> {
         } catch (_) {}
       }
 
-      _initGemini();
-      await loadJobs();
-      await loadTransactions();
-      _startListeningNotifications();
-      _startListeningJobs();
-      _startAllRentalAndPropertyListeners(profile.uid);
+      // Send verification email (W04) — stay on auth stack until user returns to login
+      try {
+        await _auth.sendEmailVerification(result.idToken);
+      } catch (_) {}
 
-      if (pendingQrJobId != null && pendingQrCode != null) {
-        await executePendingQrVerification();
-      }
+      setState(() {
+        isAuthenticated = false;
+        accountType = type;
+        hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+        userName = name;
+        userEmail = email;
+        userProfile = profile;
+        pendingVerifyEmail = email;
+        isAuthLoading = false;
+        authView = AuthView.kycPending;
+        activeTab = AppTab.home;
+      });
     } on FirebaseException catch (e) {
       String msg = e.message;
       if (msg.contains('EMAIL_EXISTS')) {
@@ -1994,6 +1987,34 @@ class TranyxAppState extends State<TranyxApp> {
     try {
       await _auth.resetPassword(email);
     } catch (_) {}
+  }
+
+  Future<void> handleResendVerificationEmail() async {
+    setState(() {
+      isAuthLoading = true;
+      authError = null;
+    });
+    try {
+      final token = SessionStorage.idToken;
+      if (token == null || token.isEmpty) {
+        setState(() {
+          authError = 'Sign in again to resend the verification email.';
+          isAuthLoading = false;
+          authView = AuthView.login;
+        });
+        return;
+      }
+      await _auth.sendEmailVerification(token);
+      setState(() {
+        isAuthLoading = false;
+      });
+      showAppToast('Email sent', 'Check your inbox for the verification link.');
+    } catch (e) {
+      setState(() {
+        authError = e.toString();
+        isAuthLoading = false;
+      });
+    }
   }
 
   Future<void> handleGoogleSignIn() async {
@@ -8471,38 +8492,12 @@ class TranyxAppState extends State<TranyxApp> {
     }
 
     if (!isAuthenticated && !isGuestBrowse) {
-      // W01 Sign-in uses a full-bleed split layout; other auth steps keep the
-      // centered card + metaballs shell.
-      if (authView == AuthView.login) {
-        final loginBg = isDark ? 'bg-zinc-950 text-zinc-50' : 'bg-[#f4f4f5] text-[#18181b]';
-        return div(
-          classes: 'min-h-screen w-full relative overflow-x-hidden font-dm-sans $loginBg',
-          [
-            AuthViewComponent(state: this),
-            if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
-            if (showMobileAppPrompt) MobileAppPromptModalComponent(state: this),
-          ],
-        );
-      }
-
-      // Trigger random web metaballs initialization
-      Timer.run(() => initRandomMetaballs('web-metaballs-container'));
-
+      // W01–W04 + forgot: full-bleed AuthBrandShell (animated brand blobs).
+      final authBg = isDark ? 'bg-zinc-950 text-zinc-50' : 'bg-[#f4f4f5] text-[#18181b]';
       return div(
-        classes:
-            'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12 relative overflow-hidden',
+        classes: 'min-h-screen w-full relative overflow-x-hidden font-dm-sans $authBg',
         [
-          // Floating 3D perspective grid background
-          div(classes: 'splash-grid pointer-events-none', []),
-          // Animated Metaballs background
-          div(
-            id: 'web-metaballs-container',
-            classes: 'metaball-container',
-            [],
-          ),
-          div(classes: 'w-full max-w-md p-6 z-10 relative', [
-            AuthViewComponent(state: this),
-          ]),
+          AuthViewComponent(state: this),
           if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
           if (showMobileAppPrompt) MobileAppPromptModalComponent(state: this),
         ],
