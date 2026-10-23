@@ -7,7 +7,7 @@ import { knownHole, setupEnv, seed, user, guest, userProfile, withdrawal } from 
 setupEnv();
 
 describe('MON: tyxBalance is server-only (regression for 879fd40)', () => {
-  knownHole('KNOWN-HOLE MON-01 [CRITICAL] owner cannot INCREASE own tyxBalance (10_workspace_users_wallets.rules:20-22,44 / compiled:130-132,154)', async () => {
+  knownHole('KNOWN-HOLE MON-01 [CRITICAL] owner cannot INCREASE own tyxBalance (10_workspace_users_wallets.rules / web refunds+host payouts still client-side; KAN-126 ledger)', async () => {
     await seed({ 'users/u1': userProfile('u1', { tyxBalance: 100 }) });
     await assertFails(updateDoc(doc(user('u1'), 'users/u1'), { tyxBalance: 1000000 }));
   });

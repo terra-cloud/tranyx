@@ -77,7 +77,7 @@ describe('STAFF-L: accounts that LOSE desk access under 2902ace (had it only bec
       }
     });
   }
-  knownHole('KNOWN-HOLE STAFF-L3 [CRITICAL] (=ESC-08/10, KAN-136) unverified @tranyx.app self-writes p2p_agents/{uid} (admin portal syncEnvAuth environment_provider.dart:81) and then reads every support chat', async () => {
+  it('STAFF-L3 [CRITICAL] (=ESC-08/10, KAN-136) unverified @tranyx.app cannot self-write p2p_agents/{uid} then read every support chat', async () => {
     await base();
     const db = user('nv', { email: 'nv@tranyx.app', email_verified: false });
     await setDoc(doc(db, 'p2p_agents/nv'), { uid: 'nv', email: 'nv@tranyx.app', role: 'agent', isActive: true }).catch(() => {});

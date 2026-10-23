@@ -52,14 +52,14 @@ describe('ESC: fresh signup self-granted role flags', () => {
 describe('ESC: unverified @tranyx.com email', () => {
   const unverified = () => user('impostor', { email: 'impostor@tranyx.com', email_verified: false });
 
-  knownHole('KNOWN-HOLE ESC-06 [CRITICAL] unverified @tranyx.com cannot create own users doc with role:"admin" (isStaffEmail ignores email_verified: 02_admin_helpers.rules:6-12, 10_...:13 / compiled:57-63,123)', async () => {
+  it('ESC-06 [CRITICAL] unverified @tranyx.com cannot create own users doc with role:"admin" (isStaffEmail requires email_verified)', async () => {
     await assertFails(setDoc(doc(unverified(), 'users/impostor'), userProfile('impostor', { email: 'impostor@tranyx.com', role: 'admin', isAdmin: true })));
   });
-  knownHole('KNOWN-HOLE ESC-07 [CRITICAL] unverified @tranyx.com cannot update own role (10_...:25 / compiled:135)', async () => {
+  it('ESC-07 [CRITICAL] unverified @tranyx.com cannot update own role', async () => {
     await seed({ 'users/impostor': userProfile('impostor', { email: 'impostor@tranyx.com' }) });
     await assertFails(updateDoc(doc(unverified(), 'users/impostor'), { role: 'admin', isAdmin: true }));
   });
-  knownHole('KNOWN-HOLE ESC-08 [CRITICAL] unverified @tranyx.com cannot write p2p_agents/{own uid} (60_...:8 / compiled:919)', async () => {
+  it('ESC-08 [CRITICAL] unverified @tranyx.com cannot write p2p_agents/{own uid}', async () => {
     await assertFails(setDoc(doc(unverified(), 'p2p_agents/impostor'), { uid: 'impostor', email: 'impostor@tranyx.com', role: 'agent', isActive: true }));
   });
   it('ESC-09 [CRITICAL] unverified @tranyx.com with no role docs gets no staff read (system_config) — secure today', async () => {

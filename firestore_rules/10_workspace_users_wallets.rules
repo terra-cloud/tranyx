@@ -59,6 +59,48 @@
         (txId.matches('^p2p_with_.+') && exists(wrPath) && get(wrPath).data.get('uid', '') == uid);
     }
 
+    // KAN-136 stopgap (until KAN-126 Cloud Function ledger): hired worker may create
+    // payout_nyx_<jobId> type=payout with amount bound to the job price. fees_emp_ /
+    // platform_fees / employer-driven completion stay Function-only (P1/P2).
+    function jobCompletionRatesOk(jobId, d) {
+      let job = get(/databases/$(database)/documents/jobs/$(jobId)).data;
+      let cfgPath = /databases/$(database)/documents/config/app_config;
+      let cfg = exists(cfgPath) ? get(cfgPath).data : {};
+      let commission = job.get('commissionRate', cfg.get('commissionRate', 0.03));
+      let holdback = job.get('holdbackRate', cfg.get('holdbackRate', 0.10));
+      return d.get('commissionRate', commission) == commission &&
+        d.get('holdbackRate', holdback) == holdback;
+    }
+    // Payout create: if the worker user doc is credited in the same batch, the bump cannot exceed amount.
+    function payoutCreditCapped(d) {
+      let uPath = /databases/$(database)/documents/users/$(d.uid);
+      return !exists(uPath) ||
+        (getAfter(uPath).data.get('tyxBalance', 0) - get(uPath).data.get('tyxBalance', 0) <= d.amount + 0.0001);
+    }
+    // Amount bound to job price (KAN-136-D2): > 0 and <= pricingValue (holdback may lower the immediate payout).
+    function payoutAmountBoundToJob(jobId, d) {
+      let price = get(/databases/$(database)/documents/jobs/$(jobId)).data.get('pricingValue', 0);
+      return price is number && price > 0 &&
+        d.amount is number && d.amount > 0 && d.amount <= price &&
+        d.get('baseAmount', price) == price;
+    }
+    function isJobCompletionTxCreate(txId) {
+      let d = request.resource.data;
+      let jobId = txId.replace('^payout_nyx_', '');
+      let jobPath = /databases/$(database)/documents/jobs/$(jobId);
+      return isActiveUser() &&
+        txId.matches('^payout_nyx_.+') &&
+        exists(jobPath) &&
+        d.type == 'payout' &&
+        d.uid == request.auth.uid &&
+        get(jobPath).data.get('acceptedApplicantId', null) == request.auth.uid &&
+        d.keys().hasAll(['uid', 'amount', 'status', 'type', 'createdAt']) &&
+        d.status == 'Successful' &&
+        payoutAmountBoundToJob(jobId, d) &&
+        jobCompletionRatesOk(jobId, d) &&
+        payoutCreditCapped(d);
+    }
+
     // Users Collection (Strict segregation of User vs Admin fields)
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
@@ -78,7 +120,7 @@
           'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil'
         ]))
         || 
-        // 2. Staff Bootstrap: User with official staff email domain can bootstrap staff role
+        // 2. Staff Bootstrap: verified staff-domain email only (isStaffEmail requires email_verified; KAN-136-B3)
         (isOwner(userId) && isStaffEmail())
         ||
         // 3. Admin / Staff: Can update admin, moderation & verification fields
@@ -178,9 +220,12 @@
       allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
       // create: a structured id (see isTxIdParty) only by its own party, so nobody can squat a
       // public job / property / request id before the real writer.
-      allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$') &&
+      // KAN-136 stopgap: hired worker may create payout_nyx_<job> type=payout (amount bound to job price).
+      allow create: if isAdminOrStaff() || isJobCompletionTxCreate(txId) || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$') &&
         (!txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*') || isTxIdParty(txId, request.auth.uid)));
-      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);
+      // KAN-136-05: structured job/property/p2p tx ids are create-only for clients (no owner rewrite/replay).
+      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid &&
+        !txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*'));
       allow delete: if isAdminOrStaff();
     }
 

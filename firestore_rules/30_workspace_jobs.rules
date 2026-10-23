@@ -153,18 +153,20 @@
         resource.data.creatorId == request.auth.uid || 
         isAdminOrStaff()
       );
-      allow delete: if (isActiveUser() && (
-        resource.data.employerId == request.auth.uid || 
-        resource.data.creatorId == request.auth.uid ||
-        (exists(/databases/$(database)/documents/jobs/$(jobId)) && 
-         get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid)
-      )) || isAdminOrStaff();
+      // KAN-136-09: only after the job is Completed (same-batch getAfter or already Completed).
+      allow delete: if isAdminOrStaff() || (isActiveUser() &&
+        exists(/databases/$(database)/documents/jobs/$(jobId)) &&
+        getAfter(/databases/$(database)/documents/jobs/$(jobId)).data.status in ['Completed', 'completed'] &&
+        (resource.data.employerId == request.auth.uid ||
+         resource.data.creatorId == request.auth.uid ||
+         get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid));
     }
 
     // Escrow Holdbacks Collection
     match /escrow_holdbacks/{holdbackId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || isAdminOrStaff());
-      allow create, update: if isActiveUser() && (request.resource.data.uid == request.auth.uid || request.resource.data.employerId == request.auth.uid || isAdminOrStaff());
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || resource.data.get('nyxianId', null) == request.auth.uid || isAdminOrStaff());
+      // Mobile completion writes nyxianId (not uid); allow worker or employer.
+      allow create, update: if isActiveUser() && (request.resource.data.uid == request.auth.uid || request.resource.data.employerId == request.auth.uid || request.resource.data.get('nyxianId', null) == request.auth.uid || isAdminOrStaff());
       allow delete: if isAdminOrStaff();
     }
 

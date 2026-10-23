@@ -4,7 +4,10 @@
 
     // Helper to check if the user has an official staff/admin email domain
     function isStaffEmail() {
-      return isAuthenticated() && request.auth.token.email != null && (
+      // Staff-domain email alone is not enough — must be verified (KAN-136-B1/B3).
+      return isAuthenticated() &&
+        request.auth.token.email != null &&
+        request.auth.token.email_verified == true && (
         request.auth.token.email.matches('.*\\.(agents|agent|admin|staff)@tranyx\\.(app|com|ph)$') ||
         request.auth.token.email.matches('.*@(admin|staff|agents|agent)\\.tranyx\\.(app|com|ph)$') ||
         request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.ph|tranyx\\.com|terra\\.app|tranyx\\.dev)$')
@@ -48,7 +51,9 @@
 
     // Step 3: Lazy check on /p2p_agents/{uid} document
     function isP2pAgentInDoc() {
-      return exists(/databases/$(database)/documents/p2p_agents/$(request.auth.uid));
+      // Deactivated agents (isActive:false) lose desk access (KAN-136-B5).
+      let path = /databases/$(database)/documents/p2p_agents/$(request.auth.uid);
+      return exists(path) && get(path).data.get('isActive', false) == true;
     }
 
     // Helper to check if the user is an admin, staff member, or registered P2P agent

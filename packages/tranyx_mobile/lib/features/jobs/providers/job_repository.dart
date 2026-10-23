@@ -678,6 +678,8 @@ class JobRepository {
             'totalEarned': currentEarned + immediatePayout,
             'completedGigsCount': newGigsCount,
             'repeatHireRate': repeatHireRate,
+            // KAN-136 stopgap: links this credit to payout_nyx_<jobId> for rules (until KAN-126).
+            'lastCompletedJobId': jobId,
             if (redeemedPromoCode != null) 'activePromoCode': null,
             if (redeemedPromoCode != null) 'activePromoDiscountType': null,
             if (redeemedPromoCode != null) 'activePromoDiscountValue': null,
@@ -766,6 +768,8 @@ class JobRepository {
 
           transaction.update(empRef!, {
             'tyxBalance': safeBal,
+            // KAN-136 stopgap: links this debit to fees_emp_<jobId> for rules (until KAN-126).
+            'lastCompletedJobId': jobId,
           });
         }
 

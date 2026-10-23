@@ -84,7 +84,7 @@
       allow write: if isAdminOrStaff();
     }
 
-    // Platform Fees Collection (Admin managed)
+    // Platform Fees Collection (Admin managed). Client creates stay Function-only (KAN-136-P1 / D10).
     match /platform_fees/{feeId} {
       allow read: if isAuthenticated();
       allow write: if isAdminOrStaff();

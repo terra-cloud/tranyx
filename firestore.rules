@@ -1,9 +1,9 @@
-// =============================================================================
+// ============================================================================
 // TRANYX PRODUCTION CLOUD FIRESTORE RULES
 // AUTO-GENERATED - DO NOT DIRECTLY EDIT THIS FILE!
 // To make changes, edit files in "firestore_rules/" and compile via:
-//   python3 /tmp/saga_rules/compile.py firestore_rules firestore.rules
-// =============================================================================
+//   dart run tool/build_rules.dart
+// ============================================================================
 
 // >>> SOURCE: firestore_rules/00_header.rules
 // ============================================================================
@@ -55,7 +55,10 @@ service cloud.firestore {
 
     // Helper to check if the user has an official staff/admin email domain
     function isStaffEmail() {
-      return isAuthenticated() && request.auth.token.email != null && (
+      // Staff-domain email alone is not enough — must be verified (KAN-136-B1/B3).
+      return isAuthenticated() &&
+        request.auth.token.email != null &&
+        request.auth.token.email_verified == true && (
         request.auth.token.email.matches('.*\\.(agents|agent|admin|staff)@tranyx\\.(app|com|ph)$') ||
         request.auth.token.email.matches('.*@(admin|staff|agents|agent)\\.tranyx\\.(app|com|ph)$') ||
         request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.ph|tranyx\\.com|terra\\.app|tranyx\\.dev)$')
@@ -99,7 +102,9 @@ service cloud.firestore {
 
     // Step 3: Lazy check on /p2p_agents/{uid} document
     function isP2pAgentInDoc() {
-      return exists(/databases/$(database)/documents/p2p_agents/$(request.auth.uid));
+      // Deactivated agents (isActive:false) lose desk access (KAN-136-B5).
+      let path = /databases/$(database)/documents/p2p_agents/$(request.auth.uid);
+      return exists(path) && get(path).data.get('isActive', false) == true;
     }
 
     // Helper to check if the user is an admin, staff member, or registered P2P agent
@@ -169,6 +174,48 @@ service cloud.firestore {
         (txId.matches('^p2p_with_.+') && exists(wrPath) && get(wrPath).data.get('uid', '') == uid);
     }
 
+    // KAN-136 stopgap (until KAN-126 Cloud Function ledger): hired worker may create
+    // payout_nyx_<jobId> type=payout with amount bound to the job price. fees_emp_ /
+    // platform_fees / employer-driven completion stay Function-only (P1/P2).
+    function jobCompletionRatesOk(jobId, d) {
+      let job = get(/databases/$(database)/documents/jobs/$(jobId)).data;
+      let cfgPath = /databases/$(database)/documents/config/app_config;
+      let cfg = exists(cfgPath) ? get(cfgPath).data : {};
+      let commission = job.get('commissionRate', cfg.get('commissionRate', 0.03));
+      let holdback = job.get('holdbackRate', cfg.get('holdbackRate', 0.10));
+      return d.get('commissionRate', commission) == commission &&
+        d.get('holdbackRate', holdback) == holdback;
+    }
+    // Payout create: if the worker user doc is credited in the same batch, the bump cannot exceed amount.
+    function payoutCreditCapped(d) {
+      let uPath = /databases/$(database)/documents/users/$(d.uid);
+      return !exists(uPath) ||
+        (getAfter(uPath).data.get('tyxBalance', 0) - get(uPath).data.get('tyxBalance', 0) <= d.amount + 0.0001);
+    }
+    // Amount bound to job price (KAN-136-D2): > 0 and <= pricingValue (holdback may lower the immediate payout).
+    function payoutAmountBoundToJob(jobId, d) {
+      let price = get(/databases/$(database)/documents/jobs/$(jobId)).data.get('pricingValue', 0);
+      return price is number && price > 0 &&
+        d.amount is number && d.amount > 0 && d.amount <= price &&
+        d.get('baseAmount', price) == price;
+    }
+    function isJobCompletionTxCreate(txId) {
+      let d = request.resource.data;
+      let jobId = txId.replace('^payout_nyx_', '');
+      let jobPath = /databases/$(database)/documents/jobs/$(jobId);
+      return isActiveUser() &&
+        txId.matches('^payout_nyx_.+') &&
+        exists(jobPath) &&
+        d.type == 'payout' &&
+        d.uid == request.auth.uid &&
+        get(jobPath).data.get('acceptedApplicantId', null) == request.auth.uid &&
+        d.keys().hasAll(['uid', 'amount', 'status', 'type', 'createdAt']) &&
+        d.status == 'Successful' &&
+        payoutAmountBoundToJob(jobId, d) &&
+        jobCompletionRatesOk(jobId, d) &&
+        payoutCreditCapped(d);
+    }
+
     // Users Collection (Strict segregation of User vs Admin fields)
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
@@ -188,7 +235,7 @@ service cloud.firestore {
           'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil'
         ]))
         || 
-        // 2. Staff Bootstrap: User with official staff email domain can bootstrap staff role
+        // 2. Staff Bootstrap: verified staff-domain email only (isStaffEmail requires email_verified; KAN-136-B3)
         (isOwner(userId) && isStaffEmail())
         ||
         // 3. Admin / Staff: Can update admin, moderation & verification fields
@@ -288,9 +335,12 @@ service cloud.firestore {
       allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
       // create: a structured id (see isTxIdParty) only by its own party, so nobody can squat a
       // public job / property / request id before the real writer.
-      allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$') &&
+      // KAN-136 stopgap: hired worker may create payout_nyx_<job> type=payout (amount bound to job price).
+      allow create: if isAdminOrStaff() || isJobCompletionTxCreate(txId) || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$') &&
         (!txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*') || isTxIdParty(txId, request.auth.uid)));
-      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);
+      // KAN-136-05: structured job/property/p2p tx ids are create-only for clients (no owner rewrite/replay).
+      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid &&
+        !txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*'));
       allow delete: if isAdminOrStaff();
     }
 
@@ -725,18 +775,20 @@ service cloud.firestore {
         resource.data.creatorId == request.auth.uid || 
         isAdminOrStaff()
       );
-      allow delete: if (isActiveUser() && (
-        resource.data.employerId == request.auth.uid || 
-        resource.data.creatorId == request.auth.uid ||
-        (exists(/databases/$(database)/documents/jobs/$(jobId)) && 
-         get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid)
-      )) || isAdminOrStaff();
+      // KAN-136-09: only after the job is Completed (same-batch getAfter or already Completed).
+      allow delete: if isAdminOrStaff() || (isActiveUser() &&
+        exists(/databases/$(database)/documents/jobs/$(jobId)) &&
+        getAfter(/databases/$(database)/documents/jobs/$(jobId)).data.status in ['Completed', 'completed'] &&
+        (resource.data.employerId == request.auth.uid ||
+         resource.data.creatorId == request.auth.uid ||
+         get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid));
     }
 
     // Escrow Holdbacks Collection
     match /escrow_holdbacks/{holdbackId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || isAdminOrStaff());
-      allow create, update: if isActiveUser() && (request.resource.data.uid == request.auth.uid || request.resource.data.employerId == request.auth.uid || isAdminOrStaff());
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || resource.data.get('nyxianId', null) == request.auth.uid || isAdminOrStaff());
+      // Mobile completion writes nyxianId (not uid); allow worker or employer.
+      allow create, update: if isActiveUser() && (request.resource.data.uid == request.auth.uid || request.resource.data.employerId == request.auth.uid || request.resource.data.get('nyxianId', null) == request.auth.uid || isAdminOrStaff());
       allow delete: if isAdminOrStaff();
     }
 
@@ -1145,7 +1197,7 @@ service cloud.firestore {
       allow write: if isAdminOrStaff();
     }
 
-    // Platform Fees Collection (Admin managed)
+    // Platform Fees Collection (Admin managed). Client creates stay Function-only (KAN-136-P1 / D10).
     match /platform_fees/{feeId} {
       allow read: if isAuthenticated();
       allow write: if isAdminOrStaff();
@@ -1217,3 +1269,4 @@ service cloud.firestore {
     }
   }
 }
+
