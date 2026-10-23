@@ -12,6 +12,7 @@ class TopHeaderComponent extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final s = state;
+    if (s.isGuestBrowse) return _buildGuestHeader(s);
     final isDark = s.isDark;
     final borderCls = isDark ? 'border-zinc-800 bg-zinc-900/60' : 'border-zinc-200 bg-white/80';
 
@@ -75,6 +76,66 @@ class TopHeaderComponent extends StatelessComponent {
                   Component.text(s.userName.isNotEmpty ? s.userName[0].toUpperCase() : '?'),
                 ]),
             ],
+          ),
+        ]),
+      ],
+    );
+  }
+
+
+  Component _buildGuestHeader(TranyxAppState s) {
+    final isDark = s.isDark;
+    final borderCls = isDark ? 'border-zinc-800 bg-zinc-950/80' : 'border-[#e4e4e7] bg-white/90';
+    return header(
+      classes:
+          'relative flex items-center gap-4 px-6 py-3 border-b $borderCls backdrop-blur-sm flex-shrink-0 z-50 font-dm-sans',
+      [
+        div(classes: 'flex items-center gap-2 shrink-0', [
+          h1(classes: 'text-lg font-bold ${isDark ? "text-zinc-50" : "text-[#18181b]"} m-0', [
+            Component.text(s.activeTab == AppTab.home ? 'Home' : _tabLabel(s.activeTab)),
+          ]),
+          span(
+            classes:
+                'px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${isDark ? "bg-zinc-800 text-zinc-300" : "bg-zinc-100 text-zinc-600"}',
+            [Component.text('Guest')],
+          ),
+        ]),
+        div(
+          classes:
+              'hidden md:flex flex-1 max-w-xl mx-auto h-11 items-center gap-2 px-3 rounded-xl border '
+              '${isDark ? "bg-zinc-900 border-zinc-700 text-zinc-400" : "bg-zinc-100 border-zinc-200 text-zinc-500"}',
+          [
+            img(src: '/images/w05/ec717.svg', classes: 'size-4 ${isDark ? "opacity-70 invert" : ""}', attributes: {'alt': ''}),
+            span(classes: 'flex-1 text-sm', [Component.text('Search gigs, vehicles, spaces')]),
+            span(
+              classes:
+                  'text-[10px] font-semibold px-1.5 py-0.5 rounded border ${isDark ? "border-zinc-700 text-zinc-500" : "border-zinc-300 text-zinc-400"}',
+              [Component.text('⌘K')],
+            ),
+          ],
+        ),
+        div(classes: 'flex items-center gap-2 ml-auto shrink-0', [
+          button(
+            classes:
+                'p-2.5 rounded-xl transition-colors ${isDark ? "bg-zinc-800 text-zinc-400 hover:text-yellow-400" : "bg-zinc-100 text-zinc-500 hover:text-indigo-600"}',
+            events: {'click': (_) => s.toggleTheme()},
+            attributes: {'title': isDark ? 'Light mode' : 'Dark mode', 'type': 'button'},
+            [lIcon(isDark ? 'sun' : 'moon', cls: 'w-4 h-4')],
+          ),
+          button(
+            classes:
+                'h-10 px-4 rounded-xl font-semibold text-sm border cursor-pointer '
+                '${isDark ? "bg-zinc-900 border-zinc-700 text-zinc-100" : "bg-white border-[#d4d4d8] text-[#18181b]"}',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => s.promptGuestSignIn()},
+            [Component.text('Sign In')],
+          ),
+          button(
+            classes:
+                'h-10 px-4 rounded-xl font-semibold text-sm text-white bg-[#4f46e5] border-0 cursor-pointer hover:opacity-90',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => s.promptGuestSignUp()},
+            [Component.text('Create account')],
           ),
         ]),
       ],

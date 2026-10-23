@@ -11,6 +11,7 @@ class SidebarComponent extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final s = state;
+    if (s.isGuestBrowse) return _buildGuestSidebar(s);
     final isDark = s.isDark;
     final borderCls = isDark ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
 
@@ -39,6 +40,79 @@ class SidebarComponent extends StatelessComponent {
             [lIcon('log-out', cls: 'w-6 h-6')],
           ),
         ]),
+      ],
+    );
+  }
+
+  Component _buildGuestSidebar(TranyxAppState s) {
+    final isDark = s.isDark;
+    final bg = isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-[#e4e4e7]';
+    final muted = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+    return nav(
+      classes: 'hidden md:flex flex-col w-[240px] border-r py-6 px-4 transition-colors duration-500 font-dm-sans $bg',
+      [
+        div(classes: 'flex items-center gap-2 px-2 mb-6', [
+          img(src: '/images/w05/fef74.png', classes: 'h-8 w-10 object-contain', attributes: {'alt': 'Tranyx'}),
+        ]),
+        button(
+          classes:
+              'mb-6 w-full h-11 rounded-xl font-semibold text-sm border cursor-pointer '
+              '${isDark ? "border-indigo-400/40 text-indigo-300 bg-zinc-900 hover:bg-zinc-800" : "border-[#4f46e5]/40 text-[#4f46e5] bg-zinc-50 hover:bg-indigo-50"}',
+          attributes: {'type': 'button'},
+          events: {'click': (_) => s.promptGuestSignUp()},
+          [Component.text('Sign up to post')],
+        ),
+        div(classes: 'flex-1 space-y-1', [
+          _guestNav(AppTab.home, 'home', 'Dashboard', s, locked: false),
+          _guestNav(AppTab.jobs, 'briefcase', 'Jobs', s, locked: false),
+          _guestNav(AppTab.transit, 'key', 'Rentals', s, locked: false),
+          _guestNav(AppTab.messages, 'message-circle', 'Messages', s, locked: true),
+          _guestNav(AppTab.profile, 'user', 'Profile', s, locked: true),
+        ]),
+        div(
+          classes:
+              'mt-auto rounded-2xl p-4 ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-[#eef2ff] border border-indigo-100"}',
+          [
+            p(classes: 'm-0 text-sm font-semibold ${isDark ? "text-zinc-50" : "text-[#18181b]"}', [
+              Component.text('Join Tranyx to apply, book and get paid'),
+            ]),
+            button(
+              classes:
+                  'mt-3 w-full h-10 rounded-xl font-semibold text-sm text-white bg-[#4f46e5] border-0 cursor-pointer hover:opacity-90',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => s.promptGuestSignUp()},
+              [Component.text('Create account')],
+            ),
+            button(
+              classes: 'mt-2 w-full text-sm font-semibold text-[#4f46e5] bg-transparent border-0 cursor-pointer hover:underline',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => s.promptGuestSignIn()},
+              [Component.text('Sign In')],
+            ),
+          ],
+        ),
+        p(classes: 'mt-4 text-[10px] font-semibold uppercase tracking-wider text-center $muted', [
+          Component.text('Powered by Terra'),
+        ]),
+      ],
+    );
+  }
+
+  Component _guestNav(AppTab tab, String icon, String label, TranyxAppState s, {required bool locked}) {
+    final isDark = s.isDark;
+    final isActive = s.activeTab == tab;
+    final active = isDark ? 'bg-indigo-500/20 text-indigo-300' : 'bg-[#eef2ff] text-[#4f46e5]';
+    final inactive = isDark ? 'text-zinc-400 hover:bg-zinc-900' : 'text-[#52525b] hover:bg-zinc-50';
+    return button(
+      classes:
+          'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors cursor-pointer border-0 bg-transparent ${isActive ? active : inactive}',
+      attributes: {'type': 'button'},
+      events: {'click': (_) => s.switchTab(tab)},
+      [
+        lIcon(icon, cls: 'w-5 h-5'),
+        span(classes: 'flex-1 text-left', [Component.text(label)]),
+        if (locked)
+          img(src: '/images/w05/295b0.svg', classes: 'size-3.5 ${isDark ? "opacity-70 invert" : ""}', attributes: {'alt': ''}),
       ],
     );
   }

@@ -19,6 +19,7 @@ import '../pages/privacy_policy.dart';
 import '../pages/terms_of_use.dart';
 import '../client/views/auth_view.dart';
 import '../client/views/home_view.dart';
+import '../client/views/guest_browse_view.dart';
 import '../client/views/jobs_view.dart';
 import '../client/views/transit_view.dart';
 import '../client/views/messages_view.dart';
@@ -147,6 +148,8 @@ class TranyxAppState extends State<TranyxApp> {
   bool showWebSplash = true;
   bool showMobileAppPrompt = false;
   bool isAuthenticated = false;
+  /// Public browse without an account (W05). Mutually exclusive with auth session.
+  bool isGuestBrowse = false;
   bool isAuthLoading = false;
   String? authError;
   String? fullScreenPhotoUrl;
@@ -2206,6 +2209,7 @@ class TranyxAppState extends State<TranyxApp> {
     unawaited(signOutJs());
     setState(() {
       isAuthenticated = false;
+      isGuestBrowse = false;
       authView = AuthView.login;
       profileView = ProfileView.main;
       userProfile = null;
@@ -2220,6 +2224,30 @@ class TranyxAppState extends State<TranyxApp> {
     });
     _updateDocumentTitle();
   }
+
+  /// W05 — enter public browse shell without signing in.
+  void enterGuestBrowse() {
+    setState(() {
+      isGuestBrowse = true;
+      isAuthenticated = false;
+      showWebSplash = false;
+      activeTab = AppTab.home;
+      authError = null;
+      authView = AuthView.login;
+    });
+  }
+
+  void exitGuestBrowse({AuthView view = AuthView.login}) {
+    setState(() {
+      isGuestBrowse = false;
+      authView = view;
+      activeTab = AppTab.home;
+    });
+  }
+
+  void promptGuestSignUp() => exitGuestBrowse(view: AuthView.registerPath);
+
+  void promptGuestSignIn() => exitGuestBrowse(view: AuthView.login);
 
   // ── Job actions ─────────────────────────────────────────────
 
@@ -7315,6 +7343,12 @@ class TranyxAppState extends State<TranyxApp> {
   void switchTab(AppTab tab) {
     if (activeTab == tab) return;
 
+    if (isGuestBrowse && (tab == AppTab.messages || tab == AppTab.profile)) {
+      // Locked for guests — nudge toward account creation.
+      promptGuestSignUp();
+      return;
+    }
+
     SessionStorage.activeTab = tab.name;
 
     setState(() {
@@ -8380,7 +8414,7 @@ class TranyxAppState extends State<TranyxApp> {
       );
     }
 
-    if (!isAuthenticated) {
+    if (!isAuthenticated && !isGuestBrowse) {
       // W01 Sign-in uses a full-bleed split layout; other auth steps keep the
       // centered card + metaballs shell.
       if (authView == AuthView.login) {
@@ -8437,12 +8471,27 @@ class TranyxAppState extends State<TranyxApp> {
         else
           // Scrollable content
           div(classes: 'flex-1 overflow-y-auto no-scrollbar pb-24 md:pb-8', [
-            div(classes: 'mx-auto w-full max-w-6xl p-6 md:p-10', [
-              if (activeTab == AppTab.home) HomeViewComponent(state: this),
+            div(classes: 'mx-auto w-full max-w-6xl p-6 md:p-10 ${isGuestBrowse ? "font-dm-sans" : ""}', [
+              if (activeTab == AppTab.home)
+                (isGuestBrowse ? GuestBrowseViewComponent(state: this) : HomeViewComponent(state: this)),
               if (activeTab == AppTab.jobs) JobsViewComponent(state: this),
               if (activeTab == AppTab.transit) TransitViewComponent(state: this),
-              if (activeTab == AppTab.messages) MessagesViewComponent(state: this),
-              if (activeTab == AppTab.profile) ProfileViewComponent(state: this),
+              if (activeTab == AppTab.messages)
+                (isGuestBrowse
+                    ? GuestLockedPane(
+                        state: this,
+                        title: 'Messages',
+                        body: 'Sign up to chat with employers, hosts, and support.',
+                      )
+                    : MessagesViewComponent(state: this)),
+              if (activeTab == AppTab.profile)
+                (isGuestBrowse
+                    ? GuestLockedPane(
+                        state: this,
+                        title: 'Profile & wallet',
+                        body: 'Create an account to manage KYC, payouts, and settings.',
+                      )
+                    : ProfileViewComponent(state: this)),
             ]),
           ]),
 

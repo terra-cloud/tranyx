@@ -2,5 +2,6 @@
 
 | Timestamp (Asia/Manila) | Target | Status | Notes |
 | --- | --- | --- | --- |
-| 2026-10-23 11:15 | `packages/tranyx_web` W01 Auth · Sign in | COMMITTED | `881fb75` split login + local assets. |
-| 2026-10-23 11:25 | `packages/tranyx_web` system theme | IN_PROGRESS | Effective theme = stored `tranyx_theme_preference` else `prefers-color-scheme`; live OS listener; W01 light+dark tokens; FOUC script in index.html. |
+| 2026-10-23 11:15 | W01 Auth · Sign in | COMMITTED | `881fb75` |
+| 2026-10-23 11:25 | System theme (OS default) | COMMITTED | `afb6953` — prefers-color-scheme + `tranyx_theme_preference` |
+| 2026-10-23 11:40 | W05 Guest · Browse home | COMMITTED | Guest shell + Browse as guest from W01; light/dark tokens; static sample listings |

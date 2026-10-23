@@ -361,10 +361,7 @@ class _LoginScreenState extends State<_LoginScreen> {
                       'w-full h-12 rounded-xl font-semibold text-sm tracking-[0.1px] $link bg-transparent border-0 cursor-pointer hover:underline',
                   attributes: {'type': 'button'},
                   events: {
-                    'click': (_) => setState(() {
-                          _localInfo = 'Guest browse is coming in Batch A (W05).';
-                          _localError = null;
-                        }),
+                    'click': (_) => s.enterGuestBrowse(),
                   },
                   [Component.text('Browse as guest')],
                 ),
