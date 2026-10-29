@@ -586,6 +586,14 @@ String _docId(Map doc) {
   return name.split('/').last;
 }
 
+/// What an on-chain credit changes on the user doc: plain [set] fields (a null
+/// value deletes the field) and numeric [increments] applied server-side.
+class OnchainUserUpdate {
+  const OnchainUserUpdate({this.set = const {}, this.increments = const {}});
+  final Map<String, dynamic> set;
+  final Map<String, double> increments;
+}
+
 // ── Firestore service ─────────────────────────────────────────────────────────
 class FirestoreService {
   String? idToken;
@@ -689,6 +697,309 @@ class FirestoreService {
 
   Future<Map<String, dynamic>?> getEscrow(String jobId) async {
     return await getDocument('escrow/$jobId');
+  }
+
+  // ── On-chain credit: one Firestore transaction over REST ───────────────────
+  // Same contract as mobile (packages/shared/lib/src/onchain_credit.dart): read
+  // onchain_<sig> first; a foreign holder ends the transaction (no per-flow read);
+  // otherwise write the user update (FieldValue.increment for balances), the
+  // per-flow marker (create-only), the shared marker (exactly the allowed keys)
+  // and mark pending_onchain_<uid>_<sig> done, all in ONE commit.
+
+  String get _docRoot => 'projects/${currentFirebaseConfig.projectId}/databases/(default)/documents';
+
+  Map<String, dynamic> _onchainWrite(
+    String path,
+    Map<String, dynamic> data, {
+    bool? mustExist,
+    List<String>? maskPaths,
+    Map<String, double> increments = const {},
+  }) => {
+    'update': {'name': '$_docRoot/$path', 'fields': _toFirestoreFields(data)['fields']},
+    if (maskPaths != null) 'updateMask': {'fieldPaths': maskPaths},
+    if (mustExist != null) 'currentDocument': {'exists': mustExist},
+    if (increments.isNotEmpty)
+      'updateTransforms': [
+        for (final e in increments.entries) {'fieldPath': e.key, 'increment': {'doubleValue': e.value}},
+      ],
+  };
+
+  Future<Map<String, dynamic>?> _getDocInTxn(String path, String txn) async {
+    try {
+      final res = await _get(
+        '$_firestoreBase/$path?transaction=${Uri.encodeQueryComponent(txn)}',
+        idToken: idToken,
+        onTokenRefresh: _refreshToken,
+      );
+      if (res.isEmpty || !res.containsKey('fields')) return null;
+      return _fromFirestoreDoc(res);
+    } on FirebaseException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// Records that [signature] was sent for [uid] and is awaiting the credit.
+  /// Create-only (never overwrites). Best effort: the payment already left the wallet.
+  Future<void> writePendingOnchain({
+    required String uid,
+    required String signature,
+    required String kind, // 'deposit' | 'subscription'
+    required double phpAmount,
+    required double cryptoAmount,
+    required String currency,
+  }) async {
+    try {
+      await _post(
+        '$_firestoreBase:commit',
+        {
+          'writes': [
+            _onchainWrite(
+              'transactions/${pendingOnchainId(uid, signature)}',
+              pendingOnchainData(
+                uid: uid,
+                signature: signature,
+                kind: kind,
+                phpAmount: phpAmount,
+                cryptoAmount: cryptoAmount,
+                currency: currency,
+                startedAt: DateTime.now().millisecondsSinceEpoch,
+              ),
+              mustExist: false,
+            ),
+          ],
+        },
+        idToken: idToken,
+        onTokenRefresh: _refreshToken,
+      );
+    } catch (_) {}
+  }
+
+  /// Leaves the pending record pending and notes why, for support. Creates a
+  /// minimal one when none exists. Never touches a `done` record. Best effort.
+  Future<void> notePendingOnchain({
+    required String uid,
+    required String signature,
+    required String note,
+    String kind = 'deposit',
+  }) async {
+    try {
+      final path = 'transactions/${pendingOnchainId(uid, signature)}';
+      final existing = await getDocument(path);
+      if (existing == null) {
+        await _post(
+          '$_firestoreBase:commit',
+          {
+            'writes': [
+              _onchainWrite(
+                path,
+                pendingOnchainData(
+                  uid: uid,
+                  signature: signature,
+                  kind: kind,
+                  startedAt: DateTime.now().millisecondsSinceEpoch,
+                  note: note,
+                ),
+                mustExist: false,
+              ),
+            ],
+          },
+          idToken: idToken,
+          onTokenRefresh: _refreshToken,
+        );
+      } else if (existing['status'] == 'pending') {
+        await setDocument(path, {'note': note});
+      }
+    } catch (_) {}
+  }
+
+  /// Credits [phpAmount] for an on-chain deposit exactly once per signature.
+  Future<OnchainCommitResult> creditOnchainDeposit({
+    required String uid,
+    required String signature,
+    required String markerId, // deposit_sol_<sig> | deposit_usdt_<sig>
+    required double phpAmount,
+    required Map<String, dynamic> markerData,
+  }) => commitOnchainOnce(
+    uid: uid,
+    signature: signature,
+    markerId: markerId,
+    markerData: markerData,
+    kind: 'deposit',
+    buildUserUpdate: (_) => OnchainUserUpdate(increments: {'tyxBalance': phpAmount}),
+  );
+
+  /// Activates Hybrid PRO exactly once per signature; expiry extends from
+  /// max(now, premiumUntil). [markerData] is the `sub_sol_<sig>` record.
+  Future<OnchainCommitResult> activateSubscriptionOnchain({
+    required String uid,
+    required String signature,
+    required String plan, // 'yearly' | 'monthly'
+    required double phpAmount,
+    required Map<String, dynamic> markerData,
+    DateTime? now,
+  }) {
+    final nowMs = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    return commitOnchainOnce(
+      uid: uid,
+      signature: signature,
+      markerId: 'sub_sol_$signature',
+      markerData: markerData,
+      kind: 'subscription',
+      buildUserUpdate: (user) => OnchainUserUpdate(
+        set: {
+          'isPremium': true,
+          'premiumUntil': nextPremiumUntilMs(
+            currentPremiumUntilMs: (user['premiumUntil'] as num?)?.toInt(),
+            nowMs: nowMs,
+            plan: plan,
+          ),
+          'accountType': 'hybrid',
+          'subscriptionPlan': plan,
+          'subscriptionStartedAt': nowMs,
+          'subscriptionPaymentMethod': 'Solana (SOL)',
+          'subscriptionPaymentAmount': phpAmount,
+          'subscriptionTxId': signature,
+          'subscriptionStatus': 'active',
+          'pendingSubscription': null,
+        },
+      ),
+    );
+  }
+
+  /// The credit transaction. Outcomes mirror mobile's commitOnceByMarker:
+  /// credited / alreadyProcessed (same uid holds a marker) / heldByAnotherAccount
+  /// (a foreign marker was READ) / refusedByRules (permission-denied, with its own
+  /// pending note). Anything else is rethrown.
+  Future<OnchainCommitResult> commitOnchainOnce({
+    required String uid,
+    required String signature,
+    required String markerId,
+    required Map<String, dynamic> markerData,
+    required OnchainUserUpdate Function(Map<String, dynamic> user) buildUserUpdate,
+    String kind = 'deposit',
+  }) async {
+    var attempt = 0;
+    while (true) {
+      attempt++;
+      try {
+        return await _commitOnchainAttempt(
+          uid: uid,
+          signature: signature,
+          markerId: markerId,
+          markerData: markerData,
+          buildUserUpdate: buildUserUpdate,
+          kind: kind,
+        );
+      } on FirebaseException catch (e) {
+        // 409 = aborted by contention (or a marker created meanwhile): re-run, the
+        // fresh read of onchain_<sig> then decides.
+        if (e.statusCode == 409 && attempt < 3) continue;
+        if (isPermissionDeniedError(e)) {
+          await notePendingOnchain(uid: uid, signature: signature, note: kRefusedByRulesNote, kind: kind);
+          return OnchainCommitResult.refusedByRules;
+        }
+        rethrow;
+      }
+    }
+  }
+
+  Future<OnchainCommitResult> _commitOnchainAttempt({
+    required String uid,
+    required String signature,
+    required String markerId,
+    required Map<String, dynamic> markerData,
+    required OnchainUserUpdate Function(Map<String, dynamic> user) buildUserUpdate,
+    required String kind,
+  }) async {
+    final begin = await _post('$_firestoreBase:beginTransaction', {}, idToken: idToken, onTokenRefresh: _refreshToken);
+    final txn = begin['transaction'] as String;
+    final pendingPath = 'transactions/${pendingOnchainId(uid, signature)}';
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    Future<void> commit(List<Map<String, dynamic>> writes) async {
+      await _post(
+        '$_firestoreBase:commit',
+        {'transaction': txn, 'writes': writes},
+        idToken: idToken,
+        onTokenRefresh: _refreshToken,
+      );
+    }
+
+    Future<void> rollback() async {
+      try {
+        await _post('$_firestoreBase:rollback', {'transaction': txn}, idToken: idToken, onTokenRefresh: _refreshToken);
+      } catch (_) {}
+    }
+
+    // Leaves the caller's own pending record open with a note; no balance change.
+    Future<OnchainCommitResult> held() async {
+      final pending = await _getDocInTxn(pendingPath, txn);
+      if (pending == null) {
+        await commit([
+          _onchainWrite(
+            pendingPath,
+            pendingOnchainData(uid: uid, signature: signature, kind: kind, startedAt: nowMs, note: kMarkerHeldNote),
+            mustExist: false,
+          ),
+        ]);
+      } else if (pending['status'] != 'done') {
+        await commit([
+          _onchainWrite(pendingPath, {'note': kMarkerHeldNote}, mustExist: true, maskPaths: ['note']),
+        ]);
+      } else {
+        await rollback();
+      }
+      return OnchainCommitResult.heldByAnotherAccount;
+    }
+
+    // Reads first; the shared marker before anything else.
+    final onchain = await _getDocInTxn('transactions/${onchainMarkerId(signature)}', txn);
+    if (onchain != null && onchain['uid'] != uid) return held();
+    if (onchain != null) {
+      await rollback();
+      return OnchainCommitResult.alreadyProcessed;
+    }
+
+    final perFlow = await _getDocInTxn('transactions/$markerId', txn);
+    if (perFlow != null) {
+      if (perFlow['uid'] != uid) return held();
+      await rollback();
+      return OnchainCommitResult.alreadyProcessed;
+    }
+
+    final user = await _getDocInTxn('users/$uid', txn);
+    if (user == null) {
+      await rollback();
+      throw Exception('User profile not found for uid: $uid');
+    }
+    final pending = await _getDocInTxn(pendingPath, txn);
+
+    final update = buildUserUpdate(user);
+    await commit([
+      _onchainWrite(
+        'users/$uid',
+        update.set,
+        mustExist: true,
+        maskPaths: update.set.keys.toList(),
+        increments: update.increments,
+      ),
+      _onchainWrite('transactions/$markerId', markerData, mustExist: false),
+      // Exactly these keys: the rules reject anything else.
+      _onchainWrite(
+        'transactions/${onchainMarkerId(signature)}',
+        onchainMarkerData(uid: uid, signature: signature, markerId: markerId, markedAt: nowMs),
+        mustExist: false,
+      ),
+      if (pending != null)
+        _onchainWrite(
+          pendingPath,
+          {'status': 'done', 'completedAt': nowMs},
+          mustExist: true,
+          maskPaths: ['status', 'completedAt'],
+        ),
+    ]);
+    return OnchainCommitResult.credited;
   }
 
   // ── Users ──────────────────────────────────────────────────

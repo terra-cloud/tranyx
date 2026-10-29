@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tranyx_mobile/core/services/onchain_credit.dart';
@@ -470,4 +471,207 @@ void main() {
       expect((await tx(pendingOnchainId('u1', 'p7'))).exists, isFalse);
     });
   });
+
+  group('rules refusal is not a foreign marker', () {
+    late _DenyingFirestore denying;
+    setUp(() => denying = _DenyingFirestore(db));
+
+    Future<OnchainCommitResult> depositVia(FirebaseFirestore f, String sig) =>
+        creditOnchainDeposit(
+          firestore: f,
+          uid: 'u1',
+          signature: sig,
+          markerId: 'deposit_sol_$sig',
+          phpAmount: 50,
+          markerData: {
+            'uid': 'u1',
+            'type': 'deposit',
+            'amount': 50,
+            'solanaTxSignature': sig,
+          },
+        );
+
+    test('permission-denied on the user update returns refusedByRules, not heldByAnotherAccount', () async {
+      denying.denyUpdatesOn('users/');
+      final r = await depositVia(denying, 'r1');
+      expect(r, OnchainCommitResult.refusedByRules);
+      expect(r, isNot(OnchainCommitResult.heldByAnotherAccount));
+      expect((await user())['tyxBalance'], 100.0);
+      expect((await tx(onchainMarkerId('r1'))).exists, isFalse);
+      expect((await tx('deposit_sol_r1')).exists, isFalse);
+    });
+
+    test('leaves the pending record open with the rules-refusal note (existing record)', () async {
+      await writePendingOnchain(
+        firestore: db,
+        uid: 'u1',
+        signature: 'r2',
+        kind: 'deposit',
+        phpAmount: 50,
+        cryptoAmount: 0.006,
+        currency: 'SOL',
+      );
+      denying.denyUpdatesOn('users/');
+      await depositVia(denying, 'r2');
+      final rec = (await tx(pendingOnchainId('u1', 'r2'))).data()!;
+      expect(rec['status'], 'pending');
+      expect(rec['note'], 'credit refused by rules (permission-denied)');
+      expect(rec['note'], kRefusedByRulesNote);
+      expect(rec['note'], isNot(kMarkerHeldNote));
+    });
+
+    test('creates a pending record with the note when none existed', () async {
+      denying.denyUpdatesOn('users/');
+      await depositVia(denying, 'r3');
+      final rec = (await tx(pendingOnchainId('u1', 'r3'))).data()!;
+      expect(rec['status'], 'pending');
+      expect(rec['note'], kRefusedByRulesNote);
+    });
+
+    test('a subscription refusal records kind subscription', () async {
+      denying.denyUpdatesOn('users/');
+      final r = await activateSubscriptionOnce(
+        firestore: denying,
+        uid: 'u1',
+        signature: 'r4',
+        plan: 'monthly',
+        phpAmount: 199,
+        cryptoAmount: 0.0245,
+        now: now,
+      );
+      expect(r, OnchainCommitResult.refusedByRules);
+      expect((await user())['isPremium'], isFalse);
+      expect(
+        (await tx(pendingOnchainId('u1', 'r4'))).data()!['kind'],
+        'subscription',
+      );
+    });
+
+    test(
+      'the UI helper asks the user to contact support for a refusal too',
+      () async {
+        expect(OnchainCommitResult.refusedByRules.needsSupport, isTrue);
+        expect(
+          () => OnchainCommitResult.refusedByRules.throwIfHeldElsewhere('r5'),
+          throwsA(
+            isA<OnchainSupportException>().having(
+              (e) => e.toString(),
+              'message',
+              contains('Contact support with signature r5'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('a foreign marker that WAS read still reports heldByAnotherAccount (not refused)', () async {
+      await db.collection('transactions').doc(onchainMarkerId('r6')).set({
+        'uid': 'u2',
+        'type': 'onchain_marker',
+      });
+      denying.denyUpdatesOn(
+        'users/',
+      ); // never reached: the foreign marker ends the transaction first
+      expect(
+        await depositVia(denying, 'r6'),
+        OnchainCommitResult.heldByAnotherAccount,
+      );
+    });
+
+    test('other failures are not swallowed', () async {
+      denying.failWith('unavailable');
+      expect(
+        () => depositVia(denying, 'r7'),
+        throwsA(isA<FirebaseException>()),
+      );
+    });
+
+    test('works normally through the wrapper when nothing is denied', () async {
+      expect(await depositVia(denying, 'r8'), OnchainCommitResult.credited);
+    });
+  });
+}
+
+/// A Firestore whose transactions behave like the fake, except that updates
+/// under a denied path prefix throw `permission-denied` (as the rules would).
+class _DenyingFirestore implements FirebaseFirestore {
+  _DenyingFirestore(this.inner);
+  final FakeFirebaseFirestore inner;
+  final _denied = <String>[];
+  String? _failCode;
+
+  void denyUpdatesOn(String pathPrefix) => _denied.add(pathPrefix);
+  void failWith(String code) => _failCode = code;
+
+  @override
+  CollectionReference<Map<String, dynamic>> collection(String path) =>
+      inner.collection(path);
+
+  @override
+  Future<T> runTransaction<T>(
+    TransactionHandler<T> transactionHandler, {
+    Duration timeout = const Duration(seconds: 30),
+    int maxAttempts = 5,
+  }) {
+    return inner.runTransaction<T>(
+      (tx) {
+        return transactionHandler(_DenyingTransaction(tx, _denied, _failCode));
+      },
+      timeout: timeout,
+      maxAttempts: maxAttempts,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
+class _DenyingTransaction implements Transaction {
+  _DenyingTransaction(this.inner, this.denied, this.failCode);
+  final Transaction inner;
+  final List<String> denied;
+  final String? failCode;
+
+  void _check(DocumentReference ref) {
+    if (failCode != null)
+      throw FirebaseException(plugin: 'cloud_firestore', code: failCode);
+    if (denied.any((p) => ref.path.startsWith(p))) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'permission-denied',
+      );
+    }
+  }
+
+  @override
+  Future<DocumentSnapshot<T>> get<T extends Object?>(
+    DocumentReference<T> documentReference,
+  ) => inner.get(documentReference);
+
+  @override
+  Transaction set<T>(
+    DocumentReference<T> documentReference,
+    T data, [
+    SetOptions? options,
+  ]) {
+    inner.set(documentReference, data, options);
+    return this;
+  }
+
+  @override
+  Transaction update(
+    DocumentReference documentReference,
+    Map<Object, Object?> data,
+  ) {
+    _check(documentReference);
+    inner.update(documentReference, data);
+    return this;
+  }
+
+  @override
+  Transaction delete(DocumentReference documentReference) {
+    inner.delete(documentReference);
+    return this;
+  }
 }

@@ -4075,32 +4075,27 @@ class TranyxAppState extends State<TranyxApp> {
         throw 'Solana transaction rejected or failed to broadcast.';
       }
 
-      // 4. Update balance in Firestore and record the deposit transaction
+      // 4. Credit once per signature: pending record first, then ONE Firestore transaction
+      // (reads onchain_<sig>, writes the shared marker + deposit_sol_ marker, increments the balance).
       final svc = FirestoreService(token, _handleTokenRefresh);
-      final userDoc = await svc.getDocument('users/$uid');
-      if (userDoc != null) {
-        final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-        final newBal = currentBal + depositAmount;
-
-        await svc.createOrUpdate('users/$uid', {
-          ...userDoc,
-          'tyxBalance': newBal,
-        });
-
-        walletBalance = newBal;
-        if (userProfile != null) {
-          userProfile = UserProfile.fromMap(uid, {
-            ...userDoc,
-            'tyxBalance': newBal,
-          });
-        }
-
-        // Record deposit transaction with Solana signature
-        await svc.createOrUpdate('transactions/deposit_sol_$signature', {
+      await svc.writePendingOnchain(
+        uid: uid,
+        signature: signature,
+        kind: 'deposit',
+        phpAmount: depositAmount,
+        cryptoAmount: amountInSol,
+        currency: 'SOL',
+      );
+      final walletLabel = '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}';
+      final credit = await svc.creditOnchainDeposit(
+        uid: uid,
+        signature: signature,
+        markerId: 'deposit_sol_$signature',
+        phpAmount: depositAmount,
+        markerData: {
           'uid': uid,
           'title': 'Wallet Top-Up (SOL)',
-          'desc':
-              'Crypto deposit of ${amountInSol.toStringAsFixed(4)} SOL via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}',
+          'desc': 'Crypto deposit of ${amountInSol.toStringAsFixed(4)} SOL via $walletLabel',
           'amount': depositAmount,
           'status': 'Successful',
           'method': 'Solana',
@@ -4108,11 +4103,23 @@ class TranyxAppState extends State<TranyxApp> {
           'solanaAmount': amountInSol,
           'createdAt': DateTime.now().millisecondsSinceEpoch,
           'type': 'deposit',
-        });
+        },
+      );
+      // Another account holds this signature (or the rules refused): nothing was credited.
+      credit.throwIfHeldElsewhere(signature);
 
-        await loadTransactions();
+      final freshUser = await svc.getDocument('users/$uid');
+      if (freshUser != null) {
+        final newBal = (freshUser['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+        walletBalance = newBal;
+        if (userProfile != null) {
+          userProfile = UserProfile.fromMap(uid, freshUser);
+        }
+      }
+      await loadTransactions();
 
-        // Award deposit onboarding quest if eligible
+      // Award deposit onboarding quest if eligible
+      if (credit == OnchainCommitResult.credited) {
         unawaited(svc.awardPointsIfEligible(uid, 'deposit_any_amount'));
       }
 
@@ -4242,44 +4249,29 @@ class TranyxAppState extends State<TranyxApp> {
         throw 'Solana transaction rejected or failed to broadcast.';
       }
 
-      // 4. Update premium status in user profile & set account type to hybrid
+      // 4. Activate once per signature: pending record first, then ONE Firestore transaction
+      // (reads onchain_<sig>, writes the shared marker + sub_sol_ marker, extends premium from
+      // max(now, premiumUntil)).
       final svc = FirestoreService(token, _handleTokenRefresh);
-      final userDoc = await svc.getDocument('users/$uid');
-      if (userDoc != null) {
-        final double phpPrice = subType == 'yearly' ? 2999.0 : 299.0;
-        final now = DateTime.now();
-        final premiumUntil = subType == 'yearly'
-            ? now.add(const Duration(days: 365))
-            : now.add(const Duration(days: 30));
-
-        final updatedProfile = {
-          ...userDoc,
-          'isPremium': true,
-          'premiumUntil': premiumUntil.millisecondsSinceEpoch,
-          'accountType': 'hybrid',
-          'subscriptionPlan': subType,
-          'subscriptionStartedAt': now.millisecondsSinceEpoch,
-          'subscriptionPaymentMethod': 'Solana (SOL)',
-          'subscriptionPaymentAmount': phpPrice,
-          'subscriptionTxId': signature,
-          'subscriptionStatus': 'active',
-          'pendingSubscription': null,
-        };
-
-        await svc.createOrUpdate('users/$uid', updatedProfile);
-
-        accountType = AccountType.hybrid;
-        SessionStorage.saveProfile(accountType: 'hybrid');
-        if (userProfile != null) {
-          userProfile = UserProfile.fromMap(uid, updatedProfile);
-        }
-
-        // Record subscription transaction with Solana signature
-        await svc.createOrUpdate('transactions/sub_sol_$signature', {
+      final double phpPrice = subType == 'yearly' ? 2999.0 : 299.0;
+      await svc.writePendingOnchain(
+        uid: uid,
+        signature: signature,
+        kind: 'subscription',
+        phpAmount: phpPrice,
+        cryptoAmount: amountInSol,
+        currency: 'SOL',
+      );
+      final walletLabel = '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}';
+      final activation = await svc.activateSubscriptionOnchain(
+        uid: uid,
+        signature: signature,
+        plan: subType == 'yearly' ? 'yearly' : 'monthly',
+        phpAmount: phpPrice,
+        markerData: {
           'uid': uid,
           'title': 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
-          'desc':
-              'Subscribed via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} (${amountInSol.toStringAsFixed(4)} SOL)',
+          'desc': 'Subscribed via $walletLabel (${amountInSol.toStringAsFixed(4)} SOL)',
           'amount': phpPrice,
           'status': 'Successful',
           'method': 'Solana',
@@ -4288,10 +4280,20 @@ class TranyxAppState extends State<TranyxApp> {
           'createdAt': DateTime.now().millisecondsSinceEpoch,
           'type': 'subscription',
           'kind': 'subscription',
-        });
+        },
+      );
+      // Another account holds this signature (or the rules refused): nothing was activated.
+      activation.throwIfHeldElsewhere(signature);
 
-        await loadTransactions();
+      final freshUser = await svc.getDocument('users/$uid');
+      if (freshUser != null) {
+        accountType = AccountType.hybrid;
+        SessionStorage.saveProfile(accountType: 'hybrid');
+        if (userProfile != null) {
+          userProfile = UserProfile.fromMap(uid, freshUser);
+        }
       }
+      await loadTransactions();
     } catch (e) {
       setState(() => postJobError = e.toString());
       rethrow;
@@ -4611,31 +4613,28 @@ class TranyxAppState extends State<TranyxApp> {
         throw 'USDT transaction rejected or failed to broadcast.';
       }
 
+      // Credit once per signature: pending record first, then ONE Firestore transaction
+      // (reads onchain_<sig>, writes the shared marker + deposit_usdt_ marker, increments the balance).
       final svc = FirestoreService(token, _handleTokenRefresh);
-      final userDoc = await svc.getDocument('users/$uid');
-      if (userDoc != null) {
-        final currentBal = (userDoc['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-        final phpEquivalent = amountInUsdt * usdToPhpRate;
-        final newBal = currentBal + phpEquivalent;
-
-        await svc.createOrUpdate('users/$uid', {
-          ...userDoc,
-          'tyxBalance': newBal,
-        });
-
-        walletBalance = newBal;
-        if (userProfile != null) {
-          userProfile = UserProfile.fromMap(uid, {
-            ...userDoc,
-            'tyxBalance': newBal,
-          });
-        }
-
-        await svc.createOrUpdate('transactions/deposit_usdt_$signature', {
+      final phpEquivalent = amountInUsdt * usdToPhpRate;
+      await svc.writePendingOnchain(
+        uid: uid,
+        signature: signature,
+        kind: 'deposit',
+        phpAmount: phpEquivalent,
+        cryptoAmount: amountInUsdt,
+        currency: 'USDT',
+      );
+      final walletLabel = '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}';
+      final credit = await svc.creditOnchainDeposit(
+        uid: uid,
+        signature: signature,
+        markerId: 'deposit_usdt_$signature',
+        phpAmount: phpEquivalent,
+        markerData: {
           'uid': uid,
           'title': 'Wallet Top-Up (USDT)',
-          'desc':
-              'Crypto deposit of ${amountInUsdt.toStringAsFixed(2)} USDT via ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}',
+          'desc': 'Crypto deposit of ${amountInUsdt.toStringAsFixed(2)} USDT via $walletLabel',
           'amount': phpEquivalent,
           'status': 'Successful',
           'method': 'Solana/USDT',
@@ -4643,10 +4642,19 @@ class TranyxAppState extends State<TranyxApp> {
           'usdtAmount': amountInUsdt,
           'createdAt': DateTime.now().millisecondsSinceEpoch,
           'type': 'deposit',
-        });
+        },
+      );
+      // Another account holds this signature (or the rules refused): nothing was credited.
+      credit.throwIfHeldElsewhere(signature);
 
-        await loadTransactions();
+      final freshUser = await svc.getDocument('users/$uid');
+      if (freshUser != null) {
+        walletBalance = (freshUser['tyxBalance'] as num?)?.toDouble() ?? 0.0;
+        if (userProfile != null) {
+          userProfile = UserProfile.fromMap(uid, freshUser);
+        }
       }
+      await loadTransactions();
 
       setState(() {
         isDepositing = false;

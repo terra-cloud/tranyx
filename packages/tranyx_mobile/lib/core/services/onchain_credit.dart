@@ -1,59 +1,17 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared/shared.dart';
 
-/// One shared marker per on-chain signature. Every flow that turns a Solana
-/// payment into balance or a subscription (MWA, Phantom, Solflare, Trust Wallet;
-/// deposit and subscription) creates `transactions/onchain_<sig>` inside the same
-/// Firestore transaction as its credit and refuses when it already exists, so one
-/// signature can be credited exactly once no matter which flow submits it.
-///
-/// The marker has no `createdAt` on purpose: the history query orders by
-/// `createdAt`, so these bookkeeping docs never show up as transactions.
-String onchainMarkerId(String signature) => 'onchain_$signature';
-
-/// Bookkeeping record written as soon as the wallet returns a signature, before
-/// we wait for finalization. `status` is `pending` until the credit commits
-/// (then `done`); otherwise it stays `pending` (with `note`) for support.
-///
-/// The id carries the owner's uid (`pending_onchain_<uid>_<sig>`): the rules only
-/// let that account create or update it, so nobody can squat another account's
-/// pending record by guessing the signature.
-String pendingOnchainId(String uid, String signature) =>
-    'pending_onchain_${uid}_$signature';
-
-/// Outcome of an on-chain credit attempt.
-enum OnchainCommitResult {
-  /// Balance / subscription updated and markers written.
-  credited,
-
-  /// This account already processed the signature (replay, double tap).
-  alreadyProcessed,
-
-  /// A marker for this signature belongs to ANOTHER account. Nothing was
-  /// credited; the caller's pending record stays open with a note for support.
-  heldByAnotherAccount,
-}
-
-/// Shown instead of a silent refusal when a signature's marker is held by
-/// another account.
-class OnchainSupportException implements Exception {
-  OnchainSupportException(this.signature);
-  final String signature;
-  String get message =>
-      'This payment could not be credited automatically. Contact support with signature $signature.';
-  @override
-  String toString() => message;
-}
-
-extension OnchainCommitResultX on OnchainCommitResult {
-  /// Throws [OnchainSupportException] (the UI shows "Contact support with
-  /// signature <sig>") when the marker is held by another account.
-  void throwIfHeldElsewhere(String signature) {
-    if (this == OnchainCommitResult.heldByAnotherAccount)
-      throw OnchainSupportException(signature);
-  }
-}
-
-const kMarkerHeldNote = 'marker held by another account';
+// Ids, notes, results and document shapes live in packages/shared so the web
+// client writes exactly the same thing. Re-exported for existing imports.
+export 'package:shared/shared.dart'
+    show
+        OnchainCommitResult,
+        OnchainCommitResultX,
+        OnchainSupportException,
+        kMarkerHeldNote,
+        kRefusedByRulesNote,
+        onchainMarkerId,
+        pendingOnchainId;
 
 /// Records that [signature] was sent for [uid] and is awaiting finalization.
 /// Never overwrites an existing record. Best effort: the payment already left
@@ -74,34 +32,47 @@ Future<void> writePendingOnchain({
     await firestore.runTransaction<void>((tx) async {
       final snap = await tx.get(ref);
       if (snap.exists) return;
-      tx.set(ref, {
-        'uid': uid,
-        'type': 'onchain_pending',
-        'kind': kind,
-        'status': 'pending',
-        'solanaTxSignature': signature,
-        'phpAmount': phpAmount,
-        'cryptoAmount': cryptoAmount,
-        'currency': currency,
-        'startedAt': DateTime.now().millisecondsSinceEpoch,
-      });
+      tx.set(
+        ref,
+        pendingOnchainData(
+          uid: uid,
+          signature: signature,
+          kind: kind,
+          phpAmount: phpAmount,
+          cryptoAmount: cryptoAmount,
+          currency: currency,
+          startedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
     });
   } catch (_) {}
 }
 
-/// Leaves the pending record pending and notes why, for support. Best effort.
+/// Leaves the pending record pending and notes why, for support. Creates a
+/// minimal one when none exists yet. Never touches a `done` record. Best effort.
 Future<void> notePendingOnchain({
   required FirebaseFirestore firestore,
   required String uid,
   required String signature,
   required String note,
+  String kind = 'deposit',
 }) async {
   try {
     final ref = firestore
         .collection('transactions')
         .doc(pendingOnchainId(uid, signature));
     final snap = await ref.get();
-    if (snap.exists && snap.data()?['status'] == 'pending') {
+    if (!snap.exists) {
+      await ref.set(
+        pendingOnchainData(
+          uid: uid,
+          signature: signature,
+          kind: kind,
+          startedAt: DateTime.now().millisecondsSinceEpoch,
+          note: note,
+        ),
+      );
+    } else if (snap.data()?['status'] == 'pending') {
       await ref.update({'note': note});
     }
   } catch (_) {}
@@ -119,11 +90,12 @@ Future<void> notePendingOnchain({
 ///   tell the user to contact support;
 /// - same uid: [OnchainCommitResult.alreadyProcessed] (replay / double tap);
 /// - missing: the per-flow marker is read; if it exists it is a replay of an
-///   older credit ([OnchainCommitResult.alreadyProcessed]).
+///   older credit ([OnchainCommitResult.alreadyProcessed]), or foreign
+///   ([OnchainCommitResult.heldByAnotherAccount]).
 ///
-/// If a legacy per-flow marker of another account can't be read (rules deny the
-/// read), that is also reported as [OnchainCommitResult.heldByAnotherAccount]
-/// and the pending record is noted, instead of surfacing a raw error.
+/// A `permission-denied` from the rules is NOT a foreign marker: it is reported
+/// as [OnchainCommitResult.refusedByRules] with its own pending note, so support
+/// can tell the two apart. heldByAnotherAccount means a foreign marker was read.
 Future<OnchainCommitResult> commitOnceByMarker({
   required FirebaseFirestore firestore,
   required String uid,
@@ -133,6 +105,9 @@ Future<OnchainCommitResult> commitOnceByMarker({
   required Map<String, dynamic> Function(Map<String, dynamic> user)
   buildUserUpdate,
 }) async {
+  final kind = markerData['type'] == 'subscription'
+      ? 'subscription'
+      : 'deposit';
   try {
     return await firestore.runTransaction<OnchainCommitResult>((tx) async {
       final userRef = firestore.collection('users').doc(uid);
@@ -151,17 +126,16 @@ Future<OnchainCommitResult> commitOnceByMarker({
       Future<OnchainCommitResult> held() async {
         final pendingSnap = await tx.get(pendingRef);
         if (!pendingSnap.exists) {
-          tx.set(pendingRef, {
-            'uid': uid,
-            'type': 'onchain_pending',
-            'kind': markerData['type'] == 'subscription'
-                ? 'subscription'
-                : 'deposit',
-            'status': 'pending',
-            'solanaTxSignature': signature,
-            'startedAt': DateTime.now().millisecondsSinceEpoch,
-            'note': kMarkerHeldNote,
-          });
+          tx.set(
+            pendingRef,
+            pendingOnchainData(
+              uid: uid,
+              signature: signature,
+              kind: kind,
+              startedAt: DateTime.now().millisecondsSinceEpoch,
+              note: kMarkerHeldNote,
+            ),
+          );
         } else if (pendingSnap.data()?['status'] != 'done') {
           tx.update(pendingRef, {'note': kMarkerHeldNote});
         }
@@ -187,13 +161,15 @@ Future<OnchainCommitResult> commitOnceByMarker({
       tx.update(userRef, buildUserUpdate(user));
       tx.set(markerRef, markerData);
       // Exactly these keys: the rules reject anything else.
-      tx.set(onchainRef, {
-        'uid': uid,
-        'type': 'onchain_marker',
-        'solanaTxSignature': signature,
-        'markerId': markerId,
-        'markedAt': DateTime.now().millisecondsSinceEpoch,
-      });
+      tx.set(
+        onchainRef,
+        onchainMarkerData(
+          uid: uid,
+          signature: signature,
+          markerId: markerId,
+          markedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
       if (pendingSnap.exists) {
         tx.update(pendingRef, {
           'status': 'done',
@@ -208,9 +184,10 @@ Future<OnchainCommitResult> commitOnceByMarker({
       firestore: firestore,
       uid: uid,
       signature: signature,
-      note: '$kMarkerHeldNote (marker not readable)',
+      note: kRefusedByRulesNote,
+      kind: kind,
     );
-    return OnchainCommitResult.heldByAnotherAccount;
+    return OnchainCommitResult.refusedByRules;
   }
 }
 
@@ -248,7 +225,6 @@ Future<OnchainCommitResult> activateSubscriptionOnce({
 }) {
   final at = now ?? DateTime.now();
   final yearly = plan == 'yearly';
-  final days = Duration(days: yearly ? 365 : 30);
   return commitOnceByMarker(
     firestore: firestore,
     uid: uid,
@@ -264,16 +240,14 @@ Future<OnchainCommitResult> activateSubscriptionOnce({
       'solanaTxSignature': signature,
       'createdAt': at.millisecondsSinceEpoch,
     },
-    buildUserUpdate: (user) {
-      final current = (user['premiumUntil'] as num?)?.toInt() ?? 0;
-      final base = current > at.millisecondsSinceEpoch
-          ? current
-          : at.millisecondsSinceEpoch;
-      return {
-        'isPremium': true,
-        'premiumUntil': base + days.inMilliseconds,
-        'accountType': 'hybrid',
-      };
+    buildUserUpdate: (user) => {
+      'isPremium': true,
+      'premiumUntil': nextPremiumUntilMs(
+        currentPremiumUntilMs: (user['premiumUntil'] as num?)?.toInt(),
+        nowMs: at.millisecondsSinceEpoch,
+        plan: plan,
+      ),
+      'accountType': 'hybrid',
     },
   );
 }
