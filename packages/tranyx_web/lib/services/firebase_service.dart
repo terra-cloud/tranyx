@@ -870,7 +870,9 @@ class FirestoreService {
   /// The credit transaction. Outcomes mirror mobile's commitOnceByMarker:
   /// credited / alreadyProcessed (same uid holds a marker) / heldByAnotherAccount
   /// (a foreign marker was READ) / refusedByRules (permission-denied, with its own
-  /// pending note). Anything else is rethrown.
+  /// pending note). When every 409 retry fails the pending record gets the note
+  /// 'contention, retry' and [OnchainSupportException] ("Contact support with
+  /// signature `<sig>`") is thrown. Anything else is rethrown.
   Future<OnchainCommitResult> commitOnchainOnce({
     required String uid,
     required String signature,
@@ -895,6 +897,12 @@ class FirestoreService {
         // 409 = aborted by contention (or a marker created meanwhile): re-run, the
         // fresh read of onchain_<sig> then decides.
         if (e.statusCode == 409 && attempt < 3) continue;
+        if (e.statusCode == 409) {
+          // Every retry aborted: nothing was credited. Leave the pending record open
+          // with a note and send the user to support with the signature.
+          await notePendingOnchain(uid: uid, signature: signature, note: kContentionNote, kind: kind);
+          throw OnchainSupportException(signature);
+        }
         if (isPermissionDeniedError(e)) {
           await notePendingOnchain(uid: uid, signature: signature, note: kRefusedByRulesNote, kind: kind);
           return OnchainCommitResult.refusedByRules;

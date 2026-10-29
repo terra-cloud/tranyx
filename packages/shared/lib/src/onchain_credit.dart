@@ -29,6 +29,10 @@ const kMarkerHeldNote = 'marker held by another account';
 /// foreign marker having been read.
 const kRefusedByRulesNote = 'credit refused by rules (permission-denied)';
 
+/// Note left when the credit transaction kept aborting on contention (409 /
+/// `aborted`) and every retry failed. Nothing was credited.
+const kContentionNote = 'contention, retry';
+
 /// The only keys the rules accept on `onchain_<sig>`.
 const kOnchainMarkerKeys = {
   'uid',

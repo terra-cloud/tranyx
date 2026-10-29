@@ -8,6 +8,7 @@ export 'package:shared/shared.dart'
         OnchainCommitResult,
         OnchainCommitResultX,
         OnchainSupportException,
+        kContentionNote,
         kMarkerHeldNote,
         kRefusedByRulesNote,
         onchainMarkerId,
@@ -179,6 +180,17 @@ Future<OnchainCommitResult> commitOnceByMarker({
       return OnchainCommitResult.credited;
     });
   } on FirebaseException catch (e) {
+    if (e.code == 'aborted') {
+      // The SDK exhausted its retries on contention: nothing was credited.
+      await notePendingOnchain(
+        firestore: firestore,
+        uid: uid,
+        signature: signature,
+        note: kContentionNote,
+        kind: kind,
+      );
+      throw OnchainSupportException(signature);
+    }
     if (e.code != 'permission-denied') rethrow;
     await notePendingOnchain(
       firestore: firestore,

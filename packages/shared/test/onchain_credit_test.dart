@@ -11,6 +11,7 @@ void main() {
   test('notes', () {
     expect(kMarkerHeldNote, 'marker held by another account');
     expect(kRefusedByRulesNote, 'credit refused by rules (permission-denied)');
+    expect(kContentionNote, 'contention, retry');
   });
 
   test('onchain marker has exactly the keys the rules allow', () {

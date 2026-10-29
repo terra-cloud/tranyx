@@ -33,6 +33,7 @@ class FakeFirestoreRest {
   final deniedWrites = <String>[]; // path prefixes whose writes return 403
   final deniedReads = <String>[]; // path prefixes whose reads return 403
   void Function()? beforeNextCommit; // simulates a concurrent writer; the commit then aborts (409)
+  int abortCommits = 0; // the next N commits abort with 409 (contention)
   var _txn = 0;
 
   String _path(String url) {
@@ -95,6 +96,10 @@ class FakeFirestoreRest {
 
   http.Response _commit(Map<String, dynamic> body) {
     commits.add(body);
+    if (abortCommits > 0) {
+      abortCommits--;
+      return _err(409, 'Aborted: too much contention on these documents.');
+    }
     final hook = beforeNextCommit;
     if (hook != null) {
       beforeNextCommit = null;
@@ -161,6 +166,7 @@ void main() {
     fake.deniedWrites.clear();
     fake.deniedReads.clear();
     fake.beforeNextCommit = null;
+    fake.abortCommits = 0;
     svc = FirestoreService('token');
   });
 
@@ -388,6 +394,57 @@ void main() {
       final r = await deposit();
       expect(r.needsSupport, isTrue);
       expect(() => r.throwIfHeldElsewhere(sig), throwsA(isA<OnchainSupportException>()));
+    });
+  });
+
+  group('contention', () {
+    test('after the final 409 retry fails: pending note, nothing credited, "Contact support with signature"', () async {
+      await pending();
+      fake.abortCommits = 3; // every attempt aborts
+      await expectLater(
+        deposit(),
+        throwsA(
+          isA<OnchainSupportException>().having(
+            (e) => e.toString(),
+            'message',
+            contains('Contact support with signature $sig'),
+          ),
+        ),
+      );
+      expect(fake.docs['users/u1']!['tyxBalance'], 100.0);
+      expect(fake.docs.containsKey('transactions/onchain_$sig'), isFalse);
+      expect(fake.docs.containsKey('transactions/deposit_sol_$sig'), isFalse);
+      final rec = fake.docs['transactions/pending_onchain_u1_$sig']!;
+      expect(rec['status'], 'pending');
+      expect(rec['note'], 'contention, retry');
+      expect(rec['note'], kContentionNote);
+      expect(
+        fake.commits.where((c) => (c['writes'] as List).length > 1),
+        hasLength(3),
+        reason: 'three credit attempts',
+      );
+    });
+
+    test('creates the pending record with the note when none existed', () async {
+      fake.abortCommits = 3;
+      await expectLater(deposit(), throwsA(isA<OnchainSupportException>()));
+      expect(fake.docs['transactions/pending_onchain_u1_$sig']!['note'], kContentionNote);
+    });
+
+    test('a subscription behaves the same and records kind subscription', () async {
+      fake.abortCommits = 3;
+      await expectLater(subscribe(), throwsA(isA<OnchainSupportException>()));
+      expect(fake.docs['users/u1']!['isPremium'], isFalse);
+      expect(fake.docs['transactions/pending_onchain_u1_$sig']!['kind'], 'subscription');
+    });
+
+    test('one or two aborted attempts are retried and the credit succeeds', () async {
+      await pending();
+      fake.abortCommits = 2;
+      expect(await deposit(), OnchainCommitResult.credited);
+      expect(fake.docs['users/u1']!['tyxBalance'], 150.0);
+      expect(fake.docs['transactions/pending_onchain_u1_$sig']!['status'], 'done');
+      expect(fake.docs['transactions/pending_onchain_u1_$sig']!.containsKey('note'), isFalse);
     });
   });
 

@@ -578,6 +578,33 @@ void main() {
       );
     });
 
+    test('contention (aborted) leaves a "contention, retry" note and asks for support', () async {
+      await writePendingOnchain(
+        firestore: db,
+        uid: 'u1',
+        signature: 'c1',
+        kind: 'deposit',
+        phpAmount: 50,
+        cryptoAmount: 0.006,
+        currency: 'SOL',
+      );
+      denying.failWith('aborted');
+      await expectLater(
+        depositVia(denying, 'c1'),
+        throwsA(
+          isA<OnchainSupportException>().having(
+            (e) => e.toString(),
+            'message',
+            contains('Contact support with signature c1'),
+          ),
+        ),
+      );
+      final rec = (await tx(pendingOnchainId('u1', 'c1'))).data()!;
+      expect(rec['status'], 'pending');
+      expect(rec['note'], 'contention, retry');
+      expect((await user())['tyxBalance'], 100.0);
+    });
+
     test('other failures are not swallowed', () async {
       denying.failWith('unavailable');
       expect(
