@@ -10,6 +10,10 @@ import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
+import 'package:tranyx_mobile/core/services/mwa_service.dart';
+import 'package:tranyx_mobile/core/services/mwa_wallet_link.dart';
+import 'package:tranyx_mobile/core/services/mwa_payment.dart';
+import 'package:tranyx_mobile/core/services/mwa_subscription.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 import 'package:shared/shared.dart';
@@ -406,13 +410,37 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
         throw Exception('Treasury wallet is not configured.');
       }
 
-      if (walletType == 'mwa') {
-        // MWA wallets are supported for deposit and withdraw only; do not fall
-        // through to the Phantom deep link with the wrong wallet.
-        throw Exception(
-          'Paying a subscription with a Mobile Wallet Adapter wallet is not available yet. '
-          'Pay with your Tyxbit balance or a P2P payment instead.',
+      if (walletType == kMwaWalletType) {
+        // Android MWA: the wallet pays the treasury; Hybrid PRO is activated only
+        // after the transaction is finalized and verified (linked wallet ->
+        // treasury, exact amount), once per signature.
+        final signature = await payTreasuryViaMwa(
+          mwa: ref.read(mwaServiceProvider),
+          phantom: ref.read(phantomServiceProvider),
+          linkedPubkey: userPubkey,
+          treasuryPublicKey: treasuryPublicKey,
+          isSol: true,
+          cryptoAmount: cryptoAmount,
         );
+        await activateSubscriptionOnce(
+          firestore: firestore,
+          uid: uid,
+          signature: signature,
+          plan: _selectedPlan,
+          phpAmount: phpAmount,
+          cryptoAmount: cryptoAmount,
+        );
+        ref.invalidate(userProfileProvider);
+        ref.invalidate(userTransactionsProvider);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Successfully subscribed to Hybrid PRO (${_selectedPlan == 'yearly' ? 'Yearly' : 'Monthly'})!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        return;
       }
 
       if (walletType == 'trust') {
@@ -544,7 +572,12 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Subscription failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(e is MwaException ? e.message : 'Subscription failed: $e'),
+            backgroundColor: e is MwaException && e.type == MwaFailureType.userCancelled
+                ? Colors.orange
+                : Colors.red,
+          ),
         );
       }
     } finally {
