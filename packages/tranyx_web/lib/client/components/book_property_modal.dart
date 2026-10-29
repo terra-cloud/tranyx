@@ -557,6 +557,11 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
       _activeImageIndex = 0;
       _step = 1;
       _licenseNumber = '';
+      _multiplier = 1;
+      _startDate = null;
+      _calendarMonth = DateTime.now();
+      _approvedRequests = [];
+      _error = null;
       final monthlyRate = (pData['priceMonthly'] as num?)?.toDouble() ?? 0.0;
       final weeklyRate = (pData['priceWeekly'] as num?)?.toDouble() ?? 0.0;
       final dailyRate = (pData['priceDaily'] as num?)?.toDouble() ?? 0.0;

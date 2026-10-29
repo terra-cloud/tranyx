@@ -695,6 +695,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
       _promoCodeInput = '';
       _promoFeedback = null;
       _isValidatingPromo = false;
+      _error = null;
       if (rentalId != null) {
         _loadApprovedRequests(rentalId);
         _loadAutoApplyPromo();
