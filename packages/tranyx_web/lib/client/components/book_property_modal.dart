@@ -1167,10 +1167,10 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                       classes:
                           'px-6 py-2.5 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-purple-500/20',
                       events: {
-                        'click': (_) => component.appState.setState(() {
-                          component.appState.showBookPropertyModal = false;
-                          component.appState.showManagePropertyModal = true;
-                        }),
+                        'click': (_) {
+                          final cur = component.appState.selectedPropertyData;
+                          if (cur != null) component.appState.openManageProperty(cur, fromDetails: true);
+                        },
                       },
                       [
                         lIcon('sliders', cls: 'w-4 h-4'),

@@ -537,6 +537,10 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     try {
       final r = component.appState.selectedRentalData;
       if (r == null) throw Exception('No rental selected.');
+      final ownerUid = component.appState.userProfile?.uid;
+      if (ownerUid != null && r['hostId']?.toString() == ownerUid) {
+        throw Exception('You cannot book your own listing.');
+      }
       if (lockedId == null || r['id']?.toString() != lockedId) {
         throw Exception('The selected listing changed. Please start the booking again.');
       }
@@ -661,11 +665,8 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     final isDark = component.appState.isDark;
     final r = component.appState.selectedRentalData!;
 
-    // Safety check: do not show / allow renting if it's the owner
-    final currentUid = component.appState.userProfile?.uid;
-    if (r['hostId'] != null && currentUid != null && r['hostId'] == currentUid) {
-      return div([]);
-    }
+    // Owners see the listing details with Edit / Manage Listing (the host footer below) and
+    // never the booking steps; _book() refuses owners as well.
 
     // Reset modal states if the selected vehicle has changed
     final rentalId = r['id']?.toString();
@@ -1455,10 +1456,10 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                     classes:
                         'px-6 py-2.5 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-purple-500/20',
                     events: {
-                      'click': (_) => component.appState.setState(() {
-                        component.appState.showBookVehicleModal = false;
-                        component.appState.showManageVehicleModal = true;
-                      }),
+                      'click': (_) {
+                        final cur = component.appState.selectedRentalData;
+                        if (cur != null) component.appState.openManageVehicle(cur, fromDetails: true);
+                      },
                     },
                     [
                       lIcon('sliders', cls: 'w-4 h-4'),

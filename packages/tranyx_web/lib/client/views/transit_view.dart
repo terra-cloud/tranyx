@@ -1548,8 +1548,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
     return div(
       classes: 'p-5 rounded-2xl border transition-all card-hover cursor-pointer $cardCls '
-          '${s.rentalsPanelMode && s.showBookVehicleModal && s.selectedRentalData?['id'] == r['id'] ? (isDark ? "ring-2 ring-indigo-400" : "ring-2 ring-[#4f46e5]") : ""}',
-      attributes: {if (s.rentalsPanelMode && s.showBookVehicleModal && s.selectedRentalData?['id'] == r['id']) 'aria-current': 'true'},
+          '${s.rentalsPanelMode && (s.showBookVehicleModal || s.showManageVehicleModal) && s.selectedRentalData?['id'] == r['id'] ? (isDark ? "ring-2 ring-indigo-400" : "ring-2 ring-[#4f46e5]") : ""}',
+      attributes: {if (s.rentalsPanelMode && (s.showBookVehicleModal || s.showManageVehicleModal) && s.selectedRentalData?['id'] == r['id']) 'aria-current': 'true'},
       events: {
         if (!isHostView)
           'click': (_) => s.setState(() {
@@ -1557,10 +1557,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             s.showBookVehicleModal = true;
           })
         else
-          'click': (_) => s.setState(() {
-            s.selectedRentalData = r;
-            s.showManageVehicleModal = true;
-          }),
+          'click': (_) => s.openManageVehicle(r),
       },
       [
         div(classes: 'flex items-start justify-between mb-4', [
@@ -1795,10 +1792,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                     events: {
                       'click': (e) {
                         e.stopPropagation();
-                        s.setState(() {
-                          s.selectedRentalData = r;
-                          s.showManageVehicleModal = true;
-                        });
+                        s.openManageVehicle(r);
                       },
                     },
                     [
@@ -1842,6 +1836,10 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 events: {
                   'click': (e) {
                     e.stopPropagation();
+                    if (isMyListing) {
+                      s.openManageVehicle(r);
+                      return;
+                    }
                     s.setState(() {
                       s.selectedRentalData = r;
                       s.showBookVehicleModal = true;
@@ -1875,8 +1873,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
     return div(
       classes: 'p-5 rounded-2xl border transition-all card-hover cursor-pointer $cardCls '
-          '${s.rentalsPanelMode && s.showBookPropertyModal && s.selectedPropertyData?['id'] == prop.id ? (isDark ? "ring-2 ring-indigo-400" : "ring-2 ring-[#4f46e5]") : ""}',
-      attributes: {if (s.rentalsPanelMode && s.showBookPropertyModal && s.selectedPropertyData?['id'] == prop.id) 'aria-current': 'true'},
+          '${s.rentalsPanelMode && (s.showBookPropertyModal || s.showManagePropertyModal) && s.selectedPropertyData?['id'] == prop.id ? (isDark ? "ring-2 ring-indigo-400" : "ring-2 ring-[#4f46e5]") : ""}',
+      attributes: {if (s.rentalsPanelMode && (s.showBookPropertyModal || s.showManagePropertyModal) && s.selectedPropertyData?['id'] == prop.id) 'aria-current': 'true'},
       events: {
         if (!isHostView)
           'click': (_) => s.setState(() {
@@ -1884,10 +1882,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             s.showBookPropertyModal = true;
           })
         else
-          'click': (_) => s.setState(() {
-            s.selectedPropertyData = prop.toMap();
-            s.showManagePropertyModal = true;
-          }),
+          'click': (_) => s.openManageProperty(prop.toMap()),
       },
       [
         div(classes: 'flex items-start justify-between mb-4', [
@@ -2018,10 +2013,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                     events: {
                       'click': (e) {
                         e.stopPropagation();
-                        s.setState(() {
-                          s.selectedPropertyData = prop.toMap();
-                          s.showManagePropertyModal = true;
-                        });
+                        s.openManageProperty(prop.toMap());
                       },
                     },
                     [
@@ -2065,6 +2057,10 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 events: {
                   'click': (e) {
                     e.stopPropagation();
+                    if (isMyProperty) {
+                      s.openManageProperty(prop.toMap());
+                      return;
+                    }
                     s.setState(() {
                       s.selectedPropertyData = prop.toMap();
                       s.showBookPropertyModal = true;

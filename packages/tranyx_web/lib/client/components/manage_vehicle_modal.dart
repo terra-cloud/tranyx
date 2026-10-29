@@ -15,6 +15,20 @@ class ManageVehicleModalComponent extends StatefulComponent {
 }
 
 class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
+  /// Listing id this state was opened for (the component is keyed by id, so a new listing remounts it).
+  String? _boundId;
+
+  /// False once the user has moved to another listing (or closed manage): async results are then dropped.
+  bool get _stillSelected =>
+      component.appState.showManageVehicleModal && component.appState.selectedRentalData?['id']?.toString() == _boundId;
+
+  @override
+  // ignore: invalid_use_of_protected_member
+  void setState(void Function() fn) {
+    if (!mounted) return;
+    super.setState(fn);
+  }
+
   bool _isLoadingRequests = false;
   List<Map<String, dynamic>> _requests = [];
   List<Map<String, dynamic>> _extensions = [];
@@ -31,6 +45,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   bool _hasReservationRecords = false;
 
   void _toggleAcceptingBookings(bool currentlyAccepting) async {
+    if (_isProcessing) return;
     final r = component.appState.selectedRentalData;
     if (r == null) return;
 
@@ -47,7 +62,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
         final updated = Map<String, dynamic>.from(r);
         updated['acceptingBookings'] = newAccepting;
         updated['status'] = newStatus;
-        component.appState.selectedRentalData = updated;
+        if (_stillSelected) component.appState.selectedRentalData = updated;
       });
       component.appState.alertDialog(
         newAccepting ? 'Bookings Resumed' : 'Bookings Paused',
@@ -65,6 +80,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   @override
   void initState() {
     super.initState();
+    _boundId = component.appState.selectedRentalData?['id']?.toString();
     _loadRequests();
     final r = component.appState.selectedRentalData;
     _gpsInput = r?['gpsTrackerId']?.toString() ?? '';
@@ -90,6 +106,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
         final bTime = (reqB['startDate'] as int?) ?? (reqB['createdAt'] as int?) ?? 0;
         return bTime.compareTo(aTime);
       });
+      if (!_stillSelected) return;
       setState(() {
         _requests = allList;
         _extensions = extList;
@@ -122,8 +139,11 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
 
       // Close modal and clear selected state
       component.appState.setState(() {
-        component.appState.showManageVehicleModal = false;
-        component.appState.selectedRentalData = null;
+        if (_stillSelected) {
+          component.appState.manageFromDetails = false;
+          component.appState.showManageVehicleModal = false;
+          component.appState.selectedRentalData = null;
+        }
       });
     } catch (e) {
       setState(() => _error = e.toString());
@@ -196,6 +216,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   }
 
   void _deleteListing(String rentalId) async {
+    if (_isProcessing) return;
     setState(() {
       _isProcessing = true;
       _error = null;
@@ -207,8 +228,11 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
       component.appState.walletBalance = component.appState.userProfile?.tyxBalance ?? component.appState.walletBalance;
 
       component.appState.setState(() {
-        component.appState.showManageVehicleModal = false;
-        component.appState.selectedRentalData = null;
+        if (_stillSelected) {
+          component.appState.manageFromDetails = false;
+          component.appState.showManageVehicleModal = false;
+          component.appState.selectedRentalData = null;
+        }
       });
       component.appState.alertDialog('Listing Cancelled', 'The vehicle listing has been cancelled and your listing fee has been refunded to your wallet.');
     } catch (e) {
@@ -219,6 +243,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   }
 
   void _updateStatus(String newStatus) async {
+    if (_isProcessing) return;
     final r = component.appState.selectedRentalData;
     if (r == null) return;
 
@@ -250,8 +275,11 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
 
       // Close modal and clear selected state
       component.appState.setState(() {
-        component.appState.showManageVehicleModal = false;
-        component.appState.selectedRentalData = null;
+        if (_stillSelected) {
+          component.appState.manageFromDetails = false;
+          component.appState.showManageVehicleModal = false;
+          component.appState.selectedRentalData = null;
+        }
       });
     } catch (e) {
       setState(() => _error = e.toString());
@@ -261,6 +289,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   }
 
   void _updateBookingStatus(String requestId, String newStatus) async {
+    if (_isProcessing) return;
     final r = component.appState.selectedRentalData;
     if (r == null) return;
 
@@ -299,6 +328,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   }
 
   void _revokeApproval(String? requestId) async {
+    if (_isProcessing) return;
     final r = component.appState.selectedRentalData;
     if (r == null) return;
 
@@ -318,8 +348,11 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
       component.appState.showAppToast('Approval Revoked', 'Request cancelled and renter fully refunded.');
       _loadRequests();
       component.appState.setState(() {
-        component.appState.showManageVehicleModal = false;
-        component.appState.selectedRentalData = null;
+        if (_stillSelected) {
+          component.appState.manageFromDetails = false;
+          component.appState.showManageVehicleModal = false;
+          component.appState.selectedRentalData = null;
+        }
       });
     } catch (e) {
       setState(() => _error = 'Failed to revoke approval: $e');
@@ -329,6 +362,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   }
 
   void _cancelRental(String? requestId) async {
+    if (_isProcessing) return;
     final r = component.appState.selectedRentalData;
     if (r == null) return;
 
@@ -348,8 +382,11 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
       component.appState.showAppToast('Rental Cancelled', 'The rental has been cancelled and refunded.');
       _loadRequests();
       component.appState.setState(() {
-        component.appState.showManageVehicleModal = false;
-        component.appState.selectedRentalData = null;
+        if (_stillSelected) {
+          component.appState.manageFromDetails = false;
+          component.appState.showManageVehicleModal = false;
+          component.appState.selectedRentalData = null;
+        }
       });
     } catch (e) {
       setState(() => _error = 'Failed to cancel rental: $e');
@@ -359,6 +396,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
   }
 
   void _saveGps() async {
+    if (_isSavingGps) return;
     final r = component.appState.selectedRentalData;
     if (r == null) return;
 
@@ -373,7 +411,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
       component.appState.setState(() {
         final updated = Map<String, dynamic>.from(r);
         updated['gpsTrackerId'] = _gpsInput.trim();
-        component.appState.selectedRentalData = updated;
+        if (_stillSelected) component.appState.selectedRentalData = updated;
       });
 
       setState(() {
@@ -396,6 +434,10 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     final isDark = component.appState.isDark;
     final r = component.appState.selectedRentalData;
     if (r == null) return div([]);
+    final ownerUid = component.appState.userProfile?.uid;
+    if (ownerUid == null || r['hostId']?.toString() != ownerUid) {
+      return div(classes: 'p-6 text-sm text-zinc-500', [Component.text('Only the listing owner can manage this vehicle.')]);
+    }
 
     final status = r['status'] as String? ?? 'Available';
     final isNotAccepting = status == 'Not Accepting Bookings' || r['acceptingBookings'] == false;
@@ -411,7 +453,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     final modalCls = isDark ? 'bg-zinc-900 border border-zinc-800 text-white' : 'bg-white text-zinc-900 shadow-xl';
 
     return div(
-      classes: 'rw-page animate-fade-in',
+      classes: 'rw-page animate-fade-in ${component.appState.rentalsPanelMode ? "rw-panel" : ""}',
       [
         div(
           classes: 'rw-wizard rw-wizard-page w-full max-w-3xl mx-auto rounded-3xl flex flex-col $modalCls',
@@ -421,17 +463,22 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
               classes:
                   'p-6 border-b ${isDark ? "border-zinc-800" : "border-zinc-100"} flex items-center justify-between',
               [
-                div([
+                div(classes: 'flex items-center gap-3', [
+                  button(
+                    classes: 'p-2 rounded-full hover:bg-zinc-800/20 transition-colors border-0 bg-transparent cursor-pointer',
+                    attributes: {'aria-label': component.appState.manageFromDetails ? 'Back to details' : 'Back'},
+                    events: {'click': (_) => component.appState.backFromManage()},
+                    [lIcon('arrow-left', cls: 'w-5 h-5')],
+                  ),
+                  div([
                   h2(classes: 'text-xl font-black tracking-tight', [Component.text('Manage Vehicle')]),
                   p(classes: 'text-sm text-zinc-500', [Component.text('$brand $model ($year) • Plate: $plateNumber')]),
+                ]),
                 ]),
                 button(
                   classes: 'p-2 rounded-full hover:bg-zinc-800/20 transition-colors',
                   events: {
-                    'click': (_) => component.appState.setState(() {
-                      component.appState.showManageVehicleModal = false;
-                      component.appState.selectedRentalData = null;
-                    }),
+                    'click': (_) => component.appState.closeManage(),
                   },
                   [lIcon('x', cls: 'w-6 h-6')],
                 ),

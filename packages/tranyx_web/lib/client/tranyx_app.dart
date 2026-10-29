@@ -749,14 +749,98 @@ class TranyxAppState extends State<TranyxApp> {
   bool get rentalsPanelMode => activeTab == AppTab.transit && sidePanelLayout;
 
   bool get rentalsPanelOpen =>
+      (showManageVehicleModal && selectedRentalData != null) ||
+      (showManagePropertyModal && selectedPropertyData != null) ||
       (showRentalDetailsModal && selectedRentalDetailsData != null) ||
       (showBookVehicleModal && selectedRentalData != null) ||
       (showBookPropertyModal && selectedPropertyData != null);
 
-  static final RegExp _rentalRouteRe = RegExp(r'^#/rentals/([A-Za-z0-9_\-]{1,128})$');
+  static final RegExp _rentalRouteRe = RegExp(r'^#/rentals/([A-Za-z0-9_\-]{1,128})(/manage)?$');
+
+  /// W37 manage was opened from the W34/W35 details pane, so its back arrow returns there.
+  bool manageFromDetails = false;
+
+  String? get _currentUid => userProfile?.uid ?? SessionStorage.uid;
+
+  bool _ownsListing(Map<String, dynamic>? data) {
+    final uid = _currentUid;
+    final owner = data?['hostId'] ?? data?['ownerId'];
+    return uid != null && owner != null && owner.toString() == uid;
+  }
+
+  bool get manageOpen =>
+      (showManageVehicleModal && selectedRentalData != null) ||
+      (showManagePropertyModal && selectedPropertyData != null);
+
+  /// Opens W37 manage for a vehicle the signed-in user owns (browse or host mode).
+  void openManageVehicle(Map<String, dynamic> r, {bool fromDetails = false}) {
+    if (bookingLockId != null || !_ownsListing(r)) return;
+    setState(() {
+      showBookVehicleModal = false;
+      showBookPropertyModal = false;
+      showManagePropertyModal = false;
+      showRentalDetailsModal = false;
+      selectedRentalDetailsData = null;
+      selectedRentalData = r;
+      manageFromDetails = fromDetails;
+      showManageVehicleModal = true;
+    });
+  }
+
+  /// Opens W37 manage for a property the signed-in user owns (browse or host mode).
+  void openManageProperty(Map<String, dynamic> prop, {bool fromDetails = false}) {
+    if (bookingLockId != null || !_ownsListing(prop)) return;
+    setState(() {
+      showBookVehicleModal = false;
+      showBookPropertyModal = false;
+      showManageVehicleModal = false;
+      showRentalDetailsModal = false;
+      selectedRentalDetailsData = null;
+      selectedPropertyData = prop;
+      manageFromDetails = fromDetails;
+      showManagePropertyModal = true;
+    });
+  }
+
+  /// Back arrow in W37: return to the details pane it came from, otherwise close.
+  void backFromManage() {
+    final toDetails = manageFromDetails;
+    setState(() {
+      manageFromDetails = false;
+      if (showManageVehicleModal) {
+        showManageVehicleModal = false;
+        if (toDetails && selectedRentalData != null) {
+          showBookVehicleModal = true;
+        } else {
+          selectedRentalData = null;
+        }
+      }
+      if (showManagePropertyModal) {
+        showManagePropertyModal = false;
+        if (toDetails && selectedPropertyData != null) {
+          showBookPropertyModal = true;
+        } else {
+          selectedPropertyData = null;
+        }
+      }
+    });
+  }
+
+  /// Close X in W37.
+  void closeManage() {
+    setState(() {
+      manageFromDetails = false;
+      showManageVehicleModal = false;
+      showManagePropertyModal = false;
+      selectedRentalData = null;
+      selectedPropertyData = null;
+    });
+  }
 
   /// Id of the open rentals detail/booking (for the `#/rentals/<id>` URL), or null.
   String? get _openRentalId {
+    if (showManageVehicleModal && selectedRentalData != null) return selectedRentalData!['id']?.toString();
+    if (showManagePropertyModal && selectedPropertyData != null) return selectedPropertyData!['id']?.toString();
     if (showRentalDetailsModal && selectedRentalDetailsData != null) return selectedRentalDetailsData!['id']?.toString();
     if (showBookVehicleModal && selectedRentalData != null) return selectedRentalData!['id']?.toString();
     if (showBookPropertyModal && selectedPropertyData != null) return selectedPropertyData!['id']?.toString();
@@ -768,8 +852,9 @@ class TranyxAppState extends State<TranyxApp> {
     try {
       final id = activeTab == AppTab.transit ? _openRentalId : null;
       final hash = web.window.location.hash;
-      if (id != null && _rentalRouteRe.hasMatch('#/rentals/$id')) {
-        if (hash != '#/rentals/$id') web.window.history.pushState(null, '', '#/rentals/$id');
+      final target = '#/rentals/$id${manageOpen ? '/manage' : ''}';
+      if (id != null && _rentalRouteRe.hasMatch(target)) {
+        if (hash != target) web.window.history.pushState(null, '', target);
       } else if (id == null && _rentalRouteRe.hasMatch(hash)) {
         web.window.history.pushState(null, '', web.window.location.pathname + web.window.location.search);
       }
@@ -778,9 +863,34 @@ class TranyxAppState extends State<TranyxApp> {
 
   /// Applies `#/rentals/<id>` (deep link / back / forward).
   /// Returns false while the listing data is still loading (caller retries).
-  bool _applyRentalsRoute(String id) {
-    if (_openRentalId == id) return true;
+  bool _applyRentalsRoute(String id, {bool manage = false}) {
+    if (_openRentalId == id && manageOpen == manage) return true;
     final uid = userProfile?.uid ?? SessionStorage.uid;
+    // 0) `#/rentals/<id>/manage` -> W37 manage for a listing I own
+    if (manage) {
+      if (uid == null) return false;
+      for (final r in realtimeRentals) {
+        if (r['id']?.toString() == id) {
+          if (!_ownsListing(r)) return true;
+          setState(() => activeTab = AppTab.transit);
+          openManageVehicle(r);
+          return true;
+        }
+      }
+      for (final prop in realtimeProperties) {
+        if (prop.id == id) {
+          final m = prop.toMap();
+          if (!_ownsListing(m)) return true;
+          setState(() {
+            activeTab = AppTab.transit;
+            activeRentalCategory = RentalCategory.properties;
+          });
+          openManageProperty(m);
+          return true;
+        }
+      }
+      return false;
+    }
     // 1) one of my active bookings -> W38 details
     for (final r in renterActiveBookings) {
       if (r['id']?.toString() == id) {
@@ -839,8 +949,11 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   void _closeRentalsPanelFromRoute() {
-    if (!(showRentalDetailsModal || showBookVehicleModal || showBookPropertyModal)) return;
+    if (!(showRentalDetailsModal || showBookVehicleModal || showBookPropertyModal || manageOpen)) return;
     setState(() {
+      showManageVehicleModal = false;
+      showManagePropertyModal = false;
+      manageFromDetails = false;
       showRentalDetailsModal = false;
       selectedRentalDetailsData = null;
       showBookVehicleModal = false;
@@ -927,9 +1040,10 @@ class TranyxAppState extends State<TranyxApp> {
       openChat(mid, syncUrl: false);
       return;
     }
-    final rid = _rentalRouteRe.firstMatch(hash)?.group(1);
+    final rm = _rentalRouteRe.firstMatch(hash);
+    final rid = rm?.group(1);
     if (rid != null) {
-      if (!_applyRentalsRoute(rid)) _scheduleRouteRetry();
+      if (!_applyRentalsRoute(rid, manage: rm?.group(2) != null)) _scheduleRouteRetry();
       return;
     }
     final id = _routeJobId();
@@ -7995,6 +8109,7 @@ class TranyxAppState extends State<TranyxApp> {
     // W36 listing wizard is a page: leaving via the nav closes it.
     if (showListVehicleModal || showListPropertyModal || showEditVehicleModal || showEditPropertyModal || showBookVehicleModal || showBookPropertyModal || showManageVehicleModal || showManagePropertyModal || showRentalDetailsModal || showRentalTrackerMap || showExtendRentalModal) {
       setState(() {
+        manageFromDetails = false;
         showRentalTrackerMap = false;
         showExtendRentalModal = false;
         showManageVehicleModal = false;
@@ -9134,8 +9249,8 @@ class TranyxAppState extends State<TranyxApp> {
                     selectedRentalDetailsData = null;
                   }),
                 )
-              else if (showManageVehicleModal) ManageVehicleModalComponent(appState: this, key: const ValueKey('manage-vehicle-modal'))
-              else if (showManagePropertyModal) ManagePropertyModalComponent(appState: this, key: const ValueKey('manage-property-modal'))
+              else if (showManageVehicleModal && !rentalsPanelMode) ManageVehicleModalComponent(appState: this, key: ValueKey('manage-vehicle-${selectedRentalData?['id']}'))
+              else if (showManagePropertyModal && !rentalsPanelMode) ManagePropertyModalComponent(appState: this, key: ValueKey('manage-property-${selectedPropertyData?['id']}'))
               else if (showBookVehicleModal && !rentalsPanelMode) BookVehicleModalComponent(appState: this, key: const ValueKey('book-vehicle-modal'))
               else if (showBookPropertyModal && !rentalsPanelMode) BookPropertyModalComponent(appState: this, key: const ValueKey('book-property-modal'))
               else if (showListVehicleModal) ListVehicleModalComponent(appState: this, key: const ValueKey('list-vehicle-modal'))
@@ -9153,7 +9268,11 @@ class TranyxAppState extends State<TranyxApp> {
                     TransitViewComponent(state: this),
                   ]),
                   div(classes: 'flex-1 min-w-0', [
-                    if (showRentalDetailsModal && selectedRentalDetailsData != null)
+                    if (showManageVehicleModal && selectedRentalData != null)
+                      ManageVehicleModalComponent(appState: this, key: ValueKey('manage-vehicle-${selectedRentalData!['id']}'))
+                    else if (showManagePropertyModal && selectedPropertyData != null)
+                      ManagePropertyModalComponent(appState: this, key: ValueKey('manage-property-${selectedPropertyData!['id']}'))
+                    else if (showRentalDetailsModal && selectedRentalDetailsData != null)
                       RentalDetailsModalComponent(
                         appState: this,
                         rentalData: selectedRentalDetailsData!,

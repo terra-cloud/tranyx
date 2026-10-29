@@ -15,6 +15,20 @@ class ManagePropertyModalComponent extends StatefulComponent {
 }
 
 class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
+  /// Listing id this state was opened for (the component is keyed by id, so a new listing remounts it).
+  String? _boundId;
+
+  /// False once the user has moved to another listing (or closed manage): async results are then dropped.
+  bool get _stillSelected =>
+      component.appState.showManagePropertyModal && component.appState.selectedPropertyData?['id']?.toString() == _boundId;
+
+  @override
+  // ignore: invalid_use_of_protected_member
+  void setState(void Function() fn) {
+    if (!mounted) return;
+    super.setState(fn);
+  }
+
   bool _isLoadingRequests = false;
   List<Map<String, dynamic>> _requests = [];
   String? _error;
@@ -25,6 +39,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
   bool _allowChat = false;
 
   void _toggleAcceptingBookings(bool currentlyAccepting) async {
+    if (_isProcessing) return;
     final prop = component.appState.selectedPropertyData;
     if (prop == null) return;
 
@@ -41,7 +56,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
         final updated = Map<String, dynamic>.from(prop);
         updated['acceptingBookings'] = newAccepting;
         updated['status'] = newStatus;
-        component.appState.selectedPropertyData = updated;
+        if (_stillSelected) component.appState.selectedPropertyData = updated;
       });
       component.appState.alertDialog(
         newAccepting ? 'Bookings Resumed' : 'Bookings Paused',
@@ -59,6 +74,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
   @override
   void initState() {
     super.initState();
+    _boundId = component.appState.selectedPropertyData?['id']?.toString();
     _loadRequests();
   }
 
@@ -81,6 +97,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
         final bTime = (reqB['startDate'] as int?) ?? (reqB['createdAt'] as int?) ?? 0;
         return bTime.compareTo(aTime);
       });
+      if (!_stillSelected) return;
       setState(() {
         _requests = allList;
       });
@@ -111,8 +128,11 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
 
       // Close modal and clear selected state
       component.appState.setState(() {
-        component.appState.showManagePropertyModal = false;
-        component.appState.selectedPropertyData = null;
+        if (_stillSelected) {
+          component.appState.manageFromDetails = false;
+          component.appState.showManagePropertyModal = false;
+          component.appState.selectedPropertyData = null;
+        }
       });
     } catch (e) {
       setState(() => _error = e.toString());
@@ -139,6 +159,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
   }
 
   void _deleteListing(String propertyId) async {
+    if (_isProcessing) return;
     setState(() {
       _isProcessing = true;
       _error = null;
@@ -150,8 +171,11 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
       component.appState.walletBalance = component.appState.userProfile?.tyxBalance ?? component.appState.walletBalance;
 
       component.appState.setState(() {
-        component.appState.showManagePropertyModal = false;
-        component.appState.selectedPropertyData = null;
+        if (_stillSelected) {
+          component.appState.manageFromDetails = false;
+          component.appState.showManagePropertyModal = false;
+          component.appState.selectedPropertyData = null;
+        }
       });
       component.appState.alertDialog('Listing Removed', 'The property listing has been removed from Tranyx.');
     } catch (e) {
@@ -162,6 +186,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
   }
 
   void _completeLease() async {
+    if (_isProcessing) return;
     final prop = component.appState.selectedPropertyData;
     if (prop == null) return;
 
@@ -201,8 +226,11 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
           b['propertyId'] == prop['id'] || b['id'] == prop['id'] || b['id'] == prop['currentRequestId']);
 
       component.appState.setState(() {
-        component.appState.showManagePropertyModal = false;
-        component.appState.selectedPropertyData = null;
+        if (_stillSelected) {
+          component.appState.manageFromDetails = false;
+          component.appState.showManagePropertyModal = false;
+          component.appState.selectedPropertyData = null;
+        }
       });
       component.appState.alertDialog('Lease Completed', 'The lease has been completed and earnings have been deposited into your wallet.');
     } catch (e) {
@@ -213,6 +241,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
   }
 
   void _completeLeaseForRequest(String requestId) async {
+    if (_isProcessing) return;
     final prop = component.appState.selectedPropertyData;
     if (prop == null) return;
 
@@ -251,8 +280,11 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
           b['propertyId'] == prop['id'] || b['id'] == prop['id'] || b['id'] == requestId);
 
       component.appState.setState(() {
-        component.appState.showManagePropertyModal = false;
-        component.appState.selectedPropertyData = null;
+        if (_stillSelected) {
+          component.appState.manageFromDetails = false;
+          component.appState.showManagePropertyModal = false;
+          component.appState.selectedPropertyData = null;
+        }
       });
       component.appState.showAppToast('Lease Completed', 'Lease earnings have been deposited into your wallet.');
     } catch (e) {
@@ -263,6 +295,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
   }
 
   void _revokeApproval({String? requestId}) async {
+    if (_isProcessing) return;
     final prop = component.appState.selectedPropertyData;
     if (prop == null) return;
 
@@ -282,8 +315,11 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
       component.appState.showAppToast('Approval Revoked', 'Lease request cancelled and tenant refunded.');
       _loadRequests();
       component.appState.setState(() {
-        component.appState.showManagePropertyModal = false;
-        component.appState.selectedPropertyData = null;
+        if (_stillSelected) {
+          component.appState.manageFromDetails = false;
+          component.appState.showManagePropertyModal = false;
+          component.appState.selectedPropertyData = null;
+        }
       });
     } catch (e) {
       setState(() => _error = 'Failed to revoke approval: $e');
@@ -293,6 +329,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
   }
 
   void _activateLease({String? requestId}) async {
+    if (_isProcessing) return;
     final prop = component.appState.selectedPropertyData;
     if (prop == null) return;
 
@@ -308,7 +345,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
       final updated = Map<String, dynamic>.from(prop);
       updated['status'] = 'Active';
       component.appState.setState(() {
-        component.appState.selectedPropertyData = updated;
+        if (_stillSelected) component.appState.selectedPropertyData = updated;
       });
     } catch (e) {
       setState(() => _error = 'Failed to activate lease: $e');
@@ -318,6 +355,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
   }
 
   void _cancelLease({String? requestId}) async {
+    if (_isProcessing) return;
     final prop = component.appState.selectedPropertyData;
     if (prop == null) return;
 
@@ -337,8 +375,11 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
       component.appState.showAppToast('Lease Cancelled', 'Lease has been cancelled and refunded.');
       _loadRequests();
       component.appState.setState(() {
-        component.appState.showManagePropertyModal = false;
-        component.appState.selectedPropertyData = null;
+        if (_stillSelected) {
+          component.appState.manageFromDetails = false;
+          component.appState.showManagePropertyModal = false;
+          component.appState.selectedPropertyData = null;
+        }
       });
     } catch (e) {
       setState(() => _error = 'Failed to cancel lease: $e');
@@ -354,6 +395,10 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
     }
 
     final prop = component.appState.selectedPropertyData!;
+    final ownerUid = component.appState.userProfile?.uid;
+    if (ownerUid == null || prop['hostId']?.toString() != ownerUid) {
+      return div(classes: 'p-6 text-sm text-zinc-500', [Component.text('Only the listing owner can manage this property.')]);
+    }
     final isDark = component.appState.isDark;
     final status = prop['status'] ?? 'Available';
     final isNotAccepting = status == 'Not Accepting Bookings' || prop['acceptingBookings'] == false;
@@ -364,7 +409,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
 
     return div(
       classes:
-          'rw-page animate-fade-in',
+          'rw-page animate-fade-in ${component.appState.rentalsPanelMode ? "rw-panel" : ""}',
       [
         div(
           classes:
@@ -375,20 +420,23 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
               classes:
                   'p-6 border-b flex items-center justify-between shrink-0 ${isDark ? "border-zinc-800" : "border-zinc-200"}',
               [
-                div([
+                div(classes: 'flex items-center gap-3', [
+                  button(
+                    classes: 'p-2 rounded-full hover:bg-zinc-800/20 transition-colors border-0 bg-transparent cursor-pointer',
+                    attributes: {'aria-label': component.appState.manageFromDetails ? 'Back to details' : 'Back'},
+                    events: {'click': (_) => component.appState.backFromManage()},
+                    [lIcon('arrow-left', cls: 'w-5 h-5')],
+                  ),
+                  div([
                   h2(classes: 'text-xl font-black tracking-tight', [Component.text('Manage Property')]),
                   p(classes: 'text-xs text-zinc-400 mt-1', [Component.text(title)]),
+                ]),
                 ]),
                 button(
                   classes:
                       'p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition-colors border-0 bg-transparent cursor-pointer',
                   events: {
-                    'click': (_) {
-                      component.appState.setState(() {
-                        component.appState.showManagePropertyModal = false;
-                        component.appState.selectedPropertyData = null;
-                      });
-                    },
+                    'click': (_) => component.appState.closeManage(),
                   },
                   [lIcon('x', cls: 'w-5 h-5')],
                 ),
