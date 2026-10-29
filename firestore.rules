@@ -160,6 +160,27 @@ service cloud.firestore {
         (txId.matches('^p2p_with_.+') && exists(wrPath) && get(wrPath).data.get('uid', '') == uid);
     }
 
+    // pending_onchain_<uid>_<signature>: the bookkeeping record of an in-flight on-chain payment. The
+    // uid in the id must be the caller's, so nobody can squat another account's pending record.
+    function isOwnPendingOnchainId(txId, uid) {
+      let prefix = 'pending_onchain_' + uid + '_';
+      return txId.size() > prefix.size() && txId[0:prefix.size()] == prefix;
+    }
+
+    // deposit_sol_ / deposit_usdt_ / sub_sol_ + <signature> credit records may only be created by the
+    // account that holds the shared marker transactions/onchain_<signature> in the same commit
+    // (getAfter sees the batch), so a signature can't be credited under an account that doesn't hold it.
+    function holdsOnchainMarkerFor(txId, uid) {
+      let sig = txId.replace('^(deposit_sol|deposit_usdt|sub_sol)_', '');
+      return getAfter(/databases/$(database)/documents/transactions/$('onchain_' + sig)).data.get('uid', '') == uid;
+    }
+
+    // onchain_<signature>: exactly the marker the client writes, owned by the caller.
+    function isValidOnchainMarkerCreate(d, uid) {
+      return d.keys().hasOnly(['uid', 'type', 'solanaTxSignature', 'markerId', 'markedAt']) &&
+        d.get('type', '') == 'onchain_marker' && d.get('uid', '') == uid;
+    }
+
     // KAN-136 stopgap (until KAN-126 Cloud Function ledger): hired worker may create
     // payout_nyx_<jobId> type=payout with amount bound to the job price. fees_emp_ /
     // platform_fees / employer-driven completion stay Function-only (P1/P2).
@@ -319,8 +340,13 @@ service cloud.firestore {
       // Missing payout_nyx_/fees_emp_/refund_prop_ ids only by that job's participants / the host, so
       // denied-vs-missing can't be used to probe someone else's records.
       // list: owner only (getMyTransactions filters uid == caller).
+      // onchain_<signature> markers are readable by any signed-in user (and nothing else of the on-chain
+      // credit records is): a credit transaction reads it first and, when another account holds it,
+      // returns "contact support" instead of failing. It only holds uid/type/signature/markerId/markedAt
+      // (create rule below); the signature is public on-chain. deposit_*/sub_sol_* stay owner/staff only.
       allow get: if isAuthenticated() &&
-        ((resource == null && (!txId.matches('^(payout_nyx|fees_emp|refund_prop)_.*') ||
+        ((resource != null && txId.matches('^onchain_.+')) ||
+          (resource == null && (!txId.matches('^(payout_nyx|fees_emp|refund_prop)_.*') ||
             isTxJobParticipant(txId) || isTxIdParty(txId, request.auth.uid))) ||
           (resource != null && ownsRecord(resource.data)) ||
           (isTxJobParticipant(txId) && isTxIdParty(txId, resource.data.get('uid', ''))) || isAdminOrStaff());
@@ -329,10 +355,18 @@ service cloud.firestore {
       // public job / property / request id before the real writer.
       // KAN-136 stopgap: hired worker may create payout_nyx_<job> type=payout (amount bound to job price).
       allow create: if isAdminOrStaff() || isJobCompletionTxCreate(txId) || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$') &&
-        (!txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*') || isTxIdParty(txId, request.auth.uid)));
+        (!txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*') || isTxIdParty(txId, request.auth.uid)) &&
+        (!txId.matches('^pending_onchain_.*') || isOwnPendingOnchainId(txId, request.auth.uid)) &&
+        (!txId.matches('^(deposit_sol|deposit_usdt|sub_sol)_.+') || holdsOnchainMarkerFor(txId, request.auth.uid)) &&
+        (!txId.matches('^onchain_.*') || isValidOnchainMarkerCreate(request.resource.data, request.auth.uid)));
       // KAN-136-05: structured job/property/p2p tx ids are create-only for clients (no owner rewrite/replay).
+      // On-chain credit records (deposit_<sig> / sub_sol_<sig>) and the shared one-per-signature marker
+      // (onchain_<sig>) are create-only for clients too: the credit already happened, so an owner must not
+      // be able to rewrite or replay them. Admin/staff still can (isAdminOrStaff above).
       allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid &&
-        !txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*'));
+        !txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p|deposit|sub_sol|onchain)_.*') &&
+        (!txId.matches('^pending_onchain_.*') ||
+          (isOwnPendingOnchainId(txId, request.auth.uid) && request.resource.data.uid == resource.data.uid)));
       allow delete: if isAdminOrStaff();
     }
 

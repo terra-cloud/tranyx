@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/services/mwa_service.dart';
+import 'package:tranyx_mobile/core/services/onchain_credit.dart';
 
 /// What an MWA payment to the treasury must look like on-chain.
 class MwaTransferExpectation {
@@ -151,42 +152,6 @@ Future<Map<String, dynamic>?> fetchFinalizedParsedTransaction({
   }
 }
 
-/// Creates [markerId] under `transactions` and applies [userUpdate] to the
-/// user doc in ONE Firestore transaction, only if the marker does not exist.
-/// Returns false (and writes nothing) when this on-chain signature was already
-/// processed, so a retry or double tap can never credit twice.
-Future<bool> commitOnceByMarker({
-  required FirebaseFirestore firestore,
-  required String uid,
-  required String markerId,
-  required Map<String, dynamic> markerData,
-  required Map<String, dynamic> userUpdate,
-}) {
-  return firestore.runTransaction<bool>((tx) async {
-    final markerRef = firestore.collection('transactions').doc(markerId);
-    final snap = await tx.get(markerRef);
-    if (snap.exists) return false;
-    tx.update(firestore.collection('users').doc(uid), userUpdate);
-    tx.set(markerRef, markerData);
-    return true;
-  });
-}
-
-/// Credits a deposit: marker + `FieldValue.increment` (never read-then-add).
-Future<bool> creditMwaDeposit({
-  required FirebaseFirestore firestore,
-  required String uid,
-  required String markerId,
-  required double phpAmount,
-  required Map<String, dynamic> markerData,
-}) => commitOnceByMarker(
-  firestore: firestore,
-  uid: uid,
-  markerId: markerId,
-  markerData: markerData,
-  userUpdate: {'tyxBalance': FieldValue.increment(phpAmount)},
-);
-
 /// Has the wallet pay the treasury over MWA, waits for the transaction to be
 /// confirmed and then FINALIZED, and verifies it really is the expected
 /// payment from the linked wallet. Returns the signature, or throws.
@@ -198,6 +163,10 @@ Future<String> payTreasuryViaMwa({
   required String treasuryPublicKey,
   required bool isSol,
   required double cryptoAmount,
+  required FirebaseFirestore firestore,
+  required String uid,
+  required String kind, // 'deposit' | 'subscription'
+  required double phpAmount,
 }) async {
   final int baseUnits = isSol
       ? (cryptoAmount * 1e9).round()
@@ -230,44 +199,62 @@ Future<String> payTreasuryViaMwa({
     broadcastSigned: (signed) => phantom.sendTransaction(base58.encode(signed)),
   );
 
-  final confirmed = await phantom.confirmTransaction(signature);
-  if (!confirmed) {
-    throw Exception(
-      'Transaction was sent but is not confirmed yet, so nothing was credited. '
-      'Contact support with signature $signature.',
-    );
-  }
-
-  final expectation = isSol
-      ? MwaTransferExpectation.sol(
-          sender: linkedPubkey,
-          treasury: treasuryPublicKey,
-          amount: baseUnits,
-        )
-      : MwaTransferExpectation.token(
-          sender: linkedPubkey,
-          treasury: treasuryPublicKey,
-          mint: phantom.usdtMintAddress,
-          treasuryTokenAccount: phantom.deriveATA(
-            walletPubkey: treasuryPublicKey,
-            mintPubkey: phantom.usdtMintAddress,
-          ),
-          amount: baseUnits,
-        );
-
-  final tx = await fetchFinalizedParsedTransaction(
-    rpcUrl: Uri.parse(phantom.rpcUrl),
+  // The money has left the wallet: record it as pending BEFORE waiting, so
+  // support can reconcile if the app dies or finalization never arrives.
+  await writePendingOnchain(
+    firestore: firestore,
+    uid: uid,
     signature: signature,
+    kind: kind,
+    phpAmount: phpAmount,
+    cryptoAmount: cryptoAmount,
+    currency: isSol ? 'SOL' : 'USDT',
   );
-  if (tx == null) {
-    throw Exception(
-      'The payment is not finalized yet, so nothing was credited. '
-      'Contact support with signature $signature.',
+
+  try {
+    final confirmed = await phantom.confirmTransaction(signature);
+    if (!confirmed) {
+      throw Exception(
+        'Transaction was sent but is not confirmed yet, so nothing was credited. '
+        'Contact support with signature $signature.',
+      );
+    }
+
+    final expectation = isSol
+        ? MwaTransferExpectation.sol(
+            sender: linkedPubkey,
+            treasury: treasuryPublicKey,
+            amount: baseUnits,
+          )
+        : MwaTransferExpectation.token(
+            sender: linkedPubkey,
+            treasury: treasuryPublicKey,
+            mint: phantom.usdtMintAddress,
+            treasuryTokenAccount: phantom.deriveATA(
+              walletPubkey: treasuryPublicKey,
+              mintPubkey: phantom.usdtMintAddress,
+            ),
+            amount: baseUnits,
+          );
+
+    final tx = await fetchFinalizedParsedTransaction(
+      rpcUrl: Uri.parse(phantom.rpcUrl),
+      signature: signature,
     );
+    if (tx == null) {
+      throw Exception(
+        'The payment is not finalized yet, so nothing was credited. '
+        'Contact support with signature $signature.',
+      );
+    }
+    final problem = verifyMwaTransfer(tx, expectation);
+    if (problem != null) {
+      throw Exception('Payment refused: $problem Signature $signature.');
+    }
+    return signature;
+  } catch (e) {
+    // Leave the record pending, with the reason, for support.
+    await notePendingOnchain(firestore: firestore, uid: uid, signature: signature, note: '$e');
+    rethrow;
   }
-  final problem = verifyMwaTransfer(tx, expectation);
-  if (problem != null) {
-    throw Exception('Payment refused: $problem Signature $signature.');
-  }
-  return signature;
 }

@@ -13,7 +13,7 @@ import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:tranyx_mobile/core/services/mwa_service.dart';
 import 'package:tranyx_mobile/core/services/mwa_wallet_link.dart';
 import 'package:tranyx_mobile/core/services/mwa_payment.dart';
-import 'package:tranyx_mobile/core/services/mwa_subscription.dart';
+import 'package:tranyx_mobile/core/services/onchain_credit.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 import 'package:shared/shared.dart';
@@ -421,15 +421,19 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
           treasuryPublicKey: treasuryPublicKey,
           isSol: true,
           cryptoAmount: cryptoAmount,
+          firestore: firestore,
+          uid: uid,
+          kind: 'subscription',
+          phpAmount: phpAmount,
         );
-        await activateSubscriptionOnce(
+        (await activateSubscriptionOnce(
           firestore: firestore,
           uid: uid,
           signature: signature,
           plan: _selectedPlan,
           phpAmount: phpAmount,
           cryptoAmount: cryptoAmount,
-        );
+        )).throwIfHeldElsewhere(signature);
         ref.invalidate(userProfileProvider);
         ref.invalidate(userTransactionsProvider);
         if (mounted) {
@@ -513,28 +517,16 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
         await SecureStorageHelper.deletePendingAction();
         await SecureStorageHelper.deletePendingSubscriptionType();
 
-        final now = DateTime.now();
-        final premiumUntil = _selectedPlan == 'yearly'
-            ? now.add(const Duration(days: 365))
-            : now.add(const Duration(days: 30));
-
-        await firestore.collection('users').doc(uid).update({
-          'isPremium': true,
-          'premiumUntil': premiumUntil.millisecondsSinceEpoch,
-          'accountType': 'hybrid',
-        });
-
-        final txId = 'sub_sol_$txSignature';
-        await firestore.collection('transactions').doc(txId).set({
-          'uid': uid,
-          'type': 'subscription',
-          'amount': phpAmount,
-          'title': 'Hybrid PRO Subscription (${_selectedPlan == 'yearly' ? 'Yearly' : 'Monthly'})',
-          'desc': 'Subscribed via Trust Wallet (${cryptoAmount.toStringAsFixed(4)} SOL)',
-          'method': 'Trust Wallet',
-          'solanaTxSignature': txSignature,
-          'createdAt': now.millisecondsSinceEpoch,
-        });
+        // Activate once per signature; expiry extends from max(now, premiumUntil).
+        (await activateSubscriptionOnce(
+          firestore: firestore,
+          uid: uid,
+          signature: txSignature,
+          plan: _selectedPlan,
+          phpAmount: phpAmount,
+          cryptoAmount: cryptoAmount,
+          method: 'Trust Wallet',
+        )).throwIfHeldElsewhere(txSignature);
 
         ref.invalidate(userProfileProvider);
         ref.invalidate(userTransactionsProvider);

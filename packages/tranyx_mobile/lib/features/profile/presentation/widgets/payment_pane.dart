@@ -17,6 +17,7 @@ import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:tranyx_mobile/core/services/mwa_service.dart';
 import 'package:tranyx_mobile/core/services/mwa_wallet_link.dart';
 import 'package:tranyx_mobile/core/services/mwa_payment.dart';
+import 'package:tranyx_mobile/core/services/onchain_credit.dart';
 import 'package:tranyx_mobile/core/widgets/solana_logo.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/withdraw_pane.dart';
@@ -2194,12 +2195,17 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       treasuryPublicKey: treasuryPublicKey,
       isSol: isSol,
       cryptoAmount: cryptoAmount,
+      firestore: ref.read(firestoreProvider),
+      uid: uid,
+      kind: 'deposit',
+      phpAmount: phpAmount,
     );
 
     final currency = isSol ? 'SOL' : 'USDT';
-    await creditMwaDeposit(
+    (await creditOnchainDeposit(
       firestore: ref.read(firestoreProvider),
       uid: uid,
+      signature: txSignature,
       markerId: isSol ? 'deposit_sol_$txSignature' : 'deposit_usdt_$txSignature',
       phpAmount: phpAmount,
       markerData: {
@@ -2215,7 +2221,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         if (!isSol) 'currency': 'USDT',
         'createdAt': DateTime.now().millisecondsSinceEpoch,
       },
-    );
+    )).throwIfHeldElsewhere(txSignature);
 
     ref.invalidate(userProfileProvider);
     ref.invalidate(userTransactionsProvider);
@@ -2532,25 +2538,26 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         await SecureStorageHelper.deletePendingDepositCryptoAmount();
         await SecureStorageHelper.deletePendingDepositCurrency();
 
-        // Update Firestore balance
-        final repo = ref.read(transitRepositoryProvider);
-        final userProfile = await repo.getUser(uid);
-        if (userProfile != null) {
-          final newBalance = userProfile.tyxBalance + phpAmount;
-          await repo.updateTyxBalance(uid, newBalance);
-
-          final txId = 'deposit_sol_$txSignature';
-          await firestore.collection('transactions').doc(txId).set({
-            'uid': uid,
-            'type': 'deposit',
-            'amount': phpAmount,
-            'title': 'Wallet Top-Up (SOL via Trust Wallet)',
-            'desc':
-                'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} SOL via Trust Wallet',
-            'method': 'Trust Wallet',
-            'solanaTxSignature': txSignature,
-            'createdAt': DateTime.now().millisecondsSinceEpoch,
-          });
+        // Credit once per signature: shared on-chain marker + deposit marker +
+        // balance increment in one Firestore transaction.
+        {
+          (await creditOnchainDeposit(
+            firestore: firestore,
+            uid: uid,
+            signature: txSignature,
+            markerId: 'deposit_sol_$txSignature',
+            phpAmount: phpAmount,
+            markerData: {
+              'uid': uid,
+              'type': 'deposit',
+              'amount': phpAmount,
+              'title': 'Wallet Top-Up (SOL via Trust Wallet)',
+              'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} SOL via Trust Wallet',
+              'method': 'Trust Wallet',
+              'solanaTxSignature': txSignature,
+              'createdAt': DateTime.now().millisecondsSinceEpoch,
+            },
+          )).throwIfHeldElsewhere(txSignature);
 
           ref.invalidate(userProfileProvider);
           ref.invalidate(userTransactionsProvider);
@@ -2765,26 +2772,26 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         await SecureStorageHelper.deletePendingDepositCryptoAmount();
         await SecureStorageHelper.deletePendingDepositCurrency();
 
-        // Update Firestore balance
-        final repo = ref.read(transitRepositoryProvider);
-        final userProfile = await repo.getUser(uid);
-        if (userProfile != null) {
-          final newBalance = userProfile.tyxBalance + phpAmount;
-          await repo.updateTyxBalance(uid, newBalance);
-
-          final txId = 'deposit_usdt_$txSignature';
-          await firestore.collection('transactions').doc(txId).set({
-            'uid': uid,
-            'type': 'deposit',
-            'amount': phpAmount,
-            'title': 'Wallet Top-Up (USDT via Trust Wallet)',
-            'desc':
-                'Crypto deposit of \$${amountInUsdt.toStringAsFixed(2)} USDT via Trust Wallet',
-            'method': 'Trust Wallet',
-            'solanaTxSignature': txSignature,
-            'currency': 'USDT',
-            'createdAt': DateTime.now().millisecondsSinceEpoch,
-          });
+        // Credit once per signature (see the SOL branch).
+        {
+          (await creditOnchainDeposit(
+            firestore: firestore,
+            uid: uid,
+            signature: txSignature,
+            markerId: 'deposit_usdt_$txSignature',
+            phpAmount: phpAmount,
+            markerData: {
+              'uid': uid,
+              'type': 'deposit',
+              'amount': phpAmount,
+              'title': 'Wallet Top-Up (USDT via Trust Wallet)',
+              'desc': 'Crypto deposit of \$${amountInUsdt.toStringAsFixed(2)} USDT via Trust Wallet',
+              'method': 'Trust Wallet',
+              'solanaTxSignature': txSignature,
+              'currency': 'USDT',
+              'createdAt': DateTime.now().millisecondsSinceEpoch,
+            },
+          )).throwIfHeldElsewhere(txSignature);
 
           ref.invalidate(userProfileProvider);
           ref.invalidate(userTransactionsProvider);

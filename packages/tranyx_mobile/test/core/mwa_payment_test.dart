@@ -167,48 +167,6 @@ void main() {
     });
   });
 
-  group('creditMwaDeposit (atomic, idempotent per signature)', () {
-    late FakeFirebaseFirestore db;
-    setUp(() async {
-      db = FakeFirebaseFirestore();
-      await db.collection('users').doc('u1').set({'tyxBalance': 100.0});
-    });
-
-    Future<bool> credit(String sig, {double php = 50}) => creditMwaDeposit(
-      firestore: db,
-      uid: 'u1',
-      markerId: 'deposit_sol_$sig',
-      phpAmount: php,
-      markerData: {'uid': 'u1', 'type': 'deposit', 'amount': php, 'solanaTxSignature': sig},
-    );
-
-    test('first credit increments the balance and writes the marker', () async {
-      expect(await credit('sigA'), isTrue);
-      expect((await db.collection('users').doc('u1').get()).data()!['tyxBalance'], 150.0);
-      expect((await db.collection('transactions').doc('deposit_sol_sigA').get()).exists, isTrue);
-    });
-
-    test('the same signature never credits twice (retry / double tap)', () async {
-      // The fake has no optimistic-concurrency retry, so replays run one after
-      // another; real Firestore additionally serializes concurrent runs.
-      final results = <bool>[await credit('sigB'), await credit('sigB'), await credit('sigB')];
-      expect(results, [true, false, false]);
-      expect((await db.collection('users').doc('u1').get()).data()!['tyxBalance'], 150.0);
-    });
-
-    test('different signatures each credit once', () async {
-      await credit('s1');
-      await credit('s2', php: 25);
-      expect((await db.collection('users').doc('u1').get()).data()!['tyxBalance'], 175.0);
-    });
-
-    test('uses the current balance (increment), not a stale read', () async {
-      await db.collection('users').doc('u1').update({'tyxBalance': 500.0});
-      await credit('s3');
-      expect((await db.collection('users').doc('u1').get()).data()!['tyxBalance'], 550.0);
-    });
-  });
-
   group('linkMwaWallet / unlinkWallet', () {
     late FakeFirebaseFirestore db;
     setUp(() async {

@@ -8,6 +8,7 @@ import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/jobs/models/job.dart';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
+import 'package:tranyx_mobile/core/services/onchain_credit.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 
 // Provides the GoRouter instance
@@ -416,23 +417,26 @@ final routerProvider = Provider<GoRouter>((ref) {
 
             try {
               // Confirm & Update balance in Firestore and record the deposit transaction
-              final repo = ref.read(transitRepositoryProvider);
-              final userProfile = await repo.getUser(user.uid);
-              if (userProfile != null) {
-                final newBalance = userProfile.tyxBalance + phpAmount;
-                await repo.updateTyxBalance(user.uid, newBalance);
-
-                final txId = 'deposit_sol_$signature';
-                await ref.read(firestoreProvider).collection('transactions').doc(txId).set({
-                  'uid': user.uid,
-                  'type': 'deposit',
-                  'amount': phpAmount,
-                  'title': 'Wallet Top-Up ($currency)',
-                  'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} $currency via Solana',
-                  'method': 'Solana',
-                  'solanaTxSignature': signature,
-                  'createdAt': DateTime.now().millisecondsSinceEpoch,
-                });
+              {
+                // Credit once per signature: shared on-chain marker + deposit marker +
+                // balance increment in one Firestore transaction.
+                (await creditOnchainDeposit(
+                  firestore: ref.read(firestoreProvider),
+                  uid: user.uid,
+                  signature: signature,
+                  markerId: 'deposit_sol_$signature',
+                  phpAmount: phpAmount,
+                  markerData: {
+                    'uid': user.uid,
+                    'type': 'deposit',
+                    'amount': phpAmount,
+                    'title': 'Wallet Top-Up ($currency)',
+                    'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} $currency via Solana',
+                    'method': 'Solana',
+                    'solanaTxSignature': signature,
+                    'createdAt': DateTime.now().millisecondsSinceEpoch,
+                  },
+                )).throwIfHeldElsewhere(signature);
 
                 ref.invalidate(userProfileProvider);
                 ref.invalidate(userTransactionsProvider);
@@ -633,30 +637,16 @@ final routerProvider = Provider<GoRouter>((ref) {
               }
 
               try {
-                final now = DateTime.now();
-                final premiumUntil = subType == 'yearly'
-                    ? now.add(const Duration(days: 365))
-                    : now.add(const Duration(days: 30));
-
-                // Update premium status in user profile & set account type to hybrid
-                await ref.read(firestoreProvider).collection('users').doc(user.uid).update({
-                  'isPremium': true,
-                  'premiumUntil': premiumUntil.millisecondsSinceEpoch,
-                  'accountType': 'hybrid',
-                });
-
-                // Record subscription transaction
-                final txId = 'sub_sol_$signature';
-                await ref.read(firestoreProvider).collection('transactions').doc(txId).set({
-                  'uid': user.uid,
-                  'type': 'subscription',
-                  'amount': phpAmount,
-                  'title': 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
-                  'desc': 'Subscribed via Solana wallet (${cryptoAmount.toStringAsFixed(4)} SOL)',
-                  'method': 'Solana Wallet',
-                  'solanaTxSignature': signature,
-                  'createdAt': now.millisecondsSinceEpoch,
-                });
+                // Activate once per signature; expiry extends from max(now, premiumUntil).
+                (await activateSubscriptionOnce(
+                  firestore: ref.read(firestoreProvider),
+                  uid: user.uid,
+                  signature: signature,
+                  plan: subType == 'yearly' ? 'yearly' : 'monthly',
+                  phpAmount: phpAmount,
+                  cryptoAmount: cryptoAmount,
+                  method: 'Solana Wallet',
+                )).throwIfHeldElsewhere(signature);
 
                 ref.invalidate(userProfileProvider);
                 ref.invalidate(userTransactionsProvider);
@@ -705,23 +695,26 @@ final routerProvider = Provider<GoRouter>((ref) {
 
             try {
               // Confirm & Update balance in Firestore and record the deposit transaction
-              final repo = ref.read(transitRepositoryProvider);
-              final userProfile = await repo.getUser(user.uid);
-              if (userProfile != null) {
-                final newBalance = userProfile.tyxBalance + phpAmount;
-                await repo.updateTyxBalance(user.uid, newBalance);
-
-                final txId = 'deposit_sol_$signature';
-                await ref.read(firestoreProvider).collection('transactions').doc(txId).set({
-                  'uid': user.uid,
-                  'type': 'deposit',
-                  'amount': phpAmount,
-                  'title': 'Wallet Top-Up ($currency)',
-                  'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} $currency via Solana',
-                  'method': 'Solana',
-                  'solanaTxSignature': signature,
-                  'createdAt': DateTime.now().millisecondsSinceEpoch,
-                });
+              {
+                // Credit once per signature: shared on-chain marker + deposit marker +
+                // balance increment in one Firestore transaction.
+                (await creditOnchainDeposit(
+                  firestore: ref.read(firestoreProvider),
+                  uid: user.uid,
+                  signature: signature,
+                  markerId: 'deposit_sol_$signature',
+                  phpAmount: phpAmount,
+                  markerData: {
+                    'uid': user.uid,
+                    'type': 'deposit',
+                    'amount': phpAmount,
+                    'title': 'Wallet Top-Up ($currency)',
+                    'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} $currency via Solana',
+                    'method': 'Solana',
+                    'solanaTxSignature': signature,
+                    'createdAt': DateTime.now().millisecondsSinceEpoch,
+                  },
+                )).throwIfHeldElsewhere(signature);
 
                 ref.invalidate(userProfileProvider);
                 ref.invalidate(userTransactionsProvider);
