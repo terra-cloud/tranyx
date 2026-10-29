@@ -106,10 +106,10 @@ class _KycBgModalState extends State<KycBgModalComponent> {
         '${isDark ? "bg-zinc-900 border-zinc-800 text-white focus:border-indigo-500/50" : "bg-white border-zinc-200 text-zinc-900 focus:border-indigo-500"}';
 
     return div(
-      classes: 'fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto',
+      classes: 'rw-overlay fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto',
       [
         div(
-          classes: 'w-full max-w-xl rounded-3xl border shadow-2xl flex flex-col my-8 animate-scale-up $bgCls',
+          classes: 'rw-wizard w-full max-w-xl rounded-3xl border shadow-2xl flex flex-col my-8 animate-scale-up $bgCls',
           [
             // Header
             div(

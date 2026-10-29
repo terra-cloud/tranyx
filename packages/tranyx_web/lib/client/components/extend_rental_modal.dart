@@ -234,11 +234,11 @@ class _ExtendRentalModalState extends State<ExtendRentalModalComponent> {
     final plate = r['plateNumber'] ?? r['plate'] ?? '';
 
     return div(
-      classes: 'fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/65 backdrop-blur-md animate-fade-in',
+      classes: 'rw-page animate-fade-in',
       [
         div(
           classes:
-              'w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white border border-zinc-150"}',
+              'rw-wizard rw-wizard-page w-full max-w-4xl mx-auto rounded-3xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white border border-zinc-150"}',
           [
             // Header with Wizard Stepper
             div(

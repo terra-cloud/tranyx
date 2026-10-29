@@ -8,54 +8,6 @@ import '../../services/web_interop.dart';
 import 'package:shared/shared.dart';
 import '../utils/geo_helper.dart';
 
-// ── Top-services computation helper ──────────────────────────────────────────
-/// Returns the top [limit] JobCategoryGroups ranked by how many jobs exist
-/// for each group in [allJobs]. Falls back to the first static groups when
-/// the list is empty.
-List<({JobCategoryGroup group, int count})> _computeTopGroups(
-  List<Map<String, dynamic>> allJobs, {
-  int limit = 4,
-}) {
-  // Tally jobs per category group
-  final tally = <String, int>{};
-  for (final job in allJobs) {
-    final raw = job['categoryGroup'] as String?;
-    if (raw != null && raw.isNotEmpty) {
-      tally[raw] = (tally[raw] ?? 0) + 1;
-    }
-  }
-
-  if (tally.isEmpty) {
-    // Fall back to first [limit] static groups with zero count
-    return JobCategoryGroup.values.take(limit).map((g) => (group: g, count: 0)).toList();
-  }
-
-  // Resolve to enum values and sort descending by count
-  final entries =
-      tally.entries
-          .map((e) {
-            final grp = JobCategoryGroup.values.where((g) => g.name == e.key).firstOrNull;
-            if (grp == null) return null;
-            return (group: grp, count: e.value);
-          })
-          .whereType<({JobCategoryGroup group, int count})>()
-          .toList()
-        ..sort((grpA, grpB) => grpB.count.compareTo(grpA.count));
-
-  // Pad with unseen groups when fewer than [limit] distinct groups appear
-  if (entries.length < limit) {
-    final seen = entries.map((e) => e.group).toSet();
-    for (final g in JobCategoryGroup.values) {
-      if (!seen.contains(g)) {
-        entries.add((group: g, count: 0));
-      }
-      if (entries.length >= limit) break;
-    }
-  }
-
-  return entries.take(limit).toList();
-}
-
 class HomeViewComponent extends StatefulComponent {
   final TranyxAppState state;
   const HomeViewComponent({required this.state, super.key});
@@ -80,6 +32,24 @@ class HomeViewComponentState extends State<HomeViewComponent> {
   void initState() {
     super.initState();
     _loadNews();
+  }
+
+  /// W12 empty / error card: icon bubble, title, helper line and optional action.
+  Component _stateCard(bool isDark, String title, String sub, {bool error = false, String? actionLabel, void Function()? onAction}) {
+    return div(classes: 'flex flex-col items-center text-center gap-2 py-10 px-4', [
+      div(classes: 'w-10 h-10 rounded-full flex items-center justify-center ${error ? "bg-red-500/10 text-red-500" : (isDark ? "bg-zinc-800 text-zinc-400" : "bg-white text-zinc-500 shadow-sm")}', [
+        lIcon(error ? 'wifi-off' : 'inbox', cls: 'w-5 h-5'),
+      ]),
+      p(classes: 'm-0 text-sm font-bold ${isDark ? "text-zinc-100" : "text-[#18181b]"}', [Component.text(title)]),
+      p(classes: 'm-0 text-xs ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [Component.text(sub)]),
+      if (actionLabel != null)
+        button(
+          classes: 'mt-2 px-4 h-9 rounded-xl text-xs font-semibold cursor-pointer ${error ? "text-white bg-[#4f46e5] border-0 shadow-lg shadow-indigo-500/25" : (isDark ? "border border-zinc-700 text-zinc-200" : "border border-zinc-200 bg-white text-zinc-800")}',
+          attributes: {'type': 'button'},
+          events: {'click': (_) => onAction?.call()},
+          [Component.text(actionLabel)],
+        ),
+    ]);
   }
 
   void _loadNews() async {
@@ -245,10 +215,7 @@ class HomeViewComponentState extends State<HomeViewComponent> {
           options: const [('Find Services', 'employer'), ('Work as Nyxian', 'nyxian')],
           selected: s.hybridToggle == AccountType.nyxian ? 'nyxian' : 'employer',
           isDark: isDark,
-          onChange: (v) {
-            s.setState(() => s.hybridToggle = v == 'nyxian' ? AccountType.nyxian : AccountType.employer);
-            s.loadHoldbacks();
-          },
+          onChange: (v) => s.switchHybridMode(v == 'nyxian' ? AccountType.nyxian : AccountType.employer),
         ),
 
       // ── Hero header ──────────────────────────────────────
@@ -277,21 +244,38 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         ]),
       ]),
 
-      // ── Home Tab Selector ─────────────────────────────────
-      div(classes: 'flex border-b ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
-        button(
-          classes:
-              'px-6 py-3 font-semibold text-sm transition-all border-b-2 ${_homeTab == 'dashboard' ? 'border-indigo-500 text-indigo-400 font-bold' : 'border-transparent ${isDark ? "text-zinc-500 hover:text-zinc-300" : "text-zinc-450 hover:text-zinc-650"}'}',
-          events: {'click': (_) => setState(() => _homeTab = 'dashboard')},
-          [Component.text('Dashboard')],
-        ),
-        button(
-          classes:
-              'px-6 py-3 font-semibold text-sm transition-all border-b-2 ${_homeTab == 'news' ? 'border-indigo-500 text-indigo-400 font-bold' : 'border-transparent ${isDark ? "text-zinc-500 hover:text-zinc-300" : "text-zinc-450 hover:text-zinc-650"}'}',
-          events: {'click': (_) => setState(() => _homeTab = 'news')},
-          [Component.text('News & Promos')],
-        ),
-      ]),
+      // ── Home Tab Selector (W10 pill segments) ─────────────
+      div(
+        classes:
+            'inline-flex gap-1 p-1 rounded-[14px] border '
+            '${isDark ? "bg-zinc-900 border-zinc-800" : "bg-[#fafafa] border-[#e4e4e7]"}',
+        [
+          button(
+            classes:
+                'h-9 px-4 rounded-[10px] text-sm font-semibold transition-all border-0 cursor-pointer '
+                '${_homeTab == 'dashboard'
+                    ? (isDark
+                        ? "bg-zinc-800 text-zinc-50 shadow"
+                        : "bg-white text-[#18181b] shadow-[0_4px_12px_rgba(9,9,11,0.04),0_1px_2px_rgba(9,9,11,0.06)]")
+                    : (isDark ? "bg-transparent text-zinc-400" : "bg-transparent text-[#52525b]")}',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => setState(() => _homeTab = 'dashboard')},
+            [Component.text('Dashboard')],
+          ),
+          button(
+            classes:
+                'h-9 px-4 rounded-[10px] text-sm font-semibold transition-all border-0 cursor-pointer '
+                '${_homeTab == 'news'
+                    ? (isDark
+                        ? "bg-zinc-800 text-zinc-50 shadow"
+                        : "bg-white text-[#18181b] shadow-[0_4px_12px_rgba(9,9,11,0.04),0_1px_2px_rgba(9,9,11,0.06)]")
+                    : (isDark ? "bg-transparent text-zinc-400" : "bg-transparent text-[#52525b]")}',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => setState(() => _homeTab = 'news')},
+            [Component.text('News & Promos')],
+          ),
+        ],
+      ),
 
       if (_homeTab == 'news') ...[
         // Promo redemption form
@@ -340,22 +324,19 @@ class HomeViewComponentState extends State<HomeViewComponent> {
 
         // Active News & Promos posts list
         if (_isLoadingNews)
-          div(classes: 'flex justify-center py-12', [
-            div(classes: 'w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin', []),
+          div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-6', [
+            for (var i = 0; i < 2; i++)
+              div(classes: 'animate-pulse rounded-2xl border p-4 space-y-3 ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"}', [
+                div(classes: 'h-3 w-1/3 rounded ${isDark ? "bg-zinc-800" : "bg-zinc-200"}', []),
+                div(classes: 'h-3 w-4/5 rounded ${isDark ? "bg-zinc-800" : "bg-zinc-200"}', []),
+                div(classes: 'h-3 w-3/5 rounded ${isDark ? "bg-zinc-800" : "bg-zinc-200"}', []),
+              ]),
           ])
         else if (_newsError != null)
-          div(classes: 'text-center text-red-500 py-12', [
-            Component.text('Error: $_newsError'),
-          ])
+          _stateCard(isDark, "Couldn't load News & Promos.", 'Check your connection, then try again.',
+              error: true, actionLabel: 'Try Again', onAction: _loadNews)
         else if (_newsPosts == null || _newsPosts!.isEmpty)
-          div(classes: 'text-center py-16 space-y-4', [
-            div(classes: 'flex justify-center', [
-              lIcon('rss', cls: 'w-12 h-12 ${isDark ? "text-zinc-800" : "text-zinc-350"}'),
-            ]),
-            p(classes: 'text-sm font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-              Component.text('No news or promotions available at this time.'),
-            ]),
-          ])
+          _stateCard(isDark, 'No news or promotions available at this time.', 'Check back soon — employer & Nyxian promos land here.')
         else
           div(
             classes: 'grid grid-cols-1 md:grid-cols-2 gap-6',
@@ -474,21 +455,29 @@ class HomeViewComponentState extends State<HomeViewComponent> {
             ],
           ),
 
-        // ── Quick Stats Bar ───────────────────────────────────
-        _quickStatsBar(isDark: isDark, isNyxian: isNyxian, s: s),
+        // ── W10 wallet + current gig (Nyxian ≥1280 side-by-side) ──
+        _walletAndCurrentGigRow(isDark: isDark, s: s, isNyxian: isNyxian),
 
         // ── Active P2P Transactions (Deposits & Withdrawals) ──
         _activeP2pTransactionsBanner(isDark: isDark, s: s),
 
-        // ── Ongoing / Current Gig Widget ──────────────────────
-        _ongoingWidget(isDark: isDark, isNyxian: isNyxian, s: s),
+        // ── W10 Nyxian stats (3-up; wallet lives in hero card) ─
+        _statsRow(isDark: isDark, s: s, isNyxian: isNyxian),
 
         // ── Active Trackers & Trips ───────────────────────────
         _activeTrackersSection(isDark: isDark, s: s),
 
         if (isNyxian) ...[
-          // ── Top Services Grid (Firebase-synced) ───────────────
+          // ── Top Services Grid (live chip filters → W20) ────────
           _topServicesSection(isDark: isDark, s: s),
+
+          // ── Nearby Rentals (live vehicles + properties) ────────
+          _nearbyRentalsSection(
+            isDark: isDark,
+            s: s,
+            vehicles: localVehicles,
+            properties: localProperties,
+          ),
 
           // ── Transit Teaser ────────────────────────────────────
           _transitTeaser(isDark: isDark, onTap: () => s.switchTab(AppTab.transit)),
@@ -496,24 +485,52 @@ class HomeViewComponentState extends State<HomeViewComponent> {
           // ── Real Estate Teaser ────────────────────────────────
           _realEstateTeaser(isDark: isDark, s: s),
         ] else ...[
-          // Employer view: Proximity-sorted rentals carousels
-          _nearMeRentalsSection(
-            title: '🚗 Vehicles Near Me',
-            items: localVehicles.take(4).toList(),
-            isProperty: false,
+          // ── W11 Employer / Hybrid: same live sections + news & promo ──
+          _topServicesSection(isDark: isDark, s: s, ownOnly: true),
+          _nearbyRentalsSection(
             isDark: isDark,
             s: s,
+            vehicles: localVehicles,
+            properties: localProperties,
           ),
-
-          _nearMeRentalsSection(
-            title: '🏢 Real Estate Near Me',
-            items: localProperties.take(4).toList(),
-            isProperty: true,
-            isDark: isDark,
-            s: s,
-          ),
+          _newsPromoRow(isDark: isDark, s: s),
         ],
+        if (!isHybrid) _hybridUpsell(isDark: isDark, s: s, isNyxian: isNyxian),
       ],
+    ]);
+  }
+
+  /// W15 "Want to hire too?" — single-role accounts (no switch) → Hybrid PRO subscription pane.
+  Component _hybridUpsell({required bool isDark, required TranyxAppState s, required bool isNyxian}) {
+    final card = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-[#e4e4e7] shadow-sm';
+    final primary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final secondary = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+    return div(classes: 'rounded-[20px] border p-6 space-y-3 max-w-xl $card', [
+      div(classes: 'flex items-center gap-2 text-xs font-semibold', [
+        span(
+          classes: 'px-2.5 py-1 rounded-full ${isNyxian ? AccountType.nyxian.badgeClasses : AccountType.employer.badgeClasses}',
+          [Component.text(isNyxian ? 'Nyxian' : 'Employer')],
+        ),
+        lIcon('chevron-right', cls: 'w-3.5 h-3.5 $secondary'),
+        span(classes: 'px-2.5 py-1 rounded-full ${AccountType.hybrid.badgeClasses}', [Component.text('Hybrid PRO')]),
+      ]),
+      h2(classes: 'm-0 text-lg font-semibold $primary', [Component.text(isNyxian ? 'Want to hire too?' : 'Want to work too?')]),
+      p(classes: 'm-0 text-sm $secondary', [
+        Component.text('Hybrid PRO gives dual Nyxian & Employer access, unlimited active postings and priority support.'),
+      ]),
+      button(
+        classes:
+            'h-11 px-5 rounded-xl text-sm font-semibold border cursor-pointer '
+            '${isDark ? "bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "bg-white border-[#d4d4d8] text-[#18181b] hover:bg-zinc-50"}',
+        attributes: {'type': 'button'},
+        events: {
+          'click': (_) => s.setState(() {
+            s.activeTab = AppTab.profile;
+            s.profileView = ProfileView.subscription;
+          }),
+        },
+        [Component.text('See Hybrid PRO')],
+      ),
     ]);
   }
 
@@ -723,305 +740,597 @@ class HomeViewComponentState extends State<HomeViewComponent> {
     ]);
   }
 
-  Component _ongoingWidget({required bool isDark, required bool isNyxian, required TranyxAppState s}) {
+  Component _walletAndCurrentGigRow({required bool isDark, required TranyxAppState s, required bool isNyxian}) {
+    final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
+    final pendingTotal = s.pendingHoldbacks.fold<double>(
+      0.0,
+      (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0.0),
+    );
     final job = s.ongoingJob;
+    final surface = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-[#e4e4e7] shadow-sm';
 
-    if (isNyxian) {
-      if (job != null) {
-        final title = job['title'] as String? ?? 'Current Gig';
-        final rate = '\u20b1 ${(job['pricingValue'] as num?)?.toStringAsFixed(0) ?? "0"}';
-        return div(
-          classes: 'p-5 rounded-2xl border border-green-500/30 bg-green-500/10 card-hover',
-          [
-            div(classes: 'flex items-center justify-between mb-3', [
-              div(classes: 'flex items-center gap-3', [
-                div(classes: 'p-2 rounded-xl bg-green-500/20', [lIcon('zap', cls: 'w-5 h-5 text-green-400')]),
-                div([
-                  p(classes: 'text-xs font-semibold text-green-400 uppercase tracking-wider', [
-                    Component.text('Current Gig'),
-                  ]),
-                  p(classes: 'font-bold text-base', [Component.text(title)]),
-                ]),
-              ]),
-              span(classes: 'px-3 py-1.5 rounded-lg text-xs font-bold bg-green-500/20 text-green-400 animate-pulse', [
+    Component wallet = div(
+      classes:
+          'flex-1 min-w-[260px] rounded-3xl px-7 py-6 text-white '
+          'bg-gradient-to-r from-[#4f46e5] to-[#7c3aed] '
+          'shadow-[0_8px_20px_-6px_rgba(79,70,229,0.25)] flex flex-col gap-1.5',
+      [
+        div(classes: 'flex items-center gap-2', [
+          lIcon('wallet', cls: 'w-[18px] h-[18px] text-white'),
+          span(classes: 'flex-1 text-sm font-semibold', [Component.text('Tyxbit Wallet')]),
+          span(classes: 'text-xs font-mono text-white/80', [Component.text('1 TYX = ₱1')]),
+        ]),
+        p(classes: 'm-0 text-[40px] leading-[48px] font-bold tracking-tight tabular-nums', [
+          Component.text('₱ ${tyxBal.toStringAsFixed(2)}'),
+        ]),
+        p(classes: 'm-0 text-[13px] text-white/85', [
+          Component.text(
+            pendingTotal > 0
+                ? '+ ₱${pendingTotal.toStringAsFixed(2)} Pending · releases when jobs complete'
+                : 'Available balance · escrow releases when jobs complete',
+          ),
+        ]),
+        // Per-holdback release ETA (kept from the pre-redesign wallet card)
+        for (final holdback in s.pendingHoldbacks)
+          () {
+            final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
+            final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+            final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
+            return p(classes: 'm-0 text-xs text-white/75', [
+              Component.text('• Php ${amt.toStringAsFixed(2)} ${hrs <= 0 ? "processing release" : "releases in $hrs hr${hrs == 1 ? "" : "s"}"}'),
+            ]);
+          }(),
+        div(classes: 'flex flex-wrap items-center gap-3 pt-3', [
+          button(
+            classes:
+                'h-11 px-[18px] rounded-xl bg-white text-[#4f46e5] text-sm font-semibold '
+                'border-0 cursor-pointer flex items-center gap-2 hover:opacity-95',
+            attributes: {'type': 'button'},
+            events: {
+              'click': (_) => s.setState(() {
+                s.showDepositModal = true;
+              }),
+            },
+            [lIcon('plus', cls: 'w-[18px] h-[18px]'), Component.text('Deposit Tyx')],
+          ),
+          button(
+            classes:
+                'h-11 px-[18px] rounded-xl bg-white/16 border border-white/40 text-white text-sm font-semibold '
+                'cursor-pointer flex items-center gap-2 hover:bg-white/25',
+            attributes: {'type': 'button'},
+            events: {
+              'click': (_) => s.setState(() {
+                s.showWithdrawModal = true;
+              }),
+            },
+            [lIcon('arrow-up', cls: 'w-[18px] h-[18px]'), Component.text('Withdraw')],
+          ),
+          button(
+            classes:
+                'h-11 pl-3 text-white text-sm font-semibold bg-transparent border-0 cursor-pointer '
+                'flex items-center gap-1.5 hover:underline',
+            attributes: {'type': 'button'},
+            events: {
+              'click': (_) => s.setState(() {
+                s.activeTab = AppTab.profile;
+                s.profileView = ProfileView.history;
+              }),
+            },
+            [Component.text('History'), lIcon('chevron-right', cls: 'w-4 h-4')],
+          ),
+        ]),
+      ],
+    );
+
+    Component currentGig;
+    if (!isNyxian) {
+      currentGig = _ongoingEmployerCard(isDark: isDark, s: s, job: job, surface: surface);
+    } else if (job != null) {
+      final title = job['title'] as String? ?? 'Current Gig';
+      final employer = job['creatorName'] as String? ?? 'Employer';
+      final loc = job['locationName'] as String? ??
+          job['address'] as String? ??
+          job['approxArea'] as String? ??
+          'Approx. area';
+      final pay = (job['pricingValue'] as num?)?.toDouble() ?? 0.0;
+      final initials = employer
+          .split(RegExp(r'\s+'))
+          .where((part) => part.isNotEmpty)
+          .take(2)
+          .map((part) => part[0].toUpperCase())
+          .join();
+      final jId = job['id'] as String;
+      final acceptedId =
+          job['acceptedApplicantId'] as String? ?? s.userProfile?.uid ?? SessionStorage.uid ?? '';
+      final scopedChatId = acceptedId.isNotEmpty ? 'job_${jId}_$acceptedId' : jId;
+
+      currentGig = div(
+        classes: 'w-full xl:w-[440px] shrink-0 rounded-[20px] border p-6 flex flex-col gap-3 $surface',
+        [
+          div(classes: 'flex items-center gap-2', [
+            span(classes: 'flex-1 text-sm font-semibold ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+              Component.text('Current Gig'),
+            ]),
+            span(
+              classes:
+                  'inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-xs font-semibold '
+                  'bg-[#fef2f2] text-[#dc2626]',
+              [
+                span(classes: 'w-1.5 h-1.5 rounded-full bg-[#dc2626] animate-pulse', []),
                 Component.text('LIVE'),
-              ]),
-            ]),
-            div(classes: 'flex items-center justify-between', [
-              span(classes: 'font-bold text-green-300 text-lg', [Component.text(rate)]),
-              div(classes: 'flex items-center gap-2', [
-                button(
-                  classes:
-                      'px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-green-500 hover:bg-green-400 transition-colors',
-                  events: {'click': (_) => s.selectJobAndLoadDetails(job)},
-                  [Component.text('View Details')],
-                ),
-                () {
-                  final jId = job['id'] as String;
-                  final acceptedId = job['acceptedApplicantId'] as String? ?? s.userProfile?.uid ?? SessionStorage.uid ?? '';
-                  final scopedChatId = acceptedId.isNotEmpty ? 'job_${jId}_$acceptedId' : jId;
-                  return button(
-                    classes:
-                        'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-350" : "border-zinc-200 hover:bg-zinc-100 text-zinc-700"} transition-colors relative',
-                    events: {
-                      'click': (_) => s.openChat(
-                            scopedChatId,
-                            title: job['title'] as String?,
-                            counterpartyName: job['creatorName'] as String?,
-                          ),
-                    },
-                    [
-                      lIcon('message-square', cls: 'w-4 h-4'),
-                      if (s.getUnreadChatCount(scopedChatId) > 0)
-                        span(
-                          classes:
-                              'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-[10px] font-black text-white bg-red-500 rounded-full border-2 ${isDark ? "border-zinc-900" : "border-white"} animate-pulse',
-                          [Component.text('${s.getUnreadChatCount(scopedChatId)}')],
-                        ),
-                    ],
-                  );
-                }(),
-              ]),
-            ]),
-          ],
-        );
-      }
-      // No ongoing gig
-      return div(
-        classes:
-            'p-5 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900/40" : "border-zinc-200 bg-zinc-50"} flex items-center gap-3',
-        [
-          div(classes: 'p-2 rounded-xl bg-zinc-700/30', [lIcon('zap', cls: 'w-5 h-5 text-zinc-500')]),
-          p(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-            Component.text('No active gig. Browse available jobs below.'),
+              ],
+            ),
           ]),
+          p(classes: 'm-0 text-xl font-semibold tracking-tight ${isDark ? "text-zinc-50" : "text-[#18181b]"}', [
+            Component.text(title),
+          ]),
+          div(classes: 'flex items-center gap-2', [
+            div(
+              classes:
+                  'size-7 rounded-[14px] flex items-center justify-center text-[11px] font-bold '
+                  '${isDark ? "bg-indigo-500/20 text-indigo-300" : "bg-[#eef2ff] text-[#4f46e5]"}',
+              [Component.text(initials.isEmpty ? '?' : initials)],
+            ),
+            span(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+              Component.text('$employer · Employer'),
+            ]),
+          ]),
+          div(classes: 'flex items-center gap-1.5', [
+            lIcon('map-pin', cls: 'w-4 h-4 ${isDark ? "text-zinc-500" : "text-[#71717a]"}'),
+            span(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [Component.text(loc)]),
+          ]),
+          div(classes: 'flex items-center gap-3', [
+            div(
+              classes: 'h-2 w-[120px] rounded bg-[#fafafa] dark:bg-zinc-800 overflow-hidden',
+              [
+                div(
+                  classes: 'h-2 rounded bg-[#4f46e5]',
+                  attributes: {'style': 'width: 65%'},
+                  [],
+                ),
+              ],
+            ),
+            span(classes: 'text-xs font-medium ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+              Component.text('In progress · Php ${pay.toStringAsFixed(2)}'),
+            ]),
+          ]),
+          div(classes: 'flex gap-3 pt-1', [
+            button(
+              classes:
+                  'flex-1 h-12 rounded-xl text-sm font-semibold text-white bg-[#4f46e5] border-0 cursor-pointer '
+                  'shadow-[0_8px_10px_rgba(79,70,229,0.25)] hover:opacity-95',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => s.selectJobAndLoadDetails(job)},
+              [Component.text('View Details')],
+            ),
+            button(
+              classes:
+                  'h-12 px-5 rounded-xl text-sm font-semibold border cursor-pointer '
+                  '${isDark ? "bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "bg-white border-[#d4d4d8] text-[#18181b] hover:bg-zinc-50"}',
+              attributes: {'type': 'button'},
+              events: {
+                'click': (_) => s.openChat(
+                      scopedChatId,
+                      title: job['title'] as String?,
+                      counterpartyName: job['creatorName'] as String?,
+                    ),
+              },
+              [
+                Component.text('Message'),
+                if (s.getUnreadChatCount(scopedChatId) > 0)
+                  span(
+                    classes: 'ml-2 px-2 py-0.5 text-[10px] font-bold text-white bg-[#dc2626] rounded-full',
+                    [Component.text('${s.getUnreadChatCount(scopedChatId)}')],
+                  ),
+              ],
+            ),
+          ]),
+        ],
+      );
+    } else {
+      currentGig = div(
+        classes: 'w-full xl:w-[440px] shrink-0 rounded-[20px] border p-6 flex flex-col gap-3 $surface',
+        [
+          div(classes: 'flex items-center gap-2', [
+            span(classes: 'flex-1 text-sm font-semibold ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+              Component.text('Current Gig'),
+            ]),
+            span(
+              classes:
+                  'h-6 px-2.5 rounded-full text-xs font-semibold '
+                  '${isDark ? "bg-zinc-800 text-zinc-400" : "bg-zinc-100 text-zinc-500"}',
+              [Component.text('Idle')],
+            ),
+          ]),
+          p(classes: 'm-0 text-base ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+            Component.text('No active gig. Browse available jobs below. Accept a gig to pin it here as Current Gig.'),
+          ]),
+          button(
+            classes:
+                'mt-auto h-12 rounded-xl text-sm font-semibold text-white bg-[#4f46e5] border-0 cursor-pointer '
+                'shadow-[0_8px_10px_rgba(79,70,229,0.25)] hover:opacity-95',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => s.openJobsBrowse()},
+            [Component.text('Find gigs')],
+          ),
         ],
       );
     }
 
-    // Employer
-    if (job != null) {
-      final title = job['title'] as String? ?? 'Active Job';
-      final applicants = (job['applicantCount'] as int?) ?? 0;
+    return div(classes: 'flex flex-col xl:flex-row gap-6 items-stretch', [wallet, currentGig]);
+  }
+
+  /// W11 Ongoing Job (Employer / Hybrid-employer) — live in-progress posting, Manage + Message (unread badge kept).
+  Component _ongoingEmployerCard({
+    required bool isDark,
+    required TranyxAppState s,
+    required Map<String, dynamic>? job,
+    required String surface,
+  }) {
+    final secondary = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+    final primary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    Component header(Component badge) => div(classes: 'flex items-center gap-2', [
+          span(classes: 'flex-1 text-sm font-semibold $secondary', [Component.text('Ongoing Job')]),
+          badge,
+        ]);
+
+    if (job == null) {
       return div(
-        classes: 'p-5 rounded-2xl border border-blue-500/30 bg-blue-500/10 card-hover',
+        classes: 'w-full xl:w-[440px] shrink-0 rounded-[20px] border p-6 flex flex-col gap-3 $surface',
         [
-          div(classes: 'flex items-center justify-between mb-3', [
-            div(classes: 'flex items-center gap-3', [
-              div(classes: 'p-2 rounded-xl bg-blue-500/20', [lIcon('briefcase', cls: 'w-5 h-5 text-blue-400')]),
-              div([
-                p(classes: 'text-xs font-semibold text-blue-400 uppercase tracking-wider', [
-                  Component.text('Ongoing Job'),
-                ]),
-                p(classes: 'font-bold text-base', [Component.text(title)]),
-              ]),
-            ]),
-            span(classes: 'px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-500/20 text-blue-400', [
-              Component.text('ACTIVE'),
-            ]),
-          ]),
-          div(classes: 'flex items-center justify-between', [
-            p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-              Component.text('$applicants applicant${applicants == 1 ? "" : "s"}'),
-            ]),
-            div(classes: 'flex items-center gap-2', [
-              button(
-                classes:
-                    'flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold logo-gradient text-white transition-opacity',
-                events: {'click': (_) => s.selectJobAndLoadDetails(job)},
-                [lIcon('users', cls: 'w-4 h-4'), Component.text(' Manage')],
-              ),
-              () {
-                final jId = job['id'] as String;
-                final acceptedId = job['acceptedApplicantId'] as String? ?? '';
-                final scopedChatId = acceptedId.isNotEmpty ? 'job_${jId}_$acceptedId' : jId;
-                return button(
-                  classes:
-                      'px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-350" : "border-zinc-200 hover:bg-zinc-100 text-zinc-700"} transition-colors relative',
-                  events: {
-                    'click': (_) => s.openChat(
-                          scopedChatId,
-                          title: job['title'] as String?,
-                          counterpartyName: job['acceptedApplicantName'] as String?,
-                        ),
-                  },
-                  [
-                    lIcon('message-square', cls: 'w-4 h-4'),
-                    if (s.getUnreadChatCount(scopedChatId) > 0)
-                      span(
-                        classes:
-                            'absolute -top-1.5 -right-1.5 px-2 py-0.5 text-[10px] font-black text-white bg-red-500 rounded-full border-2 ${isDark ? "border-zinc-900" : "border-white"} animate-pulse',
-                        [Component.text('${s.getUnreadChatCount(scopedChatId)}')],
-                      ),
-                  ],
-                );
-              }(),
-            ]),
-          ]),
+          header(span(
+            classes: 'h-6 px-2.5 rounded-full text-xs font-semibold inline-flex items-center ${isDark ? "bg-zinc-800 text-zinc-400" : "bg-zinc-100 text-zinc-500"}',
+            [Component.text('Idle')],
+          )),
+          p(classes: 'm-0 text-base $secondary', [Component.text('No jobs in progress. Post a new job to get started. Your Ongoing Job card appears once a Nyxian is hired.')]),
+          button(
+            classes:
+                'mt-auto h-12 rounded-xl text-sm font-semibold text-white bg-[#4f46e5] border-0 cursor-pointer '
+                'shadow-[0_8px_10px_rgba(79,70,229,0.25)] hover:opacity-95',
+            attributes: {'type': 'button'},
+            events: {
+              'click': (_) => s.setState(() {
+                s.activeTab = AppTab.jobs;
+                s.jobsView = JobsView.create;
+              }),
+            },
+            [Component.text('Post a gig')],
+          ),
         ],
       );
     }
+
+    final title = job['title'] as String? ?? 'Active Job';
+    final worker = (job['acceptedApplicantName'] as String?) ?? '';
+    final applicants = (job['applicantCount'] as int?) ?? 0;
+    final pay = (job['pricingValue'] as num?)?.toDouble() ?? 0.0;
+    final initials = worker
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .take(2)
+        .map((part) => part[0].toUpperCase())
+        .join();
+    final jId = job['id'] as String;
+    final acceptedId = job['acceptedApplicantId'] as String? ?? '';
+    final scopedChatId = acceptedId.isNotEmpty ? 'job_${jId}_$acceptedId' : jId;
+    final unread = s.getUnreadChatCount(scopedChatId);
 
     return div(
-      classes:
-          'p-5 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900/40" : "border-zinc-200 bg-zinc-50"} flex items-center gap-3',
+      classes: 'w-full xl:w-[440px] shrink-0 rounded-[20px] border p-6 flex flex-col gap-3 $surface',
       [
-        div(classes: 'p-2 rounded-xl bg-zinc-700/30', [lIcon('briefcase', cls: 'w-5 h-5 text-zinc-500')]),
-        p(classes: 'text-sm ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-          Component.text('No jobs in progress. Post a new job to get started.'),
+        header(span(
+          classes: 'h-6 px-2.5 rounded-full text-xs font-semibold inline-flex items-center bg-[#ecfdf5] text-[#047857]',
+          [Component.text('ACTIVE')],
+        )),
+        p(classes: 'm-0 text-xl font-semibold tracking-tight $primary', [Component.text(title)]),
+        if (worker.isNotEmpty)
+          div(classes: 'flex items-center gap-2', [
+            div(
+              classes:
+                  'size-7 rounded-[14px] flex items-center justify-center text-[11px] font-bold '
+                  '${isDark ? "bg-emerald-500/20 text-emerald-300" : "bg-[#f0fdf4] text-[#15803d]"}',
+              [Component.text(initials.isEmpty ? '?' : initials)],
+            ),
+            span(classes: 'text-sm $secondary', [Component.text('$worker · Nyxian')]),
+          ])
+        else
+          span(classes: 'text-sm $secondary', [
+            Component.text('$applicants applicant${applicants == 1 ? "" : "s"}'),
+          ]),
+        div(classes: 'flex items-center gap-3', [
+          div(classes: 'h-2 w-[120px] rounded overflow-hidden ${isDark ? "bg-zinc-800" : "bg-[#fafafa]"}', [
+            div(classes: 'h-2 rounded bg-[#10b981]', attributes: {'style': 'width: 65%'}, []),
+          ]),
+          span(classes: 'text-xs font-medium $secondary', [
+            Component.text('In progress · Php ${pay.toStringAsFixed(2)} in escrow'),
+          ]),
+        ]),
+        div(classes: 'flex gap-3 pt-1', [
+          button(
+            classes:
+                'flex-1 h-12 rounded-xl text-sm font-semibold text-white bg-[#4f46e5] border-0 cursor-pointer '
+                'shadow-[0_8px_10px_rgba(79,70,229,0.25)] hover:opacity-95',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => s.selectJobAndLoadDetails(job)},
+            [Component.text('Manage')],
+          ),
+          button(
+            classes:
+                'h-12 px-5 rounded-xl text-sm font-semibold border cursor-pointer '
+                '${isDark ? "bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "bg-white border-[#d4d4d8] text-[#18181b] hover:bg-zinc-50"}',
+            attributes: {'type': 'button'},
+            events: {
+              'click': (_) => s.openChat(
+                    scopedChatId,
+                    title: job['title'] as String?,
+                    counterpartyName: job['acceptedApplicantName'] as String?,
+                  ),
+            },
+            [
+              Component.text('Message'),
+              if (unread > 0)
+                span(
+                  classes: 'ml-2 px-2 py-0.5 text-[10px] font-bold text-white bg-[#dc2626] rounded-full',
+                  [Component.text('$unread')],
+                ),
+            ],
+          ),
         ]),
       ],
     );
   }
 
-  Component _nearMeRentalsSection({
-    required String title,
-    required List<dynamic> items,
-    required bool isProperty,
-    required bool isDark,
-    required TranyxAppState s,
-  }) {
-    final headerCls = isDark ? "text-white" : "text-zinc-900";
+  /// W11 News & Promos preview (live NewsPost list) + compact promo-code redeem.
+  Component _newsPromoRow({required bool isDark, required TranyxAppState s}) {
+    final card = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-[#e4e4e7] shadow-sm';
+    final primary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final secondary = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+    final muted = isDark ? 'text-zinc-500' : 'text-[#71717a]';
+    final posts = (_newsPosts ?? const <NewsPost>[]).take(2).toList();
 
-    return div([
-      div(classes: 'flex items-center justify-between mb-4', [
-        h2(classes: 'text-lg font-bold $headerCls', [Component.text(title)]),
-        button(
-          classes:
-              'text-sm font-semibold text-indigo-400 hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer',
-          events: {
-            'click': (_) {
-              s.setState(() {
-                s.activeTab = AppTab.transit;
-                s.activeRentalCategory = isProperty ? RentalCategory.properties : RentalCategory.vehicles;
-              });
-            },
-          },
-          [Component.text('View All'), lIcon('chevron-right', cls: 'w-4 h-4')],
-        ),
-      ]),
-      if (items.isEmpty)
-        div(
-          classes:
-              'p-8 rounded-2xl border border-dashed border-zinc-800 text-zinc-500 bg-zinc-900/10 text-center font-medium text-sm',
-          [Component.text('No listings available near you.')],
-        )
-      else
-        div(classes: 'grid grid-cols-2 lg:grid-cols-4 gap-4', [
-          for (final item in items) _nearMeCard(item, isProperty, isDark, s),
+    return div(classes: 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-6 items-start', [
+      div(classes: 'rounded-[20px] border p-6 space-y-3 $card', [
+        div(classes: 'flex items-center justify-between', [
+          h2(classes: 'm-0 text-lg font-semibold $primary', [Component.text('News & Promos')]),
+          button(
+            classes: 'flex items-center gap-1 text-sm font-semibold text-[#4f46e5] bg-transparent border-0 cursor-pointer hover:underline',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => setState(() => _homeTab = 'news')},
+            [Component.text('View All'), lIcon('chevron-right', cls: 'w-4 h-4')],
+          ),
         ]),
+        if (_isLoadingNews)
+          div(classes: 'h-14 rounded-xl animate-pulse ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', [])
+        else if (_newsError != null)
+          _stateCard(isDark, "Couldn't load News & Promos.", 'Check your connection, then try again.',
+              error: true, actionLabel: 'Try Again', onAction: _loadNews)
+        else if (posts.isEmpty)
+          _stateCard(isDark, 'No news or promotions available at this time.', 'Employer listing promos and product updates show here.')
+        else
+          for (final post in posts)
+            button(
+              classes: 'w-full flex items-center gap-3 text-left bg-transparent border-0 cursor-pointer p-0',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => _handleNewsPostAction(post)},
+              [
+                div(classes: 'size-12 shrink-0 rounded-xl overflow-hidden bg-gradient-to-br from-amber-200 to-violet-300', [
+                  if (post.imageUrl.isNotEmpty)
+                    img(src: post.imageUrl, classes: 'w-full h-full object-cover', attributes: {'alt': '', 'loading': 'lazy'}),
+                ]),
+                div(classes: 'flex-1 min-w-0', [
+                  p(classes: 'm-0 text-sm font-semibold truncate $primary', [Component.text(post.title)]),
+                  p(classes: 'm-0 text-xs $muted capitalize', [Component.text(post.category)]),
+                ]),
+                lIcon('chevron-right', cls: 'w-4 h-4 shrink-0 $muted'),
+              ],
+            ),
+      ]),
+      div(classes: 'rounded-[20px] border p-6 space-y-3 $card', [
+        div(classes: 'flex items-center gap-2', [
+          lIcon('gift', cls: 'w-[18px] h-[18px] text-[#7c3aed]'),
+          h2(classes: 'm-0 text-base font-semibold $primary', [Component.text('Have a Promo Code?')]),
+        ]),
+        p(classes: 'm-0 text-sm $secondary', [Component.text('Enter a promo code to apply employer or Hybrid discounts.')]),
+        label(classes: 'block text-xs font-semibold $primary', [Component.text('Promo code')]),
+        div(classes: 'flex gap-2', [
+          input(
+            classes:
+                'h-11 px-3 rounded-xl border outline-none flex-1 min-w-0 text-sm '
+                '${isDark ? "bg-zinc-950 border-zinc-800 text-zinc-200 placeholder-zinc-600" : "bg-white border-[#d4d4d8] text-[#18181b] placeholder-[#71717a]"}',
+            type: InputType.text,
+            attributes: {'placeholder': 'Enter Promo Code...', 'value': _promoCodeInput, 'id': 'home-promo-code', 'name': 'promo'},
+            events: {'input': (e) => _promoCodeInput = getInputValue(e.target)},
+          ),
+          button(
+            classes:
+                'h-11 px-4 rounded-xl text-sm font-semibold border cursor-pointer flex items-center justify-center min-w-[88px] '
+                '${isDark ? "bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "bg-white border-[#d4d4d8] text-[#18181b] hover:bg-zinc-50"}',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => _redeemPromo()},
+            [
+              if (_isRedeeming)
+                div(classes: 'w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin', [])
+              else
+                Component.text('Redeem'),
+            ],
+          ),
+        ]),
+        if (_redeemFeedback != null)
+          p(classes: 'm-0 text-sm font-semibold ${_redeemSuccess ? "text-green-500" : "text-red-500"}', [Component.text(_redeemFeedback!)]),
+      ]),
     ]);
   }
 
-  Component _nearMeCard(dynamic item, bool isProperty, bool isDark, TranyxAppState s) {
-    final cardCls = isDark
-        ? "bg-zinc-900 border-zinc-800 hover:border-purple-500/40"
-        : "bg-white border-zinc-200 shadow-sm hover:shadow-md";
-
-    if (isProperty) {
-      final prop = item as PropertyRental;
-      final hasPhoto = prop.photoUrls.isNotEmpty && prop.photoUrls.first.isNotEmpty;
-      final dist = calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude);
-
+  /// W10 Nyxian stats — Gigs Done / Total Earned / Trust Rating (live profile).
+  /// W11 Employer stats — Gigs Posted / Active Gigs / Employer Score (live jobs + profile).
+  Component _statsRow({required bool isDark, required TranyxAppState s, required bool isNyxian}) {
+    if (s.isSwitchingMode) {
+      final bone = isDark ? 'bg-zinc-800' : 'bg-[#e4e4e7]';
       return div(
-        classes: 'p-4 rounded-2xl border transition-all cursor-pointer $cardCls',
-        events: {
-          'click': (_) => s.setState(() {
-            s.selectedPropertyData = prop.toMap();
-            s.showBookPropertyModal = true;
-          }),
-        },
+        classes: 'rounded-[20px] border p-6 space-y-3 ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-[#e4e4e7] shadow-sm"}',
+        attributes: {'role': 'status', 'aria-live': 'polite'},
         [
-          div(
-            classes: 'aspect-video w-full rounded-xl mb-3 overflow-hidden bg-zinc-800 relative',
-            [
-              if (hasPhoto)
-                img(src: prop.photoUrls.first, classes: 'w-full h-full object-cover', attributes: {'alt': prop.title})
-              else
-                div(classes: 'w-full h-full flex items-center justify-center bg-zinc-850', [
-                  lIcon('home', cls: 'w-8 h-8 text-zinc-650'),
-                ]),
-            ],
-          ),
-          h4(classes: 'font-bold text-sm line-clamp-1 text-zinc-200', [Component.text(prop.title)]),
-          p(classes: 'text-[10px] text-zinc-500 mt-1 capitalize', [
-            Component.text('${prop.category.name} • ${prop.type.name}'),
+          div(classes: 'flex items-center gap-2 text-[15px] font-semibold text-green-600', [
+            lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),
+            Component.text('Switching to ${isNyxian ? "Nyxian" : "Employer"} mode…'),
           ]),
-          div(classes: 'flex items-center justify-between mt-3', [
-            span(classes: 'font-extrabold text-purple-400 text-sm', [
-              Component.text('₱ ${prop.priceMonthly.toStringAsFixed(0)}/mo'),
-            ]),
-            span(classes: 'text-[10px] text-zinc-500 flex items-center gap-0.5', [
-              lIcon('map-pin', cls: 'w-3 h-3 text-purple-400'),
-              Component.text('${dist.toStringAsFixed(1)} km'),
-            ]),
-          ]),
-        ],
-      );
-    } else {
-      final r = item as Map;
-      final model = r['model'] ?? 'Vehicle';
-      final brand = r['brand'] ?? 'Unknown';
-      final photoUrl = r['frontPhotoUrl'] ?? r['frontPhoto'] ?? r['photoUrl'];
-      final hasPhoto = photoUrl != null && photoUrl.toString().isNotEmpty && photoUrl.toString() != 'null';
-      final pickupLat = (r['pickupLat'] as num?)?.toDouble();
-      final pickupLng = (r['pickupLng'] as num?)?.toDouble();
-      final dist = calculateDistance(s.userLatitude, s.userLongitude, pickupLat, pickupLng);
-      final priceVal = r['priceDaily'] ?? r['dailyRate'];
-
-      return div(
-        classes: 'p-4 rounded-2xl border transition-all cursor-pointer $cardCls',
-        events: {
-          'click': (_) => s.setState(() {
-            s.selectedRentalData = Map<String, dynamic>.from(r);
-            s.showBookVehicleModal = true;
-          }),
-        },
-        [
-          div(
-            classes: 'aspect-video w-full rounded-xl mb-3 overflow-hidden bg-zinc-850 relative',
-            [
-              if (hasPhoto)
-                img(
-                  src: photoUrl.toString(),
-                  classes: 'w-full h-full object-cover',
-                  attributes: {'alt': '$brand $model'},
-                )
-              else
-                div(classes: 'w-full h-full flex items-center justify-center bg-zinc-800', [
-                  lIcon('car', cls: 'w-8 h-8 text-zinc-650'),
-                ]),
-            ],
-          ),
-          h4(classes: 'font-bold text-sm line-clamp-1 text-zinc-200', [Component.text('$brand $model')]),
-          p(classes: 'text-[10px] text-zinc-500 mt-1 capitalize', [
-            Component.text(r['type'] ?? r['vehicleType'] ?? 'car'),
-          ]),
-          div(classes: 'flex items-center justify-between mt-3', [
-            span(classes: 'font-extrabold text-purple-400 text-sm', [Component.text('₱ $priceVal/day')]),
-            span(classes: 'text-[10px] text-zinc-500 flex items-center gap-0.5', [
-              lIcon('map-pin', cls: 'w-3 h-3 text-purple-400'),
-              Component.text('${dist.toStringAsFixed(1)} km'),
-            ]),
+          div(classes: 'flex gap-3', [
+            for (var i = 0; i < 3; i++) div(classes: 'h-[84px] flex-1 rounded-2xl animate-pulse $bone', []),
           ]),
         ],
       );
     }
+    final card = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-[#e4e4e7] shadow-sm';
+    final label = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+    final title = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final jobsDone = s.userProfile?.jobsDone ?? 0;
+    final totalEarned = s.userProfile?.totalEarned ?? 0.0;
+    final rating = s.userProfile?.rating;
+
+    Component cell({
+      required String icon,
+      required String name,
+      required String value,
+      required String action,
+      required void Function() onTap,
+    }) {
+      return button(
+        classes:
+            'flex-1 min-w-[160px] text-left rounded-[20px] border px-6 py-5 flex flex-col gap-2 cursor-pointer $card',
+        attributes: {'type': 'button'},
+        events: {'click': (_) => onTap()},
+        [
+          div(classes: 'flex items-center gap-2', [
+            lIcon(icon, cls: 'w-[18px] h-[18px] $label'),
+            span(classes: 'text-sm $label', [Component.text(name)]),
+          ]),
+          p(classes: 'm-0 text-[28px] leading-9 font-bold tracking-tight $title', [Component.text(value)]),
+          span(classes: 'inline-flex items-center gap-1 text-sm font-semibold text-[#4f46e5]', [
+            Component.text(action),
+            lIcon('chevron-right', cls: 'w-3.5 h-3.5'),
+          ]),
+        ],
+      );
+    }
+
+    if (!isNyxian) {
+      final posted = s.myJobs.length;
+      final active = s.myJobs.where((j) => j['status'] == 'In Progress').length;
+      return div(classes: 'flex flex-col sm:flex-row gap-6', [
+        cell(
+          icon: 'briefcase',
+          name: 'Gigs Posted',
+          value: '$posted',
+          action: 'Manage Gigs',
+          onTap: () => s.setState(() {
+            s.activeTab = AppTab.jobs;
+            s.activeJobPane = 'active';
+          }),
+        ),
+        cell(
+          icon: 'users',
+          name: 'Active Gigs',
+          value: '$active',
+          action: 'View Active Workers',
+          onTap: () => s.setState(() {
+            s.activeTab = AppTab.jobs;
+            s.activeJobPane = 'active';
+          }),
+        ),
+        cell(
+          icon: 'star',
+          name: 'Employer Score',
+          value: rating != null ? rating.toStringAsFixed(1) : 'Unrated',
+          action: 'View Reviews',
+          onTap: () => s.setState(() {
+            s.activeTab = AppTab.profile;
+            s.profileView = ProfileView.reviews;
+          }),
+        ),
+      ]);
+    }
+
+    return div(classes: 'flex flex-col sm:flex-row gap-6', [
+      cell(
+        icon: 'briefcase',
+        name: 'Gigs Done',
+        value: '$jobsDone',
+        action: 'View Profile',
+        onTap: () => s.setState(() {
+          s.activeTab = AppTab.profile;
+          s.profileView = ProfileView.main;
+        }),
+      ),
+      cell(
+        icon: 'trending-up',
+        name: 'Total Earned',
+        value: '₱ ${totalEarned.toStringAsFixed(0)}',
+        action: 'View Earnings',
+        onTap: () => s.setState(() {
+          s.activeTab = AppTab.profile;
+          s.profileView = ProfileView.history;
+        }),
+      ),
+      cell(
+        icon: 'star',
+        name: 'Trust Rating',
+        value: rating != null ? rating.toStringAsFixed(1) : 'Unrated',
+        action: 'View Reviews',
+        onTap: () => s.setState(() {
+          s.activeTab = AppTab.profile;
+          s.profileView = ProfileView.reviews;
+        }),
+      ),
+    ]);
   }
 
-  /// Renders the Firebase-synced Top Services grid for Nyxian home view.
-  Component _topServicesSection({required bool isDark, required TranyxAppState s}) {
-    final allJobs = [...s.availableJobs, ...s.myJobs];
-    final isLoading = s.isLoadingJobs && allJobs.isEmpty;
-    final topGroups = _computeTopGroups(allJobs);
+  /// W10 Top Services — live category chip tallies (same keywords as W20 filters).
+  /// [ownOnly] (Employer/Hybrid): tally + link to the employer's own open postings, so the chip count
+  /// matches what Jobs → My Postings shows after the tap.
+  Component _topServicesSection({required bool isDark, required TranyxAppState s, bool ownOnly = false}) {
+    final isLoading = s.isLoadingJobs;
+    final allJobs = ownOnly ? s.myJobs : [...s.availableJobs, ...s.myJobs];
+    // Exclude own postings from open-count where uid known
+    final uid = s.userProfile?.uid;
+    final openJobs = allJobs.where((j) {
+      final status = (j['status'] as String?)?.toLowerCase() ?? 'open';
+      if (status != 'open' && status != 'available') return false;
+      if (!ownOnly && uid != null && j['employerId'] == uid) return false;
+      if (ownOnly && uid != null && j['creatorId'] != uid && j['employerId'] != uid) return false;
+      return true;
+    }).toList();
+
+    const chips = ['Cleaning', 'Plumbing', 'Electrical', 'Carpentry', 'Laundry', 'Delivery'];
+    const icons = {
+      'Cleaning': 'sparkles',
+      'Plumbing': 'wrench',
+      'Electrical': 'zap',
+      'Carpentry': 'hammer',
+      'Laundry': 'refresh-cw',
+      'Delivery': 'truck',
+    };
+
+    final tallies = <String, int>{
+      for (final chip in chips)
+        chip: openJobs
+            .where(
+              (g) => GigFilterEngine.evaluateCategoryMatch(
+                gig: g,
+                categoryFilter: chip,
+              ),
+            )
+            .length,
+    };
 
     final cardBase = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
+    final textPrimary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final textMuted = isDark ? 'text-zinc-400' : 'text-[#71717a]';
 
-    return div([
-      div(classes: 'flex items-center justify-between mb-5', [
+    return div(classes: 'space-y-4', [
+      div(classes: 'flex items-center justify-between', [
         div(classes: 'flex items-center gap-2', [
-          h2(classes: 'text-lg font-bold', [Component.text('Top Services')]),
-          if (!isLoading && allJobs.isNotEmpty)
+          h2(classes: 'text-lg font-bold m-0 $textPrimary', [Component.text('Top Services')]),
+          if (!isLoading && openJobs.isNotEmpty)
             span(
               classes:
                   'px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/20',
@@ -1030,73 +1339,240 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         ]),
         button(
           classes:
-              'text-sm font-semibold ${isDark ? "text-indigo-400" : "text-indigo-600"} hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer',
+              'text-sm font-semibold text-[#4f46e5] hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer',
           events: {'click': (_) => s.setState(() => s.showCategoryModal = true)},
           [Component.text('See All'), lIcon('chevron-right', cls: 'w-4 h-4')],
         ),
       ]),
-
       if (isLoading)
-        // Shimmer skeleton while jobs load
-        div(classes: 'grid grid-cols-2 md:grid-cols-4 gap-4', [
-          for (int i = 0; i < 4; i++)
+        div(classes: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3', [
+          for (int i = 0; i < 6; i++)
             div(
-              classes: 'animate-pulse rounded-2xl border $cardBase p-5 flex flex-col items-center gap-3',
-              [
-                div(classes: 'w-12 h-12 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', []),
-                div(classes: 'w-20 h-3 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-200"}', []),
-                div(classes: 'w-12 h-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-200"}', []),
-              ],
+              classes: 'animate-pulse rounded-2xl border $cardBase p-4 h-[112px]',
+              [div(classes: 'w-10 h-10 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', [])],
             ),
         ])
+      else if (openJobs.isEmpty)
+        div(
+          classes: 'rounded-2xl border $cardBase p-6 text-sm $textMuted',
+          [
+            Component.text(
+              ownOnly
+                  ? 'You have no open postings yet. Post a gig to see it here.'
+                  : 'No open gigs yet. Check back soon or broaden your search on Jobs.',
+            ),
+            button(
+              classes: 'ml-2 text-[#4f46e5] font-semibold bg-transparent border-0 cursor-pointer hover:underline',
+              events: {
+                'click': (_) => ownOnly
+                    ? s.setState(() {
+                        s.activeTab = AppTab.jobs;
+                        s.jobsView = JobsView.create;
+                      })
+                    : s.openJobsBrowse(),
+              },
+              [Component.text(ownOnly ? 'Post a gig' : 'Browse Jobs')],
+            ),
+          ],
+        )
       else
-        div(classes: 'grid grid-cols-2 md:grid-cols-4 gap-4', [
-          for (int i = 0; i < topGroups.length; i++)
-            _categoryGroupCard(topGroups[i].group, topGroups[i].count, isDark, s, i),
+        div(classes: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3', [
+          for (final chip in chips)
+            button(
+              classes:
+                  'relative flex flex-col items-start gap-2 p-4 rounded-2xl border text-left transition-all cursor-pointer bg-transparent $cardBase hover:border-[#4f46e5]/50',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => s.openJobsBrowse(filter: chip)},
+              [
+                div(
+                  classes:
+                      'size-10 rounded-xl flex items-center justify-center ${isDark ? "bg-indigo-500/15" : "bg-[#eef2ff]"}',
+                  [lIcon(icons[chip] ?? 'briefcase', cls: 'w-5 h-5 text-[#4f46e5]')],
+                ),
+                span(classes: 'text-sm font-semibold $textPrimary', [Component.text(chip)]),
+                span(classes: 'text-xs $textMuted flex items-center gap-1.5', [
+                  span(classes: 'size-1.5 rounded-full bg-emerald-500', []),
+                  Component.text(
+                    '${tallies[chip] ?? 0} job${(tallies[chip] ?? 0) == 1 ? '' : 's'} open',
+                  ),
+                ]),
+              ],
+            ),
         ]),
     ]);
   }
 
-  /// Renders a single category group card with a live job count badge.
-  Component _categoryGroupCard(
-    JobCategoryGroup group,
-    int jobCount,
-    bool isDark,
-    TranyxAppState s,
-    int index,
-  ) {
-    final cardCls = isDark
-        ? 'bg-zinc-900 border-zinc-800 hover:border-indigo-500/50'
-        : 'bg-white border-zinc-200 shadow-sm hover:shadow-md';
 
-    return button(
-      classes:
-          'relative flex flex-col items-center justify-center gap-3 p-5 rounded-2xl border transition-all card-hover text-center stagger-${index + 1} animate-fade-up cursor-pointer bg-transparent $cardCls',
+  /// W10 Nearby Rentals — live Available listings within geofence (no mocks).
+  Component _nearbyRentalsSection({
+    required bool isDark,
+    required TranyxAppState s,
+    required List<Map<String, dynamic>> vehicles,
+    required List<PropertyRental> properties,
+  }) {
+    final textPrimary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final textMuted = isDark ? 'text-zinc-400' : 'text-[#71717a]';
+    final card = isDark
+        ? 'bg-zinc-900 border border-zinc-800'
+        : 'bg-white border border-[#e4e4e7] shadow-sm';
+
+    final mixed = <({bool isProperty, dynamic item})>[];
+    for (final v in vehicles.take(2)) {
+      mixed.add((isProperty: false, item: v));
+    }
+    for (final p in properties.take(3 - mixed.length)) {
+      mixed.add((isProperty: true, item: p));
+    }
+    if (mixed.length < 3) {
+      for (final v in vehicles.skip(2).take(3 - mixed.length)) {
+        mixed.add((isProperty: false, item: v));
+      }
+    }
+
+    return div(classes: 'space-y-4', [
+      div(classes: 'flex items-center justify-between', [
+        h2(classes: 'text-lg font-bold m-0 $textPrimary', [Component.text('Nearby Rentals')]),
+        button(
+          classes:
+              'text-sm font-semibold text-[#4f46e5] hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer',
+          events: {'click': (_) => s.switchTab(AppTab.transit)},
+          [Component.text('View All'), lIcon('chevron-right', cls: 'w-4 h-4')],
+        ),
+      ]),
+      if (mixed.isEmpty)
+        div(
+          classes: 'rounded-2xl border $card p-6 text-sm $textMuted',
+          [
+            Component.text('No rentals available nearby yet. View all once hosts publish listings.'),
+          ],
+        )
+      else
+        div(classes: 'grid grid-cols-1 md:grid-cols-3 gap-4', [
+          for (final entry in mixed)
+            entry.isProperty
+                ? _nearMePropertyTile(
+                    entry.item as PropertyRental,
+                    isDark: isDark,
+                    s: s,
+                    card: card,
+                    textPrimary: textPrimary,
+                    textMuted: textMuted,
+                  )
+                : _nearMeVehicleTile(
+                    entry.item as Map<String, dynamic>,
+                    isDark: isDark,
+                    s: s,
+                    card: card,
+                    textPrimary: textPrimary,
+                    textMuted: textMuted,
+                  ),
+        ]),
+    ]);
+  }
+
+  Component _nearMeVehicleTile(
+    Map<String, dynamic> r, {
+    required bool isDark,
+    required TranyxAppState s,
+    required String card,
+    required String textPrimary,
+    required String textMuted,
+  }) {
+    // Same live keys as the vehicle booking flow (brand + model, priceDaily, frontPhotoUrl).
+    final brandModel = '${r['brand'] ?? ''} ${r['model'] ?? ''}'.trim();
+    final title = brandModel.isNotEmpty ? brandModel : (r['vehicleName'] ?? r['name'] ?? r['title'] ?? 'Vehicle').toString();
+    final rate = ((r['priceDaily'] ?? r['dailyRate'] ?? r['pricePerDay']) as num?)?.toDouble() ?? 0.0;
+    final photoUrl = (r['frontPhotoUrl'] ?? r['frontPhoto'] ?? r['photoUrl'])?.toString() ?? '';
+    final city = (r['pickupCity'] ?? r['city'] ?? r['address'] ?? '').toString();
+    final lat = (r['pickupLat'] as num?)?.toDouble();
+    final lng = (r['pickupLng'] as num?)?.toDouble();
+    final dist = (lat != null && lng != null)
+        ? calculateDistance(s.userLatitude, s.userLongitude, lat, lng)
+        : null;
+    final type = (r['vehicleType'] ?? r['type'] ?? '').toString();
+    final meta = [
+      if (type.isNotEmpty) type,
+      if (dist != null) '${dist.toStringAsFixed(1)} km',
+    ].join(' · ');
+
+    return div(
+      classes: '$card rounded-2xl overflow-hidden cursor-pointer hover:border-[#4f46e5]/40 transition-colors',
       events: {
-        'click': (_) => s.handleHomeSearch(group.label),
+        'click': (_) => s.setState(() {
+          s.selectedRentalData = Map<String, dynamic>.from(r);
+          s.showBookVehicleModal = true;
+        }),
       },
       [
-        // Live job count badge (only if > 0)
-        if (jobCount > 0)
-          div(
+        div(classes: 'h-36 bg-gradient-to-r from-indigo-200 to-violet-300 relative overflow-hidden', [
+          if (photoUrl.isNotEmpty && photoUrl != 'null')
+            img(src: photoUrl, classes: 'absolute inset-0 w-full h-full object-cover', attributes: {'alt': title, 'loading': 'lazy'}),
+          span(
             classes:
-                'absolute top-3 right-3 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500 text-white leading-tight',
-            [Component.text('$jobCount')],
+                'absolute top-3 left-3 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700',
+            [Component.text('Available')],
           ),
-        div(classes: 'p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', [
-          lIcon(group.icon, cls: 'w-6 h-6 text-indigo-400'),
         ]),
-        span(classes: 'text-sm font-semibold leading-tight', [Component.text(group.label)]),
-        if (jobCount > 0)
+        div(classes: 'p-4 space-y-1', [
+          p(classes: 'm-0 font-semibold text-[15px] $textPrimary', [Component.text(title)]),
+          if (meta.isNotEmpty) p(classes: 'm-0 text-xs $textMuted', [Component.text(meta)]),
+          if (city.isNotEmpty)
+            p(classes: 'm-0 text-xs $textMuted flex items-center gap-1', [
+              lIcon('map-pin', cls: 'w-3.5 h-3.5'),
+              Component.text(city),
+            ]),
+          p(classes: 'm-0 pt-1 font-semibold text-[17px] $textPrimary', [
+            Component.text(rate > 0 ? '₱ ${rate.toStringAsFixed(0)}/day' : 'Rate on request'),
+          ]),
+        ]),
+      ],
+    );
+  }
+
+  Component _nearMePropertyTile(
+    PropertyRental prop, {
+    required bool isDark,
+    required TranyxAppState s,
+    required String card,
+    required String textPrimary,
+    required String textMuted,
+  }) {
+    final rate = prop.monthlyRate;
+    final dist = calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude);
+    final area = prop.address.split(',').first.trim();
+    return div(
+      classes: '$card rounded-2xl overflow-hidden cursor-pointer hover:border-[#4f46e5]/40 transition-colors',
+      events: {
+        'click': (_) => s.setState(() {
+          s.selectedPropertyData = prop.toMap();
+          s.showBookPropertyModal = true;
+        }),
+      },
+      [
+        div(classes: 'h-36 bg-gradient-to-r from-sky-200 to-violet-300 relative overflow-hidden', [
+          if (prop.photoUrls.isNotEmpty && prop.photoUrls.first.isNotEmpty)
+            img(src: prop.photoUrls.first, classes: 'absolute inset-0 w-full h-full object-cover', attributes: {'alt': prop.title, 'loading': 'lazy'}),
           span(
-            classes: 'text-[10px] ${isDark ? "text-zinc-500" : "text-zinc-400"}',
-            [Component.text('$jobCount job${jobCount == 1 ? "" : "s"} open')],
-          )
-        else
-          span(
-            classes: 'text-[10px] ${isDark ? "text-zinc-600" : "text-zinc-400"}',
-            [Component.text('Browse')],
+            classes:
+                'absolute top-3 left-3 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700',
+            [Component.text('Available')],
           ),
+        ]),
+        div(classes: 'p-4 space-y-1', [
+          p(classes: 'm-0 font-semibold text-[15px] $textPrimary', [Component.text(prop.title)]),
+          p(classes: 'm-0 text-xs $textMuted', [
+            Component.text('${prop.category.label} · ${prop.type.label}'),
+          ]),
+          p(classes: 'm-0 text-xs $textMuted flex items-center gap-1', [
+            lIcon('map-pin', cls: 'w-3.5 h-3.5'),
+            Component.text(
+              '${area.isNotEmpty ? area : 'Approx. area'} · ${dist.toStringAsFixed(1)} km',
+            ),
+          ]),
+          p(classes: 'm-0 pt-1 font-semibold text-[17px] $textPrimary', [
+            Component.text(rate > 0 ? '₱ ${rate.toStringAsFixed(0)}/mo' : 'Rate on request'),
+          ]),
+        ]),
       ],
     );
   }
@@ -1162,237 +1638,6 @@ class HomeViewComponentState extends State<HomeViewComponent> {
         ]),
       ],
     );
-  }
-
-  Component _quickStatsBar({required bool isDark, required bool isNyxian, required TranyxAppState s}) {
-    final cardBg = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
-    final labelColor = isDark ? 'text-zinc-500' : 'text-zinc-400';
-    final titleColor = isDark ? 'text-zinc-150' : 'text-zinc-800';
-
-    final pendingTotal = s.pendingHoldbacks.fold<double>(0.0, (sum, item) {
-      final amt = (item['amount'] as num?)?.toDouble() ?? 0.0;
-      return sum + amt;
-    });
-
-    Component buildPendingReleaseBreakdown() {
-      if (pendingTotal <= 0) return div([]);
-      return div(classes: 'mt-2 space-y-1 border-t border-zinc-500/10 pt-2', [
-        for (final holdback in s.pendingHoldbacks)
-          Builder(
-            builder: (context) {
-              final amt = (holdback['amount'] as num?)?.toDouble() ?? 0.0;
-              final relAt = holdback['releaseAt'] as int? ?? DateTime.now().millisecondsSinceEpoch;
-              final hrs = ((relAt - DateTime.now().millisecondsSinceEpoch) / (1000 * 60 * 60)).ceil();
-              final hrsStr = hrs <= 0 ? 'processing release' : 'releases in $hrs hr${hrs == 1 ? "" : "s"}';
-              return p(classes: 'text-[9px] text-amber-500/80 font-bold text-left', [
-                Component.text('• Php ${amt.toStringAsFixed(2)} $hrsStr'),
-              ]);
-            },
-          ),
-      ]);
-    }
-
-    if (isNyxian) {
-      final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
-      final jobsDone = s.userProfile?.jobsDone ?? 0;
-      final totalEarned = s.userProfile?.totalEarned ?? 0.0;
-      final rating = s.userProfile?.rating;
-
-      return div(classes: 'grid grid-cols-2 lg:grid-cols-4 gap-4', [
-        // Wallet Balance
-        div(
-          classes: 'p-5 rounded-2xl border transition-all hover:border-indigo-500/40 cursor-pointer $cardBg',
-          events: {'click': (_) => s.setState(() => s.showWalletActionMenu = true)},
-          [
-            div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Wallet')]),
-              lIcon('wallet', cls: 'w-4 h-4 text-indigo-400'),
-            ]),
-            p(classes: 'text-lg font-black $titleColor', [
-              Component.text('₱ ${tyxBal.toStringAsFixed(2)}'),
-            ]),
-            if (pendingTotal > 0) ...[
-              p(classes: 'text-[9px] text-amber-500 font-bold mt-1.5 flex items-center gap-0.5 animate-pulse', [
-                lIcon('clock', cls: 'w-2.5 h-2.5'),
-                Component.text('+ ₱${pendingTotal.toStringAsFixed(2)} Pending'),
-              ]),
-              buildPendingReleaseBreakdown(),
-            ] else
-              p(
-                classes: 'text-[9px] text-zinc-500 mt-1 font-semibold hover:text-indigo-400 transition-colors',
-                [Component.text('Deposit Tyx')],
-              ),
-          ],
-        ),
-        // Completed Gigs
-        div(
-          classes: 'p-5 rounded-2xl border transition-all hover:border-purple-500/40 cursor-pointer $cardBg',
-          events: {
-            'click': (_) => s.setState(() {
-              s.activeTab = AppTab.profile;
-              s.profileView = ProfileView.main;
-            }),
-          },
-          [
-            div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [
-                Component.text('Gigs Done'),
-              ]),
-              lIcon('check-circle', cls: 'w-4 h-4 text-purple-400'),
-            ]),
-            p(classes: 'text-lg font-black $titleColor', [
-              Component.text('$jobsDone'),
-            ]),
-            p(classes: 'text-[9px] text-purple-450 font-semibold mt-1', [Component.text('View Profile')]),
-          ],
-        ),
-        // Total Earnings
-        div(
-          classes: 'p-5 rounded-2xl border transition-all hover:border-emerald-500/40 cursor-pointer $cardBg',
-          events: {
-            'click': (_) => s.setState(() {
-              s.activeTab = AppTab.profile;
-              s.profileView = ProfileView.history;
-            }),
-          },
-          [
-            div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [
-                Component.text('Total Earned'),
-              ]),
-              lIcon('trending-up', cls: 'w-4 h-4 text-emerald-400'),
-            ]),
-            p(classes: 'text-lg font-black $titleColor', [
-              Component.text('₱ ${totalEarned.toStringAsFixed(0)}'),
-            ]),
-            p(classes: 'text-[9px] text-emerald-450 font-semibold mt-1', [Component.text('View Earnings')]),
-          ],
-        ),
-        // Rating
-        div(
-          classes: 'p-5 rounded-2xl border transition-all hover:border-amber-500/40 cursor-pointer $cardBg',
-          events: {
-            'click': (_) => s.setState(() {
-              s.activeTab = AppTab.profile;
-              s.profileView = ProfileView.reviews;
-            }),
-          },
-          [
-            div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [
-                Component.text('Trust Rating'),
-              ]),
-              lIcon('star', cls: 'w-4 h-4 text-amber-400'),
-            ]),
-            p(classes: 'text-lg font-black $titleColor flex items-center gap-1', [
-              Component.text(rating != null ? rating.toStringAsFixed(1) : 'Unrated'),
-              if (rating != null) span(classes: 'text-xs text-amber-400', [Component.text('★')]),
-            ]),
-            p(classes: 'text-[9px] text-amber-500 font-semibold mt-1', [Component.text('View Reviews')]),
-          ],
-        ),
-      ]);
-    } else {
-      // Employer Mode
-      final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
-      final postedCount = s.myJobs.length;
-      final activeHires = s.myJobs.where((j) => j['status'] == 'In Progress').length;
-      final rating = s.userProfile?.rating;
-
-      return div(classes: 'grid grid-cols-2 lg:grid-cols-4 gap-4', [
-        // Wallet Balance
-        div(
-          classes: 'p-5 rounded-2xl border transition-all hover:border-indigo-500/40 cursor-pointer $cardBg',
-          events: {'click': (_) => s.setState(() => s.showWalletActionMenu = true)},
-          [
-            div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [Component.text('Wallet')]),
-              lIcon('wallet', cls: 'w-4 h-4 text-indigo-400'),
-            ]),
-            p(classes: 'text-lg font-black $titleColor', [
-              Component.text('₱ ${tyxBal.toStringAsFixed(2)}'),
-            ]),
-            if (pendingTotal > 0) ...[
-              p(classes: 'text-[9px] text-amber-500 font-bold mt-1.5 flex items-center gap-0.5 animate-pulse', [
-                lIcon('clock', cls: 'w-2.5 h-2.5'),
-                Component.text('+ ₱${pendingTotal.toStringAsFixed(2)} Pending'),
-              ]),
-              buildPendingReleaseBreakdown(),
-            ] else
-              p(classes: 'text-[9px] text-zinc-500 mt-1 font-semibold hover:text-indigo-400 transition-colors', [
-                Component.text('Deposit Tyx'),
-              ]),
-          ],
-        ),
-        // Posted Gigs
-        div(
-          classes: 'p-5 rounded-2xl border transition-all hover:border-purple-500/40 cursor-pointer $cardBg',
-          events: {
-            'click': (_) => s.setState(() {
-              s.activeTab = AppTab.jobs;
-              s.activeJobPane = 'active';
-            }),
-          },
-          [
-            div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [
-                Component.text('Gigs Posted'),
-              ]),
-              lIcon('briefcase', cls: 'w-4 h-4 text-purple-400'),
-            ]),
-            p(classes: 'text-lg font-black $titleColor', [
-              Component.text('$postedCount'),
-            ]),
-            p(classes: 'text-[9px] text-purple-450 font-semibold mt-1', [Component.text('Manage Gigs')]),
-          ],
-        ),
-        // Active Hires
-        div(
-          classes: 'p-5 rounded-2xl border transition-all hover:border-emerald-500/40 cursor-pointer $cardBg',
-          events: {
-            'click': (_) => s.setState(() {
-              s.activeTab = AppTab.jobs;
-              s.activeJobPane = 'active';
-            }),
-          },
-          [
-            div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [
-                Component.text('Active Gigs'),
-              ]),
-              lIcon('users', cls: 'w-4 h-4 text-emerald-400'),
-            ]),
-            p(classes: 'text-lg font-black $titleColor', [
-              Component.text('$activeHires'),
-            ]),
-            p(classes: 'text-[9px] text-emerald-450 font-semibold mt-1', [Component.text('View Active Workers')]),
-          ],
-        ),
-        // Rating
-        div(
-          classes: 'p-5 rounded-2xl border transition-all hover:border-amber-500/40 cursor-pointer $cardBg',
-          events: {
-            'click': (_) => s.setState(() {
-              s.activeTab = AppTab.profile;
-              s.profileView = ProfileView.reviews;
-            }),
-          },
-          [
-            div(classes: 'flex justify-between items-start mb-2', [
-              span(classes: 'text-[10px] font-black uppercase tracking-wider $labelColor', [
-                Component.text('Employer Score'),
-              ]),
-              lIcon('star', cls: 'w-4 h-4 text-amber-400'),
-            ]),
-            p(classes: 'text-lg font-black $titleColor flex items-center gap-1', [
-              Component.text(rating != null ? rating.toStringAsFixed(1) : 'Unrated'),
-              if (rating != null) span(classes: 'text-xs text-amber-400', [Component.text('★')]),
-            ]),
-            p(classes: 'text-[9px] text-amber-500 font-semibold mt-1', [Component.text('View Reviews')]),
-          ],
-        ),
-      ]);
-    }
   }
 
   Component _activeTrackersSection({required bool isDark, required TranyxAppState s}) {

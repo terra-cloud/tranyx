@@ -1,16 +1,16 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
-import 'package:http/http.dart' as http;
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:web/web.dart' as web;
 import '../tranyx_app.dart';
+import '../ledger_summary.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
 import '../../services/firebase_service.dart';
 import '../../services/web_interop.dart';
 import '../widgets/p2p_admin_panel.dart';
+import '../widgets/withdraw_modal.dart';
 import 'package:shared/shared.dart';
 
 class ProfileViewComponent extends StatelessComponent {
@@ -25,12 +25,34 @@ class ProfileViewComponent extends StatelessComponent {
     return div(classes: 'flex flex-col md:flex-row gap-6', [
       // Left pane — menu (always visible on desktop, hidden on mobile when sub-view open)
       div(
-        classes: 'w-full md:w-72 flex-shrink-0 ${s.profileView != ProfileView.main ? "hidden md:block" : ""}',
+        // W50–W62: the account hub (menu) is the landing page; each sub page is a single column with a breadcrumb.
+        classes: 'w-full md:w-72 flex-shrink-0 ${s.profileView != ProfileView.main ? "hidden" : ""}',
         [_ProfileMenu(state: s)],
       ),
 
       // Right pane — content
-      div(classes: 'flex-1 animate-fade-up space-y-4', [
+      div(classes: 'pf-pane flex-1 min-w-0 animate-fade-up space-y-4 ${s.profileView != ProfileView.main ? ((s.profileView == ProfileView.reviews || s.profileView == ProfileView.rewards) ? "max-w-5xl mx-auto w-full" : "max-w-3xl mx-auto w-full") : ""}', [
+        if (s.profileView != ProfileView.main && s.profileView != ProfileView.withdraw)
+          div(classes: 'hidden md:flex items-center gap-1.5 text-sm ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+            button(
+              classes: 'bg-transparent border-0 p-0 cursor-pointer font-medium text-[#4f46e5] hover:underline',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => s.setState(() => s.profileView = ProfileView.main)},
+              [Component.text('Account Settings')],
+            ),
+            span([Component.text('›')]),
+            span([Component.text(const {
+              ProfileView.personal: 'Personal info',
+              ProfileView.professional: 'Professional info',
+              ProfileView.payment: 'Payment methods',
+              ProfileView.trust: 'Trust & Verification',
+              ProfileView.support: 'Help & Support',
+              ProfileView.history: 'Transaction History',
+              ProfileView.reviews: 'Reviews & rewards',
+              ProfileView.rewards: 'Reviews & rewards',
+              ProfileView.subscription: 'Subscription',
+            }[s.profileView] ?? '')]),
+          ]),
         if (s.userProfile?.hasNegativeBalance == true)
           div(
             classes:
@@ -81,13 +103,12 @@ class ProfileViewComponent extends StatelessComponent {
       ProfileView.personal => _PersonalInfo(state: s),
       ProfileView.professional => _ProfessionalInfo(state: s),
       ProfileView.payment => _Payment(state: s),
-      ProfileView.withdraw => _WithdrawPane(state: s),
+      ProfileView.withdraw => WithdrawModalComponent(state: s, page: true),
       ProfileView.subscription => _ProfileMain(state: s),
       ProfileView.trust => _TrustVerification(state: s),
       ProfileView.support => _HelpSupport(state: s),
       ProfileView.history => _HistoryView(state: s),
-      ProfileView.reviews => _ReviewsView(state: s),
-      ProfileView.rewards => _RewardsView(state: s),
+      ProfileView.reviews || ProfileView.rewards => _ReviewsRewards(state: s),
     };
   }
 }
@@ -110,6 +131,7 @@ class _ProfileMenu extends StatelessComponent {
       (ProfileView.professional, 'briefcase', 'Professional Info'),
       (ProfileView.main, 'settings', 'Account Settings'),
       (ProfileView.payment, 'credit-card', 'Payment Methods'),
+      (ProfileView.withdraw, 'arrow-up-circle', 'Withdraw Funds'),
       (ProfileView.trust, 'shield-check', 'Trust & Verification'),
       (ProfileView.support, 'help-circle', 'Help & Support'),
       (ProfileView.history, 'activity', historyLabel),
@@ -196,16 +218,12 @@ class _ProfileMenu extends StatelessComponent {
           'w-full flex items-center gap-3 p-4 rounded-2xl transition-all text-left ${isActive ? activeCls : inactiveCls}',
       events: {
         'click': (_) => s.setState(() {
-          if (view == ProfileView.withdraw) {
-            s.showWithdrawModal = true;
-          } else {
-            s.profileView = view;
-            s.initializeProfileEditing();
-            if (view == ProfileView.main) {
-              try {
-                web.document.getElementById('account-settings-content')?.scrollIntoView(web.ScrollIntoViewOptions(behavior: 'smooth'));
-              } catch (_) {}
-            }
+          s.profileView = view;
+          s.initializeProfileEditing();
+          if (view == ProfileView.main) {
+            try {
+              web.document.getElementById('account-settings-content')?.scrollIntoView(web.ScrollIntoViewOptions(behavior: 'smooth'));
+            } catch (_) {}
           }
         }),
       },
@@ -409,19 +427,26 @@ class _ProfileMainState extends State<_ProfileMain> {
                   return div([]);
                 },
               ),
-              div(classes: 'mt-3 flex justify-center gap-2', [
-                button(
-                  classes:
-                      'px-2 py-1 text-[10px] uppercase font-bold text-indigo-400 hover:text-indigo-300 border border-indigo-500/20 rounded-lg bg-indigo-500/5 transition-colors cursor-pointer',
-                  events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
-                  [Component.text('Top Up')],
-                ),
-                button(
-                  classes:
-                      'px-2 py-1 text-[10px] uppercase font-bold text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 rounded-lg bg-emerald-500/5 transition-colors cursor-pointer',
-                  events: {'click': (_) => s.setState(() => s.showWithdrawModal = true)},
-                  [Component.text('Withdraw')],
-                ),
+              // W50: wallet CTAs follow the account type (Nyxian = Withdraw, Employer = Deposit / Top Up, Hybrid PRO = both).
+              // A negative balance always keeps Top Up available; Withdraw Funds also stays in the menu.
+              div(classes: 'mt-3 flex flex-col items-stretch gap-2', [
+                if (s.accountType != AccountType.nyxian || s.userProfile?.hasNegativeBalance == true)
+                  button(
+                    classes:
+                        'h-10 px-3 text-xs font-semibold text-white bg-[#4f46e5] hover:bg-indigo-500 rounded-xl border-0 transition-colors cursor-pointer',
+                    attributes: {'type': 'button'},
+                    events: {'click': (_) => s.setState(() => s.showDepositModal = true)},
+                    [Component.text('Deposit / Top Up')],
+                  ),
+                if (s.accountType != AccountType.employer)
+                  button(
+                    classes:
+                        'h-10 px-3 text-xs font-semibold rounded-xl border transition-colors cursor-pointer '
+                        '${isDark ? "text-zinc-100 border-zinc-700 bg-transparent hover:bg-zinc-800" : "text-[#18181b] border-[#d4d4d8] bg-white hover:bg-zinc-50"}',
+                    attributes: {'type': 'button'},
+                    events: {'click': (_) => s.setState(() => s.showWithdrawModal = true)},
+                    [Component.text('Withdraw')],
+                  ),
               ]),
             ],
           ),
@@ -2325,578 +2350,6 @@ class _Payment extends StatelessComponent {
   }
 }
 
-// ── Withdraw Funds Pane ───────────────────────────────────────
-class _WithdrawPane extends StatefulComponent {
-  final TranyxAppState state;
-  const _WithdrawPane({required this.state});
-
-  @override
-  State<_WithdrawPane> createState() => _WithdrawPaneState();
-}
-
-class _WithdrawPaneState extends State<_WithdrawPane> {
-  String _amountInput = '100';
-  String _selectedCoin = 'USDT'; // 'USDT' (SPL) or 'SOL'
-  double _solToPhpRate = 8000.0;
-  double _usdToPhpRate = 57.0;
-  bool _isFetchingRates = false;
-  bool _isSubmitting = false;
-  String? _errorMessage;
-  String? _successMessage;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchLiveRates();
-  }
-
-  Future<void> _fetchLiveRates() async {
-    setState(() => _isFetchingRates = true);
-    try {
-      final cgRes = await http
-          .get(
-            Uri.parse(
-              'https://api.coingecko.com/api/v3/simple/price?ids=solana,tether&vs_currencies=php,usd',
-            ),
-          )
-          .timeout(const Duration(seconds: 5));
-
-      if (cgRes.statusCode == 200) {
-        final data = jsonDecode(cgRes.body) as Map;
-        final sol = (data['solana']?['php'] as num?)?.toDouble();
-        final usdt = (data['tether']?['php'] as num?)?.toDouble();
-        setState(() {
-          if (sol != null && sol > 0) _solToPhpRate = sol;
-          if (usdt != null && usdt > 0) _usdToPhpRate = usdt;
-        });
-      } else {
-        final binanceRes = await http
-            .get(
-              Uri.parse(
-                'https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT',
-              ),
-            )
-            .timeout(const Duration(seconds: 4));
-        final usdPhpRes = await http
-            .get(Uri.parse('https://open.er-api.com/v6/latest/USD'))
-            .timeout(const Duration(seconds: 4));
-
-        double usdPhp = 57.0;
-        if (usdPhpRes.statusCode == 200) {
-          final usdData = jsonDecode(usdPhpRes.body) as Map;
-          final php = (usdData['rates']?['PHP'] as num?)?.toDouble();
-          if (php != null && php > 0) usdPhp = php;
-        }
-
-        if (binanceRes.statusCode == 200) {
-          final bData = jsonDecode(binanceRes.body) as Map;
-          final solUsd =
-              double.tryParse(bData['price']?.toString() ?? '') ?? 0.0;
-          if (solUsd > 0) {
-            setState(() {
-              _solToPhpRate = solUsd * usdPhp;
-              _usdToPhpRate = usdPhp;
-            });
-          }
-        }
-      }
-    } catch (_) {
-      // Sensible defaults maintained if offline
-    } finally {
-      setState(() => _isFetchingRates = false);
-    }
-  }
-
-  void _setPresetAmount(double amount, double maxBal) {
-    final clamped = amount.clamp(0.0, maxBal);
-    setState(() {
-      _amountInput = clamped.toStringAsFixed(0);
-      _errorMessage = null;
-    });
-  }
-
-  Future<void> _submitWithdrawal() async {
-    final s = component.state;
-    final uid = SessionStorage.uid;
-    final token = SessionStorage.idToken;
-
-    if (uid == null || token == null) {
-      setState(() => _errorMessage = 'Please sign in to proceed.');
-      return;
-    }
-
-    final hasActiveVehicleRentals = s.realtimeRentals.any((rMap) {
-      final rental = VehicleRental.fromMap(rMap, rMap['id'] ?? '');
-      final isRenter = (rental.renteeId == uid);
-      final statusLower = rental.status.toLowerCase();
-      final isActive = (statusLower != 'completed' && statusLower != 'cancelled');
-      return isRenter && isActive;
-    });
-
-    final hasActivePropertyRentals = s.realtimeProperties.any((prop) {
-      final isRenter = (prop.renteeId == uid);
-      final statusLower = prop.status.toLowerCase();
-      final isActive = (statusLower != 'completed' && statusLower != 'cancelled' && statusLower != 'available');
-      return isRenter && isActive;
-    });
-
-    if (hasActiveVehicleRentals || hasActivePropertyRentals) {
-      setState(
-        () => _errorMessage =
-            'Withdrawals are disabled while you have active/ongoing rentals.',
-      );
-      return;
-    }
-
-    final tyxBal = s.userProfile?.availableBalance ?? 0.0;
-    final amount = double.tryParse(_amountInput.trim()) ?? 0.0;
-
-    if (amount < 100) {
-      setState(() => _errorMessage = 'Minimum withdrawal amount is ₱ 100.00.');
-      return;
-    }
-
-    if (amount > tyxBal) {
-      setState(() => _errorMessage = 'Requested amount exceeds your available balance.');
-      return;
-    }
-
-    final walletKey = s.walletAddress.isNotEmpty ? s.walletAddress : (s.userProfile?.walletPublicKey ?? '');
-
-    if (walletKey.isEmpty) {
-      setState(
-        () => _errorMessage =
-            'Withdrawals are only available to connected Solana wallets. Please link your Solana wallet first in Payment Methods or Trust & Verification.',
-      );
-      return;
-    }
-
-    setState(() {
-      _isSubmitting = true;
-      _errorMessage = null;
-      _successMessage = null;
-    });
-
-    try {
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final requestId = 'withdraw_$timestamp';
-      final svc = FirestoreService(token, s.handleTokenRefresh);
-      final methodTitle = 'Solana ($_selectedCoin)';
-
-      final feePhp = (amount * 0.02);
-      final netPhp = (amount - feePhp);
-      final activeRate = _selectedCoin == 'SOL' ? (_solToPhpRate > 0 ? _solToPhpRate : 8000.0) : (_usdToPhpRate > 0 ? _usdToPhpRate : 57.0);
-      final cryptoAmount = activeRate > 0 ? netPhp / activeRate : 0.0;
-
-      final requestData = <String, dynamic>{
-        'id': requestId,
-        'uid': uid,
-        'userName': s.userName,
-        'amount': amount,
-        'feeAmount': feePhp,
-        'netAmount': netPhp,
-        'cryptoAmount': cryptoAmount,
-        'rateUsed': activeRate,
-        'status': 'Pending',
-        'createdAt': timestamp,
-        'currency': 'PHP',
-        'method': 'Solana',
-        'methodTitle': methodTitle,
-        'coin': _selectedCoin,
-        'walletPublicKey': walletKey,
-      };
-
-      // 1. Direct on-chain treasury transfer if private key configured
-      String txSignature = '';
-      bool isOnChainTransferred = false;
-
-      final treasuryPrivKey = Env.solanaPrivateKey;
-      if (treasuryPrivKey.isNotEmpty) {
-        try {
-          if (_selectedCoin == 'SOL') {
-            final lamports = (cryptoAmount * 1e9).round();
-            if (lamports > 0) {
-              final sig = await broadcastTreasuryTransfer(
-                treasuryPrivKeyBase58: treasuryPrivKey,
-                recipientPubkey: walletKey,
-                lamports: lamports,
-              );
-              if (sig != null && sig.isNotEmpty) {
-                txSignature = sig;
-                isOnChainTransferred = true;
-              }
-            }
-          } else {
-            if (cryptoAmount > 0) {
-              final sig = await broadcastTreasuryTokenTransfer(
-                treasuryPrivKeyBase58: treasuryPrivKey,
-                recipientPubkey: walletKey,
-                amountInUsdt: cryptoAmount,
-              );
-              if (sig != null && sig.isNotEmpty) {
-                txSignature = sig;
-                isOnChainTransferred = true;
-              }
-            }
-          }
-        } catch (vaultErr) {
-          print('Direct client-side vault transfer skipped/queued: $vaultErr');
-        }
-      }
-
-      final txStatus = isOnChainTransferred ? 'Successful' : 'Pending';
-
-      // 2. Save withdrawal request record
-      await svc.createOrUpdate('withdrawalRequests/$requestId', {
-        ...requestData,
-        'status': txStatus,
-        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
-      });
-
-      // 3. Create transaction record
-      await svc.createOrUpdate('transactions/tx_$timestamp', {
-        'id': 'tx_$timestamp',
-        'uid': uid,
-        'title': isOnChainTransferred
-            ? 'Withdrawal Successful ($methodTitle)'
-            : 'Withdrawal Request ($methodTitle)',
-        'type': 'withdraw',
-        'amount': -amount,
-        'feeAmount': feePhp,
-        'netAmount': netPhp,
-        'cryptoAmount': cryptoAmount,
-        'rateUsed': activeRate,
-        'currency': 'PHP',
-        'status': txStatus,
-        'createdAt': timestamp,
-        'walletPublicKey': walletKey,
-        'coin': _selectedCoin,
-        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
-        'desc': isOnChainTransferred
-            ? 'Withdrew ₱${amount.toStringAsFixed(2)} to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin). On-Chain Tx: $txSignature'
-            : 'Requested ₱${amount.toStringAsFixed(2)} withdrawal to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin)',
-      });
-
-      // 4. Deduct from user profile balance safely
-      final newBalance = await svc.deductTyxBalanceSafely(
-        uid: uid,
-        amountToDeduct: amount,
-        txId: 'tx_$timestamp',
-      );
-
-      s.setState(() {
-        if (s.userProfile != null) {
-          s.userProfile = s.userProfile!.copyWith(tyxBalance: newBalance);
-        }
-      });
-
-      setState(() {
-        _isSubmitting = false;
-        _successMessage = isOnChainTransferred
-            ? 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin) has been transferred directly to your Solana wallet on-chain!'
-            : 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
-      });
-      s.showAppToast(
-        isOnChainTransferred ? 'Withdrawal Completed' : 'Withdrawal Requested',
-        '₱ ${amount.toStringAsFixed(2)} via $methodTitle ${isOnChainTransferred ? "sent on-chain!" : "submitted."}',
-      );
-    } catch (e) {
-      setState(() {
-        _isSubmitting = false;
-        _errorMessage = 'Withdrawal request failed: $e';
-      });
-    }
-  }
-
-  @override
-  Component build(BuildContext context) {
-    final s = component.state;
-    final isDark = s.isDark;
-    final tyxBal = s.userProfile?.availableBalance ?? 0.0;
-    final walletKey = s.walletAddress.isNotEmpty ? s.walletAddress : (s.userProfile?.walletPublicKey ?? '');
-    final hasWallet = walletKey.isNotEmpty;
-    final cardBg = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm';
-    final inputBg = isDark ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-white border-zinc-300 text-zinc-900';
-
-    final enteredAmount = double.tryParse(_amountInput.trim()) ?? 0.0;
-    final feePhp = enteredAmount * 0.02;
-    final netPhp = (enteredAmount - feePhp).clamp(0.0, double.infinity);
-    final activeRate = _selectedCoin == 'SOL' ? (_solToPhpRate > 0 ? _solToPhpRate : 8000.0) : (_usdToPhpRate > 0 ? _usdToPhpRate : 57.0);
-    final estCryptoAmount = activeRate > 0 ? netPhp / activeRate : 0.0;
-    final estCryptoStr = _selectedCoin == 'SOL'
-        ? '${estCryptoAmount.toStringAsFixed(6)} SOL'
-        : '${estCryptoAmount.toStringAsFixed(2)} USDT';
-
-    return div(classes: 'space-y-6', [
-      subViewHeader(
-        title: 'Withdraw Funds (Solana)',
-        isDark: isDark,
-        onBack: () => s.setState(() => s.profileView = ProfileView.main),
-      ),
-
-      // Security / Linked Wallet Requirement Banner
-      if (!hasWallet)
-        div(
-          classes:
-              'p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-400',
-          [
-            div(classes: 'flex items-start gap-2.5', [
-              lIcon('shield-alert', cls: 'w-5 h-5 shrink-0 text-amber-400 mt-0.5'),
-              div([
-                p(classes: 'font-bold text-sm text-amber-300', [Component.text('Solana Wallet Required')]),
-                p(classes: 'mt-0.5 text-zinc-400', [
-                  Component.text(
-                    'Withdrawals are only available to verified Solana wallets. Please link your Solana wallet in Payment Methods or Trust & Verification.',
-                  ),
-                ]),
-              ]),
-            ]),
-            button(
-              classes:
-                  'px-3.5 py-2 rounded-xl font-bold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-all text-xs cursor-pointer border-0 shrink-0',
-              events: {'click': (_) => s.setState(() => s.profileView = ProfileView.payment)},
-              [Component.text('Link Wallet in Payments')],
-            ),
-          ],
-        )
-      else
-        div(
-          classes:
-              'p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between text-xs',
-          [
-            div(classes: 'flex items-center gap-2.5', [
-              lIcon('shield-check', cls: 'w-4 h-4 text-emerald-400'),
-              span(classes: 'font-semibold text-zinc-300', [Component.text('Connected Solana Wallet:')]),
-              span(classes: 'font-mono text-emerald-400 font-bold', [
-                Component.text('${walletKey.substring(0, 6)}...${walletKey.substring(walletKey.length - 6)}'),
-              ]),
-            ]),
-            span(classes: 'text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold', [
-              Component.text('Verified'),
-            ]),
-          ],
-        ),
-
-      // Withdrawable Balance Banner
-      div(
-        classes:
-            'p-8 rounded-[2.5rem] logo-gradient text-white relative overflow-hidden shadow-2xl shadow-indigo-500/20',
-        [
-          div(classes: 'relative z-10 space-y-4', [
-            div(classes: 'flex justify-between items-start', [
-              div([
-                p(classes: 'text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-1', [
-                  Component.text('Withdrawable Balance'),
-                ]),
-                p(classes: 'text-sm font-medium opacity-90', [Component.text(s.userName)]),
-              ]),
-              div(
-                classes:
-                    'w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20',
-                [lIcon('arrow-up-right', cls: 'w-6 h-6 text-white')],
-              ),
-            ]),
-            div([
-              p(classes: 'text-4xl font-black flex items-center gap-3', [
-                span(classes: 'text-2xl opacity-60', [Component.text('₱')]),
-                Component.text(tyxBal.toStringAsFixed(2)),
-              ]),
-              p(classes: 'text-xs opacity-75 mt-1 font-mono tracking-wide', [
-                Component.text('Equivalent to ${tyxBal.toStringAsFixed(0)} Tyxbits (1 Tyx = ₱1.00)'),
-              ]),
-            ]),
-          ]),
-        ],
-      ),
-
-      // Step 1: Amount Selection Card
-      div(classes: 'p-6 rounded-[2rem] border $cardBg space-y-4', [
-        p(classes: 'text-xs font-bold uppercase tracking-wider text-indigo-400', [
-          Component.text('1. Enter Withdrawal Amount'),
-        ]),
-        div(classes: 'relative', [
-          span(classes: 'absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-black text-indigo-400', [
-            Component.text('₱'),
-          ]),
-          input(
-            classes:
-                'w-full pl-12 pr-4 py-4 rounded-2xl border $inputBg text-2xl font-black outline-none focus:border-indigo-500 transition-colors',
-            attributes: {
-              'type': 'number',
-              'step': '1',
-              'min': '100',
-              'value': _amountInput,
-              'placeholder': '100',
-            },
-            events: {
-              'input': (e) {
-                setState(() {
-                  _amountInput = getInputValue(e.target);
-                  _errorMessage = null;
-                });
-              },
-            },
-          ),
-        ]),
-        // Quick Presets
-        div(classes: 'flex flex-wrap gap-2 pt-2', [
-          for (final preset in [100.0, 500.0, 1000.0, 5000.0])
-            button(
-              classes:
-                  'px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-zinc-100 border-zinc-200 text-zinc-700 hover:bg-zinc-200"}',
-              events: {'click': (_) => _setPresetAmount(preset, tyxBal)},
-              [Component.text('₱${preset.toStringAsFixed(0)}')],
-            ),
-          button(
-            classes:
-                'px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600/20 border border-indigo-500/40 text-indigo-400 hover:bg-indigo-600/30 transition-all cursor-pointer',
-            events: {'click': (_) => _setPresetAmount(tyxBal, tyxBal)},
-            [Component.text('MAX BALANCE')],
-          ),
-        ]),
-      ]),
-
-      // Step 2: Solana Destination Card
-      div(classes: 'p-6 rounded-[2rem] border $cardBg space-y-4', [
-        div(classes: 'flex items-center justify-between', [
-          p(classes: 'text-xs font-bold uppercase tracking-wider text-indigo-400', [
-            Component.text('2. Solana Payout Destination'),
-          ]),
-          span(
-            classes:
-                'text-[11px] font-bold px-2.5 py-1 rounded-lg ${isDark ? "bg-purple-500/10 text-purple-400" : "bg-purple-50 text-purple-700"} flex items-center gap-1.5',
-            [
-              lIcon('wallet', cls: 'w-3.5 h-3.5'),
-              Component.text('Solana Network Only'),
-            ],
-          ),
-        ]),
-
-        div(classes: 'p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 space-y-3', [
-          div(classes: 'flex items-center justify-between', [
-            span(classes: 'text-xs font-semibold text-zinc-400', [Component.text('Destination Solana Address')]),
-            span(
-              classes:
-                  'text-[10px] px-2 py-0.5 rounded-full font-bold ${hasWallet ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}',
-              [Component.text(hasWallet ? 'Linked' : 'No Wallet Linked')],
-            ),
-          ]),
-          if (hasWallet) ...[
-            p(classes: 'font-mono text-xs font-bold text-indigo-400 break-all', [Component.text(walletKey)]),
-            div(classes: 'pt-2 space-y-2', [
-              div(classes: 'flex items-center justify-between', [
-                span(classes: 'text-xs font-semibold text-zinc-400 block', [Component.text('Select Payout Token:')]),
-                span(classes: 'text-[11px] text-zinc-400 font-mono', [
-                  Component.text(_isFetchingRates ? 'Fetching live rates...' : 'Live Web Rates'),
-                ]),
-              ]),
-              div(classes: 'grid grid-cols-1 sm:grid-cols-2 gap-2.5', [
-                button(
-                  classes:
-                      'p-3 rounded-2xl text-left border transition-all cursor-pointer ${_selectedCoin == 'USDT' ? "bg-indigo-600/15 border-indigo-500 text-white shadow-md shadow-indigo-600/20" : (isDark ? "bg-zinc-800/80 border-zinc-700 text-zinc-400 hover:text-white" : "bg-zinc-100 border-zinc-200 text-zinc-700 hover:bg-zinc-200")}',
-                  events: {'click': (_) => setState(() => _selectedCoin = 'USDT')},
-                  [
-                    div(classes: 'flex justify-between items-center', [
-                      span(classes: 'text-xs font-bold text-white', [Component.text('Tether (USDT SPL)')]),
-                      if (_selectedCoin == 'USDT') lIcon('check-circle', cls: 'w-4 h-4 text-indigo-400'),
-                    ]),
-                    p(classes: 'text-[11px] text-zinc-400 mt-1', [
-                      Component.text('1 USDT ≈ ₱${_usdToPhpRate.toStringAsFixed(2)}'),
-                    ]),
-                  ],
-                ),
-                button(
-                  classes:
-                      'p-3 rounded-2xl text-left border transition-all cursor-pointer ${_selectedCoin == 'SOL' ? "bg-indigo-600/15 border-indigo-500 text-white shadow-md shadow-indigo-600/20" : (isDark ? "bg-zinc-800/80 border-zinc-700 text-zinc-400 hover:text-white" : "bg-zinc-100 border-zinc-200 text-zinc-700 hover:bg-zinc-200")}',
-                  events: {'click': (_) => setState(() => _selectedCoin = 'SOL')},
-                  [
-                    div(classes: 'flex justify-between items-center', [
-                      span(classes: 'text-xs font-bold text-white', [Component.text('Solana (SOL Native)')]),
-                      if (_selectedCoin == 'SOL') lIcon('check-circle', cls: 'w-4 h-4 text-indigo-400'),
-                    ]),
-                    p(classes: 'text-[11px] text-zinc-400 mt-1', [
-                      Component.text('1 SOL ≈ ₱${_solToPhpRate.toStringAsFixed(2)}'),
-                    ]),
-                  ],
-                ),
-              ]),
-            ]),
-          ] else ...[
-            p(classes: 'text-xs text-zinc-400', [
-              Component.text('Link your Phantom, Solflare, or Trust wallet in Payment Methods to receive instant Solana payouts.'),
-            ]),
-          ],
-        ]),
-      ]),
-
-      // Fee & ETA Summary
-      div(classes: 'p-4 rounded-2xl border ${isDark ? "bg-zinc-900/40 border-zinc-800 text-zinc-400" : "bg-zinc-50 border-zinc-200 text-zinc-600"} text-xs space-y-2', [
-        div(classes: 'flex justify-between items-center', [
-          span([Component.text('Live Rate (from web)')]),
-          span(classes: 'font-mono font-bold text-indigo-400', [
-            Component.text('1 $_selectedCoin ≈ ₱${activeRate.toStringAsFixed(2)}'),
-          ]),
-        ]),
-        div(classes: 'flex justify-between items-center', [
-          span([Component.text('Platform Fee (2%)')]),
-          span(classes: 'font-semibold text-rose-400', [
-            Component.text('₱ ${feePhp.toStringAsFixed(2)}'),
-          ]),
-        ]),
-        div(classes: 'flex justify-between items-center', [
-          span([Component.text('Estimated Net Payout')]),
-          span(classes: 'font-bold text-emerald-400 font-mono', [
-            Component.text('₱ ${netPhp.toStringAsFixed(2)} ($estCryptoStr)'),
-          ]),
-        ]),
-        div(classes: 'flex justify-between items-center', [
-          span([Component.text('Network Fee')]),
-          span(classes: 'font-bold text-emerald-400', [Component.text('Covered by Tranyx (0%)')]),
-        ]),
-        div(classes: 'flex justify-between items-center', [
-          span([Component.text('Estimated Settlement')]),
-          span(classes: 'font-semibold', [Component.text('Instant to 1 Hour')]),
-        ]),
-        div(classes: 'flex justify-between items-center', [
-          span([Component.text('Minimum Amount')]),
-          span(classes: 'font-semibold', [Component.text('₱ 100.00')]),
-        ]),
-      ]),
-
-      if (_errorMessage != null)
-        div(classes: 'p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2', [
-          lIcon('alert-triangle', cls: 'w-4 h-4 shrink-0'),
-          span([Component.text(_errorMessage!)]),
-        ]),
-
-      if (_successMessage != null)
-        div(classes: 'p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2', [
-          lIcon('check-circle', cls: 'w-4 h-4 shrink-0'),
-          span(classes: 'font-bold', [Component.text(_successMessage!)]),
-        ]),
-
-      // Action Button
-      button(
-        classes:
-          'w-full py-4 rounded-2xl font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
-        attributes: _isSubmitting ? {'disabled': 'disabled'} : {},
-        events: {
-          'click': (_) async {
-            if (!_isSubmitting) {
-              await _submitWithdrawal();
-            }
-          },
-        },
-        [
-          if (_isSubmitting) lIcon('loader-2', cls: 'w-5 h-5 animate-spin'),
-          lIcon('arrow-up-right', cls: 'w-5 h-5'),
-          Component.text(_isSubmitting ? 'Submitting Request...' : 'Confirm & Request Withdrawal'),
-        ],
-      ),
-    ]);
-  }
-}
-
 // ── Trust & Verification ──────────────────────────────────────
 class _TrustVerification extends StatelessComponent {
   final TranyxAppState state;
@@ -4387,6 +3840,8 @@ class _HistoryViewState extends State<_HistoryView> {
   List<DepositRequest> userP2pDeposits = [];
   List<Map<String, dynamic>> userWithdrawalRequests = [];
   String p2pFilter = 'all'; // 'all', 'deposits', 'withdrawals'
+  String w58Tab = ''; // W58: '' = follow mode, else 'earnings' | 'purchases' | 'deposits' | 'all'
+  int w58PeriodDays = 30;
   List<Map<String, dynamic>> _dbRentalHistory = [];
   double totalEarningsSum = 0.0;
   double totalInflowSum = 0.0;
@@ -5420,7 +4875,10 @@ class _HistoryViewState extends State<_HistoryView> {
     final liveTyxBalance = s.userProfile?.tyxBalance ?? 0.0;
 
     // Filter transactions based on selected category pill
-    final filtered = allUnifiedLedger.where((item) {
+    final mode = s.currentViewMode;
+    final tab = w58Tab.isNotEmpty ? w58Tab : (mode == AccountType.employer ? 'purchases' : 'earnings');
+    final scoped = allUnifiedLedger.where((i) => ledgerMatchesTab(i, tab) && ledgerInPeriod(i, w58PeriodDays)).toList();
+    final filtered = scoped.where((item) {
       if (ledgerFilter == 'all') return true;
       if (ledgerFilter == 'income') return item['type'] == 'credit';
       if (ledgerFilter == 'expenses') return item['type'] == 'debit';
@@ -5442,7 +4900,68 @@ class _HistoryViewState extends State<_HistoryView> {
         ? filtered.sublist(startIndex, endIndex)
         : <Map<String, dynamic>>[];
 
+    final tabs = <List<String>>[
+      if (mode != AccountType.employer) ['earnings', 'Earnings'],
+      if (mode != AccountType.nyxian) ['purchases', 'Purchases'],
+      if (s.accountType == AccountType.hybrid) ['deposits', 'Deposits'] else if (mode == AccountType.employer) ['deposits', 'Deposits'],
+      ['all', 'All'],
+    ];
+    final heldTotal = s.pendingHoldbacks.where((h) => h['status'] == 'held').fold<double>(0, (sum, h) => sum + (ledgerAmount(h) ?? 0)); // invalid amounts skipped (logged by ledgerAmount)
+    final muted = isDark ? 'text-zinc-400' : 'text-zinc-500';
+    Component statCard(String icon, String label, double v, {String color = ''}) => div(classes: 'p-5 rounded-2xl border $cardCls', [
+          div(classes: 'flex items-center gap-2 text-xs $muted', [lIcon(icon, cls: 'w-3.5 h-3.5 $color'), span([Component.text(label)])]),
+          p(classes: 'text-2xl font-black mt-2 ${isDark ? "text-white" : "text-zinc-900"}', [Component.text(formatCurrency(v))]),
+        ]);
+
     return div(classes: 'space-y-6', [
+      // W58 tabs, period and export
+      div(classes: 'flex flex-wrap items-center justify-between gap-3', [
+        div(classes: 'inline-flex p-1 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-900" : "border-zinc-200 bg-white"}', [
+          for (final t in tabs)
+            button(
+              classes:
+                  'px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${t[0] == tab ? (isDark ? "bg-zinc-700 text-white shadow-sm" : "bg-zinc-100 text-zinc-900 shadow-sm") : muted}',
+              events: {'click': (_) => setState(() { w58Tab = t[0]; ledgerFilter = 'all'; currentPage = 1; })},
+              [Component.text(t[1])],
+            ),
+        ]),
+        div(classes: 'flex items-center gap-2', [
+          select(
+            classes: 'text-xs p-2 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-700 text-white" : "bg-white border-zinc-200"} outline-none cursor-pointer',
+            events: {'change': (e) => setState(() { w58PeriodDays = int.tryParse(getInputValue(e.target)) ?? 30; currentPage = 1; })},
+            [
+              for (final o in [[7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days'], [365, 'Last 12 months'], [0, 'All time']])
+                option(value: '${o[0]}', selected: w58PeriodDays == o[0], [Component.text('${o[1]}')]),
+            ],
+          ),
+          button(
+            classes: 'px-4 py-2 rounded-xl border text-xs font-bold cursor-pointer ${isDark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"}',
+            // Rows come only from this user's uid-scoped fetches (see _loadRentalHistory); no-op without a signed-in uid.
+            events: {'click': (_) { if (s.userProfile?.uid != null) downloadTextFile('tranyx-transactions-$tab.csv', ledgerCsv(filtered)); }},
+            [Component.text('Export CSV')],
+          ),
+        ]),
+      ]),
+      if (tab == 'earnings' || tab == 'purchases')
+        div(classes: 'space-y-3', [
+          p(classes: 'text-xs $muted', [
+            Component.text(tab == 'earnings'
+                ? 'Total earned, holdback and withdrawals for the selected period.'
+                : 'Spend shows escrow deposits, fees, deposits and refunds.'),
+          ]),
+          div(classes: 'grid grid-cols-1 sm:grid-cols-3 gap-4', [
+            if (tab == 'earnings') ...[
+              statCard('trending-up', 'Total earned', ledgerSum(scoped, (t) => t['category'] == 'job_payout'), color: 'text-emerald-500'),
+              statCard('clock', 'In holdback', heldTotal, color: 'text-amber-500'),
+              statCard('arrow-up-right', 'Withdrawn', ledgerSum(scoped, (t) => t['category'] == 'withdrawal'), color: 'text-indigo-500'),
+            ] else ...[
+              statCard('wallet', 'Total spent', ledgerSum(scoped, (t) => t['type'] == 'debit' && t['category'] != 'withdrawal'), color: 'text-indigo-500'),
+              statCard('shield', 'In escrow', heldTotal, color: 'text-amber-500'),
+              statCard('refresh-cw', 'Refunded', ledgerSum(scoped, (t) => t['category'] == 'refund'), color: 'text-emerald-500'),
+            ],
+          ]),
+        ])
+      else
       // 1. TOP SUMMARY BANNER
       div(classes: 'grid grid-cols-1 sm:grid-cols-3 gap-4', [
         // Available Balance Card
@@ -5609,7 +5128,9 @@ class _HistoryViewState extends State<_HistoryView> {
                         // Itemized Fee & Service Charge Breakdown Card
                         () {
                           final cat = tx['category'] as String?;
-                          final amt = (tx['amount'] as num?)?.toDouble() ?? 0.0;
+                          final amtOrNull = ledgerAmount(tx);
+                          if (amtOrNull == null) return Component.empty(); // invalid amount: no fee breakdown
+                          final amt = amtOrNull;
                           final base = (tx['baseAmount'] as num?)?.toDouble() ?? (tx['txFee'] != null ? (amt / 1.10) : (tx['commissionFee'] != null ? (amt / 0.97) : amt));
                           final txFee = (tx['txFee'] as num?)?.toDouble() ?? (tx['title'].toString().toLowerCase().contains('completion fee') ? base * 0.07 : null);
                           final convFee = (tx['convFee'] as num?)?.toDouble() ?? (tx['title'].toString().toLowerCase().contains('completion fee') ? base * 0.03 : null);
@@ -5743,7 +5264,7 @@ class _HistoryViewState extends State<_HistoryView> {
                                     e.preventDefault();
                                     component.state.alertDialog(
                                       'P2P Transaction Receipt',
-                                      'Transaction: ${tx['title']}\nMethod: ${tx['method']}\nAmount: ₱${(tx['amount'] as num).toDouble().toStringAsFixed(2)}\nReference: ${tx['referenceNumber'] ?? "Verified by Payment Agent"}\nStatus: Verified & Credited to Balance',
+                                      'Transaction: ${tx['title']}\nMethod: ${tx['method']}\nAmount: ${ledgerAmount(tx) == null ? 'Invalid amount' : '₱${ledgerAmount(tx)!.toStringAsFixed(2)}'}\nReference: ${tx['referenceNumber'] ?? "Verified by Payment Agent"}\nStatus: Verified & Credited to Balance',
                                     );
                                   }
                                 },
@@ -5916,7 +5437,7 @@ class _HistoryViewState extends State<_HistoryView> {
                         p(
                           classes: 'font-bold text-base text-zinc-500 line-through',
                           [
-                            Component.text(formatCurrency((tx['amount'] as num).toDouble())),
+                            Component.text(ledgerAmount(tx) == null ? 'Invalid amount' : formatCurrency(ledgerAmount(tx)!)),
                           ],
                         )
                       else
@@ -5925,7 +5446,7 @@ class _HistoryViewState extends State<_HistoryView> {
                               'font-black text-base ${tx['type'] == 'credit' ? "text-emerald-400" : "text-rose-400"}',
                           [
                             Component.text(
-                              '${tx['type'] == 'credit' ? "+" : "−"} ${formatCurrency((tx['amount'] as num).toDouble())}',
+                              ledgerAmount(tx) == null ? '— Invalid amount' : '${tx['type'] == 'credit' ? "+" : "−"} ${formatCurrency(ledgerAmount(tx)!)}',
                             ),
                           ],
                         ),
@@ -6085,7 +5606,7 @@ class _HistoryViewState extends State<_HistoryView> {
     return div(classes: 'space-y-6', [
       div(classes: 'flex items-center justify-between gap-4 flex-wrap', [
         subViewHeader(
-          title: activeTab == 'p2p_admin' ? 'P2P Desk & Admin' : 'Wallet Ledger & Transactions',
+          title: activeTab == 'p2p_admin' ? 'P2P Desk & Admin' : 'Transaction History',
           isDark: isDark,
           onBack: () => s.setState(() => s.profileView = ProfileView.main),
         ),
@@ -6115,6 +5636,38 @@ class _HistoryViewState extends State<_HistoryView> {
         P2pAdminPanelComponent(state: s)
       else
         _buildAllTransactionsLedger(isDark, s, cardCls),
+    ]);
+  }
+}
+
+// ── W59: Reviews & rewards (tabs; both columns side by side on desktop) ──────────
+class _ReviewsRewards extends StatelessComponent {
+  final TranyxAppState state;
+  const _ReviewsRewards({required this.state});
+
+  @override
+  Component build(BuildContext context) {
+    final s = state;
+    final isDark = s.isDark;
+    final onReviews = s.profileView == ProfileView.reviews;
+    Component tab(String label, bool active, ProfileView v) => button(
+          classes:
+              'h-9 px-4 rounded-full text-sm font-semibold border-0 cursor-pointer transition-colors '
+              '${active ? (isDark ? "bg-zinc-100 text-zinc-900" : "bg-white text-[#18181b] shadow-sm") : (isDark ? "bg-transparent text-zinc-400" : "bg-transparent text-[#52525b]")}',
+          attributes: {'type': 'button'},
+          events: {'click': (_) => s.setState(() => s.profileView = v)},
+          [Component.text(label)],
+        );
+    return div(classes: 'space-y-5', [
+      h1(classes: 'm-0 text-[28px] md:text-[32px] font-bold ${isDark ? "text-zinc-50" : "text-[#18181b]"}', [Component.text('Reviews & rewards')]),
+      div(
+        classes: 'inline-flex items-center gap-1 p-1 rounded-full border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-[#f4f4f5] border-[#e4e4e7]"}',
+        [tab('Reviews', onReviews, ProfileView.reviews), tab('Terra rewards', !onReviews, ProfileView.rewards)],
+      ),
+      div(classes: 'grid grid-cols-1 lg:grid-cols-2 gap-5 items-start', [
+        div(classes: onReviews ? '' : 'hidden lg:block', [_ReviewsView(state: s)]),
+        div(classes: onReviews ? 'hidden lg:block' : '', [_RewardsView(state: s)]),
+      ]),
     ]);
   }
 }

@@ -10,6 +10,7 @@ import '../../components/map_picker.dart';
 import '../../services/web_interop.dart';
 import '../../services/firebase_service.dart';
 import 'contract_viewer.dart';
+import '../../components/pdf_source_guard.dart';
 import 'pdf_viewer_modal.dart';
 
 class ListPropertyModalComponent extends StatefulComponent {
@@ -240,25 +241,76 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
     setState(() => _step++);
   }
 
+  // W36 page mode: every former wizard step renders as one section on a single page.
+  bool get _multiStep => false;
+
+  /// Validates the old step 1 and step 2 gates in order, then runs the existing submit.
+  void _publish() {
+    if (_isSubmitting) return;
+    setState(() => _error = null);
+    for (var i = 1; i <= 2; i++) {
+      _step = i;
+      _handleNext();
+      if (_error != null) {
+        _step = i;
+        return;
+      }
+    }
+    _submit();
+  }
+
+  Component _pageHead(bool isDark) {
+    return div(classes: 'max-w-3xl mx-auto w-full mb-6 space-y-3', [
+        div(classes: 'inline-flex p-1 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-[#e4e4e7]"}', [
+          for (final opt in const [('Vehicle', 'vehicle'), ('Property', 'property')])
+            button(
+              classes:
+                  'h-9 px-4 text-sm font-semibold rounded-lg border-0 cursor-pointer transition-colors '
+                  '${opt.$2 == 'property' ? (isDark ? "bg-zinc-800 text-white shadow-sm" : "bg-[#f4f4f5] text-[#18181b] shadow-sm") : (isDark ? "bg-transparent text-zinc-400" : "bg-transparent text-[#52525b]")}',
+              attributes: {'type': 'button', 'aria-pressed': opt.$2 == 'property' ? 'true' : 'false'},
+              events: {
+                'click': (_) {
+                  if (opt.$2 == 'property') return;
+                  component.appState.setState(() {
+                    component.appState.showListVehicleModal = opt.$2 == 'vehicle';
+                    component.appState.showListPropertyModal = opt.$2 == 'property';
+                  });
+                },
+              },
+              [Component.text(opt.$1)],
+            ),
+        ]),
+      h1(
+        classes: 'm-0 text-[28px] md:text-[32px] leading-10 font-bold tracking-tight ${isDark ? "text-zinc-50" : "text-[#18181b]"}',
+        [Component.text('Listing wizard')],
+      ),
+      p(classes: 'm-0 text-[15px] leading-[22px] ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+        Component.text('List or edit a vehicle and a property — one page per listing, publish when ready.'),
+      ]),
+    ]);
+  }
+
   @override
   Component build(BuildContext context) {
     if (!component.appState.showListPropertyModal) return div([]);
     final isDark = component.appState.isDark;
 
-    return div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in', [
+    return div(classes: 'rw-page animate-fade-in', [
+      _pageHead(isDark),
       div(
         classes:
-            'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800 text-white" : "bg-white text-zinc-900"}',
+            'rw-wizard rw-wizard-page w-full max-w-3xl mx-auto rounded-3xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800 text-white" : "bg-white text-zinc-900"}',
         [
           // Header
           div(
             classes:
-                'sticky top-0 z-10 flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
+                'flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
             [
               div([
+                span(classes: 'rw-badge', [Component.text('List / Edit property')]),
                 h2(classes: 'text-2xl font-bold', [Component.text('List a Property')]),
                 p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-                  Component.text('Step $_step of 3'),
+                  Component.text('Details, amenities, pricing, map location and lease template on one page.'),
                 ]),
               ]),
               button(
@@ -273,7 +325,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
 
           // Body
           div(classes: 'p-6 flex-1 space-y-6', [
-            if (_step == 1) ...[
+            ...[
               // Step 1: Specifications
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Property Details')]),
 
@@ -392,7 +444,9 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                     ),
                 ]),
               ]),
-            ] else if (_step == 2) ...[
+            ],
+            div(classes: 'rw-sep', []),
+            ...[
               // Step 2: Pricing & Location
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Deposit Terms')]),
               () {
@@ -506,7 +560,9 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                 ]),
                 MapPickerComponent(state: component.appState),
               ]),
-            ] else if (_step == 3) ...[
+            ],
+            div(classes: 'rw-sep', []),
+            ...[
               // Step 3: Photos & Contracts
               h3(classes: 'text-lg font-bold mb-4', [Component.text('Photos & Legal')]),
               p(classes: 'text-sm mb-4 ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
@@ -732,7 +788,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                           Component.text('Upload Custom Lease Agreement (PDF)'),
                         ]),
                         p(classes: 'text-xs text-zinc-400 max-w-sm', [
-                          Component.text('Upload your official lease agreement or house rules. Accepted format: .pdf (Max 5MB).'),
+                          Component.text('Upload your official lease agreement or house rules. Accepted format: .pdf (Max 700 KB).'),
                         ]),
                         label(
                           classes:
@@ -802,11 +858,11 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                                 }
 
                                 final size = (file.getProperty('size'.toJS) as JSNumber).toDartInt;
-                                if (size > CustomContractHelper.maxFileSizeBytes) {
+                                if (size > kLeasePdfMaxBytes) {
                                   if (targetObj.hasProperty('value'.toJS).toDart) {
                                     targetObj.setProperty('value'.toJS, ''.toJS);
                                   }
-                                  setState(() => _error = 'File size exceeds the 5MB limit (${CustomContractHelper.formatFileSize(size)}). Please choose a smaller PDF.');
+                                  setState(() => _error = 'This PDF is too large (${CustomContractHelper.formatFileSize(size)}). Lease PDFs are limited to ${formatPdfLimit()} — compress it or upload a shorter version.');
                                   return;
                                 }
 
@@ -824,7 +880,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                                   }
 
                                   // Magic byte check for PDF (%PDF base64 begins with JVBERi)
-                                  if (!dataUrl.startsWith('data:application/pdf') && !dataUrl.contains('JVBERi')) {
+                                  if (!isSafePdfDataUrl(dataUrl)) {
                                     if (targetObj.hasProperty('value'.toJS).toDart) {
                                       targetObj.setProperty('value'.toJS, ''.toJS);
                                     }
@@ -847,7 +903,14 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                                     'mimeType': 'application/pdf',
                                     'uploadedAt': DateTime.now().millisecondsSinceEpoch,
                                     'dataUrl': dataUrl,
-                                  }).catchError((_) {});
+                                  }).catchError((Object e) {
+                                    if (!mounted) return;
+                                    setState(() {
+                                      _uploadedFileName = null;
+                                      _customTerms = '';
+                                      _error = 'Could not save the lease PDF, so it was not attached. Please try again.';
+                                    });
+                                  });
 
                                   setState(() {
                                     _error = null;
@@ -952,7 +1015,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                 span([Component.text(_error!)]),
               ]),
             div(classes: 'flex items-center justify-between', [
-              if (_step > 1)
+              if (_multiStep && _step > 1)
                 button(
                   classes:
                       'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
@@ -962,7 +1025,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
               else
                 div([]),
 
-              if (_step < 3)
+              if (_multiStep && _step < 3)
                 button(
                   classes:
                       'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
@@ -973,10 +1036,10 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
                 button(
                   classes:
                       'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 cursor-pointer',
-                  events: {'click': (e) => _submit()},
+                  events: {'click': (e) => _publish()},
                   [
                     if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                    Component.text(_isSubmitting ? 'Listing...' : 'List Property'),
+                    Component.text(_isSubmitting ? 'Publishing...' : 'Publish property'),
                   ],
                 ),
             ]),

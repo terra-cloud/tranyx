@@ -258,7 +258,7 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
     }
 
 
-    return div(classes: 'space-y-6 animate-fade-in', [
+    return div(classes: 'p2p-desk space-y-6 animate-fade-in', [
       // ── Header Card ────────────────────────────────────────────────────────
       div(
         classes:
@@ -276,11 +276,14 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
                   Component.text('Agent: ${s.activeP2pAgent.name}'),
                 ]),
               ]),
-              h2(classes: 'text-2xl sm:text-3xl font-black text-white tracking-tight', [
-                Component.text('P2P Agent & Admin Desk'),
+              div(classes: 'flex items-center gap-3 flex-wrap', [
+                h2(classes: 'text-2xl sm:text-3xl font-black ${isDark ? "text-white" : "text-zinc-900"} tracking-tight', [
+                  Component.text('P2P Agent & Admin Desk'),
+                ]),
+                span(classes: 'px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30', [Component.text('Agent only')]),
               ]),
               p(classes: 'text-xs sm:text-sm text-zinc-400', [
-                Component.text('Fulfill GCash & Maya Top-ups, process user Cashouts, and manage official payment credentials.'),
+                Component.text('Top-up & cashout requests · Agent QR & settings · receipt inspector. Fulfill GCash & Maya requests and manage official payment credentials.'),
               ]),
             ]),
 
@@ -317,31 +320,31 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
       ),
 
       // ── Main Tabs Navigation ───────────────────────────────────────────────
-      div(classes: 'flex items-center gap-2 border-b border-zinc-800 pb-2 overflow-x-auto', [
+      div(classes: 'inline-flex items-center gap-1 p-1 rounded-xl border ${isDark ? "border-zinc-800 bg-zinc-900" : "border-zinc-200 bg-white"} overflow-x-auto max-w-full', [
         button(
           classes:
-              'px-5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer border-0 flex items-center gap-2 '
-              '${_activeTab == "queue_deposits" ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20" : "text-zinc-400 hover:text-zinc-200 bg-zinc-900/60 border border-zinc-800"}',
+              'px-4 py-2 rounded-lg text-xs font-bold transition cursor-pointer border-0 flex items-center gap-2 whitespace-nowrap '
+              '${_activeTab == "queue_deposits" ? (isDark ? "bg-zinc-700 text-white shadow-sm" : "bg-zinc-100 text-zinc-900 shadow-sm") : "text-zinc-500 bg-transparent"}',
           events: {'click': (_) => setState(() { _activeTab = 'queue_deposits'; _statusFilter = 'ALL'; })},
           [
             lIcon('arrow-down-left', cls: 'w-4 h-4'),
-            Component.text('Top-up Queue ($pendingDepositCount pending)'),
+            Component.text('Top-up Reqs ($pendingDepositCount)'),
           ],
         ),
         button(
           classes:
-              'px-5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer border-0 flex items-center gap-2 '
-              '${_activeTab == "queue_withdrawals" ? "bg-purple-600 text-white shadow-md shadow-purple-600/20" : "text-zinc-400 hover:text-zinc-200 bg-zinc-900/60 border border-zinc-800"}',
+              'px-4 py-2 rounded-lg text-xs font-bold transition cursor-pointer border-0 flex items-center gap-2 whitespace-nowrap '
+              '${_activeTab == "queue_withdrawals" ? (isDark ? "bg-zinc-700 text-white shadow-sm" : "bg-zinc-100 text-zinc-900 shadow-sm") : "text-zinc-500 bg-transparent"}',
           events: {'click': (_) => setState(() { _activeTab = 'queue_withdrawals'; _statusFilter = 'ALL'; })},
           [
             lIcon('arrow-up-right', cls: 'w-4 h-4'),
-            Component.text('Cashout Queue ($pendingWithdrawalCount pending)'),
+            Component.text('Cashout Reqs ($pendingWithdrawalCount)'),
           ],
         ),
         button(
           classes:
-              'px-5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer border-0 flex items-center gap-2 '
-              '${_activeTab == "settings" ? "bg-zinc-200 text-zinc-900 shadow" : "text-zinc-400 hover:text-zinc-200 bg-zinc-900/60 border border-zinc-800"}',
+              'px-4 py-2 rounded-lg text-xs font-bold transition cursor-pointer border-0 flex items-center gap-2 whitespace-nowrap '
+              '${_activeTab == "settings" ? (isDark ? "bg-zinc-700 text-white shadow-sm" : "bg-zinc-100 text-zinc-900 shadow-sm") : "text-zinc-500 bg-transparent"}',
           events: {
             'click': (_) {
               _initAgentForm();
@@ -350,7 +353,7 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
           },
           [
             lIcon('qr-code', cls: 'w-4 h-4'),
-            Component.text('Agent QR & Settings'),
+            Component.text('QR & Settings'),
           ],
         ),
       ]),
@@ -392,11 +395,11 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
         if (filteredDeposits.isEmpty)
           div(
             classes:
-                'p-12 text-center rounded-3xl bg-zinc-900/40 border border-zinc-800/80 text-zinc-500 space-y-2',
+                'p-12 text-center rounded-3xl border border-dashed ${isDark ? "border-zinc-700" : "border-zinc-300"} text-zinc-500 space-y-2',
             [
-              lIcon('check-circle', cls: 'w-8 h-8 mx-auto text-zinc-600'),
-              h4(classes: 'text-base font-bold text-zinc-400', [Component.text('No deposit requests in this view')]),
-              p(classes: 'text-xs text-zinc-600', [Component.text('New incoming P2P deposits will automatically queue here.')]),
+              div(classes: 'w-10 h-10 mx-auto rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"} flex items-center justify-center', [lIcon('inbox', cls: 'w-5 h-5 text-zinc-400')]),
+              h4(classes: 'text-sm font-bold ${isDark ? "text-zinc-200" : "text-zinc-900"}', [Component.text('No open requests')]),
+              p(classes: 'text-xs text-zinc-500', [Component.text('New P2P requests appear here. (No deposit requests match this view.)')]),
             ],
           )
         else
@@ -443,11 +446,11 @@ class _P2pAdminPanelComponentState extends State<P2pAdminPanelComponent> {
         if (filteredWithdrawals.isEmpty)
           div(
             classes:
-                'p-12 text-center rounded-3xl bg-zinc-900/40 border border-zinc-800/80 text-zinc-500 space-y-2',
+                'p-12 text-center rounded-3xl border border-dashed ${isDark ? "border-zinc-700" : "border-zinc-300"} text-zinc-500 space-y-2',
             [
-              lIcon('check-circle', cls: 'w-8 h-8 mx-auto text-zinc-600'),
-              h4(classes: 'text-base font-bold text-zinc-400', [Component.text('No cashout requests in this view')]),
-              p(classes: 'text-xs text-zinc-600', [Component.text('New incoming P2P withdrawals will automatically queue here.')]),
+              div(classes: 'w-10 h-10 mx-auto rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"} flex items-center justify-center', [lIcon('inbox', cls: 'w-5 h-5 text-zinc-400')]),
+              h4(classes: 'text-sm font-bold ${isDark ? "text-zinc-200" : "text-zinc-900"}', [Component.text('No open requests')]),
+              p(classes: 'text-xs text-zinc-500', [Component.text('New P2P requests appear here. (No cashout requests match this view.)')]),
             ],
           )
         else

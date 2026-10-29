@@ -2,6 +2,7 @@ import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
+import '../../components/pdf_source_guard.dart';
 import '../../services/web_interop.dart';
 
 class PdfViewerModalComponent extends StatefulComponent {
@@ -86,6 +87,18 @@ class _PdfViewerModalState extends State<PdfViewerModalComponent> {
           return;
         }
       }
+    }
+
+    if (!isAllowedPdfSource(source)) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _resolvedSource = null;
+          _errorMessage =
+              'This document source was blocked. Only PDF files stored with Tranyx (a verified PDF upload or this project\'s secure storage) can be opened.';
+        });
+      }
+      return;
     }
 
     _resolvedSource = source;
@@ -186,7 +199,7 @@ class _PdfViewerModalState extends State<PdfViewerModalComponent> {
   }
 
   void _download() {
-    if (_resolvedSource != null && _resolvedSource!.isNotEmpty) {
+    if (_resolvedSource != null && _resolvedSource!.isNotEmpty && isAllowedPdfSource(_resolvedSource!)) {
       downloadPdfFileJs(_resolvedSource!, component.fileName);
     }
   }
@@ -354,20 +367,38 @@ class _PdfViewerModalState extends State<PdfViewerModalComponent> {
                     ],
                   ),
 
-                // Iframe fallback overlay
+                // Fallback when PDF.js is unavailable. No iframe: Chrome refuses PDFs inside any sandboxed
+                // iframe, and an unsandboxed one would be an injection surface, so offer open/download instead.
                 if (_useIframeFallback && _resolvedSource != null)
                   div(
-                    key: Key('pdf-iframe-overlay'),
-                    classes:
-                        'absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 z-20 p-4',
+                    key: Key('pdf-fallback-overlay'),
+                    classes: 'absolute inset-0 flex items-center justify-center bg-zinc-950 z-20 p-6',
                     [
-                      Component.element(
-                        tag: 'iframe',
-                        classes: 'w-full h-full rounded-2xl border border-zinc-800 bg-white shadow-2xl',
-                        attributes: {
-                          'src': _resolvedSource!,
-                          'title': component.fileName,
-                        },
+                      div(
+                        classes: 'max-w-md p-6 rounded-2xl bg-zinc-900 border border-zinc-800 text-center space-y-3',
+                        [
+                          lIcon('file-text', cls: 'w-8 h-8 text-purple-400 mx-auto'),
+                          h4(classes: 'text-sm font-bold text-white', [Component.text('Preview unavailable')]),
+                          p(classes: 'text-xs text-zinc-400 leading-relaxed', [
+                            Component.text('The inline viewer could not load. Open the verified PDF in a new tab or download it.'),
+                          ]),
+                          div(classes: 'flex items-center justify-center gap-2', [
+                            button(
+                              classes:
+                                  'px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors cursor-pointer border-0',
+                              attributes: {'type': 'button'},
+                              events: {'click': (_) => openPdfInNewTabJs(_resolvedSource!)},
+                              [Component.text('Open in new tab')],
+                            ),
+                            button(
+                              classes:
+                                  'px-4 py-2 rounded-xl text-xs font-bold border border-zinc-700 text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer bg-transparent',
+                              attributes: {'type': 'button'},
+                              events: {'click': (_) => _download()},
+                              [Component.text('Download PDF')],
+                            ),
+                          ]),
+                        ],
                       ),
                     ],
                   ),

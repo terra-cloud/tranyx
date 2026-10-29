@@ -364,11 +364,11 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
 
     return div(
       classes:
-          'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in overflow-y-auto',
+          'rw-page animate-fade-in',
       [
         div(
           classes:
-              'w-full max-w-2xl rounded-2xl border shadow-2xl overflow-hidden my-8 max-h-[90vh] flex flex-col ${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-900"}',
+              'rw-wizard rw-wizard-page w-full max-w-3xl mx-auto rounded-2xl border flex flex-col ${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-900"}',
           [
             // Header
             div(

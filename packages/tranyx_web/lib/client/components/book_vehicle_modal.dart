@@ -698,15 +698,15 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     final hasActiveRenter = r['renteeId'] != null && (r['renteeId'] as String).isNotEmpty;
     final canEdit = (r['status'] == null || r['status'] == 'Available') && !hasActiveRenter && !hasPendingRequests && _approvedRequests.isEmpty;
 
-    return div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in', [
+    return div(classes: 'rw-page animate-fade-in', [
       div(
         classes:
-            'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
+            'rw-wizard rw-wizard-page w-full max-w-3xl mx-auto rounded-3xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
         [
           // Header
           div(
             classes:
-                'sticky top-0 z-10 flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
+                'flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
             [
               div([
                 h2(classes: 'text-2xl font-bold', [Component.text('Book $brand $model')]),

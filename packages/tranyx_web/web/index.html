@@ -1,5 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
+  <script>
+    // Apply theme before first paint: stored preference, else OS prefers-color-scheme.
+    (function () {
+      try {
+        var pref = localStorage.getItem('tranyx_theme_preference');
+        var dark = pref === 'dark' || (pref !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var root = document.documentElement;
+        root.classList.add(dark ? 'dark' : 'light');
+        root.classList.remove(dark ? 'light' : 'dark');
+        root.setAttribute('data-theme', dark ? 'dark' : 'light');
+        root.style.colorScheme = dark ? 'dark' : 'light';
+      } catch (e) {}
+    })();
+  </script>
+
 
 <head>
   <meta charset="utf-8">
@@ -39,7 +54,10 @@
         extend: {
           fontFamily: {
             sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            'dm-sans': ['DM Sans', 'Inter', 'system-ui', 'sans-serif'],
           },
+          // W01 breakpoints: <640 mobile · 640–1023 tablet · ≥1024 desktop
+          // (matches Tailwind defaults sm=640 / lg=1024)
         },
       },
     };
@@ -69,10 +87,17 @@
 
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="anonymous">
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+  <!-- pdf.js 3.11.174 pinned with SRI (sha384 of the exact cdnjs files). The worker is loaded as a SRI-checked
+       script so pdf.js runs it on the main thread (window.pdfjsWorker) instead of fetching an unpinned worker URL.
+       Follow-up: move to pdf.js 4.x (CVE-2024-4367 is mitigated here by isEvalSupported:false); 4.x changes the
+       module/worker paths and must be re-pinned together with the KAN-142 CSP. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js" integrity="sha384-SnzOobpRMLXZ52iJvZm/C0fYw0OQemTXzTjIsdsfMcrCtCEe9qgzxTd3RSklO5x2" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="styles.css">
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+    rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap"
     rel="stylesheet">
 
   <style>
@@ -83,10 +108,16 @@
       padding: 0;
       margin: 0;
       font-family: 'Inter', sans-serif;
+    }
+    html.dark, html.dark body {
       background-color: #09090b;
-      /* zinc-950 */
       color: #fafafa;
-      /* zinc-50 */
+      color-scheme: dark;
+    }
+    html.light, html.light body {
+      background-color: #f4f4f5;
+      color: #18181b;
+      color-scheme: light;
     }
 
     /* Refined Premium Web Splash Screen Styling */
@@ -2121,16 +2152,21 @@
           console.warn("PDF.js library not loaded yet.");
           return JSON.stringify({ success: false, error: "PDF.js viewer library is loading or unavailable." });
         }
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        if (!window.pdfjsWorker) {
+          // The SRI-pinned worker script did not load (offline or integrity mismatch): never fall back to an unpinned URL.
+          return JSON.stringify({ success: false, error: "PDF.js worker is unavailable." });
+        }
 
         // Document Cache to avoid re-parsing on every page turn or zoom
         window._pdfDocCache = window._pdfDocCache || {};
-        const cacheKey = typeof pdfSource === 'string'
-          ? (pdfSource.length > 256 ? pdfSource.slice(0, 64) + '_' + pdfSource.length : pdfSource)
-          : 'doc_default';
+        // Key on a SHA-256 of the full content (never a prefix + length, which collides for edited files).
+        let cacheKey = null;
+        if (typeof pdfSource === 'string' && window.crypto && window.crypto.subtle) {
+          const digest = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(pdfSource));
+          cacheKey = 'sha256_' + Array.from(new Uint8Array(digest)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+        }
 
-        let pdf = window._pdfDocCache[cacheKey];
+        let pdf = cacheKey ? window._pdfDocCache[cacheKey] : null;
         if (!pdf) {
           let loadingTask;
           if (typeof pdfSource === 'string' && pdfSource.startsWith('data:')) {
@@ -2143,12 +2179,12 @@
             for (let i = 0; i < len; i++) {
               bytes[i] = binaryStr.charCodeAt(i);
             }
-            loadingTask = window.pdfjsLib.getDocument({ data: bytes });
+            loadingTask = window.pdfjsLib.getDocument({ data: bytes, isEvalSupported: false });
           } else {
-            loadingTask = window.pdfjsLib.getDocument(pdfSource);
+            loadingTask = window.pdfjsLib.getDocument({ url: pdfSource, isEvalSupported: false });
           }
           pdf = await loadingTask.promise;
-          window._pdfDocCache[cacheKey] = pdf;
+          if (cacheKey) window._pdfDocCache[cacheKey] = pdf;
         }
 
         const totalPages = pdf.numPages;
@@ -2212,12 +2248,31 @@
       }
     };
 
+    // Opens a (client-validated) PDF in a new tab. data: PDFs go through a Blob URL because Chrome
+    // blocks top-level navigation to data: URLs.
+    window.openPdfInNewTab = function (pdfSource) {
+      try {
+        let url = pdfSource;
+        if (typeof pdfSource === 'string' && pdfSource.startsWith('data:application/pdf;base64,')) {
+          const bin = window.atob(pdfSource.substring(pdfSource.indexOf(',') + 1));
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+        }
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } catch (e) {
+        console.error('openPdfInNewTab error', e);
+      }
+    };
+
     window.downloadPdfFile = function (pdfSource, fileName) {
       try {
         const link = document.createElement('a');
         link.href = pdfSource;
         link.download = fileName || 'contract_document.pdf';
         link.target = '_blank';
+        link.rel = 'noopener noreferrer';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -2406,10 +2461,9 @@
   <div id="recaptcha-container"></div>
 
   <!-- Web Splash Screen -->
-  <div id="tranyx-web-splash">
-    <div class="splash-orb splash-orb-1"></div>
-    <div class="splash-orb splash-orb-2"></div>
-    <div class="splash-orb splash-orb-3"></div>
+  <div id="tranyx-web-splash" class="w00-splash">
+    <div class="brand-orb brand-orb-a"></div>
+    <div class="brand-orb brand-orb-b"></div>
     <div class="splash-grid"></div>
     <div class="splash-shockwave"></div>
     <div class="splash-shockwave splash-shockwave-2"></div>

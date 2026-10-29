@@ -621,6 +621,9 @@ class SessionStorage {
 
   static const _activeTabKey = 'tranyx_active_tab';
 
+  /// Explicit theme: 'light' | 'dark'. Null / missing = follow OS.
+  static const _themePrefKey = 'tranyx_theme_preference';
+
   static void save(dynamic auth) {
     web.window.localStorage.setItem(_uid, auth.uid as String);
     web.window.localStorage.setItem(_tok, auth.idToken as String);
@@ -666,6 +669,49 @@ class SessionStorage {
       web.window.localStorage.setItem(_activeTabKey, val);
     } else {
       web.window.localStorage.removeItem(_activeTabKey);
+    }
+  }
+
+  /// Stored explicit theme preference: `'light'`, `'dark'`, or `null` (system).
+  static String? get themePreference {
+    final v = web.window.localStorage.getItem(_themePrefKey);
+    if (v == 'light' || v == 'dark') return v;
+    return null;
+  }
+
+  static set themePreference(String? val) {
+    if (val == 'light' || val == 'dark') {
+      web.window.localStorage.setItem(_themePrefKey, val!);
+    } else {
+      web.window.localStorage.removeItem(_themePrefKey);
+    }
+  }
+
+  static const _hybridModeKey = 'tranyx_hybrid_mode';
+  static const _walkthroughForKey = 'tranyx_walkthrough_for';
+
+  /// Email (lowercase) that just registered and has not yet seen the first-login walkthrough. Survives reloads.
+  static String? get walkthroughFor => web.window.localStorage.getItem(_walkthroughForKey);
+
+  static set walkthroughFor(String? email) {
+    if (email == null || email.isEmpty) {
+      web.window.localStorage.removeItem(_walkthroughForKey);
+    } else {
+      web.window.localStorage.setItem(_walkthroughForKey, email.toLowerCase());
+    }
+  }
+
+  /// Last Hybrid PRO mode used on this device: 'employer' | 'nyxian' | null.
+  static String? get hybridMode {
+    final v = web.window.localStorage.getItem(_hybridModeKey);
+    return (v == 'employer' || v == 'nyxian') ? v : null;
+  }
+
+  static set hybridMode(String? val) {
+    if (val == 'employer' || val == 'nyxian') {
+      web.window.localStorage.setItem(_hybridModeKey, val!);
+    } else {
+      web.window.localStorage.removeItem(_hybridModeKey);
     }
   }
 
@@ -1387,6 +1433,14 @@ Future<Map<String, dynamic>?> renderPdfPageJs(
   return null;
 }
 
+void openPdfInNewTabJs(String pdfSource) {
+  try {
+    web.window.callMethod('openPdfInNewTab'.toJS, pdfSource.toJS);
+  } catch (_) {}
+}
+
+int windowInnerWidth() => web.window.innerWidth;
+
 void downloadPdfFileJs(String pdfSource, String fileName) {
   try {
     web.window.callMethod(
@@ -1394,5 +1448,15 @@ void downloadPdfFileJs(String pdfSource, String fileName) {
       pdfSource.toJS,
       fileName.toJS,
     );
+  } catch (_) {}
+}
+
+/// Saves [content] as a text file via a temporary data-URL link (used by W58 Export CSV).
+void downloadTextFile(String fileName, String content, {String mime = 'text/csv'}) {
+  try {
+    final a = web.document.createElement('a') as web.HTMLAnchorElement;
+    a.href = 'data:$mime;charset=utf-8,${Uri.encodeComponent(content)}';
+    a.download = fileName;
+    a.click();
   } catch (_) {}
 }

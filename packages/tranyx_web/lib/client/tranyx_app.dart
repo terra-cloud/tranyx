@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'package:web/web.dart' as web;
+import 'package:tranyx_web/components/store_url_guard.dart';
 import 'package:tranyx_web/services/web_interop.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -15,10 +16,12 @@ import 'package:tranyx_web/components/ui_helpers.dart';
 import 'package:tranyx_web/services/map_interop.dart';
 
 import '../state/app_state.dart';
+import '../pages/about.dart';
 import '../pages/privacy_policy.dart';
 import '../pages/terms_of_use.dart';
 import '../client/views/auth_view.dart';
 import '../client/views/home_view.dart';
+import '../client/views/guest_browse_view.dart';
 import '../client/views/jobs_view.dart';
 import '../client/views/transit_view.dart';
 import '../client/views/messages_view.dart';
@@ -61,19 +64,101 @@ class TranyxApp extends StatefulComponent {
   State<TranyxApp> createState() => TranyxAppState();
 }
 
+/// W70 "Get the Tranyx app" prompt. Store URLs come from --dart-define; with neither set the prompt never shows.
+const String kAppStoreUrl = String.fromEnvironment('APP_STORE_URL');
+const String kPlayStoreUrl = String.fromEnvironment('PLAY_STORE_URL');
+const String _kGetAppDismissedKey = 'tranyx_get_app_dismissed';
+
 class TranyxAppState extends State<TranyxApp> {
   // ── Theme / Auth ────────────────────────────────────────────
-  bool _isDark = true;
-  bool get isDark => _isDark;
-  set isDark(bool value) {
-    if (_isDark != value) {
-      _isDark = value;
-      updateAllMapsTheme(isDark: value);
+  /// Explicit preference: `'light'`, `'dark'`, or `null` = follow OS.
+  String? _themePreference;
+  bool _systemPrefersDark = true;
+  web.MediaQueryList? _colorSchemeMql;
+  web.EventListener? _colorSchemeListener;
+
+  /// Effective dark mode (stored preference wins; else OS).
+  bool get isDark {
+    final pref = _themePreference;
+    if (pref == 'dark') return true;
+    if (pref == 'light') return false;
+    return _systemPrefersDark;
+  }
+
+  bool get followsSystemTheme => _themePreference == null;
+
+  /// Backward-compatible setter: treating assignment as an *explicit* user pick.
+  set isDark(bool value) => setThemePreference(value ? 'dark' : 'light');
+
+  /// Persist explicit theme (`'light'`/`'dark'`) or pass `null` to return to system.
+  void setThemePreference(String? mode) {
+    final normalized = (mode == 'light' || mode == 'dark') ? mode : null;
+    _themePreference = normalized;
+    SessionStorage.themePreference = normalized;
+    _applyResolvedTheme(notify: true);
+  }
+
+  void toggleTheme() => setThemePreference(isDark ? 'light' : 'dark');
+
+  void clearThemePreference() => setThemePreference(null);
+
+  void _initThemeFromSystemAndStorage() {
+    _themePreference = SessionStorage.themePreference;
+    try {
+      final mql = web.window.matchMedia('(prefers-color-scheme: dark)');
+      _colorSchemeMql = mql;
+      _systemPrefersDark = mql.matches;
+      _colorSchemeListener = ((web.Event _) {
+        final matches = _colorSchemeMql?.matches ?? false;
+        if (_systemPrefersDark == matches) return;
+        _systemPrefersDark = matches;
+        // Only react to OS changes when the user has not pinned a preference.
+        if (_themePreference == null && mounted) {
+          _applyResolvedTheme(notify: true);
+        }
+      }).toJS;
+      mql.addEventListener('change', _colorSchemeListener!);
+    } catch (_) {
+      _systemPrefersDark = true;
     }
+    _applyResolvedTheme(notify: false);
+  }
+
+  void _applyResolvedTheme({required bool notify}) {
+    final dark = isDark;
+    _syncDomTheme(dark);
+    try {
+      updateAllMapsTheme(isDark: dark);
+    } catch (_) {}
+    if (notify && mounted) setState(() {});
+  }
+
+  void _syncDomTheme(bool dark) {
+    try {
+      final root = web.document.documentElement;
+      if (root == null) return;
+      if (dark) {
+        root.classList.add('dark');
+        root.classList.remove('light');
+      } else {
+        root.classList.add('light');
+        root.classList.remove('dark');
+      }
+      root.setAttribute('data-theme', dark ? 'dark' : 'light');
+      final htmlEl = root as web.HTMLElement;
+      htmlEl.style.setProperty('color-scheme', dark ? 'dark' : 'light');
+      // Keep body canvas in sync for first paint / non-Tailwind areas.
+      web.document.body?.style.setProperty('background-color', dark ? '#09090b' : '#f4f4f5');
+      web.document.body?.style.setProperty('color', dark ? '#fafafa' : '#18181b');
+    } catch (_) {}
   }
   bool showWebSplash = true;
   bool showMobileAppPrompt = false;
+  String? permissionDeniedRef; // W70 permission-denied banner reference
+  bool getAppDismissed = web.window.localStorage.getItem(_kGetAppDismissedKey) == '1'; // W70 Get the app
   bool isAuthenticated = false;
+  /// Public browse without an account (W05). Mutually exclusive with auth session.
+  bool isGuestBrowse = false;
   bool isAuthLoading = false;
   String? authError;
   String? fullScreenPhotoUrl;
@@ -99,6 +184,11 @@ class TranyxAppState extends State<TranyxApp> {
 
   AccountType accountType = AccountType.employer;
   AuthView authView = AuthView.login;
+  String? pendingVerifyEmail;
+  /// Email sign-up no longer auto-logs in (W04), so the walkthrough opens on the first login after it.
+  /// Ponytail: in-memory only; a reload between sign-up and login skips the tour (still replayable from Profile).
+  bool pendingWalkthrough = false;
+  bool isSwitchingMode = false; // W15 inline skeleton while stats/holdbacks reload (≤600 ms)
   AccountType? pendingAccountType;
   String? pendingWalletPublicKey; // set when coming from Phantom sign-in for new users
   AuthResult? pendingGoogleAuthResult;
@@ -130,6 +220,33 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Navigation ──────────────────────────────────────────────
   AppTab activeTab = AppTab.home;
   AccountType hybridToggle = AccountType.employer;
+  /// W15 Switch-mode popover / bottom sheet visibility.
+  bool showModeMenu = false;
+
+  /// Hybrid PRO opens in the last mode used on this device; other roles are fixed.
+  AccountType initialHybridMode(AccountType type) {
+    if (type == AccountType.hybrid && SessionStorage.hybridMode == 'nyxian') return AccountType.nyxian;
+    return type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+  }
+
+  /// W15 — switch Hybrid PRO between Employer and Nyxian in place (stats/holdbacks reload, route and chats kept).
+  void switchHybridMode(AccountType mode) {
+    final next = mode == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+    final changed = hybridToggle != next;
+    setState(() {
+      hybridToggle = next;
+      showModeMenu = false;
+    });
+    SessionStorage.hybridMode = next.name;
+    if (!changed) return;
+    setState(() => isSwitchingMode = true);
+    Future.wait<void>([loadHoldbacks(), Future<void>.delayed(const Duration(milliseconds: 450))])
+        .whenComplete(() => setState(() => isSwitchingMode = false));
+    showAppToast(
+      next == AccountType.nyxian ? 'Switched to Nyxian mode' : 'Switched to Employer mode',
+      next == AccountType.nyxian ? 'Your dashboard now shows jobs near you.' : 'Your dashboard now shows your postings and hires.',
+    );
+  }
   TransitMode transitMode = TransitMode.rent;
   ProfileView profileView = ProfileView.main;
   bool verificationEmailSent = false;
@@ -331,6 +448,7 @@ class TranyxAppState extends State<TranyxApp> {
 
   bool showWalletActionMenu = false;
   bool showDepositModal = false;
+  bool showGuestGate = false; // W70 guest gate modal
   bool showWithdrawModal = false;
   double depositAmount = 0.0;
   bool isDepositing = false;
@@ -682,9 +800,15 @@ class TranyxAppState extends State<TranyxApp> {
   @override
   void initState() {
     super.initState();
+    _initThemeFromSystemAndStorage();
     _handleMobileRedirect();
     onSessionExpiredGlobal = () {
       triggerSessionExpired();
+    };
+    onPermissionDeniedGlobal = (ref) {
+      if (!mounted) return;
+      // Keep the first reference while the banner is up.
+      if (permissionDeniedRef == null) setState(() => permissionDeniedRef = ref);
     };
     _initGemini();
 
@@ -744,6 +868,20 @@ class TranyxAppState extends State<TranyxApp> {
     } else {
       _checkGoogleRedirectResult().whenComplete(scheduleDismissal);
     }
+  }
+
+  @override
+  void dispose() {
+    try {
+      final mql = _colorSchemeMql;
+      final listener = _colorSchemeListener;
+      if (mql != null && listener != null) {
+        mql.removeEventListener('change', listener);
+      }
+    } catch (_) {}
+    _colorSchemeMql = null;
+    _colorSchemeListener = null;
+    super.dispose();
   }
 
   void _handleMobileRedirect() {
@@ -937,7 +1075,7 @@ class TranyxAppState extends State<TranyxApp> {
         userEmail = prof.email;
         userPhotoUrl = resolvedPhoto;
         accountType = type;
-        hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+        hybridToggle = initialHybridMode(type);
         activeTab = restoredTab;
       });
 
@@ -994,7 +1132,7 @@ class TranyxAppState extends State<TranyxApp> {
         isAuthenticated = true;
         userProfile = fallbackProfile;
         accountType = storedType;
-        hybridToggle = storedType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+        hybridToggle = initialHybridMode(storedType);
         userName = storedName;
         userEmail = storedEmail;
         userPhotoUrl = storedPhoto;
@@ -1079,7 +1217,7 @@ class TranyxAppState extends State<TranyxApp> {
             userEmail = userProf.email;
             userPhotoUrl = userProf.photoUrl ?? authResult.photoUrl;
             accountType = type;
-            hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+            hybridToggle = initialHybridMode(type);
             isAuthLoading = false;
             authView = AuthView.login;
           });
@@ -1641,7 +1779,7 @@ class TranyxAppState extends State<TranyxApp> {
           userEmail = prof.email;
           userPhotoUrl = resolvedPhoto;
           accountType = prof.accountType;
-          hybridToggle = accountType == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+          hybridToggle = initialHybridMode(accountType);
         });
         initializeProfileEditing();
         await loadKycSubmission();
@@ -1738,7 +1876,7 @@ class TranyxAppState extends State<TranyxApp> {
       setState(() {
         isAuthenticated = true;
         accountType = type;
-        hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+        hybridToggle = initialHybridMode(type);
         userName = profile.name.isNotEmpty && profile.name != 'User'
             ? profile.name
             : (result.displayName ?? email.split('@').first);
@@ -1776,6 +1914,12 @@ class TranyxAppState extends State<TranyxApp> {
       _startAllRentalAndPropertyListeners(profile.uid);
       // Auto-connect Phantom wallet if already trusted by the browser
       unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
+
+      if (pendingWalkthrough || SessionStorage.walkthroughFor == (profile.email.isNotEmpty ? profile.email : email).toLowerCase()) {
+        pendingWalkthrough = false;
+        SessionStorage.walkthroughFor = null;
+        openWalkthroughModal();
+      }
 
       if (pendingQrJobId != null && pendingQrCode != null) {
         await executePendingQrVerification();
@@ -1843,21 +1987,6 @@ class TranyxAppState extends State<TranyxApp> {
       await FirestoreService(result.idToken, _handleTokenRefresh).saveUser(profile);
       SessionStorage.saveProfile(name: name, email: email, accountType: type.name);
 
-      setState(() {
-        isAuthenticated = true;
-        accountType = type;
-        hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
-        userName = name;
-        userEmail = email;
-        userProfile = profile;
-        isAuthLoading = false;
-        authView = AuthView.login;
-        activeTab = AppTab.home;
-      });
-
-      // Launch walkthrough for new registered user
-      openWalkthroughModal();
-
       // Link Phantom wallet if present from sign-in flow
       if (pendingWalletPublicKey != null) {
         final walletKey = pendingWalletPublicKey!;
@@ -1870,16 +1999,25 @@ class TranyxAppState extends State<TranyxApp> {
         } catch (_) {}
       }
 
-      _initGemini();
-      await loadJobs();
-      await loadTransactions();
-      _startListeningNotifications();
-      _startListeningJobs();
-      _startAllRentalAndPropertyListeners(profile.uid);
+      // Send verification email (W04) — stay on auth stack until user returns to login
+      try {
+        await _auth.sendEmailVerification(result.idToken);
+      } catch (_) {}
 
-      if (pendingQrJobId != null && pendingQrCode != null) {
-        await executePendingQrVerification();
-      }
+      setState(() {
+        isAuthenticated = false;
+        accountType = type;
+        hybridToggle = initialHybridMode(type);
+        userName = name;
+        userEmail = email;
+        userProfile = profile;
+        pendingVerifyEmail = email;
+        pendingWalkthrough = true;
+        SessionStorage.walkthroughFor = email;
+        isAuthLoading = false;
+        authView = AuthView.kycPending;
+        activeTab = AppTab.home;
+      });
     } on FirebaseException catch (e) {
       String msg = e.message;
       if (msg.contains('EMAIL_EXISTS')) {
@@ -1903,6 +2041,34 @@ class TranyxAppState extends State<TranyxApp> {
     try {
       await _auth.resetPassword(email);
     } catch (_) {}
+  }
+
+  Future<void> handleResendVerificationEmail() async {
+    setState(() {
+      isAuthLoading = true;
+      authError = null;
+    });
+    try {
+      final token = SessionStorage.idToken;
+      if (token == null || token.isEmpty) {
+        setState(() {
+          authError = 'Sign in again to resend the verification email.';
+          isAuthLoading = false;
+          authView = AuthView.login;
+        });
+        return;
+      }
+      await _auth.sendEmailVerification(token);
+      setState(() {
+        isAuthLoading = false;
+      });
+      showAppToast('Email sent', 'Check your inbox for the verification link.');
+    } catch (e) {
+      setState(() {
+        authError = e.toString();
+        isAuthLoading = false;
+      });
+    }
   }
 
   Future<void> handleGoogleSignIn() async {
@@ -1990,7 +2156,7 @@ class TranyxAppState extends State<TranyxApp> {
       setState(() {
         isAuthenticated = true;
         accountType = type;
-        hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+        hybridToggle = initialHybridMode(type);
         userName = profile!.name;
         userEmail = profile.email;
         userProfile = profile;
@@ -2063,7 +2229,7 @@ class TranyxAppState extends State<TranyxApp> {
       setState(() {
         isAuthenticated = true;
         accountType = type;
-        hybridToggle = type == AccountType.nyxian ? AccountType.nyxian : AccountType.employer;
+        hybridToggle = initialHybridMode(type);
         userName = profile.name;
         userEmail = profile.email;
         userProfile = profile;
@@ -2118,6 +2284,7 @@ class TranyxAppState extends State<TranyxApp> {
     unawaited(signOutJs());
     setState(() {
       isAuthenticated = false;
+      isGuestBrowse = false;
       authView = AuthView.login;
       profileView = ProfileView.main;
       userProfile = null;
@@ -2132,6 +2299,216 @@ class TranyxAppState extends State<TranyxApp> {
     });
     _updateDocumentTitle();
   }
+
+  /// W05 — enter public browse shell without signing in.
+  /// Loads live open jobs (public read) and relies on existing rentals/properties listeners.
+  void enterGuestBrowse() {
+    setState(() {
+      isGuestBrowse = true;
+      isAuthenticated = false;
+      showWebSplash = false;
+      activeTab = AppTab.home;
+      authError = null;
+      authView = AuthView.login;
+      // Guest Jobs tab browses open employer gigs (same as Nyxian browse).
+      accountType = AccountType.nyxian;
+      hybridToggle = AccountType.nyxian;
+    });
+    // Public Firestore reads — no auth token required (jobs/rentals/properties allow read: true).
+    unawaited(loadGuestPublicListings());
+  }
+
+  /// Fetch publicly readable open gigs for guest browse / Jobs tab.
+  /// Rentals + properties already stream via initState listeners.
+  Future<void> loadGuestPublicListings() async {
+    if (!isGuestBrowse) return;
+    setState(() {
+      isLoadingJobs = true;
+      jobsError = null;
+    });
+    try {
+      // Viewer=nyxian → employer Open postings (gigs guests can apply to after signup).
+      final avail = await _firestore.getAvailableJobs(AccountType.nyxian);
+      if (!isGuestBrowse) return;
+      setState(() {
+        availableJobs = avail;
+        isLoadingJobs = false;
+      });
+    } catch (e) {
+      if (!isGuestBrowse) return;
+      setState(() {
+        jobsError = e.toString();
+        isLoadingJobs = false;
+        availableJobs = [];
+      });
+    }
+  }
+
+  void exitGuestBrowse({AuthView view = AuthView.login}) {
+    setState(() {
+      showGuestGate = false;
+      isGuestBrowse = false;
+      authView = view;
+      activeTab = AppTab.home;
+    });
+  }
+
+  void promptGuestSignUp() => exitGuestBrowse(view: AuthView.registerPath);
+
+  // ── W70: permission-denied banner + Get the app card ────────────────────────
+  Component _permissionDeniedBanner() {
+    final dark = isDark;
+    final ref = permissionDeniedRef!;
+    return div(
+      classes: 'fixed left-3 right-3 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[720px] top-16 z-[130] animate-fade-down',
+      [
+        div(
+          classes:
+              'flex gap-3 items-start px-4 py-3.5 rounded-2xl border shadow-lg ${dark ? "bg-red-950/90 border-red-900 text-zinc-100" : "bg-[#fef2f2] border-[#fecaca] text-[#18181b]"}',
+          attributes: {'role': 'alert'},
+          [
+            lIcon('lock', cls: 'w-5 h-5 mt-0.5 shrink-0 ${dark ? "text-red-300" : "text-red-600"}'),
+            div(classes: 'flex-1 min-w-0', [
+              p(classes: 'm-0 text-[15px] font-semibold leading-[22px]', [Component.text('Permission denied')]),
+              p(classes: 'm-0 text-sm leading-5 ${dark ? "text-zinc-300" : "text-[#52525b]"}', [
+                Component.text("You don't have access to this action. Share the ref with support if this looks wrong."),
+              ]),
+              div(classes: 'flex flex-wrap items-center gap-3 pt-1.5', [
+                span(classes: 'font-mono text-[13px]', [Component.text('Ref: $ref')]),
+                button(
+                  classes:
+                      'h-8 px-2.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer ${dark ? "bg-zinc-900 border-zinc-700 text-zinc-100" : "bg-white border-[#e4e4e7] text-[#18181b]"}',
+                  attributes: {'type': 'button'},
+                  events: {
+                    'click': (_) {
+                      try {
+                        web.window.navigator.clipboard.writeText(ref);
+                      } catch (_) {}
+                    },
+                  },
+                  [lIcon('copy', cls: 'w-3.5 h-3.5'), Component.text('Copy ref')],
+                ),
+                if (isAuthenticated)
+                  button(
+                    classes: 'bg-transparent border-0 p-0 text-sm font-semibold text-[#4f46e5] cursor-pointer hover:underline',
+                    attributes: {'type': 'button'},
+                    events: {
+                      'click': (_) => setState(() {
+                        permissionDeniedRef = null;
+                        activeTab = AppTab.profile;
+                        profileView = ProfileView.support;
+                      }),
+                    },
+                    [Component.text('Contact support')],
+                  ),
+              ]),
+            ]),
+            button(
+              classes: 'p-1 bg-transparent border-0 cursor-pointer ${dark ? "text-zinc-400" : "text-zinc-500"}',
+              attributes: {'type': 'button', 'aria-label': 'Dismiss'},
+              events: {'click': (_) => setState(() => permissionDeniedRef = null)},
+              [lIcon('x', cls: 'w-4 h-4')],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Shown below md only, once, when at least one store URL is configured.
+  bool get _showGetApp {
+    if (getAppDismissed || showMobileAppPrompt || showWebSplash) return false;
+    if (safeStoreUrl(kAppStoreUrl, hosts: {kAppStoreHost}) == null && safeStoreUrl(kPlayStoreUrl, hosts: {kPlayStoreHost}) == null) return false;
+    return windowInnerWidth() < 768;
+  }
+
+  void _dismissGetApp() {
+    try {
+      web.window.localStorage.setItem(_kGetAppDismissedKey, '1');
+    } catch (_) {}
+    setState(() => getAppDismissed = true);
+  }
+
+  Component _getAppCard() {
+    final dark = isDark;
+    final appUrl = safeStoreUrl(kAppStoreUrl, hosts: {kAppStoreHost});
+    final playUrl = safeStoreUrl(kPlayStoreUrl, hosts: {kPlayStoreHost});
+    final avail = [if (appUrl != null) 'iOS', if (playUrl != null) 'Android'].join(' and ');
+    Component storeBtn(String label, String url, bool primary) => a(
+          href: url,
+          target: Target.blank,
+          attributes: {'rel': 'noopener noreferrer'},
+          classes:
+              'h-12 px-5 rounded-xl inline-flex items-center justify-center font-semibold text-sm no-underline ${primary ? "text-white bg-[#4f46e5]" : (dark ? "bg-zinc-900 border border-zinc-700 text-zinc-100" : "bg-white border border-[#d4d4d8] text-[#18181b]")}',
+          [Component.text(label)],
+        );
+    return div(
+      classes: 'rw-overlay fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
+      events: {'click': (_) => _dismissGetApp()},
+      [
+        div(
+          classes:
+              'rw-wizard w-full max-w-sm rounded-3xl border p-6 space-y-3 ${dark ? "bg-zinc-900 border-zinc-800 text-zinc-100" : "bg-white border-zinc-200 text-[#18181b]"}',
+          attributes: {'role': 'dialog', 'aria-modal': 'true', 'aria-label': 'Get the Tranyx app'},
+          events: {'click': (e) => e.stopPropagation()},
+          [
+            h2(classes: 'm-0 text-xl font-bold', [Component.text('Get the Tranyx app')]),
+            p(classes: 'm-0 text-sm ${dark ? "text-zinc-400" : "text-[#52525b]"}', [
+              Component.text('Faster GPS tracking, push alerts for applicants, and offline-friendly gig status. Available on $avail.'),
+            ]),
+            div(classes: 'pt-2 flex flex-wrap gap-2', [
+              if (appUrl != null) storeBtn('App Store', appUrl, true),
+              if (playUrl != null) storeBtn('Google Play', playUrl, appUrl == null),
+            ]),
+            button(
+              classes: 'w-full h-12 border-0 bg-transparent text-sm font-semibold text-[#4f46e5] cursor-pointer hover:underline',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => _dismissGetApp()},
+              [Component.text('Continue on web')],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// W70: gate for locked guest actions (apply / chat / book / wallet).
+  void openGuestGate() => setState(() => showGuestGate = true);
+
+  Component _guestGateModal() {
+    final dark = isDark;
+    Component btn(String label, String cls, void Function() onTap) => button(
+          classes: 'w-full h-12 rounded-xl font-semibold text-sm cursor-pointer $cls',
+          attributes: {'type': 'button'},
+          events: {'click': (_) => onTap()},
+          [Component.text(label)],
+        );
+    return div(
+      classes: 'rw-overlay fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
+      events: {'click': (_) => setState(() => showGuestGate = false)},
+      [
+        div(
+          classes:
+              'rw-wizard w-full max-w-sm rounded-3xl border p-6 space-y-3 ${dark ? "bg-zinc-900 border-zinc-800 text-zinc-100" : "bg-white border-zinc-200 text-[#18181b]"}',
+          attributes: {'role': 'dialog', 'aria-modal': 'true', 'aria-label': 'Create an account to continue'},
+          events: {'click': (e) => e.stopPropagation()},
+          [
+            h2(classes: 'm-0 text-xl font-bold', [Component.text('Create an account to continue')]),
+            p(classes: 'm-0 text-sm ${dark ? "text-zinc-400" : "text-[#52525b]"}', [
+              Component.text('Applying, messaging, booking, and wallet actions need a free Tranyx account. Browse stays open.'),
+            ]),
+            div(classes: 'pt-2 space-y-2', [
+              btn('Create account', 'text-white bg-[#4f46e5] border-0 hover:opacity-90', () => promptGuestSignUp()),
+              btn('Sign in', 'border ${dark ? "bg-zinc-900 border-zinc-700 text-zinc-100" : "bg-white border-[#d4d4d8] text-[#18181b]"}', () => promptGuestSignIn()),
+              btn('Continue browsing', 'border-0 bg-transparent text-[#4f46e5] hover:underline', () => setState(() => showGuestGate = false)),
+            ]),
+          ],
+        ),
+      ],
+    );
+  }
+
+  void promptGuestSignIn() => exitGuestBrowse(view: AuthView.login);
 
   // ── Job actions ─────────────────────────────────────────────
 
@@ -2246,11 +2623,35 @@ class TranyxAppState extends State<TranyxApp> {
 
   void handleHomeSearch(String query) {
     if (query.trim().isEmpty) return;
+    openJobsBrowse(search: query.trim());
+  }
+
+  /// Open Jobs · Browse with an optional category chip and/or text search.
+  /// Preserves filter state for master–detail (W20). Live lists only — no mocks.
+  void openJobsBrowse({String filter = 'All', String search = ''}) {
     setState(() {
-      homeSearchQuery = query.trim();
-      activeJobFilter = 'All';
+      activeJobFilter = filter.trim().isEmpty ? 'All' : filter.trim();
+      homeSearchQuery = search.trim();
       activeTab = AppTab.jobs;
       jobsView = JobsView.list;
+      // Nyxian + guest browse pane; employers keep their active pane.
+      if (isGuestBrowse || currentViewMode == AccountType.nyxian) {
+        activeJobPane = 'browse';
+      }
+      // Remote chip implies include-remote ON so modality isn't double-gated.
+      if (activeJobFilter == 'Remote Gigs' || activeJobFilter == 'Remote') {
+        includeRemoteJobs = true;
+      }
+    });
+  }
+
+  void resetJobFilters() {
+    setState(() {
+      activeJobFilter = 'All';
+      homeSearchQuery = '';
+      geofenceRadius = 9999.0;
+      includeRemoteJobs = true;
+      jobSortOrder = 'Newest';
     });
   }
 
@@ -4016,7 +4417,12 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
-  Future<void> selectJobAndLoadDetails(Map<String, dynamic> jobMap) async {
+  /// W21: employer's selected posting shows its applicants beside the list instead of replacing it.
+  bool employerPanelOpen = false;
+  String applicantFilter = 'all'; // 'all' | 'bonded' | 'top'
+
+  /// [inPanel] keeps the Jobs list on screen (W21 master–detail); default opens the full details page.
+  Future<void> selectJobAndLoadDetails(Map<String, dynamic> jobMap, {bool inPanel = false}) async {
     var title = jobMap['title'] as String? ?? '';
     if (title.isEmpty || title == 'Untitled') {
       final category = jobMap['category'] as String? ?? '';
@@ -4051,7 +4457,9 @@ class TranyxAppState extends State<TranyxApp> {
       );
       selectedJobImageCarouselIndex = 0;
       activeTab = AppTab.jobs;
-      jobsView = JobsView.details;
+      if (!inPanel) jobsView = JobsView.details;
+      employerPanelOpen = inPanel;
+      applicantFilter = 'all';
       jobQuestions = [];
       this.hasTracker = hasTracker;
       showJobOrderDetails = false;
@@ -4757,6 +5165,8 @@ class TranyxAppState extends State<TranyxApp> {
             copy['isBonded'] = userDoc['isBonded'] as bool? ?? false;
             copy['certificationUrls'] = userDoc['certificationUrls'];
             copy['abandonedJobs'] = (userDoc['abandonedJobs'] as num?)?.toInt() ?? 0;
+            copy['rating'] = (userDoc['rating'] as num?)?.toDouble();
+            copy['jobsDone'] = (userDoc['jobsDone'] as num?)?.toInt();
           }
         }
         enrichedApps.add(copy);
@@ -7213,7 +7623,30 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Navigation ──────────────────────────────────────────────
 
   void switchTab(AppTab tab) {
+    // W36 listing wizard is a page: leaving via the nav closes it.
+    if (showListVehicleModal || showListPropertyModal || showEditVehicleModal || showEditPropertyModal || showBookVehicleModal || showBookPropertyModal || showManageVehicleModal || showManagePropertyModal || showRentalDetailsModal || showRentalTrackerMap || showExtendRentalModal) {
+      setState(() {
+        showRentalTrackerMap = false;
+        showExtendRentalModal = false;
+        showManageVehicleModal = false;
+        showManagePropertyModal = false;
+        showRentalDetailsModal = false;
+        selectedRentalDetailsData = null;
+        showBookVehicleModal = false;
+        showBookPropertyModal = false;
+        showListVehicleModal = false;
+        showListPropertyModal = false;
+        showEditVehicleModal = false;
+        showEditPropertyModal = false;
+      });
+    }
     if (activeTab == tab) return;
+
+    if (isGuestBrowse && (tab == AppTab.messages || tab == AppTab.profile)) {
+      // Locked for guests — nudge toward account creation.
+      openGuestGate();
+      return;
+    }
 
     SessionStorage.activeTab = tab.name;
 
@@ -8253,17 +8686,18 @@ class TranyxAppState extends State<TranyxApp> {
     if (path == '/terms-of-use') {
       return const TermsOfUse();
     }
+    if (path == '/about') {
+      return const About();
+    }
 
     final darkBg = isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900';
 
     if (showWebSplash) {
       return div(
-        classes:
-            'fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-[radial-gradient(circle_at_50%_50%,#1a0b2e_0%,#0d0618_50%,#05030a_100%)] overflow-hidden font-sans text-white [perspective:1200px]',
+        classes: 'w00-splash z-[99999] font-sans',
         [
-          div(classes: 'splash-orb splash-orb-1', []),
-          div(classes: 'splash-orb splash-orb-2', []),
-          div(classes: 'splash-orb splash-orb-3', []),
+          div(classes: 'brand-orb brand-orb-a', []),
+          div(classes: 'brand-orb brand-orb-b', []),
           div(classes: 'splash-grid', []),
           div(classes: 'splash-shockwave', []),
           div(classes: 'splash-shockwave splash-shockwave-2', []),
@@ -8280,25 +8714,13 @@ class TranyxAppState extends State<TranyxApp> {
       );
     }
 
-    if (!isAuthenticated) {
-      // Trigger random web metaballs initialization
-      Timer.run(() => initRandomMetaballs('web-metaballs-container'));
-
+    if (!isAuthenticated && !isGuestBrowse) {
+      // W01–W04 + forgot: full-bleed AuthBrandShell (animated brand blobs).
+      final authBg = isDark ? 'bg-zinc-950 text-zinc-50' : 'bg-[#f4f4f5] text-[#18181b]';
       return div(
-        classes:
-            'min-h-screen w-full $darkBg font-sans flex items-center justify-center py-8 md:py-12 relative overflow-hidden',
+        classes: 'min-h-screen w-full relative overflow-x-hidden font-dm-sans $authBg',
         [
-          // Floating 3D perspective grid background
-          div(classes: 'splash-grid pointer-events-none', []),
-          // Animated Metaballs background
-          div(
-            id: 'web-metaballs-container',
-            classes: 'metaball-container',
-            [],
-          ),
-          div(classes: 'w-full max-w-md p-6 z-10 relative', [
-            AuthViewComponent(state: this),
-          ]),
+          AuthViewComponent(state: this),
           if (showWalletSelectionModal) WalletSelectionModalComponent(state: this),
           if (showMobileAppPrompt) MobileAppPromptModalComponent(state: this),
         ],
@@ -8323,12 +8745,56 @@ class TranyxAppState extends State<TranyxApp> {
         else
           // Scrollable content
           div(classes: 'flex-1 overflow-y-auto no-scrollbar pb-24 md:pb-8', [
-            div(classes: 'mx-auto w-full max-w-6xl p-6 md:p-10', [
-              if (activeTab == AppTab.home) HomeViewComponent(state: this),
+            div(classes: 'mx-auto w-full max-w-6xl p-6 md:p-10 ${isGuestBrowse ? "font-dm-sans" : ""}', [
+              // W36 listing wizard: list/edit vehicle + property render as a page in the shell
+              if (showDepositModal)
+                PaymentModalComponent(state: this)
+              else if (showRentalTrackerMap || showExtendRentalModal)
+                div(classes: 'space-y-6', [
+                  if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this, key: const ValueKey('rental-tracker-map')),
+                  if (showExtendRentalModal) ExtendRentalModalComponent(appState: this, key: const ValueKey('extend-rental-modal')),
+                ])
+              else if (showRentalDetailsModal && selectedRentalDetailsData != null)
+                RentalDetailsModalComponent(
+                  appState: this,
+                  rentalData: selectedRentalDetailsData!,
+                  isProperty: selectedRentalDetailsIsProperty,
+                  key: const ValueKey('rental-details-modal'),
+                  onClose: () => setState(() {
+                    showRentalDetailsModal = false;
+                    selectedRentalDetailsData = null;
+                  }),
+                )
+              else if (showManageVehicleModal) ManageVehicleModalComponent(appState: this, key: const ValueKey('manage-vehicle-modal'))
+              else if (showManagePropertyModal) ManagePropertyModalComponent(appState: this, key: const ValueKey('manage-property-modal'))
+              else if (showBookVehicleModal) BookVehicleModalComponent(appState: this, key: const ValueKey('book-vehicle-modal'))
+              else if (showBookPropertyModal) BookPropertyModalComponent(appState: this, key: const ValueKey('book-property-modal'))
+              else if (showListVehicleModal) ListVehicleModalComponent(appState: this, key: const ValueKey('list-vehicle-modal'))
+              else if (showEditVehicleModal) EditVehicleModalComponent(appState: this, key: const ValueKey('edit-vehicle-modal'))
+              else if (showListPropertyModal) ListPropertyModalComponent(appState: this, key: const ValueKey('list-property-modal'))
+              else if (showEditPropertyModal) EditPropertyModalComponent(appState: this, key: const ValueKey('edit-property-modal'))
+              else ...[
+              if (activeTab == AppTab.home)
+                (isGuestBrowse ? GuestBrowseViewComponent(state: this) : HomeViewComponent(state: this)),
               if (activeTab == AppTab.jobs) JobsViewComponent(state: this),
               if (activeTab == AppTab.transit) TransitViewComponent(state: this),
-              if (activeTab == AppTab.messages) MessagesViewComponent(state: this),
-              if (activeTab == AppTab.profile) ProfileViewComponent(state: this),
+              if (activeTab == AppTab.messages)
+                (isGuestBrowse
+                    ? GuestLockedPane(
+                        state: this,
+                        title: 'Messages',
+                        body: 'Sign up to chat with employers, hosts, and support.',
+                      )
+                    : MessagesViewComponent(state: this)),
+              if (activeTab == AppTab.profile)
+                (isGuestBrowse
+                    ? GuestLockedPane(
+                        state: this,
+                        title: 'Profile & wallet',
+                        body: 'Create an account to manage KYC, payouts, and settings.',
+                      )
+                    : ProfileViewComponent(state: this)),
+              ],
             ]),
           ]),
 
@@ -8382,38 +8848,14 @@ class TranyxAppState extends State<TranyxApp> {
       // Category modal overlay
       if (showCategoryModal) CategoryModalComponent(state: this, key: const ValueKey('category-modal')),
 
-      // List Vehicle modal overlay
-      if (showListVehicleModal) ListVehicleModalComponent(appState: this, key: const ValueKey('list-vehicle-modal')),
+      // W34: Book Vehicle renders as a page in the shell (see main content).
 
-      // Book Vehicle modal overlay
-      if (showBookVehicleModal) BookVehicleModalComponent(appState: this, key: const ValueKey('book-vehicle-modal')),
+      // W39: Tracker & extend render as a page in the shell (see main content).
 
-      // Rental Tracker Map overlay
-      if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this, key: const ValueKey('rental-tracker-map')),
+      // W38: Rental details & contract renders as a page in the shell (see main content).
 
-      // Rental Details modal overlay (for reviewing confirmed bookings and leases)
-      if (showRentalDetailsModal && selectedRentalDetailsData != null)
-        RentalDetailsModalComponent(
-          appState: this,
-          rentalData: selectedRentalDetailsData!,
-          isProperty: selectedRentalDetailsIsProperty,
-          key: const ValueKey('rental-details-modal'),
-          onClose: () => setState(() {
-            showRentalDetailsModal = false;
-            selectedRentalDetailsData = null;
-          }),
-        ),
 
-      // Extend Rental modal overlay
-      if (showExtendRentalModal) ExtendRentalModalComponent(appState: this, key: const ValueKey('extend-rental-modal')),
-
-      // Manage Vehicle modal overlay
-      if (showManageVehicleModal)
-        ManageVehicleModalComponent(appState: this, key: const ValueKey('manage-vehicle-modal')),
-
-      // Edit Vehicle modal overlay
-      if (showEditVehicleModal)
-        EditVehicleModalComponent(appState: this, key: const ValueKey('edit-vehicle-modal')),
+      // W37: Manage listing renders as a page in the shell.
 
       // Public Vehicle Q&A modal overlay
       if (showVehicleQaModal && selectedRentalData != null)
@@ -8423,19 +8865,8 @@ class TranyxAppState extends State<TranyxApp> {
           key: const ValueKey('vehicle-qa-modal'),
         ),
 
-      // List Property modal overlay
-      if (showListPropertyModal) ListPropertyModalComponent(appState: this, key: const ValueKey('list-property-modal')),
+      // W35: Book Property renders as a page in the shell (see main content).
 
-      // Book Property modal overlay
-      if (showBookPropertyModal) BookPropertyModalComponent(appState: this, key: const ValueKey('book-property-modal')),
-
-      // Manage Property modal overlay
-      if (showManagePropertyModal)
-        ManagePropertyModalComponent(appState: this, key: const ValueKey('manage-property-modal')),
-
-      // Edit Property modal overlay
-      if (showEditPropertyModal)
-        EditPropertyModalComponent(appState: this, key: const ValueKey('edit-property-modal')),
 
       // Edit Job modal overlay
       if (showEditJobModal)
@@ -8499,7 +8930,10 @@ class TranyxAppState extends State<TranyxApp> {
       if (showWalletActionMenu) WalletActionModalComponent(state: this),
 
       // Payment modal overlay
-      if (showDepositModal) PaymentModalComponent(state: this),
+
+      if (showGuestGate && isGuestBrowse) _guestGateModal(),
+      if (_showGetApp) _getAppCard(),
+      if (permissionDeniedRef != null) _permissionDeniedBanner(),
 
       // Withdraw modal overlay
       if (showWithdrawModal) WithdrawModalComponent(state: this),
@@ -8527,7 +8961,7 @@ class TranyxAppState extends State<TranyxApp> {
       if (showDisputeModal && disputeTargetJob != null) JobDisputeModalComponent(state: this),
 
       // Chat overlay
-      if (showChat) ChatWidget(state: this),
+      if (showChat && !(activeTab == AppTab.messages && windowInnerWidth() >= 1024)) ChatWidget(state: this),
 
       // Fullscreen Photo Modal Overlay
       if (fullScreenPhotoUrl != null)
@@ -8935,80 +9369,58 @@ class WalletReconnectModalComponent extends StatelessComponent {
         ? '${walletKey.substring(0, 4)}...${walletKey.substring(walletKey.length - 4)}'
         : walletKey;
 
+    void close() => s.setState(() {
+          s.showWalletReconnectPrompt = false;
+          s.pendingReconnectWalletKey = null;
+        });
+
+    // W70 · Reconnect your wallet
     return div(
-      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
+      classes: 'rw-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
+      events: {'click': (_) => close()},
       [
         div(
           classes:
-              'w-full max-w-md rounded-3xl border p-6 relative overflow-hidden transition-all duration-300 '
-              '${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-800 shadow-2xl"}',
+              'rw-wizard w-full max-w-sm rounded-3xl border p-6 space-y-3 '
+              '${isDark ? "bg-zinc-900 border-zinc-800 text-zinc-100" : "bg-white border-zinc-200 text-[#18181b]"}',
+          attributes: {'role': 'dialog', 'aria-modal': 'true', 'aria-label': 'Reconnect your wallet'},
+          events: {'click': (e) => e.stopPropagation()},
           [
-            // Top accent color flare
-            div(
-              [],
-              classes:
-                  'absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-purple-500 via-indigo-500 to-blue-500',
-            ),
-
-            div(classes: 'flex flex-col items-center text-center space-y-4 pt-2', [
-              div(
-                classes:
-                    'w-14 h-14 rounded-full bg-[#512da8]/15 flex items-center justify-center text-[#512da8] border border-[#512da8]/35 shadow-lg shadow-purple-500/10',
-                [lIcon('wallet', cls: 'w-7 h-7')],
+            h2(classes: 'm-0 text-xl font-bold', [Component.text('Reconnect your wallet')]),
+            p(classes: 'm-0 text-sm ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+              Component.text(
+                'Your Solana wallet connection dropped. Reconnect Phantom (or another wallet) to deposit, withdraw, or pay with SOL.',
               ),
-
-              div([
-                h3(classes: 'text-xl font-black tracking-tight', [Component.text('Reconnect Phantom Wallet')]),
-                p(
-                  classes: 'text-xs mt-2 leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-500"}',
-                  [
-                    Component.text(
-                      'We detected a linked Phantom Wallet on your profile. Would you like to reconnect to restore access to your Solana funds?',
-                    ),
-                  ],
-                ),
-              ]),
-
+            ]),
+            if (shortKey.isNotEmpty)
               div(
                 classes:
-                    'w-full py-3 px-4 rounded-2xl font-mono text-xs font-bold flex items-center justify-between border '
+                    'w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold flex items-center justify-between border '
                     '${isDark ? "bg-zinc-950/60 border-zinc-800 text-purple-300" : "bg-purple-50/50 border-purple-100 text-purple-700"}',
                 [
-                  span(classes: 'text-[10px] uppercase font-black tracking-wider text-zinc-400', [
-                    Component.text('Linked Wallet'),
-                  ]),
+                  span(classes: 'text-[10px] uppercase font-black tracking-wider text-zinc-400', [Component.text('Linked wallet')]),
                   span([Component.text(shortKey)]),
                 ],
               ),
-
-              div(classes: 'flex gap-3 w-full pt-2', [
-                button(
-                  classes:
-                      'flex-1 py-3.5 rounded-2xl font-bold text-sm bg-zinc-500/10 hover:bg-zinc-500/15 transition-all text-center '
-                      '${isDark ? "text-zinc-300 hover:text-white" : "text-zinc-600 hover:text-zinc-800"}',
-                  events: {
-                    'click': (_) => s.setState(() {
-                      s.showWalletReconnectPrompt = false;
-                      s.pendingReconnectWalletKey = null;
-                    }),
+            div(classes: 'pt-2 space-y-2', [
+              button(
+                classes:
+                    'w-full h-12 rounded-xl font-semibold text-sm text-white border-0 cursor-pointer bg-gradient-to-r from-[#4f46e5] to-[#7c3aed] shadow-[0_8px_10px_rgba(79,70,229,0.25)] hover:opacity-95',
+                attributes: {'type': 'button'},
+                events: {
+                  'click': (_) async {
+                    close();
+                    await s.handleConnectWallet();
                   },
-                  [Component.text('Skip')],
-                ),
-                button(
-                  classes:
-                      'flex-1 py-3.5 rounded-2xl font-bold text-sm text-white bg-[#512da8] hover:bg-[#4527a0] transition-all text-center shadow-lg shadow-purple-500/20',
-                  events: {
-                    'click': (_) async {
-                      s.setState(() {
-                        s.showWalletReconnectPrompt = false;
-                        s.pendingReconnectWalletKey = null;
-                      });
-                      await s.handleConnectWallet();
-                    },
-                  },
-                  [Component.text('Reconnect')],
-                ),
-              ]),
+                },
+                [Component.text('Reconnect wallet')],
+              ),
+              button(
+                classes: 'w-full h-12 border-0 bg-transparent text-sm font-semibold text-[#4f46e5] cursor-pointer hover:underline',
+                attributes: {'type': 'button'},
+                events: {'click': (_) => close()},
+                [Component.text('Not now')],
+              ),
             ]),
           ],
         ),

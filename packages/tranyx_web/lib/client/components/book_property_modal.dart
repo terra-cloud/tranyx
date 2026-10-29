@@ -574,16 +574,16 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
     final modalCls = isDark ? 'bg-zinc-900 border border-zinc-800 text-white' : 'bg-white text-zinc-900 shadow-xl';
 
     return div(
-      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
+      classes: 'rw-page animate-fade-in',
       [
         div(
           classes:
-              'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col $modalCls',
+              'rw-wizard rw-wizard-page w-full max-w-3xl mx-auto rounded-3xl relative flex flex-col $modalCls',
           [
             // Header
             div(
               classes:
-                  'sticky top-0 z-10 flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
+                  'flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
               [
                 div([
                   div(classes: 'flex items-center gap-2', [

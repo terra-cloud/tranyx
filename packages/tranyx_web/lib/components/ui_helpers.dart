@@ -398,20 +398,43 @@ Component accountBadge(String acType) {
 }
 
 /// Sub-view header with back button and title.
+const Map<String, String> _subViewSubtitles = {
+  'Personal Information': 'Photo, name, phone (starts with 9), Location Services & GPS.',
+  'Professional Info': 'Hybrid shows both. Nyxian: skills + certs. Employer: business name/industry.',
+  'Payment Methods': 'Tyxbit main wallet + linked accounts. Promo code applies at profile.',
+  'Trust & Verification': 'Email, phone SMS, Government ID, Background clearance.',
+  'Help & Support': 'App Guide, Nyx AI, Live Support, tickets, FAQ.',
+};
+
+/// W51–W59 pane heading: 32px bold title + helper line. The back arrow only shows below md
+/// (the profile menu stays visible beside the pane on desktop).
 Component subViewHeader({
   required String title,
   required bool isDark,
   required void Function() onBack,
+  String? subtitle,
 }) {
-  return div(classes: 'flex items-center gap-4 mb-8', [
+  final sub = subtitle ?? _subViewSubtitles[title];
+  return div(classes: 'flex items-start gap-4 mb-6', [
     button(
       classes:
-          'p-2 rounded-full transition-all border flex items-center justify-center '
+          'md:hidden mt-1 p-2 rounded-full transition-all border flex items-center justify-center cursor-pointer '
           '${isDark ? "bg-zinc-800/80 border-zinc-700/60 text-zinc-300 hover:bg-zinc-750 hover:text-white" : "bg-zinc-100 border-zinc-200 text-zinc-600 hover:bg-zinc-150 hover:text-zinc-800"}',
+      attributes: {'type': 'button', 'aria-label': 'Back'},
       events: {'click': (_) => onBack()},
       [lIcon('arrow-left', cls: 'w-5 h-5')],
     ),
-    h2(classes: 'text-2xl md:text-3xl font-extrabold tracking-tight', [Component.text(title)]),
+    div(classes: 'min-w-0', [
+      h2(
+        classes:
+            'm-0 text-[28px] md:text-[32px] leading-10 font-bold tracking-tight ${isDark ? "text-zinc-50" : "text-[#18181b]"}',
+        [Component.text(title)],
+      ),
+      if (sub != null)
+        p(classes: 'm-0 mt-2 text-[15px] leading-[22px] ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+          Component.text(sub),
+        ]),
+    ]),
   ]);
 }
 

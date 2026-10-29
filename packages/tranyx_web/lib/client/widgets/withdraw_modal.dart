@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:jaspr/dom.dart';
@@ -6,11 +7,16 @@ import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../services/firebase_service.dart';
 import '../../services/web_interop.dart';
+import '../../state/app_state.dart';
 import 'package:shared/shared.dart';
 
 class WithdrawModalComponent extends StatefulComponent {
   final TranyxAppState state;
-  const WithdrawModalComponent({required this.state, super.key});
+
+  /// W54: render as the full Wallet · Withdraw page (Profile → Withdraw Funds) instead of the quick modal.
+  /// Same state, rails and submit handlers; only the layout differs.
+  final bool page;
+  const WithdrawModalComponent({required this.state, this.page = false, super.key});
 
   @override
   State<WithdrawModalComponent> createState() => _WithdrawModalComponentState();
@@ -30,9 +36,25 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
   String? _errorMessage;
   String? _successMessage;
 
+  // W54 "Your requests" (live withdrawalRequests for this uid)
+  List<Map<String, dynamic>>? _requests;
+
+  Future<void> _loadRequests() async {
+    final uid = SessionStorage.uid;
+    final token = SessionStorage.idToken;
+    if (uid == null || token == null) return;
+    try {
+      final list = await FirestoreService(token, component.state.handleTokenRefresh).fetchUserWithdrawalRequests(uid);
+      if (mounted) setState(() => _requests = list);
+    } catch (_) {
+      if (mounted) setState(() => _requests = const []);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    if (component.page) _loadRequests();
     final profile = component.state.userProfile;
     final name = profile?.name;
     final phone = profile?.phoneNumber;
@@ -196,6 +218,7 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
     if (s.postJobError != null && s.postJobError!.isNotEmpty) {
       setState(() => _errorMessage = s.postJobError);
     }
+    if (component.page) unawaited(_loadRequests());
   }
 
   Future<void> _submitSolanaWithdrawal() async {
@@ -418,6 +441,7 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
         isOnChainTransferred ? 'Withdrawal Completed' : 'Withdrawal Requested',
         '₱ ${amount.toStringAsFixed(2)} via $methodTitle ${isOnChainTransferred ? "sent on-chain!" : "submitted."}',
       );
+      if (component.page) unawaited(_loadRequests());
     } catch (e) {
       setState(() {
         _isSubmitting = false;
@@ -426,8 +450,401 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
     }
   }
 
+  // ── W54 Wallet · Withdraw (full page) ─────────────────────────
+  Component _buildPage() {
+    final s = component.state;
+    final isDark = s.isDark;
+    final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
+    final isP2p = s.selectedWithdrawRail == 'manual_p2p';
+    final method = isP2p ? s.selectedP2pWithdrawMethod : 'Solana';
+    final req = s.activeP2pWithdrawalRequest;
+    final hasOpenRequest = isP2p && req != null;
+    final walletKey = (s.userProfile?.walletPublicKey != null && s.userProfile!.walletPublicKey!.isNotEmpty)
+        ? s.userProfile!.walletPublicKey!
+        : s.walletAddress;
+    final hasWallet = walletKey.isNotEmpty;
+    final pending = s.pendingHoldbacks.fold<double>(0.0, (t, i) => t + ((i['amount'] as num?)?.toDouble() ?? 0.0));
+
+    final amount = double.tryParse(_amountInput.trim()) ?? 0.0;
+    final feePhp = isP2p ? 0.0 : amount * 0.02;
+    final netPhp = (amount - feePhp).clamp(0.0, double.infinity);
+    final solRate = _solToPhpRate > 0 ? _solToPhpRate : 8000.0;
+    final usdtRate = _usdToPhpRate > 0 ? _usdToPhpRate : 57.0;
+    final estCrypto = _selectedCoin == 'SOL' ? (netPhp / solRate) : (netPhp / usdtRate);
+    final canSubmit = !_isSubmitting &&
+        !hasOpenRequest &&
+        amount >= 100 &&
+        amount <= tyxBal &&
+        (isP2p || hasWallet);
+
+    final primary = isDark ? 'text-zinc-50' : 'text-[#18181b]';
+    final secondary = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+    final muted = isDark ? 'text-zinc-500' : 'text-[#71717a]';
+    final card = isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-[#e4e4e7]';
+    final subtle = isDark ? 'bg-zinc-950/60 border-zinc-800' : 'bg-[#fafafa] border-[#e4e4e7]';
+    final hairline = isDark ? 'border-zinc-800' : 'border-[#e4e4e7]';
+    final profileName = s.userProfile?.name ?? '';
+    final registeredName = profileName.isNotEmpty ? profileName : s.userName;
+
+    Component methodCard(String id, String title, String sub, String icon, bool selected, void Function() onTap) {
+      return button(
+        classes:
+            'relative text-left p-4 rounded-2xl border-2 cursor-pointer transition-colors bg-transparent min-w-0 '
+            '${selected ? (isDark ? "border-indigo-400 bg-indigo-500/10" : "border-[#4f46e5] bg-[#eef2ff]") : "$hairline ${isDark ? "hover:border-zinc-600" : "hover:border-zinc-300"}"}',
+        attributes: {'type': 'button', 'role': 'radio', 'aria-checked': '$selected'},
+        events: {'click': (_) => onTap()},
+        [
+          div(classes: 'flex items-start gap-3', [
+            div(
+              classes:
+                  'size-10 shrink-0 rounded-xl flex items-center justify-center ${isDark ? "bg-zinc-800 text-indigo-300" : "bg-white text-[#4f46e5] border border-[#e4e4e7]"}',
+              [lIcon(icon, cls: 'w-5 h-5')],
+            ),
+            div(classes: 'min-w-0 flex-1', [
+              p(classes: 'm-0 text-sm font-semibold $primary', [Component.text(title)]),
+              p(classes: 'm-0 mt-1 text-xs leading-4 $secondary', [Component.text(sub)]),
+            ]),
+            span(
+              classes:
+                  'size-5 shrink-0 rounded-full border-2 flex items-center justify-center '
+                  '${selected ? "border-[#4f46e5]" : (isDark ? "border-zinc-600" : "border-[#d4d4d8]")}',
+              [if (selected) span(classes: 'size-2.5 rounded-full bg-[#4f46e5]', [])],
+            ),
+          ]),
+        ],
+      );
+    }
+
+    Component presetChip(String label, double value) {
+      final selected = amount == value && value > 0;
+      return button(
+        classes:
+            'h-10 px-4 rounded-full text-sm font-semibold border cursor-pointer transition-colors '
+            '${selected ? (isDark ? "bg-zinc-50 text-zinc-900 border-zinc-50" : "bg-[#18181b] text-white border-[#18181b]") : (isDark ? "bg-zinc-900 text-zinc-200 border-zinc-700 hover:bg-zinc-800" : "bg-white text-[#18181b] border-[#d4d4d8] hover:bg-zinc-50")}',
+        attributes: {'type': 'button'},
+        events: {'click': (_) => setState(() => _amountInput = value.toStringAsFixed(0))},
+        [Component.text(label)],
+      );
+    }
+
+    Component feeRow(String label, String value, {String? valueCls, bool strong = false}) => div(
+          classes: 'flex items-center justify-between text-sm ${strong ? "font-semibold" : ""}',
+          [
+            span(classes: strong ? primary : secondary, [Component.text(label)]),
+            span(classes: 'tabular-nums ${valueCls ?? primary}', [Component.text(value)]),
+          ],
+        );
+
+    return div(classes: 'font-dm-sans animate-fade-up space-y-5', [
+      // Breadcrumb + title
+      div([
+        div(classes: 'flex items-center gap-2 text-sm', [
+          button(
+            classes: 'bg-transparent border-0 p-0 cursor-pointer text-[#4f46e5] hover:underline text-sm',
+            attributes: {'type': 'button'},
+            events: {'click': (_) => s.setState(() => s.profileView = ProfileView.main)},
+            [Component.text('Account Settings')],
+          ),
+          lIcon('chevron-right', cls: 'w-4 h-4 $muted'),
+          span(classes: secondary, [Component.text('Withdraw')]),
+        ]),
+        h1(classes: 'm-0 mt-3 text-[28px] md:text-[32px] leading-10 font-bold tracking-tight $primary', [Component.text('Withdraw Tyx')]),
+      ]),
+
+      div(classes: 'grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-6 items-start', [
+        // ── Left: form card ──
+        div(classes: 'rounded-[20px] border p-5 md:p-6 space-y-6 $card shadow-[0_4px_12px_rgba(9,9,11,0.04)]', [
+          div(classes: 'flex flex-wrap items-start justify-between gap-3', [
+            div([
+              p(classes: 'm-0 text-sm $secondary', [Component.text('Withdrawable Balance')]),
+              p(classes: 'm-0 mt-1 text-[32px] leading-10 font-bold tabular-nums $primary', [
+                Component.text('₱ ${tyxBal.toStringAsFixed(2)}'),
+              ]),
+              if (pending > 0)
+                p(classes: 'm-0 mt-1 text-xs text-[#7c3aed]', [
+                  Component.text('+ ₱${pending.toStringAsFixed(2)} Pending · not withdrawable yet'),
+                ]),
+            ]),
+            span(
+              classes: 'px-3 py-1 rounded-full text-xs font-medium border $subtle $secondary',
+              [Component.text('Minimum Amount ₱ 100')],
+            ),
+          ]),
+          div(classes: 'border-t $hairline', []),
+
+          // 1. Amount
+          div(classes: 'space-y-3', [
+            h2(classes: 'm-0 text-base font-semibold $primary', [Component.text('1. Enter Withdrawal Amount')]),
+            label(classes: 'block text-sm font-medium $primary', [Component.text('Amount')]),
+            div(classes: 'relative', [
+              span(classes: 'absolute left-4 top-1/2 -translate-y-1/2 text-base $secondary', [Component.text('₱')]),
+              input(
+                type: InputType.number,
+                classes:
+                    'w-full h-14 pl-10 pr-4 rounded-xl border-2 text-base font-medium outline-none transition-colors '
+                    '${isDark ? "bg-zinc-950 text-zinc-50 border-zinc-700 focus:border-indigo-400" : "bg-white text-[#18181b] border-[#d4d4d8] focus:border-[#4f46e5]"}',
+                attributes: {
+                  'placeholder': '100.00',
+                  'min': '100',
+                  'step': '50',
+                  'value': _amountInput,
+                  'id': 'withdraw-amount',
+                  'name': 'withdraw-amount',
+                },
+                events: {
+                  'input': (e) => setState(() => _amountInput = getInputValue(e.target)),
+                  'change': (e) => setState(() => _amountInput = getInputValue(e.target)),
+                },
+              ),
+            ]),
+            p(classes: 'm-0 text-xs $muted', [
+              Component.text('≈ ${amount.toStringAsFixed(0)} TYX · 1 TYX = ₱1'),
+            ]),
+            div(classes: 'flex flex-wrap gap-2', [
+              presetChip('₱ 500', 500),
+              presetChip('₱ 1,000', 1000),
+              presetChip('₱ 5,000', 5000),
+              presetChip('Max', tyxBal.floorToDouble()),
+            ]),
+          ]),
+
+          // 2. Payout method
+          div(classes: 'space-y-3', [
+            h2(classes: 'm-0 text-base font-semibold $primary', [Component.text('2. Payout method')]),
+            div(classes: 'grid grid-cols-1 sm:grid-cols-3 gap-3', attributes: {'role': 'radiogroup'}, [
+              methodCard('GCash', 'GCash (P2P)', '0% Fee (Free) · 1–24h manual review', 'phone', isP2p && method == 'GCash', () {
+                s.setState(() {
+                  s.selectedWithdrawRail = 'manual_p2p';
+                  s.selectedP2pWithdrawMethod = 'GCash';
+                });
+              }),
+              methodCard('Maya', 'Maya (P2P)', '0% Fee (Free) · 1–24h manual review', 'credit-card', isP2p && method == 'Maya', () {
+                s.setState(() {
+                  s.selectedWithdrawRail = 'manual_p2p';
+                  s.selectedP2pWithdrawMethod = 'Maya';
+                });
+              }),
+              methodCard('Solana', 'Solana (SOL/USDT)', 'Network fee applies · Solana network only', 'zap', !isP2p, () {
+                s.setState(() => s.selectedWithdrawRail = 'solana');
+              }),
+            ]),
+          ]),
+
+          // Destination
+          if (isP2p)
+            div(classes: 'space-y-2', [
+              label(classes: 'block text-sm font-medium $primary', [Component.text('$method number')]),
+              div(classes: 'relative', [
+                span(classes: 'absolute left-4 top-1/2 -translate-y-1/2 $secondary', [lIcon('phone', cls: 'w-4 h-4')]),
+                input(
+                  type: InputType.tel,
+                  classes:
+                      'w-full h-12 pl-11 pr-4 rounded-xl border text-sm outline-none transition-colors '
+                      '${isDark ? "bg-zinc-950 text-zinc-50 border-zinc-700 focus:border-indigo-400" : "bg-white text-[#18181b] border-[#d4d4d8] focus:border-[#4f46e5]"}',
+                  attributes: {
+                    'placeholder': '09XX XXX XXXX',
+                    'value': _accountNumberInput,
+                    'id': 'withdraw-account-number',
+                    'name': 'withdraw-account-number',
+                  },
+                  events: {'input': (e) => setState(() => _accountNumberInput = getInputValue(e.target))},
+                ),
+              ]),
+              p(classes: 'm-0 text-xs $muted', [
+                Component.text(
+                  registeredName.isEmpty
+                      ? 'Registered name must match your verified profile.'
+                      : 'Registered name must match your verified profile: $registeredName',
+                ),
+              ]),
+            ])
+          else
+            div(classes: 'space-y-3', [
+              label(classes: 'block text-sm font-medium $primary', [Component.text('Destination Solana address')]),
+              div(
+                classes: 'flex items-center justify-between gap-3 p-3 rounded-xl border $subtle',
+                [
+                  span(classes: 'text-sm font-mono truncate $primary', [
+                    Component.text(hasWallet ? walletKey : 'No Solana wallet linked'),
+                  ]),
+                  if (!hasWallet)
+                    button(
+                      classes: 'shrink-0 text-sm font-semibold text-[#4f46e5] bg-transparent border-0 cursor-pointer hover:underline',
+                      attributes: {'type': 'button'},
+                      events: {
+                        'click': (_) => s.setState(() {
+                          s.profileView = ProfileView.payment;
+                        }),
+                      },
+                      [Component.text('Link wallet')],
+                    ),
+                ],
+              ),
+              p(classes: 'm-0 text-xs $muted', [Component.text('Solana Network Only · double-check before submitting')]),
+              label(classes: 'block text-sm font-medium $primary', [
+                Component.text(_isFetchingRates ? 'Payout asset · updating rates…' : 'Payout asset'),
+              ]),
+              div(classes: 'grid grid-cols-2 gap-3', [
+                for (final coin in const ['USDT', 'SOL'])
+                  button(
+                    classes:
+                        'h-12 rounded-xl border-2 text-sm font-semibold cursor-pointer transition-colors bg-transparent '
+                        '${_selectedCoin == coin ? (isDark ? "border-indigo-400 bg-indigo-500/10 $primary" : "border-[#4f46e5] bg-[#eef2ff] text-[#18181b]") : "$hairline $secondary"}',
+                    attributes: {'type': 'button'},
+                    events: {'click': (_) => setState(() => _selectedCoin = coin)},
+                    [Component.text(coin == 'SOL' ? 'SOL · 1 ≈ ₱${solRate.toStringAsFixed(0)}' : 'USDT · 1 ≈ ₱${usdtRate.toStringAsFixed(2)}')],
+                  ),
+              ]),
+            ]),
+
+          // Fee breakdown
+          div(classes: 'rounded-2xl border p-4 space-y-3 $subtle', [
+            p(classes: 'm-0 text-sm font-semibold $primary', [Component.text('Itemized Fee Breakdown')]),
+            feeRow('Amount to Deduct', '₱ ${amount.toStringAsFixed(2)}'),
+            feeRow(isP2p ? 'Platform Fee (0%)' : 'Platform Fee (2%)', '- ₱ ${feePhp.toStringAsFixed(2)}'),
+            div(classes: 'border-t $hairline', []),
+            feeRow('You receive', '₱ ${netPhp.toStringAsFixed(2)}', valueCls: 'text-[#047857] font-semibold', strong: true),
+            if (!isP2p)
+              feeRow(
+                'Estimated payout',
+                '${estCrypto.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin',
+                valueCls: secondary,
+              ),
+          ]),
+
+          // Manual review notice
+          div(
+            classes:
+                'flex gap-3 rounded-2xl border p-4 ${isDark ? "bg-indigo-500/10 border-indigo-500/30" : "bg-[#eef2ff] border-[#c7d2fe]"}',
+            [
+              lIcon('info', cls: 'w-5 h-5 shrink-0 text-[#4f46e5] mt-0.5'),
+              div([
+                p(classes: 'm-0 text-sm font-semibold $primary', [Component.text('Manual review')]),
+                p(classes: 'm-0 mt-1 text-sm $secondary', [
+                  Component.text('Requests are reviewed by our team, usually within 24 hours. You can have one open request at a time.'),
+                ]),
+              ]),
+            ],
+          ),
+
+          if (hasOpenRequest)
+            div(
+              classes: 'flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4 $subtle',
+              [
+                span(classes: 'text-sm $secondary', [
+                  Component.text('You have an open ${req.paymentMethod} request for ₱${req.amount.toStringAsFixed(2)}.'),
+                ]),
+                button(
+                  classes: 'h-10 px-4 rounded-xl text-sm font-semibold text-white bg-[#4f46e5] border-0 cursor-pointer hover:opacity-90',
+                  attributes: {'type': 'button'},
+                  events: {'click': (_) => s.setState(() => s.showWithdrawModal = true)},
+                  [Component.text('View request')],
+                ),
+              ],
+            ),
+
+          if (_errorMessage != null)
+            div(
+              classes: 'flex items-start gap-2 rounded-xl border p-3 text-sm ${isDark ? "bg-red-500/10 border-red-500/30 text-red-300" : "bg-[#fef2f2] border-[#fecaca] text-[#dc2626]"}',
+              attributes: {'role': 'alert'},
+              [lIcon('alert-circle', cls: 'w-4 h-4 shrink-0 mt-0.5'), span([Component.text(_errorMessage!)])],
+            ),
+          if (_successMessage != null)
+            div(
+              classes: 'flex items-start gap-2 rounded-xl border p-3 text-sm ${isDark ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-[#f0fdf4] border-[#bbf7d0] text-[#047857]"}',
+              [lIcon('check-circle', cls: 'w-4 h-4 shrink-0 mt-0.5'), span([Component.text(_successMessage!)])],
+            ),
+
+          button(
+            classes:
+                'w-full h-12 rounded-xl text-sm font-semibold border-0 flex items-center justify-center gap-2 transition-opacity '
+                '${canSubmit ? "text-white bg-[#4f46e5] shadow-[0_8px_10px_rgba(79,70,229,0.25)] cursor-pointer hover:opacity-90" : (isDark ? "bg-zinc-800 text-zinc-500 cursor-not-allowed" : "bg-[#e4e4e7] text-[#a1a1aa] cursor-not-allowed")}',
+            attributes: {'type': 'button', if (!canSubmit) 'disabled': 'true'},
+            events: {
+              'click': (_) {
+                if (!canSubmit) return;
+                if (isP2p) {
+                  _submitP2pWithdrawal();
+                } else {
+                  _submitSolanaWithdrawal();
+                }
+              },
+            },
+            [
+              if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+              Component.text(_isSubmitting ? 'Processing request…' : (!isP2p && !hasWallet ? 'Link a Solana wallet first' : 'Request withdrawal')),
+            ],
+          ),
+        ]),
+
+        // ── Right: Your requests ──
+        div(classes: 'rounded-[20px] border p-5 space-y-4 $card shadow-[0_4px_12px_rgba(9,9,11,0.04)]', [
+          div(classes: 'flex items-center justify-between gap-3', [
+            h2(classes: 'm-0 text-lg font-semibold $primary', [Component.text('Your requests')]),
+            button(
+              classes: 'flex items-center gap-1 text-sm font-medium text-[#4f46e5] bg-transparent border-0 cursor-pointer hover:underline',
+              attributes: {'type': 'button'},
+              events: {'click': (_) => s.setState(() => s.profileView = ProfileView.history)},
+              [Component.text('History'), lIcon('chevron-right', cls: 'w-4 h-4')],
+            ),
+          ]),
+          if (_requests == null)
+            div(classes: 'space-y-3 animate-pulse', [
+              for (var i = 0; i < 2; i++) div(classes: 'h-14 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}', []),
+            ])
+          else if (_requests!.isEmpty)
+            p(classes: 'm-0 text-sm $muted', [Component.text('No withdrawal requests yet. Your requests and their review status will show here.')])
+          else
+            div(classes: 'divide-y ${isDark ? "divide-zinc-800" : "divide-[#e4e4e7]"}', [
+              for (final r in _requests!.take(5)) _requestRow(r, isDark, primary, muted),
+            ]),
+        ]),
+      ]),
+    ]);
+  }
+
+  Component _requestRow(Map<String, dynamic> r, bool isDark, String primary, String muted) {
+    final amt = (r['amount'] as num?)?.toDouble() ?? 0.0;
+    final status = (r['status']?.toString() ?? '').toUpperCase();
+    final ok = status == 'SUCCESSFUL' || status == 'APPROVED' || status == 'COMPLETED' || status == 'PAID';
+    final bad = status == 'REJECTED' || status == 'CANCELLED' || status == 'FAILED';
+    final label = ok ? 'Paid' : (bad ? (status == 'CANCELLED' ? 'Cancelled' : 'Rejected') : 'In review');
+    final badgeCls = ok
+        ? (isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-[#ecfdf5] text-[#047857]')
+        : (bad
+            ? (isDark ? 'bg-red-500/15 text-red-300' : 'bg-[#fef2f2] text-[#dc2626]')
+            : (isDark ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-100 text-[#52525b]'));
+    final created = (r['createdAt'] as num?)?.toInt();
+    String when = '';
+    if (created != null && created > 0) {
+      final d = DateTime.fromMillisecondsSinceEpoch(created);
+      const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      when = '${m[d.month - 1]} ${d.day.toString().padLeft(2, '0')}';
+    }
+    final title = (r['methodTitle'] ?? r['paymentMethod'] ?? r['method'] ?? 'Withdrawal').toString();
+    final reason = (r['rejectionReason'] ?? r['reason'])?.toString();
+    final sig = r['solanaTxSignature']?.toString() ?? '';
+    return div(classes: 'py-3 space-y-1', [
+      div(classes: 'flex items-center justify-between gap-3', [
+        span(classes: 'text-[15px] font-semibold tabular-nums $primary', [Component.text('₱${amt.toStringAsFixed(2)}')]),
+        span(classes: 'px-2.5 py-0.5 rounded-full text-xs font-semibold $badgeCls', [Component.text(label)]),
+      ]),
+      p(classes: 'm-0 text-xs $muted', [Component.text(when.isEmpty ? title : '$title · $when')]),
+      if (bad && reason != null && reason.isNotEmpty)
+        p(classes: 'm-0 text-xs text-[#dc2626]', [Component.text(reason)]),
+      if (ok && sig.isNotEmpty)
+        a(
+          href: WalletTransaction.getSolanaExplorerUrl(signature: sig, environment: currentFirebaseConfig.projectId),
+          target: Target.blank,
+          classes: 'inline-flex items-center gap-1 text-xs font-medium text-[#4f46e5] hover:underline',
+          [Component.text('View on Solana Explorer'), lIcon('external-link', cls: 'w-3 h-3')],
+        ),
+    ]);
+  }
+
   @override
   Component build(BuildContext context) {
+    if (component.page) return _buildPage();
     final s = component.state;
     final isDark = s.isDark;
     final tyxBal = s.userProfile?.tyxBalance ?? 0.0;
@@ -452,10 +869,10 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
     final cardBg = isDark ? "bg-zinc-950/40 border-zinc-850" : "bg-zinc-50 border-zinc-150";
 
     return div(
-      classes: 'fixed inset-0 z-[100] flex items-center justify-center bg-zinc-950/80 backdrop-blur-md px-4',
+      classes: 'rw-overlay fixed inset-0 z-[100] flex items-center justify-center bg-zinc-950/80 backdrop-blur-md px-4',
       [
         div(
-          classes: 'w-full max-w-lg rounded-3xl border $modalBg overflow-hidden animate-fade-up',
+          classes: 'rw-wizard w-full max-w-lg rounded-3xl border $modalBg overflow-hidden animate-fade-up',
           [
             // Header
             div(

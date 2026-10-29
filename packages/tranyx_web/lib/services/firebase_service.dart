@@ -182,7 +182,45 @@ Future<http.Response> _rawRequestWithRetry(
   return req;
 }
 
+/// W70: a Firestore / Functions call failed with permission-denied. The app shows the permission-denied
+/// banner with the generated reference code. Only the code is logged — never the message, path or user data.
+void Function(String ref)? onPermissionDeniedGlobal;
+
+const _kRefAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/// Random 6-character support reference, displayed as `PD-XXXX-XX`.
+String newPermissionRef([Random? rng]) {
+  final r = rng ?? Random.secure();
+  final id = List.generate(6, (_) => _kRefAlphabet[r.nextInt(_kRefAlphabet.length)]).join();
+  return 'PD-${id.substring(0, 4)}-${id.substring(4)}';
+}
+
+bool isPermissionDeniedError(FirebaseException e) {
+  final m = e.message.toLowerCase();
+  return e.statusCode == 403 ||
+      m.contains('permission_denied') ||
+      m.contains('permission-denied') ||
+      m.contains('missing or insufficient permissions');
+}
+
+DateTime? _lastPermissionEvent;
+
+void _handlePermissionDenied(FirebaseException e) {
+  if (!isPermissionDeniedError(e)) return;
+  // One failed call can pass through the retry wrapper twice; report it once.
+  final now = DateTime.now();
+  final last = _lastPermissionEvent;
+  if (last != null && now.difference(last) < const Duration(seconds: 2)) return;
+  _lastPermissionEvent = now;
+  final ref = newPermissionRef();
+  // ignore: avoid_print
+  print('[permission-denied] ref=$ref code=${e.statusCode ?? 'permission-denied'}');
+  final cb = onPermissionDeniedGlobal;
+  if (cb != null) cb(ref);
+}
+
 void _handleGlobalSessionExpiration(FirebaseException e) {
+  _handlePermissionDenied(e);
   final lowerMsg = e.message.toLowerCase();
   if (e.statusCode == 401 ||
       lowerMsg.contains('not logged in') ||

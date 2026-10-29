@@ -175,11 +175,11 @@ class _EditJobModalState extends State<EditJobModalComponent> {
         : '';
 
     return div(
-      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
+      classes: 'rw-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
       [
         div(
           classes:
-              'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 md:p-8 ${isDark ? "bg-zinc-900 border border-zinc-800 text-zinc-100" : "bg-white text-zinc-900"} shadow-2xl space-y-6 animate-scale-up custom-scrollbar',
+              'rw-wizard w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 md:p-8 ${isDark ? "bg-zinc-900 border border-zinc-800 text-zinc-100" : "bg-white text-zinc-900"} shadow-2xl space-y-6 animate-scale-up custom-scrollbar',
           [
             // Header
             div(classes: 'flex items-center justify-between pb-4 border-b ${isDark ? "border-zinc-800" : "border-zinc-200"}', [

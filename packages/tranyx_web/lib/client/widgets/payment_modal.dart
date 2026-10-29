@@ -27,10 +27,13 @@ class PaymentModalComponent extends StatelessComponent {
     final isGcash = s.selectedP2pMethod == 'GCash';
 
     return div(
-      classes: 'fixed inset-0 z-[100] flex items-center justify-center bg-zinc-950/80 backdrop-blur-md px-4',
+      classes: 'rw-page animate-fade-in space-y-4',
       [
+        // W61: page chrome
+        h1(classes: 'm-0 text-[28px] md:text-[32px] font-bold max-w-xl mx-auto ${isDark ? "text-zinc-50" : "text-[#18181b]"}', [Component.text('Wallet · Top-up')]),
+        p(classes: 'm-0 text-sm max-w-xl mx-auto ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [Component.text('Add Tyxbit via P2P GCash/Maya or Solana.')]),
         div(
-          classes: 'w-full max-w-md rounded-3xl border $modalBg overflow-hidden animate-fade-up',
+          classes: 'rw-wizard rw-wizard-page w-full max-w-xl mx-auto rounded-3xl border $modalBg overflow-hidden',
           [
             // Header
             div(classes: 'p-6 text-center border-b ${isDark ? "border-zinc-800" : "border-zinc-100"}', [

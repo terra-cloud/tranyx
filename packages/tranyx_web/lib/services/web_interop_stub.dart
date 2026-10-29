@@ -14,6 +14,12 @@ class SessionStorage {
   static bool get hasSession => false;
   static String? get activeTab => null;
   static set activeTab(String? val) {}
+  static String? get walkthroughFor => null;
+  static set walkthroughFor(String? email) {}
+  static String? get hybridMode => null;
+  static set hybridMode(String? val) {}
+  static String? get themePreference => null;
+  static set themePreference(String? val) {}
   static void clear() {}
   static void updateIdToken(String token) {}
 
@@ -180,4 +186,10 @@ Future<Map<String, dynamic>?> renderPdfPageJs(
   double scale,
 ) async => null;
 
+void openPdfInNewTabJs(String pdfSource) {}
+
+int windowInnerWidth() => 1280;
+
 void downloadPdfFileJs(String pdfSource, String fileName) {}
+
+void downloadTextFile(String fileName, String content, {String mime = 'text/csv'}) {}

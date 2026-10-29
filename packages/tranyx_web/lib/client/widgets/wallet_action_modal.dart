@@ -18,11 +18,11 @@ class WalletActionModalComponent extends StatelessComponent {
     final textMuted = isDark ? 'text-zinc-400' : 'text-zinc-500';
 
     return div(
-      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
+      classes: 'rw-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
       events: {'click': (_) => s.setState(() => s.showWalletActionMenu = false)},
       [
         div(
-          classes: 'w-full max-w-md rounded-3xl border p-6 relative overflow-hidden transition-all duration-300 $cardBg',
+          classes: 'rw-wizard w-full max-w-md rounded-3xl border p-6 relative overflow-hidden transition-all duration-300 $cardBg',
           events: {
             'click': (e) {
               e.stopPropagation();

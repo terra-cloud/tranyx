@@ -411,10 +411,10 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     final modalCls = isDark ? 'bg-zinc-900 border border-zinc-800 text-white' : 'bg-white text-zinc-900 shadow-xl';
 
     return div(
-      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
+      classes: 'rw-page animate-fade-in',
       [
         div(
-          classes: 'w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] $modalCls',
+          classes: 'rw-wizard rw-wizard-page w-full max-w-3xl mx-auto rounded-3xl flex flex-col $modalCls',
           [
             // Header
             div(
