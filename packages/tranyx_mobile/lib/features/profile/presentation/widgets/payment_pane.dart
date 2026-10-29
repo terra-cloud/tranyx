@@ -16,6 +16,7 @@ import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:tranyx_mobile/core/services/mwa_service.dart';
 import 'package:tranyx_mobile/core/services/mwa_wallet_link.dart';
+import 'package:tranyx_mobile/core/services/mwa_payment.dart';
 import 'package:tranyx_mobile/core/widgets/solana_logo.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/withdraw_pane.dart';
@@ -2152,10 +2153,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     if (confirmed != true) return;
     setState(() => _isProcessing = true);
     try {
-      await ref.read(firestoreProvider).collection('users').doc(uid).update({
-        'walletPublicKey': null,
-        'connectedWalletType': null,
-      });
+      await unlinkWallet(firestore: ref.read(firestoreProvider), uid: uid);
       ref.invalidate(userProfileProvider);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2177,8 +2175,10 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
   }
 
   /// Deposit over MWA: the wallet signs and sends a SOL (or USDT SPL) transfer
-  /// to the treasury; once confirmed on-chain the balance is credited exactly
-  /// like the Trust Wallet flow.
+  /// to the treasury. The payment is only credited after the transaction is
+  /// FINALIZED and verified (sender = linked wallet, destination = treasury /
+  /// its USDT token account, exact amount), and the marker + balance increment
+  /// are one atomic Firestore transaction keyed by the signature.
   Future<void> _depositViaMwa({
     required String uid,
     required double phpAmount,
@@ -2187,68 +2187,35 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     required String userPubkey,
     required String treasuryPublicKey,
   }) async {
-    final phantomService = ref.read(phantomServiceProvider);
-    final txSignature = await ref.read(mwaServiceProvider).signAndSend(
-      expectedPublicKey: userPubkey,
-      buildTransaction: (sender) async {
-        final blockhash = await phantomService.fetchRecentBlockhash();
-        final Uint8List txBytes;
-        if (isSol) {
-          txBytes = phantomService.serializeTransferTransaction(
-            senderPubkey: sender,
-            receiverPubkey: treasuryPublicKey,
-            blockhash: blockhash,
-            lamports: (cryptoAmount * 1e9).round(),
-          );
-        } else {
-          txBytes = await phantomService.serializeTokenTransferTransaction(
-            senderPubkey: sender,
-            receiverPubkey: treasuryPublicKey,
-            mintPubkey: phantomService.usdtMintAddress,
-            blockhash: blockhash,
-            microUnits: (cryptoAmount * 1e6).round(),
-          );
-        }
-        await phantomService.simulateTransaction(base58.encode(txBytes));
-        return txBytes;
-      },
-      broadcastSigned: (signed) =>
-          phantomService.sendTransaction(base58.encode(signed)),
+    final txSignature = await payTreasuryViaMwa(
+      mwa: ref.read(mwaServiceProvider),
+      phantom: ref.read(phantomServiceProvider),
+      linkedPubkey: userPubkey,
+      treasuryPublicKey: treasuryPublicKey,
+      isSol: isSol,
+      cryptoAmount: cryptoAmount,
     );
 
-    final confirmed = await phantomService.confirmTransaction(txSignature);
-    if (!confirmed) {
-      throw Exception(
-        'Transaction was sent but is not confirmed yet. '
-        'Check: https://explorer.solana.com/tx/$txSignature',
-      );
-    }
-
-    final firestore = ref.read(firestoreProvider);
     final currency = isSol ? 'SOL' : 'USDT';
-    final txId = isSol ? 'deposit_sol_$txSignature' : 'deposit_usdt_$txSignature';
-    // Never credit the same on-chain signature twice.
-    final already = await firestore.collection('transactions').doc(txId).get();
-    if (!already.exists) {
-      final repo = ref.read(transitRepositoryProvider);
-      final userProfile = await repo.getUser(uid);
-      if (userProfile != null) {
-        await repo.updateTyxBalance(uid, userProfile.tyxBalance + phpAmount);
-        await firestore.collection('transactions').doc(txId).set({
-          'uid': uid,
-          'type': 'deposit',
-          'amount': phpAmount,
-          'title': 'Wallet Top-Up ($currency via Solana Mobile Wallet)',
-          'desc': isSol
-              ? 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} SOL via Solana Mobile Wallet Adapter'
-              : 'Crypto deposit of \$${cryptoAmount.toStringAsFixed(2)} USDT via Solana Mobile Wallet Adapter',
-          'method': 'Solana Mobile Wallet',
-          'solanaTxSignature': txSignature,
-          if (!isSol) 'currency': 'USDT',
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-        });
-      }
-    }
+    await creditMwaDeposit(
+      firestore: ref.read(firestoreProvider),
+      uid: uid,
+      markerId: isSol ? 'deposit_sol_$txSignature' : 'deposit_usdt_$txSignature',
+      phpAmount: phpAmount,
+      markerData: {
+        'uid': uid,
+        'type': 'deposit',
+        'amount': phpAmount,
+        'title': 'Wallet Top-Up ($currency via Solana Mobile Wallet)',
+        'desc': isSol
+            ? 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} SOL via Solana Mobile Wallet Adapter'
+            : 'Crypto deposit of \$${cryptoAmount.toStringAsFixed(2)} USDT via Solana Mobile Wallet Adapter',
+        'method': 'Solana Mobile Wallet',
+        'solanaTxSignature': txSignature,
+        if (!isSol) 'currency': 'USDT',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      },
+    );
 
     ref.invalidate(userProfileProvider);
     ref.invalidate(userTransactionsProvider);

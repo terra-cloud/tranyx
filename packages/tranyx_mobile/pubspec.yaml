@@ -76,6 +76,7 @@ dependencies:
   cloud_firestore: ^6.8.0
 dev_dependencies:
   build_runner: ^2.15.0
+  fake_cloud_firestore: ^4.0.0
   flutter_flavorizr: ^2.4.2
   flutter_launcher_icons: ^0.14.4
   flutter_lints: ^6.0.0
