@@ -183,3 +183,57 @@
       );
       allow update, delete: if isAdminOrStaff();
     }
+
+    // ------------------------------------------------------------------------
+    // RATINGS & REPORTS (KAN-145): create-only docs, one per (job, rater). Clients never touch the other
+    // user's users/{id} doc. Averages/aggregation belong to the server-side ledger work (KAN-126).
+    // ------------------------------------------------------------------------
+
+    // The two parties of a job are its creator (employer) and its accepted applicant (worker).
+    function isJobPartyPair(jobId, a, b) {
+      let j = get(/databases/$(database)/documents/jobs/$(jobId)).data;
+      let w = j.get('acceptedApplicantId', null);
+      return w != null && a != b &&
+        ((j.creatorId == a && w == b) || (j.creatorId == b && w == a));
+    }
+
+    // Rating: only for a Completed job; rater and ratee are its two parties; 1..5 int; optional comment.
+    function isValidRatingCreate(ratingId) {
+      let d = request.resource.data;
+      return isActiveUser() &&
+        d.keys().hasOnly(['jobId', 'raterId', 'rateeId', 'rating', 'comment', 'createdAt']) &&
+        d.keys().hasAll(['jobId', 'raterId', 'rateeId', 'rating', 'createdAt']) &&
+        d.jobId is string && d.raterId == request.auth.uid && d.rateeId is string &&
+        ratingId == d.jobId + '_' + d.raterId &&
+        d.rating is int && d.rating >= 1 && d.rating <= 5 &&
+        (!('comment' in d) || (d.comment is string && d.comment.size() <= 500)) &&
+        d.createdAt == request.time &&
+        get(/databases/$(database)/documents/jobs/$(d.jobId)).data.status in ['Completed', 'completed'] &&
+        isJobPartyPair(d.jobId, d.raterId, d.rateeId);
+    }
+
+    // Report: any job that has an assigned worker (in progress, completed, cancelled/abandoned/disputed
+    // after assignment), never an Open/Reviewing job.
+    function isValidReportCreate(reportId) {
+      let d = request.resource.data;
+      return isActiveUser() &&
+        d.keys().hasOnly(['jobId', 'reporterId', 'reportedId', 'reason', 'details', 'createdAt']) &&
+        d.keys().hasAll(['jobId', 'reporterId', 'reportedId', 'reason', 'createdAt']) &&
+        d.jobId is string && d.reporterId == request.auth.uid && d.reportedId is string &&
+        reportId == d.jobId + '_' + d.reporterId &&
+        d.reason is string && d.reason.size() >= 1 && d.reason.size() <= 100 &&
+        (!('details' in d) || (d.details is string && d.details.size() <= 1000)) &&
+        d.createdAt == request.time &&
+        !(get(/databases/$(database)/documents/jobs/$(d.jobId)).data.status in ['Open', 'open', 'Reviewing', 'reviewing']) &&
+        isJobPartyPair(d.jobId, d.reporterId, d.reportedId);
+    }
+
+    match /ratings/{ratingId} {
+      allow read: if isAuthenticated() && (resource.data.raterId == request.auth.uid || resource.data.rateeId == request.auth.uid || isAdminOrStaff());
+      allow create: if isValidRatingCreate(ratingId);
+    }
+
+    match /reports/{reportId} {
+      allow read: if isAuthenticated() && (resource.data.reporterId == request.auth.uid || resource.data.reportedId == request.auth.uid || isAdminOrStaff());
+      allow create: if isValidReportCreate(reportId);
+    }

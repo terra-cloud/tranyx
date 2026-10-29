@@ -105,11 +105,16 @@
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
       
-      // Regular users can create their profile without privileged fields.
-      // Verified staff emails or admins can bootstrap administrative roles.
+      // Regular users can create their profile without privileged fields (KAN-144: no role/staff/admin
+      // flags and a zero starting balance; signup writes UserProfile.toMap(), which never sets them).
+      // Staff (admin claim, or verified staff-domain email via isAdminOrStaff) can bootstrap administrative roles.
       allow create: if (
-        (isOwner(userId) && !request.resource.data.keys().hasAny(['role', 'banned', 'suspendedUntil'])) ||
-        (isOwner(userId) && isStaffEmail()) ||
+        (isOwner(userId) &&
+          !request.resource.data.keys().hasAny([
+            'role', 'banned', 'suspendedUntil', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent'
+          ]) &&
+          request.resource.data.get('tyxBalance', 0) == 0 &&
+          request.resource.data.get('reservedBalance', 0) == 0) ||
         isAdminOrStaff()
       ) &&
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
@@ -117,16 +122,13 @@
       allow update: if (
         // 1. Regular User: Can update own profile fields (cannot alter admin role, ban, or suspension status)
         (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil'
+          'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil', 'rating', 'ratingCount'
         ]))
         || 
-        // 2. Staff Bootstrap: verified staff-domain email only (isStaffEmail requires email_verified; KAN-136-B3)
-        (isOwner(userId) && isStaffEmail())
-        ||
-        // 3. Admin / Staff: Can update admin, moderation & verification fields
+        // 2. Admin / Staff: Can update admin, moderation & verification fields
         isAdminOrStaff()
         ||
-        // 4. Owner's own subscription fields (self-grant stays open until server-side activation: phase 2)
+        // 3. Owner's own subscription fields (self-grant stays open until server-side activation: phase 2)
         (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'isPremium', 'premiumUntil', 'accountType', 'subscriptionPlan', 
           'subscriptionStartedAt', 'subscriptionPaymentMethod', 'subscriptionPaymentAmount', 
@@ -134,7 +136,7 @@
           'lastSubscriptionRejection', 'updatedAt'
         ]))
         ||
-        // 5. Inactive gig reclaim: Allow incrementing worker's abandonedJobs metric
+        // 4. Inactive gig reclaim: Allow incrementing worker's abandonedJobs metric
         (isActiveUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['abandonedJobs']) &&
           request.resource.data.abandonedJobs is number &&
           (!('abandonedJobs' in resource.data) || request.resource.data.abandonedJobs == resource.data.abandonedJobs + 1)
@@ -144,10 +146,10 @@
 
       allow delete: if isAdminOrStaff();
       
-      // User Reviews subcollection
+      // Legacy user reviews subcollection: read-only for clients. New ratings go to /ratings (KAN-145).
       match /reviews/{reviewId} {
         allow read: if true;
-        allow write: if isActiveUser() && request.resource.data.authorId == request.auth.uid;
+        allow write: if isAdminOrStaff();
       }
 
       // User Ledger subcollection

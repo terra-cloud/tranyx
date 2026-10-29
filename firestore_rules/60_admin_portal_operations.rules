@@ -5,7 +5,7 @@
     // P2P Agents Collection (Publicly readable verified agent QR credentials)
     match /p2p_agents/{agentId} {
       allow read: if true;
-      allow write: if isAdminOrStaff() || (isOwner(agentId) && isStaffEmail());
+      allow write: if isAdminOrStaff();
     }
 
     // Unified Requests Collection (Admin Portal: Enforces 3-Min Claim Limit & Single-Agent Lock)

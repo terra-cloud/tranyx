@@ -55,7 +55,7 @@ describe('SYS: system_config/treasury', () => {
     await prep();
     await assertFails(getDoc(doc(guest(), 'system_config/treasury')));
   });
-  knownHole('KNOWN-HOLE SYS-03 [CRITICAL] verified @tranyx.com email without admin claim cannot read treasury (02_...:27-29 / compiled:78-80)', async () => {
+  it('SYS-03 [CRITICAL] verified @tranyx.com email without admin claim cannot read treasury (02_...:27-29 / compiled:78-80)', async () => {
     await prep();
     await assertFails(getDoc(doc(user('emp', { email: 'emp@tranyx.com', email_verified: true }), 'system_config/treasury')));
   });

@@ -53,19 +53,8 @@ service cloud.firestore {
     // ADMINISTRATIVE & STAFF AUTHORIZATION HELPERS
     // ------------------------------------------------------------------------
 
-    // Helper to check if the user has an official staff/admin email domain
-    function isStaffEmail() {
-      // Staff-domain email alone is not enough — must be verified (KAN-136-B1/B3).
-      return isAuthenticated() &&
-        request.auth.token.email != null &&
-        request.auth.token.email_verified == true && (
-        request.auth.token.email.matches('.*\\.(agents|agent|admin|staff)@tranyx\\.(app|com|ph)$') ||
-        request.auth.token.email.matches('.*@(admin|staff|agents|agent)\\.tranyx\\.(app|com|ph)$') ||
-        request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.ph|tranyx\\.com|terra\\.app|tranyx\\.dev)$')
-      );
-    }
-
-    // Step 1: Zero-read instant verification via Auth Token Claims & Verified Staff Email
+    // Step 1: Zero-read instant verification via Auth Token Claims only. A staff-domain email alone grants
+    // nothing (KAN-144): admin/staff access needs a custom claim set server-side.
     function isAdminTokenOrEmail() {
       return isAuthenticated() && (
         (request.auth.token != null && (
@@ -77,10 +66,7 @@ service cloud.firestore {
               'ADMIN', 'STAFF', 'AGENT', 'SUPER_ADMIN'
             ]
           ))
-        )) ||
-        (request.auth.token.email != null &&
-         request.auth.token.email_verified == true &&
-         request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.com|tranyx\\.ph|terra\\.app|tranyx\\.dev)$'))
+        ))
       );
     }
 
@@ -220,11 +206,16 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true; // Publicly readable profiles (ratings/reviews)
       
-      // Regular users can create their profile without privileged fields.
-      // Verified staff emails or admins can bootstrap administrative roles.
+      // Regular users can create their profile without privileged fields (KAN-144: no role/staff/admin
+      // flags and a zero starting balance; signup writes UserProfile.toMap(), which never sets them).
+      // Staff (admin claim, or verified staff-domain email via isAdminOrStaff) can bootstrap administrative roles.
       allow create: if (
-        (isOwner(userId) && !request.resource.data.keys().hasAny(['role', 'banned', 'suspendedUntil'])) ||
-        (isOwner(userId) && isStaffEmail()) ||
+        (isOwner(userId) &&
+          !request.resource.data.keys().hasAny([
+            'role', 'banned', 'suspendedUntil', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent'
+          ]) &&
+          request.resource.data.get('tyxBalance', 0) == 0 &&
+          request.resource.data.get('reservedBalance', 0) == 0) ||
         isAdminOrStaff()
       ) &&
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
@@ -232,16 +223,13 @@ service cloud.firestore {
       allow update: if (
         // 1. Regular User: Can update own profile fields (cannot alter admin role, ban, or suspension status)
         (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil'
+          'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil', 'rating', 'ratingCount'
         ]))
         || 
-        // 2. Staff Bootstrap: verified staff-domain email only (isStaffEmail requires email_verified; KAN-136-B3)
-        (isOwner(userId) && isStaffEmail())
-        ||
-        // 3. Admin / Staff: Can update admin, moderation & verification fields
+        // 2. Admin / Staff: Can update admin, moderation & verification fields
         isAdminOrStaff()
         ||
-        // 4. Owner's own subscription fields (self-grant stays open until server-side activation: phase 2)
+        // 3. Owner's own subscription fields (self-grant stays open until server-side activation: phase 2)
         (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'isPremium', 'premiumUntil', 'accountType', 'subscriptionPlan', 
           'subscriptionStartedAt', 'subscriptionPaymentMethod', 'subscriptionPaymentAmount', 
@@ -249,7 +237,7 @@ service cloud.firestore {
           'lastSubscriptionRejection', 'updatedAt'
         ]))
         ||
-        // 5. Inactive gig reclaim: Allow incrementing worker's abandonedJobs metric
+        // 4. Inactive gig reclaim: Allow incrementing worker's abandonedJobs metric
         (isActiveUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['abandonedJobs']) &&
           request.resource.data.abandonedJobs is number &&
           (!('abandonedJobs' in resource.data) || request.resource.data.abandonedJobs == resource.data.abandonedJobs + 1)
@@ -259,10 +247,10 @@ service cloud.firestore {
 
       allow delete: if isAdminOrStaff();
       
-      // User Reviews subcollection
+      // Legacy user reviews subcollection: read-only for clients. New ratings go to /ratings (KAN-145).
       match /reviews/{reviewId} {
         allow read: if true;
-        allow write: if isActiveUser() && request.resource.data.authorId == request.auth.uid;
+        allow write: if isAdminOrStaff();
       }
 
       // User Ledger subcollection
@@ -806,6 +794,60 @@ service cloud.firestore {
       allow update, delete: if isAdminOrStaff();
     }
 
+    // ------------------------------------------------------------------------
+    // RATINGS & REPORTS (KAN-145): create-only docs, one per (job, rater). Clients never touch the other
+    // user's users/{id} doc. Averages/aggregation belong to the server-side ledger work (KAN-126).
+    // ------------------------------------------------------------------------
+
+    // The two parties of a job are its creator (employer) and its accepted applicant (worker).
+    function isJobPartyPair(jobId, a, b) {
+      let j = get(/databases/$(database)/documents/jobs/$(jobId)).data;
+      let w = j.get('acceptedApplicantId', null);
+      return w != null && a != b &&
+        ((j.creatorId == a && w == b) || (j.creatorId == b && w == a));
+    }
+
+    // Rating: only for a Completed job; rater and ratee are its two parties; 1..5 int; optional comment.
+    function isValidRatingCreate(ratingId) {
+      let d = request.resource.data;
+      return isActiveUser() &&
+        d.keys().hasOnly(['jobId', 'raterId', 'rateeId', 'rating', 'comment', 'createdAt']) &&
+        d.keys().hasAll(['jobId', 'raterId', 'rateeId', 'rating', 'createdAt']) &&
+        d.jobId is string && d.raterId == request.auth.uid && d.rateeId is string &&
+        ratingId == d.jobId + '_' + d.raterId &&
+        d.rating is int && d.rating >= 1 && d.rating <= 5 &&
+        (!('comment' in d) || (d.comment is string && d.comment.size() <= 500)) &&
+        d.createdAt == request.time &&
+        get(/databases/$(database)/documents/jobs/$(d.jobId)).data.status in ['Completed', 'completed'] &&
+        isJobPartyPair(d.jobId, d.raterId, d.rateeId);
+    }
+
+    // Report: any job that has an assigned worker (in progress, completed, cancelled/abandoned/disputed
+    // after assignment), never an Open/Reviewing job.
+    function isValidReportCreate(reportId) {
+      let d = request.resource.data;
+      return isActiveUser() &&
+        d.keys().hasOnly(['jobId', 'reporterId', 'reportedId', 'reason', 'details', 'createdAt']) &&
+        d.keys().hasAll(['jobId', 'reporterId', 'reportedId', 'reason', 'createdAt']) &&
+        d.jobId is string && d.reporterId == request.auth.uid && d.reportedId is string &&
+        reportId == d.jobId + '_' + d.reporterId &&
+        d.reason is string && d.reason.size() >= 1 && d.reason.size() <= 100 &&
+        (!('details' in d) || (d.details is string && d.details.size() <= 1000)) &&
+        d.createdAt == request.time &&
+        !(get(/databases/$(database)/documents/jobs/$(d.jobId)).data.status in ['Open', 'open', 'Reviewing', 'reviewing']) &&
+        isJobPartyPair(d.jobId, d.reporterId, d.reportedId);
+    }
+
+    match /ratings/{ratingId} {
+      allow read: if isAuthenticated() && (resource.data.raterId == request.auth.uid || resource.data.rateeId == request.auth.uid || isAdminOrStaff());
+      allow create: if isValidRatingCreate(ratingId);
+    }
+
+    match /reports/{reportId} {
+      allow read: if isAuthenticated() && (resource.data.reporterId == request.auth.uid || resource.data.reportedId == request.auth.uid || isAdminOrStaff());
+      allow create: if isValidReportCreate(reportId);
+    }
+
 // >>> SOURCE: firestore_rules/40_workspace_properties.rules
     // ------------------------------------------------------------------------
     // WORKSPACE: PROPERTY RENTALS, LEASES & CONTRACT DOCUMENTS
@@ -1118,7 +1160,7 @@ service cloud.firestore {
     // P2P Agents Collection (Publicly readable verified agent QR credentials)
     match /p2p_agents/{agentId} {
       allow read: if true;
-      allow write: if isAdminOrStaff() || (isOwner(agentId) && isStaffEmail());
+      allow write: if isAdminOrStaff();
     }
 
     // Unified Requests Collection (Admin Portal: Enforces 3-Min Claim Limit & Single-Agent Lock)

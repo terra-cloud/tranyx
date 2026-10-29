@@ -4680,6 +4680,11 @@ class TranyxAppState extends State<TranyxApp> {
     try {
       await FirestoreService(token, _handleTokenRefresh).reportJob(jobId, employerId, uid, selectedReportReason);
       setState(() {
+        // The report lives in reports/{jobId}_{uid} now; mirror it locally so the button disables.
+        selectedJobData = {
+          ...?selectedJobData,
+          'reportedByUids': [...List<String>.from(selectedJobData?['reportedByUids'] as List? ?? []), uid],
+        };
         isSubmittingReport = false;
         showReportModal = false;
         jobsView = JobsView.success; // Or a specific report success state
@@ -5773,55 +5778,38 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() => isSubmittingRating = true);
     try {
       final svc = FirestoreService(token, _handleTokenRefresh);
-      final targetDoc = await svc.getDocument('users/$targetId');
-      if (targetDoc != null) {
-        final currentRating = (targetDoc['rating'] as num?)?.toDouble() ?? 0.0;
-        final currentRatingCount = targetDoc['ratingCount'] as int? ?? 0;
-
-        final double newRating;
-        if (currentRatingCount == 0) {
-          newRating = score.toDouble();
-        } else {
-          newRating = ((currentRating * currentRatingCount) + score) / (currentRatingCount + 1);
-        }
-
-        await svc.createOrUpdate('users/$targetId', {
-          ...targetDoc,
-          'rating': newRating,
-          'ratingCount': currentRatingCount + 1,
-        });
-
-        final jobId = selectedJobData?['id'] as String? ?? 'job_review';
-        await svc.createOrUpdate('users/$targetId/reviews/$jobId', {
-          'reviewerId': SessionStorage.uid,
-          'reviewerName': userProfile?.name ?? 'User',
-          'score': score,
-          'comment': comment,
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
+      final jobId = selectedJobData?['id'] as String?;
+      final uid = SessionStorage.uid;
+      if (jobId != null && uid != null) {
+        // Create-only ratings/{jobId}_{raterUid} (KAN-145): never writes the other user's profile.
+        // The rating average is aggregated server-side (KAN-126).
+        await svc.createWithServerTime('ratings/${jobId}_$uid', {
+          'jobId': jobId,
+          'raterId': uid,
+          'rateeId': targetId,
+          'rating': score,
+          'comment': comment.length > 500 ? comment.substring(0, 500) : comment,
         });
 
         // Also update the job document
-        final jId = selectedJobData?['id'] as String?;
-        if (jId != null) {
-          final jobDoc = await svc.getDocument('jobs/$jId');
-          if (jobDoc != null) {
-            final isEmployerRole = currentViewMode == AccountType.employer;
-            final isNyxianRole = currentViewMode == AccountType.nyxian;
+        final jobDoc = await svc.getDocument('jobs/$jobId');
+        if (jobDoc != null) {
+          final isEmployerRole = currentViewMode == AccountType.employer;
+          final isNyxianRole = currentViewMode == AccountType.nyxian;
 
-            await svc.createOrUpdate('jobs/$jId', {
-              ...jobDoc,
+          await svc.createOrUpdate('jobs/$jobId', {
+            ...jobDoc,
+            if (isEmployerRole) 'employerRated': true,
+            if (isNyxianRole) 'nyxianRated': true,
+          });
+
+          // Update local state immediately so UI refreshes without reopening job details
+          if (selectedJobData != null && selectedJobData!['id'] == jobId) {
+            selectedJobData = {
+              ...selectedJobData!,
               if (isEmployerRole) 'employerRated': true,
               if (isNyxianRole) 'nyxianRated': true,
-            });
-
-            // Update local state immediately so UI refreshes without reopening job details
-            if (selectedJobData != null && selectedJobData!['id'] == jId) {
-              selectedJobData = {
-                ...selectedJobData!,
-                if (isEmployerRole) 'employerRated': true,
-                if (isNyxianRole) 'nyxianRated': true,
-              };
-            }
+            };
           }
         }
       }

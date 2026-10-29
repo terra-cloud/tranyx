@@ -589,6 +589,29 @@ class FirestoreService {
     await _patch(url, body, idToken, _refreshToken);
   }
 
+  /// Create-only write whose createdAt is the server request time (ratings/reports rules need createdAt == request.time).
+  Future<void> createWithServerTime(String path, Map data) async {
+    await _post(
+      '$_firestoreBase:commit',
+      {
+        'writes': [
+          {
+            'update': {
+              'name': 'projects/${currentFirebaseConfig.projectId}/databases/(default)/documents/$path',
+              'fields': _toFirestoreFields(data)['fields'],
+            },
+            'currentDocument': {'exists': false},
+            'updateTransforms': [
+              {'fieldPath': 'createdAt', 'setToServerValue': 'REQUEST_TIME'},
+            ],
+          },
+        ],
+      },
+      idToken: idToken,
+      onTokenRefresh: _refreshToken,
+    );
+  }
+
   Future<void> deleteDocument(String path) async {
     final url = '$_firestoreBase/$path';
     await _requestWithRetry(url, idToken, _refreshToken, (token) {
@@ -647,8 +670,51 @@ class FirestoreService {
         final id = _docId(doc);
         return <String, dynamic>{..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
+      result.addAll(await _getRatingsReceived(uid));
       result.sort((a, b) => (b['timestamp'] as int? ?? 0).compareTo(a['timestamp'] as int? ?? 0));
       return result;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Ratings the user received (ratings/{jobId}_{raterUid}, KAN-145), shaped like legacy review docs.
+  Future<List<Map<String, dynamic>>> _getRatingsReceived(String uid) async {
+    final url = '$_firestoreBase:runQuery';
+    final body = jsonEncode({
+      'structuredQuery': {
+        'from': [
+          {'collectionId': 'ratings'},
+        ],
+        'where': {
+          'fieldFilter': {
+            'field': {'fieldPath': 'rateeId'},
+            'op': 'EQUAL',
+            'value': {'stringValue': uid},
+          },
+        },
+      },
+    });
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+      if (req.statusCode >= 400) return [];
+      return [
+        for (final res in jsonDecode(req.body) as List)
+          if (res is Map && res.containsKey('document'))
+            () {
+              final d = _fromFirestoreDoc(res['document'] as Map);
+              return <String, dynamic>{
+                'id': _docId(res['document'] as Map),
+                'score': d['rating'],
+                'comment': d['comment'],
+                'timestamp': DateTime.tryParse('${d['createdAt']}')?.millisecondsSinceEpoch ?? 0,
+              };
+            }(),
+      ];
     } catch (_) {
       return [];
     }
@@ -2546,36 +2612,15 @@ class FirestoreService {
     }
   }
 
-  Future<void> reportJob(String jobId, String employerId, String reporterUid, String reason) async {
-    // 1. Update job document with report
-    final jobDoc = await getDocument('jobs/$jobId');
-    if (jobDoc != null) {
-      final reportedBy = List<String>.from(jobDoc['reportedByUids'] as List? ?? []);
-      if (reportedBy.contains(reporterUid)) return; // Already reported
-      reportedBy.add(reporterUid);
-
-      final reports = List<Map<String, dynamic>>.from(jobDoc['reports'] as List? ?? []);
-      reports.add({'uid': reporterUid, 'reason': reason, 'timestamp': DateTime.now().millisecondsSinceEpoch});
-
-      final reportCount = (jobDoc['reportCount'] as int? ?? 0) + 1;
-      await createOrUpdate('jobs/$jobId', {
-        ...jobDoc,
-        'reportedByUids': reportedBy,
-        'reports': reports,
-        'reportCount': reportCount,
-      });
-    }
-
-    // 2. Deduct from employer profile
-    final empDoc = await getDocument('users/$employerId');
-    if (empDoc != null) {
-      final currentRating = (empDoc['rating'] as num?)?.toDouble() ?? 0.0;
-      final newRating = (currentRating - 0.5).clamp(1.0, 5.0);
-      await createOrUpdate('users/$employerId', {
-        ...empDoc,
-        'rating': newRating,
-      });
-    }
+  /// One report per (job, reporter): create-only reports/{jobId}_{reporterUid} (KAN-145). The job doc and the
+  /// reported user's profile are no longer touched; counts/aggregation belong to server-side work (KAN-126).
+  Future<void> reportJob(String jobId, String reportedId, String reporterUid, String reason) async {
+    await createWithServerTime('reports/${jobId}_$reporterUid', {
+      'jobId': jobId,
+      'reporterId': reporterUid,
+      'reportedId': reportedId,
+      'reason': reason.length > 100 ? reason.substring(0, 100) : reason,
+    });
   }
 
   // ── Job Acknowledgment & SLA Operations ───────────────────────

@@ -2,19 +2,8 @@
     // ADMINISTRATIVE & STAFF AUTHORIZATION HELPERS
     // ------------------------------------------------------------------------
 
-    // Helper to check if the user has an official staff/admin email domain
-    function isStaffEmail() {
-      // Staff-domain email alone is not enough — must be verified (KAN-136-B1/B3).
-      return isAuthenticated() &&
-        request.auth.token.email != null &&
-        request.auth.token.email_verified == true && (
-        request.auth.token.email.matches('.*\\.(agents|agent|admin|staff)@tranyx\\.(app|com|ph)$') ||
-        request.auth.token.email.matches('.*@(admin|staff|agents|agent)\\.tranyx\\.(app|com|ph)$') ||
-        request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.ph|tranyx\\.com|terra\\.app|tranyx\\.dev)$')
-      );
-    }
-
-    // Step 1: Zero-read instant verification via Auth Token Claims & Verified Staff Email
+    // Step 1: Zero-read instant verification via Auth Token Claims only. A staff-domain email alone grants
+    // nothing (KAN-144): admin/staff access needs a custom claim set server-side.
     function isAdminTokenOrEmail() {
       return isAuthenticated() && (
         (request.auth.token != null && (
@@ -26,10 +15,7 @@
               'ADMIN', 'STAFF', 'AGENT', 'SUPER_ADMIN'
             ]
           ))
-        )) ||
-        (request.auth.token.email != null &&
-         request.auth.token.email_verified == true &&
-         request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.com|tranyx\\.ph|terra\\.app|tranyx\\.dev)$'))
+        ))
       );
     }
 

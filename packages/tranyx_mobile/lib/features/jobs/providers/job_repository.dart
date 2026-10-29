@@ -851,46 +851,28 @@ class JobRepository {
     required String comment,
     required AccountType currentViewMode,
   }) async {
-    final targetRef = _firestore.collection('users').doc(targetId);
-    final reviewRef = _firestore.collection('users').doc(targetId).collection('reviews').doc(jobId);
+    // Create-only ratings/{jobId}_{raterUid} (KAN-145): never writes the other user's profile.
+    // The rating average is aggregated server-side (KAN-126).
+    final ratingRef = _firestore.collection('ratings').doc('${jobId}_$reviewerUid');
     final jobRef = _firestore.collection('jobs').doc(jobId);
 
-    await _firestore.runTransaction((transaction) async {
-      final targetSnap = await transaction.get(targetRef);
-      if (!targetSnap.exists) throw Exception('Target user profile not found.');
-      final targetDoc = targetSnap.data()!;
-
-      final double currentRating = (targetDoc['rating'] as num?)?.toDouble() ?? 0.0;
-      final int currentRatingCount = targetDoc['ratingCount'] as int? ?? 0;
-
-      final double newRating;
-      if (currentRatingCount == 0) {
-        newRating = score.toDouble();
-      } else {
-        newRating = ((currentRating * currentRatingCount) + score) / (currentRatingCount + 1);
-      }
-
-      transaction.update(targetRef, {
-        'rating': newRating,
-        'ratingCount': currentRatingCount + 1,
-      });
-
-      transaction.set(reviewRef, {
-        'reviewerId': reviewerUid,
-        'reviewerName': reviewerName,
-        'score': score,
-        'comment': comment,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      });
-
-      final isEmployerRole = currentViewMode == AccountType.employer;
-      final isNyxianRole = currentViewMode == AccountType.nyxian;
-
-      transaction.update(jobRef, {
-        if (isEmployerRole) 'employerRated': true,
-        if (isNyxianRole) 'nyxianRated': true,
-      });
+    final batch = _firestore.batch();
+    batch.set(ratingRef, {
+      'jobId': jobId,
+      'raterId': reviewerUid,
+      'rateeId': targetId,
+      'rating': score,
+      'comment': comment.length > 500 ? comment.substring(0, 500) : comment,
+      'createdAt': FieldValue.serverTimestamp(),
     });
+
+    final isEmployerRole = currentViewMode == AccountType.employer;
+    final isNyxianRole = currentViewMode == AccountType.nyxian;
+    batch.update(jobRef, {
+      if (isEmployerRole) 'employerRated': true,
+      if (isNyxianRole) 'nyxianRated': true,
+    });
+    await batch.commit();
   }
 
   Future<void> cancelJob({

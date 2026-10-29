@@ -279,11 +279,11 @@ describe('KAN-136-B MUST-ALLOW: real admin provisioning keeps working', () => {
     await assertSucceeds(setDoc(doc(db, 'p2p_agents/realAdmin'), agentDoc('realAdmin', 'ops@example.org'), { merge: true }));
     await assertSucceeds(setDoc(doc(db, 'users/realAdmin'), adminUserDoc('realAdmin', 'ops@example.org'), { merge: true }));
   });
-  it('KAN-136-M3 [MUST-ALLOW] verified @tranyx.app staff self-provisions p2p_agents/{self} + users/{self}', async () => {
+  it('KAN-136-M3 (KAN-144: path removed) verified @tranyx.app email WITHOUT admin claim can no longer self-provision p2p_agents/{self} + users/{self}', async () => {
     await deskSeed({ 'users/staff1': userProfile('staff1', { email: 'staff1@tranyx.app' }) });
     const db = user('staff1', { email: 'staff1@tranyx.app', email_verified: true });
-    await assertSucceeds(setDoc(doc(db, 'p2p_agents/staff1'), agentDoc('staff1', 'staff1@tranyx.app'), { merge: true }));
-    await assertSucceeds(setDoc(doc(db, 'users/staff1'), adminUserDoc('staff1', 'staff1@tranyx.app'), { merge: true }));
+    await assertFails(setDoc(doc(db, 'p2p_agents/staff1'), agentDoc('staff1', 'staff1@tranyx.app'), { merge: true }));
+    await assertFails(setDoc(doc(db, 'users/staff1'), adminUserDoc('staff1', 'staff1@tranyx.app'), { merge: true }));
   });
   it('KAN-136-M4 [MUST-ALLOW] admin claim deactivates an agent (isActive:false merge)', async () => {
     await deskSeed();

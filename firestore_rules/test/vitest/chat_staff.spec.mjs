@@ -33,7 +33,6 @@ const base = (extra = {}) => seed({
 });
 
 const STAFF = {
-  'verified @tranyx.app email': () => user('staff1', { email: 'staff1@tranyx.app', email_verified: true }),
   'admin custom claim': () => adminClaim('claimAdmin'),
   'role:"support" claim': () => user('sup', { role: 'support' }),
   'users doc isAdmin:true (gmail)': () => user('docAdmin'),
@@ -67,6 +66,7 @@ describe('STAFF-L: accounts that LOSE desk access under 2902ace (had it only bec
   const LOSERS = {
     'unverified @tranyx.app email/password, no claim, no users flag, no p2p_agents doc': () => user('nv', { email: 'nv@tranyx.app', email_verified: false }),
     'gmail email/password staff with no claim/flag/doc': () => user('gstaff'),
+    'verified @tranyx.app email, no claim (staff-email path removed, KAN-144)': () => user('staff1', { email: 'staff1@tranyx.app', email_verified: true }),
   };
   for (const [who, mk] of Object.entries(LOSERS)) {
     it(`STAFF-L ${who}: denied every desk op`, async () => {

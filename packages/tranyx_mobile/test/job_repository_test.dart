@@ -476,8 +476,7 @@ void main() {
       expect(feeTx.data()!['type'], equals('fee_deduction'));
     });
 
-    test('Verify submitJobRating updates rating, review subcollection, and job rated fields', () async {
-      // 1. Setup initial DB state
+    test('Verify submitJobRating creates ratings/{jobId}_{raterUid} and marks the job rated (users doc untouched)', () async {
       firestore.db['users/nyxian123'] = {
         'uid': 'nyxian123',
         'name': 'Test Nyxian',
@@ -493,7 +492,6 @@ void main() {
         'nyxianRated': false,
       };
 
-      // 2. Submit rating (employer rates worker with 5 stars)
       await repo.submitJobRating(
         jobId: 'job123',
         targetId: 'nyxian123',
@@ -504,25 +502,21 @@ void main() {
         currentViewMode: AccountType.employer,
       );
 
-      // 3. Assertions
-      // New rating = ((4.0 * 1) + 5) / 2 = 4.5
+      final ratingDoc = await firestore.collection('ratings').doc('job123_employer123').get();
+      expect(ratingDoc.exists, isTrue);
+      expect(ratingDoc.data()!['jobId'], equals('job123'));
+      expect(ratingDoc.data()!['raterId'], equals('employer123'));
+      expect(ratingDoc.data()!['rateeId'], equals('nyxian123'));
+      expect(ratingDoc.data()!['rating'], equals(5));
+      expect(ratingDoc.data()!['comment'], equals('Great work!'));
+      expect(ratingDoc.data()!.keys.toSet(),
+          equals({'jobId', 'raterId', 'rateeId', 'rating', 'comment', 'createdAt'}));
+
+      // The rated user's profile is not written by the rater any more (aggregation: KAN-126).
       final nyxDoc = await firestore.collection('users').doc('nyxian123').get();
-      expect(nyxDoc.data()!['rating'], equals(4.5));
-      expect(nyxDoc.data()!['ratingCount'], equals(2));
+      expect(nyxDoc.data()!['rating'], equals(4.0));
+      expect(nyxDoc.data()!['ratingCount'], equals(1));
 
-      // Verify review subcollection record
-      final reviewDoc = await firestore
-          .collection('users')
-          .doc('nyxian123')
-          .collection('reviews')
-          .doc('job123')
-          .get();
-      expect(reviewDoc.exists, isTrue);
-      expect(reviewDoc.data()!['score'], equals(5));
-      expect(reviewDoc.data()!['comment'], equals('Great work!'));
-      expect(reviewDoc.data()!['reviewerId'], equals('employer123'));
-
-      // Verify job doc updated
       final jobDoc = await firestore.collection('jobs').doc('job123').get();
       expect(jobDoc.data()!['employerRated'], isTrue);
       expect(jobDoc.data()!['nyxianRated'], isFalse);
@@ -863,9 +857,9 @@ void main() {
         currentViewMode: AccountType.employer,
       );
 
-      final userDoc = await firestore.collection('users').doc('newuser123').get();
-      expect(userDoc.data()!['rating'], equals(5.0));
-      expect(userDoc.data()!['ratingCount'], equals(1));
+      final ratingDoc = await firestore.collection('ratings').doc('job_new_employer123').get();
+      expect(ratingDoc.data()!['rating'], equals(5));
+      expect(ratingDoc.data()!['rateeId'], equals('newuser123'));
     });
 
     group('updateJobDetails Pre-Hire & Anti-Exploitation Contract', () {

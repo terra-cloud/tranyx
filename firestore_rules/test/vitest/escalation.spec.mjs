@@ -16,7 +16,7 @@ const victimSeed = () => seed({
 
 describe('ESC: fresh signup self-granted role flags', () => {
   for (const flag of ['isAdmin', 'isStaff', 'isP2pAgent']) {
-    knownHole(`KNOWN-HOLE ESC-01-${flag} [CRITICAL] fresh signup cannot create users/{uid} with ${flag}:true (10_workspace_users_wallets.rules:12 / compiled:122)`, async () => {
+    it(`ESC-01-${flag} [CRITICAL] fresh signup cannot create users/{uid} with ${flag}:true (10_workspace_users_wallets.rules:12 / compiled:122)`, async () => {
       await assertFails(setDoc(doc(user('attacker'), 'users/attacker'), userProfile('attacker', { [flag]: true })));
     });
   }
@@ -86,7 +86,7 @@ describe('ESC: only the admin custom claim grants admin', () => {
     await assertFails(updateDoc(doc(user('u1'), 'users/u1'), { role: 'admin' }));
     await assertFails(updateDoc(doc(user('u1'), 'users/u1'), { isAdmin: true }));
   });
-  knownHole('KNOWN-HOLE ESC-13 [HIGH] verified @tranyx.com email WITHOUT admin claim cannot do admin actions (email-domain admin: 02_...:28-30 / compiled:78-80)', async () => {
+  it('ESC-13 [HIGH] verified @tranyx.com email WITHOUT admin claim cannot do admin actions (email-domain admin: 02_...:28-30 / compiled:78-80)', async () => {
     await victimSeed();
     await assertFails(updateDoc(doc(user('emp', { email: 'emp@tranyx.com', email_verified: true }), 'users/victim'), { tyxBalance: 0 }));
   });
@@ -113,7 +113,7 @@ describe('ESC-AGG fresh signup cannot reach admin by any path', () => {
     'self-write p2p_agents (gmail)': async (db, uid) => setDoc(doc(db, `p2p_agents/${uid}`), { uid, role: 'agent', isActive: true }),
     'unverified @tranyx.com p2p_agents': async (db, uid) => setDoc(doc(db, `p2p_agents/${uid}`), { uid, role: 'agent', isActive: true }),
   };
-  knownHole('KNOWN-HOLE ESC-AGG [CRITICAL] no escalation path succeeds', async () => {
+  it('ESC-AGG [CRITICAL] no escalation path succeeds', async () => {
     await victimSeed();
     const escalated = [];
     let i = 0;
@@ -127,5 +127,27 @@ describe('ESC-AGG fresh signup cannot reach admin by any path', () => {
     }
     console.log('ESC-AGG escalated via:', escalated);
     expect(escalated).toEqual([]);
+  });
+});
+
+describe('KAN-144 self-admin: signup cannot carry privileged fields', () => {
+  it('ESC-16 fresh signup cannot create users/{uid} with a non-zero tyxBalance or reservedBalance', async () => {
+    await assertFails(setDoc(doc(user('f1'), 'users/f1'), userProfile('f1', { tyxBalance: 1000 })));
+    await assertFails(setDoc(doc(user('f2'), 'users/f2'), userProfile('f2', { tyxBalance: 0, reservedBalance: 5 })));
+  });
+  it('ESC-17 [MUST-ALLOW] normal signup (UserProfile.toMap shape, zero balances, no role keys) is allowed', async () => {
+    await assertSucceeds(setDoc(doc(user('f3'), 'users/f3'), userProfile('f3', { tyxBalance: 0, jobsDone: 0, totalEarned: 0, verificationLevel: 0 })));
+  });
+  it('ESC-18 PROBE: signup with isAdmin:true fails, so the account cannot read another user\'s kyc_submissions', async () => {
+    await victimSeed();
+    await seed({ 'kyc_submissions/victim': { uid: 'victim', status: 'pending' } });
+    const db = user('probe1');
+    await assertFails(setDoc(doc(db, 'users/probe1'), userProfile('probe1', { isAdmin: true, tyxBalance: 0 })));
+    await assertFails(getDoc(doc(db, 'kyc_submissions/victim')));
+  });
+  it('ESC-19 staff-domain email gets no staff path: verified @tranyx.com cannot create an admin users doc; only the admin claim can', async () => {
+    const staff = user('staff1', { email: 'staff1@tranyx.com', email_verified: true });
+    await assertFails(setDoc(doc(staff, 'users/staff1'), { uid: 'staff1', email: 'staff1@tranyx.com', role: 'admin', isAdmin: true, isP2pAgent: true, name: 'Staff Admin', updatedAt: 1 }));
+    await assertSucceeds(setDoc(doc(adminClaim(), 'users/newagent'), userProfile('newagent', { role: 'agent', isP2pAgent: true, tyxBalance: 0 })));
   });
 });
