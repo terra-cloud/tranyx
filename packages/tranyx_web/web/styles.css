@@ -579,3 +579,15 @@ html:not(.dark) .pf-pane input:not([type=checkbox]):not([type=radio]):not([type=
 .rw-wizard-page { overflow: visible; box-shadow: 0 4px 12px rgba(9,9,11,.04), 0 1px 2px rgba(9,9,11,.06) !important; }
 .rw-sep { height: 1px; background: #e4e4e7; margin: 4px 0; }
 html.dark .rw-sep { background: #27272a; }
+
+/* Rentals side panel (>=1024): details/booking beside the listing cards */
+.rw-page.rw-panel { position: sticky; top: 16px; align-self: flex-start; }
+.rw-page.rw-panel .rw-wizard-page {
+  max-width: none !important; margin: 0 !important;
+  display: flex; flex-direction: column;
+  height: calc(100vh - 150px); min-height: 480px; overflow: hidden;
+}
+.rw-page.rw-panel .rw-wizard-page > * { flex: none; }
+.rw-page.rw-panel .rw-wizard-page > .flex-1 { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.rentals-split-list .grid.grid-cols-1 { grid-template-columns: minmax(0, 1fr) !important; }
+@media (prefers-reduced-motion: reduce) { .rw-page.rw-panel { animation: none !important; } }

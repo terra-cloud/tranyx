@@ -916,7 +916,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
     return div(
       classes:
-          'p-5 rounded-2xl border ${isOverdue ? "border-red-500/50 bg-red-500/10" : (isOngoing ? "border-emerald-500/40 bg-emerald-500/10" : (isAwaitingSignature ? "border-amber-500/50 bg-amber-500/10" : "border-purple-500/30 bg-purple-500/10"))} cursor-pointer hover:opacity-95 transition-all mb-4',
+          'p-5 rounded-2xl border ${isOverdue ? "border-red-500/50 bg-red-500/10" : (isOngoing ? "border-emerald-500/40 bg-emerald-500/10" : (isAwaitingSignature ? "border-amber-500/50 bg-amber-500/10" : "border-purple-500/30 bg-purple-500/10"))} cursor-pointer hover:opacity-95 transition-all mb-4 ${s.rentalsPanelMode && s.showRentalDetailsModal && s.selectedRentalDetailsData?['id'] == active['id'] ? (isDark ? "ring-2 ring-indigo-400" : "ring-2 ring-[#4f46e5]") : ""}',
+      attributes: {if (s.rentalsPanelMode && s.showRentalDetailsModal && s.selectedRentalDetailsData?['id'] == active['id']) 'aria-current': 'true'},
       events: {
         'click': (_) => s.setState(() {
           s.selectedRentalData = active;
@@ -1161,7 +1162,8 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
 
     return div(
       classes:
-          'p-5 rounded-2xl border ${isAwaitingSignature ? "border-amber-500/50 bg-amber-500/10" : "border-purple-500/30 bg-purple-500/10"} cursor-pointer hover:opacity-95 transition-all mb-4',
+          'p-5 rounded-2xl border ${isAwaitingSignature ? "border-amber-500/50 bg-amber-500/10" : "border-purple-500/30 bg-purple-500/10"} cursor-pointer hover:opacity-95 transition-all mb-4 ${s.rentalsPanelMode && s.showRentalDetailsModal && s.selectedRentalDetailsData?['id'] == active['id'] ? (isDark ? "ring-2 ring-indigo-400" : "ring-2 ring-[#4f46e5]") : ""}',
+      attributes: {if (s.rentalsPanelMode && s.showRentalDetailsModal && s.selectedRentalDetailsData?['id'] == active['id']) 'aria-current': 'true'},
       events: {
         'click': (_) {
           s.setState(() {
@@ -1545,7 +1547,9 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final unreadCount = chatId != null ? s.getUnreadChatCount(chatId) : 0;
 
     return div(
-      classes: 'p-5 rounded-2xl border transition-all card-hover cursor-pointer $cardCls',
+      classes: 'p-5 rounded-2xl border transition-all card-hover cursor-pointer $cardCls '
+          '${s.rentalsPanelMode && s.showBookVehicleModal && s.selectedRentalData?['id'] == r['id'] ? (isDark ? "ring-2 ring-indigo-400" : "ring-2 ring-[#4f46e5]") : ""}',
+      attributes: {if (s.rentalsPanelMode && s.showBookVehicleModal && s.selectedRentalData?['id'] == r['id']) 'aria-current': 'true'},
       events: {
         if (!isHostView)
           'click': (_) => s.setState(() {
@@ -1870,7 +1874,9 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final unreadCount = chatId != null ? s.getUnreadChatCount(chatId) : 0;
 
     return div(
-      classes: 'p-5 rounded-2xl border transition-all card-hover cursor-pointer $cardCls',
+      classes: 'p-5 rounded-2xl border transition-all card-hover cursor-pointer $cardCls '
+          '${s.rentalsPanelMode && s.showBookPropertyModal && s.selectedPropertyData?['id'] == prop.id ? (isDark ? "ring-2 ring-indigo-400" : "ring-2 ring-[#4f46e5]") : ""}',
+      attributes: {if (s.rentalsPanelMode && s.showBookPropertyModal && s.selectedPropertyData?['id'] == prop.id) 'aria-current': 'true'},
       events: {
         if (!isHostView)
           'click': (_) => s.setState(() {

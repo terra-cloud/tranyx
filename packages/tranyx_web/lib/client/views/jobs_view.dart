@@ -3,6 +3,7 @@ import 'package:jaspr/jaspr.dart';
 import 'package:web/web.dart' as web;
 import 'package:tranyx_web/components/map_picker.dart';
 import 'package:tranyx_web/components/navigation_map.dart';
+import 'package:tranyx_web/components/job_selection_guards.dart';
 import 'package:tranyx_web/services/web_interop.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
@@ -27,9 +28,9 @@ class JobsViewComponent extends StatelessComponent {
     if (s.jobsView == JobsView.list) {
       final displayJobs = isNyxian ? _getFilteredJobs(s.availableJobs, s) : _getFilteredJobs(s.myJobs, s);
 
-      return div(classes: 'flex flex-col xl:flex-row gap-6 animate-fade-up', [
+      return div(classes: 'flex flex-col lg:flex-row gap-6 animate-fade-up', [
         // Left list pane (W20 master)
-        div(classes: 'w-full xl:w-[420px] 2xl:w-[460px] flex-shrink-0 space-y-4 ${!isNyxian && s.employerPanelOpen ? "hidden xl:block" : ""}', [
+        div(classes: 'w-full lg:w-[360px] xl:w-[400px] 2xl:w-[420px] flex-shrink-0 space-y-4 ${s.employerPanelOpen ? "hidden lg:block" : ""}', [
           if (!isNyxian && !s.canPostJob)
             div(
               classes:
@@ -444,13 +445,16 @@ class JobsViewComponent extends StatelessComponent {
         ]),
 
         // W21 right pane: applicants for the selected posting (Employer)
-        if (!isNyxian && s.employerPanelOpen && s.selectedJobData != null)
+        if (!isNyxian && s.employerPanelOpen && s.selectedJobData != null && isJobCreator(s.selectedJobData, s.userProfile?.uid ?? SessionStorage.uid))
           div(classes: 'flex-1 min-w-0', [_ReviewApplicants(state: s, embedded: true)])
+        else if (isNyxian && s.employerPanelOpen && s.selectedJobData != null)
+          // W20/W22 right pane: job details beside the list (>=1024); the page variant is used below that.
+          div(classes: 'flex-1 min-w-0', [_JobDetails(state: s, embedded: true)])
         else
         // Right detail placeholder
         div(
           classes:
-              'flex-1 hidden md:flex items-center justify-center rounded-3xl border ${isDark ? "border-zinc-800 bg-zinc-900/40" : "border-zinc-200 bg-zinc-50"}',
+              'flex-1 hidden lg:flex items-center justify-center rounded-3xl border ${isDark ? "border-zinc-800 bg-zinc-900/40" : "border-zinc-200 bg-zinc-50"}',
           [
             div(classes: 'text-center', [
               lIcon('briefcase', cls: 'w-12 h-12 mx-auto mb-3 ${isDark ? "text-zinc-700" : "text-zinc-300"}'),
@@ -466,7 +470,9 @@ class JobsViewComponent extends StatelessComponent {
     if (s.jobsView == JobsView.create) return _CreateJob(state: s);
     if (s.jobsView == JobsView.details) return _JobDetails(state: s);
     if (s.jobsView == JobsView.apply) return _ApplyJob(state: s);
-    if (s.jobsView == JobsView.review) return _ReviewApplicants(state: s);
+    if (s.jobsView == JobsView.review && isJobCreator(s.selectedJobData, s.userProfile?.uid ?? SessionStorage.uid)) {
+      return _ReviewApplicants(state: s);
+    }
     if (s.jobsView == JobsView.success) return _SuccessScreen(state: s);
     return div([]);
   }
@@ -880,7 +886,13 @@ class JobsViewComponent extends StatelessComponent {
     final cardCls = isDark
         ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
         : 'bg-white border-zinc-200 shadow-sm hover:shadow-md';
-    return div(classes: 'p-4 rounded-2xl border transition-all $cardCls', [
+    final selected = s.employerPanelOpen && s.selectedJobData?['id'] == j['id'];
+    return div(
+      classes: 'p-4 rounded-2xl border transition-all cursor-pointer $cardCls '
+          '${selected ? (isDark ? "ring-2 ring-indigo-400" : "ring-2 ring-[#4f46e5]") : ""}',
+      attributes: {if (selected) 'aria-current': 'true'},
+      events: {'click': (_) => s.selectJobAndLoadDetails(j, inPanel: s.sidePanelLayout)},
+      [
       div(classes: 'flex items-start justify-between mb-3', [
         div(classes: 'flex-1 pr-2', [
           p(classes: 'font-semibold text-sm', [Component.text(title)]),
@@ -989,7 +1001,12 @@ class JobsViewComponent extends StatelessComponent {
         ]),
         button(
           classes: 'px-3 py-1.5 rounded-lg text-xs font-semibold logo-gradient text-white',
-          events: {'click': (_) => s.selectJobAndLoadDetails(j)},
+          events: {
+            'click': (e) {
+              e.stopPropagation();
+              s.selectJobAndLoadDetails(j, inPanel: s.sidePanelLayout);
+            },
+          },
           [Component.text('View')],
         ),
       ]),
@@ -1063,7 +1080,10 @@ class JobsViewComponent extends StatelessComponent {
 // ── Job Details ───────────────────────────────────────────────
 class _JobDetails extends StatelessComponent {
   final TranyxAppState state;
-  const _JobDetails({required this.state});
+
+  /// W20/W22: render as the right-hand pane next to the list (>=1024) instead of a full page.
+  final bool embedded;
+  const _JobDetails({required this.state, this.embedded = false});
 
   int _getStepperStep(String status, String? acceptedId) {
     final lStatus = status.toLowerCase();
@@ -1383,6 +1403,41 @@ class _JobDetails extends StatelessComponent {
     final progressMode = isAuthorizedExecution && isNotOpen;
     final hiredName = s.acceptedApplicantProfile?['name'] as String? ??
         s.selectedJobData?['acceptedApplicantName'] as String?;
+    if (embedded) {
+      final muted = isDark ? 'text-zinc-400' : 'text-[#52525b]';
+      return div(classes: 'w-full', [
+        div(
+          classes:
+              'rw-pane rounded-3xl border p-5 md:p-6 space-y-5 lg:max-h-[calc(100vh-140px)] lg:overflow-y-auto no-scrollbar '
+              '${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-[#e4e4e7] shadow-sm"}',
+          attributes: {'role': 'region', 'aria-label': progressMode ? 'Job progress' : 'Job details'},
+          [
+            div(classes: 'flex items-center justify-between gap-3', [
+              button(
+                classes: 'lg:hidden flex items-center gap-1 text-sm font-medium text-[#4f46e5] bg-transparent border-0 p-0 cursor-pointer',
+                attributes: {'type': 'button'},
+                events: {'click': (_) => s.closeJobDetail()},
+                [lIcon('chevron-left', cls: 'w-4 h-4'), Component.text('Jobs')],
+              ),
+              span(classes: 'hidden lg:inline text-xs font-semibold uppercase tracking-wide $muted', [
+                Component.text(progressMode ? 'Job progress' : 'Job details'),
+              ]),
+              button(
+                classes:
+                    'hidden lg:inline-flex p-2 rounded-xl border cursor-pointer ${isDark ? "border-zinc-800 text-zinc-400 hover:bg-zinc-800" : "border-[#e4e4e7] text-zinc-500 hover:bg-zinc-100"}',
+                attributes: {'type': 'button', 'aria-label': 'Close details'},
+                events: {'click': (_) => s.closeJobDetail()},
+                [lIcon('x', cls: 'w-4 h-4')],
+              ),
+            ]),
+            if (progressMode && hiredName != null && hiredName.isNotEmpty)
+              p(classes: 'm-0 text-xs $muted', [Component.text('${job.title} · Hired: $hiredName')]),
+            ...pageContent,
+          ],
+        ),
+        ...modals,
+      ]);
+    }
     return div(classes: 'space-y-6 animate-fade-up max-w-4xl', [
       subViewHeader(
         title: progressMode ? 'Job progress' : 'Job details',
@@ -2656,7 +2711,8 @@ class _JobDetails extends StatelessComponent {
               );
             }
 
-            // Default: Open job employer management buttons
+            // Default: Open job employer management buttons (creator only)
+            if (!isEmployer) return div([]);
             final isPreHire = (acceptedId == null || acceptedId.isEmpty) &&
                 (status.toLowerCase() == 'open' || status.toLowerCase() == 'reviewing');
             return div(classes: 'flex gap-3', [
@@ -3757,7 +3813,7 @@ class _ApplyJob extends StatelessComponent {
       subViewHeader(
         title: 'Apply for this gig',
         isDark: isDark,
-        onBack: () => s.setState(() => s.jobsView = JobsView.details),
+        onBack: () => s.setState(() => s.jobsView = s.employerPanelOpen ? JobsView.list : JobsView.details),
       ),
       div(classes: 'flex items-center gap-2 -mt-4 -mb-2', [
         span(classes: 'px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${isDark ? "bg-emerald-500/15 text-emerald-300" : "bg-[#ecfdf5] text-[#059669]"}', [Component.text('Nyxian apply')]),
@@ -3891,7 +3947,7 @@ class _ApplyJob extends StatelessComponent {
         classes: s.hasOngoingNyxianJob
             ? 'flex-1 py-4 rounded-2xl font-semibold text-white bg-amber-500/80 cursor-not-allowed flex items-center justify-center gap-2'
             : 'flex-1 py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center justify-center gap-2',
-        attributes: s.hasOngoingNyxianJob ? {'disabled': 'true'} : {},
+        attributes: (s.hasOngoingNyxianJob || s.isSubmittingApplication) ? {'disabled': 'true'} : {},
         events: s.hasOngoingNyxianJob
             ? {'click': (_) => s.showAppToast('Active Task Incomplete', ongoingJobRestrictionMessage)}
             : {'click': (_) => s.handleApplyJob()},
@@ -3908,7 +3964,7 @@ class _ApplyJob extends StatelessComponent {
       ),
       button(
         classes: 'text-center text-sm font-semibold text-[#4f46e5] hover:text-indigo-400 cursor-pointer py-3 px-2 bg-transparent border-0',
-        events: {'click': (_) => s.setState(() => s.jobsView = JobsView.details)},
+        events: {'click': (_) => s.setState(() => s.jobsView = s.employerPanelOpen ? JobsView.list : JobsView.details)},
         [Component.text('Cancel')],
       ),
       ]),
@@ -3929,6 +3985,13 @@ class _ReviewApplicants extends StatelessComponent {
     final s = state;
     final isDark = s.isDark;
     final job = s.selectedJobData;
+    // Review applicants / Edit / Accept & hire exist only for the job's creator.
+    final isCreator = isJobCreator(job, s.userProfile?.uid ?? SessionStorage.uid);
+    if (!isCreator) {
+      return div(classes: 'p-6 rounded-2xl border text-sm ${isDark ? "border-zinc-800 text-zinc-400" : "border-[#e4e4e7] text-[#71717a]"}', [
+        Component.text('Only the employer who posted this job can review applicants.'),
+      ]);
+    }
     final status = job?['status'] as String? ?? 'Open';
     final catName = (job?['category'] as String? ?? '').toLowerCase();
     final cat = JobCategory.values.firstWhere(
@@ -3962,9 +4025,9 @@ class _ReviewApplicants extends StatelessComponent {
           div(classes: 'flex items-start justify-between gap-3', [
             div(classes: 'min-w-0', [
               if (embedded) button(
-                classes: 'xl:hidden mb-2 flex items-center gap-1 text-sm font-medium text-[#4f46e5] bg-transparent border-0 p-0 cursor-pointer',
+                classes: 'lg:hidden mb-2 flex items-center gap-1 text-sm font-medium text-[#4f46e5] bg-transparent border-0 p-0 cursor-pointer',
                 attributes: {'type': 'button'},
-                events: {'click': (_) => s.setState(() => s.employerPanelOpen = false)},
+                events: {'click': (_) => s.closeJobDetail()},
                 [lIcon('chevron-left', cls: 'w-4 h-4'), Component.text('My Postings')],
               ),
               if (embedded) h2(classes: 'm-0 text-xl font-semibold ${isDark ? "text-zinc-50" : "text-[#18181b]"}', [Component.text('Review applicants')]),
@@ -3975,7 +4038,7 @@ class _ReviewApplicants extends StatelessComponent {
                 ),
               ]),
             ]),
-            if (embedded && (status == 'Open' || status == 'Active' || status == 'Reviewing'))
+            if (embedded && isCreator && (status == 'Open' || status == 'Active' || status == 'Reviewing'))
               button(
                 classes:
                     'h-11 px-5 rounded-xl text-sm font-semibold border cursor-pointer shrink-0 '
@@ -3983,6 +4046,14 @@ class _ReviewApplicants extends StatelessComponent {
                 attributes: {'type': 'button'},
                 events: {'click': (_) => s.openEditJobModal()},
                 [Component.text('Edit')],
+              ),
+            if (embedded)
+              button(
+                classes:
+                    'hidden lg:inline-flex p-2.5 rounded-xl border cursor-pointer shrink-0 ${isDark ? "border-zinc-800 text-zinc-400 hover:bg-zinc-800" : "border-[#e4e4e7] text-zinc-500 hover:bg-zinc-100"}',
+                attributes: {'type': 'button', 'aria-label': 'Close applicants'},
+                events: {'click': (_) => s.closeJobDetail()},
+                [lIcon('x', cls: 'w-4 h-4')],
               ),
           ]),
           if (apps.isNotEmpty)
@@ -4251,10 +4322,11 @@ class _ReviewApplicants extends StatelessComponent {
                                     Component.text('Chat'),
                                   ],
                                 ),
-                              if ((status.toLowerCase() == 'open' || status.toLowerCase() == 'reviewing') && acceptedId == null)
+                              if (isCreator && (status.toLowerCase() == 'open' || status.toLowerCase() == 'reviewing') && acceptedId == null)
                                 button(
                                   classes:
                                       'px-6 py-2 rounded-xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity whitespace-nowrap flex items-center gap-2',
+                                  attributes: s.isUpdatingJobStatus ? {'disabled': 'disabled', 'aria-busy': 'true'} : {},
                                   events: {'click': (_) => s.acceptApplicant(job!['id'], app)},
                                   [
                                     if (s.isUpdatingJobStatus) lIcon('loader-2', cls: 'w-4 h-4 animate-spin'),

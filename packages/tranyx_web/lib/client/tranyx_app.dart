@@ -7,6 +7,7 @@ import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'package:web/web.dart' as web;
 import 'package:tranyx_web/components/store_url_guard.dart';
+import 'package:tranyx_web/components/job_selection_guards.dart';
 import 'package:tranyx_web/services/web_interop.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -266,23 +267,65 @@ class TranyxAppState extends State<TranyxApp> {
 
   // ── Transit modales ──────────────────────────────────────────
   bool showListVehicleModal = false;
-  bool showBookVehicleModal = false;
+  /// Rental/property id while a booking request (payment path) is being submitted. While set, the
+  /// selection / panel state is frozen so a click on another card cannot swap the booking mid-flight.
+  String? bookingLockId;
+  bool _bookingLockToast = false;
+
+  bool _bookingFrozen() {
+    if (bookingLockId == null) return false;
+    if (!_bookingLockToast) {
+      _bookingLockToast = true;
+      Future.microtask(() => showAppToast('Booking in progress', 'Please wait until your request is submitted.'));
+    }
+    return true;
+  }
+
+  void setBookingLock(String? id) {
+    bookingLockId = id;
+    if (id == null) _bookingLockToast = false;
+  }
+
+  bool _showBookVehicleModal = false;
+  bool get showBookVehicleModal => _showBookVehicleModal;
+  set showBookVehicleModal(bool v) {
+    if (_bookingFrozen()) return;
+    _showBookVehicleModal = v;
+  }
   bool showExtendRentalModal = false;
   bool showRentalTrackerMap = false;
   bool showManageVehicleModal = false;
   bool showVehicleQaModal = false;
   bool showEditVehicleModal = false;
-  Map<String, dynamic>? selectedRentalData;
+  Map<String, dynamic>? _selectedRentalData;
+  Map<String, dynamic>? get selectedRentalData => _selectedRentalData;
+  set selectedRentalData(Map<String, dynamic>? v) {
+    if (bookingLockId != null && v?['id']?.toString() != bookingLockId) {
+      _bookingFrozen();
+      return;
+    }
+    _selectedRentalData = v;
+  }
 
   // ── Rental Details View Modal ────────────────────────────────
-  bool showRentalDetailsModal = false;
+  bool _showRentalDetailsModal = false;
+  bool get showRentalDetailsModal => _showRentalDetailsModal;
+  set showRentalDetailsModal(bool v) {
+    if (_bookingFrozen()) return;
+    _showRentalDetailsModal = v;
+  }
   Map<String, dynamic>? selectedRentalDetailsData;
   bool selectedRentalDetailsIsProperty = false;
 
   // ── Property state ──────────────────────────────────────────
   RentalCategory activeRentalCategory = RentalCategory.vehicles;
   bool showListPropertyModal = false;
-  bool showBookPropertyModal = false;
+  bool _showBookPropertyModal = false;
+  bool get showBookPropertyModal => _showBookPropertyModal;
+  set showBookPropertyModal(bool v) {
+    if (_bookingFrozen()) return;
+    _showBookPropertyModal = v;
+  }
   bool showManagePropertyModal = false;
   bool showEditPropertyModal = false;
   bool showPropertyQaModal = false;
@@ -306,7 +349,15 @@ class TranyxAppState extends State<TranyxApp> {
       pdfViewerFileName = null;
     });
   }
-  Map<String, dynamic>? selectedPropertyData;
+  Map<String, dynamic>? _selectedPropertyData;
+  Map<String, dynamic>? get selectedPropertyData => _selectedPropertyData;
+  set selectedPropertyData(Map<String, dynamic>? v) {
+    if (bookingLockId != null && v?['id']?.toString() != bookingLockId) {
+      _bookingFrozen();
+      return;
+    }
+    _selectedPropertyData = v;
+  }
   UserProfile? renterProfilePreview;
   List<PropertyRental> realtimeProperties = [];
   List<Map<String, dynamic>> propertyRenterPendingRequests = [];
@@ -693,8 +744,247 @@ class TranyxAppState extends State<TranyxApp> {
     showAppToast(title, message);
   }
 
-  void exitJobDetails() {
+  // ── Rentals side panel (W38 details, W34/W35 booking) ──────────────────────
+  /// >=1024 on the Rentals tab: details/booking render beside the listing cards; otherwise as pages.
+  bool get rentalsPanelMode => activeTab == AppTab.transit && sidePanelLayout;
+
+  bool get rentalsPanelOpen =>
+      (showRentalDetailsModal && selectedRentalDetailsData != null) ||
+      (showBookVehicleModal && selectedRentalData != null) ||
+      (showBookPropertyModal && selectedPropertyData != null);
+
+  static final RegExp _rentalRouteRe = RegExp(r'^#/rentals/([A-Za-z0-9_\-]{1,128})$');
+
+  /// Id of the open rentals detail/booking (for the `#/rentals/<id>` URL), or null.
+  String? get _openRentalId {
+    if (showRentalDetailsModal && selectedRentalDetailsData != null) return selectedRentalDetailsData!['id']?.toString();
+    if (showBookVehicleModal && selectedRentalData != null) return selectedRentalData!['id']?.toString();
+    if (showBookPropertyModal && selectedPropertyData != null) return selectedPropertyData!['id']?.toString();
+    return null;
+  }
+
+  /// Keeps the URL in step with the rentals panel/page (called after every setState).
+  void _syncRentalsUrl() {
+    try {
+      final id = activeTab == AppTab.transit ? _openRentalId : null;
+      final hash = web.window.location.hash;
+      if (id != null && _rentalRouteRe.hasMatch('#/rentals/$id')) {
+        if (hash != '#/rentals/$id') web.window.history.pushState(null, '', '#/rentals/$id');
+      } else if (id == null && _rentalRouteRe.hasMatch(hash)) {
+        web.window.history.pushState(null, '', web.window.location.pathname + web.window.location.search);
+      }
+    } catch (_) {}
+  }
+
+  /// Applies `#/rentals/<id>` (deep link / back / forward).
+  /// Returns false while the listing data is still loading (caller retries).
+  bool _applyRentalsRoute(String id) {
+    if (_openRentalId == id) return true;
+    final uid = userProfile?.uid ?? SessionStorage.uid;
+    // 1) one of my active bookings -> W38 details
+    for (final r in renterActiveBookings) {
+      if (r['id']?.toString() == id) {
+        setState(() {
+          activeTab = AppTab.transit;
+          selectedRentalData = r;
+          selectedRentalDetailsData = r;
+          selectedRentalDetailsIsProperty = false;
+          showRentalDetailsModal = true;
+        });
+        return true;
+      }
+    }
+    for (final r in propertyRenterActiveBookings) {
+      if (r['id']?.toString() == id) {
+        setState(() {
+          activeTab = AppTab.transit;
+          selectedPropertyData = r;
+          selectedRentalDetailsData = r;
+          selectedRentalDetailsIsProperty = true;
+          showRentalDetailsModal = true;
+        });
+        return true;
+      }
+    }
+    // 2) a listing -> W34 / W35 booking
+    for (final r in realtimeRentals) {
+      if (r['id']?.toString() == id) {
+        final mineActive = uid != null && r['renteeId'] == uid;
+        setState(() {
+          activeTab = AppTab.transit;
+          selectedRentalData = r;
+          if (mineActive) {
+            selectedRentalDetailsData = r;
+            selectedRentalDetailsIsProperty = false;
+            showRentalDetailsModal = true;
+          } else {
+            showBookVehicleModal = true;
+          }
+        });
+        return true;
+      }
+    }
+    for (final prop in realtimeProperties) {
+      if (prop.id == id) {
+        setState(() {
+          activeTab = AppTab.transit;
+          activeRentalCategory = RentalCategory.properties;
+          selectedPropertyData = prop.toMap();
+          showBookPropertyModal = true;
+        });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _closeRentalsPanelFromRoute() {
+    if (!(showRentalDetailsModal || showBookVehicleModal || showBookPropertyModal)) return;
     setState(() {
+      showRentalDetailsModal = false;
+      selectedRentalDetailsData = null;
+      showBookVehicleModal = false;
+      selectedRentalData = null;
+      showBookPropertyModal = false;
+      selectedPropertyData = null;
+    });
+  }
+
+  // ── Master–detail routing (side panel) ───────────────────────────────────
+  // Rules (RESPONSIVE_RULES): >=1024 two panes (list + detail); below that the detail is its own page.
+  bool get sidePanelLayout => windowInnerWidth() >= 1024;
+
+  static final RegExp _jobRouteRe = RegExp(r'^#/jobs/([A-Za-z0-9_\-]{1,128})$');
+  Timer? _routeRetryTimer;
+  JSFunction? _popStateListener;
+
+  static final RegExp _msgRouteRe = RegExp(r'^#/messages/([A-Za-z0-9_\-]{1,160})$');
+  bool _routePending = false;
+
+  void _pushHash(String hash) {
+    try {
+      if (web.window.location.hash != hash) web.window.history.pushState(null, '', hash);
+    } catch (_) {}
+  }
+
+  void _clearMessageUrl() {
+    try {
+      if (_msgRouteRe.hasMatch(web.window.location.hash)) {
+        web.window.history.pushState(null, '', web.window.location.pathname + web.window.location.search);
+      }
+    } catch (_) {}
+  }
+
+  void _scheduleRouteRetry() {
+    _routePending = true;
+    _routeRetryTimer?.cancel();
+    var tries = 0;
+    _routeRetryTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      tries++;
+      if (!mounted || !_routePending || tries > 15) {
+        t.cancel();
+        return;
+      }
+      applyJobRoute();
+      if (!_routePending) t.cancel();
+    });
+  }
+
+  String? _routeJobId() => _jobRouteRe.firstMatch(web.window.location.hash)?.group(1);
+
+  void _pushJobUrl(String id) {
+    try {
+      if (web.window.location.hash != '#/jobs/$id') {
+        web.window.history.pushState(null, '', '#/jobs/$id');
+      }
+    } catch (_) {}
+  }
+
+  void _clearJobUrl() {
+    try {
+      if (_jobRouteRe.hasMatch(web.window.location.hash)) {
+        web.window.history.pushState(
+          null,
+          '',
+          web.window.location.pathname + web.window.location.search,
+        );
+      }
+    } catch (_) {}
+  }
+
+  /// Applies `#/jobs/<id>` (deep link, back / forward). Never writes to the URL itself.
+  void applyJobRoute() {
+    _routePending = false;
+    final hash = web.window.location.hash;
+    final mid = _msgRouteRe.firstMatch(hash)?.group(1);
+    if (mid != null) {
+      if (showChat && currentChatId == mid) return;
+      if (SessionStorage.uid == null) {
+        _scheduleRouteRetry();
+        return;
+      }
+      setState(() => activeTab = AppTab.messages);
+      openChat(mid, syncUrl: false);
+      return;
+    }
+    final rid = _rentalRouteRe.firstMatch(hash)?.group(1);
+    if (rid != null) {
+      if (!_applyRentalsRoute(rid)) _scheduleRouteRetry();
+      return;
+    }
+    final id = _routeJobId();
+    if (id == null) {
+      _closeRentalsPanelFromRoute();
+      if (showChat && activeTab == AppTab.messages) closeChat();
+      if (activeTab == AppTab.jobs && (employerPanelOpen || jobsView == JobsView.details)) {
+        setState(() {
+          employerPanelOpen = false;
+          jobsView = JobsView.list;
+          selectedJob = null;
+          selectedJobData = null;
+          showJobOrderDetails = false;
+        });
+      }
+      return;
+    }
+    if (selectedJobData?['id'] == id) return;
+    Map<String, dynamic>? found;
+    for (final j in [...availableJobs, ...myJobs, ...appliedJobs]) {
+      if (j['id'] == id) {
+        found = j;
+        break;
+      }
+    }
+    if (found != null) {
+      final mine = found['creatorId'] != null && found['creatorId'] == (userProfile?.uid ?? SessionStorage.uid);
+      selectJobAndLoadDetails(found, inPanel: mine || sidePanelLayout, syncUrl: false);
+    } else {
+      // Lists are still loading: retry briefly.
+      _scheduleRouteRetry();
+    }
+  }
+
+  /// Closes the job detail (side panel or page) and clears the deep link.
+  void closeJobDetail() {
+    setState(() {
+      employerPanelOpen = false;
+      jobsView = JobsView.list;
+      selectedJob = null;
+      selectedJobData = null;
+      selectedJobCreatorProfile = null;
+      acceptedApplicantProfile = null;
+      showDeleteConfirm = false;
+      showEditJobModal = false;
+      showJobOrderDetails = false;
+      _stopSelectedJobRealtime();
+    });
+    _clearJobUrl();
+  }
+
+  void exitJobDetails() {
+    _clearJobUrl();
+    setState(() {
+      employerPanelOpen = false;
       jobsView = JobsView.list;
       selectedJob = null;
       selectedJobData = null;
@@ -725,8 +1015,11 @@ class TranyxAppState extends State<TranyxApp> {
       try {
         final data = jsonDecode(jsonString) as Map;
         final String type = data['type'] as String;
+        // The listener belongs to [jobId]; ignore it once another job (or none) is selected.
+        if (isStaleJobSelection(selectedJobData?['id'] as String?, jobId)) return;
         if (type == 'job') {
           final Map<String, dynamic> fresh = Map<String, dynamic>.from(data['data'] as Map);
+          if (fresh['id'] != jobId) return;
           setState(() {
             if (selectedJobData != null && selectedJobData!['id'] == fresh['id']) {
               selectedJobData = {...selectedJobData!, ...fresh};
@@ -772,11 +1065,12 @@ class TranyxAppState extends State<TranyxApp> {
 
             // Sync session copy too
             final idx = sessionPostedJobs.indexWhere((j) => j['id'] == jobId);
-            if (idx != -1) sessionPostedJobs[idx] = selectedJobData!;
+            if (idx != -1 && selectedJobData != null) sessionPostedJobs[idx] = selectedJobData!;
           });
         } else if (type == 'applications') {
           final List<dynamic> rawApps = data['data'] as List? ?? [];
           final apps = rawApps.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          if (!applicationsBelongToJob(selectedJobData?['id'] as String?, jobId, apps)) return;
           setState(() {
             jobApplicants = apps;
           });
@@ -795,7 +1089,10 @@ class TranyxAppState extends State<TranyxApp> {
 
   @override
   // ignore: invalid_use_of_protected_member
-  void setState(void Function() fn) => super.setState(fn);
+  void setState(void Function() fn) {
+    super.setState(fn);
+    _syncRentalsUrl();
+  }
 
   @override
   void initState() {
@@ -805,6 +1102,13 @@ class TranyxAppState extends State<TranyxApp> {
     onSessionExpiredGlobal = () {
       triggerSessionExpired();
     };
+    try {
+      _popStateListener = ((web.Event _) => applyJobRoute()).toJS;
+      web.window.addEventListener('popstate', _popStateListener);
+    } catch (_) {}
+    if (_routeJobId() != null || _msgRouteRe.hasMatch(web.window.location.hash) || _rentalRouteRe.hasMatch(web.window.location.hash)) {
+      Timer(const Duration(milliseconds: 600), applyJobRoute);
+    }
     onPermissionDeniedGlobal = (ref) {
       if (!mounted) return;
       // Keep the first reference while the banner is up.
@@ -872,6 +1176,11 @@ class TranyxAppState extends State<TranyxApp> {
 
   @override
   void dispose() {
+    _routeRetryTimer?.cancel();
+    try {
+      final pl = _popStateListener;
+      if (pl != null) web.window.removeEventListener('popstate', pl);
+    } catch (_) {}
     try {
       final mql = _colorSchemeMql;
       final listener = _colorSchemeListener;
@@ -4422,7 +4731,7 @@ class TranyxAppState extends State<TranyxApp> {
   String applicantFilter = 'all'; // 'all' | 'bonded' | 'top'
 
   /// [inPanel] keeps the Jobs list on screen (W21 master–detail); default opens the full details page.
-  Future<void> selectJobAndLoadDetails(Map<String, dynamic> jobMap, {bool inPanel = false}) async {
+  Future<void> selectJobAndLoadDetails(Map<String, dynamic> jobMap, {bool inPanel = false, bool syncUrl = true}) async {
     var title = jobMap['title'] as String? ?? '';
     if (title.isEmpty || title == 'Untitled') {
       final category = jobMap['category'] as String? ?? '';
@@ -4441,6 +4750,10 @@ class TranyxAppState extends State<TranyxApp> {
       orElse: () => JobCategory.others,
     );
     final hasTracker = jobMap['hasTracker'] == true || jobMap['hasTracker'] == 'true' || cat.hasTracker;
+
+    // Everything after an await below is dropped if the user has since selected another job.
+    final jobId = jobMap['id'] as String? ?? '';
+    bool stale() => isStaleJobSelection(selectedJobData?['id'] as String?, jobId);
 
     setState(() {
       selectedJobData = jobMap;
@@ -4461,17 +4774,21 @@ class TranyxAppState extends State<TranyxApp> {
       employerPanelOpen = inPanel;
       applicantFilter = 'all';
       jobQuestions = [];
+      isLoadingQuestions = false;
+      isLoadingApplicants = false;
       this.hasTracker = hasTracker;
       showJobOrderDetails = false;
     });
 
     // Load questions
-    final jobId = jobMap['id'] as String? ?? '';
+    if (syncUrl && jobId.isNotEmpty && _jobRouteRe.hasMatch('#/jobs/$jobId')) _pushJobUrl(jobId);
     if (jobId.isNotEmpty) {
       await loadJobQuestions(jobId);
+      if (stale()) return;
       final uid = SessionStorage.uid;
       if (uid != null && uid == jobMap['creatorId']) {
         await loadApplicants(jobId);
+        if (stale()) return;
       }
     }
 
@@ -4481,6 +4798,7 @@ class TranyxAppState extends State<TranyxApp> {
         final token = SessionStorage.idToken;
         if (token != null) {
           final doc = await FirestoreService(token, _handleTokenRefresh).getDocument('users/$acceptedId');
+          if (stale()) return;
           setState(() {
             acceptedApplicantProfile = doc;
           });
@@ -4498,6 +4816,7 @@ class TranyxAppState extends State<TranyxApp> {
         final token = SessionStorage.idToken;
         if (token != null) {
           final doc = await FirestoreService(token, _handleTokenRefresh).getDocument('users/$creatorId');
+          if (stale()) return;
           setState(() {
             selectedJobCreatorProfile = doc;
             if (selectedJobData != null && doc != null) {
@@ -4521,7 +4840,7 @@ class TranyxAppState extends State<TranyxApp> {
     }
 
     // Keep selectedJobData fresh via real-time listener
-    if (jobId.isNotEmpty) {
+    if (jobId.isNotEmpty && !stale()) {
       _startSelectedJobRealtime(jobId);
     }
   }
@@ -4530,6 +4849,7 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() => isLoadingQuestions = true);
     try {
       final questions = await _firestore.getQuestions(jobId);
+      if (isStaleJobSelection(selectedJobData?['id'] as String?, jobId)) return;
       setState(() {
         jobQuestions = questions;
         isLoadingQuestions = false;
@@ -4702,9 +5022,11 @@ class TranyxAppState extends State<TranyxApp> {
     bool? isArchived,
     String? closedDate,
     String? counterpartyName,
+    bool syncUrl = true,
   }) {
     final uid = SessionStorage.uid;
     if (uid == null || chatId.isEmpty) return;
+    if (syncUrl && _msgRouteRe.hasMatch('#/messages/$chatId')) _pushHash('#/messages/$chatId');
 
     // Detect if chat belongs to a closed transaction automatically if not passed
     bool archived = isArchived ?? false;
@@ -4843,6 +5165,9 @@ class TranyxAppState extends State<TranyxApp> {
       }
     }
 
+    // Cancel the previous conversation's listener before opening this one.
+    if (currentChatId.isNotEmpty && currentChatId != chatId) unlistenChatJs(currentChatId);
+
     setState(() {
       showChat = true;
       currentChatId = chatId;
@@ -4877,6 +5202,8 @@ class TranyxAppState extends State<TranyxApp> {
       }
     }
     listenToChatJs(chatId, (String jsonStr) {
+      // A late snapshot from a previous conversation must never fill this one.
+      if (!chatEventIsCurrent(currentChatId, chatId)) return;
       try {
         final decoded = jsonDecode(jsonStr);
         List<dynamic> raw = [];
@@ -4969,6 +5296,7 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   void closeChat() {
+    _clearMessageUrl();
     if (currentChatId.isNotEmpty) unlistenChatJs(currentChatId);
     setState(() {
       showChat = false;
@@ -5170,7 +5498,9 @@ class TranyxAppState extends State<TranyxApp> {
           }
         }
         enrichedApps.add(copy);
+        if (isStaleJobSelection(selectedJobData?['id'] as String?, jobId)) return;
       }
+      if (isStaleJobSelection(selectedJobData?['id'] as String?, jobId)) return;
       setState(() {
         jobApplicants = enrichedApps;
         isLoadingApplicants = false;
@@ -5180,16 +5510,47 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
-  Future<void> acceptApplicant(String jobId, Map<String, dynamic> appData) async {
+  Future<void> acceptApplicant(String jobId, Map<String, dynamic> requestedApp) async {
     final token = SessionStorage.idToken;
-    final applicantUid = appData['applicantUid'] as String? ?? '';
-    if (token == null || applicantUid.isEmpty) return;
+    final applicantUid = requestedApp['applicantUid'] as String? ?? '';
+    if (token == null || applicantUid.isEmpty || jobId.isEmpty) return;
+    // Double-click / re-entry guard: one hire (and one counter-offer charge) at a time.
+    if (isUpdatingJobStatus) return;
+
+    // Only the job's creator may hire (re-checked against the live job document below).
+    if (!isJobCreator(selectedJobData, SessionStorage.uid)) {
+      showAppToast('Not Allowed', 'Only the employer who posted this job can hire an applicant.');
+      return;
+    }
+
+    // Only hire for the job that is currently selected (never an applicant carried over from another job).
+    if (isStaleJobSelection(selectedJobData?['id'] as String?, jobId)) {
+      showAppToast('Hiring Cancelled', 'The selected job changed. Open the job and try again.');
+      return;
+    }
 
     setState(() => isUpdatingJobStatus = true);
     try {
       final svc = FirestoreService(token, _handleTokenRefresh);
+
+      // Confirm the applicant really applied to THIS job, and use the stored application
+      // (name / counter-offer rate) rather than whatever the UI handed us.
+      final liveApps = await svc.getApplications(jobId);
+      final appData = findApplicationFor(liveApps, applicantUid);
+      if (appData == null) {
+        showAppToast('Hiring Failed', 'This applicant has no application on this job.');
+        setState(() => isUpdatingJobStatus = false);
+        return;
+      }
+      if (isStaleJobSelection(selectedJobData?['id'] as String?, jobId)) {
+        setState(() => isUpdatingJobStatus = false);
+        return;
+      }
       final jobDoc = await svc.getDocument('jobs/$jobId');
-      if (jobDoc != null) {
+      if (jobDoc == null || !isJobCreator(jobDoc, SessionStorage.uid)) {
+        throw Exception('Only the employer who posted this job can hire an applicant.');
+      }
+      {
         final hiredAt = DateTime.now();
         final slaConfig = await svc.getJobSlaConfig();
         final category = JobSlaHelper.classifyJob(jobDoc);
@@ -5265,7 +5626,7 @@ class TranyxAppState extends State<TranyxApp> {
               final newBal = await svc.deductTyxBalanceSafely(
                 uid: uid!,
                 amountToDeduct: diff,
-                txId: 'counter_offer_${jobId}_${DateTime.now().millisecondsSinceEpoch}',
+                txId: 'counter_offer_${jobId}_${applicantUid}_${(rate * 100).round()}', // deterministic: deductTyxBalanceSafely skips a tx that already succeeded
                 title: 'Gig Counter Offer Adjustment',
                 description: 'Additional funds for accepted counter offer on job $jobId',
                 category: 'escrow_funding',
@@ -6921,6 +7282,7 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   Future<void> handleApplyJob() async {
+    if (isSubmittingApplication || isUpdatingJobStatus) return; // ignore double clicks while running
     final uid = SessionStorage.uid;
     final token = SessionStorage.idToken;
     final jobId = selectedJobData?['id'] as String? ?? '';
@@ -6987,9 +7349,10 @@ class TranyxAppState extends State<TranyxApp> {
           message: '$appName has applied to your job "$jobTitle".',
         );
       }
+      final stillSelected = !isStaleJobSelection(selectedJobData?['id'] as String?, jobId);
       setState(() {
         isSubmittingApplication = false;
-        jobsView = JobsView.success;
+        if (stillSelected) jobsView = JobsView.success;
         coverNote = '';
         applyPriceRate = '';
         isCounterOffer = false;
@@ -7623,6 +7986,12 @@ class TranyxAppState extends State<TranyxApp> {
   // ── Navigation ──────────────────────────────────────────────
 
   void switchTab(AppTab tab) {
+    if (tab != AppTab.messages) _clearMessageUrl();
+    // Master–detail panel belongs to the Jobs tab: leaving it closes the panel and clears the deep link.
+    if (tab != AppTab.jobs && (employerPanelOpen || _routeJobId() != null)) {
+      employerPanelOpen = false;
+      _clearJobUrl();
+    }
     // W36 listing wizard is a page: leaving via the nav closes it.
     if (showListVehicleModal || showListPropertyModal || showEditVehicleModal || showEditPropertyModal || showBookVehicleModal || showBookPropertyModal || showManageVehicleModal || showManagePropertyModal || showRentalDetailsModal || showRentalTrackerMap || showExtendRentalModal) {
       setState(() {
@@ -8754,7 +9123,7 @@ class TranyxAppState extends State<TranyxApp> {
                   if (showRentalTrackerMap) RentalTrackerMapComponent(appState: this, key: const ValueKey('rental-tracker-map')),
                   if (showExtendRentalModal) ExtendRentalModalComponent(appState: this, key: const ValueKey('extend-rental-modal')),
                 ])
-              else if (showRentalDetailsModal && selectedRentalDetailsData != null)
+              else if (showRentalDetailsModal && selectedRentalDetailsData != null && !rentalsPanelMode)
                 RentalDetailsModalComponent(
                   appState: this,
                   rentalData: selectedRentalDetailsData!,
@@ -8767,8 +9136,8 @@ class TranyxAppState extends State<TranyxApp> {
                 )
               else if (showManageVehicleModal) ManageVehicleModalComponent(appState: this, key: const ValueKey('manage-vehicle-modal'))
               else if (showManagePropertyModal) ManagePropertyModalComponent(appState: this, key: const ValueKey('manage-property-modal'))
-              else if (showBookVehicleModal) BookVehicleModalComponent(appState: this, key: const ValueKey('book-vehicle-modal'))
-              else if (showBookPropertyModal) BookPropertyModalComponent(appState: this, key: const ValueKey('book-property-modal'))
+              else if (showBookVehicleModal && !rentalsPanelMode) BookVehicleModalComponent(appState: this, key: const ValueKey('book-vehicle-modal'))
+              else if (showBookPropertyModal && !rentalsPanelMode) BookPropertyModalComponent(appState: this, key: const ValueKey('book-property-modal'))
               else if (showListVehicleModal) ListVehicleModalComponent(appState: this, key: const ValueKey('list-vehicle-modal'))
               else if (showEditVehicleModal) EditVehicleModalComponent(appState: this, key: const ValueKey('edit-vehicle-modal'))
               else if (showListPropertyModal) ListPropertyModalComponent(appState: this, key: const ValueKey('list-property-modal'))
@@ -8777,7 +9146,32 @@ class TranyxAppState extends State<TranyxApp> {
               if (activeTab == AppTab.home)
                 (isGuestBrowse ? GuestBrowseViewComponent(state: this) : HomeViewComponent(state: this)),
               if (activeTab == AppTab.jobs) JobsViewComponent(state: this),
-              if (activeTab == AppTab.transit) TransitViewComponent(state: this),
+              if (activeTab == AppTab.transit && rentalsPanelMode && rentalsPanelOpen)
+                // W30/W31 list on the left, W38 details / W34-W35 booking in the right pane (>=1024).
+                div(classes: 'flex items-start gap-6', [
+                  div(classes: 'rentals-split-list w-[360px] xl:w-[400px] 2xl:w-[420px] flex-shrink-0 min-w-0', [
+                    TransitViewComponent(state: this),
+                  ]),
+                  div(classes: 'flex-1 min-w-0', [
+                    if (showRentalDetailsModal && selectedRentalDetailsData != null)
+                      RentalDetailsModalComponent(
+                        appState: this,
+                        rentalData: selectedRentalDetailsData!,
+                        isProperty: selectedRentalDetailsIsProperty,
+                        key: const ValueKey('rental-details-modal'),
+                        onClose: () => setState(() {
+                          showRentalDetailsModal = false;
+                          selectedRentalDetailsData = null;
+                        }),
+                      )
+                    else if (showBookVehicleModal && selectedRentalData != null)
+                      BookVehicleModalComponent(appState: this, key: const ValueKey('book-vehicle-modal'))
+                    else if (showBookPropertyModal && selectedPropertyData != null)
+                      BookPropertyModalComponent(appState: this, key: const ValueKey('book-property-modal')),
+                  ]),
+                ])
+              else if (activeTab == AppTab.transit)
+                TransitViewComponent(state: this),
               if (activeTab == AppTab.messages)
                 (isGuestBrowse
                     ? GuestLockedPane(
@@ -8961,7 +9355,7 @@ class TranyxAppState extends State<TranyxApp> {
       if (showDisputeModal && disputeTargetJob != null) JobDisputeModalComponent(state: this),
 
       // Chat overlay
-      if (showChat && !(activeTab == AppTab.messages && windowInnerWidth() >= 1024)) ChatWidget(state: this),
+      if (showChat && !(activeTab == AppTab.messages && windowInnerWidth() >= 768)) ChatWidget(state: this),
 
       // Fullscreen Photo Modal Overlay
       if (fullScreenPhotoUrl != null)

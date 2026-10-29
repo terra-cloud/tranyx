@@ -482,7 +482,7 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
     }).toList();
 
     // W40: at desktop widths an open conversation shows beside the list (split pane).
-    final split = s.showChat && windowInnerWidth() >= 1024;
+    final split = s.showChat && windowInnerWidth() >= 768;
     final listChildren = <Component>[
       // ── Page Header ────────────────────────────────────────────────────────
       div(classes: 'flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b ${isDark ? "border-zinc-800" : "border-zinc-200"} pb-6', [
@@ -627,7 +627,9 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
             for (final conv in filtered)
               div(
                 classes:
-                    'p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:bg-zinc-500/5 transition-all cursor-pointer group',
+                    'p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:bg-zinc-500/5 transition-all cursor-pointer group '
+                    '${s.showChat && s.currentChatId == conv['chatId'] ? (isDark ? "bg-indigo-500/15" : "bg-[#eef2ff]") : ""}',
+                attributes: {if (s.showChat && s.currentChatId == conv['chatId']) 'aria-current': 'true'},
                 events: {
                   'click': (_) {
                     s.openChat(
@@ -714,7 +716,7 @@ class _MessagesViewComponentState extends State<MessagesViewComponent> {
     ];
     if (split) {
       return div(classes: 'max-w-7xl mx-auto animate-fade-in p-4 sm:p-6 flex items-start gap-5', [
-        div(classes: 'w-[380px] shrink-0 space-y-4', listChildren),
+        div(classes: 'w-[260px] lg:w-[380px] shrink-0 space-y-4', listChildren),
         div(classes: 'flex-1 min-w-0', [ChatWidget(state: s, embedded: true)]),
       ]);
     }

@@ -1,3 +1,4 @@
+import 'panel_chrome.dart';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -159,8 +160,9 @@ class _RentalDetailsModalState extends State<RentalDetailsModalComponent> {
       isProperty: isProp,
     );
 
+    final panel = component.appState.rentalsPanelMode;
     return div(
-      classes: 'rw-page animate-fade-in',
+      classes: 'rw-page animate-fade-in ${panel ? "rw-panel" : ""}',
       [
         div(
           classes:
@@ -169,6 +171,7 @@ class _RentalDetailsModalState extends State<RentalDetailsModalComponent> {
             'click': (e) => e.stopPropagation(),
           },
           [
+            if (panel) rentalPanelBackRow(isDark: isDark, label: 'Rentals', onBack: component.onClose),
             // ── Modal Header ──
             div(
               classes:
