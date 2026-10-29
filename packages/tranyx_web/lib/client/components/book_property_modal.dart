@@ -551,8 +551,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
     final isDark = component.appState.isDark;
     final pData = component.appState.selectedPropertyData!;
 
-    final currentUid = component.appState.userProfile?.uid;
-    final isHost = pData['hostId'] != null && currentUid != null && pData['hostId'] == currentUid;
+    final isHost = component.appState.ownsListing(pData);
 
     final propertyId = pData['id']?.toString();
     if (_lastPropertyId != propertyId) {

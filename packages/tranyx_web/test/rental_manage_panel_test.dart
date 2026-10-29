@@ -53,4 +53,13 @@ void main() {
       expect(s, contains('component.appState.closeManage()'));
     });
   }
+
+  test('host footer in both booking modals uses the shared owner check', () {
+    for (final f in ['book_vehicle_modal.dart', 'book_property_modal.dart']) {
+      final s = File('lib/client/components/$f').readAsStringSync();
+      final m = RegExp(r'final isHost = ([^;]+);').allMatches(s).toList();
+      expect(m, hasLength(1), reason: f);
+      expect(m.single.group(1)!.trim(), startsWith('component.appState.ownsListing('), reason: f);
+    }
+  });
 }

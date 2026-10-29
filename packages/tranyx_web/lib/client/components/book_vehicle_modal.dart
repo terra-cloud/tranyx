@@ -710,8 +710,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     String type = typeVal?.toString().split('.').last ?? '';
     if (type.toLowerCase() == 'null') type = '';
 
-    final hostId = r['hostId']?.toString();
-    final isHost = component.appState.userProfile?.uid != null && hostId == component.appState.userProfile?.uid;
+    final isHost = component.appState.ownsListing(r);
     final hasPendingRequests = component.appState.hostPendingRequests.any((req) => req['rentalId'] == r['id']);
     final hasActiveRenter = r['renteeId'] != null && (r['renteeId'] as String).isNotEmpty;
     final canEdit = (r['status'] == null || r['status'] == 'Available') && !hasActiveRenter && !hasPendingRequests && _approvedRequests.isEmpty;
