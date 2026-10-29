@@ -123,8 +123,22 @@
       }
     }
 
+    // KAN-143: clients only create "flagged_for_ban" tickets about themselves (web index.html, mobile chat
+    // views); the owner reads their own, staff do everything else.
     match /tickets/{ticketId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated() && (resource.data.get('userId', '') == request.auth.uid || isAdminOrStaff());
+      allow create: if (isActiveUser() &&
+        request.resource.data.keys().hasOnly([
+          'id', 'subject', 'title', 'userId', 'userName', 'chatId', 'reason', 'lastOffendingMessage',
+          'violationType', 'status', 'priority', 'createdAt', 'updatedAt'
+        ]) &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'flagged_for_ban' &&
+        request.resource.data.get('lastOffendingMessage', '') is string &&
+        request.resource.data.get('lastOffendingMessage', '').size() <= 2000 &&
+        request.resource.data.get('reason', '') is string &&
+        request.resource.data.get('reason', '').size() <= 500) || isAdminOrStaff();
+      allow update, delete: if isAdminOrStaff();
     }
 
     // Disputes Collection (Review and resolution portal)

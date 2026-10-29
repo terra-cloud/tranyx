@@ -15,11 +15,11 @@ describe('GST: guest list reads copied from tranyx_admin_portal/scratch (unauthe
     'deposit_requests/d1': { ...withdrawal('victim'), type: 'deposit', referenceNo: 'GC-8812345' },
     'wallets/victim': { uid: 'victim', userId: 'victim', balance: 100, solanaAddress: '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin' },
   });
-  knownHole('KNOWN-HOLE GST-01 [HIGH] guest cannot list users with limit(5) (inspect_dev_schema.js:23; 10_...:7 / compiled:117)', async () => {
+  it('GST-01 [HIGH] guest cannot list users with limit(5) (inspect_dev_schema.js:23; 10_...:7 / compiled:117)', async () => {
     await prep();
     await assertFails(getDocs(query(collection(guest(), 'users'), limit(5))));
   });
-  knownHole('KNOWN-HOLE GST-02 [HIGH] guest cannot dump the whole users collection (test_firestore.js:18, test_firestore_admin.js:18; compiled:117)', async () => {
+  it('GST-02 [HIGH] guest cannot dump the whole users collection (test_firestore.js:18, test_firestore_admin.js:18; compiled:117)', async () => {
     await prep();
     await assertFails(getDocs(collection(guest(), 'users')));
   });

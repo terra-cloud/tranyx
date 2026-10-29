@@ -204,7 +204,11 @@ service cloud.firestore {
 
     // Users Collection (Strict segregation of User vs Admin fields)
     match /users/{userId} {
-      allow read: if true; // Publicly readable profiles (ratings/reviews)
+      // KAN-143: no guest reads and no listing/scraping; signed-in users read single profiles by uid
+      // (counterparty, host, applicant), staff may query. The web REST client cannot read as a guest and no
+      // client queries /users. A public_profiles split (so email/phone/wallet stay private) is follow-up work.
+      allow get: if isAuthenticated();
+      allow list: if isAdminOrStaff();
       
       // Regular users can create their profile without privileged fields (KAN-144: no role/staff/admin
       // flags and a zero starting balance; signup writes UserProfile.toMap(), which never sets them).
@@ -1112,8 +1116,22 @@ service cloud.firestore {
       }
     }
 
+    // KAN-143: clients only create "flagged_for_ban" tickets about themselves (web index.html, mobile chat
+    // views); the owner reads their own, staff do everything else.
     match /tickets/{ticketId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated() && (resource.data.get('userId', '') == request.auth.uid || isAdminOrStaff());
+      allow create: if (isActiveUser() &&
+        request.resource.data.keys().hasOnly([
+          'id', 'subject', 'title', 'userId', 'userName', 'chatId', 'reason', 'lastOffendingMessage',
+          'violationType', 'status', 'priority', 'createdAt', 'updatedAt'
+        ]) &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'flagged_for_ban' &&
+        request.resource.data.get('lastOffendingMessage', '') is string &&
+        request.resource.data.get('lastOffendingMessage', '').size() <= 2000 &&
+        request.resource.data.get('reason', '') is string &&
+        request.resource.data.get('reason', '').size() <= 500) || isAdminOrStaff();
+      allow update, delete: if isAdminOrStaff();
     }
 
     // Disputes Collection (Review and resolution portal)
@@ -1197,24 +1215,22 @@ service cloud.firestore {
     }
 
     // Email & Mail Logging Collections
+    // KAN-143: mail/emails are written only by the admin panel (ticket_email_service) and read by the mail
+    // extension (Admin SDK); no web/mobile client touches them, so signed-in users cannot relay or read mail.
     match /mail/{mailId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isAdminOrStaff();
     }
     match /emails/{mailId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isAdminOrStaff();
     }
 
-    // Audit Logs Collections
+    // Audit Logs Collections (KAN-143: no client writes them; the admin panel uses admin_audit_logs)
     match /audit_logs/{logId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow create, update: if isAuthenticated();
-      allow delete: if isAdminOrStaff();
+      allow read, write: if isAdminOrStaff();
     }
 
     match /auditLogs/{logId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow create, update: if isAuthenticated();
-      allow delete: if isAdminOrStaff();
+      allow read, write: if isAdminOrStaff();
     }
 
     match /admin_audit_logs/{logId} {

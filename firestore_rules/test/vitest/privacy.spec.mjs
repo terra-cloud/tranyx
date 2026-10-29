@@ -44,7 +44,7 @@ describe('PRV: guest denied all writes', () => {
 });
 
 describe('PRV: users/{id} private fields (Firestore has no field-level read; whole-doc read tested)', () => {
-  knownHole('KNOWN-HOLE PRV-06 [HIGH] guest cannot read users/{id} containing email/phone/wallet/balance (10_...:7 / compiled:117)', async () => {
+  it('PRV-06 [HIGH] guest cannot read users/{id} containing email/phone/wallet/balance (10_...:7 / compiled:117)', async () => {
     await seed({ 'users/victim': userProfile('victim') });
     await assertFails(getDoc(doc(guest(), 'users/victim')));
   });

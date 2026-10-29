@@ -42,24 +42,22 @@
     }
 
     // Email & Mail Logging Collections
+    // KAN-143: mail/emails are written only by the admin panel (ticket_email_service) and read by the mail
+    // extension (Admin SDK); no web/mobile client touches them, so signed-in users cannot relay or read mail.
     match /mail/{mailId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isAdminOrStaff();
     }
     match /emails/{mailId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isAdminOrStaff();
     }
 
-    // Audit Logs Collections
+    // Audit Logs Collections (KAN-143: no client writes them; the admin panel uses admin_audit_logs)
     match /audit_logs/{logId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow create, update: if isAuthenticated();
-      allow delete: if isAdminOrStaff();
+      allow read, write: if isAdminOrStaff();
     }
 
     match /auditLogs/{logId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow create, update: if isAuthenticated();
-      allow delete: if isAdminOrStaff();
+      allow read, write: if isAdminOrStaff();
     }
 
     match /admin_audit_logs/{logId} {

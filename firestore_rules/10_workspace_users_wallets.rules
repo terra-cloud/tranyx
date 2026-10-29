@@ -103,7 +103,11 @@
 
     // Users Collection (Strict segregation of User vs Admin fields)
     match /users/{userId} {
-      allow read: if true; // Publicly readable profiles (ratings/reviews)
+      // KAN-143: no guest reads and no listing/scraping; signed-in users read single profiles by uid
+      // (counterparty, host, applicant), staff may query. The web REST client cannot read as a guest and no
+      // client queries /users. A public_profiles split (so email/phone/wallet stay private) is follow-up work.
+      allow get: if isAuthenticated();
+      allow list: if isAdminOrStaff();
       
       // Regular users can create their profile without privileged fields (KAN-144: no role/staff/admin
       // flags and a zero starting balance; signup writes UserProfile.toMap(), which never sets them).
