@@ -395,8 +395,7 @@ class _ManagePropertyModalState extends State<ManagePropertyModalComponent> {
     }
 
     final prop = component.appState.selectedPropertyData!;
-    final ownerUid = component.appState.userProfile?.uid;
-    if (ownerUid == null || prop['hostId']?.toString() != ownerUid) {
+    if (!component.appState.ownsListing(prop)) {
       return div(classes: 'p-6 text-sm text-zinc-500', [Component.text('Only the listing owner can manage this property.')]);
     }
     final isDark = component.appState.isDark;

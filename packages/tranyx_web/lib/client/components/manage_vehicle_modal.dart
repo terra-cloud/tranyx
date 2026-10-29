@@ -434,8 +434,7 @@ class _ManageVehicleModalState extends State<ManageVehicleModalComponent> {
     final isDark = component.appState.isDark;
     final r = component.appState.selectedRentalData;
     if (r == null) return div([]);
-    final ownerUid = component.appState.userProfile?.uid;
-    if (ownerUid == null || r['hostId']?.toString() != ownerUid) {
+    if (!component.appState.ownsListing(r)) {
       return div(classes: 'p-6 text-sm text-zinc-500', [Component.text('Only the listing owner can manage this vehicle.')]);
     }
 

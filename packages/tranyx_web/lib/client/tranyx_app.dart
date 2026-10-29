@@ -762,7 +762,8 @@ class TranyxAppState extends State<TranyxApp> {
 
   String? get _currentUid => userProfile?.uid ?? SessionStorage.uid;
 
-  bool _ownsListing(Map<String, dynamic>? data) {
+  /// The single owner check for rental manage and booking: `hostId ?? ownerId` == signed-in uid.
+  bool ownsListing(Map<String, dynamic>? data) {
     final uid = _currentUid;
     final owner = data?['hostId'] ?? data?['ownerId'];
     return uid != null && owner != null && owner.toString() == uid;
@@ -774,7 +775,7 @@ class TranyxAppState extends State<TranyxApp> {
 
   /// Opens W37 manage for a vehicle the signed-in user owns (browse or host mode).
   void openManageVehicle(Map<String, dynamic> r, {bool fromDetails = false}) {
-    if (bookingLockId != null || !_ownsListing(r)) return;
+    if (bookingLockId != null || !ownsListing(r)) return;
     setState(() {
       showBookVehicleModal = false;
       showBookPropertyModal = false;
@@ -789,7 +790,7 @@ class TranyxAppState extends State<TranyxApp> {
 
   /// Opens W37 manage for a property the signed-in user owns (browse or host mode).
   void openManageProperty(Map<String, dynamic> prop, {bool fromDetails = false}) {
-    if (bookingLockId != null || !_ownsListing(prop)) return;
+    if (bookingLockId != null || !ownsListing(prop)) return;
     setState(() {
       showBookVehicleModal = false;
       showBookPropertyModal = false;
@@ -871,7 +872,7 @@ class TranyxAppState extends State<TranyxApp> {
       if (uid == null) return false;
       for (final r in realtimeRentals) {
         if (r['id']?.toString() == id) {
-          if (!_ownsListing(r)) return true;
+          if (!ownsListing(r)) return true;
           setState(() => activeTab = AppTab.transit);
           openManageVehicle(r);
           return true;
@@ -880,7 +881,7 @@ class TranyxAppState extends State<TranyxApp> {
       for (final prop in realtimeProperties) {
         if (prop.id == id) {
           final m = prop.toMap();
-          if (!_ownsListing(m)) return true;
+          if (!ownsListing(m)) return true;
           setState(() {
             activeTab = AppTab.transit;
             activeRentalCategory = RentalCategory.properties;

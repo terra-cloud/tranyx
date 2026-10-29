@@ -537,8 +537,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     try {
       final r = component.appState.selectedRentalData;
       if (r == null) throw Exception('No rental selected.');
-      final ownerUid = component.appState.userProfile?.uid;
-      if (ownerUid != null && r['hostId']?.toString() == ownerUid) {
+      if (component.appState.ownsListing(r)) {
         throw Exception('You cannot book your own listing.');
       }
       if (lockedId == null || r['id']?.toString() != lockedId) {

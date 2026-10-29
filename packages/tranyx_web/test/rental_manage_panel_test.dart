@@ -16,8 +16,8 @@ void main() {
   test('browse Manage buttons open W37 through the owner-checked helpers', () {
     expect(view, contains('s.openManageVehicle(r)'));
     expect(view, contains('s.openManageProperty(prop.toMap())'));
-    expect(app, contains('if (bookingLockId != null || !_ownsListing(r)) return;'));
-    expect(app, contains('if (bookingLockId != null || !_ownsListing(prop)) return;'));
+    expect(app, contains('if (bookingLockId != null || !ownsListing(r)) return;'));
+    expect(app, contains('if (bookingLockId != null || !ownsListing(prop)) return;'));
   });
 
   test('manage renders in the side panel at >=1024 and as a page below', () {
@@ -32,6 +32,16 @@ void main() {
     expect(re.firstMatch('#/rentals/abc_1/manage')?.group(2), '/manage');
     expect(re.firstMatch('#/rentals/abc_1')?.group(2), isNull);
     expect(re.hasMatch('#/rentals/abc/manage/x'), isFalse);
+  });
+
+  test('one owner check (hostId ?? ownerId) shared by manage and booking', () {
+    expect(app, contains("data?['hostId'] ?? data?['ownerId']"));
+    for (final f in ['manage_vehicle_modal.dart', 'manage_property_modal.dart', 'book_vehicle_modal.dart', 'book_property_modal.dart']) {
+      final s = File('lib/client/components/$f').readAsStringSync();
+      expect(s, contains('component.appState.ownsListing('), reason: f);
+    }
+    final bp = File('lib/client/components/book_property_modal.dart').readAsStringSync();
+    expect(bp, contains('You cannot book your own listing.'));
   });
 
   for (final f in ['manage_vehicle_modal.dart', 'manage_property_modal.dart']) {

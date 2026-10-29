@@ -441,6 +441,9 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
     try {
       final rawProp = component.appState.selectedPropertyData;
       if (rawProp == null) throw Exception('No property selected.');
+      if (component.appState.ownsListing(rawProp)) {
+        throw Exception('You cannot book your own listing.');
+      }
       if (lockedId == null || rawProp['id']?.toString() != lockedId) {
         throw Exception('The selected listing changed. Please start the booking again.');
       }
