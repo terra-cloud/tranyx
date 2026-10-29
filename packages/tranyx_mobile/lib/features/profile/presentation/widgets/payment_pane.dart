@@ -14,6 +14,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
+import 'package:tranyx_mobile/core/services/mwa_service.dart';
+import 'package:tranyx_mobile/core/services/mwa_wallet_link.dart';
+import 'package:tranyx_mobile/core/widgets/solana_logo.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/withdraw_pane.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/transaction_details_sheet.dart';
@@ -101,6 +104,8 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
   final _promoRedeemController = TextEditingController();
   bool _isProcessing = false;
   Map<String, bool> _installedWallets = {};
+  // Android only: a wallet app answers the Solana Mobile Wallet Adapter intent.
+  bool _mwaWalletAvailable = false;
 
   String? _redeemFeedback;
   bool _isRedeeming = false;
@@ -128,6 +133,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
   void initState() {
     super.initState();
     _checkInstalledWallets();
+    _checkMwaAvailability();
     _fetchRates();
   }
 
@@ -805,13 +811,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(
-                                  Icons.currency_bitcoin,
-                                  size: 16,
-                                  color: _selectedDepositRail == 'solana'
-                                      ? Colors.white
-                                      : Colors.grey,
-                                ),
+                                const SolanaLogo(size: 16),
                                 const SizedBox(width: 6),
                                 Text(
                                   'Solana (SOL/USDT)',
@@ -1693,7 +1693,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
           child: const Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.account_balance_wallet_outlined, size: 18),
+              SolanaLogo(size: 18),
               SizedBox(width: 8),
               Text(
                 'Connect Solana Wallet',
@@ -2069,6 +2069,342 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
     }
   }
 
+  // ── Solana Mobile Wallet Adapter (MWA, Android) ───────────────────────────
+  Future<void> _checkMwaAvailability() async {
+    final available = await ref.read(mwaServiceProvider).isWalletAvailable();
+    if (mounted && available != _mwaWalletAvailable) {
+      setState(() => _mwaWalletAvailable = available);
+    }
+  }
+
+  void _showMwaError(Object e, {String prefix = 'Wallet request failed'}) {
+    if (!mounted) return;
+    final cancelled = e is MwaException && e.type == MwaFailureType.userCancelled;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(e is MwaException ? e.message : '$prefix: $e'),
+        backgroundColor: cancelled ? Colors.orange : Colors.red,
+      ),
+    );
+  }
+
+  /// Authorizes a wallet over MWA and links it to the account (same 1:1
+  /// wallet-to-account rule as every other wallet).
+  Future<void> _handleConnectMwa(String uid) async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+    try {
+      final auth = await ref.read(mwaServiceProvider).connect();
+      final outcome = await linkMwaWallet(
+        firestore: ref.read(firestoreProvider),
+        uid: uid,
+        publicKey: auth.publicKey,
+      );
+      if (outcome == MwaLinkOutcome.alreadyLinkedToAnotherAccount) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'This wallet is already linked to another account. Each wallet can only be connected to one account.',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+      ref.invalidate(userProfileProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Wallet connected: ${shortWalletKey(auth.publicKey)}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      _showMwaError(e, prefix: 'Wallet connection failed');
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _handleDisconnectMwa(String uid) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Disconnect Solana wallet'),
+        content: const Text(
+          'Are you sure you want to disconnect your Solana wallet?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Disconnect'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _isProcessing = true);
+    try {
+      await ref.read(firestoreProvider).collection('users').doc(uid).update({
+        'walletPublicKey': null,
+        'connectedWalletType': null,
+      });
+      ref.invalidate(userProfileProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Solana wallet disconnected.'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to disconnect: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  /// Deposit over MWA: the wallet signs and sends a SOL (or USDT SPL) transfer
+  /// to the treasury; once confirmed on-chain the balance is credited exactly
+  /// like the Trust Wallet flow.
+  Future<void> _depositViaMwa({
+    required String uid,
+    required double phpAmount,
+    required bool isSol,
+    required double cryptoAmount,
+    required String userPubkey,
+    required String treasuryPublicKey,
+  }) async {
+    final phantomService = ref.read(phantomServiceProvider);
+    final txSignature = await ref.read(mwaServiceProvider).signAndSend(
+      expectedPublicKey: userPubkey,
+      buildTransaction: (sender) async {
+        final blockhash = await phantomService.fetchRecentBlockhash();
+        final Uint8List txBytes;
+        if (isSol) {
+          txBytes = phantomService.serializeTransferTransaction(
+            senderPubkey: sender,
+            receiverPubkey: treasuryPublicKey,
+            blockhash: blockhash,
+            lamports: (cryptoAmount * 1e9).round(),
+          );
+        } else {
+          txBytes = await phantomService.serializeTokenTransferTransaction(
+            senderPubkey: sender,
+            receiverPubkey: treasuryPublicKey,
+            mintPubkey: phantomService.usdtMintAddress,
+            blockhash: blockhash,
+            microUnits: (cryptoAmount * 1e6).round(),
+          );
+        }
+        await phantomService.simulateTransaction(base58.encode(txBytes));
+        return txBytes;
+      },
+      broadcastSigned: (signed) =>
+          phantomService.sendTransaction(base58.encode(signed)),
+    );
+
+    final confirmed = await phantomService.confirmTransaction(txSignature);
+    if (!confirmed) {
+      throw Exception(
+        'Transaction was sent but is not confirmed yet. '
+        'Check: https://explorer.solana.com/tx/$txSignature',
+      );
+    }
+
+    final firestore = ref.read(firestoreProvider);
+    final currency = isSol ? 'SOL' : 'USDT';
+    final txId = isSol ? 'deposit_sol_$txSignature' : 'deposit_usdt_$txSignature';
+    // Never credit the same on-chain signature twice.
+    final already = await firestore.collection('transactions').doc(txId).get();
+    if (!already.exists) {
+      final repo = ref.read(transitRepositoryProvider);
+      final userProfile = await repo.getUser(uid);
+      if (userProfile != null) {
+        await repo.updateTyxBalance(uid, userProfile.tyxBalance + phpAmount);
+        await firestore.collection('transactions').doc(txId).set({
+          'uid': uid,
+          'type': 'deposit',
+          'amount': phpAmount,
+          'title': 'Wallet Top-Up ($currency via Solana Mobile Wallet)',
+          'desc': isSol
+              ? 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} SOL via Solana Mobile Wallet Adapter'
+              : 'Crypto deposit of \$${cryptoAmount.toStringAsFixed(2)} USDT via Solana Mobile Wallet Adapter',
+          'method': 'Solana Mobile Wallet',
+          'solanaTxSignature': txSignature,
+          if (!isSol) 'currency': 'USDT',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+    }
+
+    ref.invalidate(userProfileProvider);
+    ref.invalidate(userTransactionsProvider);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Successfully deposited ₱ ${phpAmount.toStringAsFixed(2)} via $currency (Solana wallet)',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
+  Widget _buildMwaWalletCard({
+    required String uid,
+    required bool isDarkMode,
+    required bool hasWallet,
+    required String? connectedWalletType,
+    required String? walletPublicKey,
+  }) {
+    final isConnected = hasWallet && connectedWalletType == kMwaWalletType;
+    final subtitle = isConnected
+        ? shortWalletKey(walletPublicKey ?? '')
+        : (_mwaWalletAvailable
+              ? 'Connect with Mobile Wallet Adapter'
+              : 'No compatible wallet app found');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDarkMode ? AppColors.darkCard : AppColors.lightCard,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: isConnected
+              ? Colors.purple
+              : (isDarkMode ? AppColors.darkBorder : AppColors.lightBorder),
+          width: isConnected ? 2 : 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              color: isDarkMode ? Colors.white10 : Colors.black.withValues(alpha: 0.04),
+              border: Border.all(
+                color: isConnected
+                    ? Colors.purple.withValues(alpha: 0.5)
+                    : (isDarkMode ? Colors.white12 : Colors.black12),
+              ),
+            ),
+            child: const SolanaLogo(size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Solana Wallet (MWA)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDarkMode
+                        ? AppColors.darkTextMuted
+                        : AppColors.lightTextMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (_isProcessing)
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else if (isConnected)
+            ElevatedButton(
+              onPressed: () => _handleDisconnectMwa(uid),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.withValues(alpha: 0.1),
+                foregroundColor: Colors.red,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text(
+                'Disconnect',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+            )
+          else if (_mwaWalletAvailable)
+            ElevatedButton(
+              onPressed: () {
+                if (hasWallet) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Please disconnect your active wallet first before connecting another one.',
+                      ),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                } else {
+                  _handleConnectMwa(uid);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.indigo,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text(
+                'Connect',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+            )
+          else
+            OutlinedButton(
+              onPressed: () async {
+                try {
+                  await launchUrl(
+                    Uri.parse(wallets[1].androidStoreUrl),
+                    mode: LaunchMode.externalApplication,
+                  );
+                } catch (_) {}
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.indigo,
+                side: const BorderSide(color: AppColors.indigo),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text(
+                'Install',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleSolanaDeposit({
     required String uid,
     required double phpAmount,
@@ -2106,7 +2442,16 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
         );
       }
 
-      if (walletType == 'trust') {
+      if (walletType == kMwaWalletType) {
+        await _depositViaMwa(
+          uid: uid,
+          phpAmount: phpAmount,
+          isSol: true,
+          cryptoAmount: cryptoAmount,
+          userPubkey: userPubkey,
+          treasuryPublicKey: treasuryPublicKey,
+        );
+      } else if (walletType == 'trust') {
         // ── Trust Wallet: Reown AppKit v2 (WalletConnect v2) signing flow ─
         await SecureStorageHelper.savePendingDepositPhpAmount(phpAmount);
         await SecureStorageHelper.savePendingDepositCryptoAmount(cryptoAmount);
@@ -2284,8 +2629,10 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Solana Deposit failed: $e'),
-            backgroundColor: Colors.red,
+            content: Text(e is MwaException ? e.message : 'Solana Deposit failed: $e'),
+            backgroundColor: e is MwaException && e.type == MwaFailureType.userCancelled
+                ? Colors.orange
+                : Colors.red,
           ),
         );
       }
@@ -2342,7 +2689,16 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
 
       final phantomService = ref.read(phantomServiceProvider);
 
-      if (walletType == 'trust') {
+      if (walletType == kMwaWalletType) {
+        await _depositViaMwa(
+          uid: uid,
+          phpAmount: phpAmount,
+          isSol: false,
+          cryptoAmount: amountInUsdt,
+          userPubkey: userPubkey,
+          treasuryPublicKey: treasuryPublicKey,
+        );
+      } else if (walletType == 'trust') {
         // ── Trust Wallet: Reown AppKit v2 (WalletConnect v2) signing flow ──
         await SecureStorageHelper.savePendingDepositPhpAmount(phpAmount);
         await SecureStorageHelper.savePendingDepositCryptoAmount(amountInUsdt);
@@ -2506,8 +2862,10 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('USDT Deposit failed: $e'),
-            backgroundColor: Colors.red,
+            content: Text(e is MwaException ? e.message : 'USDT Deposit failed: $e'),
+            backgroundColor: e is MwaException && e.type == MwaFailureType.userCancelled
+                ? Colors.orange
+                : Colors.red,
           ),
         );
       }
@@ -3036,13 +3394,28 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
 
         // Connected Solana Wallet Section
         const SizedBox(height: 24),
-        const Text(
-          'Linked Solana Wallet',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        const Row(
+          children: [
+            SolanaLogo(size: 22),
+            SizedBox(width: 8),
+            Text(
+              'Linked Solana Wallet',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         Column(
-          children: wallets.map((wallet) {
+          children: [
+          if (ref.read(mwaServiceProvider).isSupported)
+            _buildMwaWalletCard(
+              uid: uid,
+              isDarkMode: isDarkMode,
+              hasWallet: hasWallet,
+              connectedWalletType: connectedWalletType,
+              walletPublicKey: userProfile.walletPublicKey,
+            ),
+          ...wallets.map((wallet) {
             final isInstalled = _installedWallets[wallet.id] ?? false;
             final isConnected = hasWallet && connectedWalletType == wallet.id;
 
@@ -3245,7 +3618,8 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
                 ],
               ),
             );
-          }).toList(),
+          }),
+          ],
         ),
 
         const SizedBox(height: 32),

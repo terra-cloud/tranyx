@@ -498,7 +498,7 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
             div(
               classes:
                   'size-10 shrink-0 rounded-xl flex items-center justify-center ${isDark ? "bg-zinc-800 text-indigo-300" : "bg-white text-[#4f46e5] border border-[#e4e4e7]"}',
-              [lIcon(icon, cls: 'w-5 h-5')],
+              [icon == 'solana' ? solanaLogo(cls: 'w-5 h-5') : lIcon(icon, cls: 'w-5 h-5')],
             ),
             div(classes: 'min-w-0 flex-1', [
               p(classes: 'm-0 text-sm font-semibold $primary', [Component.text(title)]),
@@ -624,7 +624,7 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
                   s.selectedP2pWithdrawMethod = 'Maya';
                 });
               }),
-              methodCard('Solana', 'Solana (SOL/USDT)', 'Network fee applies · Solana network only', 'zap', !isP2p, () {
+              methodCard('Solana', 'Solana (SOL/USDT)', 'Network fee applies · Solana network only', 'solana', !isP2p, () {
                 s.setState(() => s.selectedWithdrawRail = 'solana');
               }),
             ]),
@@ -924,7 +924,7 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
                       '${!isP2p ? "bg-[#512da8] text-white shadow" : (isDark ? "text-zinc-400 hover:text-zinc-200" : "text-zinc-600 hover:text-zinc-800")}',
                   events: {'click': (_) => s.setState(() => s.selectedWithdrawRail = 'solana')},
                   [
-                    lIcon('coins', cls: 'w-4 h-4'),
+                    solanaLogo(cls: 'w-4 h-4'),
                     Component.text('Solana (SOL/USDT)'),
                   ],
                 ),
@@ -1290,6 +1290,7 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
                   div(classes: 'p-3 rounded-2xl bg-green-500/10 border border-green-500/20 flex items-center justify-between', [
                     div(classes: 'flex items-center gap-2.5 min-w-0', [
                       div(classes: 'w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0', []),
+                      solanaLogo(cls: 'w-4 h-4'),
                       div(classes: 'min-w-0', [
                         p(classes: 'text-[11px] font-bold text-green-400', [Component.text('Connected Solana Wallet')]),
                         p(classes: 'text-xs font-mono text-zinc-300 truncate', [Component.text(walletKey)]),

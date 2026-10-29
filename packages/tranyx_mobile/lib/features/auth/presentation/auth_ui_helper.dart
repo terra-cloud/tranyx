@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
+import 'package:tranyx_mobile/core/widgets/solana_logo.dart';
 
 class AuthUiHelper {
   static Widget buildAuthScaffold({
@@ -187,12 +188,7 @@ class AuthUiHelper {
       width: double.infinity,
       child: OutlinedButton.icon(
         onPressed: onPressed,
-        icon: Image.asset(
-          'assets/icons/solana.webp',
-          width: 24,
-          height: 24,
-          fit: BoxFit.contain,
-        ),
+        icon: const SolanaLogo(size: 24),
         label: Text(
           "Continue with Solana Wallet",
           style: TextStyle(

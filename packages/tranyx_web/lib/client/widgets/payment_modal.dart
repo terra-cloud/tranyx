@@ -109,7 +109,7 @@ class PaymentModalComponent extends StatelessComponent {
                       '${!isP2p ? "bg-[#512da8] text-white shadow" : (isDark ? "text-zinc-400 hover:text-zinc-200" : "text-zinc-600 hover:text-zinc-800")}',
                   events: {'click': (_) => s.setState(() => s.selectedDepositRail = 'solana')},
                   [
-                    lIcon('coins', cls: 'w-4 h-4'),
+                    solanaLogo(cls: 'w-4 h-4'),
                     Component.text('Solana (SOL/USDT)'),
                   ],
                 ),
@@ -707,7 +707,7 @@ class PaymentModalComponent extends StatelessComponent {
                       div(classes: 'flex items-center gap-3 min-w-0', [
                         div(
                           classes: 'w-9 h-9 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400 shrink-0',
-                          [lIcon('wallet', cls: 'w-4 h-4')],
+                          [solanaLogo(cls: 'w-5 h-5')],
                         ),
                         div(classes: 'min-w-0 text-left', [
                           div(classes: 'flex items-center gap-1.5', [

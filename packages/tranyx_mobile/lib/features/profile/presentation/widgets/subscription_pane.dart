@@ -406,6 +406,15 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
         throw Exception('Treasury wallet is not configured.');
       }
 
+      if (walletType == 'mwa') {
+        // MWA wallets are supported for deposit and withdraw only; do not fall
+        // through to the Phantom deep link with the wrong wallet.
+        throw Exception(
+          'Paying a subscription with a Mobile Wallet Adapter wallet is not available yet. '
+          'Pay with your Tyxbit balance or a P2P payment instead.',
+        );
+      }
+
       if (walletType == 'trust') {
         // Trust Wallet flow
         await SecureStorageHelper.savePendingDepositPhpAmount(phpAmount);

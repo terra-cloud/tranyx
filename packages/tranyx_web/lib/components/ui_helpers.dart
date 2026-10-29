@@ -6,6 +6,16 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 
+/// Solana brand mark (three gradient bars) used wherever the Solana wallet
+/// option or payment method is shown. Asset: web/images/solana_logo.png.
+Component solanaLogo({String cls = 'w-4 h-4'}) {
+  return img(
+    src: '/images/solana_logo.png',
+    alt: 'Solana',
+    classes: '$cls object-contain pointer-events-none flex-shrink-0',
+  );
+}
+
 /// Renders a Lucide icon as an inline SVG so Jaspr fully owns the DOM node.
 /// No Lucide JS runtime needed — zero conflicts with Jaspr's virtual DOM.
 /// Each icon is stored as a list of SVG element descriptors rendered via proper

@@ -898,7 +898,7 @@ class _ProfileMainState extends State<_ProfileMain> {
                     div(
                       classes:
                           'w-9 h-9 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center',
-                      [lIcon('coins', cls: 'w-4 h-4')],
+                      [solanaLogo(cls: 'w-5 h-5')],
                     ),
                     div([
                       h5(classes: 'text-xs font-black $textCls', [Component.text('Solana (SOL)')]),

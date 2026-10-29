@@ -10,6 +10,9 @@ import 'package:tranyx_mobile/flavors.dart';
 import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
+import 'package:tranyx_mobile/core/widgets/solana_logo.dart';
+import 'package:tranyx_mobile/core/services/mwa_service.dart';
+import 'package:tranyx_mobile/core/services/mwa_wallet_link.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class TrustPane extends ConsumerStatefulWidget {
@@ -652,7 +655,19 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
   Future<void> _linkSolanaWallet(String uid, String type) async {
     setState(() => _isProcessing = true);
     try {
-      if (type == 'trust') {
+      if (type == kMwaWalletType) {
+        // Android Mobile Wallet Adapter: authorize, then link the public key.
+        final auth = await ref.read(mwaServiceProvider).connect();
+        final outcome = await linkMwaWallet(
+          firestore: ref.read(firestoreProvider),
+          uid: uid,
+          publicKey: auth.publicKey,
+        );
+        if (outcome == MwaLinkOutcome.alreadyLinkedToAnotherAccount) {
+          throw 'This wallet is already linked to another account. Each wallet can only be connected to one account.';
+        }
+        ref.invalidate(userProfileProvider);
+      } else if (type == 'trust') {
         const projectId = '52cb8eaaad34baed8dbe063b454b28f6';
         final modal = await TrustWalletService.createModal(
           context: context,
@@ -844,15 +859,7 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
 
           Row(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Image.asset(
-                  'assets/icons/solana.webp',
-                  width: 22,
-                  height: 22,
-                  fit: BoxFit.contain,
-                ),
-              ),
+              const SolanaLogo(size: 22),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -922,6 +929,11 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
                           'Trust',
                           () => _linkSolanaWallet(userProfile.uid, 'trust'),
                         ),
+                        if (ref.read(mwaServiceProvider).isSupported)
+                          _buildWalletLinkBtn(
+                            'MWA',
+                            () => _linkSolanaWallet(userProfile.uid, kMwaWalletType),
+                          ),
                       ],
                     ),
             ],

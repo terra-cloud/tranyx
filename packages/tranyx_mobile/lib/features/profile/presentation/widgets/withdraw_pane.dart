@@ -9,6 +9,9 @@ import 'package:intl/intl.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
+import 'package:tranyx_mobile/core/services/mwa_service.dart';
+import 'package:tranyx_mobile/core/services/mwa_wallet_link.dart';
+import 'package:tranyx_mobile/core/widgets/solana_logo.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/payment_pane.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
@@ -44,6 +47,9 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> with SingleTickerPr
   bool _isFetchingRates = false;
 
   bool _isSubmitting = false;
+  // Android MWA: payout destination the user confirmed with their wallet.
+  String? _mwaConfirmedKey;
+  bool _isMwaBusy = false;
   String? _errorMessage;
   String? _successMessage;
 
@@ -382,6 +388,59 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> with SingleTickerPr
     }
   }
 
+  /// Android MWA: have the user's wallet authorize so we can confirm the payout
+  /// destination (or link one when none exists). This only reads the wallet's
+  /// public key; the payout itself is NOT signed on the phone.
+  Future<void> _confirmWithdrawWalletViaMwa(String? linkedKey) async {
+    if (_isMwaBusy) return;
+    setState(() => _isMwaBusy = true);
+    void toast(String msg, Color color) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: color),
+      );
+    }
+
+    try {
+      final auth = await ref.read(mwaServiceProvider).connect();
+      if (linkedKey == null || linkedKey.isEmpty) {
+        final uid = ref.read(userProfileProvider).value?.uid;
+        if (uid == null) return;
+        final outcome = await linkMwaWallet(
+          firestore: ref.read(firestoreProvider),
+          uid: uid,
+          publicKey: auth.publicKey,
+        );
+        if (outcome == MwaLinkOutcome.alreadyLinkedToAnotherAccount) {
+          toast(
+            'This wallet is already linked to another account. Each wallet can only be connected to one account.',
+            Colors.red,
+          );
+          return;
+        }
+        ref.invalidate(userProfileProvider);
+        if (mounted) setState(() => _mwaConfirmedKey = auth.publicKey);
+        toast('Payout wallet linked: ${shortWalletKey(auth.publicKey)}', Colors.green);
+      } else if (auth.publicKey == linkedKey) {
+        if (mounted) setState(() => _mwaConfirmedKey = linkedKey);
+        toast('Payout wallet confirmed: ${shortWalletKey(linkedKey)}', Colors.green);
+      } else {
+        toast(
+          'Your wallet authorized ${shortWalletKey(auth.publicKey)}, which is not your linked payout wallet (${shortWalletKey(linkedKey)}). Switch account in your wallet, or relink in Payment Methods.',
+          Colors.orange,
+        );
+      }
+    } catch (e) {
+      final cancelled = e is MwaException && e.type == MwaFailureType.userCancelled;
+      toast(
+        e is MwaException ? e.message : 'Wallet request failed: $e',
+        cancelled ? Colors.orange : Colors.red,
+      );
+    } finally {
+      if (mounted) setState(() => _isMwaBusy = false);
+    }
+  }
+
   String get selectedCoinLabel => _selectedCoin == 'SOL' ? 'SOL (Native)' : 'USDT (SPL)';
 
   @override
@@ -684,11 +743,7 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> with SingleTickerPr
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(
-                                    LucideIcons.wallet,
-                                    size: 15,
-                                    color: !isP2p ? Colors.white : (isDarkMode ? Colors.grey[400] : Colors.grey[700]),
-                                  ),
+                                  const SolanaLogo(size: 15),
                                   const SizedBox(width: 7),
                                   Text(
                                     "Solana (SOL/USDT)",
@@ -1567,6 +1622,18 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> with SingleTickerPr
                           color: isDarkMode ? Colors.grey[300] : Colors.grey[700],
                         ),
                       ),
+                      if (ref.read(mwaServiceProvider).isSupported) ...[
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: _isMwaBusy ? null : () => _confirmWithdrawWalletViaMwa(null),
+                          icon: const SolanaLogo(size: 16),
+                          label: Text(_isMwaBusy ? 'Waiting for wallet…' : 'Link with Solana wallet (MWA)'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFF59E0B),
+                            side: const BorderSide(color: Color(0xFFF59E0B)),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1584,7 +1651,7 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> with SingleTickerPr
             ),
             child: Row(
               children: [
-                const Icon(LucideIcons.shieldCheck, color: Color(0xFF10B981), size: 18),
+                const SolanaLogo(size: 18),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -1611,6 +1678,16 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> with SingleTickerPr
                     ],
                   ),
                 ),
+                if (_mwaConfirmedKey == walletKey)
+                  const Icon(LucideIcons.shieldCheck, color: Color(0xFF10B981), size: 18)
+                else if (ref.read(mwaServiceProvider).isSupported)
+                  TextButton(
+                    onPressed: _isMwaBusy ? null : () => _confirmWithdrawWalletViaMwa(walletKey),
+                    child: Text(
+                      _isMwaBusy ? 'Waiting…' : 'Confirm with wallet',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
               ],
             ),
           ),

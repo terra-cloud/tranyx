@@ -9737,7 +9737,7 @@ class WalletSelectionModalComponent extends StatelessComponent {
       if (id == 'solflare') return img(src: '/images/Solflare.png', classes: '$size object-contain rounded-md');
       if (id == 'trust') return img(src: '/images/TrustWallet.jpeg', classes: '$size object-contain rounded-md');
       if (id == 'backpack') return img(src: '/images/BackPack.png', classes: '$size object-contain rounded-md');
-      return lIcon('wallet', cls: '$size text-white');
+      return solanaLogo(cls: size);
     }
 
     return div(
