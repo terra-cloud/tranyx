@@ -69,8 +69,11 @@ async function clearAll() {
 }
 const UID = 'user1';
 const auth = { uid: UID };
-const seedUser = (over: Record<string, unknown> = {}, uid = UID, w = wallet) =>
-  db.doc(`users/${uid}`).set({ name: 'T', tyxBalance: 100, walletPublicKey: w, ...over });
+// Users are seeded with a PROVEN wallet (wallet_verified, written by walletAuthLink in production).
+const seedUser = async (over: Record<string, unknown> = {}, uid = UID, w = wallet, verified = true) => {
+  await db.doc(`users/${uid}`).set({ name: 'T', tyxBalance: 100, walletPublicKey: w, ...over });
+  if (verified) await db.doc(`wallet_verified/${w}`).set({ uid, verifiedAt: 1 });
+};
 const bal = async (uid = UID) => (await db.doc(`users/${uid}`).get()).get('tyxBalance') as number;
 const tx = (id: string) => db.doc(`transactions/${id}`).get();
 const err = async (p: Promise<unknown>) => p.then(() => null, (e) => e as { code: string; message: string });
@@ -264,6 +267,27 @@ describe('creditOnchainPayment: deposits', () => {
     expect((await processCredit(deps(), auth, { signature: sig, kind: 'deposit_sol' })).reason).toBe('WALLET_LINKED_TO_ANOTHER_ACCOUNT');
     await db.doc(`walletLinks/${wallet}`).set({ uid: UID, linkedAt: 1 });
     expect((await processCredit(deps(), auth, { signature: sig, kind: 'deposit_sol' })).status).toBe('credited');
+  });
+
+  it('an unverified wallet (client-written link only) is refused with failed-precondition WALLET_NOT_VERIFIED, then credits once verified', async () => {
+    const sig = newSig(); paySol(sig);
+    await db.doc(`wallet_verified/${wallet}`).delete();
+    await db.doc(`walletLinks/${wallet}`).set({ uid: UID, linkedAt: 1 }); // what a client can write on its own
+    for (const kind of ['deposit_sol', 'subscription_sol'] as const) {
+      const e = await err(processCredit(deps(), auth, { signature: sig, kind, plan: 'monthly' }));
+      expect(e?.code).toBe('failed-precondition');
+      expect(e?.message).toContain('WALLET_NOT_VERIFIED');
+    }
+    expect(await bal()).toBe(100);
+    expect((await tx(`onchain_${sig}`)).exists).toBe(false);
+    expect((await tx(`pending_onchain_${UID}_${sig}`)).data()).toMatchObject({ status: 'pending', note: 'rejected by server: WALLET_NOT_VERIFIED' });
+    // proof bound to somebody else does not count either
+    await db.doc(`wallet_verified/${wallet}`).set({ uid: 'someone-else', verifiedAt: 1 });
+    expect((await err(processCredit(deps(), auth, { signature: sig, kind: 'deposit_sol' })))?.message).toContain('WALLET_NOT_VERIFIED');
+    // the user verifies (walletAuthLink) and the same signature is credited
+    await db.doc(`wallet_verified/${wallet}`).set({ uid: UID, verifiedAt: 2 });
+    expect((await processCredit(deps(), auth, { signature: sig, kind: 'deposit_sol' })).status).toBe('credited');
+    expect(await bal()).toBeGreaterThan(100);
   });
 
   it('unauthenticated, banned/suspended, bad input, kill switch, rate band, hourly budget', async () => {

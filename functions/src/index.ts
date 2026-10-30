@@ -10,7 +10,7 @@ import { processCredit, type CreditDeps } from './credit';
 import { RpcChainReader } from './solana_chain';
 import { Web3SolanaPayer } from './solana';
 import { processP2pAction, processWithdrawal, reconcileAll, type Deps } from './withdraw';
-import { issueNonce, walletLink, walletSignIn, type WalletAuthDeps } from './wallet_auth';
+import { issueNonce, walletLink, walletSignIn, walletStatus, type WalletAuthDeps } from './wallet_auth';
 import { uploadImage, type FetchLike } from './image_upload';
 
 initializeApp();
@@ -170,6 +170,10 @@ export const walletAuthSignIn = onCall(walletOpts, (req) =>
 /** Links a proven wallet (sign-up ticket or fresh signature) to the signed-in caller. */
 export const walletAuthLink = onCall(walletOpts, (req) =>
   guard('walletAuthLink', () => walletLink(walletDeps(), req.auth?.uid, req.data)));
+
+/** Does the caller's profile wallet have a signature proof? { wallet, linked, verified } (the proof doc itself is Admin-only). */
+export const walletAuthStatus = onCall(walletOpts, (req) =>
+  guard('walletAuthStatus', () => walletStatus(walletDeps(), req.auth?.uid)));
 
 // ── Image upload proxy (see image_upload.ts) ────────────────────────────────────────────────────
 /** Secret Manager: `firebase functions:secrets:set IMGBB_API_KEY` per project. Not committed, never logged. */

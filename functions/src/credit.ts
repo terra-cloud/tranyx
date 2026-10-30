@@ -76,6 +76,12 @@ export type RejectReason =
   | 'PLAN_PRICE_NOT_MET'
   | 'CREDIT_DISABLED';
 
+/**
+ * Error message prefix for a deposit from a wallet that was linked without a signature proof. The apps
+ * look for this code, send the user through the one-time "Verify wallet" signature, then retry.
+ */
+export const WALLET_NOT_VERIFIED = 'WALLET_NOT_VERIFIED';
+
 const SIG_RE = /^[1-9A-HJ-NP-Za-km-z]{80,90}$/;
 const KINDS: readonly CreditKind[] = ['deposit_sol', 'deposit_usdt', 'subscription_sol'];
 const LAMPORTS_PER_SOL = 1e9;
@@ -139,7 +145,7 @@ export const pendingOnchainId = (uid: string, sig: string) => `pending_onchain_$
 export const perFlowMarkerId = (kind: CreditKind, sig: string) =>
   `${kind === 'deposit_sol' ? 'deposit_sol_' : kind === 'deposit_usdt' ? 'deposit_usdt_' : 'sub_sol_'}${sig}`;
 export const MARKER_HELD_NOTE = 'marker held by another account';
-const rejectedNote = (r: RejectReason) => `rejected by server: ${r}`;
+const rejectedNote = (r: RejectReason | typeof WALLET_NOT_VERIFIED) => `rejected by server: ${r}`;
 
 /** Subscription expiry extends from max(now, current premiumUntil). */
 export function nextPremiumUntilMs(currentMs: number | null | undefined, nowMs: number, plan: Plan): number {
@@ -332,6 +338,14 @@ export async function processCredit(deps: CreditDeps, auth: CallerAuth | undefin
   // The wallet index (one wallet per account) must not name a different owner.
   const link = await db.doc(`walletLinks/${wallet}`).get();
   if (link.exists && link.get('uid') !== uid) return reject(deps, uid, base, 'WALLET_LINKED_TO_ANOTHER_ACCOUNT');
+
+  // Only a wallet the caller PROVED (signed the walletAuth challenge) may be credited. `walletLinks` and
+  // `users.walletPublicKey` are client-writable claims; `wallet_verified` is written by walletAuthLink only.
+  const verified = await db.doc(`wallet_verified/${wallet}`).get();
+  if (!verified.exists || verified.get('uid') !== uid) {
+    await notePending(deps, uid, sig, kind, rejectedNote(WALLET_NOT_VERIFIED));
+    throw new HttpsError('failed-precondition', `${WALLET_NOT_VERIFIED}: Verify your wallet once in Profile (one signature, no fee), then your payment will be credited.`);
+  }
 
   const treasury = await resolveTreasury(db, deps.treasuryPublicKey);
   const treasuryAta = getAssociatedTokenAddressSync(new PublicKey(deps.usdtMint), new PublicKey(treasury), true).toBase58();

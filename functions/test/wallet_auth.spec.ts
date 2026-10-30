@@ -5,7 +5,7 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import bs58 from 'bs58';
 import {
-  allowedHost, buildMessage, isStaffLike, issueNonce, parseWallet, verifyWalletSignature, walletLink, walletSignIn,
+  allowedHost, buildMessage, isStaffLike, issueNonce, parseWallet, verifyWalletSignature, walletLink, walletSignIn, walletStatus,
   type AuthAdmin, type WalletAuthDeps,
 } from '../src/wallet_auth';
 
@@ -297,5 +297,24 @@ describe('walletAuthLink', () => {
     expect(await walletLink(deps(), 'bad', await proof(w, 'link'))).toEqual({ status: 'rejected', reason: 'ACCOUNT_BLOCKED' });
     const w2 = newWallet();
     expect((await err(walletLink(deps(), 'nobody', await proof(w2, 'link'))))?.code).toBe('failed-precondition');
+  });
+});
+
+describe('walletAuthStatus (walletStatus)', () => {
+  it('requires sign-in; reports linked/verified for the caller only', async () => {
+    expect((await err(walletStatus(deps(), undefined)))?.code).toBe('unauthenticated');
+    const w = newWallet();
+    await seedUser('u');
+    expect(await walletStatus(deps(), 'u')).toEqual({ wallet: '', linked: false, verified: false });
+    // a client-written claim (profile key + index) is not proof
+    await db.doc('users/u').update({ walletPublicKey: w.address });
+    await db.doc(`walletLinks/${w.address}`).set({ uid: 'u', linkedAt: 1 });
+    expect(await walletStatus(deps(), 'u')).toEqual({ wallet: w.address, linked: true, verified: false });
+    // proof for someone else's uid does not count
+    await db.doc(`wallet_verified/${w.address}`).set({ uid: 'other', verifiedAt: 1 });
+    expect((await walletStatus(deps(), 'u')).verified).toBe(false);
+    // re-linking the same wallet with a signature verifies it
+    expect(await walletLink(deps(), 'u', await proof(w, 'link'))).toEqual({ status: 'linked', wallet: w.address });
+    expect(await walletStatus(deps(), 'u')).toEqual({ wallet: w.address, linked: true, verified: true });
   });
 });
