@@ -424,18 +424,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                   firestore: ref.read(firestoreProvider),
                   uid: user.uid,
                   signature: signature,
-                  markerId: 'deposit_sol_$signature',
-                  phpAmount: phpAmount,
-                  markerData: {
-                    'uid': user.uid,
-                    'type': 'deposit',
-                    'amount': phpAmount,
-                    'title': 'Wallet Top-Up ($currency)',
-                    'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} $currency via Solana',
-                    'method': 'Solana',
-                    'solanaTxSignature': signature,
-                    'createdAt': DateTime.now().millisecondsSinceEpoch,
-                  },
+                  isUsdt: currency.toUpperCase() == 'USDT',
                 )).throwIfHeldElsewhere(signature);
 
                 ref.invalidate(userProfileProvider);
@@ -643,9 +632,6 @@ final routerProvider = Provider<GoRouter>((ref) {
                   uid: user.uid,
                   signature: signature,
                   plan: subType == 'yearly' ? 'yearly' : 'monthly',
-                  phpAmount: phpAmount,
-                  cryptoAmount: cryptoAmount,
-                  method: 'Solana Wallet',
                 )).throwIfHeldElsewhere(signature);
 
                 ref.invalidate(userProfileProvider);
@@ -702,18 +688,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                   firestore: ref.read(firestoreProvider),
                   uid: user.uid,
                   signature: signature,
-                  markerId: 'deposit_sol_$signature',
-                  phpAmount: phpAmount,
-                  markerData: {
-                    'uid': user.uid,
-                    'type': 'deposit',
-                    'amount': phpAmount,
-                    'title': 'Wallet Top-Up ($currency)',
-                    'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} $currency via Solana',
-                    'method': 'Solana',
-                    'solanaTxSignature': signature,
-                    'createdAt': DateTime.now().millisecondsSinceEpoch,
-                  },
+                  isUsdt: currency.toUpperCase() == 'USDT',
                 )).throwIfHeldElsewhere(signature);
 
                 ref.invalidate(userProfileProvider);

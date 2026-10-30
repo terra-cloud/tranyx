@@ -57,6 +57,11 @@ enum OnchainCommitResult {
   /// The rules refused the credit (permission-denied) and no foreign marker was
   /// read. Nothing was credited; the pending record stays open with a note.
   refusedByRules,
+
+  /// The server verified the transaction and refused it (wrong wallet, wrong
+  /// destination or amount, failed transaction, ...). Nothing was credited; the
+  /// server left a note on the pending record for support.
+  rejectedByServer,
 }
 
 /// Shown instead of a silent refusal when a credit could not be applied and
@@ -74,11 +79,12 @@ extension OnchainCommitResultX on OnchainCommitResult {
   /// Whether the user has to contact support (nothing was credited and no replay).
   bool get needsSupport =>
       this == OnchainCommitResult.heldByAnotherAccount ||
-      this == OnchainCommitResult.refusedByRules;
+      this == OnchainCommitResult.refusedByRules ||
+      this == OnchainCommitResult.rejectedByServer;
 
   /// Throws [OnchainSupportException] (the UI shows "Contact support with
   /// signature <sig>") for [OnchainCommitResult.heldByAnotherAccount] and
-  /// [OnchainCommitResult.refusedByRules].
+  /// [OnchainCommitResult.refusedByRules] and [OnchainCommitResult.rejectedByServer].
   void throwIfHeldElsewhere(String signature) {
     if (needsSupport) throw OnchainSupportException(signature);
   }
