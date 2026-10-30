@@ -8519,9 +8519,29 @@ class ImgBBService {
       throw ImageUploadException('Unsupported file format (.$ext). Please upload a PNG, JPG, or JPEG image.');
     }
 
+    // 2a. Server-side proxy first (uploadImageProxy): the browser never talks to api.imgbb.com, so there is no
+    // CORS failure to hide the real reason and the key stays out of the bundle. Falls back to the direct
+    // upload only when the proxy is not available (not deployed, offline, unexpected reply).
+    String? proxyFailure;
+    if (idToken != null && bytes.length <= 7 * 1024 * 1024) {
+      try {
+        final res = await FirestoreService(idToken, onTokenRefresh).callCloudFunction(
+          'uploadImageProxy',
+          {'imageBase64': base64Encode(bytes), 'name': cleanFilename},
+          timeout: const Duration(seconds: 45),
+        );
+        final url = res['url'];
+        if (url is String && url.startsWith('https://')) return url;
+      } on CloudFunctionException catch (e) {
+        const fallbackStatuses = {'NOT_FOUND', 'UNAVAILABLE', 'INTERNAL', 'NETWORK', 'DEADLINE_EXCEEDED', 'FAILED_PRECONDITION'};
+        if (!fallbackStatuses.contains(e.status)) throw ImageUploadException(e.message);
+        proxyFailure = e.message;
+      } catch (_) {}
+    }
+
     final apiKey = await _getApiKey();
     if (apiKey.isEmpty) {
-      throw const ImageUploadException('Image upload service is not configured (missing API key). Please contact support.');
+      throw ImageUploadException(proxyFailure ?? 'Image upload service is not configured (missing API key). Please contact support.');
     }
 
     final uri = Uri.parse('https://api.imgbb.com/1/upload');
@@ -8600,6 +8620,8 @@ class ImgBBService {
       throw ImageUploadException('Failed to upload receipt screenshot: $lastErrorReason');
     }
 
-    throw const ImageUploadException('Failed to upload receipt screenshot. Please try again.');
+    throw const ImageUploadException(
+      'The image host could not be reached from this browser (it did not answer, or blocked the request). Please try again in a moment.',
+    );
   }
 }

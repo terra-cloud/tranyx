@@ -72,6 +72,12 @@ Param `WALLET_AUTH_DOMAINS` (default `tranyx.app,dev.tranyx.app,uat.tranyx.app,l
 `localhost` in prod. Email/password credentials come from the normal sign-up (the account is a normal Firebase user), so the
 user can sign in with either.
 
+## Image upload proxy (`uploadImageProxy`)
+Signed-in users send `{ imageBase64, name? }` (JPEG/PNG/GIF/WebP sniffed by magic bytes, up to 7 MB, 60 per hour per user);
+the function posts it to imgbb with `IMGBB_API_KEY` from Secret Manager (`firebase functions:secrets:set IMGBB_API_KEY`)
+and returns `{ url }`. Host errors map to fixed messages; the host body and the key are never forwarded. The web client
+tries this first and falls back to the direct browser upload if the function is not deployed.
+
 ## Tests
 ```
 npm test            # tsc + emulator tests (Firestore emulator on 8189; never 8080/8199)

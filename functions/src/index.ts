@@ -10,8 +10,8 @@ import { processCredit, type CreditDeps } from './credit';
 import { RpcChainReader } from './solana_chain';
 import { Web3SolanaPayer } from './solana';
 import { processP2pAction, processWithdrawal, reconcileAll, type Deps } from './withdraw';
-
 import { issueNonce, walletLink, walletSignIn, type WalletAuthDeps } from './wallet_auth';
+import { uploadImage, type FetchLike } from './image_upload';
 
 initializeApp();
 
@@ -170,3 +170,25 @@ export const walletAuthSignIn = onCall(walletOpts, (req) =>
 /** Links a proven wallet (sign-up ticket or fresh signature) to the signed-in caller. */
 export const walletAuthLink = onCall(walletOpts, (req) =>
   guard('walletAuthLink', () => walletLink(walletDeps(), req.auth?.uid, req.data)));
+
+// ── Image upload proxy (see image_upload.ts) ────────────────────────────────────────────────────
+/** Secret Manager: `firebase functions:secrets:set IMGBB_API_KEY` per project. Not committed, never logged. */
+const IMGBB_API_KEY = defineSecret('IMGBB_API_KEY');
+
+/** Signed-in users upload a base64 image; the function posts it to imgbb server-side and returns { url }. */
+export const uploadImageProxy = onCall(
+  { enforceAppCheck: ENFORCE_APP_CHECK, secrets: [IMGBB_API_KEY], timeoutSeconds: 40, maxInstances: 10, memory: '512MiB' },
+  async (req) => {
+    try {
+      return await uploadImage(
+        { db: getFirestore(), fetchFn: fetch as unknown as FetchLike, apiKey: IMGBB_API_KEY.value(), now: () => Date.now() },
+        req.auth?.uid,
+        req.data,
+      );
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      logger.error('uploadImageProxy failed', { detail: (e instanceof Error ? e.message : String(e)).replace(/https?:\/\/\S+/gi, '[url]').slice(0, 200) });
+      throw new HttpsError('internal', 'The image could not be uploaded.');
+    }
+  },
+);
