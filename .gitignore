@@ -99,3 +99,9 @@ scratch/
 
 # Firebase emulator local data (tool/emulators.sh)
 .emulator-data/
+
+# Cloud Functions (KAN-146)
+functions/node_modules/
+functions/lib/
+functions/.env.local
+functions/.secret.local

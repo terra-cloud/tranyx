@@ -48,16 +48,22 @@ void main() {
   }
 
   // 2. Fallback to system environment variables (useful for CI/CD pipelines)
+  // KAN-146: the treasury SECRET key must never be generated into client code. It lives only in
+  // Firebase Secret Manager (SOLANA_TREASURY_SECRET_KEY) and is used by the requestWithdrawal Cloud
+  // Function. Only the PUBLIC key / RPC url are allowed here.
+  const forbiddenKeys = ['SOLANA_PRIVATE_KEY', 'TREASURY_PRIVATE_KEY', 'SOLANA_TREASURY_SECRET_KEY'];
+  for (final k in forbiddenKeys) {
+    vars.remove(k);
+  }
+
   final keysToLoad = <String>[
     'CLOUDFLARE_ACCOUNT_ID',
     'CLOUDFLARE_API_TOKEN',
     'IMGBB_API_KEY',
     'BASEMAPS_API_KEY',
     'GEMINI_AI_API_KEY',
-    'SOLANA_PRIVATE_KEY',
     'SOLANA_PUBLIC_KEY',
     'SOLANA_RPC_URL',
-    'TREASURY_PRIVATE_KEY',
     'TREASURY_PUBLIC_KEY',
     'ENV',
     'FLAVOR',

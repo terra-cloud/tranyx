@@ -147,10 +147,25 @@ describe('MON: world-readable money collections', () => {
 
 describe('MON: withdrawal request lock after create', () => {
   const prep = () => seed({ 'users/u1': userProfile('u1'), 'withdrawal_requests/wr1': withdrawal('u1'), 'withdrawalRequests/wr1': withdrawal('u1') });
-  it('MON-WR0 [MUST-ALLOW] owner can create own withdrawal request (withdraw_modal.dart payload)', async () => {
+  it('MON-WR0 [KAN-146] owner can NOT create a withdrawal request any more (server-only: requestWithdrawal function)', async () => {
     await seed({ 'users/u1': userProfile('u1') });
-    await assertSucceeds(setDoc(doc(user('u1'), 'withdrawal_requests/wrNew'), withdrawal('u1')));
-    await assertSucceeds(setDoc(doc(user('u1'), 'withdrawalRequests/wrNew'), withdrawal('u1')));
+    await assertFails(setDoc(doc(user('u1'), 'withdrawal_requests/wrNew'), withdrawal('u1')));
+    await assertFails(setDoc(doc(user('u1'), 'withdrawalRequests/wrNew'), withdrawal('u1')));
+  });
+  it('MON-WR0c [KAN-146] forged fee-free / pre-approved create is denied (feeAmount:0, netAmount=amount, Successful)', async () => {
+    await seed({ 'users/u1': userProfile('u1') });
+    const forged = withdrawal('u1', { amount: 500, feeAmount: 0, netAmount: 500, rate: 1, cryptoAmount: 500, originRail: 'mwa_on_chain', status: 'Successful' });
+    await assertFails(setDoc(doc(user('u1'), 'withdrawal_requests/wrFree'), forged));
+    await assertFails(setDoc(doc(user('u1'), 'withdrawalRequests/wrFree'), forged));
+    await assertFails(setDoc(doc(user('u1'), 'withdrawal_requests/wrFree2'), withdrawal('u1', { feeAmount: 0, status: 'PENDING_REVIEW' })));
+  });
+  it('MON-WR0d [KAN-146] clients cannot write withdrawal-type ledger rows (type withdraw / WITHDRAWAL)', async () => {
+    await seed({ 'users/u1': userProfile('u1') });
+    for (const type of ['withdraw', 'WITHDRAWAL', 'withdrawal', 'WITHDRAW'])
+      await assertFails(setDoc(doc(user('u1'), 'transactions/wd_forged'), { uid: 'u1', type, amount: -500, status: 'Successful', createdAt: 1 }));
+  });
+  it('MON-WR0e [KAN-146] admin/staff (and the Admin SDK) can still create requests', async () => {
+    await assertSucceeds(setDoc(doc(adminClaim(), 'withdrawal_requests/wrAdmin'), withdrawal('u1')));
   });
   it('MON-WR0b [MUST-ALLOW] owner can read own withdrawal request', async () => {
     await prep();
@@ -172,8 +187,22 @@ describe('MON: withdrawal request lock after create', () => {
     await prep();
     await assertFails(updateDoc(doc(user('u1'), 'withdrawalRequests/wr1'), { amount: 50000, status: 'APPROVED' }));
   });
-  knownHole('KNOWN-HOLE MON-WR5 [HIGH] user cannot create a withdrawal request already in a terminal status (compiled:246)', async () => {
+  it('MON-WR5 [HIGH] user cannot create a withdrawal request already in a terminal status (closed by KAN-146: create is server-only)', async () => {
     await seed({ 'users/u1': userProfile('u1') });
     await assertFails(setDoc(doc(user('u1'), 'withdrawal_requests/wrX'), withdrawal('u1', { status: 'Successful', solanaTxSignature: 'fake' })));
+  });
+});
+
+describe('MON: server-only payout bookkeeping (withdrawal cooldown / usage)', () => {
+  it('MON-PW1 [HIGH] clients cannot read or write payout_wallet_state (the cooldown record)', async () => {
+    await seed({ 'users/u1': userProfile('u1'), 'payout_wallet_state/u1': { uid: 'u1', wallet: 'W', since: 1 } });
+    await assertFails(getDoc(doc(user('u1'), 'payout_wallet_state/u1')));
+    await assertFails(setDoc(doc(user('u1'), 'payout_wallet_state/u1'), { uid: 'u1', wallet: 'Mine', since: 1 }));
+    await assertFails(updateDoc(doc(user('u1'), 'payout_wallet_state/u1'), { since: 1 }));
+    await assertFails(setDoc(doc(user('u1'), 'payout_wallet_state/new'), { uid: 'u1', wallet: 'Mine', since: 1 }));
+  });
+  it('MON-PW2 [HIGH] clients cannot read or write withdrawal_usage / credit_usage counters', async () => {
+    await assertFails(setDoc(doc(user('u1'), 'withdrawal_usage/u1_2026-10-30'), { count: 0, totalCents: 0 }));
+    await assertFails(setDoc(doc(user('u1'), 'credit_usage/u1_1'), { uid: 'u1', count: 0 }));
   });
 });

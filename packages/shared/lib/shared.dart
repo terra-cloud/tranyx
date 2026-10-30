@@ -31,3 +31,4 @@ export 'src/property_pricing_validator.dart';
 export 'src/onchain_credit.dart';
 export 'src/cloud_function_exception.dart';
 export 'src/onchain_credit_callable.dart';
+export 'src/withdrawal_callable.dart';

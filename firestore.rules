@@ -359,9 +359,10 @@ service cloud.firestore {
           (isTxJobParticipant(txId) && isTxIdParty(txId, resource.data.get('uid', ''))) || isAdminOrStaff());
       allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
       // create: a structured id (see isTxIdParty) only by its own party, so nobody can squat a
-      // public job / property / request id before the real writer.
+      // public job / property / request id before the real writer. KAN-146: withdrawal-type ledger
+      // rows are written by the requestWithdrawal function only (type withdraw / WITHDRAWAL).
       // KAN-136 stopgap: hired worker may create payout_nyx_<job> type=payout (amount bound to job price).
-      allow create: if isAdminOrStaff() || isJobCompletionTxCreate(txId) || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$') &&
+      allow create: if isAdminOrStaff() || isJobCompletionTxCreate(txId) || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction|withdraw|withdrawal|WITHDRAW|WITHDRAWAL)$') &&
         (!txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*') || isTxIdParty(txId, request.auth.uid)) &&
         (!txId.matches('^pending_onchain_.*') || isOwnPendingOnchainId(txId, request.auth.uid)) &&
         !txId.matches('^(deposit_sol|deposit_usdt|sub_sol|onchain)_.*'));
@@ -404,16 +405,21 @@ service cloud.firestore {
     }
 
     // Withdrawal Requests Collections (Dual-collection sync: withdrawal_requests & withdrawalRequests)
+    // KAN-146: requests are created ONLY by the requestWithdrawal Cloud Function (Admin SDK bypasses
+    // rules): it debits the balance, computes fee/net/rate/crypto amount and signs the Solana
+    // transfer server-side. Clients can no longer create a request, so a client-chosen feeAmount: 0,
+    // a forged status or a client-side balance debit for a withdrawal is impossible. Clients still
+    // read their own requests and cancel / confirm P2P ones (isOwnerWithdrawalUpdate).
     match /withdrawal_requests/{reqId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow create: if isAdminOrStaff();
       allow update: if isAdminOrStaff() || isOwnerWithdrawalUpdate();
       allow delete: if isAdminOrStaff();
     }
 
     match /withdrawalRequests/{requestId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
+      allow create: if isAdminOrStaff(); // KAN-146: server-only, see withdrawal_requests above
       allow update: if isAdminOrStaff() || isOwnerWithdrawalUpdate();
       allow delete: if isAdminOrStaff();
     }

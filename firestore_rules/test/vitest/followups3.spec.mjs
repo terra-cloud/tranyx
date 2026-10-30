@@ -23,7 +23,8 @@ describe('FU3-ID: structured transaction ids belong to their party', () => {
     await assertSucceeds(setDoc(doc(user('poster'), 'transactions/refund_stale_job_j1'), tx('poster')));
     await assertSucceeds(setDoc(doc(user('host'), 'transactions/refund_prop_p1'), tx('host')));
     await assertSucceeds(setDoc(doc(user('u1'), 'transactions/p2p_dep_d1'), tx('u1', 'deposit')));
-    await assertSucceeds(setDoc(doc(user('u1'), 'transactions/p2p_with_w1'), tx('u1', 'withdraw')));
+    // KAN-146: p2p_with_ withdraw rows are now written by the requestWithdrawal function (Admin SDK) only.
+    await assertFails(setDoc(doc(user('u1'), 'transactions/p2p_with_w1'), tx('u1', 'withdraw')));
     await assertSucceeds(setDoc(doc(user('eve'), 'transactions/tx_free_form_1'), tx('eve', 'payment')));
     await assertSucceeds(setDoc(doc(adminClaim(), 'transactions/payout_nyx_j1'), tx('worker', 'payout')));
   });

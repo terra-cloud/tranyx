@@ -83,9 +83,7 @@ jobs:
           XENDIT_SECRET_KEY: ${{ secrets.XENDIT_SECRET_KEY }}
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
           GEMINI_AI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
-          SOLANA_PRIVATE_KEY: ${{ secrets.SOLANA_PRIVATE_KEY }}
           SOLANA_PUBLIC_KEY: ${{ secrets.SOLANA_PUBLIC_KEY }}
-          TREASURY_PRIVATE_KEY: ${{ secrets.TREASURY_PRIVATE_KEY }}
           TREASURY_PUBLIC_KEY: ${{ secrets.TREASURY_PUBLIC_KEY }}
 
       - name: Setup Android Keystore

@@ -1,27 +1,42 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onCall, HttpsError } from 'firebase-functions/https';
+import { onSchedule } from 'firebase-functions/scheduler';
 import * as logger from 'firebase-functions/logger';
-import { defineBoolean, defineString } from 'firebase-functions/params';
+import { defineBoolean, defineSecret, defineString } from 'firebase-functions/params';
 import { liveRates } from './rates';
 import { processCredit, type CreditDeps } from './credit';
 import { RpcChainReader } from './solana_chain';
+import { Web3SolanaPayer } from './solana';
+import { processP2pAction, processWithdrawal, reconcileAll, type Deps } from './withdraw';
 
 initializeApp();
 
 // Non-secret config: functions/.env.<projectId>. dev = devnet, uat = testnet, prod = mainnet-beta.
-// Do not commit an RPC URL that carries an API key (use `firebase functions:config`/params for that).
+// Do not commit an RPC URL that carries an API key.
 const SOLANA_RPC_URL = defineString('SOLANA_RPC_URL', { default: 'https://api.devnet.solana.com' });
 const SOLANA_USDT_MINT = defineString('SOLANA_USDT_MINT', { default: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' });
 /** Treasury PUBLIC key (never the secret). Empty = read system_config/treasury. */
 const SOLANA_TREASURY_PUBLIC_KEY = defineString('SOLANA_TREASURY_PUBLIC_KEY', { default: '' });
+// App Check is enforced unless explicitly turned off in functions/.env.<projectId>.
 const ENFORCE_APP_CHECK = defineBoolean('ENFORCE_APP_CHECK', { default: true });
 
-/** Test hook: only honoured inside the local Functions emulator, never in a deployed function. */
-const useEmulatorMocks = () => process.env.FUNCTIONS_EMULATOR === 'true' && process.env.CREDIT_MOCK_SOLANA === '1';
+/**
+ * Treasury key: Secret Manager ONLY. Never in the repo, the client builds, or CI.
+ *   firebase functions:secrets:set SOLANA_TREASURY_SECRET_KEY --project <project>
+ * Accepts the 64-byte secret key as base58 or as a JSON byte array.
+ */
+const TREASURY_SECRET = defineSecret('SOLANA_TREASURY_SECRET_KEY');
 
-function deps(): CreditDeps {
-  const mocks = useEmulatorMocks() ? (require('./testing/credit_emulator_mocks') as typeof import('./testing/credit_emulator_mocks')) : null;
+/** Test hooks: only honoured inside the local Functions emulator, never in a deployed function. */
+const isEmulator = () => process.env.FUNCTIONS_EMULATOR === 'true';
+const useCreditMocks = () => isEmulator() && process.env.CREDIT_MOCK_SOLANA === '1';
+const useWithdrawMocks = () => isEmulator() && process.env.WITHDRAW_MOCK_SOLANA === '1';
+
+function creditDeps(): CreditDeps {
+  const mocks = useCreditMocks()
+    ? (require('./testing/credit_emulator_mocks') as typeof import('./testing/credit_emulator_mocks'))
+    : null;
   return {
     db: getFirestore(),
     chain: mocks ? mocks.mockChain : new RpcChainReader(SOLANA_RPC_URL.value()),
@@ -32,21 +47,87 @@ function deps(): CreditDeps {
   };
 }
 
+function withdrawDeps(): Deps {
+  const mocks = useWithdrawMocks()
+    ? (require('./testing/emulator_mocks') as typeof import('./testing/emulator_mocks'))
+    : null;
+  return {
+    db: getFirestore(),
+    rates: mocks ? mocks.mockRates : liveRates,
+    payer: () =>
+      mocks
+        ? mocks.mockPayer
+        : new Web3SolanaPayer({
+          rpcUrl: SOLANA_RPC_URL.value(),
+          secretKey: TREASURY_SECRET.value(),
+          usdtMint: SOLANA_USDT_MINT.value(),
+        }),
+    now: () => Date.now(),
+  };
+}
+
 /**
  * Credits an on-chain payment (SOL/USDT deposit, SOL subscription) exactly once per signature.
- * Client sends { signature, kind: 'deposit_sol'|'deposit_usdt'|'subscription_sol', plan? }; the amount,
- * payer, destination and PHP value all come from the finalized transaction and server-side rates.
+ * Client sends { signature, kind, plan? }; amount, payer, destination and PHP value come from
+ * the finalized transaction and server-side rates.
  */
 export const creditOnchainPayment = onCall(
   { enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 60, maxInstances: 10, memory: '256MiB' },
   async (req) => {
     try {
-      return await processCredit(deps(), req.auth ? { uid: req.auth.uid } : undefined, req.data);
+      return await processCredit(creditDeps(), req.auth ? { uid: req.auth.uid } : undefined, req.data);
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      logger.error('creditOnchainPayment failed', {
+        detail: (e instanceof Error ? e.message : String(e)).replace(/https?:\/\/\S+/gi, '[url]').slice(0, 300),
+      });
+      throw new HttpsError('internal', 'The payment could not be processed.');
+    }
+  },
+);
+
+/**
+ * Single entry point for withdrawals ('solana' = on-chain payout, 'p2p' = GCash/Maya manual review).
+ * Client sends only idempotencyKey, method, amount, coin | p2p{...}. Fee, net, rate, crypto amount,
+ * destination wallet and balance are all computed/read server-side.
+ */
+export const requestWithdrawal = onCall(
+  { secrets: [TREASURY_SECRET], enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 120, maxInstances: 10, memory: '256MiB' },
+  async (req) => {
+    try {
+      return await processWithdrawal(withdrawDeps(), req.auth ? { uid: req.auth.uid, token: req.auth.token } : undefined, req.data);
     } catch (e) {
       if (e instanceof HttpsError) throw e;
       // Detail stays in Cloud Logging (URLs stripped: RPC urls may carry keys); the caller gets a generic error.
-      logger.error('creditOnchainPayment failed', { detail: (e instanceof Error ? e.message : String(e)).replace(/https?:\/\/\S+/gi, '[url]').slice(0, 300) });
-      throw new HttpsError('internal', 'The payment could not be processed.');
+      logger.error('requestWithdrawal failed', { detail: (e instanceof Error ? e.message : String(e)).replace(/https?:\/\/\S+/gi, '[url]').slice(0, 300) });
+      throw new HttpsError('internal', 'Withdrawal could not be processed.');
     }
+  },
+);
+
+/**
+ * Owner actions on a P2P cashout: { withdrawalId, action: 'cancel' | 'confirm', reason? }.
+ * Cancel refunds the held balance in one status-guarded transaction (never twice); confirm records receipt.
+ * Not gated by the withdrawal kill switch. The owner can no longer write these docs from the client.
+ */
+export const updateP2pWithdrawal = onCall(
+  { enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 60, maxInstances: 10, memory: '256MiB' },
+  async (req) => {
+    try {
+      return await processP2pAction(withdrawDeps(), req.auth ? { uid: req.auth.uid, token: req.auth.token } : undefined, req.data);
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      logger.error('updateP2pWithdrawal failed', { detail: (e instanceof Error ? e.message : String(e)).replace(/https?:\/\/\S+/gi, '[url]').slice(0, 300) });
+      throw new HttpsError('internal', 'The request could not be processed.');
+    }
+  },
+);
+
+/** Settles in-flight transfers from on-chain truth (confirmed -> sent; failed/expired -> refund once). */
+export const reconcileWithdrawals = onSchedule(
+  { schedule: 'every 5 minutes', timeoutSeconds: 300, maxInstances: 1, secrets: [TREASURY_SECRET] },
+  async () => {
+    const res = await reconcileAll(withdrawDeps());
+    logger.info('reconcileWithdrawals', res);
   },
 );

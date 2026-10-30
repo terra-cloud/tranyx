@@ -64,8 +64,9 @@ This memory document acts as an immutable ledger to prevent regressions across `
   - **Payment Methods View**: In [`packages/tranyx_web/lib/client/views/profile_view.dart`](file:///Users/zeuscajurao/Desktop/tranyx_workspace/packages/tranyx_web/lib/client/views/profile_view.dart), the Phantom Wallet card is removed from the Payment Methods section.
   - **Top-Up & Subscriptions**: Platform target Solana address must always use `Env.solanaPublicKey` (Treasury Vault address) and never hardcoded test addresses (`4zMMC...`).
   - **Withdrawals (Cash-Out)**:
-    - **Web**: `broadcastTreasuryTransfer` (SOL) and `broadcastTreasuryTokenTransfer` (USDT) execute direct on-chain transfers from `Env.solanaPrivateKey` via `@solana/web3.js` to the user's destination `walletPublicKey`.
-    - **Mobile**: `signAndBroadcastTransfer` (SOL) and `signAndBroadcastTokenTransfer` (USDT) in `phantom_provider.dart` sign with `Env.solanaPrivateKey` via `pinenacl` Ed25519 and broadcast directly to Solana RPC.
+    - **(REMOVED by KAN-146: payouts are now signed server-side by `requestWithdrawal`; the treasury key is only in Secret Manager.)**
+    - **Web (old)**: `broadcastTreasuryTransfer` (SOL) and `broadcastTreasuryTokenTransfer` (USDT) execute direct on-chain transfers from `Env.solanaPrivateKey` via `@solana/web3.js` to the user's destination `walletPublicKey`.
+    - **Mobile (old)**: `signAndBroadcastTransfer` (SOL) and `signAndBroadcastTokenTransfer` (USDT) in `phantom_provider.dart` sign with `Env.solanaPrivateKey` via `pinenacl` Ed25519 and broadcast directly to Solana RPC.
     - Transaction signatures (`solanaTxSignature`) must be recorded in both `transactions` and `withdrawalRequests` collections with status `'Successful'` / `'Completed'`.
 
 ---

@@ -2,7 +2,7 @@
   "name": "tranyx-functions",
   "version": "1.0.0",
   "private": true,
-  "description": "Tranyx Cloud Functions (server-side on-chain credit; withdrawals follow in feat/fn-solana-payout)",
+  "description": "Tranyx Cloud Functions (server-side on-chain credit and Solana withdrawals)",
   "main": "lib/index.js",
   "engines": {
     "node": "22"
@@ -12,7 +12,7 @@
     "test": "tsc --noEmit && npm run test:emulator",
     "test:emulator": "firebase emulators:exec --config ../firebase.functions-test.json --only firestore --project demo-tranyx \"vitest run\"",
     "serve": "npm run build && firebase emulators:start --only functions",
-    "test:e2e": "npm run build && rm -f .env.local && ENFORCE_APP_CHECK=true CREDIT_MOCK_SOLANA=1 firebase emulators:exec --config ../firebase.functions-test.json --only auth,firestore,functions --project demo-tranyx \"vitest run -c vitest.e2e.config.ts\" && echo ENFORCE_APP_CHECK=false > .env.local && ENFORCE_APP_CHECK=false CREDIT_MOCK_SOLANA=1 firebase emulators:exec --config ../firebase.functions-test.json --only auth,firestore,functions --project demo-tranyx \"vitest run -c vitest.e2e.config.ts\"; rc=$?; rm -f .env.local; exit $rc"
+    "test:e2e": "npm run build && rm -f .env.local && echo SOLANA_TREASURY_SECRET_KEY=emulator-dummy-not-a-key > .secret.local && ENFORCE_APP_CHECK=true CREDIT_MOCK_SOLANA=1 WITHDRAW_MOCK_SOLANA=1 firebase emulators:exec --config ../firebase.functions-test.json --only auth,firestore,functions --project demo-tranyx \"vitest run -c vitest.e2e.config.ts\" && echo ENFORCE_APP_CHECK=false > .env.local && ENFORCE_APP_CHECK=false CREDIT_MOCK_SOLANA=1 WITHDRAW_MOCK_SOLANA=1 firebase emulators:exec --config ../firebase.functions-test.json --only auth,firestore,functions --project demo-tranyx \"vitest run -c vitest.e2e.config.ts\"; rc=$?; rm -f .env.local .secret.local; exit $rc"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.15",

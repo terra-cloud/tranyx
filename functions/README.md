@@ -53,3 +53,103 @@ npm test            # tsc + emulator tests (Firestore emulator on 8189; never 80
 npm run test:e2e    # Auth + Firestore + Functions emulators, real callable over HTTP (App Check on and off), mocked chain/rates
 ```
 Nothing here deploys or touches a real project. Do not deploy functions without a Blaze plan decision.
+# Tranyx Cloud Functions (KAN-146)
+
+Server-side withdrawals. The Solana **treasury secret key exists only in Firebase Secret Manager**
+(`SOLANA_TREASURY_SECRET_KEY`). It is not in the web/mobile builds, `env.g.dart`, `generate_env`, CI
+or Firestore.
+
+| Function | Trigger | Purpose |
+|---|---|---|
+| `requestWithdrawal` | callable (v2, App Check enforced) | Solana (SOL/USDT) and P2P (GCash/Maya) withdrawals |
+| `reconcileWithdrawals` | scheduler, every 5 min | settles in-flight transfers from on-chain truth |
+
+## How a withdrawal works
+
+Client sends only `{ idempotencyKey (uuid v4), method: 'solana'|'p2p', amount, coin | p2p{...} }`.
+Everything else (fee, net, rate, crypto amount, destination wallet = the wallet linked on the profile,
+balance) is read or computed on the server. Order of operations: **checks -> effects -> interaction**.
+
+1. One Firestore transaction: auth/ban/active-rental checks, min/max, available balance
+   (`tyxBalance - reservedBalance`), per-user daily limits, fee, **debit `tyxBalance`**, create
+   `withdrawal_requests/{idempotencyKey}` (+ mirror `withdrawalRequests/{key}`) with
+   `payoutState: 'pending'`, and the ledger rows. Two concurrent calls cannot both pass the balance check.
+2. Only after commit, Solana only: build + sign the tx, persist `solanaTxSignature` +
+   `lastValidBlockHeight` (`payoutState: 'submitting'`), then broadcast.
+3. `sent` on confirmation. Ambiguous result (timeout etc.) -> `pending_confirmation`, **no refund**.
+   Refund + `failed` happens only when the chain says the tx failed, or it never landed and the
+   blockhash expired; the refund is a transaction guarded on `payoutState`, so it can happen once.
+   The reconciler (and any idempotent retry) re-checks `getSignatureStatuses`.
+
+```
+pending -> submitting -> sent
+              \-> pending_confirmation -> sent | failed(refunded once)
+```
+
+P2P: debit + request (`status: WAITING_FOR_AGENT`, `payoutState: manual_review`, fee `p2pFeeRate`, default 0),
+agent notification; staff/agents process it exactly as before. Cancel/confirm by the owner are unchanged.
+
+Retrying with the **same** idempotency key returns the existing record and never pays twice. A retry
+after a definitive failure needs a new key (the apps do this).
+
+## Config (`config/withdrawals`, optional, admin-only in rules)
+
+`walletCooldownHours` (default 24; 0 disables), `enabled` (**kill switch, OFF by default**: withdrawals, Solana and P2P, are rejected until staff create
+`config/withdrawals` with `enabled: true`; only the boolean `true` counts), `minPhp` 100, `maxPhp` 50,000, `dailyMaxCount` 3, `dailyMaxPhp` 100,000
+(per user per Manila day), `solanaFeeRate` 0.02, `p2pFeeRate` 0, rate sanity bands
+`usdtPhpMin/Max`, `solPhpMin/Max`. Defaults live in `src/config.ts`. Usage is tracked in
+`withdrawal_usage/{uid}_{YYYY-MM-DD}` (server only).
+
+Non-secret params in `.env.<projectId>`: `SOLANA_RPC_URL`, `SOLANA_USDT_MINT`, `ENFORCE_APP_CHECK`
+(default true). Do not put an RPC URL that contains an API key in a committed file.
+
+## Payout-wallet cooldown
+
+`users/{uid}.walletPublicKey` is owner-writable, so the function keeps its own server-only record,
+`payout_wallet_state/{uid}` = `{wallet, since}`. A Solana withdrawal is allowed only after the profile wallet has matched
+that record for `walletCooldownHours` (default 24). Any wallet change restarts the clock; the first request after a change
+(or the first request after this rolls out, for users with no record) records it and is refused with a clear message.
+To avoid a one-time 24h wait for existing users, staff can pre-seed `payout_wallet_state/{uid}` with `since` in the past
+(Admin SDK only; clients cannot read or write it).
+
+## One-time setup per project (tranyx-dev first, then uat, then tranyx-app)
+
+1. **Billing**: upgrade the project to Blaze, and add a budget + alerts (Console -> Billing -> Budgets & alerts).
+2. **Secret**: `firebase functions:secrets:set SOLANA_TREASURY_SECRET_KEY --project <id>` and paste a
+   **freshly generated** treasury key (base58 or JSON byte array). Fund that wallet. Do not reuse the old key.
+3. **App Check**: Console -> App Check: register the web app (reCAPTCHA v3/Enterprise), copy the public
+   site key into the GitHub repo *variable* `APPCHECK_SITE_KEY`; register the Android app (Play Integrity)
+   and iOS app (App Attest/DeviceCheck); register debug tokens for debug builds.
+   Escape hatch while rolling out: `ENFORCE_APP_CHECK=false` in `.env.<id>` (re-enable afterwards).
+4. **Deploy order** (rules last, otherwise old clients that still write requests directly will break):
+   `firebase deploy --only functions --project <id>`, then ship web/mobile builds, then
+   `firebase deploy --only firestore:rules --project <id>`.
+5. **Rotate the old key**: the previous treasury key was embedded in shipped client builds, so treat it as
+   leaked. After step 4 moves funds to the new wallet: delete `SOLANA_PRIVATE_KEY` / `TREASURY_PRIVATE_KEY`
+   from GitHub secrets, delete `system_config/treasury.privateKeyBase58` if it exists, and drain/retire the old wallet.
+6. Update `SOLANA_PUBLIC_KEY` / `TREASURY_PUBLIC_KEY` (public, used for deposits) to the new wallet.
+
+## Where the old treasury private key lives (rotate all of it)
+
+The key was compiled into every client build, so treat it as public. Locations, as of `develop` before this branch:
+
+1. **GitHub Actions secrets** `SOLANA_PRIVATE_KEY` and `TREASURY_PRIVATE_KEY` (repo `terra-cloud/tranyx`), injected into
+   `.github/workflows/jaspr-hosting-merge.yml`, `jaspr-hosting-pull-request.yml` (web dev/uat/prod builds) and
+   `tranyx-mobile-publish.yml` (Android/iOS builds). This branch removes them from the workflows; delete the secrets in repo settings.
+2. **Shipped artifacts**: every web bundle deployed to hosting (dev/uat/prod) and every mobile build that was published carries it
+   (`Env.solanaPrivateKey` -> `String.fromEnvironment`). Old builds stay extractable: rotating the wallet is the only fix.
+3. **Developer machines**: any local `.env` / `packages/shared/lib/src/env.g.dart` (generated, git-ignored) that was generated with the key.
+4. **Firestore**: check `system_config/treasury` for a `privateKeyBase58`/`privateKey` field (admin-only in rules, but remove it).
+5. `.agents/memory/ledger_of_fixes_and_contracts.md` described the client-side signing (documentation only).
+
+Rotation: generate a new keypair, `firebase functions:secrets:set SOLANA_TREASURY_SECRET_KEY --project <id>`, fund it, update
+`SOLANA_PUBLIC_KEY`/`TREASURY_PUBLIC_KEY` (deposits) and `system_config/treasury`, sweep the old wallet to the new one, delete the
+GitHub secrets, retire the old wallet. Nothing here ever prints or reads the key.
+
+## Tests
+
+```
+npm test            # type-check + 30 tests (26 Firestore-emulator + 4 stubbed-RPC) (port 8189, never touches 8080)
+npm run test:e2e    # Auth + Firestore + Functions emulators, real callable over HTTP (App Check on and off)
+```
+Emulator-only config: `../firebase.functions-test.json`. Nothing here deploys or touches a real project.

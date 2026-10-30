@@ -567,57 +567,6 @@ Future<String?> getAppCheckTokenJs(Map<String, String> config, String siteKey) a
   }
 }
 
-Future<String?> broadcastTreasuryTransfer({
-  required String treasuryPrivKeyBase58,
-  required String recipientPubkey,
-  required int lamports,
-}) async {
-  try {
-    final rpcUrl = getSolanaRpcUrl();
-    final promise = web.window.callMethodVarArgs(
-      'broadcastTreasuryTransfer'.toJS,
-      [
-        treasuryPrivKeyBase58.toJS,
-        recipientPubkey.toJS,
-        lamports.toJS,
-        rpcUrl.toJS,
-      ],
-    ) as JSPromise;
-    final res = await promise.toDart;
-    return (res as JSString).toDart;
-  } catch (e) {
-    print("broadcastTreasuryTransfer exception: $e");
-    rethrow;
-  }
-}
-
-Future<String?> broadcastTreasuryTokenTransfer({
-  required String treasuryPrivKeyBase58,
-  required String recipientPubkey,
-  required double amountInUsdt,
-  String? usdtMint,
-}) async {
-  try {
-    final rpcUrl = getSolanaRpcUrl();
-    final mint = usdtMint ?? getUsdtMintAddress();
-    final promise = web.window.callMethodVarArgs(
-      'broadcastTreasuryTokenTransfer'.toJS,
-      [
-        treasuryPrivKeyBase58.toJS,
-        recipientPubkey.toJS,
-        amountInUsdt.toJS,
-        rpcUrl.toJS,
-        mint.toJS,
-      ],
-    ) as JSPromise;
-    final res = await promise.toDart;
-    return (res as JSString).toDart;
-  } catch (e) {
-    print("broadcastTreasuryTokenTransfer exception: $e");
-    rethrow;
-  }
-}
-
 // ── Session Storage ───────────────────────────────────────────────────────────
 
 class SessionStorage {

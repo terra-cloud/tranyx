@@ -35,6 +35,7 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
   bool _isSubmitting = false;
   String? _errorMessage;
   String? _successMessage;
+  String? _withdrawKey; // idempotency key of the in-flight Solana withdrawal attempt
 
   // W54 "Your requests" (live withdrawalRequests for this uid)
   List<Map<String, dynamic>>? _requests;
@@ -286,162 +287,60 @@ class _WithdrawModalComponentState extends State<WithdrawModalComponent> {
     });
 
     try {
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final requestId = 'withdraw_$timestamp';
+      // KAN-146: everything money-related happens on the server. The browser sends only the
+      // idempotency key, amount and coin; the server re-checks auth/balance/limits, computes the
+      // fee, rate and crypto amount, debits the balance, writes the records and signs the transfer
+      // with the treasury key (which never leaves Secret Manager).
+      _withdrawKey ??= newIdempotencyKey();
       final svc = FirestoreService(token, s.handleTokenRefresh);
-      final methodTitle = 'Solana ($_selectedCoin)';
-
-      // 1. Atomic balance verification and deduction FIRST
-      final userDoc = await svc.getDocument('users/$uid');
-      final currentBal = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? tyxBal;
-      if (amount > currentBal) {
-        throw Exception('Requested withdrawal amount exceeds your available balance.');
-      }
-      final newBal = (currentBal - amount).clamp(0.0, double.infinity);
-      await svc.setDocument('users/$uid', {'tyxBalance': newBal});
-
-      final feePhp = (amount * 0.02);
-      final netPhp = (amount - feePhp);
-      final activeRate = _selectedCoin == 'SOL' ? (_solToPhpRate > 0 ? _solToPhpRate : 8000.0) : (_usdToPhpRate > 0 ? _usdToPhpRate : 57.0);
-      final cryptoAmount = activeRate > 0 ? netPhp / activeRate : 0.0;
-
-      final requestData = <String, dynamic>{
-        'id': requestId,
-        'uid': uid,
-        'userId': uid,
-        'userName': s.userName,
+      final res = await svc.callRequestWithdrawal({
+        'idempotencyKey': _withdrawKey,
+        'method': 'solana',
         'amount': amount,
-        'feeAmount': feePhp,
-        'netAmount': netPhp,
-        'rate': activeRate,
-        'currency': 'PHP',
-        'cryptoAmount': cryptoAmount,
         'coin': _selectedCoin,
-        'status': 'Pending',
-        'createdAt': timestamp,
-        'method': methodTitle,
-        'paymentMethod': methodTitle,
-        'payoutMethod': 'Solana',
-        'originRail': 'mwa_on_chain',
-        'balanceDeducted': true,
-        'walletPublicKey': walletKey,
-      };
-
-      // Direct on-chain treasury transfer if private key configured
-      String txSignature = '';
-      bool isOnChainTransferred = false;
-
-      final treasuryPrivKey = Env.solanaPrivateKey;
-      if (treasuryPrivKey.isNotEmpty) {
-        try {
-          if (_selectedCoin == 'SOL') {
-            final lamports = (cryptoAmount * 1e9).round();
-            if (lamports > 0) {
-              final sig = await broadcastTreasuryTransfer(
-                treasuryPrivKeyBase58: treasuryPrivKey,
-                recipientPubkey: walletKey,
-                lamports: lamports,
-              );
-              if (sig != null && sig.isNotEmpty) {
-                txSignature = sig;
-                isOnChainTransferred = true;
-              }
-            }
-          } else {
-            if (cryptoAmount > 0) {
-              final sig = await broadcastTreasuryTokenTransfer(
-                treasuryPrivKeyBase58: treasuryPrivKey,
-                recipientPubkey: walletKey,
-                amountInUsdt: cryptoAmount,
-              );
-              if (sig != null && sig.isNotEmpty) {
-                txSignature = sig;
-                isOnChainTransferred = true;
-              }
-            }
-          }
-        } catch (vaultErr) {
-          print('Direct client-side vault transfer skipped/queued: $vaultErr');
-        }
-      }
-
-      final txStatus = isOnChainTransferred ? 'Successful' : 'PENDING_REVIEW';
-
-      // Save withdrawal request record (Dual-collection sync with admin queue)
-      final withReqPayload = {
-        ...requestData,
-        'userId': uid,
-        'originRail': 'mwa_on_chain',
-        'paymentMethod': methodTitle,
-        'payoutMethod': 'Solana',
-        'balanceDeducted': true,
-        'status': txStatus,
-        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
-        'updatedAt': timestamp,
-      };
-      await svc.createOrUpdate('withdrawalRequests/$requestId', withReqPayload);
-      await svc.createOrUpdate('withdrawal_requests/$requestId', withReqPayload);
-
-      // Record in user wallet sub-collection (/wallets/{userId}/transactions/{txId})
-      final ledgerTxData = {
-        'id': requestId,
-        'userId': uid,
-        'uid': uid,
-        'title': isOnChainTransferred
-            ? 'Withdrawal Successful ($methodTitle)'
-            : 'Withdrawal Request ($methodTitle)',
-        'type': 'WITHDRAWAL',
-        'direction': 'DEBIT',
-        'amount': amount,
-        'feeAmount': feePhp,
-        'netAmount': netPhp,
-        'rate': activeRate,
-        'cryptoAmount': cryptoAmount,
-        'coin': _selectedCoin,
-        'currency': 'PHP',
-        'status': txStatus,
-        'originRail': 'mwa_on_chain',
-        'payoutMethod': 'Solana',
-        'paymentMethod': methodTitle,
-        'method': methodTitle,
-        'balanceDeducted': true,
-        'walletPublicKey': walletKey,
-        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
-        'referenceNumber': requestId.length >= 8 ? requestId.substring(0, 8).toUpperCase() : requestId,
-        'description': isOnChainTransferred
-            ? 'Withdrew ₱${amount.toStringAsFixed(2)} to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin). On-Chain Tx: $txSignature'
-            : 'Requested ₱${amount.toStringAsFixed(2)} withdrawal to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin)',
-        'desc': isOnChainTransferred
-            ? 'Withdrew ₱${amount.toStringAsFixed(2)} to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin). On-Chain Tx: $txSignature'
-            : 'Requested ₱${amount.toStringAsFixed(2)} withdrawal to $walletKey (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin)',
-        'createdAt': timestamp,
-        'updatedAt': timestamp,
-      };
-      await svc.createOrUpdate('wallets/$uid/transactions/$requestId', ledgerTxData);
-
-      // Record global ledger transaction
-      final txId = 'tx_$timestamp';
-      await svc.createOrUpdate('transactions/$txId', {
-        ...ledgerTxData,
-        'id': txId,
-        'amount': -amount,
       });
+      _withdrawKey = null; // definitive answer: next attempt is a new withdrawal
 
-      // Update local state
-      s.userProfile = s.userProfile?.copyWith(tyxBalance: newBal);
+      final state = (res['payoutState'] ?? '').toString();
+      final feePhp = (res['feeAmount'] as num?)?.toDouble() ?? 0.0;
+      final cryptoAmount = (res['cryptoAmount'] as num?)?.toDouble() ?? 0.0;
+      final methodTitle = 'Solana ($_selectedCoin)';
+      final cryptoStr = cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2);
+
+      final newBal = (res['newBalance'] as num?)?.toDouble();
+      if (newBal != null) {
+        s.userProfile = s.userProfile?.copyWith(tyxBalance: newBal);
+      }
       s.loadTransactions();
+      s.loadUserProfile();
 
+      if (state == 'failed') {
+        setState(() {
+          _isSubmitting = false;
+          _errorMessage = '${withdrawalFailureMessage(res['failureReason'])} Your balance was not charged.';
+        });
+        return;
+      }
+
+      final sent = state == 'sent';
       setState(() {
         _isSubmitting = false;
-        _successMessage = isOnChainTransferred
-            ? 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} (${cryptoAmount.toStringAsFixed(_selectedCoin == 'SOL' ? 6 : 2)} $_selectedCoin) has been transferred directly to your Solana wallet on-chain!'
-            : 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} to your Solana wallet requested successfully! Processing typically completes within 1 hour.';
+        _successMessage = sent
+            ? 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} (fee ₱ ${feePhp.toStringAsFixed(2)}, $cryptoStr $_selectedCoin) has been transferred directly to your Solana wallet on-chain!'
+            : 'Withdrawal of ₱ ${amount.toStringAsFixed(2)} (fee ₱ ${feePhp.toStringAsFixed(2)}, $cryptoStr $_selectedCoin) was submitted and is awaiting on-chain confirmation. It will show as completed in your history.';
       });
       s.showAppToast(
-        isOnChainTransferred ? 'Withdrawal Completed' : 'Withdrawal Requested',
-        '₱ ${amount.toStringAsFixed(2)} via $methodTitle ${isOnChainTransferred ? "sent on-chain!" : "submitted."}',
+        sent ? 'Withdrawal Completed' : 'Withdrawal Submitted',
+        '₱ ${amount.toStringAsFixed(2)} via $methodTitle ${sent ? "sent on-chain!" : "is being confirmed."}',
       );
       if (component.page) unawaited(_loadRequests());
+    } on WithdrawalException catch (e) {
+      // Indeterminate outcomes (network/timeout) keep the same idempotency key so a retry cannot pay twice.
+      if (!e.isIndeterminate) _withdrawKey = null;
+      setState(() {
+        _isSubmitting = false;
+        _errorMessage = 'Withdrawal request failed: ${e.message}';
+      });
     } catch (e) {
       setState(() {
         _isSubmitting = false;

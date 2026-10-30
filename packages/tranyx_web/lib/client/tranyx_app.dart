@@ -3800,6 +3800,9 @@ class TranyxAppState extends State<TranyxApp> {
     showAppToast('Order Cancelled', 'Deposit request has been cancelled.');
   }
 
+  /// KAN-146: idempotency key of the in-flight P2P cashout; reused on indeterminate (network) failures.
+  String? _p2pWithdrawKey;
+
   Future<void> requestP2pWithdrawalOrder({
     required double amount,
     required String paymentMethod,
@@ -3850,7 +3853,9 @@ class TranyxAppState extends State<TranyxApp> {
         userAccountName: userAccountName,
         userAccountNumber: userAccountNumber,
         userQrUrl: userQrUrl,
+        idempotencyKey: _p2pWithdrawKey ??= newIdempotencyKey(),
       );
+      _p2pWithdrawKey = null;
 
       final req = await svc.getP2pWithdrawalRequest(reqId);
       setState(() {
@@ -3864,6 +3869,8 @@ class TranyxAppState extends State<TranyxApp> {
       await loadUserProfile();
       showAppToast('Cashout Requested', 'P2P Agents have been notified to fulfill your $paymentMethod payout.');
     } catch (e) {
+      if (e is WithdrawalException && !e.isIndeterminate) _p2pWithdrawKey = null;
+      if (e is! WithdrawalException) _p2pWithdrawKey = null;
       setState(() {
         isSubmittingP2pWithdraw = false;
         postJobError = 'Withdrawal request failed: $e';

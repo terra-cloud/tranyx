@@ -52,9 +52,7 @@ jobs:
           XENDIT_SECRET_KEY: ${{ secrets.XENDIT_SECRET_KEY }}
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
           GEMINI_AI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
-          SOLANA_PRIVATE_KEY: ${{ secrets.SOLANA_PRIVATE_KEY }}
           SOLANA_PUBLIC_KEY: ${{ secrets.SOLANA_PUBLIC_KEY }}
-          TREASURY_PRIVATE_KEY: ${{ secrets.TREASURY_PRIVATE_KEY }}
           TREASURY_PUBLIC_KEY: ${{ secrets.TREASURY_PUBLIC_KEY }}
           BASEMAPS_API_KEY: ${{ secrets.BASEMAPS_API_KEY }}
 
@@ -68,14 +66,15 @@ jobs:
           BASEMAPS_API_KEY: ${{ secrets.BASEMAPS_API_KEY }}
           GEMINI_AI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
           SOLANA_PUBLIC_KEY: ${{ secrets.SOLANA_PUBLIC_KEY }}
+          APPCHECK_SITE_KEY: ${{ vars.APPCHECK_SITE_KEY }}
         run: |
           jaspr clean
           if [[ "$BASE_REF" == "main" ]]; then
-            jaspr build --dart-define=ENV=prod --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
+            jaspr build --dart-define=ENV=prod --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY" --dart-define=APPCHECK_SITE_KEY="$APPCHECK_SITE_KEY"
           elif [[ "$BASE_REF" == "uat" ]]; then
-            jaspr build --dart-define=ENV=uat --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
+            jaspr build --dart-define=ENV=uat --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY" --dart-define=APPCHECK_SITE_KEY="$APPCHECK_SITE_KEY"
           else
-            jaspr build --dart-define=ENV=dev --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
+            jaspr build --dart-define=ENV=dev --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY" --dart-define=APPCHECK_SITE_KEY="$APPCHECK_SITE_KEY"
           fi
 
       - name: Set Environment Variables

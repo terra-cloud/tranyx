@@ -3,12 +3,19 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared/shared.dart';
+import 'package:tranyx_mobile/core/services/withdrawal_callable.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 
 class TransitRepository {
   final FirebaseFirestore _firestore;
 
-  TransitRepository(this._firestore);
+  /// KAN-146: how withdrawal requests reach the server (overridable in tests).
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic> data) _withdrawalCaller;
+
+  TransitRepository(
+    this._firestore, {
+    Future<Map<String, dynamic>> Function(Map<String, dynamic> data)? withdrawalCaller,
+  }) : _withdrawalCaller = withdrawalCaller ?? callRequestWithdrawal;
 
   // ─── Helper for User Balances ───────────────────────────────────────────
   Future<UserProfile?> getUser(String uid) async {
@@ -3431,6 +3438,9 @@ class TransitRepository {
   // P2P WITHDRAWAL SYSTEM (GCash / Maya)
   // ──────────────────────────────────────────────────────────────────────────
 
+  /// KAN-146: the debit, fee and request records are created server-side by the
+  /// `requestWithdrawal` callable (never written from the app). Returns the request id
+  /// (= [idempotencyKey]).
   Future<String> requestP2pWithdrawal({
     required String uid,
     required String userName,
@@ -3440,8 +3450,8 @@ class TransitRepository {
     required String userAccountName,
     required String userAccountNumber,
     String userQrUrl = '',
+    String? idempotencyKey,
   }) async {
-    final cleanMethod = paymentMethod.trim();
     final cleanAccountName = userAccountName.trim();
     final cleanAccountNumber = userAccountNumber.trim();
 
@@ -3449,54 +3459,18 @@ class TransitRepository {
     if (cleanAccountNumber.isEmpty) throw Exception('Recipient Account / Mobile Number is required.');
     if (amount < 100) throw Exception('Minimum withdrawal amount is ₱ 100.00.');
 
-    final userDocRef = _firestore.collection('users').doc(uid);
-    final userSnap = await userDocRef.get();
-    final currentBalance = (userSnap.data()?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-    if (amount > currentBalance) {
-      throw Exception('Requested withdrawal amount exceeds your available balance.');
-    }
-
-    final newBalance = currentBalance - amount;
-    await userDocRef.set({'tyxBalance': newBalance}, SetOptions(merge: true));
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final docRef = _firestore.collection('withdrawal_requests').doc();
-
-    final withdrawalReq = WithdrawalRequest(
-      id: docRef.id,
-      uid: uid,
-      userName: userName,
-      userEmail: userEmail,
-      amount: amount,
-      paymentMethod: cleanMethod,
-      userAccountName: cleanAccountName,
-      userAccountNumber: cleanAccountNumber,
-      userQrUrl: userQrUrl,
-      status: 'WAITING_FOR_AGENT',
-      createdAt: now,
-    );
-
-    await docRef.set(withdrawalReq.toMap());
-
-    final txId = 'p2p_with_${docRef.id}';
-    await _firestore.collection('transactions').doc(txId).set({
-      'id': txId,
-      'uid': uid,
-      'withdrawalRequestId': docRef.id,
-      'title': '$cleanMethod P2P Cashout Request',
-      'desc': 'Awaiting Payment Agent fulfillment to $cleanAccountNumber ($cleanAccountName)',
-      'amount': -amount,
-      'originRail': 'manual_p2p',
-      'method': cleanMethod,
-      'type': 'withdraw',
-      'status': 'WAITING_FOR_AGENT',
-      'userAccountName': cleanAccountName,
-      'userAccountNumber': cleanAccountNumber,
-      if (userQrUrl.isNotEmpty) 'userQrUrl': userQrUrl,
-      'createdAt': now,
+    final result = await _withdrawalCaller({
+      'idempotencyKey': idempotencyKey ?? newIdempotencyKey(),
+      'method': 'p2p',
+      'amount': amount,
+      'p2p': {
+        'paymentMethod': paymentMethod.trim(),
+        'accountName': cleanAccountName,
+        'accountNumber': cleanAccountNumber,
+        if (userQrUrl.isNotEmpty) 'qrUrl': userQrUrl,
+      },
     });
-
-    return docRef.id;
+    return result['id'] as String;
   }
 
   Future<void> cancelP2pWithdrawalRequest(String withdrawalRequestId, {String? reason}) async {

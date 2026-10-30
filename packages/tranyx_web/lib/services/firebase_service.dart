@@ -7857,8 +7857,10 @@ class FirestoreService {
   // P2P WITHDRAWAL SYSTEM (GCash / Maya)
   // ──────────────────────────────────────────────────────────────────────────
 
-  /// Step 1 (User): Request P2P Cashout via GCash or Maya
-  /// Locks requested amount into withdrawal escrow immediately.
+  /// Step 1 (User): Request P2P Cashout via GCash or Maya.
+  /// KAN-146: the debit, fee and request records are all created server-side by the
+  /// `requestWithdrawal` callable (never written from the browser). Returns the request id
+  /// (= [idempotencyKey]).
   Future<String> requestP2pWithdrawal({
     required String uid,
     required String userName,
@@ -7868,11 +7870,10 @@ class FirestoreService {
     required String userAccountName,
     required String userAccountNumber,
     String userQrUrl = '',
+    String? idempotencyKey,
   }) async {
-    final cleanMethod = paymentMethod.trim();
     final cleanAccountName = userAccountName.trim();
     final cleanAccountNumber = userAccountNumber.trim();
-
     if (cleanAccountName.isEmpty) throw Exception('Recipient Account Name is required.');
     if (cleanAccountNumber.isEmpty) throw Exception('Recipient Account / Mobile Number is required.');
     if (amount < 100) throw Exception('Minimum withdrawal amount is ₱ 100.00.');
@@ -7886,102 +7887,79 @@ class FirestoreService {
       }
     }
 
-    // 1. Verify and deduct balance (escrow lock)
-    final userDoc = await getDocument('users/$uid');
-    final currentBalance = (userDoc?['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-    if (amount > currentBalance) {
-      throw Exception('Requested withdrawal amount exceeds your available balance.');
+    final result = await callRequestWithdrawal({
+      'idempotencyKey': idempotencyKey ?? newIdempotencyKey(),
+      'method': 'p2p',
+      'amount': amount,
+      'p2p': {
+        'paymentMethod': paymentMethod.trim(),
+        'accountName': cleanAccountName,
+        'accountNumber': cleanAccountNumber,
+        if (userQrUrl.isNotEmpty) 'qrUrl': userQrUrl,
+      },
+    });
+    return result['id'] as String;
+  }
+
+  /// Calls the `requestWithdrawal` Cloud Function (KAN-146). The server re-checks auth, balance,
+  /// limits and computes fee/net/rate/crypto amount; only idempotencyKey, method, amount, coin and
+  /// payout destination details are sent. Throws [WithdrawalException] with the server's message.
+  Future<Map<String, dynamic>> callRequestWithdrawal(Map<String, dynamic> data) async {
+    final base = const String.fromEnvironment('FUNCTIONS_BASE_URL');
+    final url = base.isNotEmpty
+        ? '$base/requestWithdrawal'
+        : 'https://us-central1-${currentFirebaseConfig.projectId}.cloudfunctions.net/requestWithdrawal';
+
+    Future<http.Response> post(String? token) async {
+      final appCheck = await getAppCheckTokenJs(
+        {
+          'apiKey': currentFirebaseConfig.apiKey,
+          'authDomain': currentFirebaseConfig.authDomain,
+          'projectId': currentFirebaseConfig.projectId,
+          'appId': currentFirebaseConfig.appId,
+        },
+        const String.fromEnvironment('APPCHECK_SITE_KEY'),
+      );
+      return _client
+          .post(
+            Uri.parse(url),
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+              if (appCheck != null && appCheck.isNotEmpty) 'X-Firebase-AppCheck': appCheck,
+            },
+            body: jsonEncode({'data': data}),
+          )
+          .timeout(const Duration(seconds: 130));
     }
 
-    final newBalance = currentBalance - amount;
-    await setDocument('users/$uid', {'tyxBalance': newBalance});
+    http.Response res;
+    try {
+      res = await post(idToken);
+      if (res.statusCode == 401) {
+        final fresh = await _refreshToken();
+        if (fresh != null) res = await post(fresh);
+      }
+    } on TimeoutException {
+      throw const WithdrawalException('NETWORK', 'The request timed out. Please retry; you will not be charged twice.');
+    } catch (_) {
+      throw const WithdrawalException('NETWORK', 'Network error. Please retry; you will not be charged twice.');
+    }
 
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final id = 'with_${now}_${Random().nextInt(999999)}';
-    final refNumber = id.length >= 8 ? id.substring(0, 8).toUpperCase() : id;
-
-    final withdrawalReq = WithdrawalRequest(
-      id: id,
-      uid: uid,
-      userName: userName,
-      userEmail: userEmail,
-      amount: amount,
-      paymentMethod: cleanMethod,
-      userAccountName: cleanAccountName,
-      userAccountNumber: cleanAccountNumber,
-      userQrUrl: userQrUrl,
-      status: 'PENDING_REVIEW',
-      createdAt: now,
-      originRail: 'manual_p2p',
-      balanceDeducted: true,
+    Map<String, dynamic> body;
+    try {
+      body = jsonDecode(res.body) as Map<String, dynamic>;
+    } catch (_) {
+      throw WithdrawalException('INTERNAL', 'Unexpected server response (${res.statusCode}).');
+    }
+    if (res.statusCode == 200 && body['result'] is Map) {
+      return Map<String, dynamic>.from(body['result'] as Map);
+    }
+    final err = (body['error'] as Map?) ?? const {};
+    throw WithdrawalException(
+      (err['status'] ?? 'INTERNAL').toString(),
+      (err['message'] ?? 'Withdrawal could not be processed.').toString(),
     );
-
-    // 1. Dual-write to both withdrawal_requests and withdrawalRequests for seamless admin portal & client sync
-    final reqMap = {
-      ...withdrawalReq.toMap(),
-      'userId': uid,
-      'payoutMethod': cleanMethod,
-      'accountName': cleanAccountName,
-      'accountNumber': cleanAccountNumber,
-      'referenceNumber': refNumber,
-      'originRail': 'manual_p2p',
-      'balanceDeducted': true,
-      'status': 'PENDING_REVIEW',
-      'p2pStatus': 'WAITING_FOR_AGENT',
-      'updatedAt': now,
-    };
-    await createOrUpdate('withdrawal_requests/$id', reqMap);
-    await createOrUpdate('withdrawalRequests/$id', reqMap);
-
-    // 2. User Sub-collection Ledger Reference: /wallets/{userId}/transactions/{txId}
-    final ledgerTxData = {
-      'id': id,
-      'userId': uid,
-      'uid': uid,
-      'type': 'WITHDRAWAL',
-      'direction': 'DEBIT',
-      'amount': amount,
-      'payoutMethod': cleanMethod,
-      'paymentMethod': cleanMethod,
-      'accountName': cleanAccountName,
-      'accountNumber': cleanAccountNumber,
-      'userAccountName': cleanAccountName,
-      'userAccountNumber': cleanAccountNumber,
-      'referenceNumber': refNumber,
-      'status': 'PENDING_REVIEW',
-      'title': 'Withdrawal ($cleanMethod)',
-      'description': 'Withdrawal via $cleanMethod ($cleanAccountNumber)',
-      'desc': 'Withdrawal via $cleanMethod ($cleanAccountNumber)',
-      'originRail': 'manual_p2p',
-      'balanceDeducted': true,
-      if (userQrUrl.isNotEmpty) 'userQrUrl': userQrUrl,
-      'createdAt': now,
-      'updatedAt': now,
-    };
-    await createOrUpdate('wallets/$uid/transactions/$id', ledgerTxData);
-
-    // 3. Top-Level Global Ledger Reference: /transactions/{txId}
-    final txId = 'p2p_with_$id';
-    await createOrUpdate('transactions/$txId', {
-      ...ledgerTxData,
-      'id': txId,
-      'withdrawalRequestId': id,
-      'amount': -amount,
-    });
-
-    // Notify agents of incoming cashout order
-    await createOrUpdate('notifications/notif_agent_with_$id', {
-      'title': 'New P2P Cashout Request (₱${amount.toStringAsFixed(2)})',
-      'message': '$userName requested a $cleanMethod cashout of ₱${amount.toStringAsFixed(2)}. Tap to claim and fulfill payout.',
-      'type': 'p2p_cashout_request',
-      'withdrawalRequestId': id,
-      'uid': uid,
-      'userId': uid,
-      'createdAt': now,
-      'read': false,
-    });
-
-    return id;
   }
 
   /// Step 2 (Agent): Agent accepts/claims cashout order and begins payout processing

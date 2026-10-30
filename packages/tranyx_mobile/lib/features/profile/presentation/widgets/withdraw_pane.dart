@@ -3,12 +3,10 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:intl/intl.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
-import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/services/mwa_service.dart';
 import 'package:tranyx_mobile/core/services/mwa_wallet_link.dart';
 import 'package:tranyx_mobile/core/widgets/solana_logo.dart';
@@ -16,6 +14,7 @@ import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/profile/presentation/widgets/payment_pane.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
 import 'package:shared/shared.dart';
+import 'package:tranyx_mobile/core/services/withdrawal_callable.dart';
 
 class WithdrawPane extends ConsumerStatefulWidget {
   final VoidCallback? onBack;
@@ -52,6 +51,8 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> with SingleTickerPr
   bool _isMwaBusy = false;
   String? _errorMessage;
   String? _successMessage;
+  String? _withdrawKey; // idempotency key of the in-flight Solana withdrawal attempt
+  String? _p2pKey; // idempotency key of the in-flight P2P cashout attempt
 
   final _currencyFormat = NumberFormat('#,##0.00', 'en_US');
 
@@ -202,13 +203,16 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> with SingleTickerPr
         paymentMethod: _selectedP2pMethod,
         userAccountName: accountName,
         userAccountNumber: accountNumber,
+        idempotencyKey: _p2pKey ??= newIdempotencyKey(),
       );
+      _p2pKey = null;
 
       setState(() {
         _isSubmitting = false;
         _successMessage = 'Cashout request broadcasted to P2P Payment Agents!';
       });
     } catch (e) {
+      if (e is! WithdrawalException || !e.isIndeterminate) _p2pKey = null;
       setState(() {
         _isSubmitting = false;
         _errorMessage = 'Cashout request failed: $e';
@@ -259,126 +263,39 @@ class _WithdrawPaneState extends ConsumerState<WithdrawPane> with SingleTickerPr
     });
 
     try {
-      final firestore = FirebaseFirestore.instance;
-      final phantomService = ref.read(phantomServiceProvider);
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final requestId = 'withdraw_$timestamp';
-      final methodTitle = 'Solana ($selectedCoinLabel)';
-
-      final feePhp = (amount * 0.02);
-      final netPhp = (amount - feePhp);
-      final solPricePhp = _solToPhpRate > 0 ? _solToPhpRate : 8000.0;
-      final usdtPricePhp = _usdToPhpRate > 0 ? _usdToPhpRate : 57.0;
-
-      final solAmount = netPhp / solPricePhp;
-      final feeSolAmount = feePhp / solPricePhp;
-      final usdtAmount = netPhp / usdtPricePhp;
-      final feeUsdtAmount = feePhp / usdtPricePhp;
-
-      String txSignature = '';
-      bool isOnChainTransferred = false;
-
-      try {
-        String? treasuryPrivKey = Env.solanaPrivateKey.isNotEmpty ? Env.solanaPrivateKey : null;
-        if (treasuryPrivKey == null || treasuryPrivKey.isEmpty) {
-          try {
-            final configDoc = await firestore.collection('system_config').doc('treasury').get();
-            treasuryPrivKey = configDoc.data()?['privateKeyBase58'] as String?;
-          } catch (_) {}
-        }
-
-        if (treasuryPrivKey != null && treasuryPrivKey.isNotEmpty) {
-          if (_selectedCoin == 'SOL') {
-            final lamports = (solAmount * 1e9).round();
-            if (lamports > 0) {
-              txSignature = await phantomService.signAndBroadcastTransfer(
-                treasuryPrivKeyBase58: treasuryPrivKey,
-                recipientPubkey: walletKey,
-                lamports: lamports,
-              );
-              isOnChainTransferred = true;
-            }
-          } else {
-            if (usdtAmount > 0) {
-              txSignature = await phantomService.signAndBroadcastTokenTransfer(
-                treasuryPrivKeyBase58: treasuryPrivKey,
-                recipientPubkey: walletKey,
-                amountInUsdt: usdtAmount,
-              );
-              isOnChainTransferred = true;
-            }
-          }
-
-          if (isOnChainTransferred && txSignature.isNotEmpty) {
-            await phantomService.confirmTransaction(txSignature);
-          }
-        }
-      } catch (vaultErr) {
-        debugPrint('Direct client-side vault transfer skipped/queued: $vaultErr');
-      }
-
-      final newBalance = (tyxBalance - amount).clamp(0.0, double.infinity);
-      await firestore.collection('users').doc(uid).update({'tyxBalance': newBalance});
-
-      final txId = 'tx_$timestamp';
-      await firestore.collection('transactions').doc(txId).set({
-        'id': txId,
-        'uid': uid,
-        'type': 'withdraw',
-        'originRail': 'mwa_on_chain',
-        'amount': -amount,
-        'cryptoAmount': _selectedCoin == 'SOL' ? solAmount : usdtAmount,
-        'cryptoCurrency': _selectedCoin,
-        'feeAmount': feePhp,
-        'netAmount': netPhp,
-        if (_selectedCoin == 'SOL') ...{
-          'solAmount': solAmount,
-          'feeSolAmount': feeSolAmount,
-          'lamports': (solAmount * 1e9).round(),
-        } else ...{
-          'usdtAmount': usdtAmount,
-          'feeUsdtAmount': feeUsdtAmount,
-          'microUnits': (usdtAmount * 1e6).round(),
-        },
-        'title': isOnChainTransferred
-            ? 'Earnings Withdrawn ($methodTitle)'
-            : 'Withdrawal Request ($methodTitle)',
-        'desc': _selectedCoin == 'SOL'
-            ? 'Withdrew ₱${netPhp.toStringAsFixed(2)} (${solAmount.toStringAsFixed(6)} SOL) after 2% fee to $walletKey'
-            : 'Withdrew ₱${netPhp.toStringAsFixed(2)} (${usdtAmount.toStringAsFixed(2)} USDT) after 2% fee to $walletKey',
-        'currency': 'PHP',
-        'status': isOnChainTransferred ? 'Completed' : 'Pending',
-        'method': 'Solana',
-        'coin': _selectedCoin,
-        'walletPublicKey': walletKey,
-        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
-        'createdAt': timestamp,
-      });
-
-      final requestData = <String, dynamic>{
-        'id': requestId,
-        'uid': uid,
-        'userName': userName,
+      // KAN-146: all money handling is server-side (see callRequestWithdrawal). No treasury key,
+      // fee, rate or balance write ever happens in the app.
+      _withdrawKey ??= newIdempotencyKey();
+      final res = await callRequestWithdrawal({
+        'idempotencyKey': _withdrawKey,
+        'method': 'solana',
         'amount': amount,
-        'feeAmount': feePhp,
-        'netAmount': netPhp,
-        'status': isOnChainTransferred ? 'Completed' : 'Pending',
-        'createdAt': timestamp,
-        'method': 'Solana',
-        'methodTitle': methodTitle,
         'coin': _selectedCoin,
-        'currency': 'PHP',
-        'walletPublicKey': walletKey,
-        if (txSignature.isNotEmpty) 'solanaTxSignature': txSignature,
-      };
+      });
+      _withdrawKey = null; // definitive answer: the next attempt is a new withdrawal
 
-      await firestore.collection('withdrawalRequests').doc(requestId).set(requestData);
-
+      final state = (res['payoutState'] ?? '').toString();
+      if (state == 'failed') {
+        setState(() {
+          _isSubmitting = false;
+          _errorMessage = '${withdrawalFailureMessage(res['failureReason'])} Your balance was not charged.';
+        });
+        return;
+      }
+      final sent = state == 'sent';
+      final feePhp = (res['feeAmount'] as num?)?.toDouble() ?? 0.0;
       setState(() {
         _isSubmitting = false;
-        _successMessage = isOnChainTransferred
-            ? 'Withdrawal of ₱ ${_currencyFormat.format(amount)} has been transferred directly to your Solana wallet on-chain!'
-            : 'Withdrawal of ₱ ${_currencyFormat.format(amount)} requested successfully! Processing typically completes within 1 hour.';
+        _successMessage = sent
+            ? 'Withdrawal of ₱ ${_currencyFormat.format(amount)} (fee ₱ ${_currencyFormat.format(feePhp)}) has been transferred directly to your Solana wallet on-chain!'
+            : 'Withdrawal of ₱ ${_currencyFormat.format(amount)} (fee ₱ ${_currencyFormat.format(feePhp)}) was submitted and is awaiting on-chain confirmation. It will show as completed in your history.';
+      });
+    } on WithdrawalException catch (e) {
+      // Indeterminate outcomes (network/timeout) keep the key so a retry can never pay twice.
+      if (!e.isIndeterminate) _withdrawKey = null;
+      setState(() {
+        _isSubmitting = false;
+        _errorMessage = 'Withdrawal failed: ${e.message}';
       });
     } catch (e) {
       setState(() {
