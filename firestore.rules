@@ -167,18 +167,20 @@ service cloud.firestore {
       return txId.size() > prefix.size() && txId[0:prefix.size()] == prefix;
     }
 
-    // deposit_sol_ / deposit_usdt_ / sub_sol_ + <signature> credit records may only be created by the
-    // account that holds the shared marker transactions/onchain_<signature> in the same commit
-    // (getAfter sees the batch), so a signature can't be credited under an account that doesn't hold it.
-    function holdsOnchainMarkerFor(txId, uid) {
-      let sig = txId.replace('^(deposit_sol|deposit_usdt|sub_sol)_', '');
-      return getAfter(/databases/$(database)/documents/transactions/$('onchain_' + sig)).data.get('uid', '') == uid;
-    }
+    // deposit_sol_ / deposit_usdt_ / sub_sol_ / onchain_ + <signature> are the on-chain credit records and the
+    // one-per-signature marker. They are written by the creditOnchainPayment Cloud Function (Admin SDK) only;
+    // clients and owners can neither create nor edit them (see transactions rules below).
 
-    // onchain_<signature>: exactly the marker the client writes, owned by the caller.
-    function isValidOnchainMarkerCreate(d, uid) {
-      return d.keys().hasOnly(['uid', 'type', 'solanaTxSignature', 'markerId', 'markedAt']) &&
-        d.get('type', '') == 'onchain_marker' && d.get('uid', '') == uid;
+    // Owner-side premium fields can only move DOWN (expiry downgrade), never up. Granting premium is the
+    // job of the creditOnchainPayment / subscribeWithBalance Cloud Functions or staff.
+    function ownerPremiumNotRaised() {
+      let n = request.resource.data;
+      let o = resource.data;
+      return (n.get('isPremium', false) == o.get('isPremium', false) || n.get('isPremium', false) == false) &&
+        (n.get('premiumUntil', null) == o.get('premiumUntil', null) || n.get('premiumUntil', null) == null ||
+          (n.get('premiumUntil', null) is number && o.get('premiumUntil', null) is number &&
+            n.get('premiumUntil', null) <= o.get('premiumUntil', null))) &&
+        (n.get('accountType', '') == o.get('accountType', '') || n.get('accountType', '') != 'hybrid');
     }
 
     // KAN-136 stopgap (until KAN-126 Cloud Function ledger): hired worker may create
@@ -240,7 +242,14 @@ service cloud.firestore {
             'role', 'banned', 'suspendedUntil', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent'
           ]) &&
           request.resource.data.get('tyxBalance', 0) == 0 &&
-          request.resource.data.get('reservedBalance', 0) == 0) ||
+          request.resource.data.get('reservedBalance', 0) == 0 &&
+          request.resource.data.get('isPremium', false) == false &&
+          request.resource.data.get('premiumUntil', null) == null &&
+          request.resource.data.get('accountType', 'nyxian') != 'hybrid' &&
+          !request.resource.data.keys().hasAny([
+            'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
+            'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
+          ])) ||
         isAdminOrStaff()
       ) &&
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
@@ -248,18 +257,17 @@ service cloud.firestore {
       allow update: if (
         // 1. Regular User: Can update own profile fields (cannot alter admin role, ban, or suspension status)
         (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil', 'rating', 'ratingCount'
-        ]))
+          'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil', 'rating', 'ratingCount',
+          'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod', 'subscriptionPaymentAmount',
+          'subscriptionTxId', 'subscriptionStatus'
+        ]) && ownerPremiumNotRaised())
         || 
         // 2. Admin / Staff: Can update admin, moderation & verification fields
         isAdminOrStaff()
         ||
-        // 3. Owner's own subscription fields (self-grant stays open until server-side activation: phase 2)
+        // 3. Owner's pending subscription request bookkeeping (grants nothing; staff approve it)
         (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'isPremium', 'premiumUntil', 'accountType', 'subscriptionPlan', 
-          'subscriptionStartedAt', 'subscriptionPaymentMethod', 'subscriptionPaymentAmount', 
-          'subscriptionTxId', 'subscriptionStatus', 'pendingSubscription', 
-          'lastSubscriptionRejection', 'updatedAt'
+          'pendingSubscription', 'lastSubscriptionRejection', 'updatedAt'
         ]))
         ||
         // 4. Inactive gig reclaim: Allow incrementing worker's abandonedJobs metric
@@ -340,13 +348,10 @@ service cloud.firestore {
       // Missing payout_nyx_/fees_emp_/refund_prop_ ids only by that job's participants / the host, so
       // denied-vs-missing can't be used to probe someone else's records.
       // list: owner only (getMyTransactions filters uid == caller).
-      // onchain_<signature> markers are readable by any signed-in user (and nothing else of the on-chain
-      // credit records is): a credit transaction reads it first and, when another account holds it,
-      // returns "contact support" instead of failing. It only holds uid/type/signature/markerId/markedAt
-      // (create rule below); the signature is public on-chain. deposit_*/sub_sol_* stay owner/staff only.
+      // onchain_<signature> / deposit_sol_ / deposit_usdt_ / sub_sol_ records are written and checked by the
+      // creditOnchainPayment function; clients only read their own.
       allow get: if isAuthenticated() &&
-        ((resource != null && txId.matches('^onchain_.+')) ||
-          (resource == null && (!txId.matches('^(payout_nyx|fees_emp|refund_prop)_.*') ||
+        ((resource == null && (!txId.matches('^(payout_nyx|fees_emp|refund_prop)_.*') ||
             isTxJobParticipant(txId) || isTxIdParty(txId, request.auth.uid))) ||
           (resource != null && ownsRecord(resource.data)) ||
           (isTxJobParticipant(txId) && isTxIdParty(txId, resource.data.get('uid', ''))) || isAdminOrStaff());
@@ -357,12 +362,10 @@ service cloud.firestore {
       allow create: if isAdminOrStaff() || isJobCompletionTxCreate(txId) || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$') &&
         (!txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*') || isTxIdParty(txId, request.auth.uid)) &&
         (!txId.matches('^pending_onchain_.*') || isOwnPendingOnchainId(txId, request.auth.uid)) &&
-        (!txId.matches('^(deposit_sol|deposit_usdt|sub_sol)_.+') || holdsOnchainMarkerFor(txId, request.auth.uid)) &&
-        (!txId.matches('^onchain_.*') || isValidOnchainMarkerCreate(request.resource.data, request.auth.uid)));
+        !txId.matches('^(deposit_sol|deposit_usdt|sub_sol|onchain)_.*'));
       // KAN-136-05: structured job/property/p2p tx ids are create-only for clients (no owner rewrite/replay).
       // On-chain credit records (deposit_<sig> / sub_sol_<sig>) and the shared one-per-signature marker
-      // (onchain_<sig>) are create-only for clients too: the credit already happened, so an owner must not
-      // be able to rewrite or replay them. Admin/staff still can (isAdminOrStaff above).
+      // (onchain_<sig>) are Admin SDK / staff only (create and update): the credit happens in the function.
       allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid &&
         !txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p|deposit|sub_sol|onchain)_.*') &&
         (!txId.matches('^pending_onchain_.*') ||
