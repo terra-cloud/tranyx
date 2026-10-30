@@ -121,11 +121,11 @@ describe('PLN: tyxBalance ledger design (assumed shape users/{uid}/ledger/{purpo
     await prep();
     await assertFails(updateDoc(doc(user('u1'), 'users/host'), { escrowBalance: 18050 }));
   });
-  planned('PLANNED PLN-08 [CRITICAL] rentee cannot raise/release the host\'s rental escrow (20_...:160-163 / compiled:450-453)', async () => {
+  it('PLN-08 [CRITICAL] rentee cannot raise/release the host\'s rental escrow — secure since Phase 4 (escrows are Admin-SDK only)', async () => {
     await prep({ 'rental_escrows/r1': { rentalId: 'r1', hostId: 'host', renteeId: 'u1', amount: 2000, status: 'Held', createdAt: NOW } });
     await assertFails(updateDoc(doc(user('u1'), 'rental_escrows/r1'), { amount: 99999, status: 'Released' }));
   });
-  planned('PLANNED PLN-09 [CRITICAL] rentee cannot raise/release the host\'s property escrow (40_...:117-120 / compiled:807-810)', async () => {
+  it('PLN-09 [CRITICAL] rentee cannot raise/release the host\'s property escrow — secure since Phase 4 (escrows are Admin-SDK only)', async () => {
     await prep({ 'property_escrows/req1': { requestId: 'req1', hostId: 'host', renteeId: 'u1', amount: 18050, status: 'Held', createdAt: NOW } });
     await assertFails(updateDoc(doc(user('u1'), 'property_escrows/req1'), { amount: 99999, status: 'Released' }));
   });
