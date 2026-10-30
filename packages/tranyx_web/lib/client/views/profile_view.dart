@@ -2685,7 +2685,7 @@ class _TrustVerification extends StatelessComponent {
                 'flex items-center justify-between p-3 rounded-xl ${isDark ? "bg-zinc-800/40 border border-zinc-800" : "bg-zinc-50 border border-zinc-200"}',
             [
               div(classes: 'flex items-center gap-3', [
-                lIcon('wallet', cls: 'w-5 h-5 text-purple-400'),
+                solanaLogo(cls: 'w-5 h-5'),
                 div([
                   div(classes: 'flex items-center gap-2', [
                     p(classes: 'text-xs font-bold ${isDark ? "text-white" : "text-zinc-800"}', [
