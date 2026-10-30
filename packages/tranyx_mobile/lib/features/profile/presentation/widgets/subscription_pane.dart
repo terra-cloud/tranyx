@@ -11,6 +11,7 @@ import 'dart:async';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:tranyx_mobile/core/services/mwa_service.dart';
+import 'package:tranyx_mobile/core/services/wallet_verify.dart';
 import 'package:tranyx_mobile/core/services/mwa_wallet_link.dart';
 import 'package:tranyx_mobile/core/services/mwa_payment.dart';
 import 'package:tranyx_mobile/core/services/onchain_credit.dart';
@@ -387,6 +388,9 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
     setState(() => _isProcessing = true);
 
     try {
+      // The server credits only a proven wallet: verify it first (one signature) so no money moves unverified.
+      await ensureWalletVerified(mwa: ref.read(mwaServiceProvider), walletType: walletType, pubkey: userPubkey);
+
       final firestore = ref.read(firestoreProvider);
       String? treasuryPublicKey = Env.solanaPublicKey.isNotEmpty ? Env.solanaPublicKey : null;
       if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {

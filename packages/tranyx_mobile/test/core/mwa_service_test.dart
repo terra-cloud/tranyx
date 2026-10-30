@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -44,6 +45,15 @@ class _FakeSession implements MwaSession {
   Future<List<Uint8List>> signTransactions(List<Uint8List> txs) async {
     lastSent = txs;
     return signedPayloads ?? [];
+  }
+
+  List<Uint8List> signedMessages = [];
+  List<Uint8List> lastMessages = [];
+
+  @override
+  Future<List<Uint8List>> signMessages(List<Uint8List> messages, Uint8List address) async {
+    lastMessages = messages;
+    return signedMessages;
   }
 
   @override
@@ -199,6 +209,41 @@ void main() {
         throwsStateError,
       );
       expect(session.closed, isTrue);
+    });
+  });
+
+  group('MwaService.signMessage', () {
+    test('signs the server text for the authorized account and returns a base64 signature', () async {
+      final session = _FakeSession(auth: _auth())..signedMessages = [Uint8List.fromList(List.filled(64, 7))];
+      final service = MwaService(platform: _FakePlatform(session: session), cluster: 'devnet');
+      String? asked;
+      final out = await service.signMessage(
+        expectedPublicKey: _wallet,
+        buildMessage: (pk) async => asked = 'sign for $pk',
+      );
+      expect(asked, 'sign for $_wallet');
+      expect(String.fromCharCodes(session.lastMessages.single), 'sign for $_wallet');
+      expect(out.publicKey, _wallet);
+      expect(base64Decode(out.signature), List.filled(64, 7));
+      expect(session.closed, isTrue);
+    });
+
+    test('a different wallet account than the linked one is rejected before asking for a message', () async {
+      final session = _FakeSession(auth: _auth('Other1111111111111111111111111111111111111'));
+      final service = MwaService(platform: _FakePlatform(session: session), cluster: 'devnet');
+      var built = false;
+      await _expectFailure(
+        () => service.signMessage(expectedPublicKey: _wallet, buildMessage: (_) async { built = true; return 'x'; }),
+        MwaFailureType.walletMismatch,
+      )();
+      expect(built, isFalse);
+      expect(session.closed, isTrue);
+    });
+
+    test('declining the signature maps to userCancelled', () async {
+      final session = _FakeSession(auth: _auth());
+      final service = MwaService(platform: _FakePlatform(session: session), cluster: 'devnet');
+      await _expectFailure(() => service.signMessage(buildMessage: (_) async => 'x'), MwaFailureType.userCancelled)();
     });
   });
 
