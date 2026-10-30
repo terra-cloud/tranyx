@@ -72,7 +72,8 @@ export async function jobAction(deps: MoneyDeps, auth: CallerAuth | undefined, d
       const price = numOf(raw.pricingValue);
       if (!(price > 0) || price > 999_999) throw new HttpsError('invalid-argument', 'Invalid gig price.');
       const promoCode = str(raw.promoCode, 40).toUpperCase();
-      const jobId = `job_${key}`;
+      // No underscore / no 'job_' prefix: clients parse chat ids like job_{jobId}_{uid} by splitting on '_'.
+      const jobId = `jb${key.replace(/[^A-Za-z0-9]/g, '')}`;
       const [feeSnap, promoSnap] = await Promise.all([tx.get(db.doc('settings/platform_fees')), promoCode ? tx.get(db.doc(`promos/${promoCode}`)) : Promise.resolve(null)]);
       await w.load(uid);
       if (!w.exists(uid)) throw new HttpsError('failed-precondition', 'Profile not found.');

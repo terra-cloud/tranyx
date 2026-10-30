@@ -327,7 +327,7 @@ export async function bookingAction(deps: MoneyDeps, auth: CallerAuth | undefine
     if (r.mirror) tx.set(r.mirror, escPatch, { merge: true });
     if (reqSnap.exists) tx.update(r.request, patchReq);
     w.flush();
-    const result = { ok: true, status: escPatch.status, refund, payout, commission, deposit: action === 'complete' ? deposit : 0 };
+    const result = { ok: true, status: escPatch.status, refund, payout, commission, rate, deposit: action === 'complete' ? deposit : 0 };
     writeOp(tx, db, uid, key, `booking:${action}`, result, now);
     return result;
   });
@@ -469,7 +469,10 @@ export async function listingFee(deps: MoneyDeps, auth: CallerAuth | undefined, 
         return same;
       }
       const rate = numOf((fSnap.exists ? fSnap.data() : {})?.listingFeeRate, 0);
-      amount = round2(rate * numOf(l.priceDaily ?? l.dailyRate));
+      const daily = numOf(l.priceDaily ?? l.dailyRate);
+      const monthly = numOf(l.priceMonthly ?? l.monthlyRate);
+      const basis = kind === 'property' ? (monthly > 0 ? monthly : daily * 30) : daily;
+      amount = round2(rate * basis);
       if (amount > 0) {
         await w.load(uid);
         w.debit(uid, amount);

@@ -249,8 +249,8 @@ describe('jobs', () => {
 
   it('accept: counter offer adjusts total cost by the fee-inclusive diff; non-creator blocked', async () => {
     const r = await create({}, 'x'.repeat(8));
-    expect(r.jobId).toBe('job_xxxxxxxx');
-    await db.doc('jobs/job_xxxxxxxx/applications/worker').set({ applicantUid: 'worker', applicantName: 'W', proposalRate: 1200, isCounterOffer: true });
+    expect(r.jobId).toBe('jbxxxxxxxx');
+    await db.doc('jobs/jbxxxxxxxx/applications/worker').set({ applicantUid: 'worker', applicantName: 'W', proposalRate: 1200, isCounterOffer: true });
     expect((await err(jobAction(deps(), as('other'), { idempotencyKey: key(), action: 'accept', jobId: r.jobId, applicantUid: 'worker' })))?.code).toBe('permission-denied');
     const a = await jobAction(deps(), as('employer'), { idempotencyKey: key(), action: 'accept', jobId: r.jobId, applicantUid: 'worker', jobPatch: { acknowledgmentStatus: 'pending', status: 'Completed', pricingValue: 1 } });
     expect(a.adjustment).toBe(220);
