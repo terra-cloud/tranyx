@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:typed_data';
 
@@ -62,6 +63,10 @@ abstract class MwaSession {
   Future<bool> supportsSignAndSend();
   Future<List<Uint8List>> signAndSendTransactions(List<Uint8List> txs);
   Future<List<Uint8List>> signTransactions(List<Uint8List> txs);
+
+  /// Signs off-chain [messages] with the account [address] (raw 32-byte key); one 64-byte ed25519
+  /// signature per message, empty when the wallet declined.
+  Future<List<Uint8List>> signMessages(List<Uint8List> messages, Uint8List address);
   Future<void> close();
 }
 
@@ -153,6 +158,24 @@ class _PluginSession implements MwaSession {
   @override
   Future<List<Uint8List>> signTransactions(List<Uint8List> txs) async =>
       (await _client.signTransactions(transactions: txs)).signedPayloads;
+
+  @override
+  Future<List<Uint8List>> signMessages(List<Uint8List> messages, Uint8List address) async {
+    final res = await _client.signMessages(messages: messages, addresses: [address]);
+    final out = <Uint8List>[];
+    for (var i = 0; i < res.signedMessages.length; i++) {
+      final sm = res.signedMessages[i];
+      Uint8List? sig;
+      if (sm.signatures.isNotEmpty && sm.signatures.first.length == 64) {
+        sig = sm.signatures.first;
+      } else if (i < messages.length && sm.message.length == messages[i].length + 64) {
+        // MWA 2.0 returns `message || signature` payloads.
+        sig = Uint8List.fromList(sm.message.sublist(messages[i].length));
+      }
+      if (sig != null) out.add(sig);
+    }
+    return out;
+  }
 
   @override
   Future<void> close() => _scenario.close();
@@ -248,6 +271,32 @@ class MwaService {
       final signed = await session.signTransactions([tx]);
       if (signed.isEmpty) throw _declined;
       return await broadcastSigned(signed.first);
+    } finally {
+      await _safeClose(session);
+    }
+  }
+
+  /// Authorizes, asks the wallet to sign the off-chain text [buildMessage] returns for the authorized
+  /// account (no transaction, no fee), and returns `(publicKey, base64 signature)`.
+  /// [expectedPublicKey]: the authorized account must be the linked one.
+  Future<({String publicKey, String signature})> signMessage({
+    required Future<String> Function(String publicKey) buildMessage,
+    String? expectedPublicKey,
+  }) async {
+    final session = await _openChecked();
+    try {
+      final auth = await session.authorize(cluster: cluster);
+      if (auth == null) throw _declined;
+      if (expectedPublicKey != null && expectedPublicKey.isNotEmpty && auth.publicKey != expectedPublicKey) {
+        throw const MwaException(
+          MwaFailureType.walletMismatch,
+          'Your wallet selected a different account than the one linked to Tranyx. Switch to the linked account and try again.',
+        );
+      }
+      final message = await buildMessage(auth.publicKey);
+      final sigs = await session.signMessages([Uint8List.fromList(utf8.encode(message))], Uint8List.fromList(base58.decode(auth.publicKey)));
+      if (sigs.isEmpty) throw _declined;
+      return (publicKey: auth.publicKey, signature: base64.encode(sigs.first));
     } finally {
       await _safeClose(session);
     }

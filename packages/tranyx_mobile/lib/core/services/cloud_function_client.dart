@@ -21,6 +21,7 @@ Future<Map<String, dynamic>> callCloudFunction(
   http.Client? client,
   Future<String?> Function(bool forceRefresh)? idToken,
   Future<String?> Function()? appCheckToken,
+  Map<String, String>? extraHeaders,
 }) async {
   const base = String.fromEnvironment('FUNCTIONS_BASE_URL');
   final url = base.isNotEmpty ? '$base/$name' : 'https://us-central1-${Firebase.app().options.projectId}.cloudfunctions.net/$name';
@@ -42,6 +43,7 @@ Future<Map<String, dynamic>> callCloudFunction(
             'Content-Type': 'application/json',
             'Authorization': 'Bearer $token',
             if (appCheck != null && appCheck.isNotEmpty) 'X-Firebase-AppCheck': appCheck,
+            ...?extraHeaders,
           },
           body: jsonEncode({'data': data}),
         )

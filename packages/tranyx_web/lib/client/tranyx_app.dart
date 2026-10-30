@@ -194,6 +194,8 @@ class TranyxAppState extends State<TranyxApp> {
   bool isSwitchingMode = false; // W15 inline skeleton while stats/holdbacks reload (≤600 ms)
   AccountType? pendingAccountType;
   String? pendingWalletPublicKey; // set when a wallet signed in but has no account yet
+  /// Whether the profile wallet has a server-side signature proof (walletAuthStatus); null = unknown yet.
+  bool? walletVerified;
   String? pendingWalletTicket; // server proof that pendingWalletPublicKey signed in (consumed by walletAuthLink)
   AuthResult? pendingGoogleAuthResult;
 
@@ -2246,6 +2248,7 @@ class TranyxAppState extends State<TranyxApp> {
           hybridToggle = initialHybridMode(accountType);
         });
         initializeProfileEditing();
+        unawaited(refreshWalletVerified());
         await loadKycSubmission();
         await loadHoldbacks();
         await checkActivePendingP2pOrders();
@@ -2303,6 +2306,24 @@ class TranyxAppState extends State<TranyxApp> {
   Future<Map<String, dynamic>> _walletCall(String name, Map<String, dynamic> data) =>
       FirestoreService(SessionStorage.idToken, _handleTokenRefresh).callCloudFunction(name, data);
 
+  /// Asks the server whether the linked wallet was proven with a signature (only a proven wallet can be
+  /// credited). Never throws; leaves [walletVerified] unchanged when the server cannot be reached.
+  Future<bool> refreshWalletVerified() async {
+    final wallet = userProfile?.walletPublicKey ?? '';
+    if (wallet.isEmpty) {
+      if (walletVerified != null) setState(() => walletVerified = null);
+      return false;
+    }
+    try {
+      final res = await _walletCall('walletAuthStatus', const {});
+      final ok = res['verified'] == true && res['wallet'] == wallet;
+      if (walletVerified != ok) setState(() => walletVerified = ok);
+      return ok;
+    } catch (_) {
+      return walletVerified == true;
+    }
+  }
+
   /// Asks the wallet to sign; null (with [lastWalletError] set) when it refuses or fails.
   Future<String?> _signWithWallet(String wallet, String message) async {
     try {
@@ -2323,7 +2344,12 @@ class TranyxAppState extends State<TranyxApp> {
   /// Signed in and about to pay: the wallet that signs must be the account's proven wallet.
   Future<void> _ensureVerifiedWalletLink(String connectedPubKey) async {
     final profileWallet = userProfile?.walletPublicKey;
-    if (profileWallet != null && profileWallet.isNotEmpty && profileWallet == connectedPubKey) return;
+    // Linked AND proven: nothing to do. A wallet linked without a signature (older links, or written
+    // straight to the profile) is asked for one signature now, before any money moves.
+    if (profileWallet != null && profileWallet.isNotEmpty && profileWallet == connectedPubKey &&
+        (walletVerified == true || await refreshWalletVerified())) {
+      return;
+    }
     final out = await proveAndLinkWallet(wallet: connectedPubKey, call: _walletCall, sign: _signWithWallet);
     if (!out.linked) {
       throw lastWalletError.isNotEmpty && lastWalletError != walletAppRedirect ? lastWalletError : out.message;

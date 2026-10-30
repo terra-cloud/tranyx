@@ -46,3 +46,12 @@ Other things the grep turned up but this branch does not change
 2. Ship the mobile and web builds that call them.
 3. Deploy rules commit 1.
 4. Settle any legacy `RefundPending` escrows, then deploy rules commit 2 (tyxBalance lock + escrow collections Admin-SDK only). Old app builds still writing escrows or balances will fail after this step.
+
+## Wallet-verified deposits (fix/wallet-verified-deposits)
+
+`creditOnchainPayment` now credits only a wallet with an Admin-only `wallet_verified/{wallet}` record bound to the caller's uid (written by `walletAuthLink` after a signed challenge). Otherwise it throws `failed-precondition` with a message starting `WALLET_NOT_VERIFIED` and leaves the pending record open (the same signature credits after verification). `walletAuthStatus` tells a client whether its wallet is proven.
+
+- Web: Profile shows "Verify wallet" for an unproven wallet; deposits/subscriptions verify first (`_ensureVerifiedWalletLink`).
+- Mobile: MWA wallets sign the challenge in-app (`wallet_verify.dart`, `MwaService.signMessage`) before paying. Phantom / Trust deep-link wallets cannot sign messages from the app yet, so they are told to verify once on tranyx.app > Profile. The MWA `signMessages` call is unit-tested against a fake only; it needs a device check.
+- Not tightened: client writes to `walletLinks/*` and `users.walletPublicKey`. Shipped mobile builds link wallets by writing those directly (app_router, auth_provider, trust_pane, payment_pane, subscription_pane, mwa_wallet_link). They are harmless to money now (credit trusts `wallet_verified` only), so locking them waits until mobile links through `walletAuthLink` and old builds age out.
+- Existing users with a wallet linked before this change must verify once before their next deposit.

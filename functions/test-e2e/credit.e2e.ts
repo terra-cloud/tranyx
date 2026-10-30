@@ -65,6 +65,13 @@ describe.runIf(!APPCHECK_ON)('creditOnchainPayment over the Functions emulator (
     const wallet = Keypair.generate().publicKey.toBase58();
     await db.doc(`users/${u.localId}`).set({ tyxBalance: 10, walletPublicKey: wallet });
 
+    // linked but never proven (client-written link only): refused before anything is read from chain
+    const unverified = await call({ signature: sig, kind: 'deposit_sol' }, u.idToken);
+    expect(unverified.status).toBe(400);
+    expect(unverified.body.error.status).toBe('FAILED_PRECONDITION');
+    expect(unverified.body.error.message).toContain('WALLET_NOT_VERIFIED');
+    await db.doc(`wallet_verified/${wallet}`).set({ uid: u.localId, verifiedAt: 1 }); // walletAuthLink does this
+
     const early = await call({ signature: sig, kind: 'deposit_sol' }, u.idToken);
     expect(early.status).toBe(200);
     expect(early.body.result.status).toBe('not_finalized');

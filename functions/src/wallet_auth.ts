@@ -275,3 +275,21 @@ export async function walletLink(deps: WalletAuthDeps, uid: string | undefined, 
     return { status: 'linked', wallet };
   });
 }
+
+export interface WalletStatus {
+  wallet: string;
+  /** The caller has a wallet on their profile. */
+  linked: boolean;
+  /** That wallet has an Admin-only proof (`wallet_verified`) bound to the caller. */
+  verified: boolean;
+}
+
+/** Whether the caller's profile wallet is proven. `wallet_verified` itself is never readable by clients. */
+export async function walletStatus(deps: WalletAuthDeps, uid: string | undefined): Promise<WalletStatus> {
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const user = await deps.db.doc(`users/${uid}`).get();
+  const wallet = user.exists && typeof user.get('walletPublicKey') === 'string' ? (user.get('walletPublicKey') as string) : '';
+  if (!wallet) return { wallet: '', linked: false, verified: false };
+  const ver = await deps.db.doc(`wallet_verified/${wallet}`).get();
+  return { wallet, linked: true, verified: ver.exists && ver.get('uid') === uid };
+}

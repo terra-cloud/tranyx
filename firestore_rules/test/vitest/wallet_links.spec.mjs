@@ -43,4 +43,20 @@ describe('KWL: walletLinks after wallet sign-in removal', () => {
     await assertSucceeds(getDocs(collection(adminClaim(), 'walletLinks')));
     await assertSucceeds(deleteDoc(doc(adminClaim(), `walletLinks/${NEW}`)));
   });
+  it('KWL-08 [CRITICAL] wallet_verified (the proof creditOnchainPayment requires) is Admin SDK only: no client can read, forge or edit it', async () => {
+    await seed({ 'users/u1': userProfile('u1'), [`wallet_verified/${ADDR}`]: { uid: 'victim', verifiedAt: NOW } });
+    for (const db of [user('u1'), adminClaim(), guest()]) {
+      await assertFails(getDoc(doc(db, `wallet_verified/${ADDR}`)));
+      await assertFails(setDoc(doc(db, `wallet_verified/${NEW}`), { uid: 'u1', verifiedAt: NOW }));
+      await assertFails(setDoc(doc(db, `wallet_verified/${ADDR}`), { uid: 'u1', verifiedAt: NOW }));
+      await assertFails(deleteDoc(doc(db, `wallet_verified/${ADDR}`)));
+    }
+  });
+  it('KWL-09 [HIGH] the nonce / ticket collections used by wallet sign-in are Admin SDK only', async () => {
+    await seed({ 'users/u1': userProfile('u1'), 'wallet_auth_nonces/abc': { wallet: ADDR }, 'wallet_auth_tickets/abc': { wallet: ADDR } });
+    for (const c of ['wallet_auth_nonces', 'wallet_auth_tickets']) {
+      await assertFails(getDoc(doc(user('u1'), `${c}/abc`)));
+      await assertFails(setDoc(doc(user('u1'), `${c}/new`), { wallet: ADDR }));
+    }
+  });
 });
