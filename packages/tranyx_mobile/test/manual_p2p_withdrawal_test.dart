@@ -84,26 +84,6 @@ void main() {
       expect(firestore.db['users/user_101']!['tyxBalance'], 500.0);
     });
 
-    test('Scenario 3: Cancelling P2P withdrawal refunds locked balance 100%', () async {
-      firestore.db['users/user_101'] = {
-        'name': 'Zeus User',
-        'email': 'zeus@tranyx.com',
-        'tyxBalance': 3000.0,
-      };
-
-      final reqId = serverCreatesRequest('user_101', 1500.0, 'Maya', 'Zeus Maya', '09181234567');
-
-      expect(firestore.db['users/user_101']!['tyxBalance'], 1500.0);
-
-      // User cancels after timeout
-      await repo.cancelP2pWithdrawalRequest(reqId, reason: 'Timeout - No agent claimed');
-
-      // Balance refunded
-      expect(firestore.db['users/user_101']!['tyxBalance'], 3000.0);
-      expect(firestore.db['withdrawal_requests/$reqId']!['status'], 'CANCELLED');
-      expect(firestore.db['transactions/p2p_with_$reqId']!['status'], 'CANCELLED');
-    });
-
     test('Scenario 4: User/Admin confirming completed withdrawal updates status to APPROVED/COMPLETED', () async {
       firestore.db['users/user_101'] = {
         'name': 'Zeus User',

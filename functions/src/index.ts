@@ -12,6 +12,10 @@ import { Web3SolanaPayer } from './solana';
 import { processP2pAction, processWithdrawal, reconcileAll, type Deps } from './withdraw';
 import { issueNonce, walletLink, walletSignIn, walletStatus, type WalletAuthDeps } from './wallet_auth';
 import { uploadImage, type FetchLike } from './image_upload';
+import { subscribeWithBalance as runSubscribe } from './subscribe';
+import { bookingAction as runBookingAction, bookingRequest as runBookingRequest, listingFee as runListingFee, rentalExtension as runRentalExtension } from './booking';
+import { jobAction as runJobAction } from './jobs';
+import type { MoneyDeps } from './money';
 
 initializeApp();
 
@@ -196,3 +200,36 @@ export const uploadImageProxy = onCall(
     }
   },
 );
+
+// ── Phase 4: balance money callables (subscription, rentals, properties, jobs) ─────────────────
+// users/{uid}.tyxBalance and the escrow docs are Admin-SDK only in firestore.rules; clients reach them only here.
+const moneyDeps = (): MoneyDeps => ({ db: getFirestore(), now: () => Date.now() });
+const moneyOpts = { enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 60, maxInstances: 10, memory: '256MiB' as const };
+type MoneyReq = { auth?: { uid: string; token?: unknown } | null; data: unknown };
+const caller = (req: MoneyReq) => (req.auth ? { uid: req.auth.uid, token: req.auth.token as Record<string, unknown> } : undefined);
+
+function moneyGuard<T>(name: string, run: () => Promise<T>): Promise<T> {
+  return run().catch((e) => {
+    if (e instanceof HttpsError) throw e;
+    logger.error(`${name} failed`, { detail: (e instanceof Error ? e.message : String(e)).replace(/https?:\/\/\S+/gi, '[url]').slice(0, 300) });
+    throw new HttpsError('internal', 'The request could not be processed.');
+  });
+}
+
+/** Hybrid PRO paid from the wallet balance. { idempotencyKey, plan: 'monthly' | 'yearly' }. Price from config/credit. */
+export const subscribeWithBalance = onCall(moneyOpts, (req) => moneyGuard('subscribeWithBalance', () => runSubscribe(moneyDeps(), caller(req), req.data)));
+
+/** Vehicle / property booking request: price recomputed from the listing, renter debited, request + escrow created. */
+export const bookingRequest = onCall(moneyOpts, (req) => moneyGuard('bookingRequest', () => runBookingRequest(moneyDeps(), caller(req), req.data)));
+
+/** reject | cancelRequest | revoke | cancelActive | complete on a booking escrow (status-guarded, once). */
+export const bookingAction = onCall(moneyOpts, (req) => moneyGuard('bookingAction', () => runBookingAction(moneyDeps(), caller(req), req.data)));
+
+/** Vehicle rental extension: request | autoApprove | approve | reject. Fee = listing hourly rate x hours. */
+export const rentalExtension = onCall(moneyOpts, (req) => moneyGuard('rentalExtension', () => runRentalExtension(moneyDeps(), caller(req), req.data)));
+
+/** Host listing fee charge / refund (listingFeeRate is 0 today). */
+export const listingFee = onCall(moneyOpts, (req) => moneyGuard('listingFee', () => runListingFee(moneyDeps(), caller(req), req.data)));
+
+/** Gig money: create | accept | complete | cancel | reclaim | delete | releaseHoldbacks. */
+export const jobAction = onCall(moneyOpts, (req) => moneyGuard('jobAction', () => runJobAction(moneyDeps(), caller(req), req.data)));

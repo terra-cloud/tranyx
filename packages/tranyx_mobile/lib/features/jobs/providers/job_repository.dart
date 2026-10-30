@@ -2,101 +2,28 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared/shared.dart' hide JobQuestion;
+import 'package:tranyx_mobile/core/services/money_callable.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/jobs/models/job_question.dart';
 
 class JobRepository {
   final FirebaseFirestore _firestore;
 
-  JobRepository(this._firestore);
+  /// Server-side money callables (gig escrow funding / hiring / release / refunds). Overridable in tests.
+  final Future<Map<String, dynamic>> Function(String name, Map<String, dynamic> data) _money;
+
+  JobRepository(
+    this._firestore, {
+    Future<Map<String, dynamic>> Function(String name, Map<String, dynamic> data)? moneyCaller,
+  }) : _money = moneyCaller ?? ((name, data) => callMoney(name, data));
 
   Future<void> createJob(Job job) async {
-    final docId = job.id.isEmpty ? _firestore.collection('jobs').doc().id : job.id;
-    final jobDocRef = _firestore.collection('jobs').doc(docId);
-    final userRef = _firestore.collection('users').doc(job.creatorId);
-    final escrowRef = _firestore.collection('escrow').doc(docId);
-
-    await _firestore.runTransaction((transaction) async {
-      final userSnap = await transaction.get(userRef);
-      if (!userSnap.exists) throw Exception('Employer profile not found.');
-      final userData = userSnap.data()!;
-
-      final double currentBal = (userData['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-      final double reservedBal = (userData['reservedBalance'] as num?)?.toDouble() ?? 0.0;
-      final double availableBal = (currentBal - reservedBal).clamp(0.0, double.infinity);
-      final double price = job.pricingValue;
-      final double discount = job.discountAmount ?? 0.0;
-      final double discountedPrice = (price - discount).clamp(0.0, 999999.0);
-      final double txFeeRate = 0.07;
-      final double convFeeRate = 0.03;
-
-      final double employerFees = WalletSecurityHelper.calculateJobEmployerFees(
-        price: price,
-        discount: discount,
-        txFeeRate: txFeeRate,
-        convFeeRate: convFeeRate,
-      );
-      final double totalRequired = WalletSecurityHelper.calculateJobTotalEmployerCost(
-        price: price,
-        discount: discount,
-        txFeeRate: txFeeRate,
-        convFeeRate: convFeeRate,
-      );
-
-      if (availableBal < totalRequired) {
-        throw Exception(
-            'Insufficient available balance. Required: ₱${totalRequired.toStringAsFixed(2)} (Gig: ₱${discountedPrice.toStringAsFixed(2)} + Fees: ₱${employerFees.toStringAsFixed(2)}), Available: ₱${availableBal.toStringAsFixed(2)}');
-      }
-
-      // 1. Deduct balance
-      transaction.update(userRef, {
-        'tyxBalance': currentBal - totalRequired,
-      });
-
-      // 2. Set job doc
-      transaction.set(jobDocRef, {
-        ...job.toMap(),
-        'id': docId,
-        'transactionFeeRate': txFeeRate,
-        'convenienceFeeRate': convFeeRate,
-        'employerFees': employerFees,
-        'totalEscrowed': totalRequired,
-      });
-
-      // 3. Set escrow doc
-      transaction.set(escrowRef, {
-        'amount': discountedPrice,
-        'employerFees': employerFees,
-        'totalEscrowed': totalRequired,
-        'transactionFee': discountedPrice * txFeeRate,
-        'convenienceFee': discountedPrice * convFeeRate,
-        'transactionFeeRate': txFeeRate,
-        'convenienceFeeRate': convFeeRate,
-        'employerId': job.creatorId,
-        'status': 'held',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-        'hasInspectionHoldback': job.hasTracker, // On mobile, hasTracker matches inspection
-        if (job.hasTracker) 'holdbackAmount': price * 0.10,
-      });
-
-      // 4. Increment promo usage if any
-      final String? promoCode = job.promoCode;
-      if (promoCode != null && promoCode.trim().isNotEmpty) {
-        final promoRef = _firestore.collection('promos').doc(promoCode.trim().toUpperCase());
-        final promoSnap = await transaction.get(promoRef);
-        if (promoSnap.exists) {
-          final usedBy = List<String>.from(promoSnap.data()?['usedBy'] ?? []);
-          if (!usedBy.contains(job.creatorId)) {
-            usedBy.add(job.creatorId);
-          }
-          final usedCount = (promoSnap.data()?['usedCount'] as num? ?? 0).toInt() + 1;
-          transaction.update(promoRef, {
-            'usedBy': usedBy,
-            'usedCount': usedCount,
-          });
-        }
-      }
-    });
+    // The server recomputes price, fees and discount from authoritative config, debits the employer
+    // and creates the gig + its escrow in one transaction (balances/escrow are Admin-SDK only).
+    final data = job.toMap()
+      ..remove('id')
+      ..['hasInspectionHoldback'] = job.hasTracker; // On mobile, hasTracker matches inspection
+    await _money('jobAction', {'action': 'create', 'job': data});
   }
 
   Stream<List<Job>> getMyJobs(String uid) {
@@ -356,139 +283,72 @@ class JobRepository {
     required JobApplication application,
     required String employerUid,
   }) async {
-    final jobRef = _firestore.collection('jobs').doc(jobId);
-    final userRef = _firestore.collection('users').doc(employerUid);
-    final escrowRef = _firestore.collection('escrow').doc(jobId);
+    final jobSnap = await _firestore.collection('jobs').doc(jobId).get();
+    if (!jobSnap.exists) throw Exception('Job not found.');
+    final jobData = jobSnap.data()!;
+    final double originalPrice = (jobData['pricingValue'] as num?)?.toDouble() ?? 0.0;
 
-    await _firestore.runTransaction((transaction) async {
-      final jobSnap = await transaction.get(jobRef);
-      if (!jobSnap.exists) throw Exception('Job not found.');
-      final jobData = jobSnap.data()!;
-
-      final userSnap = await transaction.get(userRef);
-      if (!userSnap.exists) throw Exception('Employer profile not found.');
-      final userData = userSnap.data()!;
-
-      final escrowSnap = await transaction.get(escrowRef);
-      final existingEscrow = escrowSnap.exists ? escrowSnap.data() : null;
-
-      final double originalPrice = (jobData['pricingValue'] as num?)?.toDouble() ?? 0.0;
-      final double rate = application.proposalRate;
-      double newEmployerBalance = (userData['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-
-      double finalPrice = originalPrice;
-
-      if (application.isCounterOffer) {
-        final validation = JobCounterOfferValidator.validate(
-          originalOffer: originalPrice,
-          counterOfferInput: rate,
-          isCounterOffer: true,
-        );
-        if (!validation.isValid) {
-          throw Exception('Cannot accept counter offer: ${validation.errorMessage}');
-        }
-
-        if (rate > originalPrice) {
-          final diff = rate - originalPrice;
-          if (newEmployerBalance < diff) {
-            throw Exception('Insufficient balance to accept this counter offer.');
-          }
-          newEmployerBalance -= diff;
-          finalPrice = rate;
-        } else if (rate < originalPrice && rate > 0) {
-          final diff = originalPrice - rate;
-          newEmployerBalance += diff;
-          finalPrice = rate;
-        }
+    if (application.isCounterOffer) {
+      final validation = JobCounterOfferValidator.validate(
+        originalOffer: originalPrice,
+        counterOfferInput: application.proposalRate,
+        isCounterOffer: true,
+      );
+      if (!validation.isValid) {
+        throw Exception('Cannot accept counter offer: ${validation.errorMessage}');
       }
+    }
 
-      if (finalPrice <= 0) {
-        throw Exception('Transaction price must be greater than ₱0.');
-      }
+    // Categorize and determine acknowledgment SLA
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final category = JobSlaHelper.classifyJob(jobData);
+    final slaMinutes = category.defaultSlaMinutes;
+    final deadline = JobSlaHelper.calculateDeadline(
+      job: jobData,
+      hiredAt: DateTime.fromMillisecondsSinceEpoch(now),
+    ).millisecondsSinceEpoch;
 
-      // Update employer's balance
-      transaction.update(userRef, {
-        'tyxBalance': newEmployerBalance,
-      });
-
-      // Create or update escrow record
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final bool hasInspectionHoldback = jobData['hasInspectionHoldback'] as bool? ?? false;
-      final holdbackAmount = hasInspectionHoldback ? finalPrice * 0.10 : 0.0;
-      final double discount = (jobData['discountAmount'] as num?)?.toDouble() ?? 0.0;
-      final double discountedPrice = (finalPrice - discount).clamp(0.0, 999999.0);
-
-      final Map<String, dynamic> escrowData = {
-        if (existingEscrow != null) ...existingEscrow,
-        'amount': discountedPrice,
-        'employerId': employerUid,
-        'creatorId': employerUid,
-        'workerId': application.applicantUid,
-        'status': 'held',
-        'createdAt': (existingEscrow?['createdAt'] as num?)?.toInt() ?? now,
-        'updatedAt': now,
-        'hasInspectionHoldback': hasInspectionHoldback,
-        if (hasInspectionHoldback) 'holdbackAmount': holdbackAmount,
-      };
-
-      transaction.set(escrowRef, escrowData, SetOptions(merge: true));
-
-      // Categorize and determine acknowledgment SLA
-      final category = JobSlaHelper.classifyJob(jobData);
-      final slaMinutes = category.defaultSlaMinutes;
-      final deadline = JobSlaHelper.calculateDeadline(
-        job: jobData,
-        hiredAt: DateTime.fromMillisecondsSinceEpoch(now),
-      ).millisecondsSinceEpoch;
-
-      // Update job status and accepted applicant details with SLA acknowledgment metadata
-      transaction.update(jobRef, {
-        'status': 'Awaiting Acknowledgment',
-        'acceptedApplicantId': application.applicantUid,
-        'acceptedApplicantName': application.applicantName,
-        'pricingValue': finalPrice,
+    // Server-side: re-validates the counter offer against the held escrow, charges/refunds the
+    // difference (price + fees), moves the escrow to the worker and flips the gig to hired.
+    await _money('jobAction', {
+      'action': 'accept',
+      'jobId': jobId,
+      'applicantUid': application.applicantUid,
+      'jobPatch': {
         'acknowledgmentStatus': 'pending',
         'acknowledgmentCategory': category.id,
         'acknowledgmentSlaMinutes': slaMinutes,
         'acknowledgmentDeadline': deadline,
-        'hiredAt': now,
-        'updatedAt': now,
         'acknowledgmentReminderSent': false,
-      });
-
-      // Post acknowledgment request system message to the job chat
-      final durationLabel = JobSlaHelper.formatSlaDurationLabel(slaMinutes);
-      final msgId = 'msg_ack_req_$now';
-      final scopedJobChatId = 'job_${jobId}_${application.applicantUid}';
-      final scopedChatMsgRef = _firestore.collection('chats').doc(scopedJobChatId).collection('messages').doc(msgId);
-      final scopedChatRef = _firestore.collection('chats').doc(scopedJobChatId);
-      final chatMsgRef = _firestore.collection('chats').doc(jobId).collection('messages').doc(msgId);
-      final chatRef = _firestore.collection('chats').doc(jobId);
-
-      final ackPayload = {
-        'senderId': 'system',
-        'senderName': 'Tranyx System',
-        'type': 'acknowledgment_request',
-        'text': '🎉 You have been hired for this task.\nPlease acknowledge that you have received the job and are ready to proceed.\n\nPlease respond within $durationLabel.',
-        'category': category.id,
-        'deadline': deadline,
-        'slaMinutes': slaMinutes,
-        'createdAt': now,
-      };
-
-      transaction.set(scopedChatMsgRef, ackPayload);
-      transaction.set(scopedChatRef, {
-        'userIds': [jobData['creatorId'], application.applicantUid],
-        'jobId': jobId,
-        'applicantId': application.applicantUid,
-        'updatedAt': now,
-      }, SetOptions(merge: true));
-
-      transaction.set(chatMsgRef, ackPayload);
-      transaction.set(chatRef, {
-        'updatedAt': now,
-      }, SetOptions(merge: true));
+      },
     });
+
+    // Post acknowledgment request system message to the job chat
+    final durationLabel = JobSlaHelper.formatSlaDurationLabel(slaMinutes);
+    final msgId = 'msg_ack_req_$now';
+    final scopedJobChatId = 'job_${jobId}_${application.applicantUid}';
+    final ackPayload = {
+      'senderId': 'system',
+      'senderName': 'Tranyx System',
+      'type': 'acknowledgment_request',
+      'text':
+          '🎉 You have been hired for this task.\nPlease acknowledge that you have received the job and are ready to proceed.\n\nPlease respond within $durationLabel.',
+      'category': category.id,
+      'deadline': deadline,
+      'slaMinutes': slaMinutes,
+      'createdAt': now,
+    };
+    final batch = _firestore.batch();
+    batch.set(_firestore.collection('chats').doc(scopedJobChatId).collection('messages').doc(msgId), ackPayload);
+    batch.set(_firestore.collection('chats').doc(scopedJobChatId), {
+      'userIds': [jobData['creatorId'], application.applicantUid],
+      'jobId': jobId,
+      'applicantId': application.applicantUid,
+      'updatedAt': now,
+    }, SetOptions(merge: true));
+    batch.set(_firestore.collection('chats').doc(jobId).collection('messages').doc(msgId), ackPayload);
+    batch.set(_firestore.collection('chats').doc(jobId), {'updatedAt': now}, SetOptions(merge: true));
+    await batch.commit();
   }
 
   Future<void> acknowledgeJob(String jobId, String nyxianUid) async {
@@ -593,252 +453,12 @@ class JobRepository {
     required String currentUserUid,
     required String currentUserName,
   }) async {
-    final jobRef = _firestore.collection('jobs').doc(jobId);
-    final escrowRef = _firestore.collection('escrow').doc(jobId);
-
-    await _firestore.runTransaction((transaction) async {
-      final jobSnap = await transaction.get(jobRef);
-      if (!jobSnap.exists) throw Exception('Job not found.');
-      final jobData = jobSnap.data()!;
-
-      final escrowSnap = await transaction.get(escrowRef);
-      final double? escrowEmployerFees =
-          escrowSnap.exists ? (escrowSnap.data()!['employerFees'] as num?)?.toDouble() : null;
-      final bool isFeePreFunded = escrowEmployerFees != null && escrowEmployerFees > 0;
-
-      final employerId = jobData['creatorId'] as String?;
-      final empRef = employerId != null ? _firestore.collection('users').doc(employerId) : null;
-      final empSnap = empRef != null ? await transaction.get(empRef) : null;
-
-      final String status = (jobData['status'] as String? ?? '').toLowerCase();
-      if (status == 'completed') {
-        throw Exception('This job is already completed.');
-      }
-
-      final correctCode = jobData['completionCode']?.toString() ?? jobData['verificationCode']?.toString();
-      if (verificationCodeEntered.trim() != correctCode?.trim()) {
-        throw Exception('Invalid or expired verification code.');
-      }
-
-      final bool hasTracker = jobData['hasTracker'] == true || jobData['hasTracker'] == 'true';
-      final nyxianId = jobData['acceptedApplicantId'] as String? ?? jobData['nyxianId'] as String?;
-
-      if (hasTracker) {
-        if (employerId != currentUserUid) {
-          throw Exception('Verification failed: You are not the Employer for this job.');
-        }
-      } else {
-        if (nyxianId != currentUserUid) {
-          throw Exception('Verification failed: You are not the assigned Nyxian for this job.');
-        }
-      }
-
-      final double price = (jobData['pricingValue'] as num?)?.toDouble() ?? 0.0;
-      final double platformFee = price * 0.03;
-      double actualPlatformFee = platformFee;
-
-      // 1. Fetch Nyxian to check for profile-based promo
-      double immediatePayout = 0.0;
-      double nyxianPayout = price - platformFee;
-      final bool hasHoldback = jobData['hasInspectionHoldback'] as bool? ?? false;
-      final double holdbackAmount = hasHoldback ? price * 0.10 : 0.0;
-
-      String? redeemedPromoCode;
-      if (nyxianId != null) {
-        final nyxRef = _firestore.collection('users').doc(nyxianId);
-        final nyxSnap = await transaction.get(nyxRef);
-        if (nyxSnap.exists) {
-          final nyxData = nyxSnap.data()!;
-          final double currentNyxBal = (nyxData['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-          final int currentJobsDone = nyxData['jobsDone'] as int? ?? 0;
-          final double currentEarned = (nyxData['totalEarned'] as num?)?.toDouble() ?? 0.0;
-          final int gigsCount = nyxData['completedGigsCount'] as int? ?? 0;
-          final int newGigsCount = gigsCount + 1;
-          final double repeatHireRate = newGigsCount > 1 ? 0.35 : 0.0;
-
-          redeemedPromoCode = nyxData['activePromoCode'] as String?;
-          if (redeemedPromoCode != null) {
-            final double discountVal = (nyxData['activePromoDiscountValue'] as num?)?.toDouble() ?? 0.0;
-            final String discountType = nyxData['activePromoDiscountType'] as String? ?? 'flat';
-            double discountAmt = 0.0;
-            if (discountType == 'percentage') {
-              discountAmt = platformFee * (discountVal / 100.0);
-            } else {
-              discountAmt = discountVal;
-            }
-            actualPlatformFee = (platformFee - discountAmt).clamp(0.0, platformFee);
-          }
-
-          nyxianPayout = price - actualPlatformFee;
-          immediatePayout = nyxianPayout - holdbackAmount;
-
-          transaction.update(nyxRef, {
-            'tyxBalance': currentNyxBal + immediatePayout,
-            'jobsDone': currentJobsDone + 1,
-            'totalEarned': currentEarned + immediatePayout,
-            'completedGigsCount': newGigsCount,
-            'repeatHireRate': repeatHireRate,
-            // KAN-136 stopgap: links this credit to payout_nyx_<jobId> for rules (until KAN-126).
-            'lastCompletedJobId': jobId,
-            if (redeemedPromoCode != null) 'activePromoCode': null,
-            if (redeemedPromoCode != null) 'activePromoDiscountType': null,
-            if (redeemedPromoCode != null) 'activePromoDiscountValue': null,
-          });
-
-          // Increment profile promo usage in transaction
-          if (redeemedPromoCode != null) {
-            final promoRef = _firestore.collection('promos').doc(redeemedPromoCode.trim().toUpperCase());
-            final promoSnap = await transaction.get(promoRef);
-            if (promoSnap.exists) {
-              final usedBy = List<String>.from(promoSnap.data()?['usedBy'] ?? []);
-              if (!usedBy.contains(nyxianId)) {
-                usedBy.add(nyxianId);
-              }
-              final usedCount = (promoSnap.data()?['usedCount'] as num? ?? 0).toInt() + 1;
-              transaction.update(promoRef, {
-                'usedBy': usedBy,
-                'usedCount': usedCount,
-              });
-            }
-          }
-        }
-
-        // Dynamic snapshot rates
-        final double commissionRate = (jobData['commissionRate'] as num?)?.toDouble() ?? 0.03;
-        final double holdbackRate = (jobData['holdbackRate'] as num?)?.toDouble() ?? 0.10;
-
-        // Log payout transaction for Nyxian
-        final payoutTxRef = _firestore.collection('transactions').doc('payout_nyx_$jobId');
-        transaction.set(payoutTxRef, {
-          'uid': nyxianId,
-          'title': 'Gig Payout Released',
-          'desc': 'Payout for completing job $jobId (${PlatformFeeConfig.formatPercent(commissionRate)} commission deducted${redeemedPromoCode != null ? ' - Promo $redeemedPromoCode applied' : ''})',
-          'amount': immediatePayout,
-          'baseAmount': price,
-          'commissionFee': actualPlatformFee,
-          'commissionRate': commissionRate,
-          'holdbackAmount': holdbackAmount,
-          'holdbackRate': holdbackRate,
-          if (redeemedPromoCode != null) 'promoCode': redeemedPromoCode,
-          'status': 'Successful',
-          'method': 'Tranyx Wallet',
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-          'type': 'payout',
-        });
-      }
-
-      // 2. Delete escrow record
-      transaction.delete(escrowRef);
-
-      // 1.1 Create escrow holdback record if enabled
-      if (hasHoldback && nyxianId != null) {
-        final holdbackRef = _firestore.collection('escrow_holdbacks').doc(jobId);
-        transaction.set(holdbackRef, {
-          'jobId': jobId,
-          'amount': holdbackAmount,
-          'nyxianId': nyxianId,
-          'employerId': employerId,
-          'status': 'held',
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-          'releaseAt': DateTime.now().add(const Duration(hours: 48)).millisecondsSinceEpoch,
-        });
-      }
-
-      // 2.1 Deduct fees from Employer Wallet using snapshotted rates
-      final double discount = (jobData['discountAmount'] as num?)?.toDouble() ?? 0.0;
-      final double discountedPrice = (price - discount).clamp(0.0, 999999.0);
-      final double txFeeRate = (jobData['transactionFeeRate'] as num?)?.toDouble() ??
-          (jobData['txFeeRate'] as num?)?.toDouble() ??
-          0.07;
-      final double convFeeRate = (jobData['convenienceFeeRate'] as num?)?.toDouble() ??
-          (jobData['convFeeRate'] as num?)?.toDouble() ??
-          0.03;
-      final double serviceFeeRate = (jobData['serviceFeeRate'] as num?)?.toDouble() ?? 0.01;
-      final double markupRate = (jobData['markupRate'] as num?)?.toDouble() ?? 0.03;
-
-      final double txFee = discountedPrice * txFeeRate;
-      final double convFee = discountedPrice * convFeeRate;
-      final double totalFees = txFee + convFee;
-
-      if (employerId != null) {
-        if (!isFeePreFunded && empSnap != null && empSnap.exists) {
-          final empData = empSnap.data()!;
-          final double currentBal = (empData['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-          final double safeBal = (currentBal - totalFees).clamp(0.0, double.infinity);
-
-          transaction.update(empRef!, {
-            'tyxBalance': safeBal,
-            // KAN-136 stopgap: links this debit to fees_emp_<jobId> for rules (until KAN-126).
-            'lastCompletedJobId': jobId,
-          });
-        }
-
-        // Log fee deduction / settlement transaction for Employer with snapshotted rates
-        final feeTxRef = _firestore.collection('transactions').doc('fees_emp_$jobId');
-        transaction.set(feeTxRef, {
-          'uid': employerId,
-          'title': isFeePreFunded
-              ? 'Job Platform Fees Settled (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})'
-              : 'Job Completion Fees (${PlatformFeeConfig.formatPercent(txFeeRate + convFeeRate)})',
-          'desc': isFeePreFunded
-              ? '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) settled from escrow for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}'
-              : '${PlatformFeeConfig.formatPercent(txFeeRate)} Transaction Fee (${txFee.toStringAsFixed(2)}) & ${PlatformFeeConfig.formatPercent(convFeeRate)} Convenience Fee (${convFee.toStringAsFixed(2)}) for job $jobId${discount > 0 ? ' (Discounted base of ₱${discountedPrice.toStringAsFixed(2)} applied)' : ''}',
-          'amount': totalFees,
-          'baseAmount': discountedPrice,
-          'transactionFee': txFee,
-          'convenienceFee': convFee,
-          'transactionFeeRate': txFeeRate,
-          'convenienceFeeRate': convFeeRate,
-          'serviceFeeRate': serviceFeeRate,
-          'markupRate': markupRate,
-          'discountAmount': discount,
-          'status': 'Successful',
-          'method': isFeePreFunded ? 'Tranyx Escrow' : 'Tranyx Wallet',
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-          'type': 'fee_deduction',
-        });
-      }
-
-      // 3. Record all platform fees and company income with snapshotted rates
-      final double totalCompanyIncome = actualPlatformFee + txFee + convFee;
-      final platformFeesRef = _firestore.collection('platform_fees').doc(jobId);
-      transaction.set(platformFeesRef, {
-        'jobId': jobId,
-        'amount': totalCompanyIncome,
-        'commissionFee': actualPlatformFee,
-        'transactionFee': txFee,
-        'convenienceFee': convFee,
-        'transactionFeeRate': txFeeRate,
-        'convenienceFeeRate': convFeeRate,
-        'employerFees': txFee + convFee,
-        'nyxianFee': actualPlatformFee,
-        'totalFees': totalCompanyIncome,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      });
-
-      // 4. Mark job as complete
-      transaction.update(jobRef, {
-        'status': 'Completed',
-      });
-
-      // 5. Send notification to the other party
-      final String? targetUser = (currentUserUid == employerId) ? nyxianId : employerId;
-      if (targetUser != null) {
-        final prefix = targetUser.length > 5 ? targetUser.substring(0, 5) : targetUser;
-        final notifDocId = 'notif_${DateTime.now().millisecondsSinceEpoch}_$prefix';
-        final notifRef = _firestore.collection('notifications').doc(notifDocId);
-        transaction.set(notifRef, {
-          'uid': targetUser,
-          'title': 'Gig Completed 🎉',
-          'message': '$currentUserName has completed "${jobData['title']}". Click to rate them.',
-          'type': 'job_completed',
-          'jobId': jobId,
-          'senderUid': currentUserUid,
-          'senderName': currentUserName,
-          'isRead': false,
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-        });
-      }
+    // Server verifies the code and the caller's role, releases the escrow (worker payout, 48h
+    // holdback, commission/fees incl. any promo), marks the gig Completed and notifies the other party.
+    await _money('jobAction', {
+      'action': 'complete',
+      'jobId': jobId,
+      'verificationCode': verificationCodeEntered.trim(),
     });
   }
 
@@ -879,149 +499,7 @@ class JobRepository {
     required String jobId,
     required String currentUserUid,
   }) async {
-    final jobRef = _firestore.collection('jobs').doc(jobId);
-    final escrowRef = _firestore.collection('escrow').doc(jobId);
-
-    // Fetch applications before entering transaction
-    final applicationsSnap = await _firestore.collection('jobs').doc(jobId).collection('applications').get();
-
-    await _firestore.runTransaction((transaction) async {
-      // 1. ALL READS FIRST
-      final jobSnap = await transaction.get(jobRef);
-      if (!jobSnap.exists) throw Exception('Job not found.');
-      final jobData = jobSnap.data()!;
-
-      final String currentStatus = (jobData['status'] as String? ?? '').toLowerCase();
-      if (currentStatus == 'completed') {
-        throw Exception('INVALID_STATE_TRANSITION: Cannot cancel a completed job.');
-      }
-      if (currentStatus == 'cancelled' || currentStatus == 'admin_cancelled') {
-        throw Exception('INVALID_STATE_TRANSITION: Job is already cancelled.');
-      }
-
-      final String? acceptedNyxian = jobData['acceptedApplicantId'] as String? ?? jobData['nyxianId'] as String?;
-      final bool hasAcceptedNyxian = acceptedNyxian != null && acceptedNyxian.trim().isNotEmpty;
-      final String? ackStatus = jobData['acknowledgmentStatus'] as String?;
-      final bool isAcknowledged = ackStatus == 'acknowledged';
-
-      // Job is committed ONLY once Nyxian has acknowledged and job transitioned to In Progress.
-      // If awaiting acknowledgment or expired, employer retains unilateral cancellation rights.
-      final bool isCommitted = (hasAcceptedNyxian && isAcknowledged) ||
-          currentStatus == 'in progress' ||
-          currentStatus == 'in_progress' ||
-          jobData['status'] == 'MUTUAL_CANCEL_PENDING';
-
-      if (isCommitted) {
-        throw Exception('JOB_ALREADY_COMMITTED: Employer cannot unilaterally cancel a job once a Nyxian has acknowledged.');
-      }
-
-      final String employerId = jobData['creatorId'] as String? ?? '';
-      final escrowSnap = await transaction.get(escrowRef);
-      final bool isAlreadyRefunded = escrowSnap.exists && (escrowSnap.data()!['status'] as String? ?? '').toLowerCase() == 'refunded';
-
-      DocumentSnapshot<Map<String, dynamic>>? empSnap;
-      final empRef = employerId.isNotEmpty ? _firestore.collection('users').doc(employerId) : null;
-      if (empRef != null) {
-        empSnap = await transaction.get(empRef);
-      }
-
-      final String? promoCode = jobData['promoCode'] as String?;
-      DocumentSnapshot<Map<String, dynamic>>? promoSnap;
-      DocumentReference<Map<String, dynamic>>? promoRef;
-      if (promoCode != null && promoCode.trim().isNotEmpty) {
-        promoRef = _firestore.collection('promos').doc(promoCode.trim().toUpperCase());
-        promoSnap = await transaction.get(promoRef);
-      }
-
-      // 2. ALL WRITES AFTER READS
-      if (!isAlreadyRefunded && employerId.isNotEmpty) {
-        double totalEscrow = 0.0;
-        if (escrowSnap.exists) {
-          totalEscrow = (escrowSnap.data()!['amount'] as num?)?.toDouble() ?? 0.0;
-        }
-        if (totalEscrow <= 0.0) {
-          final double price = (jobData['pricingValue'] as num?)?.toDouble() ?? 0.0;
-          final double discount = (jobData['discountAmount'] as num?)?.toDouble() ?? 0.0;
-          totalEscrow = (price - discount).clamp(0.0, 999999.0);
-        }
-
-        if (totalEscrow > 0.0) {
-          if (empRef != null && empSnap != null && empSnap.exists) {
-            final double currentBal = (empSnap.data()!['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            transaction.update(empRef, {
-              'tyxBalance': currentBal + totalEscrow,
-            });
-          }
-
-          // Update escrow status to refunded
-          transaction.set(escrowRef, {
-            if (escrowSnap.exists) ...escrowSnap.data()!,
-            'jobId': jobId,
-            'employerId': employerId,
-            'amount': totalEscrow,
-            'refundAmount': totalEscrow,
-            'status': 'refunded',
-            'refundedAt': DateTime.now().millisecondsSinceEpoch,
-            'refundedTo': employerId,
-          });
-
-          // Write refund transaction
-          final txRef = _firestore.collection('transactions').doc('refund_job_$jobId');
-          final jobTitle = (jobData['title'] as String?) ?? 'Job';
-          transaction.set(txRef, {
-            'id': 'refund_job_$jobId',
-            'uid': employerId,
-            'jobId': jobId,
-            'type': 'refund',
-            'category': 'refund',
-            'amount': totalEscrow,
-            'title': 'Job Escrow Refund',
-            'desc': '100% Escrow refund for cancelled job "$jobTitle"',
-            'status': 'Completed',
-            'method': 'Tranyx Escrow',
-            'originRail': 'internal_balance',
-            'createdAt': DateTime.now().millisecondsSinceEpoch,
-          });
-        }
-      }
-
-      // Update status to Cancelled
-      transaction.update(jobRef, {
-        'status': 'Cancelled',
-      });
-
-      // Update pending applications to REJECTED_JOB_CANCELLED
-      for (final appDoc in applicationsSnap.docs) {
-        transaction.update(appDoc.reference, {
-          'status': 'REJECTED_JOB_CANCELLED',
-        });
-      }
-
-      // Write to job_cancellation_logs
-      final logRef = _firestore.collection('job_cancellation_logs').doc();
-      transaction.set(logRef, {
-        'jobId': jobId,
-        'cancelledBy': currentUserUid,
-        'role': 'employer',
-        'action': 'UNILATERAL_CANCEL',
-        'status': 'CANCELLED',
-        'reason': 'Employer cancelled open job posting',
-        'previousStatus': jobData['status'] ?? 'Open',
-        'acceptedApplicantId': null,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      });
-
-      // Decrement promo usage if any
-      if (promoRef != null && promoSnap != null && promoSnap.exists) {
-        final usedBy = List<String>.from(promoSnap.data()?['usedBy'] ?? []);
-        usedBy.remove(employerId);
-        final usedCount = ((promoSnap.data()?['usedCount'] as num? ?? 1).toInt() - 1).clamp(0, 999999);
-        transaction.update(promoRef, {
-          'usedBy': usedBy,
-          'usedCount': usedCount,
-        });
-      }
-    });
+    await _money('jobAction', {'action': 'cancel', 'jobId': jobId});
   }
 
   Future<void> adminOverrideCancelJob({
@@ -1173,293 +651,19 @@ class JobRepository {
     });
   }
 
-  /// Reclaims a gig that has been inactive/stalled for at least 48 hours.
-  /// Refunds 100% of escrow to the employer, transitions status to 'Abandoned',
-  /// and increments the assigned worker's `abandonedJobs` metric.
   Future<void> reclaimInactiveJob({
     required String jobId,
     required String employerUid,
     String? reason,
   }) async {
-    final jobRef = _firestore.collection('jobs').doc(jobId);
-    final escrowRef = _firestore.collection('escrow').doc(jobId);
-
-    await _firestore.runTransaction((transaction) async {
-      // 1. ALL READS FIRST
-      final jobSnap = await transaction.get(jobRef);
-      if (!jobSnap.exists) throw Exception('Job not found.');
-      final jobData = jobSnap.data()!;
-
-      final String employerId = jobData['creatorId'] as String? ?? '';
-      if (employerId != employerUid) {
-        throw Exception('UNAUTHORIZED: Only the job creator can reclaim this job.');
-      }
-
-      final String currentStatus = (jobData['status'] as String? ?? '').toLowerCase();
-      if (currentStatus == 'completed') {
-        throw Exception('INVALID_STATE: Cannot reclaim a completed job.');
-      }
-      if (currentStatus == 'cancelled' || currentStatus == 'admin_cancelled') {
-        throw Exception('INVALID_STATE: Job is already cancelled.');
-      }
-      if (currentStatus == 'abandoned') {
-        throw Exception('INVALID_STATE: Job is already marked abandoned.');
-      }
-
-      DateTime? parseTs(dynamic val) {
-        if (val == null) return null;
-        if (val is DateTime) return val;
-        if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
-        if (val is num) return DateTime.fromMillisecondsSinceEpoch(val.toInt());
-        if (val is String) {
-          final dt = DateTime.tryParse(val);
-          if (dt != null) return dt;
-          final n = num.tryParse(val);
-          if (n != null) return DateTime.fromMillisecondsSinceEpoch(n.toInt());
-        }
-        return null;
-      }
-
-      final lastActive = parseTs(jobData['updatedAt']) ?? parseTs(jobData['createdAt']) ?? DateTime.now();
-      final inactiveHours = DateTime.now().difference(lastActive).inHours;
-      if (inactiveHours < 48) {
-        throw Exception('JOB_NOT_STALE: Inactivity threshold of 48 hours has not been reached ($inactiveHours hours elapsed).');
-      }
-
-      final String? nyxianId = jobData['acceptedApplicantId'] as String? ?? jobData['nyxianId'] as String?;
-
-      final escrowSnap = await transaction.get(escrowRef);
-      final bool isAlreadyRefunded = escrowSnap.exists && (escrowSnap.data()!['status'] as String? ?? '').toLowerCase() == 'refunded';
-
-      DocumentSnapshot<Map<String, dynamic>>? empSnap;
-      final empRef = employerId.isNotEmpty ? _firestore.collection('users').doc(employerId) : null;
-      if (empRef != null) {
-        empSnap = await transaction.get(empRef);
-      }
-
-      DocumentSnapshot<Map<String, dynamic>>? nyxianSnap;
-      DocumentReference<Map<String, dynamic>>? nyxianRef;
-      if (nyxianId != null && nyxianId.trim().isNotEmpty) {
-        nyxianRef = _firestore.collection('users').doc(nyxianId.trim());
-        nyxianSnap = await transaction.get(nyxianRef);
-      }
-
-      // 2. ALL WRITES AFTER READS
-      final now = DateTime.now();
-      final nowMillis = now.millisecondsSinceEpoch;
-
-      if (!isAlreadyRefunded && employerId.isNotEmpty) {
-        double totalEscrow = 0.0;
-        if (escrowSnap.exists) {
-          totalEscrow = (escrowSnap.data()!['amount'] as num?)?.toDouble() ?? 0.0;
-        }
-        if (totalEscrow <= 0.0) {
-          final double price = (jobData['pricingValue'] as num?)?.toDouble() ?? 0.0;
-          final double discount = (jobData['discountAmount'] as num?)?.toDouble() ?? 0.0;
-          totalEscrow = (price - discount).clamp(0.0, 999999.0);
-        }
-
-        if (totalEscrow > 0.0) {
-          if (empRef != null && empSnap != null && empSnap.exists) {
-            final double currentBal = (empSnap.data()!['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-            transaction.update(empRef, {
-              'tyxBalance': currentBal + totalEscrow,
-            });
-          }
-
-          transaction.set(escrowRef, {
-            if (escrowSnap.exists) ...escrowSnap.data()!,
-            'jobId': jobId,
-            'employerId': employerId,
-            'amount': totalEscrow,
-            'refundAmount': totalEscrow,
-            'status': 'refunded',
-            'refundedAt': nowMillis,
-            'refundedTo': employerId,
-          });
-
-          final txRef = _firestore.collection('transactions').doc('refund_stale_job_$jobId');
-          final jobTitle = (jobData['title'] as String?) ?? 'Job';
-          transaction.set(txRef, {
-            'id': 'refund_stale_job_$jobId',
-            'uid': employerId,
-            'jobId': jobId,
-            'type': 'refund',
-            'category': 'refund',
-            'amount': totalEscrow,
-            'title': 'Inactive Gig Escrow Reclaim',
-            'desc': '100% Escrow refund for reclaimed inactive gig "$jobTitle"',
-            'status': 'Completed',
-            'method': 'Tranyx Escrow',
-            'originRail': 'internal_balance',
-            'createdAt': nowMillis,
-          });
-        }
-      }
-
-      // Update worker\'s abandonedJobs count if a worker was accepted
-      if (nyxianRef != null && nyxianSnap != null && nyxianSnap.exists) {
-        final currentAbandoned = (nyxianSnap.data()!['abandonedJobs'] as num?)?.toInt() ?? 0;
-        transaction.update(nyxianRef, {
-          'abandonedJobs': currentAbandoned + 1,
-        });
-      }
-
-      // Update job status to Abandoned
-      transaction.update(jobRef, {
-        'status': 'Abandoned',
-        'updatedAt': nowMillis,
-        'abandonedAt': nowMillis,
-        'abandonReason': reason?.trim().isNotEmpty == true
-            ? reason!.trim()
-            : 'Job reclaimed by employer due to 48+ hours of inactivity',
-      });
-
-      // Write to job_cancellation_logs
-      final logRef = _firestore.collection('job_cancellation_logs').doc();
-      transaction.set(logRef, {
-        'jobId': jobId,
-        'cancelledBy': employerUid,
-        'role': 'employer',
-        'action': 'RECLAIM_INACTIVE_JOB',
-        'status': 'ABANDONED',
-        'reason': reason?.trim().isNotEmpty == true
-            ? reason!.trim()
-            : 'Job reclaimed by employer due to 48+ hours of inactivity',
-        'previousStatus': jobData['status'] ?? 'In Progress',
-        'acceptedApplicantId': nyxianId,
-        'timestamp': nowMillis,
-      });
-
-      // Notification to employer
-      if (employerId.isNotEmpty) {
-        final prefix = employerId.length > 5 ? employerId.substring(0, 5) : employerId;
-        final notifRef = _firestore.collection('notifications').doc('notif_reclaim_emp_${nowMillis}_$prefix');
-        transaction.set(notifRef, {
-          'uid': employerId,
-          'title': 'Gig Reclaimed 🛡️',
-          'message': 'You successfully reclaimed inactive gig "${jobData['title']}". 100% of escrow has been refunded to your wallet.',
-          'type': 'job_reclaimed',
-          'jobId': jobId,
-          'isRead': false,
-          'createdAt': nowMillis,
-        });
-      }
-
-      // Notification to Nyxian if assigned
-      if (nyxianId != null && nyxianId.trim().isNotEmpty) {
-        final prefix = nyxianId.length > 5 ? nyxianId.substring(0, 5) : nyxianId;
-        final notifRef = _firestore.collection('notifications').doc('notif_reclaim_nyx_${nowMillis}_$prefix');
-        transaction.set(notifRef, {
-          'uid': nyxianId,
-          'title': 'Gig Reclaimed by Employer ⚠️',
-          'message': 'Gig "${jobData['title']}" was marked Abandoned due to 48+ hours without progress.',
-          'type': 'job_abandoned',
-          'jobId': jobId,
-          'isRead': false,
-          'createdAt': nowMillis,
-        });
-      }
-    });
+    await _money('jobAction', {'action': 'reclaim', 'jobId': jobId, if (reason != null) 'reason': reason});
   }
 
   Future<void> deleteJob({
     required String jobId,
     required String currentUserUid,
   }) async {
-    final jobRef = _firestore.collection('jobs').doc(jobId);
-    final escrowRef = _firestore.collection('escrow').doc(jobId);
-
-    await _firestore.runTransaction((transaction) async {
-      // 1. All reads first
-      final jobSnap = await transaction.get(jobRef);
-      if (!jobSnap.exists) throw Exception('Job not found.');
-      final jobData = jobSnap.data()!;
-
-      final String employerId = jobData['creatorId'] as String? ?? '';
-      if (employerId != currentUserUid) {
-        throw Exception('You are not authorized to delete this job posting.');
-      }
-
-      final String status = (jobData['status'] as String? ?? '').toLowerCase();
-      if (status != 'open' && status != 'cancelled') {
-        throw Exception('Only open or cancelled job postings can be deleted.');
-      }
-
-      final escrowSnap = await transaction.get(escrowRef);
-      final bool isAlreadyRefunded = escrowSnap.exists && (escrowSnap.data()!['status'] as String? ?? '').toLowerCase() == 'refunded';
-
-      DocumentSnapshot<Map<String, dynamic>>? empSnap;
-      final empRef = employerId.isNotEmpty ? _firestore.collection('users').doc(employerId) : null;
-      if (empRef != null) {
-        empSnap = await transaction.get(empRef);
-      }
-
-      final String? promoCode = jobData['promoCode'] as String?;
-      DocumentSnapshot<Map<String, dynamic>>? promoSnap;
-      DocumentReference<Map<String, dynamic>>? promoRef;
-      if (promoCode != null && promoCode.trim().isNotEmpty) {
-        promoRef = _firestore.collection('promos').doc(promoCode.trim().toUpperCase());
-        promoSnap = await transaction.get(promoRef);
-      }
-
-      // 2. All writes after reads
-      if (!isAlreadyRefunded && employerId.isNotEmpty && status == 'open') {
-        double totalEscrow = 0.0;
-        if (escrowSnap.exists) {
-          totalEscrow = (escrowSnap.data()!['amount'] as num?)?.toDouble() ?? 0.0;
-        }
-        if (totalEscrow <= 0.0) {
-          final double price = (jobData['pricingValue'] as num?)?.toDouble() ?? 0.0;
-          final double discount = (jobData['discountAmount'] as num?)?.toDouble() ?? 0.0;
-          totalEscrow = (price - discount).clamp(0.0, 999999.0);
-        }
-
-        if (totalEscrow > 0.0 && empRef != null && empSnap != null && empSnap.exists) {
-          final double currentBal = (empSnap.data()!['tyxBalance'] as num?)?.toDouble() ?? 0.0;
-          transaction.update(empRef, {
-            'tyxBalance': currentBal + totalEscrow,
-          });
-
-          // Write refund transaction
-          final txRef = _firestore.collection('transactions').doc('refund_job_$jobId');
-          final jobTitle = (jobData['title'] as String?) ?? 'Job';
-          transaction.set(txRef, {
-            'id': 'refund_job_$jobId',
-            'uid': employerId,
-            'jobId': jobId,
-            'type': 'refund',
-            'category': 'refund',
-            'amount': totalEscrow,
-            'title': 'Job Escrow Refund',
-            'desc': '100% Escrow refund for deleted job "$jobTitle"',
-            'status': 'Completed',
-            'method': 'Tranyx Escrow',
-            'originRail': 'internal_balance',
-            'createdAt': DateTime.now().millisecondsSinceEpoch,
-          });
-        }
-      }
-
-      // Delete escrow if exists
-      if (escrowSnap.exists) {
-        transaction.delete(escrowRef);
-      }
-
-      // Delete job document
-      transaction.delete(jobRef);
-
-      // Decrement promo usage if any
-      if (promoRef != null && promoSnap != null && promoSnap.exists) {
-        final usedBy = List<String>.from(promoSnap.data()?['usedBy'] ?? []);
-        usedBy.remove(employerId);
-        final usedCount = ((promoSnap.data()?['usedCount'] as num? ?? 1).toInt() - 1).clamp(0, 999999);
-        transaction.update(promoRef, {
-          'usedBy': usedBy,
-          'usedCount': usedCount,
-        });
-      }
-    });
+    await _money('jobAction', {'action': 'delete', 'jobId': jobId});
   }
 
   Future<String> submitDispute({
