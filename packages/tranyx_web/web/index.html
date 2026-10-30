@@ -560,7 +560,7 @@
         return null;
       }
       if (type === 'trust') {
-        return window.trustWallet?.solana || (window.solana?.isTrust ? window.solana : null);
+        return window.trustwallet?.solana || window.trustWallet?.solana || (window.solana?.isTrust ? window.solana : null);
       }
       if (type === 'solflare') {
         return window.solflare || (window.solana?.isSolflare ? window.solana : null);
@@ -568,7 +568,7 @@
       if (type === 'backpack') {
         return window.backpack || (window.solana?.isBackpack ? window.solana : null);
       }
-      return window.phantom?.solana || window.solflare || window.backpack || window.trustWallet?.solana || window.solana || null;
+      return window.phantom?.solana || window.solflare || window.backpack || window.trustwallet?.solana || window.trustWallet?.solana || window.solana || null;
     }
 
     window.getDetectedSolanaWallets = function () {
@@ -576,7 +576,7 @@
       if (window.phantom?.solana || window.solana?.isPhantom) wallets.push('phantom');
       if (window.solflare || window.solana?.isSolflare) wallets.push('solflare');
       if (window.backpack || window.solana?.isBackpack) wallets.push('backpack');
-      if (window.trustWallet?.solana || window.solana?.isTrust) wallets.push('trust');
+      if (window.trustwallet?.solana || window.trustWallet?.solana || window.solana?.isTrust) wallets.push('trust');
       if (wallets.length === 0 && window.solana) wallets.push('phantom');
       return wallets;
     };
@@ -630,22 +630,89 @@
       };
     }
 
-    window.connectSolanaWallet = async function (type) {
-      let targetType = type || window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
-      let provider = getSolanaProvider(targetType);
-      if (!provider) {
-        const detected = window.getDetectedSolanaWallets();
-        if (detected.length > 0) {
-          targetType = detected[0];
-          provider = getSolanaProvider(targetType);
-        }
+    const WALLET_NAMES = { phantom: 'Phantom', solflare: 'Solflare', backpack: 'Backpack', trust: 'Trust Wallet' };
+    const walletName = (t) => WALLET_NAMES[t] || (t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Solana');
+    window.isMobileBrowser = function () { return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent); };
+
+    // Wallet extensions inject their provider a moment after load: wait briefly before saying "not installed".
+    async function waitForProvider(type, ms) {
+      const end = Date.now() + ms;
+      let p = getSolanaProvider(type);
+      while (!p && Date.now() < end) {
+        await new Promise((r) => setTimeout(r, 100));
+        p = getSolanaProvider(type);
       }
-      if (!provider) throw new Error((targetType.charAt(0).toUpperCase() + targetType.slice(1)) + " Wallet is not installed.");
+      return p;
+    }
+
+    // Mobile browser without an injected provider: reopen this page inside the wallet app's in-app browser
+    // (universal link), where the provider exists. The wallet + action ride in the URL and are picked up by
+    // consumeWalletLaunchIntent() on load.
+    window.openSolanaWalletApp = function (type, action) {
+      const url = new URL(window.location.href);
+      url.hash = '';
+      url.searchParams.set('wallet', type);
+      url.searchParams.set('walletAction', action || 'signin');
+      const target = encodeURIComponent(url.toString());
+      const ref = encodeURIComponent(window.location.origin);
+      const links = {
+        phantom: 'https://phantom.app/ul/browse/' + target + '?ref=' + ref,
+        solflare: 'https://solflare.com/ul/v1/browse/' + target + '?ref=' + ref,
+        backpack: 'https://backpack.app/ul/v1/browse/' + target + '?ref=' + ref,
+        trust: 'https://link.trustwallet.com/open_url?coin_id=501&url=' + target,
+      };
+      if (!links[type]) return false;
+      window.location.href = links[type];
+      return true;
+    };
+
+    window.consumeWalletLaunchIntent = function () {
+      try {
+        const url = new URL(window.location.href);
+        const wallet = url.searchParams.get('wallet');
+        const action = url.searchParams.get('walletAction');
+        if (!wallet || !action) return null;
+        url.searchParams.delete('wallet');
+        url.searchParams.delete('walletAction');
+        window.history.replaceState(null, '', url.pathname + (url.search || '') + url.hash);
+        if (!WALLET_NAMES[wallet]) return null;
+        return JSON.stringify({ wallet: wallet, action: action });
+      } catch (e) {
+        return null;
+      }
+    };
+
+    // Resolves the provider for the SELECTED wallet only. Never silently swaps in a different wallet.
+    async function requireSolanaProvider(type, action) {
+      const t = type || window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || null;
+      if (!t) {
+        const detected = window.getDetectedSolanaWallets();
+        if (detected.length === 0) throw new Error('No Solana wallet found. Install Phantom, Solflare, Backpack or Trust Wallet.');
+        return { type: detected[0], provider: getSolanaProvider(detected[0]) };
+      }
+      let provider = getSolanaProvider(t);
+      if (!provider && !window.isMobileBrowser()) provider = await waitForProvider(t, 1500);
+      if (!provider && !localStorage.getItem('selectedSolanaWallet')) {
+        // Nothing was ever selected (only a default was asked for): use what is installed. A real selection is never swapped.
+        const detected = window.getDetectedSolanaWallets();
+        if (detected.length > 0) return { type: detected[0], provider: getSolanaProvider(detected[0]) };
+      }
+      if (!provider) {
+        if (window.isMobileBrowser() && window.openSolanaWalletApp(t, action || 'signin')) throw new Error('WALLET_APP_REDIRECT');
+        throw new Error(walletName(t) + ' Wallet is not installed.');
+      }
+      return { type: t, provider: provider };
+    }
+
+    window.connectSolanaWallet = async function (type) {
+      const r = await requireSolanaProvider(type, 'signin');
+      const targetType = r.type;
+      const provider = r.provider;
       window.selectedSolanaWallet = targetType;
       localStorage.setItem('selectedSolanaWallet', targetType);
       const resp = await provider.connect();
       const pubKey = resp?.publicKey || provider.publicKey;
-      if (!pubKey) throw new Error("Could not retrieve public key from " + targetType + " Wallet.");
+      if (!pubKey) throw new Error("Could not retrieve public key from " + walletName(targetType) + ".");
       setupSolanaWalletListeners(provider, targetType);
       return pubKey.toString();
     };
@@ -691,19 +758,11 @@
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
         }
-        let type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        let type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || null;
         console.log("Using wallet type:", type);
-        let solana = getSolanaProvider(type);
-        if (!solana) {
-          const detected = window.getDetectedSolanaWallets();
-          if (detected.length > 0) {
-            type = detected[0];
-            solana = getSolanaProvider(type);
-          }
-        }
-        if (!solana) {
-          throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
-        }
+        const resolved = await requireSolanaProvider(type, 'pay');
+        type = resolved.type;
+        const solana = resolved.provider;
         if (!solana.publicKey) {
           try {
             await solana.connect();
@@ -714,6 +773,10 @@
         console.log("Solana provider found:", !!solana, "Public key:", solana.publicKey ? solana.publicKey.toString() : "null");
         if (!solana.publicKey) {
           throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected. Please approve the connection in your browser extension.");
+        }
+
+        if (fromAddress && solana.publicKey.toString() !== fromAddress) {
+          throw new Error("The selected wallet account does not match the linked wallet. Switch accounts in " + walletName(type) + " and try again.");
         }
 
         let fallbackRpc = "https://api.testnet.solana.com";
@@ -784,17 +847,11 @@
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
         }
-        let type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        let type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || null;
         console.log("Using wallet type:", type);
-        let solana = getSolanaProvider(type);
-        if (!solana) {
-          const detected = window.getDetectedSolanaWallets();
-          if (detected.length > 0) {
-            type = detected[0];
-            solana = getSolanaProvider(type);
-          }
-        }
-        if (!solana) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
+        const resolved = await requireSolanaProvider(type, 'pay');
+        type = resolved.type;
+        const solana = resolved.provider;
         if (!solana.publicKey) {
           try {
             await solana.connect();
@@ -804,6 +861,10 @@
         }
         console.log("Solana provider found:", !!solana, "Public key:", solana.publicKey ? solana.publicKey.toString() : "null");
         if (!solana.publicKey) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected. Please approve the connection in your browser extension.");
+
+        if (fromAddress && solana.publicKey.toString() !== fromAddress) {
+          throw new Error("The selected wallet account does not match the linked wallet. Switch accounts in " + walletName(type) + " and try again.");
+        }
 
         let fallbackRpc = "https://api.testnet.solana.com";
         let fallbackUsdtMint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
@@ -932,7 +993,7 @@
         const encodedMessage = new TextEncoder().encode(message);
         const signedResult = await provider.signMessage(encodedMessage, "utf8");
         // Convert Uint8Array signature to base58
-        const signatureBytes = signedResult.signature;
+        const signatureBytes = signedResult && signedResult.signature ? signedResult.signature : signedResult;
         if (!signatureBytes) {
           throw new Error("Could not retrieve signature bytes from signed result.");
         }
@@ -1227,6 +1288,13 @@
         console.error("signInWithEmailAndPasswordJs error:", error);
         throw error;
       }
+    };
+
+    window.signInWithCustomTokenJs = async function (config, customToken) {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(config);
+      }
+      await firebase.auth().signInWithCustomToken(customToken);
     };
 
     window.signOutJs = async function () {

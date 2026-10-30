@@ -2713,12 +2713,21 @@ class _TrustVerification extends StatelessComponent {
                 ]),
               ]),
               if ((s.userProfile?.walletPublicKey ?? '').isNotEmpty)
-                button(
-                  classes:
-                      'px-3 py-1 text-xs font-bold rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all border border-red-500/20',
-                  events: {'click': (_) => s.unlinkSolanaWallet()},
-                  [Component.text('Unlink')],
-                )
+                div(classes: 'flex items-center gap-1.5', [
+                  // One signature proves the wallet is yours (needed to sign in with it); older links made without one need it once.
+                  button(
+                    classes:
+                        'px-3 py-1 text-xs font-bold rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-all border border-indigo-500/20',
+                    events: {'click': (_) => s.linkSolanaWallet(s.currentWalletType())},
+                    [Component.text('Verify')],
+                  ),
+                  button(
+                    classes:
+                        'px-3 py-1 text-xs font-bold rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all border border-red-500/20',
+                    events: {'click': (_) => s.unlinkSolanaWallet()},
+                    [Component.text('Unlink')],
+                  ),
+                ])
               else
                 div(classes: 'flex flex-wrap items-center gap-1.5', [
                   button(

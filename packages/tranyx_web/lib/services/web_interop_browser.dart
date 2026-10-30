@@ -23,13 +23,62 @@ void initRandomMetaballs(String containerId) {
 
 // ── Solana Wallet ────────────────────────────────────────────────────────────
 
+/// Why the last wallet call failed (user-facing text); empty after a success. `walletAppRedirect`
+/// means the browser is being sent to the wallet app (mobile deep link): not an error to show.
+String lastWalletError = '';
+const walletAppRedirect = 'WALLET_APP_REDIRECT';
+
+String describeWalletError(Object e) {
+  final raw = e.toString();
+  if (raw.contains(walletAppRedirect)) return walletAppRedirect;
+  final lower = raw.toLowerCase();
+  if (lower.contains('user rejected') || lower.contains('rejected the request') || lower.contains('4001') || lower.contains('declined') || lower.contains('denied')) {
+    return 'You declined the request in your wallet.';
+  }
+  final cleaned = raw.replaceFirst(RegExp(r'^(Exception:\s*|Error:\s*|JavaScriptError:\s*)+'), '').trim();
+  return cleaned.isEmpty ? 'The wallet did not respond.' : cleaned;
+}
+
 Future<String?> connectSolanaWallet(String type) async {
+  lastWalletError = '';
   try {
     final res = await web.window.callMethod<JSPromise>('connectSolanaWallet'.toJS, type.toJS).toDart;
     return (res as JSString).toDart;
+  } catch (e) {
+    lastWalletError = describeWalletError(e);
+    return null;
+  }
+}
+
+/// Wallet + action when this page was opened from a wallet app's in-app browser link
+/// (`?wallet=phantom&walletAction=signin`), consumed once. null when there is none.
+({String wallet, String action})? consumeWalletLaunchIntent() {
+  try {
+    final res = web.window.callMethod<JSAny?>('consumeWalletLaunchIntent'.toJS);
+    if (res == null) return null;
+    final m = jsonDecode((res as JSString).toDart) as Map<String, dynamic>;
+    return (wallet: m['wallet'] as String, action: m['action'] as String);
   } catch (_) {
     return null;
   }
+}
+
+bool isMobileBrowser() {
+  try {
+    return web.window.callMethod<JSBoolean>('isMobileBrowser'.toJS).toDart;
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<void> signInWithCustomTokenJs(Map<String, String> config, String customToken) async {
+  try {
+    final jsConfig = JSObject();
+    for (final e in config.entries) {
+      jsConfig.setProperty(e.key.toJS, e.value.toJS);
+    }
+    await web.window.callMethod<JSPromise>('signInWithCustomTokenJs'.toJS, jsConfig, customToken.toJS).toDart;
+  } catch (_) {}
 }
 
 Future<String?> getSolanaPublicKeyIfConnected(String type) async {

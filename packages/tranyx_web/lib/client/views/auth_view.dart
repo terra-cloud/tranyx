@@ -570,11 +570,11 @@ class _RegisterPathScreenState extends State<_RegisterPathScreen> {
           div(classes: 'flex flex-col gap-0.5 min-w-0', [
             p(
               classes: 'm-0 font-semibold text-[15px] ${isDark ? "text-zinc-50" : "text-[#18181b]"}',
-              [Component.text('Phantom Wallet Connected 🎉')],
+              [Component.text('Wallet verified 🎉')],
             ),
             p(
               classes: 'm-0 text-sm ${isDark ? "text-zinc-400" : "text-[#52525b]"}',
-              [Component.text('Wallet $short linked. Pick an account type to finish.')],
+              [Component.text('Wallet $short is verified. Pick an account type, then add your email and password so you can sign in with either.')],
             ),
           ]),
         ],

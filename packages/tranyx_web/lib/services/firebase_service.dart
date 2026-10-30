@@ -408,6 +408,35 @@ class FirebaseAuthService {
     );
   }
 
+  /// Exchanges a Firebase custom token (minted by walletAuthSignIn) for an ID + refresh token.
+  Future<AuthResult> signInWithCustomToken(String customToken) async {
+    final res = await _post(
+      '$_authBase:signInWithCustomToken?key=${currentFirebaseConfig.apiKey}',
+      {'token': customToken, 'returnSecureToken': true},
+    );
+    final idToken = res['idToken'] as String;
+    String uid = res['localId'] as String? ?? '';
+    String? email;
+    String? displayName;
+    String? photoUrl;
+    try {
+      final user = await getUserData(idToken);
+      uid = (user['localId'] as String?) ?? uid;
+      email = user['email'] as String?;
+      displayName = user['displayName'] as String?;
+      photoUrl = user['photoUrl'] as String?;
+    } catch (_) {}
+    if (uid.isEmpty) throw FirebaseException('Wallet sign-in failed. Please try again.');
+    return AuthResult(
+      uid: uid,
+      idToken: idToken,
+      refreshToken: res['refreshToken'] as String?,
+      email: email,
+      displayName: displayName,
+      photoUrl: photoUrl,
+    );
+  }
+
   Future<AuthResult> signInWithGoogle(String googleIdToken) async {
     final res = await _post(
       '$_authBase:signInWithIdp?key=${currentFirebaseConfig.apiKey}',

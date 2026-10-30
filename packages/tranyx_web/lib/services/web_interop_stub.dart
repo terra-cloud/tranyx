@@ -50,6 +50,12 @@ class WebFile {
 
 Future<List<WebFile>> readFilesFromEvent(dynamic event) async => [];
 
+String lastWalletError = '';
+const walletAppRedirect = 'WALLET_APP_REDIRECT';
+String describeWalletError(Object e) => e.toString();
+({String wallet, String action})? consumeWalletLaunchIntent() => null;
+bool isMobileBrowser() => false;
+Future<void> signInWithCustomTokenJs(Map<String, String> config, String customToken) async {}
 Future<String?> connectSolanaWallet(String type) async => null;
 Future<String?> getSolanaPublicKeyIfConnected(String type) async => null;
 Future<void> disconnectSolanaWallet(String type) async {}

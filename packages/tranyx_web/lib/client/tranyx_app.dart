@@ -13,6 +13,7 @@ import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
 
 import 'package:tranyx_web/services/firebase_service.dart';
+import 'package:tranyx_web/services/wallet_auth_flow.dart';
 import 'package:tranyx_web/components/ui_helpers.dart';
 import 'package:tranyx_web/services/map_interop.dart';
 
@@ -192,7 +193,8 @@ class TranyxAppState extends State<TranyxApp> {
   bool pendingWalkthrough = false;
   bool isSwitchingMode = false; // W15 inline skeleton while stats/holdbacks reload (≤600 ms)
   AccountType? pendingAccountType;
-  String? pendingWalletPublicKey; // set when coming from Phantom sign-in for new users
+  String? pendingWalletPublicKey; // set when a wallet signed in but has no account yet
+  String? pendingWalletTicket; // server proof that pendingWalletPublicKey signed in (consumed by walletAuthLink)
   AuthResult? pendingGoogleAuthResult;
 
   // ── User profile ────────────────────────────────────────────
@@ -1281,6 +1283,14 @@ class TranyxAppState extends State<TranyxApp> {
       );
     } catch (_) {}
 
+    // Opened from a wallet app's in-app browser (mobile deep link): continue the wallet sign-in there.
+    final walletIntent = consumeWalletLaunchIntent();
+    if (walletIntent != null && walletIntent.action == 'signin') {
+      Timer(const Duration(milliseconds: 1200), () {
+        if (mounted && !isAuthenticated) unawaited(handleWalletSignIn(walletIntent.wallet));
+      });
+    }
+
     // Load any pending QR details from SessionStorage
     pendingQrJobId = SessionStorage.pendingQrJobId;
     pendingQrCode = SessionStorage.pendingQrCode;
@@ -2278,6 +2288,123 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  // ── Wallet sign-in / linking (Sign-In With Solana, see wallet_auth_flow.dart) ──────────────
+
+  /// The wallet to use: the selected one, else the remembered one, else whatever is installed.
+  String currentWalletType() {
+    final selected = selectedWalletType;
+    if (selected != null && selected.isNotEmpty) return selected;
+    final remembered = web.window.localStorage.getItem('selectedSolanaWallet');
+    if (remembered != null && remembered.isNotEmpty) return remembered;
+    final detected = getDetectedSolanaWallets();
+    return detected.isNotEmpty ? detected.first : 'phantom';
+  }
+
+  Future<Map<String, dynamic>> _walletCall(String name, Map<String, dynamic> data) =>
+      FirestoreService(SessionStorage.idToken, _handleTokenRefresh).callCloudFunction(name, data);
+
+  /// Asks the wallet to sign; null (with [lastWalletError] set) when it refuses or fails.
+  Future<String?> _signWithWallet(String wallet, String message) async {
+    try {
+      return await signSolanaMessage(wallet, message);
+    } catch (e) {
+      lastWalletError = describeWalletError(e);
+      return null;
+    }
+  }
+
+  String _walletConnectFailure(String type) {
+    final name = type.isEmpty ? 'Wallet' : '${type.substring(0, 1).toUpperCase()}${type.substring(1)}';
+    if (lastWalletError == walletAppRedirect) return 'Opening $name. Finish in the wallet app, then come back here.';
+    if (lastWalletError.isNotEmpty) return lastWalletError;
+    return 'Could not connect $name. Please approve the connection in your wallet.';
+  }
+
+  /// Signed in and about to pay: the wallet that signs must be the account's proven wallet.
+  Future<void> _ensureVerifiedWalletLink(String connectedPubKey) async {
+    final profileWallet = userProfile?.walletPublicKey;
+    if (profileWallet != null && profileWallet.isNotEmpty && profileWallet == connectedPubKey) return;
+    final out = await proveAndLinkWallet(wallet: connectedPubKey, call: _walletCall, sign: _signWithWallet);
+    if (!out.linked) {
+      throw lastWalletError.isNotEmpty && lastWalletError != walletAppRedirect ? lastWalletError : out.message;
+    }
+    await loadUserProfile();
+  }
+
+  /// Wallet sign-in: connect the selected wallet (deep-links into the wallet app on a mobile browser),
+  /// sign the server challenge, then sign in (known wallet) or go to account creation (new wallet).
+  Future<void> handleWalletSignIn(String type) async {
+    if (isAuthLoading) return;
+    setState(() {
+      isAuthLoading = true;
+      authError = null;
+      showWalletSelectionModal = false;
+      selectedWalletType = type;
+    });
+    final publicKey = await connectSolanaWallet(type);
+    if (publicKey == null) {
+      final redirecting = lastWalletError == walletAppRedirect;
+      setState(() {
+        isAuthLoading = false;
+        authError = redirecting ? null : _walletConnectFailure(type);
+      });
+      return;
+    }
+
+    final outcome = await signInWithWallet(wallet: publicKey, call: _walletCall, sign: _signWithWallet);
+    switch (outcome.kind) {
+      case WalletSignInKind.signedIn:
+        try {
+          final result = await _auth.signInWithCustomToken(outcome.customToken!);
+          await _completeSignIn(result, customToken: outcome.customToken);
+        } on FirebaseException catch (e) {
+          setState(() {
+            authError = e.message;
+            isAuthLoading = false;
+          });
+        } catch (e) {
+          setState(() {
+            authError = e.toString();
+            isAuthLoading = false;
+          });
+        }
+      case WalletSignInKind.needsSignup:
+        // No account for this wallet yet: account creation, wallet pre-linked after sign-up.
+        setState(() {
+          pendingWalletPublicKey = publicKey;
+          pendingWalletTicket = outcome.ticket;
+          authView = AuthView.registerPath;
+          isAuthLoading = false;
+        });
+        showAppToast('Wallet verified', 'Create your account with an email and password so you can sign in with either.');
+      case WalletSignInKind.rejected:
+      case WalletSignInKind.failed:
+        setState(() {
+          authError = lastWalletError.isNotEmpty && lastWalletError != walletAppRedirect ? lastWalletError : outcome.message;
+          isAuthLoading = false;
+        });
+    }
+  }
+
+  /// After sign-up / email sign-in with a wallet waiting: link it with the sign-up ticket.
+  Future<void> _linkPendingWallet(String uid, String idToken) async {
+    final key = pendingWalletPublicKey;
+    final ticket = pendingWalletTicket;
+    pendingWalletPublicKey = null;
+    pendingWalletTicket = null;
+    if (key == null || ticket == null) return;
+    final out = await linkWalletWithTicket(
+      ticket: ticket,
+      call: (name, data) => FirestoreService(idToken, _handleTokenRefresh).callCloudFunction(name, data),
+    );
+    if (out.linked) {
+      showAppToast('Wallet Linked', 'Your Solana wallet is linked. You can sign in with it or with your email.');
+      if (isAuthenticated) await loadUserProfile();
+    } else {
+      showAppToast('Wallet not linked', '${out.message} You can link it later from Profile.');
+    }
+  }
+
   // ── Auth actions ────────────────────────────────────────────
 
   Future<void> handleSignIn(String email, String password) async {
@@ -2287,97 +2414,7 @@ class TranyxAppState extends State<TranyxApp> {
     });
     try {
       final result = await _auth.signIn(email, password);
-      SessionStorage.save(result);
-
-      try {
-        final configMap = {
-          'apiKey': currentFirebaseConfig.apiKey,
-          'authDomain': currentFirebaseConfig.authDomain,
-          'projectId': currentFirebaseConfig.projectId,
-          'storageBucket': currentFirebaseConfig.storageBucket,
-          'messagingSenderId': currentFirebaseConfig.messagingSenderId,
-          'appId': currentFirebaseConfig.appId,
-        };
-        await signInWithEmailAndPasswordJs(configMap, email, password);
-      } catch (_) {}
-
-      // Load user profile from Firestore to get account type (with retry to avoid race condition)
-      UserProfile? currentProfile;
-      final fsSvc = FirestoreService(result.idToken, _handleTokenRefresh);
-      for (int attempt = 0; attempt < 3; attempt++) {
-        currentProfile = await fsSvc.getUser(result.uid);
-        if (currentProfile != null) break;
-        await Future.delayed(const Duration(milliseconds: 250));
-      }
-
-      final profile = currentProfile ??
-          UserProfile(
-            uid: result.uid,
-            name: result.displayName?.isNotEmpty == true ? result.displayName! : email.split('@').first,
-            email: email,
-            accountType: AccountType.employer,
-            createdAt: DateTime.now(),
-          );
-
-      final type = profile.accountType;
-      SessionStorage.saveProfile(
-        name: profile.name.isNotEmpty && profile.name != 'User' ? profile.name : (result.displayName ?? email.split('@').first),
-        email: profile.email.isNotEmpty ? profile.email : email,
-        accountType: type.name,
-        photoUrl: profile.photoUrl,
-      );
-
-      setState(() {
-        isAuthenticated = true;
-        accountType = type;
-        hybridToggle = initialHybridMode(type);
-        userName = profile.name.isNotEmpty && profile.name != 'User'
-            ? profile.name
-            : (result.displayName ?? email.split('@').first);
-        userEmail = profile.email.isNotEmpty ? profile.email : email;
-        userProfile = profile;
-        userPhotoUrl = profile.photoUrl;
-        isAuthLoading = false;
-        authView = AuthView.login;
-      });
-
-      initializeProfileEditing();
-      checkAndTriggerWalkthrough();
-      await loadKycSubmission();
-      await loadHoldbacks();
-
-      // If this sign-in was triggered after Phantom wallet recognition, link it
-      if (pendingWalletPublicKey != null) {
-        final walletKey = pendingWalletPublicKey!;
-        pendingWalletPublicKey = null;
-        try {
-          await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(
-            result.uid,
-            walletKey,
-          );
-        } catch (_) {}
-      }
-
-      _initGemini();
-      await loadJobs();
-      await loadTransactions();
-      await loadRenterPendingRequests();
-      await loadHostPendingRequests();
-      _startListeningNotifications();
-      _startListeningJobs();
-      _startAllRentalAndPropertyListeners(profile.uid);
-      // Auto-connect Phantom wallet if already trusted by the browser
-      unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
-
-      if (pendingWalkthrough || SessionStorage.walkthroughFor == (profile.email.isNotEmpty ? profile.email : email).toLowerCase()) {
-        pendingWalkthrough = false;
-        SessionStorage.walkthroughFor = null;
-        openWalkthroughModal();
-      }
-
-      if (pendingQrJobId != null && pendingQrCode != null) {
-        await executePendingQrVerification();
-      }
+      await _completeSignIn(result, email: email, password: password);
     } on FirebaseException catch (e) {
       String msg = e.message;
       if (msg.contains('INVALID_LOGIN_CREDENTIALS') ||
@@ -2397,6 +2434,99 @@ class TranyxAppState extends State<TranyxApp> {
         isAuthLoading = false;
       });
     }
+  }
+
+
+  /// Shared tail of every successful sign-in (email/password or wallet custom token): session, profile,
+  /// listeners. [password] / [customToken] decide how the Firebase JS SDK session is opened.
+  Future<void> _completeSignIn(AuthResult result, {String? email, String? password, String? customToken}) async {
+    final loginEmail = (email != null && email.isNotEmpty) ? email : (result.email ?? '');
+    SessionStorage.save(result);
+
+      try {
+        final configMap = {
+          'apiKey': currentFirebaseConfig.apiKey,
+          'authDomain': currentFirebaseConfig.authDomain,
+          'projectId': currentFirebaseConfig.projectId,
+          'storageBucket': currentFirebaseConfig.storageBucket,
+          'messagingSenderId': currentFirebaseConfig.messagingSenderId,
+          'appId': currentFirebaseConfig.appId,
+        };
+        if (password != null) {
+          await signInWithEmailAndPasswordJs(configMap, loginEmail, password);
+        } else if (customToken != null) {
+          await signInWithCustomTokenJs(configMap, customToken);
+        }
+      } catch (_) {}
+
+      // Load user profile from Firestore to get account type (with retry to avoid race condition)
+      UserProfile? currentProfile;
+      final fsSvc = FirestoreService(result.idToken, _handleTokenRefresh);
+      for (int attempt = 0; attempt < 3; attempt++) {
+        currentProfile = await fsSvc.getUser(result.uid);
+        if (currentProfile != null) break;
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
+
+      final profile = currentProfile ??
+          UserProfile(
+            uid: result.uid,
+            name: result.displayName?.isNotEmpty == true ? result.displayName! : loginEmail.split('@').first,
+            email: loginEmail,
+            accountType: AccountType.employer,
+            createdAt: DateTime.now(),
+          );
+
+      final type = profile.accountType;
+      SessionStorage.saveProfile(
+        name: profile.name.isNotEmpty && profile.name != 'User' ? profile.name : (result.displayName ?? loginEmail.split('@').first),
+        email: profile.email.isNotEmpty ? profile.email : loginEmail,
+        accountType: type.name,
+        photoUrl: profile.photoUrl,
+      );
+
+      setState(() {
+        isAuthenticated = true;
+        accountType = type;
+        hybridToggle = initialHybridMode(type);
+        userName = profile.name.isNotEmpty && profile.name != 'User'
+            ? profile.name
+            : (result.displayName ?? loginEmail.split('@').first);
+        userEmail = profile.email.isNotEmpty ? profile.email : loginEmail;
+        userProfile = profile;
+        userPhotoUrl = profile.photoUrl;
+        isAuthLoading = false;
+        authView = AuthView.login;
+      });
+
+      initializeProfileEditing();
+      checkAndTriggerWalkthrough();
+      await loadKycSubmission();
+      await loadHoldbacks();
+
+      // A wallet that signed in without an account (or while signing in with email): link it now.
+      await _linkPendingWallet(result.uid, result.idToken);
+
+      _initGemini();
+      await loadJobs();
+      await loadTransactions();
+      await loadRenterPendingRequests();
+      await loadHostPendingRequests();
+      _startListeningNotifications();
+      _startListeningJobs();
+      _startAllRentalAndPropertyListeners(profile.uid);
+      // Auto-connect Phantom wallet if already trusted by the browser
+      unawaited(autoConnectPhantomIfLinked(profile.walletPublicKey));
+
+      if (pendingWalkthrough || SessionStorage.walkthroughFor == (profile.email.isNotEmpty ? profile.email : loginEmail).toLowerCase()) {
+        pendingWalkthrough = false;
+        SessionStorage.walkthroughFor = null;
+        openWalkthroughModal();
+      }
+
+      if (pendingQrJobId != null && pendingQrCode != null) {
+        await executePendingQrVerification();
+      }
   }
 
   Future<void> handleRegister({
@@ -2441,17 +2571,7 @@ class TranyxAppState extends State<TranyxApp> {
       await FirestoreService(result.idToken, _handleTokenRefresh).saveUser(profile);
       SessionStorage.saveProfile(name: name, email: email, accountType: type.name);
 
-      // Link Phantom wallet if present from sign-in flow
-      if (pendingWalletPublicKey != null) {
-        final walletKey = pendingWalletPublicKey!;
-        pendingWalletPublicKey = null;
-        try {
-          await FirestoreService(result.idToken, _handleTokenRefresh).linkWalletToUser(
-            result.uid,
-            walletKey,
-          );
-        } catch (_) {}
-      }
+      await _linkPendingWallet(result.uid, result.idToken);
 
       // Send verification email (W04) — stay on auth stack until user returns to login
       try {
@@ -2621,16 +2741,7 @@ class TranyxAppState extends State<TranyxApp> {
 
       initializeProfileEditing();
 
-      if (pendingWalletPublicKey != null) {
-        final walletKey = pendingWalletPublicKey!;
-        pendingWalletPublicKey = null;
-        try {
-          await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(
-            authResult.uid,
-            walletKey,
-          );
-        } catch (_) {}
-      }
+      await _linkPendingWallet(authResult.uid, authResult.idToken);
 
       _initGemini();
       await loadJobs();
@@ -2695,16 +2806,7 @@ class TranyxAppState extends State<TranyxApp> {
       initializeProfileEditing();
       openWalkthroughModal();
 
-      if (pendingWalletPublicKey != null) {
-        final walletKey = pendingWalletPublicKey!;
-        pendingWalletPublicKey = null;
-        try {
-          await FirestoreService(authResult.idToken, _handleTokenRefresh).linkWalletToUser(
-            authResult.uid,
-            walletKey,
-          );
-        } catch (_) {}
-      }
+      await _linkPendingWallet(authResult.uid, authResult.idToken);
 
       _initGemini();
       await loadJobs();
@@ -2725,7 +2827,13 @@ class TranyxAppState extends State<TranyxApp> {
     }
   }
 
+  /// "Solana Wallet" on the login screen: reuse the remembered wallet, else let the user pick one.
   Future<void> handlePhantomSignIn() async {
+    final remembered = web.window.localStorage.getItem('selectedSolanaWallet');
+    if (remembered != null && remembered.isNotEmpty && isSolanaWalletInstalled(remembered)) {
+      await handleWalletSignIn(remembered);
+      return;
+    }
     setState(() {
       showWalletSelectionModal = true;
     });
@@ -4095,14 +4203,14 @@ class TranyxAppState extends State<TranyxApp> {
 
     try {
       // 1. Ensure Solana wallet is connected and obtain the active user's public key
-      final activeWalletType = selectedWalletType ?? 'phantom';
+      final activeWalletType = currentWalletType();
       if (!isSolanaWalletInstalled(activeWalletType)) {
         throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
       final connectedPubKey = await connectSolanaWallet(activeWalletType);
       if (connectedPubKey == null || connectedPubKey.trim().isEmpty) {
-        throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection in your wallet popup.';
+        throw _walletConnectFailure(activeWalletType);
       }
 
       // Check cross-account conflict: is this wallet already linked to another Tranyx account?
@@ -4114,14 +4222,7 @@ class TranyxAppState extends State<TranyxApp> {
         }
       }
 
-      final profileWallet = userProfile?.walletPublicKey;
-      if (profileWallet == null || profileWallet.trim().isEmpty || profileWallet != connectedPubKey) {
-        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
-          uid,
-          connectedPubKey,
-        );
-        await loadUserProfile();
-      }
+      await _ensureVerifiedWalletLink(connectedPubKey);
 
       final fromPubKey = connectedPubKey;
 
@@ -4257,14 +4358,14 @@ class TranyxAppState extends State<TranyxApp> {
 
     try {
       // 1. Ensure Solana wallet is connected and obtain the active user's public key
-      final activeWalletType = selectedWalletType ?? 'phantom';
+      final activeWalletType = currentWalletType();
       if (!isSolanaWalletInstalled(activeWalletType)) {
         throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
       final connectedPubKey = await connectSolanaWallet(activeWalletType);
       if (connectedPubKey == null || connectedPubKey.trim().isEmpty) {
-        throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection in your wallet popup.';
+        throw _walletConnectFailure(activeWalletType);
       }
 
       // Check cross-account conflict
@@ -4276,14 +4377,7 @@ class TranyxAppState extends State<TranyxApp> {
         }
       }
 
-      final profileWallet = userProfile?.walletPublicKey;
-      if (profileWallet == null || profileWallet.trim().isEmpty || profileWallet != connectedPubKey) {
-        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
-          uid,
-          connectedPubKey,
-        );
-        await loadUserProfile();
-      }
+      await _ensureVerifiedWalletLink(connectedPubKey);
 
       final fromPubKey = connectedPubKey;
 
@@ -4591,14 +4685,14 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     try {
-      final activeWalletType = selectedWalletType ?? 'phantom';
+      final activeWalletType = currentWalletType();
       if (!isSolanaWalletInstalled(activeWalletType)) {
         throw '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet is not installed. Please install the browser extension.';
       }
 
       final connectedPubKey = await connectSolanaWallet(activeWalletType);
       if (connectedPubKey == null || connectedPubKey.trim().isEmpty) {
-        throw 'Failed to connect ${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)} Wallet. Please approve the connection in your wallet popup.';
+        throw _walletConnectFailure(activeWalletType);
       }
 
       // Check cross-account conflict
@@ -4610,14 +4704,7 @@ class TranyxAppState extends State<TranyxApp> {
         }
       }
 
-      final profileWallet = userProfile?.walletPublicKey;
-      if (profileWallet == null || profileWallet.trim().isEmpty || profileWallet != connectedPubKey) {
-        await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
-          uid,
-          connectedPubKey,
-        );
-        await loadUserProfile();
-      }
+      await _ensureVerifiedWalletLink(connectedPubKey);
 
       final fromPubKey = connectedPubKey;
 
@@ -4796,13 +4883,14 @@ class TranyxAppState extends State<TranyxApp> {
       final message =
           'Authorize withdrawal of ${tyxBal.toStringAsFixed(2)} Tyxbits from Tranyx account $uid to wallet $walletKey at $timestamp';
 
-      final activeWalletType = selectedWalletType ?? 'phantom';
+      final activeWalletType = currentWalletType();
 
       var activePublicKey = await getSolanaPublicKeyIfConnected(activeWalletType);
       if (activePublicKey == null || activePublicKey != walletKey) {
         activePublicKey = await connectSolanaWallet(activeWalletType);
       }
 
+      if (activePublicKey == null) throw _walletConnectFailure(activeWalletType);
       if (activePublicKey != walletKey) {
         throw 'Connected wallet address ($activePublicKey) does not match profile address ($walletKey).';
       }
@@ -8225,7 +8313,7 @@ class TranyxAppState extends State<TranyxApp> {
     setState(() => isRefreshingBalance = true);
     try {
       String? publicKey = userProfile?.walletPublicKey;
-      final activeWalletType = selectedWalletType ?? 'phantom';
+      final activeWalletType = currentWalletType();
       if (publicKey == null && isSolanaWalletInstalled(activeWalletType)) {
         publicKey = await getSolanaPublicKeyIfConnected(activeWalletType);
       }
@@ -8372,9 +8460,8 @@ class TranyxAppState extends State<TranyxApp> {
     }
 
     if (!isAuthenticated) {
-      // Wallet sign-in was removed (KAN-124): it restored sessions from refresh tokens stored in
-      // walletLinks. Sign in with email or Google first, then connect the wallet.
-      setState(() => authError = 'Wallet sign-in is turned off. Sign in with email or Google, then connect your wallet.');
+      // Sign-In With Solana: open the wallet, sign a server challenge, sign in or create the account.
+      await handleWalletSignIn(type);
     } else {
       setState(() => walletState = WalletState.connecting);
       try {
@@ -8404,24 +8491,16 @@ class TranyxAppState extends State<TranyxApp> {
         final token = SessionStorage.idToken;
         final currentUid = SessionStorage.uid;
         if (token != null && currentUid != null) {
-          // ── 1:1 guard: check if this wallet is already owned by another user ──
-          final linkData = await FirestoreService(token, _handleTokenRefresh).getWalletLink(publicKey);
-          if (linkData != null) {
-            final existingUid = linkData['uid'] as String?;
-            if (existingUid != null && existingUid != currentUid) {
+          // Linking needs a signature proof (one wallet per account, enforced server-side).
+          if (userProfile?.walletPublicKey != publicKey) {
+            final out = await proveAndLinkWallet(wallet: publicKey, call: _walletCall, sign: _signWithWallet);
+            if (!out.linked) {
               setState(() => walletState = WalletState.disconnected);
-              showAppToast('Wallet Linking Blocked', 'This Solana wallet is already linked to another Tranyx account.');
+              showAppToast('Wallet Linking Blocked', lastWalletError.isNotEmpty && lastWalletError != walletAppRedirect ? lastWalletError : out.message);
               return;
             }
-          }
-
-          try {
-            await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
-              currentUid,
-              publicKey,
-            );
             await loadUserProfile();
-          } catch (_) {}
+          }
         }
 
         setState(() {
@@ -8441,7 +8520,7 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   void handleDisconnectWallet() async {
-    final type = selectedWalletType ?? 'phantom';
+    final type = currentWalletType();
     try {
       await disconnectSolanaWallet(type);
     } catch (_) {}
@@ -8527,19 +8606,20 @@ class TranyxAppState extends State<TranyxApp> {
 
     // 2. Fetch the wallet link in Firestore
     try {
-      // Wallet sign-in was removed (KAN-124): a wallet switch signs out; the new wallet links after
-      // the user signs in with email or Google.
+      // The wallet account changed: the session belonged to the old account, so sign out. The new
+      // account signs in with its own signature when the user taps "Solana Wallet" again.
       await signOutJs();
       SessionStorage.clear();
       setState(() {
         isAuthenticated = false;
-        pendingWalletPublicKey = newPublicKey;
+        pendingWalletPublicKey = null;
+        pendingWalletTicket = null;
         selectedWalletType = type;
         walletState = WalletState.disconnected;
         authView = AuthView.login;
-        authError = 'Wallet sign-in is turned off. Sign in with email or Google and this wallet will be linked.';
+        authError = null;
       });
-      showAppToast('Wallet Changed', 'Sign in with email or Google to link this wallet.');
+      showAppToast('Wallet Changed', 'Signed out. Tap Solana Wallet to sign in with the new account.');
     } catch (e) {
       setState(() {
         authError = 'Error switching wallet account: ${e.toString()}';
@@ -8608,22 +8688,18 @@ class TranyxAppState extends State<TranyxApp> {
     try {
       final publicKey = await connectSolanaWallet(type);
       if (publicKey == null) {
-        throw 'Failed to connect Solana Wallet. Please approve the connection request.';
-      }
-
-      // Check if wallet is already linked to another account
-      final linkData = await FirestoreService(token, _handleTokenRefresh).getWalletLink(publicKey);
-      if (linkData != null) {
-        final existingUid = linkData['uid'] as String?;
-        if (existingUid != null && existingUid != uid) {
-          throw 'This Solana wallet is already linked to another user account.';
+        if (lastWalletError == walletAppRedirect) {
+          setState(() => isSavingProfile = false);
+          return; // the browser is opening the wallet app
         }
+        throw _walletConnectFailure(type);
       }
 
-      await FirestoreService(token, _handleTokenRefresh).linkWalletToUser(
-        uid,
-        publicKey,
-      );
+      // Prove ownership with a signature; the server enforces one wallet per account.
+      final out = await proveAndLinkWallet(wallet: publicKey, call: _walletCall, sign: _signWithWallet);
+      if (!out.linked) {
+        throw lastWalletError.isNotEmpty && lastWalletError != walletAppRedirect ? lastWalletError : out.message;
+      }
 
       // Refresh local profile
       await loadUserProfile();
