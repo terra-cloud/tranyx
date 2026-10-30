@@ -279,7 +279,7 @@ class _LoginScreenState extends State<_LoginScreen> {
             attributes: {'type': 'button'},
             events: {'click': (_) => s.handlePhantomSignIn()},
             [
-              lIcon('wallet', cls: 'w-5 h-5 text-[#4f46e5]'),
+              solanaLogo(cls: 'w-5 h-5'),
               Component.text('Solana Wallet'),
             ],
           ),
