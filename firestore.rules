@@ -1159,13 +1159,24 @@ service cloud.firestore {
         d.createdAt >= request.time.toMillis() - 600000 && d.createdAt <= request.time.toMillis() + 600000;
     }
 
+    // KAN-143 follow-up: ticket owner = the parent ticket's uid/userId (web writes uid). Replies are written
+    // only by the admin panel (tickets.dart adds supportTickets/<id>/responses as staff); no web or mobile
+    // client reads or writes them, so they are owner-read, staff-write.
+    function isTicketOwner(ticketPath) {
+      return exists(ticketPath) && (
+        get(ticketPath).data.get('uid', '') == request.auth.uid ||
+        get(ticketPath).data.get('userId', '') == request.auth.uid);
+    }
+
     // Support Tickets Collections (Cross-platform compatibility)
     match /supportTickets/{ticketId} {
       allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff());
       allow create: if isValidTicketCreate() || isAdminOrStaff();
       allow update, delete: if isAdminOrStaff();
       match /responses/{responseId} {
-        allow read, write: if isAuthenticated();
+        allow read: if isAuthenticated() && (isAdminOrStaff() ||
+          isTicketOwner(/databases/$(database)/documents/supportTickets/$(ticketId)));
+        allow write: if isAdminOrStaff();
       }
     }
 
@@ -1174,7 +1185,9 @@ service cloud.firestore {
       allow create: if isValidTicketCreate() || isAdminOrStaff();
       allow update, delete: if isAdminOrStaff();
       match /responses/{responseId} {
-        allow read, write: if isAuthenticated();
+        allow read: if isAuthenticated() && (isAdminOrStaff() ||
+          isTicketOwner(/databases/$(database)/documents/support_tickets/$(ticketId)));
+        allow write: if isAdminOrStaff();
       }
     }
 
@@ -1194,6 +1207,13 @@ service cloud.firestore {
         request.resource.data.get('reason', '') is string &&
         request.resource.data.get('reason', '').size() <= 500) || isAdminOrStaff();
       allow update, delete: if isAdminOrStaff();
+    }
+
+    function isDisputeParty(disputePath) {
+      return exists(disputePath) && (
+        get(disputePath).data.get('openedBy', '') == request.auth.uid ||
+        get(disputePath).data.get('employerId', '') == request.auth.uid ||
+        get(disputePath).data.get('acceptedNyxianId', '') == request.auth.uid);
     }
 
     // Disputes Collection (Review and resolution portal)
@@ -1223,8 +1243,17 @@ service cloud.firestore {
       );
       allow delete: if isAdminOrStaff();
 
+      // KAN-143 follow-up: only the dispute's parties and staff. No web or mobile client or the admin panel
+      // reads or writes this subcollection today; parties may add messages as themselves, staff moderate.
       match /messages/{messageId} {
-        allow read, write: if isAuthenticated();
+        allow read: if isAuthenticated() && (isAdminOrStaff() ||
+          isDisputeParty(/databases/$(database)/documents/disputes/$(disputeId)));
+        allow create: if isAdminOrStaff() || (isActiveUser() &&
+          isDisputeParty(/databases/$(database)/documents/disputes/$(disputeId)) &&
+          request.resource.data.get('senderId', '') == request.auth.uid &&
+          request.resource.data.get('text', '') is string &&
+          request.resource.data.get('text', '').size() <= 2000);
+        allow update, delete: if isAdminOrStaff();
       }
 
       match /notes/{noteId} {
