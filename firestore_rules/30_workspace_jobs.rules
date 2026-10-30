@@ -143,31 +143,15 @@
         resource.data.workerId == request.auth.uid || 
         isAdminOrStaff()
       );
-      allow create: if isActiveUser() && (
-        request.resource.data.employerId == request.auth.uid || 
-        request.resource.data.creatorId == request.auth.uid || 
-        isAdminOrStaff()
-      );
-      allow update: if isActiveUser() && (
-        resource.data.employerId == request.auth.uid || 
-        resource.data.creatorId == request.auth.uid || 
-        isAdminOrStaff()
-      );
-      // KAN-136-09: only after the job is Completed (same-batch getAfter or already Completed).
-      allow delete: if isAdminOrStaff() || (isActiveUser() &&
-        exists(/databases/$(database)/documents/jobs/$(jobId)) &&
-        getAfter(/databases/$(database)/documents/jobs/$(jobId)).data.status in ['Completed', 'completed'] &&
-        (resource.data.employerId == request.auth.uid ||
-         resource.data.creatorId == request.auth.uid ||
-         get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid));
+      // Phase 4: gig escrow holds real money; only the jobAction callable (Admin SDK) and staff write it.
+      allow create, update, delete: if isAdminOrStaff();
     }
 
     // Escrow Holdbacks Collection
     match /escrow_holdbacks/{holdbackId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || resource.data.get('nyxianId', null) == request.auth.uid || isAdminOrStaff());
-      // Mobile completion writes nyxianId (not uid); allow worker or employer.
-      allow create, update: if isActiveUser() && (request.resource.data.uid == request.auth.uid || request.resource.data.employerId == request.auth.uid || request.resource.data.get('nyxianId', null) == request.auth.uid || isAdminOrStaff());
-      allow delete: if isAdminOrStaff();
+      // Phase 4: holdbacks are created at completion and released by jobAction (Admin SDK); staff only from clients.
+      allow create, update, delete: if isAdminOrStaff();
     }
 
     // Job Cancellation Audit Logs Collection

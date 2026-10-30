@@ -87,12 +87,12 @@ const fullMobileWorker = (db) => {
 };
 
 describe('KAN-136-A MUST-ALLOW: mobile job completion (job_repository.dart:590-839)', () => {
-  it('KAN-136-A0 [MUST-ALLOW] writes in completeJob that pass today (job status, escrow delete, notification, own-doc credit)', async () => {
+  it('KAN-136-A0 [MUST-ALLOW] writes in completeJob that pass today (job status, notification); the escrow delete is Admin-SDK only since Phase 4', async () => {
     await base();
     const db = user('worker');
     await assertSucceeds(updateDoc(doc(db, 'jobs/j1'), { status: 'Completed' }));
     const [np, nd] = notif('poster', 'worker'); await assertSucceeds(setDoc(doc(db, np), nd));
-    await assertSucceeds(deleteDoc(doc(db, 'escrow/j1')));
+    await assertFails(deleteDoc(doc(db, 'escrow/j1')));
   });
   it('KAN-136-01 [LOCKED, client blocker] hired worker batch that credits own tyxBalance is refused (tyxBalance is server-only; completion must move to a callable): own credit + payout_nyx_<job> (type payout, amount = price - 3%) + escrow delete + job Completed + notification', async () => {
       await base();
