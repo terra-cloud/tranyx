@@ -6,6 +6,29 @@ import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
 import '../../services/web_interop.dart';
+import '../../components/search_and_breakdown_rules.dart';
+
+/// Scope picker (Jobs / Vehicles / Real Estate) shared by every global search box.
+Component searchScopeSelect(TranyxAppState s, {String extraCls = ''}) {
+  final isDark = s.isDark;
+  final current = s.searchScope;
+  return select(
+    classes:
+        'h-8 pl-2 pr-1 rounded-lg border text-xs font-semibold outline-none cursor-pointer shrink-0 $extraCls '
+        '${isDark ? "bg-zinc-800 border-zinc-700 text-zinc-200" : "bg-white border-[#e4e4e7] text-[#3f3f46]"}',
+    attributes: {'aria-label': 'Search in', 'title': 'Search in'},
+    events: {
+      'change': (e) {
+        final v = getInputValue(e.target);
+        s.setSearchScope(SearchScope.values.firstWhere((x) => x.name == v, orElse: () => SearchScope.jobs));
+      },
+    },
+    [
+      for (final sc in SearchScope.values)
+        option(value: sc.name, selected: sc == current, [Component.text(sc.label)]),
+    ],
+  );
+}
 
 class TopHeaderComponent extends StatelessComponent {
   final TranyxAppState state;
@@ -39,29 +62,30 @@ class TopHeaderComponent extends StatelessComponent {
           if (s.accountType == AccountType.hybrid) _modePill(s, isDark, compact: false),
         ]),
 
-        // Global search (W10/W20) — filters live Jobs browse
+        // Global search — scope: Jobs / Vehicles / Real Estate (defaults from the current page)
         div(
           classes:
-              'hidden lg:flex flex-1 max-w-sm ml-6 h-11 items-center gap-2 px-3 rounded-xl border '
+              'hidden lg:flex flex-1 max-w-md ml-6 h-11 items-center gap-2 px-2 rounded-xl border '
               '${isDark ? "bg-zinc-900 border-zinc-700" : "bg-[#fafafa] border-[#e4e4e7]"}',
           [
-            lIcon('search', cls: 'w-4 h-4 ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
+            searchScopeSelect(s),
+            lIcon('search', cls: 'w-4 h-4 shrink-0 ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
             input(
               classes:
                   'bg-transparent border-0 outline-none flex-1 text-sm min-w-0 '
                   '${isDark ? "text-zinc-200 placeholder-zinc-500" : "text-[#18181b] placeholder-[#71717a]"}',
               type: InputType.search,
               attributes: {
-                'placeholder': 'Search gigs, vehicles, spaces',
-                'value': s.homeSearchQuery,
+                'placeholder': s.searchScope.placeholder,
+                'value': s.searchQueryFor(s.searchScope),
                 'id': 'topbar-search',
                 'name': 'topbar-search',
               },
               events: {
-                'input': (e) => s.setState(() => s.homeSearchQuery = getInputValue(e.target)),
+                'input': (e) => s.setState(() => s.setSearchQueryFor(s.searchScope, getInputValue(e.target))),
                 'keydown': (e) {
                   final key = (e as web.KeyboardEvent).key;
-                  if (key == 'Enter') s.handleHomeSearch(s.homeSearchQuery);
+                  if (key == 'Enter') s.handleGlobalSearch(s.searchQueryFor(s.searchScope));
                 },
               },
             ),
@@ -242,15 +266,29 @@ class TopHeaderComponent extends StatelessComponent {
         ]),
         div(
           classes:
-              'hidden md:flex flex-1 min-w-0 max-w-xl mx-auto h-11 items-center gap-2 px-3 rounded-xl border '
-              '${isDark ? "bg-zinc-900 border-zinc-700 text-zinc-400" : "bg-zinc-100 border-zinc-200 text-zinc-500"}',
+              'hidden md:flex flex-1 min-w-0 max-w-xl mx-auto h-11 items-center gap-2 px-2 rounded-xl border '
+              '${isDark ? "bg-zinc-900 border-zinc-700" : "bg-zinc-100 border-zinc-200"}',
           [
-            img(src: '/images/w05/ec717.svg', classes: 'size-4 ${isDark ? "opacity-70 invert" : ""}', attributes: {'alt': ''}),
-            span(classes: 'flex-1 min-w-0 truncate whitespace-nowrap text-sm', [Component.text('Search gigs, vehicles, spaces')]),
-            span(
+            searchScopeSelect(s),
+            lIcon('search', cls: 'w-4 h-4 shrink-0 ${isDark ? "text-zinc-500" : "text-zinc-400"}'),
+            input(
               classes:
-                  'hidden lg:inline text-[10px] font-semibold px-1.5 py-0.5 rounded border ${isDark ? "border-zinc-700 text-zinc-500" : "border-zinc-300 text-zinc-400"}',
-              [Component.text('⌘K')],
+                  'bg-transparent border-0 outline-none flex-1 text-sm min-w-0 '
+                  '${isDark ? "text-zinc-200 placeholder-zinc-500" : "text-[#18181b] placeholder-[#71717a]"}',
+              type: InputType.search,
+              attributes: {
+                'placeholder': s.searchScope.placeholder,
+                'value': s.searchQueryFor(s.searchScope),
+                'id': 'guest-topbar-search',
+                'name': 'guest-topbar-search',
+              },
+              events: {
+                'input': (e) => s.setState(() => s.setSearchQueryFor(s.searchScope, getInputValue(e.target))),
+                'keydown': (e) {
+                  final key = (e as web.KeyboardEvent).key;
+                  if (key == 'Enter') s.handleGlobalSearch(s.searchQueryFor(s.searchScope));
+                },
+              },
             ),
           ],
         ),
