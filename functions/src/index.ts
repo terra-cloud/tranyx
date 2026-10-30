@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import { onCall, HttpsError } from 'firebase-functions/https';
 import { onSchedule } from 'firebase-functions/scheduler';
 import * as logger from 'firebase-functions/logger';
@@ -9,6 +10,8 @@ import { processCredit, type CreditDeps } from './credit';
 import { RpcChainReader } from './solana_chain';
 import { Web3SolanaPayer } from './solana';
 import { processP2pAction, processWithdrawal, reconcileAll, type Deps } from './withdraw';
+
+import { issueNonce, walletLink, walletSignIn, type WalletAuthDeps } from './wallet_auth';
 
 initializeApp();
 
@@ -131,3 +134,39 @@ export const reconcileWithdrawals = onSchedule(
     logger.info('reconcileWithdrawals', res);
   },
 );
+
+// ── Sign-In With Solana (see wallet_auth.ts) ────────────────────────────────────────────────────
+/** Hostnames a wallet challenge may be issued for. Set per project in functions/.env.<projectId>. */
+const WALLET_AUTH_DOMAINS = defineString('WALLET_AUTH_DOMAINS', { default: 'tranyx.app,dev.tranyx.app,uat.tranyx.app,localhost' });
+
+function walletDeps(): WalletAuthDeps {
+  const auth = getAuth();
+  return {
+    db: getFirestore(),
+    auth: { createCustomToken: (uid) => auth.createCustomToken(uid), getUser: (uid) => auth.getUser(uid) },
+    now: () => Date.now(),
+    allowedDomains: WALLET_AUTH_DOMAINS.value().split(',').map((d) => d.trim()).filter(Boolean),
+  };
+}
+
+function guard<T>(name: string, run: () => Promise<T>): Promise<T> {
+  return run().catch((e) => {
+    if (e instanceof HttpsError) throw e;
+    logger.error(`${name} failed`, { detail: (e instanceof Error ? e.message : String(e)).replace(/https?:\/\/\S+/gi, '[url]').slice(0, 300) });
+    throw new HttpsError('internal', 'The wallet request could not be processed.');
+  });
+}
+
+const walletOpts = { enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 30, maxInstances: 10, memory: '256MiB' as const };
+
+/** Issues a one-time challenge message for a wallet to sign. No sign-in needed (purpose 'signin' or 'link'). */
+export const walletAuthNonce = onCall(walletOpts, (req) =>
+  guard('walletAuthNonce', () => issueNonce(walletDeps(), req.data, req.rawRequest?.headers?.origin)));
+
+/** Verifies the signed challenge. Existing verified wallet -> Firebase custom token; unknown wallet -> sign-up ticket. */
+export const walletAuthSignIn = onCall(walletOpts, (req) =>
+  guard('walletAuthSignIn', () => walletSignIn(walletDeps(), req.data)));
+
+/** Links a proven wallet (sign-up ticket or fresh signature) to the signed-in caller. */
+export const walletAuthLink = onCall(walletOpts, (req) =>
+  guard('walletAuthLink', () => walletLink(walletDeps(), req.auth?.uid, req.data)));

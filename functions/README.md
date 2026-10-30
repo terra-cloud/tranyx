@@ -44,8 +44,33 @@ Optional `config/credit` (admin-only): `enabled` (kill switch, default true), `m
 use a dedicated provider for UAT/prod and keep its URL out of git (functions params / `.env.local`).
 
 ### Known residual risk
-`walletPublicKey` / `walletLinks` are linked without a signature proof, so "payer = linked wallet" is only as strong as the
-link. Link a wallet with a signed message (sign-in-with-Solana) before treating this as hardened.
+`creditOnchainPayment` still checks the payer against `users.walletPublicKey` / `walletLinks`, which a client can write
+without proof. `wallet_verified/{wallet}` (written by `walletAuthLink`) is now the proven source: make the credit require it
+once existing users have re-linked with a signature (decision pending).
+
+## Sign-In With Solana (`walletAuthNonce`, `walletAuthSignIn`, `walletAuthLink`)
+
+Wallet sign-in was removed in KAN-124 because it trusted `walletLinks` (client-writable). It returns here with a
+signature proof, and only these callables (Admin SDK) can mint a Firebase custom token.
+
+1. `walletAuthNonce({ wallet, purpose: 'signin' | 'link' })` -> `{ nonce, message, expiresAt }`. The message is a plain-text
+   SIWS-style challenge naming the domain (taken from the request `Origin`, which must be in `WALLET_AUTH_DOMAINS`), wallet,
+   nonce and a 5 min expiry. Stored in `wallet_auth_nonces/{nonce}`; single use.
+2. The wallet signs the message (`signMessage`). The client sends the signature as base58 or base64.
+3. `walletAuthSignIn({ wallet, nonce, signature })` verifies ed25519 server-side, then returns
+   - `{ status: 'signed_in', customToken }` when `wallet_verified/{wallet}` names an active, non-staff account,
+   - `{ status: 'needs_signup', ticket }` when the wallet is unknown (go to account creation, email + password required),
+   - `{ status: 'rejected', reason }` (`BAD_SIGNATURE`, `WALLET_LINK_UNVERIFIED`, `ACCOUNT_BLOCKED`, `STAFF_ACCOUNT`).
+4. `walletAuthLink({ ticket } | { wallet, nonce, signature })` (signed in) links a PROVEN wallet to the caller, one wallet per
+   account in both directions. It writes `walletLinks/{wallet}`, `users/{uid}.walletPublicKey` and the Admin-only
+   `wallet_verified/{wallet}`. A wallet already proven by another account is refused. An unproven `walletLinks` entry
+   (client-written squat) is replaced by the key holder's proof.
+
+`walletLinks` stays a client-writable index and is never trusted for sign-in: only `wallet_verified` is. Existing links
+made before this change are unverified: those users sign in with email and re-link once (a signature) from Profile.
+Param `WALLET_AUTH_DOMAINS` (default `tranyx.app,dev.tranyx.app,uat.tranyx.app,localhost`): trim per project, e.g. drop
+`localhost` in prod. Email/password credentials come from the normal sign-up (the account is a normal Firebase user), so the
+user can sign in with either.
 
 ## Tests
 ```
